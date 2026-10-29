@@ -11,7 +11,7 @@ use sidekicks_contracts::mcp::server::inventory::McpToolOverride;
 use sidekicks_contracts::mcp::server::{
     McpBindingScope, McpServerBindingId, McpServerBindingRef, McpServerName, McpToolName,
 };
-use sidekicks_contracts::place::{DistroName, WslPlace};
+use sidekicks_contracts::place::{DistroName, PlacedPath, WslPlace};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_ipc::stream::latest_value::{KeyedLatestValueFeed, KeyedLatestValueOutlet};
 use sidekicks_store::database::connection::read_pool::{
@@ -24,7 +24,7 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The distinct statements the binding store keeps prepared on each read connection.
-pub const MCP_BINDING_STORE_STATEMENT_CAPACITY: usize = 2;
+pub const MCP_BINDING_STORE_STATEMENT_CAPACITY: usize = 3;
 
 /// A binding's whole identity as the store keys it: provider, scope, the scope's reference and the
 /// distribution a project root is in (each `''` where the scope has none), and the server's name.
@@ -160,13 +160,16 @@ pub(crate) enum McpBindingStoreError {
     Pool(#[from] DatabaseReadError),
 }
 
-/// What the store keeps for one binding: the daemon's switch and the person's tool overrides.
+/// What the store keeps for one binding: the daemon's switch, the person's tool overrides and the
+/// projects the daemon's per-project switch keeps it out of.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct McpStoredBinding {
     /// The daemon's switch over the binding; `None` where the provider's own value stands.
     pub(crate) enabled_override: Option<bool>,
     /// The tool overrides, in tool-name order.
     pub(crate) tool_overrides: Vec<McpToolOverride>,
+    /// The project roots a server the provider brings itself is switched off for, in root order.
+    pub(crate) switched_off_in: Vec<PlacedPath>,
 }
 
 /// What the store keeps for one provider's bindings.
@@ -190,6 +193,12 @@ static PROVIDER_TOOL_OVERRIDES_SQL: &str =
   FROM mcp_tool_overrides
   WHERE provider = @provider
   ORDER BY scope, scope_ref, scope_place, server_name, tool_name";
+
+static PROVIDER_PROJECT_SWITCHES_SQL: &str =
+    "SELECT scope, scope_ref, scope_place, server_name, project_root, project_place
+  FROM mcp_project_server_switches
+  WHERE provider = @provider
+  ORDER BY scope, scope_ref, scope_place, server_name, project_root, project_place";
 
 // A row already present is left as it is, its switch and baseline kept.
 static RECORD_FIRST_OBSERVATION_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -217,10 +226,13 @@ impl McpBindingStore {
         Self { writer, reads }
     }
 
-    /// Reads every row `provider`'s bindings hold: each binding's switch, its tool overrides and
-    /// the `local` bindings, in one short read. Fails with [`McpBindingStoreError::Database`] or
-    /// [`McpBindingStoreError::Pool`] as the read fails.
-    #[expect(dead_code, reason = "the inventory service and the producer wiring")]
+    /// Reads every row `provider`'s bindings hold: each binding's switch, its tool overrides, the
+    /// projects it is switched off for and the `local` bindings, in one short read. Fails with
+    /// [`McpBindingStoreError::Database`] or [`McpBindingStoreError::Pool`] as the read fails.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the inventory service and the producer wiring")
+    )]
     pub(crate) async fn read_provider_bindings(
         &self,
         provider: &ProviderId,
@@ -243,7 +255,7 @@ impl McpBindingStore {
                     }
                     let binding = McpStoredBinding {
                         enabled_override: row.get(4)?,
-                        tool_overrides: Vec::new(),
+                        ..McpStoredBinding::default()
                     };
                     stored.bindings.insert(key, binding);
                 }
@@ -263,6 +275,21 @@ impl McpBindingStore {
                         .or_default()
                         .tool_overrides
                         .push(tool_override);
+                }
+                let mut statement = connection.prepare_cached(PROVIDER_PROJECT_SWITCHES_SQL)?;
+                let mut rows = statement.query(named_params! { "@provider": provider.as_str() })?;
+                while let Some(row) = rows.next()? {
+                    let project_root = PlacedPath {
+                        path: text_column(row, 4, FilesystemPath::new)?,
+                        place: text_column(row, 5, read_place)?,
+                    };
+                    // Every switch row has its binding's row, which its foreign key holds.
+                    stored
+                        .bindings
+                        .entry(read_key(&provider, row)?)
+                        .or_default()
+                        .switched_off_in
+                        .push(project_root);
                 }
                 Ok(stored)
             })

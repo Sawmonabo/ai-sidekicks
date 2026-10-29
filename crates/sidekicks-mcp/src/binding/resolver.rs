@@ -21,7 +21,10 @@ use crate::binding::store::{McpBindingKey, McpStoredBinding, McpStoredBindings};
 
 /// One binding as the inventory lists it: the driver's declaration, under the binding it is
 /// served as, and what the store keeps for it.
-#[expect(dead_code, reason = "the inventory service and the producer wiring")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the inventory service and the producer wiring")
+)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct McpBindingRow {
     /// The declaration; an emulated `local` binding carries the user entry's declaration under
@@ -37,7 +40,10 @@ pub(crate) struct McpBindingRow {
 /// declare, matching a user entry of the same name that is off by default, is the emulated
 /// `local` binding: that user entry lists as `local` under the row's root and not as `user`. A
 /// `local` row matching no declaration lists nothing. With no `stored`, nothing is emulated.
-#[expect(dead_code, reason = "the inventory service and the producer wiring")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the inventory service and the producer wiring")
+)]
 pub(crate) fn resolve_binding_rows(
     reading: &ProviderMcpServersReading,
     stored: Option<&McpStoredBindings>,
@@ -141,7 +147,10 @@ fn is_local_of(
 /// An attached project's root as a driver's read takes it: its path, and the WSL 2 distribution
 /// it is in, none on Windows itself or outside Windows. Fails with the path's [`TextError`] when
 /// the stored root is empty, holds a NUL or passes the path cap.
-#[expect(dead_code, reason = "the inventory service and the producer wiring")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the inventory service and the producer wiring")
+)]
 pub(crate) fn attached_root_path(root: &AttachedProjectRoot) -> Result<PlacedPath, TextError> {
     Ok(PlacedPath {
         path: FilesystemPath::new(root.canonical_root.to_string_lossy().into_owned())?,
