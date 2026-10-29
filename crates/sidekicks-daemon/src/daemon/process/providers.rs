@@ -33,7 +33,8 @@ use sidekicks_provider::driver::attachments::AttachmentResolver;
 use sidekicks_provider::driver::capabilities::writer::{
     CapabilityHydration, DriverCapabilitiesWriter,
 };
-use sidekicks_provider::driver::contract::{ApplyRowValueParams, DriverError};
+use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::params_and_results::ApplyRowValueParams;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -602,9 +603,10 @@ mod tests {
     use sidekicks_provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
-    use sidekicks_provider::driver::contract::{
-        ApplyRowValueParams, DriverCliVersionReport, DriverError, GetCapabilitiesResult,
-        MockProviderDriver,
+    use sidekicks_provider::driver::contract::MockProviderDriver;
+    use sidekicks_provider::driver::contract::error::DriverError;
+    use sidekicks_provider::driver::contract::params_and_results::{
+        ApplyRowValueParams, DriverCliVersionReport, GetCapabilitiesResult,
     };
     use sidekicks_provider::driver::test_registry::{
         NothingServed, registrations_of_first_providers,

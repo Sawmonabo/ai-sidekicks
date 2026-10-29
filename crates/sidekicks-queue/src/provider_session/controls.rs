@@ -8,7 +8,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_provider::driver::contract::SessionProcessState;
+use sidekicks_provider::driver::contract::params_and_results::SessionProcessState;
 use sidekicks_provider::driver::session_control::{
     ResumeSessionParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };

@@ -4,7 +4,7 @@
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_session::driver_resolution::LiveRunDriverError;
 use sidekicks_session::run::agent::RunAgentReadError;
 use sidekicks_session::run::engine::RunEngineError;

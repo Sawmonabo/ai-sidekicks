@@ -9,7 +9,7 @@ use rusqlite::Connection;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{PurgeSessionParams, PurgedConversation};
 use sidekicks_provider::left_conversations::read_left_conversations;

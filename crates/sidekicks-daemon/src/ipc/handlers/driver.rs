@@ -30,8 +30,9 @@ use sidekicks_ipc::registry::{
 };
 use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
-use sidekicks_provider::driver::contract::{
-    CompactContextParams, DriverError, ListModelsParams, ListProviderCommandsParams,
+use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::params_and_results::{
+    CompactContextParams, ListModelsParams, ListProviderCommandsParams,
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_session::directory::lookups::session_exists;
@@ -456,9 +457,9 @@ mod tests {
     use sidekicks_provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
-    use sidekicks_provider::driver::contract::{
-        DriverError, ListModelsParams, MockProviderDriver, ProviderDriver,
-    };
+    use sidekicks_provider::driver::contract::error::DriverError;
+    use sidekicks_provider::driver::contract::params_and_results::ListModelsParams;
+    use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
     use sidekicks_provider::driver::error_causes::ExecutableUnresolvable;
     use sidekicks_provider::driver::test_registry::registry_of_first_providers;
     use sidekicks_session::run::engine::test_fixture::insert_running_run;
@@ -536,26 +537,24 @@ mod tests {
         /// What the second provider's driver answers each read.
         fn error(self) -> DriverError {
             match self {
-                Self::Fails => DriverError::Refused(
+                Self::Fails => DriverError::from(
                     DomainError::new("the provider did not answer", RefusalCode::ProviderTimeout)
                         .with_detail(json!({ "providerFailureDetail": "provider down" })),
                 ),
-                Self::NotInstalled => DriverError::ExecutableUnresolvable(ExecutableUnresolvable {
+                Self::NotInstalled => DriverError::from(ExecutableUnresolvable {
                     provider: provider(1),
                     requested_command: "missing".to_owned(),
                     is_typed_path: false,
                     is_build_found: false,
                     cause: io::Error::from(io::ErrorKind::NotFound),
                 }),
-                Self::TypedPathNotRunnable => {
-                    DriverError::ExecutableUnresolvable(ExecutableUnresolvable {
-                        provider: provider(1),
-                        requested_command: "/opt/provider/missing".to_owned(),
-                        is_typed_path: true,
-                        is_build_found: false,
-                        cause: io::Error::from(io::ErrorKind::NotFound),
-                    })
-                }
+                Self::TypedPathNotRunnable => DriverError::from(ExecutableUnresolvable {
+                    provider: provider(1),
+                    requested_command: "/opt/provider/missing".to_owned(),
+                    is_typed_path: true,
+                    is_build_found: false,
+                    cause: io::Error::from(io::ErrorKind::NotFound),
+                }),
             }
         }
 

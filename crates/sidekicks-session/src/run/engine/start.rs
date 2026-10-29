@@ -28,7 +28,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_provider::driver::contract::bound_failure_detail;
+use sidekicks_provider::driver::contract::error::bound_failure_detail;
 use sidekicks_provider::driver::run_control::DriverRunRefusal;
 use sidekicks_provider::run::start_request::DaemonTurnStartRequest;
 use sidekicks_provider::run::state_entry::RunStateEntry;

@@ -6,7 +6,8 @@ use rstest::rstest;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_provider::driver::contract::{DriverError, SessionProcessState};
+use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::params_and_results::SessionProcessState;
 use sidekicks_session::console_state::read_session_mode;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::test_session_id;
@@ -35,7 +36,7 @@ async fn a_mode_move_reaches_the_driver_first_unless_the_process_is_down(
             .times(usize::from(!is_down))
             .returning(|_params| {
                 async {
-                    Err(DriverError::Refused(DomainError::new(
+                    Err(DriverError::from(DomainError::new(
                         "The provider refused the mode.",
                         RefusalCode::SessionModeNotOffered,
                     )))

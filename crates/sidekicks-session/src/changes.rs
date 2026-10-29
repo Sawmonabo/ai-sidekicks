@@ -28,7 +28,7 @@ use sidekicks_contracts::wire::text::{FreeFormText, TextError, is_ecmascript_whi
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::CloseSessionParams;
 use sidekicks_std::keyed_lock::KeyedLock;
@@ -560,7 +560,7 @@ async fn tell_providers_name(
                     .tell_session_name(session_id, name.as_str().to_owned())
                     .await
             }
-            Err(refusal) => Err(DriverError::Refused(refusal)),
+            Err(refusal) => Err(DriverError::from(refusal)),
         };
         if let Err(error) = told {
             tracing::warn!(

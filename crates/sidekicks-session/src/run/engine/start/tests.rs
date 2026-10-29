@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::run_control::DriverRunRefusal;
 use sidekicks_provider::run::state_entry::RunStateEntry;

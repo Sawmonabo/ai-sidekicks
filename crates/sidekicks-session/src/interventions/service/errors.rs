@@ -6,8 +6,7 @@ use sidekicks_contracts::run::intervention::{InterventionId, InterventionState};
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::driver::contract::DriverError;
-use sidekicks_provider::driver::error_causes::RequestUnanswered;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::settle_all::SettleFailures;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
@@ -214,10 +213,13 @@ impl From<InterventionError> for HandlerError {
 pub(super) fn failure_text_of(error: &DispatchError) -> String {
     match error {
         DispatchError::Refused(refusal)
-        | DispatchError::NoDriver(LiveRunDriverError::ProviderNotFound(refusal))
-        | DispatchError::Driver(
-            DriverError::Refused(refusal) | DriverError::Unanswered(RequestUnanswered { refusal }),
-        ) => refusal.code.as_str().to_owned(),
+        | DispatchError::NoDriver(LiveRunDriverError::ProviderNotFound(refusal)) => {
+            refusal.code.as_str().to_owned()
+        }
+        DispatchError::Driver(DriverError::Refused(refusal)) => refusal.code.as_str().to_owned(),
+        DispatchError::Driver(DriverError::Unanswered(unanswered)) => {
+            unanswered.refusal.code.as_str().to_owned()
+        }
         DispatchError::NoDriver(LiveRunDriverError::Unbound { .. })
         | DispatchError::Driver(_)
         | DispatchError::Engine(_)
