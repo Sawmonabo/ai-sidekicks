@@ -2,8 +2,12 @@
 //! them ended: a helper's end moves its child run, a shell or Monitor task becomes a row of the
 //! session's running commands on the run that started it, and a tool server's background call
 //! stays open until its own notification closes it. Also the usage routing metered off a frame,
-//! recorded on the run whose thread spent it.
+//! recorded on the run whose thread spent it, and the move of the session's bindings onto another
+//! account, made in its place among those frames.
 
+use std::collections::HashSet;
+
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::subagent::SubagentId;
 use tokio::time::Instant;
 
@@ -20,6 +24,7 @@ use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute};
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// Why usage Claude Code reported is not recorded: no run holds the session's thread and no
 /// helper's route names a binding.
@@ -131,6 +136,40 @@ impl ClaudeDeliveryStream {
             };
             if let Err(error) = sink.record_metered(metered).await {
                 report_engine_failure(session, "metered usage", &*error);
+            }
+        }
+    }
+
+    /// Moves every lead run's binding on the session and every live helper's onto
+    /// `provider_account_id`'s account through `bindings`, each binding once, in the place the
+    /// process acknowledged the switch, so each reading metered after it is the new account's. A
+    /// move not written is logged and the others are still made.
+    pub(super) async fn move_account(
+        &self,
+        session: &ClaudeSessionStream,
+        provider_account_id: &ProviderAccountId,
+        bindings: &dyn RuntimeBindingWriter,
+    ) {
+        let routes = &self.dependencies.routes;
+        let mut moved = HashSet::new();
+        let runs = routes
+            .bound_runs_on(session.session_id)
+            .into_iter()
+            .chain(routes.child_runs_on(session.session_id));
+        for run in runs {
+            if !moved.insert(run.binding_id.clone()) {
+                continue;
+            }
+            if let Err(error) = bindings
+                .move_account(run.binding_id, provider_account_id.clone())
+                .await
+            {
+                tracing::warn!(
+                    session_id = %session.session_id,
+                    error = &*error as &(dyn std::error::Error + 'static),
+                    "a Claude Code session's binding could not move onto the account its process \
+                     switched to"
+                );
             }
         }
     }
