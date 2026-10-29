@@ -3,7 +3,8 @@
 //! `sudo -u` or `timeout 5`, for the daemon's own answers to a command ask and for the subject a
 //! rule on one names; and takes the line a shell is handed off a provider's `<shell> -lc '…'`
 //! wrapper. A reading also keeps what the line does beside its commands: whether a redirect writes
-//! a file and whether it can set a shell variable. The parser reads the line the way a POSIX shell
+//! a file and whether it can set a shell variable; and of each command, whether a folder named its
+//! program. The parser reads the line the way a POSIX shell
 //! would and keeps what it read before a syntax error; nothing here guesses at what it could not
 //! read. A reading owns its line once and holds its words as pieces of it, so its memory and each
 //! query's time grow with the line alone.
@@ -47,12 +48,13 @@ struct LineEffects {
 }
 
 // A command's words in the reading, by index: wrappers from `first` to `program`, then the
-// program, then its arguments up to `end`.
+// program, then its arguments up to `end`; and whether a folder named the program or a wrapper.
 #[derive(Clone, Copy)]
 struct CommandEntry {
     first: u32,
     program: u32,
     end: u32,
+    is_named_by_path: bool,
 }
 
 impl ShellLineReading {
@@ -149,6 +151,12 @@ impl<'r> ShellCommand<'r> {
     /// The programs that ran this command after their own options, outermost first.
     pub fn wrappers(self) -> impl ExactSizeIterator<Item = ShellWord<'r>> {
         (self.entry.first..self.entry.program).map(move |index| self.reading.word(index))
+    }
+
+    /// Whether the program, or a wrapper it ran through, was named with a folder, as `./cat` or
+    /// `/usr/bin/env` name one, so it need not be the system program its name is.
+    pub fn is_named_by_path(self) -> bool {
+        self.entry.is_named_by_path
     }
 
     // The words this command hands a shell as its line: an `eval`'s words, or the string a shell
@@ -456,7 +464,9 @@ fn push_command_words(
 }
 
 // A simple command's name and argument words, without its leading assignments and redirects, and
-// without a bare `time [-p] [--]` or `coproc` before it, which the shell reads as keywords.
+// without a bare `time [-p] [--]` or `coproc` before it, which the shell reads as keywords. A
+// `time` followed by any other option is kept as the `time` program: bash in POSIX mode runs that
+// program with the option, and its default mode would run the option as a command, which fails.
 fn push_simple_command_words(
     command: Node<'_>,
     builder: &mut WordBuilder<'_>,
@@ -492,14 +502,24 @@ fn push_simple_command_words(
     }
     match keyword {
         Some("time") => {
-            pending.pop_front();
+            let mut keyword_words = 1;
+            let mut ends_options = false;
             for option in ["-p", "--"] {
                 if pending
-                    .front()
+                    .get(keyword_words)
                     .is_some_and(|&word| builder.view(word).is(option))
                 {
-                    pending.pop_front();
+                    keyword_words += 1;
+                    ends_options = option == "--";
                 }
+            }
+            let takes_other_option = !ends_options
+                && pending.get(keyword_words).is_some_and(|&word| {
+                    let word = builder.view(word);
+                    word.starts_with("-") && !word.is("-")
+                });
+            if !takes_other_option {
+                pending.drain(..keyword_words);
             }
         }
         Some("coproc") => {
@@ -597,6 +617,7 @@ fn resolve_command(
 ) -> Option<CommandEntry> {
     let first_word = words.len();
     let piece_mark = builder.piece_count();
+    let mut is_named_by_path = false;
     loop {
         while pending
             .front()
@@ -609,7 +630,9 @@ fn resolve_command(
             builder.truncate(piece_mark);
             return None;
         };
-        let program = builder.basename(name);
+        let without_folder = builder.basename(name);
+        is_named_by_path |= without_folder.is_some();
+        let program = without_folder.unwrap_or(name);
         let wrapper = command_wrapper(builder.view(program));
         words.push(program);
         let Some(wrapper) = wrapper else {
@@ -619,6 +642,7 @@ fn resolve_command(
                 first: offset(first_word),
                 program,
                 end: offset(words.len()),
+                is_named_by_path,
             });
         };
         take_wrapper_words(builder, wrapper, pending);

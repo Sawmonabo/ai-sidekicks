@@ -196,6 +196,12 @@ fn assert_unread(reading: &ShellLineReading) {
     true
 )]
 #[case::time_keyword("time npm run build", vec![command("npm", &["run", "build"], &[])], true)]
+// Bash in POSIX mode runs the `time` program with an option the keyword does not take.
+#[case::time_program_option(
+    "time -o f npm run build",
+    vec![command("npm", &["run", "build"], &["time"])],
+    true
+)]
 #[case::export_assignment("export FOO=1", vec![command("export", &[], &[])], true)]
 #[case::export_name(
     "export FOO=1 BAR",

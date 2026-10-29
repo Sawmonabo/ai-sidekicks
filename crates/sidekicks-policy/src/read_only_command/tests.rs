@@ -22,6 +22,11 @@ const LIMIT: usize = 64 * 1024;
 #[case::special_variable("PATH=/tmp/bin cat a", false)]
 #[case::option_from_a_substitution("rg $(echo --pre=sh) x", false)]
 #[case::wrapped_writer("/bin/zsh -lc 'cat a > b'", false)]
+// Only the system program of a listed name reads; one a folder names may be anything.
+#[case::program_in_this_folder("./cat x", false)]
+#[case::program_in_another_folder("/tmp/x/git status", false)]
+// `time` with an option of the `time` program's own is that program, which is never listed.
+#[case::time_program_option("time -o f ls", false)]
 #[case::ls_long("ls -la", true)]
 #[case::rg_search("rg foo src", true)]
 #[case::git_status("git status", true)]
@@ -31,6 +36,7 @@ const LIMIT: usize = 64 * 1024;
 #[case::errors_to_output("rg x 2>&1", true)]
 #[case::cd_and_list("cd sub && ls", true)]
 #[case::wrapped_reader("/bin/zsh -lc 'git diff --stat'", true)]
+#[case::time_keyword("time ls", true)]
 fn a_line_reads_only(#[case] line: &str, #[case] is_read_only: bool) {
     let mut reader = ShellLineReader::new(LIMIT);
 

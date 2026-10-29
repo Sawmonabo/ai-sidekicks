@@ -419,23 +419,21 @@ impl<'s> WordBuilder<'s> {
         word_from(&self.pieces, first_piece)
     }
 
-    /// The word's name without its folder: the text past its last `/`, the word itself when it
-    /// has none.
-    pub(super) fn basename(&mut self, word: Word) -> Word {
+    /// The word's name without its folder, the text past its last `/`; `None` when the word has
+    /// no `/`, so names no folder.
+    pub(super) fn basename(&mut self, word: Word) -> Option<Word> {
         let texts = PieceTexts::new(self.line, &self.decoded, &self.positions);
-        let Some((index, slash)) = word.pieces().rev().find_map(|index| {
+        let (index, slash) = word.pieces().rev().find_map(|index| {
             texts
                 .last_position(self.pieces[index], PositionedByte::Slash)
                 .map(|slash| (index, slash))
-        }) else {
-            return word;
-        };
+        })?;
         let first_piece = self.pieces.len();
         let piece = self.pieces[index];
         push_piece(&mut self.pieces, slash + 1, piece.end, piece.kind);
         self.pieces
             .extend_from_within(index + 1..word.end_piece as usize);
-        word_from(&self.pieces, first_piece)
+        Some(word_from(&self.pieces, first_piece))
     }
 
     /// The words `env -S` splits `word` into: split on whitespace only inside its literal and
