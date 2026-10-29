@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::time::Duration;
 
-use sidekicks_platforms::Spawner;
+use sidekicks_platforms::{PathRules, Spawner};
 use tokio::runtime::Handle;
 
 /// The path of the daemon's own program, whose modes the tests run.
@@ -37,7 +37,7 @@ pub(crate) fn short_home() -> tempfile::TempDir {
 /// answers how it ended. Panics when it runs past its bound, the process killed.
 pub(crate) async fn run_service(home: &Path) -> Output {
     let service = tokio::process::Command::new(DAEMON_PROGRAM)
-        .env("HOME", home)
+        .env(PathRules::NATIVE.home_environment_name(), home)
         .env_remove("XDG_RUNTIME_DIR")
         .kill_on_drop(true)
         .output();
