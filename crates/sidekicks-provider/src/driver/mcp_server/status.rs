@@ -94,9 +94,19 @@ impl McpServerStatusUpdate {
     }
 }
 
-/// The status sink the daemon hands a driver, bound to the leg at spawn. It returns nothing and
-/// is never awaited, so a slow reader cannot hold back the provider's status stream.
-pub type McpServerStatusProducer = Arc<dyn Fn(McpServerStatusEmission) + Send + Sync>;
+/// The status sink the daemon hands a driver, bound to the leg at spawn. Neither method returns
+/// anything or is awaited, so a slow reader cannot hold back the provider's status stream.
+pub trait McpServerStatusSink: Send + Sync {
+    /// Reports what the provider said about one server on the sink's leg.
+    fn report_status(&self, emission: McpServerStatusEmission);
+
+    /// Ends the sink's leg: the driver calls it once, as the leg's provider process ends, and the
+    /// daemon retires the leg's rows.
+    fn end_leg(&self);
+}
+
+/// The status sink a driver's carriers hold, shared between the readers of one leg.
+pub type McpServerStatusProducer = Arc<dyn McpServerStatusSink>;
 
 /// A raw row, line or notification a driver's status reader could not turn into a bounded
 /// emission. It is returned, never dropped, so a malformed row shows as a visible gap.
