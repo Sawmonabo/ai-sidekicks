@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -41,6 +41,7 @@ use super::{
 };
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
+use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
 use crate::driver::contract::DriverCliVersionReport;
 use crate::driver::ports::SessionRelaunchListener;
 use crate::driver::schema::schema_parts;
@@ -260,15 +261,33 @@ pub(crate) struct ScriptedDriver {
     pub(crate) database: TestDatabase,
 }
 
+/// A command sandbox check that answers the sandbox cannot start, on every system.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the check's signature is the driver's, whose production check can fail"
+)]
+pub(crate) fn sandbox_cannot_run(
+    _environment: &[(String, String)],
+    _working_folder: &Path,
+) -> io::Result<CommandSandboxAvailability> {
+    Ok(CommandSandboxAvailability::CannotRun(
+        MissingSandboxPrerequisite::NoSandbox,
+    ))
+}
+
 impl ScriptedDriver {
-    /// The driver whose accounts run on Claude Code's default folder in the fixture's home.
+    /// The driver whose accounts run on Claude Code's default folder in the fixture's home, and
+    /// whose command sandbox cannot start.
     pub(crate) fn new() -> Self {
-        Self::with_account_folders(None)
+        Self::with_account_folders(None, sandbox_cannot_run)
     }
 
     /// The driver whose accounts run on `account_folders`, else on Claude Code's default folder in
-    /// the fixture's home.
-    pub(crate) fn with_account_folders(account_folders: Option<ProviderAccountFolders>) -> Self {
+    /// the fixture's home, and whose command sandbox answers as `sandbox_check` does.
+    pub(crate) fn with_account_folders(
+        account_folders: Option<ProviderAccountFolders>,
+        sandbox_check: ClaudeCommandSandboxCheck,
+    ) -> Self {
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");
         let database = TestDatabase::new(schema_parts());
         drop(
@@ -346,14 +365,11 @@ impl ScriptedDriver {
             .inbound_dispatch
             .register(Arc::clone(&dispatch))
             .expect("the inbound dispatch registers once");
-        // The command sandbox reads as unable to start on every system, so a test's outcome is
-        // the same wherever it runs.
-        let driver = ClaudeDriver::with_engine(&base, starts.clone(), &host, &dispatch, |_, _| {
-            Ok(CommandSandboxAvailability::CannotRun(
-                MissingSandboxPrerequisite::NoSandbox,
-            ))
-        })
-        .expect("the session pieces compose");
+        // The command sandbox answers as the test sets it, so its outcome is the same wherever it
+        // runs.
+        let driver =
+            ClaudeDriver::with_engine(&base, starts.clone(), &host, &dispatch, sandbox_check)
+                .expect("the session pieces compose");
         Self {
             driver: Arc::new(driver),
             starts,

@@ -358,13 +358,13 @@ impl ClaudeDriver {
     }
 
     /// The levels Claude Code runs for a session's level control, as modes: with a model named,
-    /// the levels that model runs on the named account, or the current account where none is
-    /// named, and this system, in the session's own place where a session is named; with none,
-    /// the levels this system runs. A live session's process already read its catalog, so only a
-    /// session with no process, or one listed on another account than its process runs on, starts
-    /// a control-only read. A catalog that cannot be read offers no
-    /// Reviewed and is recorded; fails as the current account, the session's place or the
-    /// account's environment cannot be read.
+    /// the levels that model runs on the named account and this system, in the session's own place
+    /// where a session is named; with none, the levels this system runs. With no account named, a
+    /// live session's levels are read on the account it was admitted on, and any other list on the
+    /// current account. A live session's process already read its catalog, so only a session with
+    /// no process, or one listed on another account than its process runs on, starts a
+    /// control-only read. A catalog that cannot be read offers no Reviewed and is recorded; fails
+    /// as the current account, the session's place or the account's environment cannot be read.
     pub(crate) async fn list_modes(
         &self,
         params: ListModesParams,

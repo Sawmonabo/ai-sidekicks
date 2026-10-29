@@ -6,7 +6,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::ProviderAccountFolders;
-use crate::driver::claude::session::scripted::driver::ScriptedDriver;
+use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
 use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnReply;
 use crate::driver::session_control::NameSessionParams;
 use crate::driver::test_registry::new_session_id;
@@ -21,10 +21,13 @@ const STORED_CONVERSATION: &str = "0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d";
 async fn a_rename_at_rest_after_a_restart_names_the_conversation_its_stored_leg_ran() {
     let account_folder = tempfile::tempdir().expect("the test makes an account folder");
     let config_folder = account_folder.path().join("config");
-    let fixture = ScriptedDriver::with_account_folders(Some(ProviderAccountFolders {
-        configuration_folder: config_folder.clone(),
-        credential_store_folder: account_folder.path().join("credentials"),
-    }));
+    let fixture = ScriptedDriver::with_account_folders(
+        Some(ProviderAccountFolders {
+            configuration_folder: config_folder.clone(),
+            credential_store_folder: account_folder.path().join("credentials"),
+        }),
+        sandbox_cannot_run,
+    );
     let project_folder = config_folder.join("projects").join("work");
     std::fs::create_dir_all(&project_folder).expect("the project folder is made");
     let file = project_folder.join(format!("{STORED_CONVERSATION}.jsonl"));

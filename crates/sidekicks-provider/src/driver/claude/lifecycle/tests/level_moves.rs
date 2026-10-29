@@ -1,15 +1,21 @@
 //! A session's level and mode moves reached through the driver: the person's own and one that
 //! follows a mode Claude Code reported running.
 
+use std::io;
+use std::path::Path;
 use std::sync::Arc;
+
+use rstest::rstest;
 
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_std::mutex_lock::lock;
 
+use crate::driver::CommandSandboxAvailability;
+use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
-use crate::driver::claude::session::scripted::driver::ScriptedDriver;
+use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
 use crate::driver::contract::DriverError;
 use crate::driver::session_control::{UpdatePermissionLevelParams, UpdateSessionModeParams};
 use crate::run::posture::compose_execution_posture;
@@ -37,15 +43,21 @@ async fn a_mode_claude_code_refuses_is_refused_as_not_offered() {
     assert_eq!(refusal.code, RefusalCode::SessionModeNotOffered);
 }
 
-// A reported Sandboxed level moved through the driver, where the sandbox cannot start, sends no
-// mode, fails the sandbox closed, tells the person, and takes the report as the mode the process
-// runs; the fixture's sandbox check answers that it cannot start on every system. Killed by moving
-// a reported level as the person's own move, by a `set_permission_mode` sent for a mode Claude
-// Code runs already, by the sandbox omitted from the flag settings or sent without failing
-// closed, by the notice dropped, and by the reported mode not taken as the one the process runs.
+// A reported Sandboxed level moved through the driver sends no mode, fails the sandbox closed and
+// takes the report as the mode the process runs; where the sandbox cannot start it also tells the
+// person, and where it runs it tells no one. Killed by moving a reported level as the person's own
+// move, by a `set_permission_mode` sent for a mode Claude Code runs already, by the sandbox
+// omitted from the flag settings or sent without failing closed, by the notice dropped or sent
+// whatever the check answers, and by the reported mode not taken as the one the process runs.
+#[rstest]
+#[case::the_sandbox_cannot_run(sandbox_cannot_run, 1)]
+#[case::the_sandbox_runs(sandbox_runs, 0)]
 #[tokio::test]
-async fn a_reported_sandboxed_level_the_sandbox_cannot_run_fails_closed_and_is_told() {
-    let fixture = ScriptedDriver::new();
+async fn a_reported_sandboxed_level_fails_closed_and_tells_only_where_the_sandbox_cannot_run(
+    #[case] sandbox_check: ClaudeCommandSandboxCheck,
+    #[case] notices: usize,
+) {
+    let fixture = ScriptedDriver::with_account_folders(None, sandbox_check);
     let channel = Arc::new(ScriptedChannel::default());
     let session_id = fixture.create(&channel).await;
     let parts = fixture.driver.composed_parts().expect("composed");
@@ -88,11 +100,27 @@ async fn a_reported_sandboxed_level_the_sandbox_cannot_run_fails_closed_and_is_t
         .filter_map(|delivery| delivery.payload)
         .filter(|notice| notice["kind"] == "levelUnavailable")
         .collect();
-    assert_eq!(unavailable.len(), 1);
-    assert_eq!(unavailable[0]["level"], "sandboxed");
+    assert_eq!(unavailable.len(), notices);
+    assert!(
+        unavailable
+            .iter()
+            .all(|notice| notice["level"] == "sandboxed")
+    );
     live.permission_mode
         .note_report("dontAsk", "system", &live.admitted_provider_account_id);
     assert_eq!(live.permission_mode.reported_level(), None);
+}
+
+// A command sandbox check that answers the sandbox runs.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the check's signature is the driver's, whose production check can fail"
+)]
+fn sandbox_runs(
+    _environment: &[(String, String)],
+    _working_folder: &Path,
+) -> io::Result<CommandSandboxAvailability> {
+    Ok(CommandSandboxAvailability::Runs)
 }
 
 // A mode Claude Code reported running, Plan and then Build again, moves the session's mode with

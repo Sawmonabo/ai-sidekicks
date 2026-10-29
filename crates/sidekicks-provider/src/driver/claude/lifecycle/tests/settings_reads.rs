@@ -17,7 +17,7 @@ use sidekicks_contracts::wire::record::Record;
 
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
-use crate::driver::claude::session::scripted::driver::ScriptedDriver;
+use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
 use crate::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
 use crate::driver::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeLocalCommandReply, ClaudeReplyReserveReads,
@@ -72,10 +72,13 @@ fn advisor_value(rows: &[ProviderRow]) -> Option<String> {
 async fn a_new_session_starts_at_reviewed_only_on_a_model_that_runs_auto_mode() {
     let account_folder = tempfile::tempdir().expect("the test makes an account folder");
     let config_folder = account_folder.path().join("config");
-    let fixture = ScriptedDriver::with_account_folders(Some(ProviderAccountFolders {
-        configuration_folder: config_folder.clone(),
-        credential_store_folder: account_folder.path().join("credentials"),
-    }));
+    let fixture = ScriptedDriver::with_account_folders(
+        Some(ProviderAccountFolders {
+            configuration_folder: config_folder.clone(),
+            credential_store_folder: account_folder.path().join("credentials"),
+        }),
+        sandbox_cannot_run,
+    );
     std::fs::create_dir_all(&config_folder).expect("the account's config folder is made");
     std::fs::write(
         config_folder.join("settings.json"),
@@ -126,10 +129,13 @@ async fn the_level_list_offers_reviewed_only_on_a_model_the_account_runs_auto_mo
     #[case] is_reviewed_offered: bool,
 ) {
     let account_folder = tempfile::tempdir().expect("the test makes an account folder");
-    let fixture = ScriptedDriver::with_account_folders(Some(ProviderAccountFolders {
-        configuration_folder: account_folder.path().join("config"),
-        credential_store_folder: account_folder.path().join("credentials"),
-    }));
+    let fixture = ScriptedDriver::with_account_folders(
+        Some(ProviderAccountFolders {
+            configuration_folder: account_folder.path().join("config"),
+            credential_store_folder: account_folder.path().join("credentials"),
+        }),
+        sandbox_cannot_run,
+    );
     fixture.starts.script_catalog(json!({"models": [
         {"value": "opus", "displayName": "Opus", "supportsAutoMode": true},
         {"value": "haiku", "displayName": "Haiku", "supportsAutoMode": false},
