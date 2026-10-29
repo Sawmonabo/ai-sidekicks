@@ -448,10 +448,10 @@ async fn a_run_bound_while_a_pending_move_waits_for_the_hold_keeps_it_pending() 
     );
 }
 
-// Dies to the take answering a pending move whose clear removed nothing: both appliers that read
-// the move then make it, one move event each.
+// Dies to the take answering a pending move whose clear removed nothing: the second applier, which
+// read the move before the first took it, would try it again and surface its failure twice.
 #[tokio::test]
-async fn two_appliers_of_one_pending_move_make_it_once() {
+async fn two_appliers_of_one_pending_move_try_it_once() {
     let fixture = Fixture::new().await;
     let workspace_id = fixture.ready_at_repository().await;
     let feature = fixture.roots.add_tree("feature").await;
@@ -478,6 +478,7 @@ async fn two_appliers_of_one_pending_move_make_it_once() {
             .is_err(),
         "the second applier reads the move and waits for the hold"
     );
+    std::fs::remove_dir_all(&feature).expect("the tree's folder is removed");
     first_take
         .release
         .send(())
@@ -486,16 +487,17 @@ async fn two_appliers_of_one_pending_move_make_it_once() {
     first
         .await
         .expect("the first applier ends")
-        .expect("the move lands");
+        .expect_err("the move to a removed folder fails");
     second
         .await
         .expect("the second applier ends")
-        .expect("the second applier answers");
+        .expect("the second applier finds the move taken");
+    assert_eq!(fixture.pending(SESSION_ID), None);
     assert_eq!(
         fixture.roots.workspace(workspace_id).bound_root,
-        Some(path_text(&feature))
+        Some(path_text(&fixture.roots.repository))
     );
-    assert_eq!(fixture.prepared_count(), 2, "the move was made once");
+    assert_eq!(fixture.prepared_count(), 1, "nothing was moved");
 }
 
 #[tokio::test]

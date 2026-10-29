@@ -284,6 +284,17 @@ struct PendingMove {
     workspace_id: WorkspaceId,
 }
 
+/// What taking a pending move found.
+enum PendingTake {
+    /// The move to make: the workspace it was asked for and its folder.
+    Move(WorkspaceId, PathBuf),
+    /// Nothing left to make: another caller took or replaced it first, or the session already
+    /// works in its folder.
+    Done,
+    /// The session works in another workspace now, so the move was dropped.
+    Dropped,
+}
+
 /// A live workspace on a swept mount.
 struct MountWorkspace {
     id: WorkspaceId,
@@ -307,9 +318,11 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
 
     /// `session.workingFolder.update`: moves the session now when no run of it is live, else holds
     /// the move on its row for the run's end; the folder it already works in clears a held move.
-    /// Refuses `session.notFound`, `repoMount.rootResolutionFailed` (`notAbsolute`) for a relative
-    /// path, `session.workingFolder.missing` for a session that works in no folder,
-    /// `repoMount.managed` for a chat, and as the execution roots refuse a move.
+    /// A move the session's own run end makes first answers `applied`, and one dropped because the
+    /// session moved to another workspace before it was made answers `dropped`. Refuses
+    /// `session.notFound`, `repoMount.rootResolutionFailed` (`notAbsolute`) for a relative path,
+    /// `session.workingFolder.missing` for a session that works in no folder, `repoMount.managed`
+    /// for a chat, and as the execution roots refuse a move.
     pub async fn set(
         &self,
         request: &SessionWorkingFolderUpdateRequest,
@@ -355,53 +368,50 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
         self.write_pending(session_id, Some((request.path.as_str(), workspace.id)))
             .await?;
         // A run that ended while the tree was checked found no move to apply, so it is made now.
-        Ok(response(
-            if self.apply_pending_unheld(session_id, None).await? {
-                SessionWorkingFolderDisposition::Pending
-            } else {
-                SessionWorkingFolderDisposition::Applied
-            },
-        ))
+        Ok(response(self.apply_pending_unheld(session_id, None).await?))
     }
 
     // Applies the session's pending move under the hold of the workspace it was asked for, the
-    // move's events under `append_hold`, answering whether a live run keeps it pending. The live
-    // run is read under the hold, which a run's gate holds while it binds the run, so a run bound
-    // before it keeps the move for that run's own end.
+    // move's events under `append_hold`: `pending` while a live run keeps it, `dropped` when the
+    // session works in another workspace now, else `applied`. The live run is read under the hold,
+    // which a run's gate holds while it binds the run, so a run bound before it keeps the move for
+    // that run's own end.
     async fn apply_pending_unheld(
         &self,
         session_id: SessionId,
         append_hold: Option<&SessionAppendHold>,
-    ) -> Result<bool, SessionWorkingFolderError> {
+    ) -> Result<SessionWorkingFolderDisposition, SessionWorkingFolderError> {
         let Some(Some(pending)) = self.read_pending(session_id).await? else {
-            return Ok(false);
+            return Ok(SessionWorkingFolderDisposition::Applied);
         };
         let hold = self
             .execution_roots
             .hold_preparation(pending.workspace_id)
             .await;
         if self.is_run_live(session_id).await? {
-            return Ok(true);
+            return Ok(SessionWorkingFolderDisposition::Pending);
         }
         // A move replaced since the read is left to the request that replaced it.
-        if let Some((_, folder)) = self.take_pending(session_id, pending).await? {
-            self.execution_roots
-                .move_to_folder_held(&hold, &folder, held_for(append_hold, session_id))
-                .await?;
+        match self.take_pending(session_id, pending).await? {
+            PendingTake::Move(_, folder) => {
+                self.execution_roots
+                    .move_to_folder_held(&hold, &folder, held_for(append_hold, session_id))
+                    .await?;
+                Ok(SessionWorkingFolderDisposition::Applied)
+            }
+            PendingTake::Done => Ok(SessionWorkingFolderDisposition::Applied),
+            PendingTake::Dropped => Ok(SessionWorkingFolderDisposition::Dropped),
         }
-        Ok(false)
     }
 
     // Takes `pending`, the session's pending move as read, clearing it before it is made so a move
-    // that fails surfaces once and never wedges every later run: the workspace it was asked for and
-    // its folder, `None` when another caller took or replaced it first, the session works in
-    // another workspace now, or it already works there. Only the caller whose clear removed the row
-    // takes it, so two appliers never both make one move.
+    // that fails surfaces once and never wedges every later run. Only the caller whose clear
+    // removed the row takes it, so two appliers never both make one move.
     async fn take_pending(
         &self,
         session_id: SessionId,
         pending: PendingMove,
-    ) -> Result<Option<(WorkspaceId, PathBuf)>, SessionWorkingFolderError> {
+    ) -> Result<PendingTake, SessionWorkingFolderError> {
         #[cfg(test)]
         self.pending_take_pause.pass().await;
         let cleared = self
@@ -409,7 +419,7 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
             .write(vec![clear_pending_statement(session_id, &pending)])
             .await?;
         if cleared.first().is_none_or(|clear| clear.row_count == 0) {
-            return Ok(None);
+            return Ok(PendingTake::Done);
         }
         let workspace = self.require_project_workspace(session_id).await?;
         if workspace.id != pending.workspace_id {
@@ -419,13 +429,13 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
                 live_workspace_id = %workspace.id,
                 "a pending move for a workspace the session no longer works in was dropped"
             );
-            return Ok(None);
+            return Ok(PendingTake::Dropped);
         }
         let folder = PathBuf::from(pending.path);
         if is_working_in(&workspace, &folder).await? {
-            return Ok(None);
+            return Ok(PendingTake::Done);
         }
-        Ok(Some((workspace.id, folder)))
+        Ok(PendingTake::Move(workspace.id, folder))
     }
 
     // Moves every session standing in the removed tree to the repository's own checkout and clears
@@ -738,7 +748,8 @@ impl<W: Watcher + Send + Sync + 'static> SessionFolderMoves for SessionWorkingFo
             let Some(Some(pending)) = self.read_pending(*session_id).await? else {
                 return Ok(());
             };
-            let Some((workspace_id, folder)) = self.take_pending(*session_id, pending).await?
+            let PendingTake::Move(workspace_id, folder) =
+                self.take_pending(*session_id, pending).await?
             else {
                 return Ok(());
             };
