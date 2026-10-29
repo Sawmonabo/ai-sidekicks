@@ -157,6 +157,8 @@ pub(crate) async fn run_codex_session_call(
             let _unheard = reply.send(restored);
         }
         CodexSessionCall::DropTurns { reply } => {
+            // The status sink's leg ran on the process that ended, so it ends with the turns.
+            task.record.end_mcp_server_status_leg();
             let _unheard = reply.send(drop_codex_turns(task, dependencies));
         }
         CodexSessionCall::EndSafetyHolds { reply } => {

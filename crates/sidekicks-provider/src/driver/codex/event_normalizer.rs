@@ -63,6 +63,11 @@ pub(crate) const CODEX_SKILLS_CHANGED_METHOD: &str = "skills/changed";
 /// The `thread/settings/updated` method, which declares the thread's output speed.
 pub(crate) const CODEX_THREAD_SETTINGS_UPDATED_METHOD: &str = "thread/settings/updated";
 
+/// The `mcpServer/startupStatus/updated` method: one tool server's startup on a conversation,
+/// reported to the session's status sink.
+pub(crate) const CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD: &str =
+    "mcpServer/startupStatus/updated";
+
 /// Which root a frame arrives on: a server request must be answered, a notification is not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexFrameRoot {
@@ -142,6 +147,7 @@ pub(crate) enum CodexInboundMethod {
     ThreadGoalUpdated,
     ThreadGoalCleared,
     AccountRateLimitsUpdated,
+    McpServerStartupStatusUpdated,
     GuardianWarning,
     AutoApprovalReviewStrictReviewRequired,
     ItemAutoApprovalReviewCompleted,
@@ -219,6 +225,7 @@ impl CodexInboundMethod {
             Self::ThreadGoalUpdated => "thread/goal/updated",
             Self::ThreadGoalCleared => "thread/goal/cleared",
             Self::AccountRateLimitsUpdated => "account/rateLimits/updated",
+            Self::McpServerStartupStatusUpdated => CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD,
             Self::GuardianWarning => "guardianWarning",
             Self::AutoApprovalReviewStrictReviewRequired => {
                 "autoApprovalReview/strictReviewRequired"
@@ -341,6 +348,13 @@ impl CodexInboundMethod {
             Self::AccountRateLimitsUpdated => notification(
                 CONNECTION,
                 Reads("the account's latest usage-limit reading, read when a turn fails"),
+            ),
+            Self::McpServerStartupStatusUpdated => notification(
+                LIFECYCLE,
+                Reads(
+                    "a tool server's startup on the session's own conversation, reported to the \
+                     session's status sink",
+                ),
             ),
 
             // Codex's own reviewer.

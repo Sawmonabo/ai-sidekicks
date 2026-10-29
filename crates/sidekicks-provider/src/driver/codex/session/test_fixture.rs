@@ -3,6 +3,8 @@
 //! item of the session's queue handed to the test, which handles it the way the session's task
 //! does.
 
+pub(crate) mod status_sink;
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -624,6 +626,7 @@ pub(crate) async fn open_test_record(
         output_speed_request: None,
         declared_output_speed: None,
         reasoning_effort: None,
+        on_mcp_server_status: None,
     });
     routing
         .bind_session_thread(
