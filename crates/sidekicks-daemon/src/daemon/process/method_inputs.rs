@@ -28,6 +28,7 @@ use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_queue::memory_gate::{
     INGEST_WORKER_BYTES, MemoryGate, MemoryGateFigures, QUICK_THREAD_BYTES,
 };
+use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::{RestartSettle, RestartSettleDeps};
@@ -87,6 +88,7 @@ use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
 use crate::daemon::status_methods::StatusMethodsDeps;
 use crate::data_acts::erase::{DataErase, DataEraseDeps, EraseStep};
 use crate::data_acts::export::{DataExportDeps, DataExports};
+use crate::ipc::handlers::agent::command::CommandMethodSources;
 use crate::ipc::handlers::approval::ApprovalMethodSources;
 use crate::ipc::handlers::driver::DriverMethodSources;
 use crate::ipc::handlers::run::control::RunControlServices;
@@ -315,6 +317,9 @@ pub(crate) async fn register_method_inputs(
         // No run gate holds a checkout lock, so the creator's is its own.
         checkout_lock: Arc::new(KeyedLock::new()),
     }));
+    // The daemon's `Tokens per run`, which run admission admits each new lead run with.
+    let token_limits = PortRegistration::new("run token limits");
+    token_limits.register(Arc::clone(&configuration) as Arc<dyn RunTokenLimitReader>)?;
     let session = build_session_services(SessionServiceStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&writer),
@@ -356,6 +361,9 @@ pub(crate) async fn register_method_inputs(
         clock,
         spawner,
         daemon_program: daemon_program.to_path_buf(),
+        provider_accounts: Arc::clone(&providers.ports.provider_accounts),
+        token_limits: Arc::new(token_limits),
+        scheduler: Arc::clone(&scheduler),
     })?;
     let shells = Arc::new(
         build_shell_table(ShellTableStart {
@@ -538,6 +546,15 @@ pub(crate) async fn register_method_inputs(
                 choices: Arc::clone(&session.choices),
                 continued: Arc::new(session.queue.delivery()),
             },
+            command_methods: Arc::new(CommandMethodSources {
+                pool: Arc::clone(&reads),
+                running: Arc::clone(&session.running_commands),
+                providers: Arc::clone(&registry),
+                read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
+            }),
+            turn_readings: Arc::clone(&session.turn_readings),
+            context_readings: Arc::clone(&session.context_readings),
+            providers: Arc::clone(&registry),
             run_queue: RunQueueMethods {
                 queue: Arc::clone(&session.queue),
                 log: Arc::clone(&database.event_log),

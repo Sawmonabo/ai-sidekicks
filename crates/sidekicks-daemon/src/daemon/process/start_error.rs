@@ -8,6 +8,7 @@ use sidekicks_ipc::registry::RegistrationError;
 use sidekicks_platforms::SocketPathRefused;
 use sidekicks_policy::authorizer::RulesLoadError;
 use sidekicks_queue::error::QueueError;
+use sidekicks_session::idle_sleep::IdleSleepError;
 use sidekicks_shell::orphan::guard::OrphanGuardError;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::scheduler::ScheduleError;
@@ -117,6 +118,10 @@ pub(crate) enum DaemonStartError {
     /// socket in the run folder.
     #[error(transparent)]
     RepoServices(#[from] RepoServiceStartError),
+    /// The idle sleep could not read or store the sessions it wakes, so the session services'
+    /// follows did not begin.
+    #[error(transparent)]
+    SessionAttachments(#[from] IdleSleepError),
     /// The repository services' background work could not begin.
     #[error(transparent)]
     RepoAttachments(#[from] RepoAttachmentStartError),

@@ -35,7 +35,7 @@ use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
 use sidekicks_ipc::stream::frame_batcher::ChangeFeed;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_session::run::agent::read_lead_binding;
+use sidekicks_session::run::agent::read_session_lead;
 use sidekicks_session::transcript::block_cut::{BlockParse, MARKDOWN_PARSE};
 use sidekicks_session::transcript::stream_state::{
     StreamedPiece, TranscriptStreamState, load_piece_texts, read_streamed_pieces,
@@ -197,8 +197,9 @@ impl ChangeRecord for SessionEventRecord {
                         let read_bound =
                             session_read_bound(read_damaged_from_sequence, &session_id, None);
                         let task_list_driver =
-                            match read_lead_binding(connection, &session_id, read_bound)? {
-                                Some((provider, _)) => {
+                            match read_session_lead(connection, &session_id, read_bound)? {
+                                Some(lead) => {
+                                    let provider = lead.binding.provider_name;
                                     let mut kept = lock(&task_list_driver);
                                     match kept.as_ref() {
                                         Some(kept) if kept.provider == provider => {

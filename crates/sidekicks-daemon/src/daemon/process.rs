@@ -617,7 +617,7 @@ impl DaemonProcess {
             .session
             .as_ref()
             .expect("the session services are built before their follows begin");
-        self.session_attachments = Some(start_session_attachments(session, &followers));
+        self.session_attachments = Some(start_session_attachments(session, &followers).await?);
         let repo = self
             .repo
             .as_ref()

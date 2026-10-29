@@ -24,7 +24,7 @@ use sidekicks_contracts::session::event_cursor::{
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage, SendGate};
+use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage, RecordPageRead, SendGate};
 use sidekicks_ipc::stream::frame_batcher::{ChangeFeed, FrameChanges};
 use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
 use sidekicks_mcp::status::notices::{McpNoticeBoard, McpNoticeKey};
@@ -141,7 +141,7 @@ impl ChangeRecord for McpGovernanceRecord {
         &self,
         cursor: &EventCursor,
         max: usize,
-    ) -> BoxFuture<'_, Result<RecordPage<McpGovernanceChange>, McpGovernanceStreamError>> {
+    ) -> RecordPageRead<'_, EventCursor, McpGovernanceChange, McpGovernanceStreamError> {
         let cursor = cursor.clone();
         async move {
             let after_position = decode_event_cursor(&cursor).map_err(EventLogReadError::from)?;
@@ -166,17 +166,17 @@ impl ChangeRecord for McpGovernanceRecord {
                     },
                 )
                 .await?;
-            // A governance event is small, so a read is cut by its count alone.
+            // The read holds governance events alone, so it reads through its last change; a
+            // governance event is small, so a read is cut by its count alone.
             Ok(RecordPage {
+                read_through: changes
+                    .last()
+                    .map(|change: &McpGovernanceChange| change.cursor.clone()),
+                is_cut_short: changes.len() >= max,
                 changes,
-                is_cut_by_size: false,
             })
         }
         .boxed()
-    }
-
-    fn cursor_of(change: &McpGovernanceChange) -> EventCursor {
-        change.cursor.clone()
     }
 
     fn change_count(&self) -> watch::Receiver<u64> {
