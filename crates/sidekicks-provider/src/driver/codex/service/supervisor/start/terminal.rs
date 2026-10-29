@@ -18,17 +18,14 @@ use serde_json::value::RawValue;
 use sidekicks_platforms::replace_socket_link;
 use tokio_util::sync::CancellationToken;
 
-use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::command_line::{
     LastingServiceVerdict, TerminalServiceHooks, compare_daemon_hook_commands,
     read_terminal_service_hooks,
 };
 use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::managed_daemon::stop_codex_managed_daemon;
-use crate::driver::codex::service::process::{LastingCodexService, start_lasting_codex_service};
-use crate::driver::codex::service::record::{
-    LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
-};
+use crate::driver::codex::service::process::LastingCodexService;
+use crate::driver::codex::service::record::{LastingServiceRecordFile, LockedServiceRecord};
 use crate::driver::codex::service::registry::own_socket_path;
 use crate::driver::codex::service::socket_link::{
     clear_blocking_socket_link, is_listening, restore_socket_link,
@@ -36,20 +33,18 @@ use crate::driver::codex::service::socket_link::{
 use crate::driver::codex::service::start_lock::CodexStartLock;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::start::kept_records::{
-    KeptRecordsOutcome, lock_record, on_record, reconcile_kept_records, retire_kept_record,
-    settle_own_records,
+    KeptRecordsOutcome, lock_record, reconcile_kept_records, retire_kept_record, settle_own_records,
 };
 use crate::driver::codex::service::supervisor::start::{
-    CodexServiceProcess, StartFailure, StartedService, compose_launch, connect,
-    read_codex_loaded_threads, read_physical_socket, read_service_version, start_failed,
-    take_start_lock,
+    CodexServiceProcess, LaunchedLastingService, StartFailure, StartedService, compose_launch,
+    connect, launch_lasting_service, name_lasting_log_file, read_codex_loaded_threads,
+    read_physical_socket, read_service_version, start_failed, take_start_lock,
 };
 use crate::driver::codex::service::trust::{list_codex_hooks, trust_codex_daemon_hooks};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::codex::transport::socket::CodexSocketWait;
-use crate::service_log::provider_service_log_file;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// Starts the terminal service on the person's own Codex folder under the start ticket `launch`;
@@ -305,7 +300,6 @@ async fn launch_terminal_service(
     launch_socket: &Path,
 ) -> Result<StartedService, StartFailure> {
     let dependencies = service.dependencies();
-    let codex_home = &service.home().codex_home;
     // Codex's managed daemon may have left a link to its ended socket.
     if let Err(error) = clear_blocking_socket_link(service.socket_path()).await {
         tracing::warn!(
@@ -338,58 +332,23 @@ async fn launch_terminal_service(
             cause: None,
         }));
     }
-    let log_file = provider_service_log_file(
-        &dependencies.logs_folder,
-        &DESCRIPTOR.provider_id(),
-        codex_home,
-    )
-    .map_err(|error| start_failed("The Codex service's log could not be named.", error))?;
-    service.set_lasting_log_file(log_file.clone());
-    let lasting = start_lasting_codex_service(&dependencies.spawner, process_launch, &log_file)
-        .await
-        .map_err(|error| start_failed("The Codex service could not be started.", error))?;
-    let record_file = locked.file().clone();
-    let launched = LastingServiceRecord::launched(lasting.record().clone());
-    if let Err(error) = on_record(locked, move |locked| locked.write(&launched)).await {
-        return Err(StartFailure {
-            error: CodexError::Transport {
-                detail: "The Codex service's record could not be kept.".to_owned(),
-                cause: Some(Box::new(error)),
-            },
-            process: Some(Box::new(CodexServiceProcess::Lasting {
-                service: lasting,
-                record_file,
-            })),
-        });
-    }
-    let opened = connect(
+    let log_file = name_lasting_log_file(service)?;
+    let LaunchedLastingService {
+        process,
+        connection,
+        reply,
+        physical_socket,
+    } = launch_lasting_service(
         service,
-        launch_socket,
         launch,
-        CodexSocketWait::UntilListening,
-        lasting.exited(),
         cancel,
+        process_launch,
+        &log_file,
+        locked,
+        launch_socket,
     )
-    .await;
-    let answered = LastingServiceRecord::launched(lasting.record().clone());
-    let process = Some(CodexServiceProcess::Lasting {
-        service: lasting,
-        record_file,
-    });
+    .await?;
     let trusted = async {
-        let (connection, reply) = opened?;
-        let physical_socket = read_physical_socket(launch_socket).await?;
-        // Kept under the same hold, so a later daemon finds the socket the home's link names.
-        let answered = LastingServiceRecord {
-            physical_socket: Some(physical_socket.clone()),
-            ..answered
-        };
-        on_record(locked, move |locked| locked.write(&answered))
-            .await
-            .map_err(|error| CodexError::Transport {
-                detail: "The Codex service's record could not be kept.".to_owned(),
-                cause: Some(Box::new(error)),
-            })?;
         if let Some(hook_commands) = &hook_commands {
             trust_codex_daemon_hooks(&connection, hook_commands).await?;
         }
@@ -403,13 +362,13 @@ async fn launch_terminal_service(
         }
         // Held only for the seconds the start takes.
         drop(start_lock);
-        Ok::<_, CodexError>((connection, version, physical_socket))
+        Ok::<_, CodexError>(version)
     }
     .await;
     match trusted {
-        Ok((connection, version, physical_socket)) => Ok(StartedService {
+        Ok(version) => Ok(StartedService {
             kind: CodexServiceKind::Terminal,
-            process,
+            process: Some(process),
             connection,
             version,
             physical_socket,
@@ -417,7 +376,7 @@ async fn launch_terminal_service(
         }),
         Err(error) => Err(StartFailure {
             error,
-            process: process.map(Box::new),
+            process: Some(Box::new(process)),
         }),
     }
 }

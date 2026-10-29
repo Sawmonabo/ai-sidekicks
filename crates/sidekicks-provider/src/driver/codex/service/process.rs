@@ -1,6 +1,6 @@
-//! The Codex services the daemon starts: one on an account home it manages, which ends with the
-//! daemon, and the lasting service on the person's own Codex folder, which outlives it, writes to
-//! one log per folder and is found again from its record; their stops, the lasting service's
+//! The Codex services the daemon starts: the capability read's, which ends with the daemon, and a
+//! lasting service, on the person's own Codex folder or an account home, which outlives it, writes
+//! to one log per folder and is found again from its record; their stops, a lasting service's
 //! drain and Codex's own shutdown request.
 
 use std::error::Error;
@@ -99,9 +99,9 @@ fn share_service_exit(answer: oneshot::Receiver<io::Result<ProcessExit>>) -> Cod
     .shared()
 }
 
-/// One Codex service on an account home the daemon manages: a child of the daemon, prepared as
-/// every one is and recorded in the daemon's child records until its reap, killed when this handle
-/// drops, with the tail of what it printed kept for its exit.
+/// The capability read's Codex service: a child of the daemon, prepared as every one is and
+/// recorded in the daemon's child records until its reap, killed when this handle drops, with the
+/// tail of what it printed kept for its exit.
 pub(crate) struct ManagedCodexService {
     process_id: Option<u32>,
     // The end asked last; a kill is never replaced by a stop.
@@ -141,9 +141,9 @@ impl ManagedCodexService {
     }
 }
 
-/// Starts a Codex service on an account home the daemon manages, on `spawner`'s thread, prepared
-/// as every child of the daemon is and recorded in `child_records` until its reap, its standard
-/// input closed and both outputs kept in one tail. Fails with the record's error, the spawn's, or
+/// Starts the capability read's Codex service on `spawner`'s thread, prepared as every child of
+/// the daemon is and recorded in `child_records` until its reap, its standard input closed and
+/// both outputs kept in one tail. Fails with the record's error, the spawn's, or
 /// the spawner's when its thread has ended.
 pub(crate) async fn start_managed_codex_service(
     spawner: &Spawner,
@@ -264,8 +264,8 @@ async fn read_output_tail(
     Ok(tail)
 }
 
-/// The lasting Codex service on the person's own Codex folder: a process that outlives the
-/// daemon, held by its pinned identity so a later daemon finds the same one again.
+/// A lasting Codex service, on the person's own Codex folder or an account home: a process that
+/// outlives the daemon, held by its pinned identity so a later daemon finds the same one again.
 pub(crate) struct LastingCodexService {
     process: PinnedProcess,
     record: ProcessRecord,
@@ -361,11 +361,11 @@ struct UnrecordedServiceError {
     output_tail: String,
 }
 
-/// Starts the lasting Codex service on the person's own Codex folder on `spawner`'s thread: its
-/// log begun again at `log_file`, the former start's tail kept beside it, taking the service's
-/// error output; a session or job of its own apart from the daemon's, pinned, then moved out of
-/// the daemon's scope where the system has one. The caller keeps its record in the folder's record
-/// file. Fails when the log cannot be opened, or the start cannot be spawned or pinned (on Windows
+/// Starts a lasting Codex service, on the person's own Codex folder or an account home, on
+/// `spawner`'s thread: its log begun again at `log_file`, the former start's tail kept beside it,
+/// taking the service's error output; a session or job of its own apart from the daemon's, pinned,
+/// then moved out of the daemon's scope where the system has one. The caller keeps its record in
+/// the folder's record file. Fails when the log cannot be opened, or the start cannot be spawned or pinned (on Windows
 /// a refused breakaway from the daemon's job among them), with the log's tail beside the cause.
 pub(crate) async fn start_lasting_codex_service(
     spawner: &Spawner,

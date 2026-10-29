@@ -103,15 +103,15 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) provider_services: Arc<ProviderServiceProcesses>,
     /// The daemon's provider processes, whose one spawn count each process pinned draws from.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
-    /// The daemon's record of its own children, which a service on an account home is recorded
+    /// The daemon's record of its own children, which the capability read's service is recorded
     /// in; a lasting service keeps its own record and never enters it.
     pub(crate) child_records: Arc<dyn DaemonChildRecords>,
     /// Resolves the Codex command at each start.
     pub(crate) program: Arc<dyn CodexProgramResolver>,
-    /// The daemon's data folder, where the lasting service's record and the services' working
+    /// The daemon's data folder, where the lasting services' records and the services' working
     /// folder live.
     pub(crate) data_folder: PathBuf,
-    /// The daemon's logs folder, where the lasting service writes its log.
+    /// The daemon's logs folder, where each lasting service writes its log.
     pub(crate) logs_folder: PathBuf,
     /// More `key=value` switches every service the daemon starts runs with.
     pub(crate) additional_config_overrides: Vec<String>,

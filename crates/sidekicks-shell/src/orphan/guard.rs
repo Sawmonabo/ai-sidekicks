@@ -113,6 +113,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use futures::future::join_all;
     use sidekicks_platforms::{
         CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, pin_running_process, short_socket_folder,
     };
@@ -126,8 +127,8 @@ mod tests {
     /// The stand-in Codex service: this test program, run by the script the services start.
     const CODEX_SERVICE_STAND_IN: &str = "orphan::guard::tests::a_codex_service_stand_in";
 
-    /// How long the test waits for the swept service to end.
-    const END_WAIT: Duration = Duration::from_secs(10);
+    /// How long a kept service must outlast the sweep.
+    const KEPT_WAIT: Duration = Duration::from_secs(2);
 
     #[tokio::test]
     #[ignore = "run only as the sweep test's Codex service"]
@@ -135,10 +136,10 @@ mod tests {
         serve_as_codex_service_stand_in().await;
     }
 
-    // Fails when the service on an account home starts unrecorded, which leaves it running past the
-    // next start's sweep, and when the lasting service is recorded, which the sweep then kills.
+    // Fails when the service on an account home is recorded as the daemon's own child, or the
+    // lasting terminal service is: the sweep then kills a service whose turns a restart keeps.
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_next_start_ends_a_provider_child_and_leaves_the_lasting_service_running() {
+    async fn the_next_start_leaves_every_kept_codex_service_running() {
         if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
             return;
         }
@@ -153,34 +154,33 @@ mod tests {
         let script = write_codex_service_script(folder.path(), CODEX_SERVICE_STAND_IN, None);
         let services = CodexServicesBeside::start(folder.path(), &script, &guard).await;
 
-        // The next start's guard sweeps while every child of this one still runs, as after the
-        // daemon died without draining them.
+        // The next start's guard sweeps while every service of this one still runs, as after the
+        // daemon restarted or died.
         open_orphan_guard(&data_folder)
             .await
             .expect("the next start's guard opens");
-        let is_account_service_ended = match pin_running_process(services.account_process_id)
-            .expect("the process table reads")
-        {
-            Some(process) => tokio::time::timeout(END_WAIT, process.wait_for_end())
-                .await
-                .is_ok_and(|ended| {
-                    ended.expect("the process's end is watched");
-                    true
-                }),
-            None => true,
-        };
-        let is_lasting_service_running = pin_running_process(services.lasting_process_id)
-            .expect("the process table reads")
-            .is_some();
+        let running = join_all(
+            [services.account_process_id, services.lasting_process_id].map(
+                |process_id| async move {
+                    let Some(process) =
+                        pin_running_process(process_id).expect("the process table reads")
+                    else {
+                        return false;
+                    };
+                    // A kill the sweep sent lands within the wait; a kept service outlasts it.
+                    tokio::time::timeout(KEPT_WAIT, process.wait_for_end())
+                        .await
+                        .is_err()
+                },
+            ),
+        )
+        .await;
         services.stop().await;
 
-        assert!(
-            is_account_service_ended,
-            "the account home's service outlived the sweep"
-        );
-        assert!(
-            is_lasting_service_running,
-            "the sweep ended the lasting service"
+        assert_eq!(
+            running,
+            [true, true],
+            "the account home's service, then the terminal service, runs past the sweep"
         );
     }
 }

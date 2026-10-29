@@ -1,10 +1,11 @@
 //! The Codex services of one driver, one per credential home: a session on an account the app
-//! manages shares that account's service, and the person's own Codex folder holds the terminal
-//! service while terminal reach is on, which no session of the app runs on. A service listens on
-//! the home's own control socket, which a terminal's plain `codex` joins, except for a planned
-//! restart's second service, which takes a socket of its own beside it under a name no daemon
-//! start reuses, the home's socket then pointed at it. The capability read runs one short-lived
-//! service of its own on an empty folder, which the registry never holds.
+//! manages shares that account's lasting service, which a daemon restart keeps running, and the
+//! person's own Codex folder holds the terminal service while terminal reach is on, which no
+//! session of the app runs on. A service listens on the home's own control socket, which a
+//! terminal's plain `codex` joins, except for a planned restart's second service, which takes a
+//! socket of its own beside it under a name no daemon start reuses, the home's socket then pointed
+//! at it. The capability read runs one short-lived service of its own on an empty folder, which
+//! the registry never holds.
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -23,6 +24,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::record::recorded_home_keys;
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
+use crate::driver::codex::service::supervisor::start::kept_records::stop_kept_services;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::supervisor::test_service::ScriptedCodexService;
 use crate::driver::codex::service::supervisor::{
@@ -395,9 +397,11 @@ impl CodexServiceRegistry {
     }
 
     /// Shuts every service down for good, the replaced ones included, and answers once every one
-    /// has: the daemon's own are stopped, a joined one only disconnected, under `Restart` the
-    /// terminal service keeps running, and every drain's wait is called off, its service draining
-    /// on by itself. Each stop reports its own failure.
+    /// has: the daemon's own are stopped, a joined one only disconnected, under `Restart` every
+    /// lasting service, the terminal service and each account home's, keeps running in its record
+    /// for the next start to join, and under `Stop` every service a record still keeps is stopped
+    /// too, one a former daemon kept that this one never joined among them; every drain's wait is
+    /// called off, its service draining on by itself. Each stop reports its own failure.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
         // A stop never waits on a drain: each drains on by itself, its record left marked.
         self.dependencies.drains.call_off();
@@ -407,6 +411,12 @@ impl CodexServiceRegistry {
             services.by_home.values().cloned().chain(replaced).collect()
         };
         join_all(services.iter().map(|service| service.shutdown(intent))).await;
+        match intent {
+            DaemonStopIntent::Stop => {
+                stop_kept_services(self.dependencies.data_folder.clone()).await;
+            }
+            DaemonStopIntent::Restart => {}
+        }
     }
 
     /// The logs of the lasting services that may run now: each one the registry holds, a replaced

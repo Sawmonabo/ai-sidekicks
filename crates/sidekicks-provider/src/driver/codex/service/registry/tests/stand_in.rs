@@ -57,7 +57,7 @@ fn terminal_home(folder: &Path) -> CodexServiceHome {
 pub(super) struct StandInServices {
     /// The folder the data, logs and home sit in.
     pub(super) folder: PathBuf,
-    /// The person's own Codex folder.
+    /// The Codex home the services run on: the person's own folder, or an account's home.
     pub(super) home: CodexServiceHome,
     /// What the test's daemon runs its services on.
     pub(super) dependencies: Arc<CodexServiceDependencies>,
@@ -67,13 +67,33 @@ pub(super) struct StandInServices {
     pub(super) recoveries: mpsc::UnboundedReceiver<()>,
 }
 
-/// The services of one test under `folder`, the stand-in resolved through what `program` makes
-/// of it.
+/// The services of one test on the person's own Codex folder under `folder`, the stand-in
+/// resolved through what `program` makes of it.
 pub(super) fn stand_in_services(
     folder: &Path,
     program: impl FnOnce(TestCodexProgram) -> Arc<dyn CodexProgramResolver>,
 ) -> StandInServices {
-    let home = terminal_home(folder);
+    services_on(terminal_home(folder), folder, program)
+}
+
+/// The services of one test on an account's home under `folder`, the stand-in resolved as it is.
+pub(super) fn account_stand_in_services(folder: &Path) -> StandInServices {
+    let codex_home = folder.join("account");
+    std::fs::create_dir_all(&codex_home).expect("the home is made");
+    let home = CodexServiceHome {
+        codex_home,
+        kind: CodexHomeKind::Account(test_provider_account_id()),
+    };
+    services_on(home, folder, |program| Arc::new(program))
+}
+
+// The services of one test on `home` under `folder`, the stand-in resolved through what `program`
+// makes of it.
+fn services_on(
+    home: CodexServiceHome,
+    folder: &Path,
+    program: impl FnOnce(TestCodexProgram) -> Arc<dyn CodexProgramResolver>,
+) -> StandInServices {
     let (heard, exits, recoveries) = ExitsHeard::new();
     let dependencies = test_codex_service_dependencies(
         folder,

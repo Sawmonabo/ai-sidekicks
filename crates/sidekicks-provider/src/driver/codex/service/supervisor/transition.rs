@@ -245,8 +245,8 @@ impl Supervision {
     }
 
     // What a stop under `intent`, `None` for a stop of the person's or the switch's, does with a
-    // terminal service's lasting process: a daemon restart keeps it running, a service another
-    // took the home's link from drains, and any other is stopped.
+    // lasting process, a terminal service's or an account home's: a daemon restart keeps it
+    // running, a service another took the home's link from drains, and any other is stopped.
     fn lasting_end(&self, intent: Option<DaemonStopIntent>) -> LastingServiceEnd {
         match intent {
             Some(DaemonStopIntent::Restart) => LastingServiceEnd::Keep,

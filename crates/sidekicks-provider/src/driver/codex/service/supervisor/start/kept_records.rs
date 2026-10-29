@@ -1,11 +1,13 @@
-//! What a terminal service's start does with the records lasting services left on its Codex
+//! What a lasting service's start does with the records lasting services left on its Codex
 //! folder, all read under the folder's one lock: a service still running is found again by its
 //! record, and one gone has what it left ended and its record removed, so a fresh start leaves no
-//! tree of a former one running. The service's first start joins the running service that holds
-//! the home's link, or with none, points the link under Codex's start lock at a running one not
-//! draining, the home's own first, and drains every other; a later start reads only its own. With
-//! nothing joined, a drain on the home's own socket is launched beside where the home's path is a
-//! link, and waited for where it is the socket itself.
+//! tree of a former one running. A terminal service's first start joins the running service that
+//! holds the home's link, or with none, points the link under Codex's start lock at a running one
+//! not draining, the home's own first, and drains every other; a later start reads only its own.
+//! With nothing joined, a drain on the home's own socket is launched beside where the home's path
+//! is a link, and waited for where it is the socket itself. An account home's start joins the one
+//! service its record keeps running. A daemon stop that ends work in flight stops every service a
+//! record still keeps.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -18,7 +20,7 @@ use crate::driver::codex::service::process::{
     LastingCodexService, codex_lasting_service_environment_entry, repin_lasting_codex_service,
 };
 use crate::driver::codex::service::record::{
-    LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
+    LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord, recorded_files,
 };
 use crate::driver::codex::service::socket_link::{
     clear_socket_link_of, is_listening, restore_socket_link,
@@ -148,6 +150,71 @@ pub(super) async fn retire_kept_record(
     on_record(locked, LockedServiceRecord::remove)
         .await
         .map_err(|error| start_failed("The Codex service's record could not be removed.", error))
+}
+
+/// The running service an account home's record `locked` keeps, to join, with where its record
+/// says its socket really is, so a turn it was running when the daemon restarted goes on in it;
+/// with none running, the record is retired as [`retire_kept_record`] retires it, so a fresh
+/// launch follows. Fails as the read, the re-pin or the retire does.
+pub(super) async fn take_kept_service(
+    locked: &Arc<LockedServiceRecord>,
+    control_socket: &Path,
+) -> Result<Option<(LastingCodexService, PathBuf)>, StartFailure> {
+    let Some(record) = read_record(locked).await? else {
+        return Ok(None);
+    };
+    if !record.is_draining
+        && let Some(physical_socket) = record.physical_socket
+    {
+        let Some(lasting) = repin(record.process.clone()).await? else {
+            retire_former_service(locked, record.process).await?;
+            return Ok(None);
+        };
+        return Ok(Some((lasting, physical_socket)));
+    }
+    retire_kept_record(locked, control_socket).await?;
+    Ok(None)
+}
+
+/// Stops every lasting service a record under `data_folder` still keeps, for a daemon stop that
+/// ends work in flight, once the daemon's own services have stopped: one a former daemon kept
+/// that this one never joined is stopped and its record removed, what an ended one left is ended,
+/// and one draining is left to its drain. Each failure is reported and the rest go on.
+pub(crate) async fn stop_kept_services(data_folder: PathBuf) {
+    let listed = tokio::task::spawn_blocking(move || recorded_files(&data_folder))
+        .await
+        .map_err(io::Error::other)
+        .and_then(|listed| listed);
+    let files = match listed {
+        Ok(files) => files,
+        Err(error) => {
+            report_kept_service_unstopped(&error);
+            return;
+        }
+    };
+    for file in files {
+        let stopped = async {
+            let locked = lock_record(file).await?;
+            let Some(record) = read_record(&locked).await? else {
+                return Ok(());
+            };
+            // A service that never answered names no socket, so where no signal stops a process
+            // its stop goes straight to the forced end.
+            let control_socket = record.physical_socket.unwrap_or_default();
+            retire_kept_record(&locked, &control_socket).await
+        };
+        if let Err(failure) = stopped.await {
+            report_kept_service_unstopped(&failure.error);
+        }
+    }
+}
+
+// Reports a kept service the stop could not stop, which then runs on in its record.
+fn report_kept_service_unstopped(error: &(dyn std::error::Error + 'static)) {
+    tracing::warn!(
+        error,
+        "a Codex service a former daemon kept could not be stopped; it runs on in its record"
+    );
 }
 
 /// Retires the record of the process `service`'s last start brought up, else of its own socket,

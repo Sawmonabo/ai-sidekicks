@@ -46,6 +46,13 @@ const CONNECTION_RECORD_NAME: &str = "SIDEKICKS_TEST_CONNECTION_RECORD";
 // its script sets it, and only where a test names one.
 const DAEMON_SOCKET_NAME: &str = "SIDEKICKS_TEST_DAEMON_SOCKET";
 
+/// Where a stand-in's script keeps its own standard output, which an executor stand-in answers on,
+/// since the test program's own output goes nowhere.
+const EXECUTOR_OUTPUT: &str = "/dev/fd/3";
+
+// The address Codex's executor listens on, its standard input and output.
+const EXECUTOR_LISTEN_ADDRESS: &str = "stdio";
+
 // The file a stand-in's script adds each service start's process to, one to a line.
 const LAUNCHES_FILE: &str = "codex-launches";
 
@@ -53,10 +60,12 @@ const LAUNCHES_FILE: &str = "codex-launches";
 const CONNECTIONS_FILE: &str = "codex-connections";
 
 /// Writes in `folder` the `codex` script a stand-in service starts through and answers its path:
-/// it keeps its arguments in [`LAUNCH_ARGUMENTS_FILE`], adds each service start's process to its
-/// launches, names its record of requests and, where `daemon_socket` is given, the socket whose
-/// presence it records, has the program ignore the hang-up where its environment asks, and runs
-/// this test program's `stand_in_test`. Panics where it cannot be written.
+/// it keeps its arguments in [`LAUNCH_ARGUMENTS_FILE`], adds each start of a service listening on a
+/// socket to its launches, names its record of requests and, where `daemon_socket` is given, the
+/// socket whose presence it records, has the program ignore the hang-up where its environment
+/// asks, keeps its own standard output as [`EXECUTOR_OUTPUT`] for an executor's answers, and runs
+/// this test program's `stand_in_test`, whose own output goes nowhere. Panics where it cannot be
+/// written.
 pub fn write_codex_service_script(
     folder: &Path,
     stand_in_test: &str,
@@ -74,9 +83,10 @@ pub fn write_codex_service_script(
         "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n\
          while [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = --listen ]; then \
          {LISTEN_ADDRESS_NAME}=\"$2\"; export {LISTEN_ADDRESS_NAME}; fi\n  shift\ndone\n\
-         if [ -n \"${LISTEN_ADDRESS_NAME}\" ]; then printf '%s\\n' \"$$\" >> '{}'; fi\n\
+         case \"${LISTEN_ADDRESS_NAME}\" in unix://*) printf '%s\\n' \"$$\" >> '{}';; esac\n\
          {CONNECTION_RECORD_NAME}='{}'; export {CONNECTION_RECORD_NAME}\n{daemon_socket}\
          if [ -n \"${HANG_UP_IGNORED_NAME}\" ]; then trap '' HUP; fi\n\
+         exec 3>&1\n\
          exec '{}' --exact {stand_in_test} --include-ignored >/dev/null 2>&1\n",
         folder.join(LAUNCH_ARGUMENTS_FILE).display(),
         folder.join(LAUNCHES_FILE).display(),
@@ -90,12 +100,17 @@ pub fn write_codex_service_script(
 
 /// Serves as a Codex service where a stand-in's script started this program: on a real socket of
 /// its own, with the path its `--listen` names made a link to it, answering each connection as a
-/// start needs and recording each request in the script's record. Returns at once where no
-/// script started it. Panics where its socket cannot listen or its link cannot be made.
+/// start needs and recording each request in the script's record; or, started as Codex's executor
+/// on its standard input and output, as that executor. Returns at once where no script started
+/// it. Panics where its socket cannot listen or its link cannot be made.
 pub async fn serve_as_codex_service_stand_in() {
     let Ok(address) = std::env::var(LISTEN_ADDRESS_NAME) else {
         return;
     };
+    if address == EXECUTOR_LISTEN_ADDRESS {
+        serve_as_executor_stand_in();
+        return;
+    }
     let codex_home = PathBuf::from(std::env::var(CODEX_HOME_NAME).expect("the home is named"));
     let link = match address.strip_prefix("unix://").expect("a socket address") {
         "" => home_socket_path(&codex_home),
@@ -120,6 +135,28 @@ pub async fn serve_as_codex_service_stand_in() {
         tokio::spawn(answer_as_codex_service(stream, move |method| {
             recording.record(method);
         }));
+    }
+}
+
+// Answers as Codex's executor on its standard input and the script's kept output: the relay's
+// `initialize` with an empty result, every other line left unanswered, until the input ends with
+// the relay that started it. Panics where the kept output cannot be written.
+fn serve_as_executor_stand_in() {
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .open(EXECUTOR_OUTPUT)
+        .expect("the script kept its output");
+    for line in io::stdin().lines() {
+        let Ok(line) = line else {
+            return;
+        };
+        let Ok(message) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        if message["method"] == "initialize" {
+            let answer = serde_json::json!({"id": message["id"], "result": {}});
+            writeln!(output, "{answer}").expect("the answer is written");
+        }
     }
 }
 
@@ -290,20 +327,21 @@ pub fn stand_in_codex_service(
 }
 
 /// A Codex service on an account home and the lasting terminal service on the person's own Codex
-/// folder, both started on the stand-in by one daemon whose own children a record holds.
+/// folder, both lasting services kept in their records, started on the stand-in by one daemon
+/// whose own children `child_records` holds.
 pub struct CodexServicesBeside {
     account: CodexServiceRegistry,
     terminal: CodexServiceRegistry,
-    /// The process of the service on the account home, the daemon's own child.
+    /// The process of the service on the account home, which outlives the daemon.
     pub account_process_id: u32,
-    /// The process of the lasting service, which outlives the daemon.
+    /// The process of the lasting terminal service, which outlives the daemon.
     pub lasting_process_id: u32,
 }
 
 impl CodexServicesBeside {
-    /// Starts both under `folder` on the stand-in `script` runs, the daemon's own children recorded
-    /// in `child_records`. Must be called within a multi-thread runtime. Panics where either does
-    /// not start a process of its own.
+    /// Starts both under `folder` on the stand-in `script` runs, any child of the daemon's own
+    /// recorded in `child_records`. Must be called within a multi-thread runtime. Panics where
+    /// either does not start a process of its own.
     pub async fn start(
         folder: &Path,
         script: &Path,
