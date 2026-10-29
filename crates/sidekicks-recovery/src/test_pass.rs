@@ -167,7 +167,7 @@ impl PassFixture {
             DatabaseWriter::open(
                 database.opener(),
                 DatabaseWriterOptions {
-                    after_commit: Some(after_commit),
+                    after_commits: vec![after_commit],
                     ..DatabaseWriterOptions::default()
                 },
             )
