@@ -7,6 +7,9 @@
 //! - A server that wants a `DPoP` proof bound to its own nonce sends the nonce with any response;
 //!   the last one is handed to the authorizer with each request, and a 401 whose `DPoP` challenge
 //!   asks for it (`error="use_dpop_nonce"`, quoted or bare) is sent again once with the new nonce.
+//! - Any other 401 is put to the authorizer, which may renew the refused token or present one
+//!   another request already renewed; the request is then sent again. A request is sent again at
+//!   most once, whatever the reason, so a second 401 reaches rmcp as the sign-in it asks for.
 //! - rmcp ends a stream past the bound only on its own bound's error, which it keeps private, and
 //!   reconnects on any other; so a stream cut past the bound after an event id is marked, and
 //!   rmcp's resume of it is refused here rather than fetching the same event again, within a
@@ -39,6 +42,7 @@ use rmcp::transport::streamable_http_client::{
     AuthRequiredError, InsufficientScopeError, SseError, StreamableHttpClient,
     StreamableHttpClientTransportConfig, StreamableHttpError, StreamableHttpPostResponse,
 };
+use sidekicks_contracts::dpop::{DPOP_AUTHORIZATION_SCHEME, DPOP_NONCE_HEADER_NAME};
 use sidekicks_provider::inbound_json::decode_inbound_json;
 use sidekicks_std::mutex_lock::lock;
 
@@ -64,8 +68,8 @@ const STREAM_RETRY_MAX_DELAY: Duration = Duration::from_secs(30);
 /// refuses them.
 const RESERVED_HEADERS: [&str; 3] = ["accept", HEADER_SESSION_ID, HEADER_LAST_EVENT_ID];
 
-/// The response header carrying the nonce a server wants its next `DPoP` proof bound to.
-const DPOP_NONCE: &str = "dpop-nonce";
+/// The `Authorization` scheme of a token presented as it is, with no proof (RFC 6750).
+pub(crate) const BEARER_AUTHORIZATION_SCHEME: &str = "Bearer";
 
 /// A stream cut past the bound: its session and the last event id before the cut, which a resume
 /// of it names.
@@ -74,6 +78,9 @@ type CutStream = (Option<String>, String);
 /// The headers that authorize one request, or why they could not be made.
 pub(crate) type AuthorizationResult =
     Result<Vec<(HeaderName, HeaderValue)>, Box<dyn Error + Send + Sync>>;
+
+/// Whether a refused request is sent once more, or why the authorizer could not tell.
+pub(crate) type RefusalAnswer = Result<bool, Box<dyn Error + Send + Sync>>;
 
 /// What signs one request to a tool server: the headers it adds to a request of `method` to
 /// `uri`, asked for each request so a proof bound to the request, and to `dpop_nonce`, the last
@@ -87,6 +94,16 @@ pub(crate) trait McpRequestAuthorizer: Send + Sync {
         uri: &str,
         dpop_nonce: Option<&str>,
     ) -> BoxFuture<'_, AuthorizationResult>;
+
+    /// Whether a request the server refused with a 401 asking for no nonce is sent once more,
+    /// given the `Authorization` it carried and the `error` the server's challenge names: true
+    /// once a token the server may take can be presented. An error, such as a renewal that failed
+    /// on the network, fails the request.
+    fn answer_refusal<'call>(
+        &'call self,
+        sent_authorization: Option<&'call HeaderValue>,
+        challenge_error: Option<&'call str>,
+    ) -> BoxFuture<'call, RefusalAnswer>;
 }
 
 /// The authorizer of a server that takes requests without one: it adds no header.
@@ -109,6 +126,14 @@ impl McpRequestAuthorizer for NoAuthorization {
     ) -> BoxFuture<'_, AuthorizationResult> {
         Box::pin(async { Ok(Vec::new()) })
     }
+
+    fn answer_refusal<'call>(
+        &'call self,
+        _sent_authorization: Option<&'call HeaderValue>,
+        _challenge_error: Option<&'call str>,
+    ) -> BoxFuture<'call, RefusalAnswer> {
+        Box::pin(async { Ok(false) })
+    }
 }
 
 /// Why an HTTP request to a tool server failed below the transport.
@@ -120,6 +145,9 @@ pub(crate) enum McpHttpError {
     /// The authorizer made no headers.
     #[error("the request to the tool server could not be authorized")]
     Authorize(#[source] Box<dyn Error + Send + Sync>),
+    /// The authorizer could not answer a refused request, its token's renewal failed.
+    #[error("the tool server's sign-in could not be renewed")]
+    Renewal(#[source] Box<dyn Error + Send + Sync>),
     /// A resume asked for a stream cut past the size bound, which would send the same event.
     #[error("the tool server's event stream was cut for an event past {max_event_size} bytes")]
     StreamCut {
@@ -195,7 +223,8 @@ impl McpServerConnection {
 impl McpHttpClient {
     /// Sends a request of `method` to `uri` with the transport's and the authorizer's headers,
     /// `finish` adding its own; keeps the `DPoP` nonce the response carries, and sends the request
-    /// once more when the server answers it with a 401 asking for that nonce. Fails as the
+    /// once more when the server answers it with a 401 asking for that nonce, or with another 401
+    /// the authorizer answers with a token to present; never more than once. Fails as the
     /// authorizer or the network fails.
     async fn send(
         &self,
@@ -214,8 +243,11 @@ impl McpHttpClient {
                 .await
                 .map_err(|error| StreamableHttpError::Client(McpHttpError::Authorize(error)))?;
             let mut builder = self.http.request(method.clone(), uri);
-            let is_authorized = authorized.iter().any(|(name, _)| *name == AUTHORIZATION);
-            if let Some(token) = auth_header.clone().filter(|_| !is_authorized) {
+            let sent_authorization = authorized
+                .iter()
+                .find(|(name, _)| *name == AUTHORIZATION)
+                .map(|(_, value)| value.clone());
+            if let Some(token) = auth_header.clone().filter(|_| sent_authorization.is_none()) {
                 builder = builder.bearer_auth(token);
             }
             for (name, value) in custom_headers.clone().into_iter().chain(authorized) {
@@ -224,13 +256,26 @@ impl McpHttpClient {
             let response = finish(builder).send().await.map_err(http_error)?;
             if let Some(nonce) = response
                 .headers()
-                .get(DPOP_NONCE)
+                .get(DPOP_NONCE_HEADER_NAME)
                 .and_then(|nonce| nonce.to_str().ok())
             {
                 *lock(&self.dpop_nonce) = Some(nonce.to_owned());
             }
-            if is_resent || !asks_for_dpop_nonce(&response) {
+            if is_resent || response.status() != StatusCode::UNAUTHORIZED {
                 return Ok(response);
+            }
+            if !asks_for_dpop_nonce(&response) {
+                let is_resend = self
+                    .authorizer
+                    .answer_refusal(
+                        sent_authorization.as_ref(),
+                        challenge_error(&response).as_deref(),
+                    )
+                    .await
+                    .map_err(|error| StreamableHttpError::Client(McpHttpError::Renewal(error)))?;
+                if !is_resend {
+                    return Ok(response);
+                }
             }
             is_resent = true;
         }
@@ -323,7 +368,21 @@ fn asks_for_dpop_nonce(response: &reqwest::Response) -> bool {
 /// Whether `challenge` holds a `DPoP` challenge whose `error` is `use_dpop_nonce`, the scheme and
 /// the parameter's name matched without case.
 fn is_dpop_nonce_challenge(challenge: &str) -> bool {
-    read_auth_param(challenge, "DPoP", "error").as_deref() == Some("use_dpop_nonce")
+    read_auth_param(challenge, DPOP_AUTHORIZATION_SCHEME, "error").as_deref()
+        == Some("use_dpop_nonce")
+}
+
+/// The `error` a `Bearer` or `DPoP` challenge of `response` names (RFC 6750 §3, RFC 9449 §7.1).
+fn challenge_error(response: &reqwest::Response) -> Option<String> {
+    response
+        .headers()
+        .get_all(WWW_AUTHENTICATE)
+        .iter()
+        .filter_map(|challenge| challenge.to_str().ok())
+        .find_map(|challenge| {
+            read_auth_param(challenge, BEARER_AUTHORIZATION_SCHEME, "error")
+                .or_else(|| read_auth_param(challenge, DPOP_AUTHORIZATION_SCHEME, "error"))
+        })
 }
 
 /// The challenge of a 401 or 403 the server sent with one, as rmcp's own client reads it: a 401
@@ -346,7 +405,7 @@ fn auth_challenge(response: &reqwest::Response) -> Option<StreamableHttpError<Mc
 
 /// The `scope` a `Bearer` challenge names, quoted or bare.
 fn required_scope(challenge: &str) -> Option<String> {
-    read_auth_param(challenge, "Bearer", "scope")
+    read_auth_param(challenge, BEARER_AUTHORIZATION_SCHEME, "scope")
 }
 
 /// The value of the parameter `name` of the `scheme` challenge in `challenge`, a header value that

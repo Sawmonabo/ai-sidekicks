@@ -8638,6 +8638,7 @@ dependencies = [
  "futures",
  "getrandom 0.4.3",
  "jwt-simple",
+ "oauth2",
  "p256 0.14.0",
  "process-wrap",
  "reqwest",
