@@ -108,6 +108,7 @@ nix.features = [
   "user"
 ]
 objc2-core-foundation = "0.3.2"
+objc2-core-services = { version = "0.3.2", default-features = false }
 objc2-foundation = { version = "0.3.2", features = ["NSString", "NSURL"] }
 objc2-io-kit = { version = "0.3.2", default-features = false }
 objc2-security = { version = "0.3.2", default-features = false }

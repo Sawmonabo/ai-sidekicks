@@ -1,5 +1,6 @@
 //! The Windows side of the interface.
 
+pub(crate) mod address_opening;
 pub(crate) mod allocator;
 pub(crate) mod askpass;
 pub(crate) mod caller_process;

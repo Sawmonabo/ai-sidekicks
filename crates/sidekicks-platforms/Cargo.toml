@@ -61,6 +61,7 @@ block2.workspace = true
 dispatch2 = { workspace = true, features = ["libc", "std"] }
 mach2.workspace = true
 objc2-core-foundation.workspace = true
+objc2-core-services = { workspace = true, features = ["LSConstants", "LSOpen", "LaunchServices"] }
 objc2-foundation.workspace = true
 objc2-io-kit = { workspace = true, features = ["dispatch2", "libc", "ps", "pwr_mgt", "std"] }
 objc2-security = { workspace = true, features = ["CSCommon", "SecCode", "SecRequirement", "std"] }
@@ -95,6 +96,7 @@ windows-sys.features = [
   "Win32_System_Pipes",
   "Win32_System_Power",
   "Win32_System_ProcessStatus",
+  "Win32_System_Registry",
   "Win32_System_SystemInformation",
   "Win32_System_SystemServices",
   "Win32_System_Threading",
