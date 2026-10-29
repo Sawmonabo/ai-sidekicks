@@ -150,7 +150,7 @@ pub struct WorktreeSweep {
 /// Moves every session out of a removed tree.
 pub trait WorktreeSessionSweep: Send + Sync {
     /// Moves every session standing in the swept folder to the repository's own checkout, clears
-    /// every pending move to it, and records one `session.swept_to_repo_root` per session. It runs
+    /// every pending move to it, and records one `session.sweptToCheckout` per session. It runs
     /// while the folder's opens are held, so it never waits on an open in the folder. Fails with
     /// the move's failure; a later sweep of the same tree finishes it.
     fn sweep_to_repo_root<'a>(
@@ -645,7 +645,7 @@ impl RemovalShared {
                 .into())
             }
             Err(MoveAsideError::Failed(failure)) if failure.cleanup_failures().is_empty() => {
-                match failure.into_parts() {
+                match (*failure).into_parts() {
                     (KeepFailure::Move(FolderMoveError::Held(source)), _, _) => {
                         Err(WorktreeRefusal::RetireFolderHeld {
                             worktree_id: row.id,
@@ -658,9 +658,7 @@ impl RemovalShared {
                     )),
                 }
             }
-            Err(MoveAsideError::Failed(failure)) => {
-                Err(WorktreeRemovalError::Failed(Box::new(failure)))
-            }
+            Err(MoveAsideError::Failed(failure)) => Err(WorktreeRemovalError::Failed(failure)),
         }
     }
 

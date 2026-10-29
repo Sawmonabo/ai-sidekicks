@@ -286,14 +286,11 @@ impl NameWalk<'_> {
         })?;
         let added = self.git.run(self.place(), GitCall::write(arguments)).await;
         drop(records_hold);
-        let failure = match added {
-            Ok(_) => {
-                return Ok(AddOutcome::Made(MadeTree {
-                    name,
-                    hook_output: None,
-                }));
-            }
-            Err(failure) => failure,
+        let Err(failure) = added else {
+            return Ok(AddOutcome::Made(MadeTree {
+                name,
+                hook_output: None,
+            }));
         };
         if let GitError::Exited { stderr, .. } = &failure
             && let Some(git_line) = read_taken_branch_line(stderr)
@@ -469,7 +466,11 @@ mod tests {
         };
 
         let made = walk
-            .make_tree_at_first_free_name(&plan, NameCollision::Suffix, &fixture.base_ref())
+            .make_tree_at_first_free_name(
+                &plan,
+                NameCollision::Suffix,
+                &CreationFixture::base_ref(),
+            )
             .await
             .expect("a suffixed name is made");
 
@@ -488,7 +489,7 @@ mod tests {
             reads: &fixture.reads,
             mount: &fixture.mount,
         };
-        let base_ref = fixture.base_ref();
+        let base_ref = CreationFixture::base_ref();
 
         let suffixed = walk
             .make_tree_at_first_free_name(
@@ -562,7 +563,11 @@ mod tests {
         let folder = name.folder_path.clone();
 
         let outcome = walk
-            .add_worktree(name, &fixture.base_ref(), &fixture.repository.join(".git"))
+            .add_worktree(
+                name,
+                &CreationFixture::base_ref(),
+                &fixture.repository.join(".git"),
+            )
             .await
             .expect("the taken folder is an outcome, not a failure");
 

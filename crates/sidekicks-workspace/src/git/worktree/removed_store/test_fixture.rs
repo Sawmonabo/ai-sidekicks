@@ -75,9 +75,11 @@ impl KeptCopyFixture {
     /// The fixture in a scratch folder of its own, its repository made and its mount stored.
     pub(crate) async fn new() -> Self {
         let scratch = tempfile::tempdir().expect("a scratch folder");
-        let mut fixture = Self::in_folder(scratch.path()).await;
-        fixture._scratch = Some(scratch);
-        fixture
+        let fixture = Self::in_folder(scratch.path()).await;
+        Self {
+            _scratch: Some(scratch),
+            ..fixture
+        }
     }
 
     /// The fixture built under `root`, which the caller keeps and removes.

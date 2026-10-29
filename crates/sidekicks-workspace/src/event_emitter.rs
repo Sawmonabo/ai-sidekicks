@@ -42,6 +42,10 @@ pub struct WorkspaceEventEmitter {
     appender: SessionEventAppender,
 }
 
+#[expect(
+    dead_code,
+    reason = "the workspace lifecycle transitions that prepare a workspace and mark its root lost"
+)]
 impl WorkspaceEventEmitter {
     /// An emitter appending to `event_log` at the session events' envelope version.
     pub fn new(event_log: Arc<EventLogService>) -> Self {
@@ -133,6 +137,10 @@ impl WorkspaceEventEmitter {
 }
 
 /// The workspace lifecycle events, each naming the one state its workspace is in after it.
+#[expect(
+    dead_code,
+    reason = "the workspace lifecycle transitions that prepare a workspace and mark its root lost"
+)]
 #[derive(Clone, Copy, Debug)]
 enum WorkspaceTransition {
     Preparing,
