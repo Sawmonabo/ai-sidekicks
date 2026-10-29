@@ -28,6 +28,7 @@ use crate::driver::claude::frame_routing::ClaudeThreadUsageTally;
 use crate::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, ClaudeCommandChoices,
 };
+use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::declarations::{
     ClaudeHandshakeDeclaration, ClaudeInboundFrameObservation, ClaudeInitializeDeclaration,
@@ -208,6 +209,8 @@ pub(crate) struct LiveClaudeSession {
     pub(crate) admitted_provider_account_id: ProviderAccountId,
     /// What the session runs with now.
     pub(crate) settings: Mutex<ClaudeLiveSettings>,
+    /// The process's permission mode, shared with the stream that takes its reports.
+    pub(crate) permission_mode: Arc<ClaudePermissionModeRecord>,
     /// The build that runs the process, which a resume that found it already up answers.
     pub(crate) spawned_version: SpawnedVersionBindingCarriers,
     /// The binding the resume that brought the process up answered, which a resume that finds it

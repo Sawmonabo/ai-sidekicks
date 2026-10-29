@@ -29,7 +29,8 @@ use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_queue::changes::QueueChangeSignals;
 use sidekicks_queue::memory_gate::MemoryGate;
 use sidekicks_queue::provider_session::{
-    ProviderSessionOpeningComposer, ProviderSessions, ProviderSessionsDeps,
+    ProviderSessionGitFolderReader, ProviderSessionOpeningComposer, ProviderSessions,
+    ProviderSessionsDeps,
 };
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_queue::service::{RunQueue, RunQueueDeps};
@@ -111,6 +112,8 @@ pub(crate) struct SessionServiceStart {
     pub(crate) epochs: Arc<Mutex<ExecutionEpochs>>,
     /// Composes a session's opening from its lead.
     pub(crate) compose_opening: ProviderSessionOpeningComposer,
+    /// Reads a session's git folder.
+    pub(crate) read_git_folder: ProviderSessionGitFolderReader,
     /// The identity of each session's provider process.
     pub(crate) processes: Arc<dyn ProviderProcessIds>,
     /// The gate every start waits its turn at.
@@ -271,6 +274,7 @@ pub(crate) fn build_session_services(
         binding_cursors,
         epochs,
         compose_opening,
+        read_git_folder,
         processes,
         memory_gate,
         machine,
@@ -333,7 +337,7 @@ pub(crate) fn build_session_services(
             RunEngineDeps {
                 pool: Arc::clone(&reads),
                 event_log: Arc::clone(&event_log),
-                execution_postures,
+                execution_postures: Arc::clone(&execution_postures),
                 providers: Arc::clone(&providers),
                 plan_holds,
                 held_choice_answers: Arc::clone(&held_choice_answers),
@@ -398,13 +402,18 @@ pub(crate) fn build_session_services(
     });
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&reads),
-        writer: Arc::clone(&writer),
+        appender: Arc::clone(&appender),
         binding_cursors: Arc::clone(&binding_cursors),
         providers: Arc::clone(&providers),
         compose_opening,
+        read_git_folder,
         transition_lock: Arc::clone(changes.transition_lock()),
         process_follower: Arc::clone(&idle_sleep) as Arc<dyn SessionProcessFollower>,
+        execution_postures: Arc::clone(&execution_postures),
     }));
+    execution_postures
+        .set_stored_postures(Arc::downgrade(&provider_sessions) as Weak<_>)
+        .expect("a new posture service reads no stored level yet");
     idle_sleep
         .set_process_waker(Arc::downgrade(&provider_sessions) as Weak<dyn SessionProcessWaker>)
         .expect("a new idle sleep holds no process waker yet");
@@ -432,6 +441,9 @@ pub(crate) fn build_session_services(
     engine
         .set_interrupt_queue(Arc::downgrade(&queue) as Weak<_>)
         .expect("a new engine holds no run queue yet");
+    engine
+        .set_session_postures(Arc::downgrade(&provider_sessions) as Weak<_>)
+        .expect("a new engine holds no posture source yet");
     let interventions = Arc::new(InterventionService::new(InterventionServiceDeps {
         pool: Arc::clone(&reads),
         event_log: Arc::clone(&event_log),

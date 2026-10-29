@@ -34,8 +34,8 @@ use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
-    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription,
-    RespondToRequestParams, SessionProcessState, StartRunParams,
+    ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::ProviderAxisInvalid;
@@ -494,8 +494,11 @@ impl ProviderDriver for ClaudeDriver {
         .map_err(DriverError::from)
     }
 
-    fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
-        self.list_modes().boxed()
+    fn list_modes(
+        &self,
+        params: ListModesParams,
+    ) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
+        self.list_modes(params).boxed()
     }
 
     fn get_capabilities(&self) -> BoxFuture<'_, Result<GetCapabilitiesResult, DriverError>> {
@@ -581,6 +584,10 @@ impl ProviderDriver for ClaudeDriver {
         self.observed_output_speed_for(*session_id)
     }
 
+    fn reported_level(&self, session_id: &SessionId) -> Option<ProviderReportedLevel> {
+        self.reported_level(*session_id)
+    }
+
     fn read_rows(
         &self,
         app_values: ProviderRowValues,
@@ -664,21 +671,19 @@ fn picked_skill_of(pick: QueuedSkillPick) -> PickedSkill {
 mod tests {
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::run::queue::QueuedSkillPick;
-    use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
     use crate::driver::claude::lifecycle::ClaudeDriver;
     use crate::driver::contract::ProviderDriver;
     use crate::driver::run_control::PickedSkill;
-    use crate::driver::test_registry::test_driver_services;
+    use crate::driver::test_registry::{fixed_session_id, test_driver_services};
     use crate::runtime_binding::test_store::test_provider_account_id;
 
     // Killed by answering no skill, which drops every pick from the stored message.
     #[tokio::test]
     async fn each_skill_pick_is_answered_in_order_by_its_name_and_folder() {
         let driver = ClaudeDriver::new(&test_driver_services());
-        let session_id =
-            SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id");
+        let session_id = fixed_session_id();
         let pick = |name: &str, folder: &str| QueuedSkillPick {
             name: FreeFormText::new(name.to_owned()).expect("a valid name"),
             folder_path: FilesystemPath::new(folder.to_owned()).expect("a valid folder"),

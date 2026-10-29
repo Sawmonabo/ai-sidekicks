@@ -212,6 +212,9 @@ pub struct UpdatePermissionLevelParams {
     pub session_id: SessionId,
     /// The posture it moves to.
     pub execution_posture: ExecutionPosture,
+    /// True when the move follows a mode the provider itself reported running, which the
+    /// provider runs already.
+    pub is_provider_reported: bool,
 }
 
 /// Params of `revoke_rule`: a revoked rule taken out of force at one session's provider, out of
@@ -374,6 +377,9 @@ pub struct UpdateSessionModeParams {
     pub session_id: SessionId,
     /// The mode it moves to.
     pub mode: SessionMode,
+    /// True when the move follows a mode the provider itself reported running, which the
+    /// provider runs already.
+    pub is_provider_reported: bool,
 }
 
 /// Params of `ask_side_question`: a question asked on a throwaway copy of the conversation,

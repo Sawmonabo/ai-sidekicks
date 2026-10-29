@@ -235,6 +235,7 @@ async fn a_mode_move_during_the_crash_wait_is_the_relaunched_process_mode() {
         .update_session_mode(UpdateSessionModeParams {
             session_id,
             mode: SessionMode::Plan,
+            is_provider_reported: false,
         })
         .await
         .expect("the move is taken while the session restarts");

@@ -8,11 +8,15 @@
 //! - A tool that starts a workflow takes that same gate first, then the workflow rules' start
 //!   decision under the asking run's posture.
 //!
+//! A workflow step's file write or tool call takes the same card and its settlement, gated by the
+//! run's level instead.
+//!
 //! The card is the daemon's to raise only where the provider runs the tool without asking first;
 //! a provider whose driver has it ask before each of the app's own tools has asked already. A tool
 //! with no declared gate is refused, so no tool runs unadjudicated.
 
 use std::collections::HashMap;
+use std::error::Error;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
@@ -25,9 +29,12 @@ use sidekicks_provider::callback_tools::host::{
 };
 use sidekicks_provider::driver::callback_tool::CallbackToolInvocation;
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_workflow::runs::step_action::{
+    StepActionApproval, StepActionCheck, StepActionVerdict,
+};
 
 use crate::permission_check::{PermissionCheck, ToolCallVerdict, WorkflowStartVerdict};
-use crate::service::RaisedRequestSettlement;
+use crate::service::{RaisedCard, RaisedRequestSettlement};
 
 /// What the agent reads when its call names a tool no gate was declared for.
 pub(crate) const UNGATED_TOOL_REFUSAL: &str = "This tool has no approval gate, so it does not run.";
@@ -43,7 +50,10 @@ pub(crate) const CANCELED_REFUSAL: &str =
     "This call's approval ended unanswered, so it did not run.";
 
 /// How one of the app's own tools is gated.
-#[expect(dead_code, reason = "the agent tool server's gate map")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the agent tool server's gate map")
+)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum CallbackToolGate {
     /// It only reads what the calling session may already read.
@@ -150,27 +160,31 @@ impl CallbackToolApprovals {
                 basis: CallbackToolApprovalBasis::Policy,
             });
         }
-        let card = match self.check.check_tool_call(invocation).await? {
-            ToolCallVerdict::Settled(outcome) => return Ok(outcome),
-            ToolCallVerdict::CardRaised(card) => card,
-        };
-        Ok(match card.settled.settled().await {
-            RaisedRequestSettlement::Approved => CallbackToolApprovalOutcome::Allow {
-                basis: CallbackToolApprovalBasis::UserGrant,
-            },
-            RaisedRequestSettlement::Rejected { decline_reason } => {
-                CallbackToolApprovalOutcome::Deny {
-                    basis: CallbackToolApprovalBasis::UserRefusal,
-                    reason: decline_reason.map_or_else(
-                        || DECLINED_REFUSAL.to_owned(),
-                        |words| words.as_str().to_owned(),
-                    ),
+        match self.check.check_tool_call(invocation).await? {
+            ToolCallVerdict::Settled(outcome) => Ok(outcome),
+            ToolCallVerdict::CardRaised(card) => settle_card(card).await,
+        }
+    }
+}
+
+impl StepActionApproval for CallbackToolApprovals {
+    /// Decides a workflow step's action, waiting on the person's answer where the run's level
+    /// asks: allowed, or refused with what the step reads.
+    fn check_step_action(
+        &self,
+        check: StepActionCheck,
+    ) -> BoxFuture<'_, Result<StepActionVerdict, Box<dyn Error + Send + Sync>>> {
+        Box::pin(async move {
+            let outcome = match self.check.check_step_action(check).await? {
+                ToolCallVerdict::Settled(outcome) => outcome,
+                ToolCallVerdict::CardRaised(card) => settle_card(card).await?,
+            };
+            Ok(match outcome {
+                CallbackToolApprovalOutcome::Allow { .. } => StepActionVerdict::Allowed,
+                CallbackToolApprovalOutcome::Deny { reason, .. } => {
+                    StepActionVerdict::Refused { reason }
                 }
-            }
-            RaisedRequestSettlement::Canceled => deny_by_policy(CANCELED_REFUSAL),
-            RaisedRequestSettlement::Stopped => {
-                return Err(Box::new(CallbackToolApprovalError::Stopped));
-            }
+            })
         })
     }
 }
@@ -183,6 +197,29 @@ impl CallbackToolApprovalSeam for CallbackToolApprovals {
     ) -> BoxFuture<'a, Result<CallbackToolApprovalOutcome, CallbackToolPortError>> {
         Box::pin(self.adjudicate(invocation, provider))
     }
+}
+
+// The person's answer on the daemon's own card: approved runs, declined carries the words they
+// typed, and a card that ended with its run or session refuses.
+async fn settle_card(
+    card: RaisedCard,
+) -> Result<CallbackToolApprovalOutcome, CallbackToolPortError> {
+    Ok(match card.settled.settled().await {
+        RaisedRequestSettlement::Approved => CallbackToolApprovalOutcome::Allow {
+            basis: CallbackToolApprovalBasis::UserGrant,
+        },
+        RaisedRequestSettlement::Rejected { decline_reason } => CallbackToolApprovalOutcome::Deny {
+            basis: CallbackToolApprovalBasis::UserRefusal,
+            reason: decline_reason.map_or_else(
+                || DECLINED_REFUSAL.to_owned(),
+                |words| words.as_str().to_owned(),
+            ),
+        },
+        RaisedRequestSettlement::Canceled => deny_by_policy(CANCELED_REFUSAL),
+        RaisedRequestSettlement::Stopped => {
+            return Err(Box::new(CallbackToolApprovalError::Stopped));
+        }
+    })
 }
 
 fn deny_by_policy(reason: &str) -> CallbackToolApprovalOutcome {

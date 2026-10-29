@@ -38,8 +38,8 @@ use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
-    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription,
-    RespondToRequestParams, SessionProcessState, StartRunParams,
+    ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::ProviderAxisInvalid;
@@ -487,7 +487,10 @@ impl ProviderDriver for CodexDriver {
         .map_err(DriverError::from)
     }
 
-    fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
+    fn list_modes(
+        &self,
+        _params: ListModesParams,
+    ) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
         ready(Ok(list_codex_modes())).boxed()
     }
 
@@ -574,6 +577,11 @@ impl ProviderDriver for CodexDriver {
         session_id: &SessionId,
     ) -> Option<ProviderOutputSpeedState> {
         self.observed_output_speed_for(*session_id)
+    }
+
+    // Codex reports no permission mode of its own.
+    fn reported_level(&self, _session_id: &SessionId) -> Option<ProviderReportedLevel> {
+        None
     }
 
     fn read_rows(

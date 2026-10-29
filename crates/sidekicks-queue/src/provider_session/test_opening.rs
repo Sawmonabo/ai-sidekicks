@@ -2,6 +2,8 @@
 //! read-only posture over the root, and an idle sleep standing in that records each opening;
 //! the queue's own tests also record that provider's contract version.
 
+#[cfg(test)]
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
@@ -24,12 +26,16 @@ use sidekicks_provider::driver::capabilities::{
 #[cfg(test)]
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::CreateSessionParams;
+#[cfg(test)]
+use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_provider::run::posture::compose_execution_posture;
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_std::mutex_lock::lock;
 
-use crate::provider_session::{ProviderSessionOpening, ProviderSessionOpeningComposer};
+use crate::provider_session::{
+    ProviderSessionGitFolderReader, ProviderSessionOpening, ProviderSessionOpeningComposer,
+};
 
 /// The table's first provider.
 pub(crate) fn first_provider() -> ProviderId {
@@ -75,6 +81,13 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
     })
 }
 
+/// Reads every session's git folder as the root, as [`test_opening_composer`] composes it.
+pub fn test_git_folder_reader() -> ProviderSessionGitFolderReader {
+    Arc::new(|_session_id| {
+        async { Ok(FilesystemPath::new("/".to_owned()).expect("the root is a path")) }.boxed()
+    })
+}
+
 /// An idle sleep standing in for the provider sessions' tests, recording each session it was told
 /// opened; a close it is told of changes nothing the tests read.
 #[derive(Default)]
@@ -95,6 +108,15 @@ impl SessionProcessFollower for RecordedProcessFollowing {
     }
 
     fn forget_closed(&self, _session_id: SessionId) {}
+}
+
+/// A posture service for the provider sessions' tests, whose credential list no test resolves.
+#[cfg(test)]
+pub(crate) fn test_execution_postures() -> Arc<ExecutionPostureService> {
+    Arc::new(ExecutionPostureService::new(
+        Path::new("/home"),
+        PathBuf::from("/home/daemon.token"),
+    ))
 }
 
 /// Records the first provider's capabilities in `providers`, so its contract version reads and,

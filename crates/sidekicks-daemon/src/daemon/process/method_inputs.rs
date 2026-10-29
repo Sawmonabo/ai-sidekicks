@@ -382,6 +382,7 @@ pub(crate) async fn register_method_inputs(
         binding_cursors,
         epochs,
         compose_opening: port.compose_opening,
+        read_git_folder: port.read_git_folder,
         processes: Arc::clone(&providers.processes) as _,
         memory_gate: Arc::new(MemoryGate::new(
             MemoryGateFigures {
@@ -527,6 +528,7 @@ pub(crate) async fn register_method_inputs(
         shells: Arc::clone(&shells),
         project_list_feed: Arc::clone(&project_list_feed),
         providers: Arc::clone(&registry),
+        execution_postures: Arc::clone(&providers.execution_postures),
         machine_id: machine.machine_id.clone(),
         configuration: Arc::clone(&configuration),
         scheduler: Arc::clone(&scheduler),

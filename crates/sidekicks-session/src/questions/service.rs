@@ -86,6 +86,9 @@ pub(super) struct HeldRequest {
     pub(super) request_id: String,
     /// Who sends the answer on.
     pub(super) answered_by: HeldRequestAnswerer,
+    /// Whether its question's record is written; until then a read of the settled questions
+    /// keeps it.
+    pub(super) is_recorded: bool,
 }
 
 /// Who sends a held question's answer to whoever asked it.
@@ -167,6 +170,22 @@ pub struct QuestionsService {
     pub(super) question_lock: KeyedLock<QuestionId>,
     // Each open held question's provider request; never locked across an await.
     held_requests: Mutex<HashMap<QuestionId, HeldRequest>>,
+    // Told each time a request is held or a question's record lands, so a test awaits either
+    // instead of polling.
+    #[cfg(test)]
+    pub(super) held_or_recorded: tokio::sync::Notify,
+}
+
+/// The three ways a question's record is written: open, waiting for its run, or open where its
+/// run reads running and else waiting for it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum QuestionRecording {
+    /// Open.
+    Open,
+    /// Waiting for its run.
+    WaitingForRun,
+    /// Open, else, where the run does not read running, waiting for it.
+    OpenElseWaitingForRun,
 }
 
 impl QuestionsService {
@@ -186,6 +205,8 @@ impl QuestionsService {
             waits: PortRegistration::new("question waits"),
             question_lock: KeyedLock::new(),
             held_requests: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            held_or_recorded: tokio::sync::Notify::new(),
         }
     }
 
@@ -204,19 +225,24 @@ impl QuestionsService {
         question: ProviderQuestion,
         answered_by: HeldRequestAnswerer,
     ) -> Result<QuestionId, QuestionError> {
-        self.record_question(question, answered_by, QuestionAskedState::Open)
-            .await
+        let (question_id, _state) = self
+            .record(question, answered_by, QuestionRecording::Open)
+            .await?;
+        Ok(question_id)
     }
 
-    /// Records `question` as [`Self::take_question`] does when `state` is open; waiting for its
-    /// run, in a write of its own with the run unmoved, its request kept for the answer. Fails as
-    /// the draft, the move or the write fails.
-    pub(super) async fn record_question(
+    /// Records `question` under a minted id as `recording` names, holding its request, where its
+    /// agent waits or it waits for its run, from before its record's write: a withdrawal that
+    /// lands meanwhile finds the hold, waits on this question's lock for the record, and settles
+    /// it. A refused open falls back to the waiting record under the same id and lock, its hold
+    /// kept. Answers the id and the state recorded; fails as the draft, the move or the write
+    /// fails, the hold let go.
+    pub(super) async fn record(
         &self,
         question: ProviderQuestion,
         answered_by: HeldRequestAnswerer,
-        state: QuestionAskedState,
-    ) -> Result<QuestionId, QuestionError> {
+        recording: QuestionRecording,
+    ) -> Result<(QuestionId, QuestionAskedState), QuestionError> {
         let ProviderQuestion {
             session_id,
             run_id,
@@ -229,21 +255,95 @@ impl QuestionsService {
         })?;
         let question_id =
             QuestionId::try_from(mint_uuid_v7()).expect("a minted UUID is in a question id's form");
-        let asked = QuestionAskedPayload::Run(RunQuestionAskedPayload {
-            question_id,
+        let asked = |state| {
+            QuestionAskedPayload::Run(RunQuestionAskedPayload {
+                question_id,
+                session_id,
+                run_id,
+                state,
+                wait_id: None,
+                is_agent_waiting,
+                questions: questions.clone(),
+            })
+        };
+        let is_run_moved = |state| is_agent_waiting && state == QuestionAskedState::Open;
+        let held = HeldRequest {
             session_id,
             run_id,
-            state,
-            wait_id: None,
-            is_agent_waiting,
-            questions,
-        });
+            request_id,
+            answered_by,
+            is_recorded: false,
+        };
+        let _question_hold = self.question_lock.acquire(question_id).await;
+        let mut state = match recording {
+            QuestionRecording::Open | QuestionRecording::OpenElseWaitingForRun => {
+                QuestionAskedState::Open
+            }
+            QuestionRecording::WaitingForRun => QuestionAskedState::WaitingForRun,
+        };
+        // Taken before the read of settled holds, which keeps a hold whose record is unwritten.
+        if is_agent_waiting || state == QuestionAskedState::WaitingForRun {
+            self.hold_request(question_id, held);
+        }
+        let mut recorded = match self.forget_settled_requests().await {
+            Ok(()) => {
+                self.write_record(asked(state), session_id, run_id, is_run_moved(state))
+                    .await
+            }
+            Err(failure) => Err(failure),
+        };
+        if recording == QuestionRecording::OpenElseWaitingForRun
+            && matches!(
+                recorded,
+                Err(QuestionError::Engine(RunEngineError::Refused(_)))
+            )
+        {
+            // The run does not read running, so the question waits for it.
+            state = QuestionAskedState::WaitingForRun;
+            recorded = self
+                .write_record(asked(state), session_id, run_id, is_run_moved(state))
+                .await;
+        }
+        if let Err(failure) = recorded {
+            self.forget_held_request(&question_id);
+            return Err(failure);
+        }
+        if let Some(held) = lock(&self.held_requests).get_mut(&question_id) {
+            held.is_recorded = true;
+        }
+        #[cfg(test)]
+        self.held_or_recorded.notify_waiters();
+        Ok((question_id, state))
+    }
+
+    // Writes `asked`'s record, in session `session_id`: where `is_run_moved`, in the write that
+    // moves run `run_id` from `running` to `waitingForInput`; else in a write of its own.
+    async fn write_record(
+        &self,
+        asked: QuestionAskedPayload,
+        session_id: SessionId,
+        run_id: RunId,
+        is_run_moved: bool,
+    ) -> Result<(), QuestionError> {
         let insert = insert_question_statement(&asked);
         let event = SessionEventDraft::of_session(session_id, &SessionEvent::QuestionAsked(asked))?;
-        let _question_hold = self.question_lock.acquire(question_id).await;
-        self.forget_settled_requests().await?;
-        let is_waiting_for_run = state == QuestionAskedState::WaitingForRun;
-        if !is_agent_waiting || is_waiting_for_run {
+        if is_run_moved {
+            self.engine
+                .transition(
+                    RunStateChange {
+                        expected_state: Some(RunState::Running),
+                        ..RunStateChange::new(run_id, RunStateEntry::WaitingForInput)
+                    },
+                    RunStateChangeCompanions {
+                        statements: vec![insert],
+                        preceding_events: vec![event],
+                        ..RunStateChangeCompanions::default()
+                    },
+                )
+                .await
+                .map(drop)
+                .map_err(Into::into)
+        } else {
             self.appender
                 .append(
                     event,
@@ -252,50 +352,18 @@ impl QuestionsService {
                         ..SessionEventLinkage::default()
                     },
                 )
-                .await?;
-            if is_waiting_for_run {
-                self.hold_request(
-                    question_id,
-                    HeldRequest {
-                        session_id,
-                        run_id,
-                        request_id,
-                        answered_by,
-                    },
-                );
-            }
-            return Ok(question_id);
+                .await
+                .map(drop)
+                .map_err(Into::into)
         }
-        self.engine
-            .transition(
-                RunStateChange {
-                    expected_state: Some(RunState::Running),
-                    ..RunStateChange::new(run_id, RunStateEntry::WaitingForInput)
-                },
-                RunStateChangeCompanions {
-                    statements: vec![insert],
-                    preceding_events: vec![event],
-                    ..RunStateChangeCompanions::default()
-                },
-            )
-            .await?;
-        self.hold_request(
-            question_id,
-            HeldRequest {
-                session_id,
-                run_id,
-                request_id,
-                answered_by,
-            },
-        );
-        Ok(question_id)
     }
 
     /// Cancels the open question the provider asked under `withdrawal`'s request, in the write
     /// that moves its run back to `running`, or in a write of its own while it waits for its run:
-    /// `interrupted` when the run has an interrupt recorded, else `withdrawn`. A request no open or
-    /// waiting question holds, its question answered or settled by its run's end, is left as it
-    /// is. Fails as the read or the move fails, the question left as it was.
+    /// `interrupted` when the run has an interrupt recorded, else `withdrawn`. A question whose
+    /// record is still being written is canceled once it lands. A request no open or waiting
+    /// question holds, its question answered or settled by its run's end, or its record's write
+    /// failed, is left as it is. Fails as the read or the move fails, the question left as it was.
     pub(crate) async fn withdraw_question(
         &self,
         withdrawal: ProviderQuestionWithdrawal,
@@ -382,9 +450,14 @@ impl QuestionsService {
     }
 
     // Lets go every held request whose question a run's end settled with no word from its driver,
-    // so the map holds only open questions. A request taken after the read is kept.
+    // so the map holds only open questions. A request taken after the read, or whose question's
+    // record is still being written, is kept.
     async fn forget_settled_requests(&self) -> Result<(), QuestionError> {
-        let held: Vec<QuestionId> = lock(&self.held_requests).keys().copied().collect();
+        let held: Vec<QuestionId> = lock(&self.held_requests)
+            .iter()
+            .filter(|(_, held)| held.is_recorded)
+            .map(|(question_id, _)| *question_id)
+            .collect();
         if held.is_empty() {
             return Ok(());
         }
@@ -415,6 +488,8 @@ impl QuestionsService {
     /// Keeps `held`, the request `question_id`'s answer goes back under, until it settles.
     fn hold_request(&self, question_id: QuestionId, held: HeldRequest) {
         lock(&self.held_requests).insert(question_id, held);
+        #[cfg(test)]
+        self.held_or_recorded.notify_waiters();
     }
 
     /// The request `question_id`'s answer goes back under, while it is held.

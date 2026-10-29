@@ -12,11 +12,12 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
-use crate::driver::codex::delivery::memory::{CodexChildRun, CodexSpawnCall, CodexStartedChildRun};
+use crate::driver::codex::delivery::memory::{CodexBoundChildRun, CodexChildRun, CodexSpawnCall};
 use crate::driver::codex::delivery::reviewer::end_codex_review_turn;
 use crate::driver::codex::delivery::rows::CodexRowRun;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::turn_evidence::{CodexTurnStatus, compose_codex_child_terminal};
+use crate::driver::run_control::HelperStopReason;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::DeliveryOperation;
 use crate::run::delivery::LateAppendableRow;
@@ -26,10 +27,10 @@ use crate::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
 pub(crate) enum ChildRunLookup {
     /// No helper of the session runs on it.
     NotAHelper,
-    /// A helper whose start was absorbed or refused, so no run owns its rows.
+    /// A helper whose start was absorbed, so no run owns its rows.
     Unstarted,
-    /// A helper's started child run.
-    Started {
+    /// A helper's child run, which owns its rows: started, or refused and ended, absorbing them.
+    Bound {
         /// The child run its rows go on.
         run: CodexRowRun,
         /// The event of its `subagent.started` row, which a flag about its turns points at.
@@ -71,17 +72,17 @@ impl CodexSessionRecord {
         let Some(child) = self.delivery.child_run_by_thread_id.get(thread_id) else {
             return ChildRunLookup::NotAHelper;
         };
-        let Some(started) = &child.started else {
+        let Some(bound) = &child.bound else {
             return ChildRunLookup::Unstarted;
         };
-        ChildRunLookup::Started {
+        ChildRunLookup::Bound {
             run: CodexRowRun {
                 session_id: self.session_id,
-                run_id: started.child_run_id,
+                run_id: bound.child_run_id,
                 agent_id: child.agent_id,
                 binding_id: child.binding_id.clone(),
             },
-            start_row_event_id: started.start_row_event_id.clone(),
+            start_row_event_id: bound.start_row_event_id.clone(),
         }
     }
 }
@@ -123,7 +124,7 @@ impl CodexFrameDelivery {
                 Some(spawn_call.run.run_id),
             )
         } else if let Some(parent) = parent_child {
-            let parent_run_id = parent.started.map(|started| started.child_run_id);
+            let parent_run_id = parent.bound.map(|bound| bound.child_run_id);
             (parent.agent_id, parent.binding_id, parent_run_id)
         } else {
             let Some((lead_run_id, lead)) = record.sole_active_run().and_then(|run_id| {
@@ -134,14 +135,14 @@ impl CodexFrameDelivery {
             (lead.agent_id, lead.binding_id, Some(lead_run_id))
         };
         let mut child = CodexChildRun {
-            started: None,
+            bound: None,
             agent_id,
             binding_id,
             subagent_id,
             parent_tool_call_id: spawn_call.map(|call| call.tool_call_id),
         };
         if let Some(parent_run_id) = parent_run_id {
-            child.started = self
+            child.bound = self
                 .deliver_child_start(record, child_thread_id, &child, parent_run_id)
                 .await;
         }
@@ -174,7 +175,7 @@ impl CodexFrameDelivery {
             .and_then(serde_json::Value::as_str)
             .and_then(CodexTurnStatus::read)
             == Some(CodexTurnStatus::Interrupted);
-        if let ChildRunLookup::Started {
+        if let ChildRunLookup::Bound {
             run,
             start_row_event_id,
         } = record.child_run_on(child_thread_id)
@@ -202,18 +203,18 @@ impl CodexFrameDelivery {
         else {
             return;
         };
-        let Some(started) = child.started.clone() else {
+        let Some(bound) = child.bound.clone() else {
             return;
         };
         record
             .delivery
             .child_thread_id_by_run_id
-            .remove(&started.child_run_id);
+            .remove(&bound.child_run_id);
         let completed = LateAppendableRow::AgentSubagentCompleted(subagent_row(
             record,
             &child,
-            started.parent_run_id,
-            Some(started.child_run_id),
+            bound.parent_run_id,
+            Some(bound.child_run_id),
         ));
         let row = InboundDelivery::SessionRow {
             binding: DeliveryBinding {
@@ -225,7 +226,7 @@ impl CodexFrameDelivery {
         };
         self.send(record, row, "turn/completed").await;
         let change = compose_codex_child_terminal(
-            started.child_run_id,
+            bound.child_run_id,
             turn_params.get(),
             &mut self.lock_diagnostics(),
         );
@@ -245,15 +246,17 @@ impl CodexFrameDelivery {
     }
 
     // The child run and its `subagent.started` row, which names the child run the engine started
-    // first; the child's start once the run engine started it, `None` when it absorbed or refused
-    // it.
+    // first; the child's start once the run engine started or refused it, `None` when it absorbed
+    // it. A refused helper keeps its ended run, which absorbs its rows, and its running turn is
+    // interrupted, as each turn it starts after is, and its tool calls are denied with the
+    // refusal's sentence.
     async fn deliver_child_start(
         &self,
         record: &mut CodexSessionRecord,
         child_thread_id: &str,
         child: &CodexChildRun,
         parent_run_id: RunId,
-    ) -> Option<CodexStartedChildRun> {
+    ) -> Option<CodexBoundChildRun> {
         let start = InboundDelivery::ChildRun {
             binding: DeliveryBinding {
                 binding_id: child.binding_id.clone(),
@@ -266,7 +269,24 @@ impl CodexFrameDelivery {
         };
         let child_run_id = match self.send(record, start, "thread/started").await {
             Some(InboundOutcome::ChildRunStarted { run_id }) => Some(run_id),
-            _ => None,
+            Some(InboundOutcome::ChildRunRefused { run_id, reason }) => {
+                self.dependencies.stopped_helpers.stop_running(
+                    record,
+                    child_thread_id,
+                    HelperStopReason::SetupRefused { refusal: reason },
+                );
+                Some(run_id)
+            }
+            Some(
+                InboundOutcome::TurnOpened
+                | InboundOutcome::Transitioned { .. }
+                | InboundOutcome::Published
+                | InboundOutcome::AskAdmitted
+                | InboundOutcome::Appended { .. }
+                | InboundOutcome::AppendedStamped { .. }
+                | InboundOutcome::Absorbed { .. },
+            )
+            | None => None,
         };
         let started_row = InboundDelivery::SessionRow {
             binding: DeliveryBinding {
@@ -290,7 +310,7 @@ impl CodexFrameDelivery {
             .delivery
             .child_thread_id_by_run_id
             .insert(child_run_id, child_thread_id.to_owned());
-        Some(CodexStartedChildRun {
+        Some(CodexBoundChildRun {
             child_run_id,
             parent_run_id,
             start_row_event_id,
@@ -320,3 +340,6 @@ fn subagent_row(
         source_position: None,
     }
 }
+
+#[cfg(test)]
+mod tests;

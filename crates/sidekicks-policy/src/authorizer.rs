@@ -128,6 +128,20 @@ impl Authorizer {
         Self::load(BUILT_IN_SCHEMA, BUILT_IN_RULE_FILES)
     }
 
+    /// Loads `rule_text` in place of the built-in rules, checked against the built-in schema, for
+    /// a test that decides by rules the daemon does not ship. Fails as [`Self::load_built_in`]
+    /// does.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn load_test_rules(rule_text: &str) -> Result<Self, RulesLoadError> {
+        Self::load(
+            BUILT_IN_SCHEMA,
+            &[RuleFile {
+                name: "test.cedar",
+                text: rule_text,
+            }],
+        )
+    }
+
     /// Parses `schema_text` and `rule_files`, each file alone so a failure names it, then checks
     /// the rules against the schema strictly. Fails with a [`RulesLoadError`] when the schema does
     /// not parse or warns, a file does not parse, or a rule does not check.

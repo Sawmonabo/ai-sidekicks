@@ -59,7 +59,7 @@ use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::stored_column::{closed_word, text_column};
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::events::log_service::EventAppendError;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
@@ -74,6 +74,7 @@ use tokio::task::JoinError;
 use crate::refusals::{
     approval_rule_already_revoked, approval_rule_not_found, approval_rule_revoke_not_kept,
 };
+use crate::request_create::ToolServerTool;
 use crate::store::{StoredApprovalRequest, remembered_scope_statement};
 
 /// The distinct statements [`ApprovalRules`] prepares, for the reading connection's statement
@@ -159,6 +160,8 @@ struct RuleRow {
     scope: ApprovalScope,
     granted_at: WireInstant,
     is_daemon_kept: bool,
+    // The tool server's tool a step's card named apart, on which its rule keys beside its words.
+    tool_server_tool: Option<ToolServerTool>,
 }
 
 // The rule a row selected with `RULE_SELECT_LIST_SQL` names.
@@ -167,7 +170,8 @@ const RULE_SELECT_LIST_SQL: &str = "remembered.session_id,
        json_extract(remembered.payload, '$.rememberedScope') AS remembered_scope,
        json_extract(request.resource_descriptor, '$.action') AS action,
        request.category, request.scope, remembered.occurred_at AS granted_at,
-       request.ask_id IS NULL AS is_daemon_kept";
+       request.ask_id IS NULL AS is_daemon_kept,
+       json_extract(request.resource_descriptor, '$.toolServerTool') AS tool_server_tool";
 
 // A rule whose ask's row still stands, names the action the rule covers, and whose event lies
 // outside every range its session skipped as damaged.
@@ -324,21 +328,23 @@ impl ApprovalRules {
         }
     }
 
-    /// The rule in force on the session over `subject` for an action of kind `action`, among the
-    /// rules the daemon keeps alone when `is_daemon_kept` and else among those its providers keep,
-    /// or `None` when none is; a block over the subject outranks an allow. Fails as the read fails.
+    /// The rule in force on the session over `subject` for an action of kind `action`, and over
+    /// `tool_server_tool` where a step's tool call names one, among the rules the daemon keeps
+    /// alone when `is_daemon_kept` and else among those its providers keep, or `None` when none
+    /// is; a block over the subject outranks an allow. Fails as the read fails.
     pub(crate) async fn find_rule(
         &self,
         session_id: SessionId,
         action: ProviderAskActionKind,
         subject: &str,
+        tool_server_tool: Option<&ToolServerTool>,
         is_daemon_kept: bool,
     ) -> Result<Option<ProviderAskRule>, ApprovalRuleError> {
         let mut in_force = self
             .read_rule_rows(&SELECT_RULES_IN_FORCE_SQL, session_id)
             .await?;
         in_force.retain(|row| row.is_daemon_kept == is_daemon_kept);
-        Ok(rule_over(&in_force, action, subject))
+        Ok(rule_over(&in_force, action, subject, tool_server_tool))
     }
 
     /// The rules in force on the session, as the inspector lists them, oldest first, read with the
@@ -428,6 +434,7 @@ impl ApprovalRules {
                 row.is_daemon_kept == is_daemon_kept
                     && standing.kind == rule.kind
                     && stands_over_one_subject(&standing, rule)
+                    && row.tool_server_tool == request.resource_descriptor.tool_server_tool
             })
             .collect();
         if let Err(record_failure) = self.record_remembered(&hold, request, rule).await {
@@ -741,14 +748,17 @@ fn revoked_payload(
     }
 }
 
-// The rule among `rules` over `subject` for an action of kind `action`; a block outranks an allow.
+// The rule among `rules` over `subject` and `tool_server_tool` for an action of kind `action`; a
+// block outranks an allow.
 fn rule_over(
     rules: &[RuleRow],
     action: ProviderAskActionKind,
     subject: &str,
+    tool_server_tool: Option<&ToolServerTool>,
 ) -> Option<ProviderAskRule> {
     let mut matching = rules
         .iter()
+        .filter(|row| row.tool_server_tool.as_ref() == tool_server_tool)
         .map(provider_rule_of)
         .filter(|rule| rule.action == action && rule.subject == subject);
     let first = matching.next()?;
@@ -805,7 +815,7 @@ fn read_rule(
         .prepare_cached(&SELECT_RULE_SQL)?
         .query_row(
             named_params! { "@rule_id": rule_id.text().as_str() },
-            |row| Ok((rule_row_of(row)?, row.get::<_, bool>(8)?)),
+            |row| Ok((rule_row_of(row)?, row.get::<_, bool>(9)?)),
         )
         .optional()
 }
@@ -826,6 +836,7 @@ fn rule_row_of(row: &Row<'_>) -> rusqlite::Result<RuleRow> {
         scope: text_column(row, 5, ApprovalScope::new)?,
         granted_at: text_column(row, 6, WireInstant::try_from)?,
         is_daemon_kept: row.get(7)?,
+        tool_server_tool: optional_text_column(row, 8, |text| serde_json::from_str(&text))?,
     })
 }
 

@@ -10,6 +10,7 @@ mod ending;
 mod host;
 mod limits;
 mod live;
+mod provider_started;
 mod running_wait;
 mod settle;
 mod start;
@@ -38,14 +39,16 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::run::delivery::RunMarker;
+use sidekicks_provider::run::delivery::{RunMarker, RunSetupRefusal};
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use sidekicks_std::mutex_lock::lock;
 #[cfg(any(test, feature = "test-support"))]
 use sidekicks_std::pause_point::PausePoint;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
-use sidekicks_store::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::log_service::{EventLogAppendReceipt, EventLogService};
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
@@ -68,8 +71,9 @@ use crate::run::engine::live::{ContinuingRun, LiveRuns, ProviderChangeGuard, Sta
 use crate::run::engine::turns::{TurnEnd, WriteWithResend};
 use crate::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
 use crate::run::provider_choice::held::HeldChoiceAnswers;
-use crate::run::read::{RunRead, read_run_through, safe_run_version};
+use crate::run::read::{RunRead, RunStateReader, read_run_through, safe_run_version};
 use crate::run::refusals::{RunRefusal, ended_run_refusal};
+use crate::run::session_posture::SessionPostureSource;
 use crate::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateChangeWriter,
 };
@@ -83,14 +87,27 @@ use crate::run::state_change::{
 /// one, the two agent reads, and the run end's reads of its held questions open or waiting for it
 /// (`UNSETTLED_HELD_OF_RUN_SQL`), its plans still holding a request (its plan holds' read) and its
 /// open choices (the newest request of each dialog and whether it was settled since), and a
-/// driver's read of a session's stored leg (the session's runs and their bindings).
-pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 22 + RUN_AGENT_STATEMENT_CAPACITY;
+/// driver's read of a session's stored leg (the session's runs and their bindings), and whether a
+/// run ended at its setup.
+pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 23 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
 
 // The guard on the version a live append was built from is the first statement of its write.
 const LIVE_APPEND_VERSION_GUARD_INDEX: usize = 0;
+
+/// How the start of a run its provider started beneath a live parent went: running at its
+/// session's posture, or refused at its setup and ended `failed`, the subagent left for its driver
+/// to stop.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SubagentRunStart {
+    /// The run is `running`, stamped with the posture its gates resolved.
+    Running(RunId),
+    /// A setup gate refused the run, which ended `failed` with no posture stamped, for the
+    /// refusal its failure cause records.
+    Refused(RunId, RunSetupRefusal),
+}
 
 /// Where an interrupt of a run goes: claimed by the engine for a run no driver has, whose end is
 /// left to the interrupt's own outcome; to the driver, which has the run to stop; or nowhere, the
@@ -127,6 +144,13 @@ pub enum RunEngineError {
         /// The gate's failure.
         #[source]
         source: Box<RunSetupGateError>,
+    },
+    /// A run its provider started has no session posture to run at: no source was handed to
+    /// the engine, the source is gone, or the run's session has no open process.
+    #[error("run {run_id} has no posture of its session's open process to run at")]
+    NoSessionPosture {
+        /// The run.
+        run_id: RunId,
     },
     /// The run passed its gates with no posture resolved for it.
     #[error("run {run_id} passed its gates with no resolved posture")]
@@ -316,6 +340,9 @@ pub struct RunEngine {
     // The run queue, whose hold of a person's interrupt a run's end or a turn's end lets go once it
     // settles that interrupt; held weakly, as the queue holds the engine.
     interrupt_queue: SetOnce<Weak<dyn InterruptQueue>>,
+    // Where a run its provider started reads the posture its session's open process runs at; held
+    // weakly, as that source reaches the engine through the drivers' ports.
+    session_postures: SetOnce<Weak<dyn SessionPostureSource>>,
     live: Mutex<LiveRuns>,
     // Where a test holds a limit stop once its cut is in and before it reads whether its turn is
     // still open.
@@ -361,6 +388,7 @@ impl RunEngine {
             held_choice_answers,
             limit_interrupter: SetOnce::new(),
             interrupt_queue: SetOnce::new(),
+            session_postures: SetOnce::new(),
             live: Mutex::new(LiveRuns::default()),
             #[cfg(test)]
             cut_pause: PausePoint::default(),
@@ -405,6 +433,16 @@ impl RunEngine {
         limit_interrupter: Weak<dyn LimitInterrupter>,
     ) -> Result<(), SetOnceError<Weak<dyn LimitInterrupter>>> {
         self.limit_interrupter.set(limit_interrupter)
+    }
+
+    /// Hands the engine the source of each open session's posture, which a run its provider starts
+    /// is gated at, once, while the daemon wires its services and before any provider runs. Fails
+    /// with the handle when one was handed already.
+    pub fn set_session_postures(
+        &self,
+        session_postures: Weak<dyn SessionPostureSource>,
+    ) -> Result<(), SetOnceError<Weak<dyn SessionPostureSource>>> {
+        self.session_postures.set(session_postures)
     }
 
     /// Adds a setup gate after those already registered; its terminal hook runs before theirs.
@@ -765,6 +803,21 @@ impl RunEngine {
 
     async fn read_run(&self, run_id: RunId) -> Result<Option<RunRead>, RunEngineError> {
         read_run_through(&self.pool, run_id).await
+    }
+
+    /// Whether `run_id` ended `failed` at its setup, before its provider started it, as a helper
+    /// the daemon refused after its provider started it does; `false` for a run with no row. Fails
+    /// as the read does.
+    pub(crate) async fn is_failed_at_setup(&self, run_id: RunId) -> Result<bool, RunEngineError> {
+        self.pool
+            .read(ReadLength::Short, move |reader| {
+                let runs = RunStateReader::new(reader);
+                let Some(run) = runs.read_run(&run_id)? else {
+                    return Ok(false);
+                };
+                Ok::<_, RunEngineError>(runs.is_failed_at_setup(&run.session_id, &run_id)?)
+            })
+            .await
     }
 
     /// The run `run_id` as it reads now; fails with [`RunRefusal::NotFound`] when it has no row,

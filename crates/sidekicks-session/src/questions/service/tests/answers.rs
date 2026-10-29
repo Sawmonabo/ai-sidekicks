@@ -5,15 +5,13 @@ use std::sync::Arc;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::question::{
-    QuestionAnswer, QuestionAskedState, QuestionId, QuestionSettledState,
-};
+use sidekicks_contracts::question::{QuestionAnswer, QuestionId, QuestionSettledState};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 
 use super::{RecordingTaskAnswer, SECRET, form_field_page, refusal_of, secret_page};
-use crate::questions::service::HeldRequestAnswerer;
 use crate::questions::service::test_fixture::{Fixture, HandedAnswers, choice_page};
+use crate::questions::service::{HeldRequestAnswerer, QuestionRecording};
 
 // A held question moves its run to `waitingForInput` with its record; its answer goes once to
 // whoever sends it on, the driver under the provider's request id or the tool-server task that
@@ -213,13 +211,14 @@ async fn an_answer_its_record_cannot_take_is_refused_with_nothing_sent(
         RefusedRecord::WaitingForRun => Some((
             fixture
                 .questions
-                .record_question(
+                .record(
                     fixture.question("request-1", json!([choice_page()]), true),
                     HeldRequestAnswerer::Driver,
-                    QuestionAskedState::WaitingForRun,
+                    QuestionRecording::WaitingForRun,
                 )
                 .await
-                .expect("the question is recorded"),
+                .expect("the question is recorded")
+                .0,
             "waitingForRun",
         )),
         RefusedRecord::Unknown => None,

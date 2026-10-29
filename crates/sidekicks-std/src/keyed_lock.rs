@@ -29,6 +29,9 @@ pub struct KeyedLock<Key> {
     canonical_key: fn(Key) -> Key,
     // Each key's queue, held by its holder and every waiter.
     queues: Mutex<HashMap<Key, Arc<tokio::sync::Mutex<()>>>>,
+    // Told each time a caller joins a key's queue, so a test awaits a waiter instead of polling.
+    #[cfg(any(test, feature = "test-support"))]
+    queue_joined: tokio::sync::Notify,
 }
 
 impl<Key: Eq + Hash + Clone> Default for KeyedLock<Key> {
@@ -49,6 +52,8 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
         Self {
             canonical_key,
             queues: Mutex::new(HashMap::new()),
+            #[cfg(any(test, feature = "test-support"))]
+            queue_joined: tokio::sync::Notify::new(),
         }
     }
 
@@ -63,6 +68,8 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
             queue: Some(Arc::clone(&queue)),
             guard: None,
         };
+        #[cfg(any(test, feature = "test-support"))]
+        self.queue_joined.notify_waiters();
         hold.guard = Some(queue.lock_owned().await);
         hold
     }
@@ -136,6 +143,23 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
         self.lock_queues()
             .get(&key)
             .map_or(0, |queue| Arc::strong_count(queue) - 1)
+    }
+
+    /// Waits until `requested_key`'s queue holds more handles than `handles`, a count
+    /// [`Self::queue_handle_count`] read, as once another caller joins its line; woken by each
+    /// caller that joins a queue, never by a timer.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn wait_for_queue_past(&self, requested_key: Key, handles: usize) {
+        loop {
+            let joined = self.queue_joined.notified();
+            let mut joined = std::pin::pin!(joined);
+            // Registered before the count is read, so a join after the read still wakes it.
+            joined.as_mut().enable();
+            if self.queue_handle_count(requested_key.clone()) > handles {
+                return;
+            }
+            joined.await;
+        }
     }
 
     fn lock_queues(&self) -> std::sync::MutexGuard<'_, HashMap<Key, Arc<tokio::sync::Mutex<()>>>> {

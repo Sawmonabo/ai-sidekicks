@@ -18,6 +18,7 @@ use crate::runtime_binding::store::mint_runtime_binding_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 mod bring_up;
+mod level_moves;
 mod naming;
 mod restarts;
 mod session_controls;

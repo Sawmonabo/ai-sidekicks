@@ -27,8 +27,8 @@ use sidekicks_contracts::session::id::SessionId;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
-    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription,
-    RespondToRequestParams, SessionProcessState, StartRunParams,
+    ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -311,8 +311,13 @@ pub trait ProviderDriver: Send + Sync {
     /// that start, which refuses it with the same code. Starts no process and reads nothing.
     fn check_lead_binding(&self, params: LeadBindingCheckParams) -> Result<(), DriverError>;
 
-    /// The provider's modes.
-    fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>>;
+    /// The levels the provider runs for a session's level control, as modes: read against the
+    /// model the params name on their account, or the current account where they name none; with
+    /// no model, the levels this system runs.
+    fn list_modes(
+        &self,
+        params: ListModesParams,
+    ) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>>;
 
     /// The driver's capability flags, tool declarations and provider version, read live.
     fn get_capabilities(&self) -> BoxFuture<'_, Result<GetCapabilitiesResult, DriverError>>;
@@ -397,11 +402,11 @@ pub trait ProviderDriver: Send + Sync {
     fn task_list_change<'call>(&self, call: &ToolCallRecord<'call>) -> Option<TaskListChange>;
 
     /// Stops a helper whose own run passed its token limit, alone, while its lead goes on: the
-    /// provider refuses the helper's next tool use with [`HELPER_TOKEN_LIMIT_REASON`], or ends
-    /// the helper's own turn where it cannot refuse one. Resolves once the provider has the
-    /// request.
+    /// provider refuses the helper's next tool use with [`HelperStopReason::TokenLimit`]'s
+    /// sentence, or ends the helper's own turn where it cannot refuse one. Resolves once the
+    /// provider has the request.
     ///
-    /// [`HELPER_TOKEN_LIMIT_REASON`]: crate::driver::run_control::HELPER_TOKEN_LIMIT_REASON
+    /// [`HelperStopReason::TokenLimit`]: crate::driver::run_control::HelperStopReason::TokenLimit
     fn stop_helper_at_token_limit(
         &self,
         params: HelperTokenLimitParams,
@@ -412,6 +417,11 @@ pub trait ProviderDriver: Send + Sync {
     /// state the driver holds, never a request, and never the requested level.
     fn observed_output_speed_for(&self, session_id: &SessionId)
     -> Option<ProviderOutputSpeedState>;
+
+    /// The level and session mode the provider itself moved the session's live process to, read
+    /// from its newest report; `None` with no live process, no report, or a report the daemon's
+    /// own move caused. A read of state the driver holds, never a request.
+    fn reported_level(&self, session_id: &SessionId) -> Option<ProviderReportedLevel>;
 
     /// The rows the driver declares on its provider's settings, each with its live value in every
     /// place, as `provider.list` serves them, `app_values` being the values the app stored for

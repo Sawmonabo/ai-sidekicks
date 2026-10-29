@@ -68,7 +68,9 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, insert_lead, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
+use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tempfile::TempDir;
 
 use super::{EMPTIED_RUN_DETAIL, RunQueue, RunQueueDeps};
@@ -76,7 +78,8 @@ use crate::changes::QueueChangeSignals;
 use crate::error::QueueError;
 use crate::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::provider_session::test_opening::{
-    RecordedProcessFollowing, record_first_provider_capabilities, test_opening_composer,
+    RecordedProcessFollowing, record_first_provider_capabilities, test_execution_postures,
+    test_git_folder_reader, test_opening_composer,
 };
 use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
 use crate::run_token_limit::RunTokenLimitReader;
@@ -309,12 +312,17 @@ fn queue_over(
     ));
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&pool),
-        writer: Arc::clone(&log.writer),
+        appender: Arc::new(SessionEventAppender::new(
+            Arc::clone(&log.service),
+            SESSION_EVENT_VERSION.clone(),
+        )),
         binding_cursors,
         providers: Arc::clone(&providers),
         compose_opening: test_opening_composer(),
+        read_git_folder: test_git_folder_reader(),
         transition_lock: Arc::new(KeyedLock::new()),
         process_follower: Arc::new(RecordedProcessFollowing::default()),
+        execution_postures: test_execution_postures(),
     }));
     let memory_gate = Arc::new(MemoryGate::new(
         MemoryGateFigures {

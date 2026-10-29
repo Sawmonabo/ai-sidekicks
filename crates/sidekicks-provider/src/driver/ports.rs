@@ -31,6 +31,7 @@ use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::port::run_pause::{ContinuedMessages, RunPauses};
 use crate::port::session_advisor_store::SessionAdvisorStore;
+use crate::port::session_level_follower::SessionLevelFollower;
 use crate::port::session_resume_reader::SessionResumeReader;
 use crate::port::session_rules::SessionRulePort;
 use crate::port::session_wake::SessionWaker;
@@ -180,6 +181,8 @@ pub struct DriverPorts {
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
     /// The one callback-tool dispatcher, which each spawn's callback tools are bound through.
     pub callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
+    /// The daemon's follow of a level or mode a provider reported running.
+    pub session_level_followers: Arc<PortRegistration<Arc<dyn SessionLevelFollower>>>,
     /// The pause and continue of runs.
     pub run_pauses: Arc<PortRegistration<Arc<dyn RunPauses>>>,
     /// The messages waiting for paused runs, as the run queue holds them.
@@ -224,6 +227,7 @@ impl DriverPorts {
             in_process_tool_servers: Arc::new(PortRegistration::new("in-process tool servers")),
             tool_server_route: Arc::new(PortRegistration::new("tool server route")),
             callback_tool_host: Arc::new(PortRegistration::new("callback tool host")),
+            session_level_followers: Arc::new(PortRegistration::new("session level followers")),
             run_pauses: Arc::new(PortRegistration::new("run pauses")),
             continued_messages: Arc::new(PortRegistration::new("continued messages")),
         }

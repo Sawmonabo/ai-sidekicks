@@ -1,5 +1,5 @@
 //! The session controls that run beside a session's own turns, reached through the driver: a side
-//! question, a review, a mode move, a run started through the driver interface and a fork.
+//! question, a review, a run started through the driver interface and a fork.
 
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
-    PermissionLevel, SessionMode, SessionReviewTarget, SideQuestionId,
+    PermissionLevel, SessionReviewTarget, SideQuestionId,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::BoolLiteral;
@@ -20,11 +20,13 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_workspace::git::process::test_git_runner;
+use sidekicks_workspace::git::process::test_repository::make_test_repository;
 
 use super::{resume_params, start_params};
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::lifecycle::ClaudeDriver;
-use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
+use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{
     ScriptedDriver, create_params, end_turn_of,
 };
@@ -45,7 +47,6 @@ use crate::driver::contract::params_and_results::RunOpeningItem;
 use crate::driver::run_control::InterruptRunRequest;
 use crate::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, MoveSessionToForkParams,
-    UpdateSessionModeParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
@@ -187,26 +188,54 @@ async fn a_queued_review_runs_claude_codes_review_as_the_queues_run(
     assert_eq!(review_starts.len(), 1);
 }
 
-// Killed by answering Claude Code's refusal of a mode as an internal failure.
-#[tokio::test(start_paused = true)]
-async fn a_mode_claude_code_refuses_is_refused_as_not_offered() {
+// Killed by a staged review whose one-turn process asks for a mode of its own, Plan or any
+// other, in place of its level's.
+#[tokio::test]
+async fn a_staged_reviews_process_runs_in_its_levels_own_mode() {
     let fixture = ScriptedDriver::new();
-    let channel = Arc::new(ScriptedChannel::default());
-    let session_id = fixture.create(&channel).await;
-    channel.answer("set_permission_mode", ScriptedAnswer::Refused);
-
-    let moved = fixture
-        .driver
-        .update_session_mode(UpdateSessionModeParams {
-            session_id,
-            mode: SessionMode::Plan,
-        })
-        .await;
-
-    let Err(DriverError::Refused(refusal)) = moved else {
-        panic!("a refused mode is refused, not {moved:?}");
+    let git = test_git_runner();
+    // The review's worktree is made from the session's working folder, so it is a repository.
+    make_test_repository(&git, fixture.folder.path(), "work").await;
+    fixture
+        .services
+        .ports
+        .command_output
+        .register(unbound_running_command_sets())
+        .expect("the running commands register once");
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    offer_review_skill(&fixture, session_id);
+    fixture.starts.script_one_turn(ClaudeOneTurnReply {
+        provider_message_id: Some("review".to_owned()),
+        ..one_turn_reply("Nothing to change.", None)
+    });
+    let run_id = new_run_id();
+    let mut params = start_params(session_id, run_id);
+    params.opening.item = RunOpeningItem::Review {
+        target: SessionReviewTarget::Staged,
     };
-    assert_eq!(refusal.code, RefusalCode::SessionModeNotOffered);
+
+    fixture
+        .driver
+        .start_run(params)
+        .await
+        .expect("the review starts");
+    ScriptedDriver::wait_for(|| {
+        fixture.engine.moves_of_run(run_id).iter().any(|entry| {
+            matches!(
+                entry,
+                RunStateEntry::Completed { .. } | RunStateEntry::Failed { .. }
+            )
+        })
+    })
+    .await;
+
+    let modes: Vec<_> = fixture
+        .starts
+        .take_one_turns()
+        .into_iter()
+        .map(|one_turn| one_turn.permission_mode)
+        .collect();
+    assert_eq!(modes, [None]);
 }
 
 // Killed by a staged review whose process starts with no channel of its own, and by one that keeps
@@ -759,7 +788,8 @@ async fn a_turn_claude_code_started_while_the_close_drained_ends_as_intended() {
 
 // Killed by bringing the fork up on the step bound its predecessor started with rather than the
 // one the session holds at the fork: a limit changed after the predecessor started would never
-// reach the conversation that replaces it.
+// reach the conversation that replaces it. Killed too by a fork that asks for a mode of its own in
+// place of its level's.
 #[tokio::test(start_paused = true)]
 async fn a_fork_starts_on_the_step_bound_the_session_holds_at_its_bring_up() {
     let fixture = ScriptedDriver::new();
@@ -806,11 +836,11 @@ async fn a_fork_starts_on_the_step_bound_the_session_holds_at_its_bring_up() {
         .await
         .expect("the fork is answered");
 
-    let bounds: Vec<_> = fixture
+    let starts: Vec<_> = fixture
         .starts
         .take_started()
         .iter()
-        .map(|start| start.step_bound)
+        .map(|start| (start.step_bound, start.permission_mode))
         .collect();
-    assert_eq!(bounds, [Some(3), Some(7)]);
+    assert_eq!(starts, [(Some(3), None), (Some(7), None)]);
 }

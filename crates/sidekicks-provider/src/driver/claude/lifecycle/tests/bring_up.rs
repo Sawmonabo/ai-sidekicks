@@ -1,5 +1,5 @@
-//! Bringing a session's process up: a failed start, the model check, a resume's place in its
-//! conversation, and the handshake a resumed conversation reads.
+//! Bringing a session's process up: a failed start, the model check, the mode it starts in, a
+//! resume's place in its conversation, and the handshake a resumed conversation reads.
 
 use std::sync::Arc;
 
@@ -33,7 +33,9 @@ use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::LeadBindingCheckParams;
 use crate::driver::error_causes::ProviderAxis;
-use crate::driver::session_control::{CloseSessionParams, CreateSessionParams, DriverResumeResult};
+use crate::driver::session_control::{
+    CloseSessionParams, CreateSessionParams, DriverResumeResult, ResumeSessionParams,
+};
 use crate::driver::test_registry::new_session_id;
 use crate::run::posture::compose_execution_posture;
 
@@ -338,27 +340,41 @@ async fn a_resumed_conversation_reads_no_handshake_until_its_new_process_declare
 }
 
 // Killed by starting every process in its level's own mode, which drops a stored Plan until a
-// later move, and by naming Plan for a session in Build.
+// later move, and by naming Plan, or any other mode, for a session in Build.
 #[rstest]
 #[case::plan(SessionMode::Plan, Some(ClaudePermissionMode::Plan))]
 #[case::build(SessionMode::Build, None)]
 #[tokio::test(start_paused = true)]
-async fn a_new_session_starts_in_the_mode_it_stores(
+async fn a_session_starts_and_resumes_in_the_mode_it_stores(
     #[case] mode: SessionMode,
     #[case] permission_mode: Option<ClaudePermissionMode>,
+    #[values(false, true)] is_resume: bool,
 ) {
     let fixture = ScriptedDriver::new();
     let channel = Arc::new(ScriptedChannel::default());
     fixture.starts.script_session(Arc::clone(&channel));
+    let session_id = new_session_id();
 
-    fixture
-        .driver
-        .create_session(CreateSessionParams {
-            mode,
-            ..create_params(new_session_id())
-        })
-        .await
-        .expect("the session opens");
+    if is_resume {
+        let resumed = fixture
+            .driver
+            .resume_session(ResumeSessionParams {
+                mode,
+                ..resume_params(session_id)
+            })
+            .await
+            .expect("the resume answers");
+        assert!(matches!(resumed, DriverResumeResult::Resumed { .. }));
+    } else {
+        fixture
+            .driver
+            .create_session(CreateSessionParams {
+                mode,
+                ..create_params(session_id)
+            })
+            .await
+            .expect("the session opens");
+    }
 
     assert_eq!(fixture.next_start().await.permission_mode, permission_mode);
     let mode_requests = channel

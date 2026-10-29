@@ -214,6 +214,7 @@ impl PassFixture {
             &store.writer,
             &run_end_approvals,
             home.path(),
+            None,
         );
         let permission_asks = Arc::new(PermissionAsks::new(PermissionAsksDeps {
             reads: Arc::clone(&store.reads),

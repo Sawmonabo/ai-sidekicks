@@ -35,7 +35,7 @@ use sidekicks_platforms::{PathRules, Spawner};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
-use tokio::sync::SetOnce;
+use tokio::sync::{SetOnce, watch};
 
 use self::context::{ClaudeSpawnContextError, record_claude_resolved_advisor};
 use self::figures::ClaudeHeldFigures;
@@ -63,6 +63,10 @@ use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
 use crate::driver::claude::session::ignored_settings::find_ignored_setting_notice;
+use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
+use crate::driver::claude::session::permission_mode::{
+    ClaudePermissionModeRecord, follow_claude_reported_levels,
+};
 use crate::driver::claude::session::permissions::read_claude_session_rules;
 use crate::driver::claude::session::slots::{ClaudeSessionSlots, ClaudeSlotClaim};
 use crate::driver::claude::session::state::{
@@ -74,7 +78,9 @@ use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
-use crate::driver::claude::spawn::launch::bring_up::{ClaudeBringUpRequest, ClaudeSessionSpawn};
+use crate::driver::claude::spawn::launch::bring_up::{
+    ClaudeBringUpRequest, ClaudeSessionSpawn, claude_spawn_permission_mode,
+};
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
@@ -208,6 +214,8 @@ impl From<ClaudeEstablishmentError> for DriverError {
 pub(crate) struct ClaudeSpawnSources {
     /// The one thread every child is spawned from, which also checks the command sandbox.
     pub(crate) spawner: Spawner,
+    /// How the command sandbox is checked: the descriptor's check in production.
+    pub(crate) command_sandbox_check: ClaudeCommandSandboxCheck,
     /// Points the session's binding at the conversation it moved onto.
     pub(crate) runtime_bindings: Arc<dyn RuntimeBindingWriter>,
     /// The read pool, for the session's stored settings.
@@ -589,6 +597,14 @@ impl ClaudeSessionEstablishment {
                     return Err(ClaudeEstablishmentError::SessionRules(error));
                 }
             };
+        // A process starts in its level's own mode, so only Plan is named.
+        let requested_mode =
+            (session_mode == SessionMode::Plan).then_some(ClaudePermissionMode::Plan);
+        let permission_mode = Arc::new(ClaudePermissionModeRecord::new(
+            claude_spawn_permission_mode(requested_mode, legs.execution_posture.as_ref()),
+        ));
+        // Subscribed before any frame is read, so a report at start-up is followed once adopted.
+        let level_reports = permission_mode.report_changes();
         let (arrivals, receiver) = claude_session_arrivals(session_id);
         let stream = Arc::new(ClaudeSessionStream::new(
             provider_account_id.clone(),
@@ -596,6 +612,7 @@ impl ClaudeSessionEstablishment {
             arrivals.clone(),
             Arc::clone(&self.routes),
             Arc::clone(&self.prompts),
+            Arc::clone(&permission_mode),
         ));
         let mut band = ClaudeSessionRoutingBand::new();
         self.routing
@@ -630,9 +647,7 @@ impl ClaudeSessionEstablishment {
                     routes: Arc::clone(&self.routes),
                     session_id,
                 }),
-                // A process starts in its level's own mode, so only Plan is named.
-                permission_mode: (session_mode == SessionMode::Plan)
-                    .then_some(ClaudePermissionMode::Plan),
+                permission_mode: requested_mode,
                 messaging_socket: messaging_socket.as_deref(),
             })
             .await;
@@ -717,6 +732,7 @@ impl ClaudeSessionEstablishment {
                 ultracode_requested: ultracode,
                 ultracode: ultracode_reading.or(started.settings_readback.ultracode),
             }),
+            permission_mode,
             process_identity: started.identity,
             callback_tool_binding: callback_tools.into_shared(),
             process_exit: OnceLock::new(),
@@ -740,18 +756,21 @@ impl ClaudeSessionEstablishment {
             self.end_unadopted_live(&started, &live).await;
             return Err(ClaudeEstablishmentError::Closed);
         }
-        self.adopt(&live, stream, band, receiver, &started);
+        self.adopt(&live, stream, band, receiver, level_reports, &started);
         Ok(started.spawned_version)
     }
 
     // The adopted process's stream, task and notices; the helper limit counts the helpers its
-    // routing `band` holds, and an interrupt reads there the helpers the session waits on.
+    // routing `band` holds, and an interrupt reads there the helpers the session waits on. The
+    // follow of Claude Code's own mode moves reads `level_reports`, subscribed at the record's
+    // making.
     fn adopt(
         &self,
         live: &Arc<LiveClaudeSession>,
         stream: Arc<ClaudeSessionStream>,
         band: Arc<Mutex<ClaudeSessionRoutingBand>>,
         receiver: crate::driver::claude::session::arrivals::ClaudeArrivalReceiver,
+        level_reports: watch::Receiver<Option<ClaudePermissionMode>>,
         started: &ClaudeStartedSession,
     ) {
         let session_id = live.session_id;
@@ -791,6 +810,14 @@ impl ClaudeSessionEstablishment {
         tokio::spawn(async move {
             drain_claude_session_arrivals(receiver, &mut task, account).await;
         });
+        // No task tracker: the follow ends once the process's record drops at its close, as the
+        // arrivals drain ends with its queue.
+        tokio::spawn(follow_claude_reported_levels(
+            Arc::downgrade(&live.permission_mode),
+            level_reports,
+            session_id,
+            Arc::clone(&self.sources.ports.session_level_followers),
+        ));
         let cleanup_period_days = started.settings_readback.cleanup_period_days;
         tokio::spawn(async move {
             let managed_settings_folder = DESCRIPTOR.managed_settings_folder();

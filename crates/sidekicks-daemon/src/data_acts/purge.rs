@@ -15,11 +15,11 @@
 //!   then read again once, since the hold keeps any new append out. The writer's connection runs
 //!   with `secure_delete` on, so a freed page is overwritten.
 //! - After the commit the recovery state forgets the session's damage, the session reads let go of
-//!   its block cuts, the project's other sessions are handed their rules again, the live list
-//!   loses the session, the project list counts it no more, and each stored payload no surviving
-//!   manifest names is unlinked. Once every session is done the sessions they were linked to are
-//!   scored again, and the write-ahead log is truncated, tried again until it succeeds, even when
-//!   nothing was deleted.
+//!   its block cuts, the runs' postures forget its level moves, the project's other sessions are
+//!   handed their rules again, the live list loses the session, the project list counts it no
+//!   more, and each stored payload no surviving manifest names is unlinked. Once every session is
+//!   done the sessions they were linked to are scored again, and the write-ahead log is truncated,
+//!   tried again until it succeeds, even when nothing was deleted.
 
 pub(crate) mod rows;
 #[cfg(test)]
@@ -48,6 +48,7 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::damaged_history::DamagedSessionPurge;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_session::conversation_purge::{ConversationPurge, ConversationPurgeError};
@@ -205,6 +206,8 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) context_readings: Arc<ContextReadings>,
     /// The latest turn readings, which forget a purged session they kept as closed.
     pub(crate) turn_readings: Arc<TurnReadings>,
+    /// The runs' postures, which forget the level moves they kept for a purged session.
+    pub(crate) execution_postures: Arc<ExecutionPostureService>,
 }
 
 /// Deletes whole sessions.
@@ -329,6 +332,7 @@ impl SessionPurge {
         deps.sessions.forget_session_block_cuts(&session_id);
         deps.context_readings.forget_purged_session(session_id);
         deps.turn_readings.forget_purged_session(session_id);
+        deps.execution_postures.forget_session(&session_id);
         deps.list_feed.refresh([session_id]);
         deps.project_list_feed.refresh_sessions(&[session_id]);
         let hand_out_failure = deps

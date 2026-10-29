@@ -24,6 +24,7 @@ sidekicks-provider.workspace = true
 sidekicks-session.workspace = true
 sidekicks-std.workspace = true
 sidekicks-store.workspace = true
+sidekicks-workflow.workspace = true
 sidekicks-workspace.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
@@ -34,6 +35,8 @@ tracing.workspace = true
 rstest.workspace = true
 # The folder links the tests make.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
+# The rules a test decides workflow starts by in place of the built-in ones.
+sidekicks-policy = { workspace = true, features = ["test-support"] }
 # The test driver registry, the mock driver and the unanswered driver error the tests build on.
 sidekicks-provider = { workspace = true, features = ["test-support"] }
 # The run engine and a run's stored state the tests build on.

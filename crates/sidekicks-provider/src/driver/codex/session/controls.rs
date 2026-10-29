@@ -304,6 +304,7 @@ mod tests {
         let params = UpdatePermissionLevelParams {
             session_id: session.task.record.session_id,
             execution_posture: handed.clone(),
+            is_provider_reported: false,
         };
         let config_forks = Arc::clone(&session.task.calls.runs.config_forks);
         let record = &mut session.task.record;

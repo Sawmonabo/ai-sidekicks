@@ -27,6 +27,7 @@ use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::registry::{ProviderRegistry, test_provider};
 use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_provider::driver::{PROVIDERS, ProviderRegistration};
+use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_session::conversation_purge::{
     CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge, ConversationPurgeError,
@@ -231,6 +232,10 @@ pub(crate) async fn test_purge(
         )),
         context_readings: Arc::new(ContextReadings::new(Arc::clone(&reads), &log.followers)),
         turn_readings: Arc::new(TurnReadings::new(reads, &log.followers)),
+        execution_postures: Arc::new(ExecutionPostureService::new(
+            home.path(),
+            home.path().join("daemon.token"),
+        )),
     });
     TestPurge {
         purge,

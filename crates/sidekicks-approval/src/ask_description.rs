@@ -91,6 +91,7 @@ pub(crate) fn describe_provider_ask(
             editable: action.corrected_subject().is_some(),
             action: Some(action.clone()),
             tool_name: Some(tool_name),
+            tool_server_tool: None,
             // A prompt with no text is no prompt.
             prompt: ask.prompt.clone().and_then(NonEmptyText::new),
         },
@@ -234,9 +235,9 @@ fn target_text_of(action: &ProviderAskAction) -> Cow<'_, str> {
     }
 }
 
-// `text` as the wire carries a scope or a subject: no NUL, cut to the bound on a whole character,
-// and `None` where nothing but white space is left.
-fn bounded_wire_text(text: &str) -> Option<ApprovalScope> {
+/// `text` as the wire carries a scope or a subject: no NUL, cut to the bound on a whole character,
+/// and `None` where nothing but white space is left.
+pub(crate) fn bounded_wire_text(text: &str) -> Option<ApprovalScope> {
     let without_nul = text.replace('\0', "");
     let bounded = cut_to_code_points(&without_nul, FILE_PATH_MAX_LEN);
     if bounded.chars().all(is_ecmascript_whitespace) {

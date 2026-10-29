@@ -36,6 +36,8 @@ sidekicks-session = { workspace = true, features = ["test-support"] }
 sidekicks-std = { workspace = true, features = ["test-support"] }
 # The test database and the session rows the tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }
+# The setup gate a level move's test passes a run through.
+sidekicks-workspace.workspace = true
 tempfile.workspace = true
 # The paused clock the memory gate's and the delivery's tests drive.
 tokio = { workspace = true, features = ["test-util"] }

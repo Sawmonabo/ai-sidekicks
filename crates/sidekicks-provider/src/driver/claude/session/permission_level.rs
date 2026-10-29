@@ -4,6 +4,7 @@
 //! all from the process's next request, with no relaunch.
 
 use std::collections::HashSet;
+use std::io;
 use std::path::Path;
 
 use serde_json::Value;
@@ -13,7 +14,7 @@ use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMo
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_platforms::{PathRules, Spawner};
+use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
@@ -22,6 +23,7 @@ use strum::VariantArray;
 use crate::driver::CommandSandboxAvailability;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::errors::{ClaudeSessionError, record_unheard_claude_failure};
+use crate::driver::claude::session::establishment::ClaudeSpawnSources;
 use crate::driver::claude::session::ignored_settings::{
     ClaudeSettingsReadError, find_claude_setting, read_claude_managed_setting,
 };
@@ -116,37 +118,69 @@ pub(crate) fn claude_permission_mode_for(level: Option<PermissionLevel>) -> Clau
     }
 }
 
-/// The levels a Claude Code session can run at on this system, each named by the mode it runs in;
-/// Sandboxed only where `can_run_sandbox`, the descriptor's command-sandbox check, holds.
-pub(crate) fn list_claude_modes(can_run_sandbox: bool) -> Vec<ProviderMode> {
+/// The level and session mode a permission mode runs, the inverse of
+/// [`claude_permission_mode_for`]: `plan` runs no level of its own and plans.
+pub(crate) fn claude_level_of_mode(
+    mode: ClaudePermissionMode,
+) -> (Option<PermissionLevel>, SessionMode) {
+    match mode {
+        ClaudePermissionMode::Default => (Some(PermissionLevel::Readonly), SessionMode::Build),
+        ClaudePermissionMode::AcceptEdits => (Some(PermissionLevel::Ask), SessionMode::Build),
+        ClaudePermissionMode::Auto => (Some(PermissionLevel::Reviewed), SessionMode::Build),
+        ClaudePermissionMode::DontAsk => (Some(PermissionLevel::Sandboxed), SessionMode::Build),
+        ClaudePermissionMode::BypassPermissions => {
+            (Some(PermissionLevel::Yolo), SessionMode::Build)
+        }
+        ClaudePermissionMode::Plan => (None, SessionMode::Plan),
+    }
+}
+
+/// The levels a Claude Code session is offered, each named by the mode it runs in: those `offers`
+/// holds for.
+pub(crate) fn list_claude_modes(offers: impl Fn(PermissionLevel) -> bool) -> Vec<ProviderMode> {
     PermissionLevel::VARIANTS
         .iter()
-        .filter(|&&level| is_offered_on_system(level, can_run_sandbox))
+        .filter(|&&level| offers(level))
         .map(|&level| ProviderMode {
             id: FreeFormText::new(<&str>::from(level).to_owned())
                 .expect("a level's name is a short word"),
-            name: FreeFormText::new(claude_permission_mode_name(claude_permission_mode_for(
-                Some(level),
-            )))
+            name: FreeFormText::new(
+                <&str>::from(claude_permission_mode_for(Some(level))).to_owned(),
+            )
             .expect("a permission mode's name is a short word"),
         })
         .collect()
 }
 
+/// How the driver checks whether Claude Code's command sandbox runs where a process environment
+/// and a working folder name; production's is [`check_claude_command_sandbox`].
+pub(crate) type ClaudeCommandSandboxCheck =
+    fn(&[(String, String)], &Path) -> io::Result<CommandSandboxAvailability>;
+
+/// The descriptor's check of Claude Code's command sandbox, which the driver runs in production.
+pub(crate) fn check_claude_command_sandbox(
+    environment: &[(String, String)],
+    working_folder: &Path,
+) -> io::Result<CommandSandboxAvailability> {
+    DESCRIPTOR.can_run_command_sandbox(environment, working_folder, &[])
+}
+
 /// Whether Claude Code's command sandbox runs in the place `spawn_environment` and
-/// `working_folder` name, checked on the spawner thread, which the namespace check needs. A check
-/// that fails is recorded, against `session_id` where one is named, and answers no, so Sandboxed is
-/// never offered on a guess.
+/// `working_folder` name, by the check `sources` carry, run on their spawner thread, which the
+/// namespace check needs. A check that fails is recorded, against `session_id` where one is named,
+/// and answers no, so Sandboxed is never offered on a guess.
 pub(crate) async fn read_claude_sandbox_support(
-    spawner: &Spawner,
+    sources: &ClaudeSpawnSources,
     spawn_environment: &[(String, String)],
     working_folder: &Path,
     session_id: Option<SessionId>,
 ) -> bool {
     let environment = spawn_environment.to_vec();
     let folder = working_folder.to_path_buf();
-    let checked = spawner
-        .run(move || DESCRIPTOR.can_run_command_sandbox(&environment, &folder, &[]))
+    let check = sources.command_sandbox_check;
+    let checked = sources
+        .spawner
+        .run(move || check(&environment, &folder))
         .await
         .and_then(|answer| answer);
     match checked {
@@ -180,28 +214,39 @@ pub(crate) fn can_run_claude_level(
         && (level != PermissionLevel::Reviewed || auto_mode_models.contains(running_model))
 }
 
+/// What a live level move left to tell the person.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ClaudeLevelMoved {
+    /// Claude Code reported running Sandboxed where the sandbox cannot start, so its commands
+    /// fail rather than run unsandboxed.
+    pub(crate) sandbox_unavailable: bool,
+}
+
 /// Moves a live session to the posture `params` names, at its level and writable roots: its
 /// permission mode, unless the session plans, then its whole permission rules with `session_rules`
 /// in force and its command sandbox, on at Sandboxed and removed at every other level, then the
 /// posture it runs at. Refused before anything is sent for a level the model or system cannot
-/// run.
+/// run. A move that follows a mode Claude Code reported running sends no mode and is never
+/// refused, since Claude Code runs it already; it takes that mode as the one the process runs,
+/// and at Sandboxed where the sandbox cannot start it answers `sandbox_unavailable`.
 pub(crate) async fn move_claude_permission_level(
     live: &LiveClaudeSession,
     params: &UpdatePermissionLevelParams,
     can_run_sandbox: bool,
     session_rules: &[ProviderAskRule],
     path_rules: PathRules,
-) -> Result<(), ClaudeLevelMoveError> {
+) -> Result<ClaudeLevelMoved, ClaudeLevelMoveError> {
     let posture = &params.execution_posture;
     let level = posture.permission_level();
     let (session_mode, is_runnable) = {
         let settings = lock(&live.settings);
-        let is_runnable = can_run_claude_level(
-            level,
-            &settings.running_model,
-            &live.initialize.auto_mode_models,
-            can_run_sandbox,
-        );
+        let is_runnable = params.is_provider_reported
+            || can_run_claude_level(
+                level,
+                &settings.running_model,
+                &live.initialize.auto_mode_models,
+                can_run_sandbox,
+            );
         (settings.session_mode, is_runnable)
     };
     if !is_runnable {
@@ -218,13 +263,15 @@ pub(crate) async fn move_claude_permission_level(
     )
     .map_err(ClaudePermissionsError::Compose)?;
     // A planning session stays in plan mode; the level's own mode returns when it builds again.
-    if session_mode == SessionMode::Build {
+    if session_mode == SessionMode::Build && !params.is_provider_reported {
+        let mode = claude_permission_mode_for(Some(level));
+        // Held until the reply, so the report the send causes is known as the daemon's own.
+        let send = live.permission_mode.begin_send(mode);
         live.channel
-            .send_control_request(ClaudeControlRequest::SetPermissionMode {
-                mode: claude_permission_mode_for(Some(level)),
-            })
+            .send_control_request(ClaudeControlRequest::SetPermissionMode { mode })
             .await
             .map_err(level_request_failure)?;
+        send.acknowledge();
     }
     live.channel
         .send_control_request(ClaudeControlRequest::ApplyFlagSettings {
@@ -244,7 +291,16 @@ pub(crate) async fn move_claude_permission_level(
         .await
         .map_err(level_request_failure)?;
     lock(&live.settings).execution_posture = Some(posture.clone());
-    Ok(())
+    if !params.is_provider_reported {
+        return Ok(ClaudeLevelMoved {
+            sandbox_unavailable: false,
+        });
+    }
+    live.permission_mode
+        .adopt_report(claude_permission_mode_for(Some(level)));
+    Ok(ClaudeLevelMoved {
+        sandbox_unavailable: level == PermissionLevel::Sandboxed && !can_run_sandbox,
+    })
 }
 
 // Claude Code's own refusal of a level's request refuses the level as not offered, in its words;
@@ -337,19 +393,18 @@ fn claude_starting_level(
 ) -> ClaudeStartingLevel {
     let (level, session_mode) = match default_mode {
         None => (PermissionLevel::Yolo, SessionMode::Build),
-        Some((source, mode)) => match (mode, source) {
-            ("acceptEdits", _) => (PermissionLevel::Ask, SessionMode::Build),
-            ("auto", ClaudeSettingsSource::Project) => (PermissionLevel::Yolo, SessionMode::Build),
-            ("auto", ClaudeSettingsSource::Managed | ClaudeSettingsSource::Person) => {
-                (PermissionLevel::Reviewed, SessionMode::Build)
-            }
-            ("dontAsk", _) => (PermissionLevel::Sandboxed, SessionMode::Build),
-            ("bypassPermissions", ClaudeSettingsSource::Managed | ClaudeSettingsSource::Person) => {
+        Some((source, mode)) => match (mode.parse::<ClaudePermissionMode>(), source) {
+            (Ok(ClaudePermissionMode::Auto), ClaudeSettingsSource::Project) => {
                 (PermissionLevel::Yolo, SessionMode::Build)
             }
-            ("plan", _) => (PermissionLevel::Readonly, SessionMode::Plan),
-            // `default`, `manual`, a project's `bypassPermissions` and any unknown mode.
-            (_, _) => (PermissionLevel::Readonly, SessionMode::Build),
+            // A project's `bypassPermissions` and any unknown mode start in the manual mode.
+            (Ok(ClaudePermissionMode::BypassPermissions), ClaudeSettingsSource::Project)
+            | (Err(_), _) => (PermissionLevel::Readonly, SessionMode::Build),
+            (Ok(mode), _) => {
+                let (level, session_mode) = claude_level_of_mode(mode);
+                // Plan runs no level of its own, so its session starts at the most careful.
+                (level.unwrap_or(PermissionLevel::Readonly), session_mode)
+            }
         },
     };
     let rank = PermissionLevel::VARIANTS
@@ -369,17 +424,10 @@ fn claude_starting_level(
     }
 }
 
-// Whether this system offers `level` at all: Sandboxed needs Claude Code's command sandbox.
-fn is_offered_on_system(level: PermissionLevel, can_run_sandbox: bool) -> bool {
+/// Whether this system offers `level` at all: Sandboxed needs Claude Code's command sandbox, which
+/// runs here where `can_run_sandbox`.
+pub(crate) fn is_offered_on_system(level: PermissionLevel, can_run_sandbox: bool) -> bool {
     level != PermissionLevel::Sandboxed || can_run_sandbox
-}
-
-// The mode's name as Claude Code's wire spells it.
-fn claude_permission_mode_name(mode: ClaudePermissionMode) -> String {
-    serde_json::to_value(mode)
-        .ok()
-        .and_then(|name| name.as_str().map(str::to_owned))
-        .expect("a permission mode serializes as its name")
 }
 
 #[cfg(test)]

@@ -74,7 +74,7 @@ impl ClaudeSessionEstablishment {
         }
         if let Some(posture) = &legs.execution_posture {
             let can_run_sandbox = read_claude_sandbox_support(
-                &self.sources.spawner,
+                &self.sources,
                 &legs.spawn_environment,
                 &legs.working_directory,
                 Some(session_id),

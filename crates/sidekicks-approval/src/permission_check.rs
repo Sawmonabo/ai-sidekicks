@@ -12,12 +12,14 @@
 //!   daemon keeps where one is in force, and else its card is raised, offering that rule. A
 //!   provider's ask reads only the rules the providers keep, and a tool call only the daemon's.
 //! - A workflow start is decided by the machine's workflow rules, under the asking run's posture.
+//! - A workflow step's file write or tool call is gated by the run's level as its table has it,
+//!   and where that asks, answered by the daemon's session rule or else the daemon's own card.
 
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use sidekicks_contracts::approval::{ApprovalCategory, ApprovalScope, RememberedRuleSense};
+use sidekicks_contracts::approval::{ApprovalCategory, RememberedRuleSense};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
@@ -44,16 +46,18 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::machine::registry::{MachineRegistry, MachineRegistryReadError};
+use sidekicks_workflow::runs::step_action::StepActionCheck;
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
+use self::step_action::{StepActionAsk, StepGate};
 use crate::ask_description::{
-    AskDescriptionError, ProviderAskDescription, derive_rule_subject, describe_provider_ask,
-    may_allow_stand, read_command_line,
+    AskDescriptionError, ProviderAskDescription, bounded_wire_text, derive_rule_subject,
+    describe_provider_ask, may_allow_stand, read_command_line,
 };
 use crate::provider_ask_answers::{ProviderAskAnswer, answer_provider_ask};
 use crate::request_create::{
-    ApprovalRequestCreateRequest, ApprovalRequestOrigin, ApprovalResourceDescriptor,
+    ApprovalRequestCreateRequest, ApprovalRequestOrigin, ApprovalResourceDescriptor, ToolServerTool,
 };
 use crate::rules::{ApprovalRuleError, ApprovalRules};
 use crate::service::{ApprovalService, ApprovalServiceError, RaisedCard};
@@ -67,6 +71,10 @@ pub(crate) const BLOCKED_BY_RULE_REFUSAL: &str = "A rule in force on this sessio
 
 /// What the agent reads when its run is not running, so no level gates its call.
 pub(crate) const NO_LEVEL_REFUSAL: &str = "This call's run is not running, so it did not run.";
+
+/// What the step reads when its action names nothing a card could show.
+pub(crate) const UNNAMED_ACTION_REFUSAL: &str =
+    "This action names nothing to approve, so it did not run.";
 
 /// What the agent reads when the machine's workflow rules refuse its start.
 pub(crate) const WORKFLOW_START_REFUSAL: &str =
@@ -88,7 +96,8 @@ pub(crate) enum ProviderAskVerdict {
     CardRaised(RaisedCard),
 }
 
-/// How the check settled a call of the app's own tools: settled at once, or waiting on its card.
+/// How the check settled an action the daemon raises its own card for, a call of the app's own
+/// tools or a workflow step's action: settled at once, or waiting on its card.
 pub(crate) enum ToolCallVerdict {
     /// Allowed or refused with no card.
     Settled(CallbackToolApprovalOutcome),
@@ -170,6 +179,22 @@ pub struct PermissionCheck {
     deps: PermissionCheckDeps,
 }
 
+// One ask the daemon raises its own card for, on the session and run the card names.
+struct DaemonCardAsk {
+    session_id: SessionId,
+    run_id: RunId,
+    category: ApprovalCategory,
+    action: ProviderAskAction,
+    // The words a rule over the action names, which the card offers where the wire carries them
+    // whole.
+    subject: String,
+    // The tool server's tool a step's call names, on which a rule over it keys beside its words.
+    tool_server_tool: Option<ToolServerTool>,
+    // Who asks on the card; `None` reads the run's own agent.
+    requested_by: Option<NonEmptyText>,
+    tool_call_id: Option<ToolCallId>,
+}
+
 // What one read of an ask's command line answers, for every step that reads it.
 struct AskReading {
     command_refusal: Option<&'static str>,
@@ -229,6 +254,7 @@ impl PermissionCheck {
                         ask.session_id,
                         ProviderAskActionKind::from(&ask.action),
                         subject,
+                        None,
                         false,
                     )
                     .await?
@@ -338,10 +364,76 @@ impl PermissionCheck {
             PermissionLevel::Readonly | PermissionLevel::Ask | PermissionLevel::Reviewed => {}
         }
         let tool_name = invocation.tool_name.as_str();
+        self.ask_by_daemon_card(DaemonCardAsk {
+            session_id,
+            run_id: invocation.run_id,
+            category: ApprovalCategory::ToolExecution,
+            action: ProviderAskAction::Tool {
+                tool_name: tool_name.to_owned(),
+            },
+            subject: tool_name.to_owned(),
+            tool_server_tool: None,
+            requested_by: None,
+            tool_call_id: Some(invocation.tool_call_id.clone()),
+        })
+        .await
+    }
+
+    /// Decides one action of a workflow step the daemon runs itself, as `check` names it: free or
+    /// refused as the run's level's table has it, else answered by the session rule over its
+    /// subject the daemon keeps where one is in force, and else its card is raised on the check's
+    /// session and run, asked by its `requested_by`, offering that rule. Fails as a read fails and
+    /// as the card's create does.
+    pub(crate) async fn check_step_action(
+        &self,
+        check: StepActionCheck,
+    ) -> Result<ToolCallVerdict, PermissionCheckError> {
+        let action = &check.action;
+        match action.gate_at(check.level) {
+            StepGate::Free => Ok(ToolCallVerdict::Settled(
+                CallbackToolApprovalOutcome::Allow {
+                    basis: CallbackToolApprovalBasis::Policy,
+                },
+            )),
+            StepGate::Refused { refusal } => Ok(ToolCallVerdict::Settled(
+                CallbackToolApprovalOutcome::Deny {
+                    basis: CallbackToolApprovalBasis::Policy,
+                    reason: refusal.to_owned(),
+                },
+            )),
+            StepGate::Card => {
+                self.ask_by_daemon_card(DaemonCardAsk {
+                    session_id: check.session_id,
+                    run_id: check.run_id,
+                    category: action.category(),
+                    action: action.ask_action(),
+                    subject: action.subject(),
+                    tool_server_tool: action.tool_server_tool(),
+                    requested_by: Some(check.requested_by.clone()),
+                    tool_call_id: None,
+                })
+                .await
+            }
+        }
+    }
+
+    // The daemon's own card over `ask`, answered first by the session rule the daemon keeps over
+    // its subject. A subject the wire bound had to cut offers no rule, since it no longer names
+    // exactly what the rule would cover, and a blank one is refused, since it names nothing.
+    async fn ask_by_daemon_card(
+        &self,
+        ask: DaemonCardAsk,
+    ) -> Result<ToolCallVerdict, PermissionCheckError> {
         let rule = self
             .deps
             .rules
-            .find_rule(session_id, ProviderAskActionKind::Tool, tool_name, true)
+            .find_rule(
+                ask.session_id,
+                ProviderAskActionKind::from(&ask.action),
+                &ask.subject,
+                ask.tool_server_tool.as_ref(),
+                true,
+            )
             .await?;
         if let Some(rule) = rule {
             let basis = CallbackToolApprovalBasis::RememberedRule;
@@ -353,34 +445,51 @@ impl PermissionCheck {
                 },
             }));
         }
-        let scope = ApprovalScope::new(tool_name.to_owned())
-            .expect("a tool's name, under its own cap, stands within a scope's");
-        let named_tool = NonEmptyText::new(tool_name.to_owned());
+        let Some(scope) = bounded_wire_text(&ask.subject) else {
+            return Ok(ToolCallVerdict::Settled(
+                CallbackToolApprovalOutcome::Deny {
+                    basis: CallbackToolApprovalBasis::Policy,
+                    reason: UNNAMED_ACTION_REFUSAL.to_owned(),
+                },
+            ));
+        };
+        let standing_allow_offered = scope.as_str() == ask.subject;
+        let tool_name = match &ask.action {
+            ProviderAskAction::Tool { tool_name } => NonEmptyText::new(tool_name.clone()),
+            ProviderAskAction::Command { .. }
+            | ProviderAskAction::CommandInput { .. }
+            | ProviderAskAction::FileChange { .. }
+            | ProviderAskAction::FileRead { .. }
+            | ProviderAskAction::Network { .. } => None,
+        };
+        let requested_by = match ask.requested_by {
+            Some(requested_by) => requested_by,
+            None => self.read_run_agent(ask.session_id, ask.run_id).await?,
+        };
         let card = self
             .deps
             .approvals
             .create(
                 ApprovalRequestCreateRequest {
-                    session_id,
-                    run_id: invocation.run_id,
-                    requested_by: self.read_run_agent(session_id, invocation.run_id).await?,
-                    category: ApprovalCategory::ToolExecution,
+                    session_id: ask.session_id,
+                    run_id: ask.run_id,
+                    requested_by,
+                    category: ask.category,
                     scope: scope.clone(),
                     resource_descriptor: ApprovalResourceDescriptor {
                         subject: scope,
-                        standing_allow_offered: named_tool.is_some(),
+                        standing_allow_offered,
                         project_scope_offered: false,
                         editable: false,
-                        action: Some(ProviderAskAction::Tool {
-                            tool_name: tool_name.to_owned(),
-                        }),
-                        tool_name: named_tool,
+                        action: Some(ask.action),
+                        tool_name,
+                        tool_server_tool: ask.tool_server_tool,
                         prompt: None,
                     },
                 },
                 ApprovalRequestOrigin {
                     ask_id: None,
-                    tool_call_id: Some(invocation.tool_call_id.clone()),
+                    tool_call_id: ask.tool_call_id,
                 },
             )
             .await?;
@@ -452,6 +561,7 @@ fn refuse_withdrawn(withdrawal: &CancellationToken) -> Result<(), PermissionChec
     }
 }
 
+pub(crate) mod step_action;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_fixture;
 #[cfg(test)]

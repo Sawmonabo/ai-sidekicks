@@ -16,11 +16,8 @@ use super::{ClaudeCommandFact, ClaudeCommandTasks, ClaudeTaskFrame};
 use crate::command::running_set::{CommandEndingAppender, RunningCommandSets};
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::driver::test_registry::fixed_session_id;
 use crate::port::running_command_publisher::{ReseedScope, RunningCommandPublisher as _};
-
-fn session_id() -> SessionId {
-    SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id")
-}
 
 fn run_id() -> RunId {
     RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5e").expect("a valid run id")
@@ -32,7 +29,7 @@ fn read(
     frame: &Value,
 ) -> Option<ClaudeCommandFact> {
     let frame = ClaudeTaskFrame::read(&frame.to_string()).expect("a task frame");
-    tasks.read_frame(kind, &frame, session_id(), Some(run_id()))
+    tasks.read_frame(kind, &frame, fixed_session_id(), Some(run_id()))
 }
 
 fn started(task_id: &str, task_type: &str, tool_use_id: &str) -> Value {
@@ -168,9 +165,9 @@ async fn a_staged_reviews_commands_are_rows_under_its_run_ending_with_its_proces
         Arc::new(move |_session: &SessionId| Some(binding_id.clone())),
         Arc::new(SentEndings(sender)),
     ));
-    sets.start_test_command(session_id(), run_id());
+    sets.start_test_command(fixed_session_id(), run_id());
     let review_run = RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5f").expect("a valid run id");
-    let review = ClaudeApartRunCommands::new(session_id(), review_run, Arc::clone(&sets));
+    let review = ClaudeApartRunCommands::new(fixed_session_id(), review_run, Arc::clone(&sets));
     let calls = json!({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "call-1", "name": "Bash", "input": {"command": "sleep 60"}},
         {"type": "tool_use", "id": "call-2", "name": "Bash", "input": {"command": "npm test"}},
@@ -189,11 +186,11 @@ async fn a_staged_reviews_commands_are_rows_under_its_run_ending_with_its_proces
         &json!({"type": "system", "subtype": "background_tasks_changed", "tasks": []}).to_string(),
     );
     let unlisted = next_ending(&mut endings).await;
-    assert!(sets.has_running_commands(session_id()));
-    sets.commands_listed(session_id(), ReseedScope::EveryCommand, Vec::new());
+    assert!(sets.has_running_commands(fixed_session_id()));
+    sets.commands_listed(fixed_session_id(), ReseedScope::EveryCommand, Vec::new());
     let session_unlisted = next_ending(&mut endings).await;
-    sets.provider_exited(session_id());
-    assert!(sets.has_running_commands(session_id()));
+    sets.provider_exited(fixed_session_id());
+    assert!(sets.has_running_commands(fixed_session_id()));
     review.end();
     let left_open = next_ending(&mut endings).await;
 
@@ -203,7 +200,7 @@ async fn a_staged_reviews_commands_are_rows_under_its_run_ending_with_its_proces
         assert_eq!(ending.ending, CommandEnding::Failed);
     }
     assert_eq!(session_unlisted.run_id, run_id());
-    assert!(!sets.has_running_commands(session_id()));
+    assert!(!sets.has_running_commands(fixed_session_id()));
 }
 
 // Fails when a task the background set listed before its start keeps no line once its start

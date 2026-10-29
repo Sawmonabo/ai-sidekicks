@@ -76,7 +76,7 @@ impl SessionRulePort for ApprovalRules {
                     Ok((provider_kept(in_force), provider_kept(revoked)))
                 })
                 .await?;
-            if rule_over(&in_force, kind, &subject).is_some() {
+            if rule_over(&in_force, kind, &subject, None).is_some() {
                 return Ok(None);
             }
             Ok(revoked

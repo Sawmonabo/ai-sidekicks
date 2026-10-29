@@ -27,8 +27,8 @@ use crate::driver::test_registry::new_run_id;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::{RunHost, RunHostError};
 use crate::run::delivery::{
-    InboundDelivery, InboundOutcome, LateAppendableRow, MachineScopedRow, SessionScopedRow,
-    UnstampedRow,
+    InboundDelivery, InboundOutcome, LateAppendableRow, MachineScopedRow, RunSetupRefusal,
+    SessionScopedRow, UnstampedRow,
 };
 use crate::run::start_request::DaemonTurnStartRequest;
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
@@ -86,13 +86,14 @@ pub(crate) enum EngineCall {
 }
 
 /// A run engine that records each call and answers as the real one would on success: each
-/// delivery with the outcome its kind gets, every ask admitted, every child run started, every
-/// turn opened and numbered within its run.
+/// delivery with the outcome its kind gets, every ask admitted, every child run started unless a
+/// test asked it refused, every turn opened and numbered within its run.
 #[derive(Default)]
 pub(crate) struct RecordingRunEngine {
     calls: Mutex<Vec<EngineCall>>,
     delivery_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     ask_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
+    refused_child_runs: Mutex<VecDeque<(RunId, RunSetupRefusal)>>,
     turn_start_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     daemon_turn_start_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     turns_numbered: Mutex<HashMap<RunId, u64>>,
@@ -190,6 +191,13 @@ impl RecordingRunEngine {
         hold_next(&self.daemon_turn_start_holds)
     }
 
+    /// Refuses the next child run at its setup for `reason`, answering the returned run as ended.
+    pub(crate) fn refuse_next_child_run(&self, reason: RunSetupRefusal) -> RunId {
+        let run_id = new_run_id();
+        lock(&self.refused_child_runs).push_back((run_id, reason));
+        run_id
+    }
+
     /// Makes every later daemon turn's start fail before any run exists.
     pub(crate) fn fail_daemon_turns(&self) {
         self.fails_daemon_turns.store(true, Ordering::SeqCst);
@@ -240,8 +248,11 @@ impl InboundDispatch for RecordingRunEngine {
                 lock(&self.ask_holds).pop_front(),
             ),
             InboundDelivery::ChildRun { .. } => (
-                InboundOutcome::ChildRunStarted {
-                    run_id: new_run_id(),
+                match lock(&self.refused_child_runs).pop_front() {
+                    Some((run_id, reason)) => InboundOutcome::ChildRunRefused { run_id, reason },
+                    None => InboundOutcome::ChildRunStarted {
+                        run_id: new_run_id(),
+                    },
                 },
                 None,
             ),

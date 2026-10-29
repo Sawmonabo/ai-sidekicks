@@ -96,6 +96,8 @@ fn restart_failure(error: ProviderSessionError, session_id: SessionId) -> Handle
         | ProviderSessionError::Cursor(_)
         | ProviderSessionError::UnrecordedNotClosed { .. }
         | ProviderSessionError::Store(_)
+        | ProviderSessionError::PostureRefused { .. }
+        | ProviderSessionError::GitFolder { .. }
         | ProviderSessionError::LevelNotStored { .. }
         | ProviderSessionError::LevelNotMovedBack { .. }
         | ProviderSessionError::ModeNotStored { .. }
