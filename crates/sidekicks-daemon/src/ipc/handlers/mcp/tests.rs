@@ -209,6 +209,7 @@ fn declaration_of(
         sign_in_client: None,
         is_switch_kept_by_daemon: true,
         tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Prompt),
+        organization_managed: None,
     }
 }
 

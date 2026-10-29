@@ -326,6 +326,17 @@ macro_rules! inventory_entry {
                 #[schemars(with = "UniqueList<PlacedPath, 1, { usize::MAX }>")]
                 #[garde(dive)]
                 disabled_in: Option<UniqueList<PlacedPath, 1, { usize::MAX }>>,
+                /// Whether the account's organization manages the connector's sign-in, as the
+                /// provider's own connector list reads it. Present only on a connector whose list
+                /// was read; absent on every other row and where the list could not be read, which
+                /// a client renders as unknown, never as not managed.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "bool")]
+                organization_managed: Option<bool>,
                 $($extra)*
             }
         }

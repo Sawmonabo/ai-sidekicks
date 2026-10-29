@@ -73,6 +73,9 @@ pub(crate) struct ClaudeMcpServer {
     pub(crate) config: McpServerConfigView,
     /// What it is matched by; `None` for an address that does not parse, which matches nothing.
     pub(crate) endpoint: Option<ClaudeMcpEndpoint>,
+    /// Whether the account's organization manages a connector's sign-in, as the organization's
+    /// connector list reads it; `None` for every other server and where the list was not read.
+    pub(crate) organization_managed: Option<bool>,
 }
 
 /// What Claude Code compares a plugin's server or a connector by to find that it duplicates a
@@ -391,6 +394,7 @@ fn read_servers(
                 binding: bind(server_name),
                 config,
                 endpoint,
+                organization_managed: None,
             })
         })
         .collect()

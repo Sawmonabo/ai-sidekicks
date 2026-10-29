@@ -111,6 +111,9 @@ pub struct McpServerDeclaration {
     /// The values the declaration gives its server's tools, which clearing an override returns
     /// to.
     pub tool_defaults: McpServerToolDefaults,
+    /// Whether the account's organization manages a connector's sign-in, as the provider's own
+    /// connector list reads it; `None` for every other server and where the list was not read.
+    pub organization_managed: Option<bool>,
 }
 
 /// The values a declaration gives its server's tools: whether each is on, and its approval mode.

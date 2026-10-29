@@ -28,6 +28,7 @@ fn declared(binding: McpServerBindingRef, config: McpServerConfigView) -> McpSer
         sign_in_client: None,
         is_switch_kept_by_daemon: false,
         tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Auto),
+        organization_managed: None,
     }
 }
 

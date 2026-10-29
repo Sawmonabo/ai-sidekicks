@@ -376,6 +376,7 @@ impl McpInventoryService {
         let legs = (!status_reading.legs.is_empty()).then_some(status_reading.legs);
         let observed_at = status_reading.observed_at;
         let superseded_in = unique_places(declaration.superseded_in);
+        let organization_managed = declaration.organization_managed;
         let provider_enabled = config_enabled(&config);
         let Some(stored) = stored else {
             let binding_store_unavailable = True::default();
@@ -398,6 +399,7 @@ impl McpInventoryService {
                     observed_at,
                     superseded_in,
                     disabled_in,
+                    organization_managed,
                     binding_store_unavailable,
                     enabled,
                 }
@@ -432,6 +434,7 @@ impl McpInventoryService {
                 observed_at,
                 superseded_in,
                 disabled_in,
+                organization_managed,
                 binding_store_unavailable,
                 enabled,
                 tools,

@@ -192,6 +192,7 @@ fn reading_of(provider: &ProviderId, request: &McpServersReadRequest) -> Provide
             sign_in_client: None,
             is_switch_kept_by_daemon: true,
             tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Auto),
+            organization_managed: None,
         }],
         roots: Vec::new(),
         is_machine_managed: false,

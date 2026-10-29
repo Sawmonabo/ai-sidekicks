@@ -137,6 +137,7 @@ pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> Code
                             sign_in_client: declared.sign_in_client,
                             is_switch_kept_by_daemon: false,
                             tool_defaults: declared.tool_defaults,
+                            organization_managed: None,
                         },
                         is_view_outside_projects,
                     },

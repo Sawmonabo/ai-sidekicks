@@ -369,10 +369,12 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 Some((mcp_status, settings)) => ClaudeAccountServerAnswers {
                     mcp_status: raw(&mcp_status),
                     settings: raw(&settings),
+                    build_version: None,
                 },
                 None => ClaudeAccountServerAnswers {
                     mcp_status: None,
                     settings: None,
+                    build_version: None,
                 },
             })
         }
