@@ -18,7 +18,8 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 
 use crate::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
-use crate::driver::contract::{PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE, ProviderDriver};
+use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::error::PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE;
 use crate::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
 
 /// The refusal for a call naming a provider no registered driver answers; its detail carries only

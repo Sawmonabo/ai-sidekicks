@@ -16,7 +16,8 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::list::BoundedVec;
-use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderRequestAnswer};
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::params_and_results::ProviderRequestAnswer;
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };

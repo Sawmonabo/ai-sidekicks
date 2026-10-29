@@ -15,7 +15,7 @@ use sidekicks_std::text_cut::cut_to_code_points;
 use crate::driver::codex::app_server_protocol::SERVER_REQUEST_METHODS;
 use crate::driver::codex::delivery::question_answers::compose_codex_user_input_answers;
 use crate::driver::codex::event_normalizer::is_codex_tool_call_approval_elicitation;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::inbound_json::decode_inbound_json;
 use crate::mcp::elicitation_form::compose_elicitation_content;
 

@@ -84,7 +84,8 @@ use crate::driver::claude::spawn::legs::{
     build_claude_spawn_bound_legs,
 };
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::mcp_server_status::McpServerStatusProducer;
 use crate::driver::ports::DriverPorts;
@@ -180,7 +181,7 @@ impl From<ClaudeEstablishmentError> for DriverError {
         match error {
             ClaudeEstablishmentError::Session(error) => error.into(),
             ClaudeEstablishmentError::Launch(error) => error.into(),
-            ClaudeEstablishmentError::LevelNotOffered(refusal) => Self::Refused(refusal),
+            ClaudeEstablishmentError::LevelNotOffered(refusal) => Self::from(refusal),
             error @ (ClaudeEstablishmentError::Context(_)
             | ClaudeEstablishmentError::Legs(_)
             | ClaudeEstablishmentError::SessionRules(_)
@@ -438,6 +439,10 @@ impl ClaudeSessionEstablishment {
 
     // The start of a create or resume: the context resolved, the legs and callback tools bound,
     // and the creation figures read beside the spawn.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the claim, the request and each part of the start a create and a resume differ in"
+    )]
     async fn compose_start(
         &self,
         claim: ClaudeSlotClaim,

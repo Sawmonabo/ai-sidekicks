@@ -259,9 +259,8 @@ mod tests {
     };
     use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
     use sidekicks_contracts::jsonrpc::message::JsonRpcErrorData;
-    use sidekicks_contracts::jsonrpc::refusal::{
-        KnownRefusalCategory, RefusalCategory, RefusalCode,
-    };
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::wire::record::JsonRecord;
 

@@ -16,7 +16,8 @@ use super::session::transport::readings::{ClaudeModelCatalogReading, ClaudeModel
 use super::tools::claude_tool_metadata;
 use crate::capability::probe::{CapabilityProbeExchange, read_provider_capabilities};
 use crate::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
-use crate::driver::contract::{DriverError, GetCapabilitiesResult, bound_failure_detail};
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
+use crate::driver::contract::params_and_results::GetCapabilitiesResult;
 use crate::driver::error_causes::{ModelCatalogUnreadable, UNSPECIFIED_PROVIDER_FAILURE_DETAIL};
 use crate::record_readers::read_non_empty_string;
 use crate::spawned_version::SpawnedProviderVersionReading;
@@ -233,7 +234,7 @@ fn read_catalog_text(source: &Map<String, Value>, key: &str) -> Option<CatalogTe
 // The whole catalog's fault, naming the row in `detail`, which is bounded since a model id is
 // the provider's own text.
 fn catalog_unreadable(detail: &str) -> DriverError {
-    DriverError::ModelCatalogUnreadable(ModelCatalogUnreadable {
+    DriverError::from(ModelCatalogUnreadable {
         provider: DESCRIPTOR.provider_id(),
         reply_name: CLAUDE_CATALOG_REPLY_NAME,
         detail: bound_failure_detail(detail, UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone()),
@@ -245,7 +246,7 @@ mod tests {
     use serde_json::json;
 
     use super::normalize_claude_model_catalog;
-    use crate::driver::contract::DriverError;
+    use crate::driver::contract::error::DriverError;
 
     // Killed by reading a non-boolean `supportsFastMode` as `false`, or by keeping the `default`
     // pointer's row over the row that names the model.

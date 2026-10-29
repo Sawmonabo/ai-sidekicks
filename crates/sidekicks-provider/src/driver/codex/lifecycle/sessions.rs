@@ -18,7 +18,8 @@ use crate::driver::codex::session::lifecycle_call::{
 };
 use crate::driver::codex::session::purge::purge_codex_conversations;
 use crate::driver::codex::session::slots::CODEX_LET_GO_TIMEOUT;
-use crate::driver::contract::{DriverError, SessionProcessState};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};

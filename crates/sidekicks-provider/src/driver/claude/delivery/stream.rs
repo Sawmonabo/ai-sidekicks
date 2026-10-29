@@ -119,6 +119,10 @@ pub(crate) struct ClaudeFrameAfter {
     pub(crate) too_long_run: Option<RunId>,
     /// A context read the frame calls for, with the run whose turn, compaction or model switch it
     /// follows; `Some(None)` after `system/init`, which follows no run.
+    #[expect(
+        clippy::option_option,
+        reason = "a frame that calls for no read differs from one whose read follows no run"
+    )]
     pub(crate) context_read: Option<Option<ClaudeBoundRun>>,
 }
 

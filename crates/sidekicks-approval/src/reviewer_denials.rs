@@ -42,7 +42,7 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::error_causes::RequestUnanswered;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::run_control::OverrideDenialParams;
@@ -536,7 +536,8 @@ impl ReviewerDenials {
                 self.record_override(session_id, denial_id, WireInstant::now())
                     .await
             }
-            Err(DriverError::Unanswered(RequestUnanswered { refusal })) => {
+            Err(DriverError::Unanswered(unanswered)) => {
+                let RequestUnanswered { refusal } = *unanswered;
                 // The provider may have taken it, so nothing is sent again while its process
                 // lives; a process that already ended dropped the pending mark.
                 let mut held_presses = lock(&self.held_presses);

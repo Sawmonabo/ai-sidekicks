@@ -28,10 +28,12 @@ use sidekicks_platforms::{
 
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::permission_level::list_codex_modes;
-use crate::driver::contract::{
-    ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
-    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
-    RespondToRequestParams, SessionProcessState, StartRunParams,
+use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
+    ListProviderCommandsParams, ProviderCommandsSubscription, RespondToRequestParams,
+    SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -484,25 +486,28 @@ impl ProviderDriver for CodexDriver {
         self.write_command_input(params).boxed()
     }
 
+    // A Codex session is never slept: its service is shared by every session on the account and
+    // holds no process of the session's own, so a sleep would free nothing. It reports no hold and
+    // answers every sleep and wake as awake.
     fn idle_sleep_holds(
         &self,
-        session_id: SessionId,
+        _session_id: SessionId,
     ) -> BoxFuture<'_, Result<IdleSleepHolds, DriverError>> {
-        self.idle_sleep_holds(session_id).boxed()
+        ready(Ok(IdleSleepHolds::default())).boxed()
     }
 
     fn sleep_session(
         &self,
-        session_id: SessionId,
+        _session_id: SessionId,
     ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>> {
-        self.sleep_session(session_id).boxed()
+        ready(Ok(SessionSleepState::Awake)).boxed()
     }
 
     fn wake_session(
         &self,
-        session_id: SessionId,
+        _session_id: SessionId,
     ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>> {
-        self.wake_session(session_id).boxed()
+        ready(Ok(SessionSleepState::Awake)).boxed()
     }
 
     fn task_list_change(&self, call: &ToolCallRecord<'_>) -> Option<TaskListChange> {

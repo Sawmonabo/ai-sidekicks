@@ -72,7 +72,7 @@ use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::thread::permission_profiles;
 use crate::driver::codex::transport::connection::{CodexForgottenRequest, read_codex_object};
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::port::run_host::RunHost;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};

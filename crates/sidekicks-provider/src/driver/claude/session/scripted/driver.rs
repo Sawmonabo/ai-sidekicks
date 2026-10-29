@@ -41,7 +41,7 @@ use super::{
 };
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
-use crate::driver::contract::DriverCliVersionReport;
+use crate::driver::contract::params_and_results::DriverCliVersionReport;
 use crate::driver::ports::SessionRelaunchListener;
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};

@@ -37,9 +37,10 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::lifecycle_call::{CodexLifecycleCall, call_codex_lifecycle};
 use crate::driver::codex::session::side_questions::wait_for_side_question_answer;
 use crate::driver::codex::session::starting_level::read_codex_starting_level;
-use crate::driver::contract::{
-    ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
-    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
+    ListProviderCommandsParams, ProviderCommandsSubscription,
 };
 use crate::driver::read_current_account;
 use crate::driver::session_control::{

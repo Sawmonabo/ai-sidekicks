@@ -12,7 +12,7 @@ use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::driver::claude::session::scripted::binding_id;
-use crate::driver::contract::{RunOpening, RunOpeningItem, StartRunParams};
+use crate::driver::contract::params_and_results::{RunOpening, RunOpeningItem, StartRunParams};
 use crate::driver::session_control::ResumeSessionParams;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 use crate::runtime_binding::test_store::test_provider_account_id;

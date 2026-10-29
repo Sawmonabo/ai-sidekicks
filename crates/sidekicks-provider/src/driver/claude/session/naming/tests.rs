@@ -23,7 +23,8 @@ use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
-use crate::driver::contract::{DriverError, GetCapabilitiesResult};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::GetCapabilitiesResult;
 use crate::driver::session_control::NameSessionParams;
 use crate::driver::test_registry::new_session_id;
 

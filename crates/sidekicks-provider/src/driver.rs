@@ -32,7 +32,8 @@ use crate::command::waiting_checks::InputWaitReader;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::AttachmentResolver;
-use crate::driver::contract::{DriverError, ProviderDriver};
+use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::output_validation::is_canonical_semver;
 use crate::process_registry::ProviderProcessRegistry;
@@ -508,10 +509,6 @@ pub struct SessionSpawnContext {
     pub step_bound: Option<SafeInt<1>>,
     /// The session's own advisor: `None` where it has none of its own, `Some(None)` where it is
     /// off.
-    #[expect(
-        clippy::option_option,
-        reason = "a session with no advisor of its own differs from one whose advisor is off"
-    )]
     pub advisor_model: Option<Option<String>>,
 }
 
@@ -592,11 +589,11 @@ impl From<AccountFoldersError> for DriverError {
     /// own failure.
     fn from(error: AccountFoldersError) -> Self {
         match error {
-            AccountFoldersError::NotFound => Self::Refused(DomainError::new(
+            AccountFoldersError::NotFound => Self::from(DomainError::new(
                 "The provider account is not registered",
                 RefusalCode::ProviderAccountNotFound,
             )),
-            AccountFoldersError::CredentialHomeUnavailable => Self::Refused(DomainError::new(
+            AccountFoldersError::CredentialHomeUnavailable => Self::from(DomainError::new(
                 "The provider account's credential home is unavailable",
                 RefusalCode::ProviderAccountCredentialHomeUnavailable,
             )),
@@ -623,11 +620,11 @@ impl CurrentProviderAccount {
     pub fn into_required(self) -> Result<ProviderAccountId, DriverError> {
         match self {
             Self::Current(provider_account_id) => Ok(provider_account_id),
-            Self::NoneRegistered => Err(DriverError::Refused(DomainError::new(
+            Self::NoneRegistered => Err(DriverError::from(DomainError::new(
                 "No account of the provider is registered",
                 RefusalCode::ProviderAccountNotRegistered,
             ))),
-            Self::NoneCurrent => Err(DriverError::Refused(DomainError::new(
+            Self::NoneCurrent => Err(DriverError::from(DomainError::new(
                 "No account of the provider is current",
                 RefusalCode::ProviderAccountCurrentNotSet,
             ))),

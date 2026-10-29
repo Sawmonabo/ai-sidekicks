@@ -11,7 +11,8 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_provider::driver::contract::{DriverError, ProviderDriver};
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{ProviderAccountReader, read_current_account};
 use sidekicks_std::port_registration::PortRegistration;
@@ -151,7 +152,7 @@ mod tests {
     use sidekicks_provider::driver::registry::test_provider;
     use sidekicks_provider::driver::test_registry::registered_test_accounts;
 
-    use sidekicks_provider::driver::contract::DriverError;
+    use sidekicks_provider::driver::contract::error::DriverError;
 
     use super::resolve_admitted_account;
 

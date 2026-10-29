@@ -132,9 +132,8 @@ fn answer_resume_request(script: &ScriptedService, sent: &Value, from: &str, to:
         }
         Some("thread/turns/list") => no_turns(),
         Some("thread/backgroundTerminals/list") => json!({"data": []}),
-        Some("thread/backgroundTerminals/clean") => json!({}),
+        Some("thread/backgroundTerminals/clean" | "thread/settings/update") => json!({}),
         Some("thread/unsubscribe") => json!({"status": "unsubscribed"}),
-        Some("thread/settings/update") => json!({}),
         Some("account/rateLimits/read") => json!({"rateLimits": null}),
         other => panic!("the resume sent {other:?}"),
     };

@@ -40,7 +40,7 @@ use crate::driver::claude::session::state::{
     ClaudeLiveSettings, ClaudeSlotSettled, LiveClaudeSession,
 };
 use crate::driver::claude::session::ultracode::relaunch_claude_options;
-use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -351,9 +351,7 @@ impl ClaudeSessionRestarts {
             match self.standing(session_id) {
                 ClaudeSessionStanding::Live(_) => return Ok(()),
                 ClaudeSessionStanding::Down => {
-                    return Err(DriverError::Refused(session_process_unavailable(
-                        session_id,
-                    )));
+                    return Err(DriverError::from(session_process_unavailable(session_id)));
                 }
                 ClaudeSessionStanding::Held { left, .. } => {
                     left.wait().await;

@@ -43,6 +43,10 @@ const GIT_TRUE: &[u8] = b"true";
 /// record's refs are addressable as `worktrees/<name>/…`: a control character, a space, `:`, `?`,
 /// `[`, `\`, `^`, `~`, `*` and the `{` of `@{` become `-`; `..` becomes `.`; a leading `.` becomes
 /// `-`; a trailing `.lock` is stripped as often as it repeats; a trailing `.` stays.
+#[expect(
+    clippy::case_sensitive_file_extension_comparisons,
+    reason = "git refuses a name ending in `.lock` in that case only"
+)]
 pub(super) fn sanitize_record_name(name: &str) -> String {
     let mut sanitized = String::with_capacity(name.len());
     let mut last = '\0';
@@ -51,7 +55,7 @@ pub(super) fn sanitize_record_name(name: &str) -> String {
             '.' if last == '.' => {}
             '{' if last == '@' => sanitized.push('-'),
             '\0'..='\u{1f}' | '\u{7f}' | ' ' | ':' | '?' | '[' | '\\' | '^' | '~' | '*' => {
-                sanitized.push('-')
+                sanitized.push('-');
             }
             other => sanitized.push(other),
         }

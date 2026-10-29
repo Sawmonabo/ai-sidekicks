@@ -21,7 +21,8 @@ use crate::driver::codex::service::supervisor::events::{
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
 use crate::driver::codex::session::errors::CodexSessionSlotState;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, create_session_params};
-use crate::driver::contract::{DriverError, SessionProcessState};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::session_control::{UpdatePermissionLevelParams, UpdateSessionModeParams};
 use crate::driver::test_registry::new_session_id;
 use crate::run::posture::compose_execution_posture;

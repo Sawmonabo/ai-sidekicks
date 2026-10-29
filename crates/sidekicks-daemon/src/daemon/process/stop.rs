@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_session::search::index::live::LiveIndexCloseError;
 use sidekicks_workspace::clone::askpass::broker::AskpassBrokerError;

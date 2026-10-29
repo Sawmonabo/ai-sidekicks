@@ -28,7 +28,7 @@ use crate::driver::codex::session::inbound::{
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::thread::view::read_steered_turn_id;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::run_control::SteerTurnEndedError;
 
 #[cfg(test)]
@@ -201,7 +201,7 @@ fn read_steer_failure(run_id: RunId, error: CodexError) -> DriverError {
     if is_steer_turn_gone(&error) {
         return SteerTurnEndedError { run_id }.into();
     }
-    message_too_large_refusal(&error).map_or_else(|| error.into(), DriverError::Refused)
+    message_too_large_refusal(&error).map_or_else(|| error.into(), DriverError::from)
 }
 
 /// Takes back a steer Codex did not take, on the session's task: it is no longer waited for on

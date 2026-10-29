@@ -20,7 +20,7 @@ use crate::driver::codex::server_requests::{
 use crate::driver::codex::service::supervisor::routing::read_codex_ask_thread_id;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 
 /// Where a decided ask's decision goes; a dropped sender refuses the ask.
 pub(crate) type CodexAskDecisionSender =

@@ -40,7 +40,9 @@ use sidekicks_store::database::stored_column::{
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
-use crate::driver::contract::{DriverCliVersionReport, SpawnedVersionBindingCarriers};
+use crate::driver::contract::params_and_results::{
+    DriverCliVersionReport, SpawnedVersionBindingCarriers,
+};
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::left_conversations::{LeftConversation, compose_left_conversation_insert};
 use crate::output_validation::{

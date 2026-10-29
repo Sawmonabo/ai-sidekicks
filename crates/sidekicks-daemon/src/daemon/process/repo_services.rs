@@ -421,7 +421,7 @@ mod tests {
         assert!(
             matches!(unsupported, Ok(Err(ref text)) if text.is_empty()),
             "{:?}",
-            unsupported.map(|broker| broker.err())
+            unsupported.map(Result::err)
         );
 
         let refused = askpass_or_unavailable(
@@ -438,7 +438,7 @@ mod tests {
                     if text == "the askpass program's socket could not be opened: permission denied"
             ),
             "{:?}",
-            refused.map(|broker| broker.err())
+            refused.map(Result::err)
         );
     }
 
@@ -464,7 +464,7 @@ mod tests {
                 })) if *path == askpass_socket_path(run_folder)
             ),
             "{:?}",
-            held.map(|broker| broker.err())
+            held.map(Result::err)
         );
     }
 }

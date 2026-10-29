@@ -28,7 +28,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_provider::driver::contract::bound_failure_detail;
+use sidekicks_provider::driver::contract::error::bound_failure_detail;
 use sidekicks_provider::driver::run_control::DriverRunRefusal;
 use sidekicks_provider::run::start_request::DaemonTurnStartRequest;
 use sidekicks_provider::run::state_entry::RunStateEntry;
@@ -103,7 +103,7 @@ impl RunEngine {
                 let standard = self
                     .providers
                     .descriptor(&provider)
-                    .map_err(RunEngineError::Provider)?
+                    .map_err(|refusal| RunEngineError::Provider(Box::new(refusal)))?
                     .standard_output_speed;
                 (speed.as_str() != standard).then_some(speed)
             }
@@ -145,7 +145,10 @@ impl RunEngine {
             .await;
         entry.is_claimable.store(false, Ordering::Release);
         if let Err(source) = gated {
-            let gate_error = RunEngineError::Gate { run_id, source };
+            let gate_error = RunEngineError::Gate {
+                run_id,
+                source: Box::new(source),
+            };
             if entry.is_interrupted.load(Ordering::Acquire) {
                 return Err(gate_error);
             }
@@ -402,7 +405,10 @@ impl RunEngine {
                     execution_posture,
                 })
                 .await
-                .map_err(|source| RunEngineError::Gate { run_id, source })?;
+                .map_err(|source| RunEngineError::Gate {
+                    run_id,
+                    source: Box::new(source),
+                })?;
             let resolved_posture = self
                 .execution_postures
                 .resolved_posture_for(&run_id)
@@ -706,7 +712,7 @@ impl RunEngine {
 // describes it.
 fn failure_words(error: &RunEngineError) -> String {
     let own: &(dyn Error + 'static) = if let RunEngineError::Gate { source, .. } = error {
-        source
+        source.as_ref()
     } else if let RunEngineError::Driver { source, .. } = error {
         source.as_ref()
     } else {
@@ -728,10 +734,8 @@ fn driver_run_refusal(start_error: &RunEngineError) -> Option<&DriverRunRefusal>
 
 // The cause a setup failure records: a refusing gate's code, and the failure's own words.
 fn setup_failed_cause(setup_error: &RunEngineError) -> RunFailureCause {
-    let code = if let RunEngineError::Gate {
-        source: RunSetupGateError::Refused(refusal),
-        ..
-    } = setup_error
+    let code = if let RunEngineError::Gate { source, .. } = setup_error
+        && let RunSetupGateError::Refused(refusal) = source.as_ref()
     {
         Some(
             FreeFormText::<PROVIDER_WIRE_HANDLE_MAX_LEN>::new(refusal.code.as_str().to_owned())

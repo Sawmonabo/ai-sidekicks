@@ -15,7 +15,7 @@ use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_provider::driver::contract::SessionProcessState;
+use sidekicks_provider::driver::contract::params_and_results::SessionProcessState;
 use sidekicks_provider::driver::session_control::DriverResumeResult;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_provider::process_identity::TEST_PROVIDER_PROCESS;

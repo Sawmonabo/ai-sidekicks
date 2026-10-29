@@ -13,9 +13,9 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-use sidekicks_provider::driver::contract::{
-    DriverError, MockProviderDriver, ProviderRequestAnswer,
-};
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::params_and_results::ProviderRequestAnswer;
 use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_providers,

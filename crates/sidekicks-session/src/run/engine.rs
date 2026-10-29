@@ -107,7 +107,8 @@ pub(crate) enum InterruptRoute {
 }
 
 /// Why the run engine did not do what it was asked; what each step wrote before the failure is
-/// kept, and the failure says which step failed.
+/// kept, and the failure says which step failed. Its large failures are boxed, so it stays within
+/// 64 bytes for every `Result` that carries it.
 #[derive(Debug, thiserror::Error)]
 pub enum RunEngineError {
     /// The run is unknown, has ended, or may not make the move asked of it.
@@ -126,7 +127,7 @@ pub enum RunEngineError {
         run_id: RunId,
         /// The gate's failure.
         #[source]
-        source: RunSetupGateError,
+        source: Box<RunSetupGateError>,
     },
     /// The run passed its gates with no posture resolved for it.
     #[error("run {run_id} passed its gates with no resolved posture")]
@@ -163,25 +164,25 @@ pub enum RunEngineError {
     },
     /// No registered driver answers the run's provider (`provider.notFound`).
     #[error(transparent)]
-    Provider(DomainError),
+    Provider(Box<DomainError>),
     /// The daemon turn's run was not queued.
     #[error(transparent)]
-    DaemonTurn(#[from] DaemonTurnQueueError),
+    DaemonTurn(Box<DaemonTurnQueueError>),
     /// The run's agent could not be read from its session's log.
     #[error("the run's agent could not be read")]
-    Agent(#[from] RunAgentReadError),
+    Agent(#[source] Box<RunAgentReadError>),
     /// An event breaks a check of its type.
     #[error("the run's event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
     /// The event log did not keep an append, or a guard in its write refused it.
     #[error("the run's event was not appended")]
-    Append(#[from] SessionEventAppendError),
+    Append(#[source] Box<SessionEventAppendError>),
     /// SQLite refused a read, or a stored column does not read as its type.
     #[error("the run could not be read")]
-    Read(#[from] rusqlite::Error),
+    Read(#[source] Box<rusqlite::Error>),
     /// The read pool did not run a read.
     #[error("the read pool did not run the run's read")]
-    Pool(#[from] DatabaseReadError),
+    Pool(#[source] Box<DatabaseReadError>),
     /// The run's end or a turn's end landed with the settle of a person's interrupt, and letting go
     /// the run queue's hold of that interrupt failed; the end is kept.
     #[error("run {run_id} settled an interrupt, and its queue hold was not let go")]
@@ -196,6 +197,9 @@ pub enum RunEngineError {
     #[error(transparent)]
     Several(Box<SettleFailures<RunEngineError>>),
 }
+
+// The budget every `Result` carrying the engine's error keeps.
+const _: () = assert!(size_of::<RunEngineError>() <= 64);
 
 /// Why a resume of a paused run did not move it to `running`; only [`RunResumeError::Change`]
 /// comes after the driver took the resume.
@@ -212,6 +216,36 @@ pub(crate) enum RunResumeError<DriverFailure> {
     /// The driver took the resume, and the move to `running` was refused or failed.
     #[error("the provider took the run's resume, and its move to running was not written")]
     Change(#[source] RunEngineError),
+}
+
+impl From<DaemonTurnQueueError> for RunEngineError {
+    fn from(error: DaemonTurnQueueError) -> Self {
+        Self::DaemonTurn(Box::new(error))
+    }
+}
+
+impl From<RunAgentReadError> for RunEngineError {
+    fn from(error: RunAgentReadError) -> Self {
+        Self::Agent(Box::new(error))
+    }
+}
+
+impl From<SessionEventAppendError> for RunEngineError {
+    fn from(error: SessionEventAppendError) -> Self {
+        Self::Append(Box::new(error))
+    }
+}
+
+impl From<rusqlite::Error> for RunEngineError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Read(Box::new(error))
+    }
+}
+
+impl From<DatabaseReadError> for RunEngineError {
+    fn from(error: DatabaseReadError) -> Self {
+        Self::Pool(Box::new(error))
+    }
 }
 
 impl From<RunRefusal> for RunEngineError {

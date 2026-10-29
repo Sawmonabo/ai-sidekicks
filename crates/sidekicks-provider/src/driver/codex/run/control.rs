@@ -50,7 +50,7 @@ use crate::driver::codex::session::inbound::{
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::driver::run_control::{
     InterruptRunRequest, PauseRunParams, ResumeRunParams, SteerTurnEndedError, WaitingMessage,

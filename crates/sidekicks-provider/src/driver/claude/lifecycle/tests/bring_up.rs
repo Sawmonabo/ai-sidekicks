@@ -26,7 +26,7 @@ use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::declarations::{
     ClaudeInitializeDeclaration, ClaudeOfferedModel,
 };
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::error_causes::ProviderAxis;
 use crate::driver::session_control::{CloseSessionParams, CreateSessionParams, DriverResumeResult};
 use crate::driver::test_registry::new_session_id;

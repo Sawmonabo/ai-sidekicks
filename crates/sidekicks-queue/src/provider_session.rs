@@ -32,8 +32,10 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::driver::contract::{
-    DriverError, ProviderDriver, SessionProcessState, SpawnedVersionBindingCarriers,
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::params_and_results::{
+    SessionProcessState, SpawnedVersionBindingCarriers,
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{CloseSessionParams, CreateSessionParams};
@@ -202,7 +204,7 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
         /// Why the binding was not recorded.
-        recorded: RunBindingCursorError,
+        recorded: Box<RunBindingCursorError>,
         /// Why the close failed.
         #[source]
         closed: DriverError,
@@ -228,7 +230,7 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
         /// Why the store failed.
-        stored: SessionWriteError,
+        stored: Box<SessionWriteError>,
         /// Why the move back failed.
         #[source]
         moved_back: DriverError,
@@ -251,7 +253,7 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
         /// Why the store failed.
-        stored: SessionWriteError,
+        stored: Box<SessionWriteError>,
         /// Why the move back failed.
         #[source]
         moved_back: DriverError,
@@ -328,7 +330,7 @@ async fn close_unrecorded(
         Ok(()) => recorded.into(),
         Err(closed) => ProviderSessionError::UnrecordedNotClosed {
             session_id,
-            recorded,
+            recorded: Box::new(recorded),
             closed,
         },
     }

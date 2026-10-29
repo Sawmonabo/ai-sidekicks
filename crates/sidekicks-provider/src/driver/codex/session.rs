@@ -17,7 +17,6 @@ pub(super) mod establishment;
 pub(super) mod fork;
 pub(super) mod helper_roles;
 pub(super) mod history;
-pub(super) mod idle_sleep;
 pub(super) mod inbound;
 pub(super) mod lifecycle_call;
 pub(super) mod purge;

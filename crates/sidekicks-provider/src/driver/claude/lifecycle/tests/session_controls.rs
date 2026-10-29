@@ -39,7 +39,9 @@ use crate::driver::claude::session::transport::declarations::{
     ClaudeOfferedModel,
 };
 use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnReply;
-use crate::driver::contract::{DriverError, ProviderDriver, RunOpeningItem};
+use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::RunOpeningItem;
 use crate::driver::run_control::InterruptRunRequest;
 use crate::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, MoveSessionToForkParams,

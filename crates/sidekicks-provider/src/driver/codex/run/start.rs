@@ -41,7 +41,7 @@ use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbou
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::thread::view::{TURN_START_METHOD, read_turn_id};
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
-use crate::driver::contract::{RunOpeningItem, StartRunParams};
+use crate::driver::contract::params_and_results::{RunOpeningItem, StartRunParams};
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 

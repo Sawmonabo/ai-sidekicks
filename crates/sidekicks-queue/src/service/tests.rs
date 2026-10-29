@@ -33,7 +33,9 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver, RunOpeningItem};
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::params_and_results::RunOpeningItem;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus,

@@ -62,7 +62,8 @@ use crate::driver::claude::session::transport::user_message::{
     ClaudeWriteAttempt, ClaudeWriteDelivery,
 };
 use crate::driver::claude::spawn::settings::matches_claude_reviewed_removal_rule;
-use crate::driver::contract::{DriverError, ProviderRequestAnswer};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::ProviderRequestAnswer;
 use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,

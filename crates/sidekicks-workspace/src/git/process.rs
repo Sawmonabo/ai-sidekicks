@@ -606,7 +606,7 @@ impl GitRunner {
                         stderr,
                     });
                 }
-                return Err(exited_failure(&output.status, output.stdout, stderr));
+                return Err(exited_failure(output.status, output.stdout, stderr));
             }
             Ok(Err(error)) => error.into(),
             Err(_elapsed) => GitError::TimedOut { timeout },
@@ -806,8 +806,8 @@ pub(crate) fn strip_carriage_return(line: &[u8]) -> &[u8] {
 }
 
 // The failure of a git that exited `status`, not 0, having printed `stdout` and `stderr`.
-fn exited_failure(status: &ExitStatus, stdout: Vec<u8>, stderr: String) -> GitError {
-    let exit = read_child_exit(status, None);
+fn exited_failure(status: ExitStatus, stdout: Vec<u8>, stderr: String) -> GitError {
+    let exit = read_child_exit(&status, None);
     GitError::Exited {
         code: status.code(),
         signal: exit.signal_number.map(|number| {

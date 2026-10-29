@@ -29,7 +29,8 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::driver::contract::{DriverError, ProviderDriver};
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ProviderChoiceAnswer,

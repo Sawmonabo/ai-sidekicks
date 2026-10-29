@@ -42,7 +42,7 @@ use crate::driver::codex::thread::view::{
     THREAD_START_METHOD, TURN_START_METHOD, read_thread, read_turn_id,
 };
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{NameSessionParams, run_naming_pass_until};
 use crate::runtime_binding::store::RuntimeBinding;
 use crate::spawned_version::ResolvedProviderExecutable;

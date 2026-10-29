@@ -271,7 +271,8 @@ pub struct RunStateChangeCompanions {
     pub(crate) settled_choices: Vec<ChoiceDialog>,
 }
 
-/// Why a run state change was not written; nothing of it is kept.
+/// Why a run state change was not written; nothing of it is kept. Its large failures are boxed so
+/// the engine's error that carries it stays small.
 #[derive(Debug, thiserror::Error)]
 pub enum RunStateChangeError {
     /// The run is unknown, has ended, or is in a state the table does not let it leave for the one
@@ -286,20 +287,32 @@ pub enum RunStateChangeError {
         companion_index: usize,
         /// The append's refusal.
         #[source]
-        source: SessionEventAppendError,
+        source: Box<SessionEventAppendError>,
     },
     /// The change's event or a preceding one breaks a check of its type.
     #[error("the run state change's event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
     /// The event log did not keep the write for a reason other than a guard.
     #[error("the run state change was not appended")]
-    Append(#[source] SessionEventAppendError),
+    Append(#[source] Box<SessionEventAppendError>),
     /// SQLite refused the run's read, or a stored column does not read as its type.
     #[error("the run's row could not be read")]
-    Database(#[from] rusqlite::Error),
+    Database(#[source] Box<rusqlite::Error>),
     /// The read pool did not run the run's read.
     #[error("the read pool did not run the run's read")]
-    Pool(#[from] DatabaseReadError),
+    Pool(#[source] Box<DatabaseReadError>),
+}
+
+impl From<rusqlite::Error> for RunStateChangeError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Database(Box::new(error))
+    }
+}
+
+impl From<DatabaseReadError> for RunStateChangeError {
+    fn from(error: DatabaseReadError) -> Self {
+        Self::Pool(Box::new(error))
+    }
 }
 
 // What one read and write of a change came to: the run as the change left it, or the refusal of a
@@ -436,7 +449,7 @@ impl RunStateChangeWriter {
             }));
         };
         let Some(refused_index) = refused_statement_index(&error) else {
-            return Err(RunStateChangeError::Append(error));
+            return Err(RunStateChangeError::Append(Box::new(error)));
         };
         if is_terminal && refused_index == TERMINAL_GUARD_INDEX {
             return Err(RunRefusal::AlreadyEnded {
@@ -454,11 +467,11 @@ impl RunStateChangeWriter {
         }
         // A statement past the companions is a projection's own, which refuses the write whole.
         if !companions_in_write.contains(&refused_index) {
-            return Err(RunStateChangeError::Append(error));
+            return Err(RunStateChangeError::Append(Box::new(error)));
         }
         Err(RunStateChangeError::CompanionRefused {
             companion_index: refused_index - companions_in_write.start,
-            source: error,
+            source: Box::new(error),
         })
     }
 

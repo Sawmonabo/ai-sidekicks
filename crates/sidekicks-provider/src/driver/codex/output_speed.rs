@@ -20,7 +20,7 @@ use crate::driver::codex::event_normalizer::{
 };
 use crate::driver::codex::session::state::{CodexSessionRecord, CodexUnsettledOutputSpeedRun};
 use crate::driver::codex::transport::connection::read_codex_object;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 
 /// The tier one run settled at, for the run engine to compare with the level it asked for.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -53,7 +53,8 @@ use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
-use crate::driver::contract::{DriverError, ProviderRequestAnswer, RespondToRequestParams};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{ProviderRequestAnswer, RespondToRequestParams};
 use crate::driver::question_answers::QUESTION_UNSHOWN_REASON;
 use crate::inbound_json::decode_inbound_json;
 use crate::port::permission_ask::{

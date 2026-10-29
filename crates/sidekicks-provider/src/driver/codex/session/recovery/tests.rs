@@ -704,13 +704,13 @@ async fn account_build_move_session() -> (
 #[tokio::test]
 async fn an_account_service_s_build_move_records_its_resume_under_the_binding_it_opened() {
     tokio::time::timeout(Duration::from_secs(30), async {
-        let (session, _folder, steps, recovery) = account_build_move_session().await;
+        let (session, _folder, steps, recovery) = Box::pin(account_build_move_session()).await;
         let settings = session.task.record.thread_settings.clone();
         let serving = Arc::clone(&steps);
 
-        let (moved, _task) = move_account_service_build(session, &recovery, |script| {
+        let (moved, _task) = Box::pin(move_account_service_build(session, &recovery, |script| {
             serve_resumes(script, settings, serving)
-        })
+        }))
         .await;
 
         moved.expect("the build move resumes the conversation");

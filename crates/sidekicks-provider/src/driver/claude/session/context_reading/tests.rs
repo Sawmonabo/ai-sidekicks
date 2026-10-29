@@ -5,6 +5,7 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::inspector::{SessionContextBreakdown, SessionContextReading};
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::number::Percent;
 use sidekicks_std::port_registration::PortRegistration;
 
@@ -116,8 +117,8 @@ fn a_mid_turn_reading_is_made_on_the_last_read_and_the_next_read_replaces_it() {
     else {
         panic!("a mid-turn row");
     };
-    assert_eq!(row.window_used_tokens.map(|used| used.get()), Some(40_000));
-    assert_eq!(row.window_max_tokens.map(|max| max.get()), Some(160_000));
+    assert_eq!(row.window_used_tokens.map(SafeInt::get), Some(40_000));
+    assert_eq!(row.window_max_tokens.map(SafeInt::get), Some(160_000));
     assert!(
         readings
             .read_mid_turn(session_id(), run_id, &usage("msg-1"))
@@ -133,7 +134,7 @@ fn a_mid_turn_reading_is_made_on_the_last_read_and_the_next_read_replaces_it() {
     else {
         panic!("a mid-turn row");
     };
-    assert_eq!(row.window_max_tokens.map(|max| max.get()), Some(1_000_000));
+    assert_eq!(row.window_max_tokens.map(SafeInt::get), Some(1_000_000));
 
     readings.forget_session(session_id());
     let stale = compose_claude_context_read(session_id(), Some(&reply(50_000, 1_000_000)))
