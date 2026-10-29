@@ -20,6 +20,7 @@ use rusqlite::{Connection, OptionalExtension, Row};
 use serde_json::Value as JsonValue;
 use sidekicks_contracts::provider::account::record::{
     BillingMode, CredentialGeneration, ProviderAccountHealthState, ProviderAccountId,
+    ProviderAuthMode,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -48,7 +49,7 @@ const ACCOUNT_ID_BYTES: usize = 16;
 const ACCOUNT_COLUMNS_SQL: &str = "
   SELECT account_id, provider, credential_home_path, credential_generation, billing_mode,
          is_default, health_state, health_observed_at, probe_enabled, window_start_enabled,
-         wake_for_window_start_enabled
+         wake_for_window_start_enabled, observed_auth_mode
     FROM provider_accounts
    WHERE removal_intent = 0";
 
@@ -227,6 +228,8 @@ pub struct RegisteredAccount {
     pub window_start_enabled: bool,
     /// Wake the machine for a window that resets while it sleeps.
     pub wake_for_window_start_enabled: bool,
+    /// The mode the provider's own status output last reported, `None` until one is observed.
+    pub observed_auth_mode: Option<ProviderAuthMode>,
 }
 
 /// The registry of provider accounts, over the daemon's read connections and its one writer; it
@@ -530,6 +533,7 @@ fn read_account(row: &Row<'_>) -> rusqlite::Result<RegisteredAccount> {
         probe_enabled: row.get(8)?,
         window_start_enabled: row.get(9)?,
         wake_for_window_start_enabled: row.get(10)?,
+        observed_auth_mode: optional_text_column(row, 11, closed_word)?,
     })
 }
 
