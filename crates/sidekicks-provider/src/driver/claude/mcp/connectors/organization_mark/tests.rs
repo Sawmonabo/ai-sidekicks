@@ -1,8 +1,13 @@
+use std::io::Write as _;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::extract::{Request, State};
 use axum::http::StatusCode;
+use axum::http::header::CONTENT_ENCODING;
+use axum::response::IntoResponse as _;
+use flate2::Compression;
+use flate2::write::GzEncoder;
 use rstest::rstest;
 use serde_json::json;
 use serde_json::value::to_raw_value;
@@ -44,6 +49,7 @@ struct ReceivedRequest {
 #[derive(Clone)]
 enum ListAnswer {
     Reply(StatusCode, serde_json::Value),
+    Gzipped(serde_json::Value),
     Hang,
 }
 
@@ -118,7 +124,15 @@ async fn serve_list(script: Vec<ListAnswer>) -> LoopbackList {
                     script[index].clone()
                 };
                 match answer {
-                    ListAnswer::Reply(status, body) => (status, body.to_string()),
+                    ListAnswer::Reply(status, body) => (status, body.to_string()).into_response(),
+                    ListAnswer::Gzipped(body) => {
+                        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                        encoder
+                            .write_all(body.to_string().as_bytes())
+                            .expect("the reply compresses");
+                        let compressed = encoder.finish().expect("the reply compresses");
+                        (StatusCode::OK, [(CONTENT_ENCODING, "gzip")], compressed).into_response()
+                    }
                     ListAnswer::Hang => std::future::pending().await,
                 }
             }
@@ -297,6 +311,24 @@ async fn the_list_marks_each_connector_by_its_normalized_id() {
             ("claude.ai Slack", Some(true)),
         ]
     );
+}
+
+// A reply the service compresses, as it may since the request asks for compression, is decoded
+// before it is read. Killed by the reply read undecoded, which leaves the marks absent.
+#[tokio::test]
+async fn a_gzipped_list_is_decoded() {
+    let list = serve_list(vec![ListAnswer::Gzipped(json!({ "data": [{
+        "id": "mcpsrv_slack",
+        "url": "https://mcp.slack.example.com/mcp",
+        "enterprise_managed": true
+    }] }))])
+    .await;
+
+    let read = read_marks(&list)
+        .await
+        .expect("the compressed list is read");
+
+    assert_eq!(read.mark("mcpsrv_slack"), Some(true));
 }
 
 // The list read with a sign-in that holds its scope, as Claude Code 2.1.312.

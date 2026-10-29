@@ -77,6 +77,8 @@ url.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+# Compresses the loopback connector list's reply as the service may send it.
+flate2.workspace = true
 mockall.workspace = true
 proptest.workspace = true
 rstest.workspace = true

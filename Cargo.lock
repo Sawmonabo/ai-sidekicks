@@ -8791,6 +8791,7 @@ dependencies = [
  "bytes",
  "console",
  "diffy",
+ "flate2",
  "futures",
  "getrandom 0.4.3",
  "hpke",
