@@ -29,13 +29,9 @@ pub fn open_address(address: &str) -> io::Result<()> {
     if handler_query.stdout.trim_ascii().is_empty() {
         return Err(no_handler_error());
     }
-    // The application the tool starts outlives this call, and the process this child leaves at
-    // its end is reaped by the system once the command line exits.
-    #[expect(
-        clippy::zombie_processes,
-        reason = "the open is handed off and not waited on, and the command line exits right after"
-    )]
-    let _opener = Command::new("xdg-open")
+    // Not waited on: the application the tool starts outlives this call, and the tool's ended
+    // process is reaped once the command line exits.
+    Command::new("xdg-open")
         .arg(address)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
