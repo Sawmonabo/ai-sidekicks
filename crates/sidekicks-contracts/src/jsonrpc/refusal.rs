@@ -295,6 +295,10 @@ refusal_codes! {
     /// `daemon.dataExport.subscribe` or `daemon.dataExport.cancel` named a job this service does
     /// not know: never started, or started before the service last restarted.
     DaemonDataExportNotFound = "daemon.dataExport.notFound" (NotFound, 404);
+    /// The daemon program's erase or restore mode found the data folder held, by a running service
+    /// among others, so it changed nothing; it answers on its standard output, not the socket.
+    /// `data.fields.processId` names the holder when the process id it recorded reads.
+    DaemonDataFolderHeld = "daemon.dataFolder.held" (FailedPrecondition, 409);
     /// A request would pass a daemon limit.
     DaemonLimitExceeded = "daemon.limitExceeded" (ResourceExhausted, 429);
     /// The answer to a `connection.initialize` carrying the start's session token while the service
