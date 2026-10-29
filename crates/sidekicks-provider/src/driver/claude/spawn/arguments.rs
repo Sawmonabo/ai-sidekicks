@@ -90,7 +90,7 @@ pub(crate) fn compose_claude_arguments(request: &ClaudeArgumentsRequest<'_>) -> 
     ]
     .map(str::to_owned)
     .into();
-    arguments.push(write_permission_mode(request.permission_mode));
+    arguments.push(<&str>::from(request.permission_mode).to_owned());
     arguments.push("--model".to_owned());
     arguments.push(request.model.to_owned());
     arguments.extend(claude_appended_system_prompt_arguments().map(str::to_owned));
@@ -167,15 +167,6 @@ fn conversation_arguments(conversation: &ClaudeConversationStart) -> Vec<&str> {
             dropped_turn_prompt_uuid.as_str(),
         ],
     }
-}
-
-// A permission mode as `--permission-mode` takes it, its serde name.
-fn write_permission_mode(mode: ClaudePermissionMode) -> String {
-    serde_json::to_value(mode)
-        .expect("a permission mode always serializes")
-        .as_str()
-        .expect("a permission mode serializes as its name")
-        .to_owned()
 }
 
 #[cfg(test)]

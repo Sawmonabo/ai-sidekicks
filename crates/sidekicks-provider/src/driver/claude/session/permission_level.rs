@@ -125,9 +125,9 @@ pub(crate) fn list_claude_modes(can_run_sandbox: bool) -> Vec<ProviderMode> {
         .map(|&level| ProviderMode {
             id: FreeFormText::new(<&str>::from(level).to_owned())
                 .expect("a level's name is a short word"),
-            name: FreeFormText::new(claude_permission_mode_name(claude_permission_mode_for(
-                Some(level),
-            )))
+            name: FreeFormText::new(
+                <&str>::from(claude_permission_mode_for(Some(level))).to_owned(),
+            )
             .expect("a permission mode's name is a short word"),
         })
         .collect()
@@ -372,14 +372,6 @@ fn claude_starting_level(
 // Whether this system offers `level` at all: Sandboxed needs Claude Code's command sandbox.
 fn is_offered_on_system(level: PermissionLevel, can_run_sandbox: bool) -> bool {
     level != PermissionLevel::Sandboxed || can_run_sandbox
-}
-
-// The mode's name as Claude Code's wire spells it.
-fn claude_permission_mode_name(mode: ClaudePermissionMode) -> String {
-    serde_json::to_value(mode)
-        .ok()
-        .and_then(|name| name.as_str().map(str::to_owned))
-        .expect("a permission mode serializes as its name")
 }
 
 #[cfg(test)]

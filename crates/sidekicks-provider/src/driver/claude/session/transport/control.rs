@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
+use strum::{EnumString, IntoStaticStr};
 
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
 
@@ -420,10 +421,14 @@ lenient_object!(
 );
 
 /// Claude Code's permission modes, as `--permission-mode` and `set_permission_mode` take them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+/// Two namings with one spelling: serde's is the word a control request's JSON carries, strum's
+/// the word the command-line flag and a reported mode use, where `manual` is read as `default`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, IntoStaticStr, EnumString)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum ClaudePermissionMode {
     /// Asks before each change.
+    #[strum(to_string = "default", serialize = "manual")]
     Default,
     /// Takes file changes unasked.
     AcceptEdits,

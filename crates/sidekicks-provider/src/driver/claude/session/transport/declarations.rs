@@ -31,8 +31,6 @@ pub(crate) struct ClaudeHandshakeDeclaration {
     pub(crate) terminal_slash_commands: Vec<String>,
     /// The open `capabilities` set, each token as sent, such as `interrupt_cancel_queued_v1`.
     pub(crate) capabilities: Vec<String>,
-    /// The permission mode the process runs in, which may differ from the one it was asked for.
-    pub(crate) permission_mode: Option<String>,
 }
 
 /// One model the `initialize` reply offers.

@@ -54,6 +54,7 @@ use crate::driver::claude::session::tool_server_calls::{
     ClaudeToolServerCallContext, ClaudeToolServerCalls,
 };
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::inbound::{
     ClaudeHookCallback, ClaudeInboundRequest, ClaudeInboundRequestBody, ClaudeInboundRequestEvent,
     ClaudeToolUseAsk,
@@ -408,7 +409,8 @@ impl ClaudeInboundRequests {
             && session
                 .stream
                 .permission_mode()
-                .is_some_and(|mode| is_reviewed_mode(&mode));
+                .and_then(|mode| mode.parse::<ClaudePermissionMode>().ok())
+                == Some(claude_permission_mode_for(Some(PermissionLevel::Reviewed)));
         let flags = Map::from_iter([(
             "suppress_always_allow_rule".to_owned(),
             Value::Bool(ask.suppress_always_allow_rule == Some(true)),
@@ -760,12 +762,6 @@ fn made_rule_of(answer: ProviderPermissionAnswer) -> Option<ProviderAnswerRule> 
         ProviderPermissionAnswer::Allow { made_rule, .. }
         | ProviderPermissionAnswer::Refuse { made_rule, .. } => made_rule,
     }
-}
-
-// Whether the mode the process reported is the one Reviewed runs in.
-fn is_reviewed_mode(mode: &str) -> bool {
-    serde_json::to_value(claude_permission_mode_for(Some(PermissionLevel::Reviewed)))
-        .is_ok_and(|reviewed| reviewed == mode)
 }
 
 // A request's relayed input as an object; any other JSON reads as none.

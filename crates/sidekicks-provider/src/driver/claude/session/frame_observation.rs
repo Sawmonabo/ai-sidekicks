@@ -72,8 +72,6 @@ pub(crate) struct ClaudeStreamFrameRead {
     terminal_slash_commands: Option<LenientList<String>>,
     #[serde(default, deserialize_with = "read_lenient")]
     capabilities: Option<LenientList<String>>,
-    #[serde(rename = "permissionMode", default, deserialize_with = "read_lenient")]
-    permission_mode: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     fast_mode_state: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -269,7 +267,6 @@ impl ClaudeStreamFrameRead {
             skills: list_of(self.skills.as_ref()),
             terminal_slash_commands: list_of(self.terminal_slash_commands.as_ref()),
             capabilities: list_of(self.capabilities.as_ref()),
-            permission_mode: non_empty(self.permission_mode.clone()),
         }
     }
 
