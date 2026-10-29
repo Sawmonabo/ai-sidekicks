@@ -15,6 +15,7 @@ use sidekicks_contracts::jsonrpc::negotiation::{
     CONNECTION_INITIALIZE_METHOD, ConnectionInitializeRequest, ConnectionInitializeResponse,
     DaemonHandshake,
 };
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::method::{Method, MethodDescriptor, SubscriptionMethod};
 use sidekicks_contracts::wire::attachment;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -24,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 use self::calls::{Answer, CallKey, ClientShared};
 use super::link::{self, Link, LinkShared};
 use super::subscription::{Subscription, read_raw_value, read_typed_value};
-use crate::error::{ClientError, LinkFault, ReplyError, RequestError};
+use crate::error::{ClientError, LinkFault, RemoteError, ReplyError, RequestError};
 
 /// A request as sent: the method's contract, its params' JSON, and the params' attachments.
 #[derive(Clone, Debug)]
@@ -44,6 +45,16 @@ pub struct RawReply {
     pub json: Box<RawValue>,
     /// The message's attachments.
     pub attachments: Vec<Bytes>,
+}
+
+/// The daemon's answer to `connection.initialize` on a link [`JsonRpcClient::open_link`] opened.
+#[derive(Debug)]
+pub enum HandshakeAnswer {
+    /// The handshake's answer; the link is the client's.
+    Initialized(ConnectionInitializeResponse),
+    /// The `daemon.repairing` refusal: the daemon repairs its database file and serves only the
+    /// lifecycle verbs on this link, which is open but not yet the client's.
+    Repairing(RemoteError),
 }
 
 /// The typed JSON-RPC client; cheap to clone, every clone the same client. Calls made while no
@@ -68,13 +79,16 @@ impl JsonRpcClient {
     /// Opens a link over `stream`: sends `connection.initialize` first (no envelope
     /// `protocolVersion`) and reads its answer; a successful answer, `compatible: false` among
     /// them, makes the link the client's, the keyed calls a dropped link left are sent again under
-    /// new ids in their order, then the held calls go out up to the cap. An error answer, a reply
-    /// that does not read, or the link ending first closes it and fails with that error.
+    /// new ids in their order, then the held calls go out up to the cap. A `daemon.repairing`
+    /// refusal keeps the link open but not the client's, so no held call goes out on a link that
+    /// serves only the lifecycle verbs; the caller installs it with [`Self::install`] or closes
+    /// it. Any other error answer, a reply that does not read, or the link ending first closes it
+    /// and fails with that error.
     pub async fn open_link<S>(
         &self,
         stream: S,
         initialize: &ConnectionInitializeRequest,
-    ) -> Result<(ConnectionInitializeResponse, Link), ClientError>
+    ) -> Result<(HandshakeAnswer, Link), ClientError>
     where
         S: AsyncRead + AsyncWrite + Send + 'static,
     {
@@ -94,16 +108,32 @@ impl JsonRpcClient {
             None,
             Some(&link),
         );
-        let response = read_reply::<ConnectionInitializeResponse>(
-            CONNECTION_INITIALIZE_METHOD,
-            answer.await?,
-        )?;
-        self.shared.install(&link)?;
+        let answer = match answer.await {
+            Ok(reply) => HandshakeAnswer::Initialized(read_reply::<ConnectionInitializeResponse>(
+                CONNECTION_INITIALIZE_METHOD,
+                reply,
+            )?),
+            Err(ClientError::Remote(refusal))
+                if refusal.is_refusal(RefusalCode::DaemonRepairing) =>
+            {
+                HandshakeAnswer::Repairing(refusal)
+            }
+            Err(error) => return Err(error),
+        };
+        if let HandshakeAnswer::Initialized(_) = answer {
+            self.shared.install(&link)?;
+        }
         opening.is_open = true;
         Ok((
-            response,
+            answer,
             Link::new(Arc::clone(&link), Arc::clone(&self.shared)),
         ))
+    }
+
+    /// Makes `link`, opened on this client with a `daemon.repairing` answer, the client's, so
+    /// calls go out on it; fails with the link's fault where it ended meanwhile.
+    pub(crate) fn install(&self, link: &Link) -> Result<(), ClientError> {
+        self.shared.install(link.shared())
     }
 
     /// A typed call, registered now; the params are the caller's own (written with

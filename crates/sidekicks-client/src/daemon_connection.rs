@@ -7,7 +7,11 @@
 //! with no frame it counts the link lost. A lost link is opened again on the client's own schedule,
 //! [`LINK_REOPEN_BACKOFF_MS`], for [`LINK_REOPEN_WINDOW`], calls made meanwhile held for it; once
 //! the window has passed with every attempt failed the connection is down, every call settles
-//! `connection.unavailable` at once, and only `retry` starts the schedule again.
+//! `connection.unavailable` at once, and only `retry` starts the schedule again. A daemon repairing
+//! its database file refuses the handshake as `daemon.repairing`; the repairing form of the connect
+//! keeps that link, which serves the lifecycle verbs, so the repair can be stopped or restarted.
+
+pub mod handshake_wait;
 
 use std::future::Future;
 use std::io;
@@ -15,13 +19,17 @@ use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use sidekicks_contracts::daemon::lifecycle::DaemonPing;
+use sidekicks_contracts::daemon::lifecycle::{
+    DaemonLifecycleAccepted, DaemonPing, DaemonRestart, DaemonStop,
+};
+use sidekicks_contracts::daemon::recovery::DaemonRepairingDetails;
 use sidekicks_contracts::jsonrpc::message::ConnectionUnavailableReason;
 use sidekicks_contracts::jsonrpc::negotiation::{
     CURRENT_PROTOCOL_VERSION, ConnectionInitializeRequest, ConnectionInitializeResponse,
     NegotiationText, ProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::method::Method;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_platforms::{DaemonRunFolder, check_private_run_folder, daemon_run_folder};
@@ -31,8 +39,8 @@ use tokio::sync::{Notify, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep_until, timeout};
 
-use crate::error::{ClientError, LinkFault, RemoteError};
-use crate::transport::json_rpc::JsonRpcClient;
+use crate::error::{ClientError, LinkFault};
+use crate::transport::json_rpc::{HandshakeAnswer, JsonRpcClient};
 use crate::transport::link::Link;
 use crate::transport::local_socket::{LocalSocketStream, connect_local_socket};
 
@@ -154,6 +162,48 @@ impl DaemonConnection {
     pub async fn connect<C: DaemonConnector>(connector: C) -> Result<Self, ClientError> {
         let client = JsonRpcClient::new();
         let (initialize_response, link) = open_link(&client, &connector).await?;
+        Ok(Self::supervised(
+            client,
+            connector,
+            initialize_response,
+            link,
+        ))
+    }
+
+    /// `connect`, except that a daemon repairing its database file answers the link it refused
+    /// beside the refusal's details rather than failing, so the repair can be stopped or restarted
+    /// on it. Fails as `connect` does on every other failure.
+    pub async fn connect_or_repairing<C: DaemonConnector>(
+        connector: C,
+    ) -> Result<OpenedConnection, ClientError> {
+        let client = JsonRpcClient::new();
+        match open_link_answering_repair(&client, &connector).await? {
+            (HandshakeAnswer::Initialized(initialize_response), link) => {
+                Ok(OpenedConnection::Open(Self::supervised(
+                    client,
+                    connector,
+                    initialize_response,
+                    link,
+                )))
+            }
+            (HandshakeAnswer::Repairing(refusal), link) => {
+                // A fresh client holds no call, so installing the link sends nothing on it.
+                client.install(&link)?;
+                Ok(OpenedConnection::Repairing(RepairingConnection {
+                    details: refusal.read_repairing_details(),
+                    client,
+                }))
+            }
+        }
+    }
+
+    /// The connection over `link`, just opened on `client`, with its supervisor started.
+    fn supervised<C: DaemonConnector>(
+        client: JsonRpcClient,
+        connector: C,
+        initialize_response: ConnectionInitializeResponse,
+        link: Link,
+    ) -> Self {
         let state = Arc::new(watch::Sender::new(ConnectionState::Open));
         let retry = Arc::new(Notify::new());
         let supervisor = tokio::spawn(supervise(
@@ -163,13 +213,13 @@ impl DaemonConnection {
             Arc::clone(&state),
             Arc::clone(&retry),
         ));
-        Ok(Self {
+        Self {
             client,
             initialize_response,
             state,
             retry,
             supervisor,
-        })
+        }
     }
 
     /// The client every call and subscription goes through.
@@ -228,6 +278,49 @@ impl DaemonConnection {
 impl Drop for DaemonConnection {
     fn drop(&mut self) {
         self.supervisor.abort();
+    }
+}
+
+/// What the repairing form of the connect opened.
+pub enum OpenedConnection {
+    /// The daemon answered the handshake: an open connection, as `connect` answers it.
+    Open(DaemonConnection),
+    /// The daemon is repairing its database file.
+    Repairing(RepairingConnection),
+}
+
+/// A link to a daemon repairing its database file, which serves only the lifecycle verbs on it;
+/// dropped, it closes the link. It is never opened again.
+pub struct RepairingConnection {
+    details: DaemonRepairingDetails,
+    client: JsonRpcClient,
+}
+
+impl RepairingConnection {
+    /// The repair's progress, as the refusal carried it.
+    pub fn details(&self) -> DaemonRepairingDetails {
+        self.details
+    }
+
+    /// Sends `daemon.stop`, which ends the repair and the daemon, then closes the link. Fails with
+    /// the link's fault where it ended before the answer.
+    pub async fn stop(self) -> Result<(), ClientError> {
+        self.send::<DaemonStop>().await
+    }
+
+    /// Sends `daemon.restart`, which ends the repair and the daemon as a stop does, then closes
+    /// the link. Fails with the link's fault where it ended before the answer.
+    pub async fn restart(self) -> Result<(), ClientError> {
+        self.send::<DaemonRestart>().await
+    }
+
+    async fn send<M>(self) -> Result<(), ClientError>
+    where
+        M: Method<Params = EmptyPayload, Result = DaemonLifecycleAccepted> + 'static,
+    {
+        let answer = self.client.call::<M>(&EmptyPayload {}).await;
+        self.client.close().await;
+        answer.map(|DaemonLifecycleAccepted { accepted: _ }| ())
     }
 }
 
@@ -337,16 +430,34 @@ async fn watch_link(
     }
 }
 
-/// Opens one link: a refused token is read again, and when it has changed since it was presented
-/// the link is opened once more on a new stream with the new token, since a daemon writes its
-/// token just after it binds and the refused connection serves nothing more.
+/// Opens one link the client takes; a daemon repairing its database file fails it as
+/// `ClientError::Remote` with the `daemon.repairing` refusal, its link closed.
 async fn open_link<C: DaemonConnector>(
     client: &JsonRpcClient,
     connector: &C,
 ) -> Result<(ConnectionInitializeResponse, Link), ClientError> {
+    match open_link_answering_repair(client, connector).await? {
+        (HandshakeAnswer::Initialized(initialize_response), link) => {
+            Ok((initialize_response, link))
+        }
+        (HandshakeAnswer::Repairing(refusal), link) => {
+            link.close(LinkFault::Closed);
+            Err(ClientError::Remote(refusal))
+        }
+    }
+}
+
+/// Opens one link, answering a repairing daemon's refusal with the link it refused, not yet the
+/// client's: a refused token is read again, and when it has changed since it was presented the
+/// link is opened once more on a new stream with the new token, since a daemon writes its token
+/// just after it binds and the refused connection serves nothing more.
+async fn open_link_answering_repair<C: DaemonConnector>(
+    client: &JsonRpcClient,
+    connector: &C,
+) -> Result<(HandshakeAnswer, Link), ClientError> {
     let (presented_token, outcome) = open_link_with_token(client, connector, None).await;
     match outcome {
-        Err(ClientError::Remote(refusal)) if is_token_refusal(&refusal) => {
+        Err(ClientError::Remote(refusal)) if refusal.is_refusal(RefusalCode::AuthTokenInvalid) => {
             let current_token = connector.read_token().await?;
             let is_unchanged = presented_token.as_ref().is_some_and(|presented| {
                 bool::from(
@@ -375,7 +486,7 @@ async fn open_link_with_token<C: DaemonConnector>(
     token: Option<NegotiationText>,
 ) -> (
     Option<NegotiationText>,
-    Result<(ConnectionInitializeResponse, Link), ClientError>,
+    Result<(HandshakeAnswer, Link), ClientError>,
 ) {
     let stream = match connector.open_stream().await {
         Ok(stream) => stream,
@@ -399,14 +510,6 @@ async fn open_link_with_token<C: DaemonConnector>(
         }),
     };
     (Some(token), outcome)
-}
-
-/// Whether `refusal` is the daemon refusing the session token.
-fn is_token_refusal(refusal: &RemoteError) -> bool {
-    refusal
-        .data
-        .as_ref()
-        .is_some_and(|data| data.refusal == RefusalCode::AuthTokenInvalid.as_str())
 }
 
 /// The handshake: this build's version, every version it speaks, and the session token.

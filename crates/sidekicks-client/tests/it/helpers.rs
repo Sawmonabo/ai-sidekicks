@@ -143,13 +143,33 @@ impl<S: AsyncRead + AsyncWrite> ScriptedDaemon<S> {
 
     /// Refuses the call `id` with `code` under the category text `category`.
     pub(crate) async fn refuse_as(&mut self, id: &Value, code: RefusalCode, category: &str) {
+        let data = json!({ "type": code.as_str(), "category": category });
+        self.refuse_with_data(id, code, data).await;
+    }
+
+    /// Refuses the call `id` with `code`, its detail `fields`.
+    pub(crate) async fn refuse_with_fields(
+        &mut self,
+        id: &Value,
+        code: RefusalCode,
+        fields: Value,
+    ) {
+        let data = json!({
+            "type": code.as_str(),
+            "category": code.category().as_str(),
+            "fields": fields,
+        });
+        self.refuse_with_data(id, code, data).await;
+    }
+
+    async fn refuse_with_data(&mut self, id: &Value, code: RefusalCode, data: Value) {
         let message = json!({
             "jsonrpc": "2.0",
             "id": id,
             "error": {
                 "code": code.json_rpc_code().code(),
                 "message": "Refused by the scripted daemon.",
-                "data": { "type": code.as_str(), "category": category },
+                "data": data,
             },
         });
         self.write_message(LaneId::CONTROL, &message, false).await;
@@ -268,7 +288,7 @@ pub(crate) async fn open_link(client: &JsonRpcClient) -> (Link, ScriptedDaemon<D
         client.open_link(client_side, &request),
         daemon.answer_initialize()
     );
-    let (_response, link) = opened.expect("the link opens");
+    let (_answer, link) = opened.expect("the link opens");
     (link, daemon)
 }
 

@@ -3,7 +3,9 @@
 //! refused before the client writes a byte; over in-memory streams on the paused clock, the link
 //! watch keeps a link that frames still reach, and a lost link is opened again on the client's
 //! schedule, each attempt held to the handshake deadline, until the reopen window passes and only a
-//! retry reopens it, and a close while an attempt runs ends it and starts no other.
+//! retry reopens it, and a close while an attempt runs ends it and starts no other. A daemon
+//! repairing its database file keeps the link it refused for the repairing form's stop, and each of
+//! its refusals moves the handshake wait's deadline on.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,9 +17,10 @@ use interprocess::local_socket::tokio::{Listener, Stream};
 use interprocess::local_socket::traits::tokio::Listener as _;
 use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName as _};
 use serde_json::json;
+use sidekicks_client::daemon_connection::handshake_wait::wait_for_handshake;
 use sidekicks_client::daemon_connection::{
     ConnectionState, DaemonConnection, DaemonConnector, DaemonEndpoint, HANDSHAKE_DEADLINE,
-    LINK_REOPEN_BACKOFF_MS, LINK_REOPEN_WINDOW,
+    LINK_REOPEN_BACKOFF_MS, LINK_REOPEN_WINDOW, OpenedConnection,
 };
 use sidekicks_client::error::{ClientError, LinkFault};
 use sidekicks_contracts::jsonrpc::message::ConnectionUnavailableReason;
@@ -164,6 +167,7 @@ type AttemptTimes = Arc<Mutex<Vec<Instant>>>;
 
 /// A daemon the client reaches over in-memory streams: each attempt is timed and hands the test the
 /// daemon's half, or, while nobody listens, fails at once as a daemon that is not running does.
+#[derive(Clone)]
 struct MemoryConnector {
     attempts: mpsc::UnboundedSender<DuplexStream>,
     is_listening: Arc<AtomicBool>,
@@ -465,4 +469,106 @@ async fn a_close_while_an_attempt_runs_ends_the_attempt_and_starts_no_other() {
     let attempted_at_close = daemons.attempted_at().len();
     tokio::time::sleep(LINK_REOPEN_WINDOW).await;
     assert_eq!(daemons.attempted_at().len(), attempted_at_close);
+}
+
+#[tokio::test]
+async fn a_repairing_daemon_keeps_the_refused_link_and_the_stop_sent_on_it_reaches_the_daemon() {
+    let folder = tempfile::tempdir().expect("a temporary folder");
+    let private = folder.path().join("run");
+    sidekicks_platforms::create_private_folder(&private).expect("the run folder is made private");
+    let run_folder = run_folder(&private, &private);
+    let listener = listen(&run_folder);
+    std::fs::write(&run_folder.token_path, "repair-token").expect("the token is written");
+
+    let connecting = tokio::spawn(DaemonConnection::connect_or_repairing(DaemonEndpoint::new(
+        run_folder,
+    )));
+    let mut daemon = accept(&listener).await;
+    let id = read_initialize(&mut daemon, "repair-token").await;
+    let progress = json!({ "progress": { "done": 3, "total": 40 } });
+    daemon
+        .refuse_with_fields(&id, RefusalCode::DaemonRepairing, progress.clone())
+        .await;
+    let opened = tokio::time::timeout(PATIENCE, connecting)
+        .await
+        .expect("the connect ends")
+        .expect("the connect task runs")
+        .expect("the repairing daemon's refusal keeps its link");
+    let OpenedConnection::Repairing(repairing) = opened else {
+        panic!("a repairing daemon opened as a running one");
+    };
+    assert_eq!(
+        serde_json::to_value(repairing.details()).expect("the details write as JSON"),
+        progress
+    );
+
+    let stopping = tokio::spawn(repairing.stop());
+    let stop = tokio::time::timeout(PATIENCE, daemon.next_message())
+        .await
+        .expect("the stop reaches the daemon on the refused link");
+    assert_eq!(stop["method"], "daemon.stop");
+    daemon
+        .answer(&stop["id"], json!({ "accepted": true }))
+        .await;
+    tokio::time::timeout(PATIENCE, stopping)
+        .await
+        .expect("the stop ends")
+        .expect("the stop task runs")
+        .expect("the daemon took the stop");
+}
+
+#[tokio::test(start_paused = true)]
+async fn each_repairing_answer_moves_the_handshake_wait_deadline_on() {
+    let (connector, mut daemons) = memory_daemons();
+    let handed = Arc::new(Mutex::new(Vec::new()));
+    let started_at = Instant::now();
+    let waiting = tokio::spawn(wait_for_handshake(
+        connector,
+        HANDSHAKE_DEADLINE,
+        {
+            let handed = Arc::clone(&handed);
+            move |details| {
+                handed
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(serde_json::to_value(details).expect("the details write as JSON"));
+            }
+        },
+        std::future::pending::<()>(),
+    ));
+
+    // The daemon takes the first attempt and answers that it is repairing 9 s into the wait;
+    // nothing answers after that.
+    let (mut daemon, _attempt_at) = daemons.accept().await;
+    let request = daemon.next_message().await;
+    tokio::time::sleep_until(started_at + Duration::from_secs(9)).await;
+    daemons.listen(false);
+    let progress = json!({ "progress": { "done": 1, "total": 2 } });
+    daemon
+        .refuse_with_fields(
+            &request["id"],
+            RefusalCode::DaemonRepairing,
+            progress.clone(),
+        )
+        .await;
+    let refused_at = Instant::now();
+
+    tokio::time::sleep_until(started_at + HANDSHAKE_DEADLINE + Duration::from_secs(1)).await;
+    assert!(
+        !waiting.is_finished(),
+        "the repairing answer keeps the wait alive past its first deadline"
+    );
+    let ended = tokio::time::timeout(SCHEDULE_PATIENCE, waiting)
+        .await
+        .expect("the wait ends")
+        .expect("the wait task runs");
+    assert!(
+        matches!(ended, Err(ClientError::Unavailable { .. })),
+        "the wait ends unanswered"
+    );
+    assert_waited(refused_at.elapsed(), HANDSHAKE_DEADLINE);
+    assert_eq!(
+        *handed.lock().unwrap_or_else(PoisonError::into_inner),
+        vec![progress]
+    );
 }
