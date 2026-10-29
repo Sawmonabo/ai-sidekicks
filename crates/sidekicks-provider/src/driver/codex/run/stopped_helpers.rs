@@ -109,9 +109,7 @@ impl CodexStoppedHelpers {
         helper_thread_id: &str,
         turn_id: &str,
     ) {
-        let is_stopped = lock(&self.helpers)
-            .get(helper_thread_id)
-            .is_some_and(|stopped| stopped.session_id == record.session_id);
+        let is_stopped = lock(&self.helpers).contains_key(helper_thread_id);
         if !is_stopped {
             return;
         }

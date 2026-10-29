@@ -362,8 +362,7 @@ impl HelperStopReason {
                 refusal.cause
             ),
             Self::SetupRefused { refusal } => format!(
-                "Stopped: the daemon could not set up your run, because {}. Report what you did \
-                 and stop.",
+                "Stopped: the run could not be set up, because {}. Report what you did and stop.",
                 refusal.cause
             ),
         }
