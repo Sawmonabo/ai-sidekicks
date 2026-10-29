@@ -278,6 +278,8 @@ mod tests {
         ApprovalCategory::ToolExecution
     )]
     #[case::lookup_through_a_wrapper("command -v node", None, ApprovalCategory::ToolExecution)]
+    // A wrapper whose own words use up its command is one of the line's commands.
+    #[case::shell_beside_a_command("sudo -s; ls", None, ApprovalCategory::ToolExecution)]
     #[case::force_push_in_a_split_string(
         "env -S'git push --force'",
         None,
