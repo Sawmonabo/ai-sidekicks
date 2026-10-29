@@ -297,8 +297,8 @@ impl<'r> ShellWord<'r> {
     }
 
     /// Whether the shell passes the word as read here: false when an expansion, a substitution or
-    /// a leading pattern makes its text, which only the line's run decides and which can split it
-    /// into several words, any of them an option.
+    /// a pattern makes its text, which only the line's run decides and which can split it into
+    /// several words, any of them an option.
     pub(crate) fn is_decided(self) -> bool {
         self.pieces.iter().all(|piece| !piece.kind.is_expansion())
     }
@@ -581,9 +581,9 @@ impl<'s> WordBuilder<'s> {
         let range = node.byte_range();
         let text = node_text(node, self.line);
         match node.kind() {
-            // A pattern at the start can expand into any file name, one that reads as an option
-            // too; one later in the word keeps the word's start.
-            "word" if text.starts_with(['*', '?', '[', '{']) => {
+            // A pattern anywhere in the word, zsh's `^` among them, can expand into any number of
+            // file names, so the shell may pass several words, any of them an option.
+            "word" if has_unescaped_pattern(text) => {
                 self.push_line(range, PieceKind::Expansion);
             }
             "word" if memchr(b'\\', text.as_bytes()).is_some() => {
@@ -671,6 +671,22 @@ fn push_piece(pieces: &mut Vec<Piece>, start: u32, end: u32, kind: PieceKind) {
     if start < end {
         pieces.push(Piece { start, end, kind });
     }
+}
+
+// Whether an unquoted word holds a pattern character no backslash escapes: a glob's `*`, `?` or
+// `[`, a brace expansion's `{`, or zsh's `^`, which negates the pattern after it.
+fn has_unescaped_pattern(text: &str) -> bool {
+    let mut bytes = text.bytes();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            b'\\' => {
+                bytes.next();
+            }
+            b'*' | b'?' | b'[' | b'{' | b'^' => return true,
+            _ => {}
+        }
+    }
+    false
 }
 
 // An unquoted word: each backslash keeps the character after it, a backslash and a line break go

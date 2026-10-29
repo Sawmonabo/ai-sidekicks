@@ -169,7 +169,7 @@ fn may_allow_stand_on(
 fn command_subject_of(command: ShellCommand<'_>) -> Option<String> {
     // A wrapper's name, even one that only describes the command, makes a rule on every program,
     // and a rule on a program that hands a shell a line covers every line it is handed.
-    if command.wrappers().next().is_some()
+    if command.wrapper_words().next().is_some()
         || command.is_program_a_wrapper()
         || hands_a_shell_a_line(command.program())
     {

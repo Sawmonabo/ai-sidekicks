@@ -11,7 +11,7 @@ const LIMIT: usize = 64;
 struct ReadCommand {
     program: String,
     argument_words: Vec<String>,
-    wrappers: Vec<String>,
+    wrapper_words: Vec<String>,
 }
 
 impl From<ShellCommand<'_>> for ReadCommand {
@@ -22,16 +22,19 @@ impl From<ShellCommand<'_>> for ReadCommand {
                 .argument_words()
                 .map(|word| word.to_string())
                 .collect(),
-            wrappers: command.wrappers().map(|word| word.to_string()).collect(),
+            wrapper_words: command
+                .wrapper_words()
+                .map(|word| word.to_string())
+                .collect(),
         }
     }
 }
 
-fn command(program: &str, argument_words: &[&str], wrappers: &[&str]) -> ReadCommand {
+fn command(program: &str, argument_words: &[&str], wrapper_words: &[&str]) -> ReadCommand {
     ReadCommand {
         program: program.to_owned(),
         argument_words: argument_words.iter().map(|&word| word.to_owned()).collect(),
-        wrappers: wrappers.iter().map(|&wrapper| wrapper.to_owned()).collect(),
+        wrapper_words: wrapper_words.iter().map(|&word| word.to_owned()).collect(),
     }
 }
 
@@ -67,38 +70,42 @@ fn assert_unread(reading: &ShellLineReading) {
     ],
     true
 )]
-#[case::env_unset("env -u HOME git push", vec![command("git", &["push"], &["env"])], true)]
+#[case::env_unset(
+    "env -u HOME git push",
+    vec![command("git", &["push"], &["env", "-u", "HOME"])],
+    true
+)]
 #[case::sudo_user(
     "sudo -u root rm -rf /tmp/x",
-    vec![command("rm", &["-rf", "/tmp/x"], &["sudo"])],
+    vec![command("rm", &["-rf", "/tmp/x"], &["sudo", "-u", "root"])],
     true
 )]
 #[case::timeout_duration(
     "timeout 5 git fetch",
-    vec![command("git", &["fetch"], &["timeout"])],
+    vec![command("git", &["fetch"], &["timeout", "5"])],
     true
 )]
 #[case::env_split_string(
     "env -S 'git push -f'",
-    vec![command("git", &["push", "-f"], &["env"])],
+    vec![command("git", &["push", "-f"], &["env", "-S", "git push -f"])],
     true
 )]
 #[case::env_split_string_keeps_a_substitution_whole(
     r#"env -S "git $(echo push) -f""#,
     vec![
-        command("git", &["$(echo push)", "-f"], &["env"]),
+        command("git", &["$(echo push)", "-f"], &["env", "-S", "git $(echo push) -f"]),
         command("echo", &["push"], &[]),
     ],
     true
 )]
 #[case::env_split_string_drops_every_blank_run(
     "env -S '  git  push -f  '",
-    vec![command("git", &["push", "-f"], &["env"])],
+    vec![command("git", &["push", "-f"], &["env", "-S", "  git  push -f  "])],
     true
 )]
 #[case::env_assignment_before_the_program(
     "env FOO=1 git push --force",
-    vec![command("git", &["push", "--force"], &["env"])],
+    vec![command("git", &["push", "--force"], &["env", "FOO=1"])],
     true
 )]
 #[case::env_name_starting_with_a_digit_is_the_program(
@@ -230,7 +237,7 @@ fn assert_unread(reading: &ShellLineReading) {
 // Bash in POSIX mode runs the `time` program with an option the keyword does not take.
 #[case::time_program_option(
     "time -o f npm run build",
-    vec![command("npm", &["run", "build"], &["time"])],
+    vec![command("npm", &["run", "build"], &["time", "-o", "f"])],
     true
 )]
 #[case::export_assignment("export FOO=1", vec![command("export", &[], &[])], true)]
@@ -448,7 +455,7 @@ proptest! {
         prop_assert!(reading.is_whole(), "{line:?}");
         prop_assert_eq!(
             commands_of(&reading),
-            vec![ReadCommand { program, argument_words, wrappers: Vec::new() }]
+            vec![ReadCommand { program, argument_words, wrapper_words: Vec::new() }]
         );
     }
 }

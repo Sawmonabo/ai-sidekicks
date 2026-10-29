@@ -2,14 +2,15 @@
 //! it, past the programs that run the command after their own options, such as `env -i`,
 //! `sudo -u` or `timeout 5`, for the daemon's own answers to a command ask and for the subject a
 //! rule on one names; and takes the line a shell is handed off a provider's `<shell> -lc '…'`
-//! wrapper. A reading also keeps what the line does beside its commands: whether a redirect writes
-//! a file and whether it can set a shell variable; and of each command, whether a folder named its
-//! program. The parser reads the line the way a POSIX shell would and keeps what it read before a
-//! syntax error; nothing here guesses at what it could not read. A reading owns its line once and
-//! holds its words as pieces of it, so its memory and each query's time grow with the line alone.
+//! wrapper. A reading also keeps whether every form of the line is one a line that only reads may
+//! hold, and of each command, whether a folder named its program. The parser reads the line the
+//! way a POSIX shell would and keeps what it read before a syntax error; nothing here guesses at
+//! what it could not read. A reading owns its line once and holds its words as pieces of it, so its
+//! memory and each query's time grow with the line alone.
 
 mod command_string;
 pub mod reading_bound;
+mod reading_forms;
 mod words;
 mod wrappers;
 
@@ -19,7 +20,10 @@ use std::sync::Arc;
 use tree_sitter::{Node, Parser};
 
 use self::command_string::{CommandStringWords, command_string_words};
-pub use self::command_string::{hands_a_shell_a_line, unwrap_shell_command_line};
+pub use self::command_string::{
+    PROVIDER_LINE_SHELLS, hands_a_shell_a_line, unwrap_shell_command_line,
+};
+use self::reading_forms::ReadingForms;
 use self::words::{
     BytePositions, JoinedWords, Piece, PieceTexts, ShellText, Word, WordBuilder, node_text, offset,
 };
@@ -34,30 +38,22 @@ pub struct ShellLineReading {
     decoded: Box<str>,
     positions: BytePositions,
     pieces: Box<[Piece]>,
-    // Each command's wrappers, program and arguments, in that order.
+    // Each command's wrapper words, program and arguments, in that order.
     words: Box<[Word]>,
     commands: Box<[CommandEntry]>,
-    effects: LineEffects,
+    holds_only_reading_forms: bool,
     is_whole: bool,
 }
 
-// What a line does beside the commands it runs, which its command list does not show.
-#[derive(Clone, Copy, Default)]
-struct LineEffects {
-    has_file_writing_redirect: bool,
-    can_set_variable: bool,
-}
-
-// A command's words in the reading, by index: wrappers from `first` to `program`, then the
-// program, then its arguments up to `end`; whether a folder named the program or a wrapper; and
-// whether a wrapper's read passed over a word of its own that only the run decides.
+// A command's words in the reading, by index: each wrapper's name and its own words from `first`
+// to `program`, then the program, then its arguments up to `end`; and whether a folder named the
+// program or a wrapper.
 #[derive(Clone, Copy)]
 struct CommandEntry {
     first: u32,
     program: u32,
     end: u32,
     is_named_by_path: bool,
-    has_undecided_wrapper_word: bool,
 }
 
 impl ShellLineReading {
@@ -74,21 +70,12 @@ impl ShellLineReading {
         self.is_whole
     }
 
-    /// Whether a redirect anywhere in the line read writes a file: `>`, `>>`, `>|`, `&>`, `&>>` or
-    /// `>&` to a name. A descriptor duplication such as `2>&1`, a read, and `/dev/null` as the
-    /// shell passes the name write none; `/dev/stdout` and `/dev/stderr` reopen the file behind
-    /// their descriptor, so a write to either counts.
-    pub(crate) fn has_file_writing_redirect(&self) -> bool {
-        self.effects.has_file_writing_redirect
-    }
-
-    /// Whether the line read can set a shell variable or run text as code: an assignment, alone,
-    /// before a command or in a declaration, a loop's variable, a `${…}` expansion that is not a
-    /// plain read, an array subscript, zsh's `$name[…]` or `$#name[…]`, a `{name}` or `{name[…]}`
-    /// word, which names a redirect's descriptor, a `[[ … ]]` test that compares numbers or asks
-    /// `-v`, or any other arithmetic.
-    pub(crate) fn can_set_variable(&self) -> bool {
-        self.effects.can_set_variable
+    /// Whether every form of the line read is one a line that only reads may hold: no redirect
+    /// writes a file (`/dev/null` and a duplication onto a descriptor number write none), every
+    /// redirect has a command, nothing sets a variable or evaluates arithmetic, and every
+    /// substitution, expansion and here-document is one whose commands the reading holds.
+    pub(crate) fn holds_only_reading_forms(&self) -> bool {
+        self.holds_only_reading_forms
     }
 
     fn unread() -> Self {
@@ -99,7 +86,7 @@ impl ShellLineReading {
             pieces: Box::default(),
             words: Box::default(),
             commands: Box::default(),
-            effects: LineEffects::default(),
+            holds_only_reading_forms: false,
             is_whole: false,
         }
     }
@@ -111,7 +98,7 @@ impl ShellLineReading {
         let root = tree.root_node();
         let is_whole = !root.has_error();
         let mut builder = WordBuilder::new(&line);
-        let (words, commands, effects) = commands_in(root, &mut builder);
+        let (words, commands, holds_only_reading_forms) = commands_in(root, &mut builder);
         // The tree goes before the arrays shrink to their length, so the two never meet.
         drop(tree);
         let (decoded, pieces, positions) = builder.finish();
@@ -122,7 +109,7 @@ impl ShellLineReading {
             pieces,
             words: words.into_boxed_slice(),
             commands: commands.into_boxed_slice(),
-            effects,
+            holds_only_reading_forms,
             is_whole,
         }
     }
@@ -138,7 +125,7 @@ impl ShellLineReading {
 
 /// One simple command of a reading: its program's own name, with any folder taken off, the words
 /// after it, dequoted as the shell would pass them, and the programs it was run through, such as
-/// `sudo` or `env`, outermost first.
+/// `sudo` or `env`, outermost first, each with its own words.
 #[derive(Clone, Copy)]
 pub struct ShellCommand<'r> {
     reading: &'r ShellLineReading,
@@ -156,8 +143,9 @@ impl<'r> ShellCommand<'r> {
         (self.entry.program + 1..self.entry.end).map(move |index| self.reading.word(index))
     }
 
-    /// The programs that ran this command after their own options, outermost first.
-    pub fn wrappers(self) -> impl ExactSizeIterator<Item = ShellWord<'r>> {
+    /// The words before the program: each program that ran this command after its own options,
+    /// outermost first, followed by the options, values, operands and assignments it took.
+    pub fn wrapper_words(self) -> impl ExactSizeIterator<Item = ShellWord<'r>> {
         (self.entry.first..self.entry.program).map(move |index| self.reading.word(index))
     }
 
@@ -173,13 +161,6 @@ impl<'r> ShellCommand<'r> {
     /// `/usr/bin/env` name one, so it need not be the system program its name is.
     pub(crate) fn is_named_by_path(self) -> bool {
         self.entry.is_named_by_path
-    }
-
-    /// Whether a wrapper's read passed over an option, a value or an operand of its own that only
-    /// the run decides, as in `timeout $t ls`: bash splits such a word, and any piece of it can be
-    /// an option of the wrapper's or the program it runs.
-    pub(crate) fn has_undecided_wrapper_word(self) -> bool {
-        self.entry.has_undecided_wrapper_word
     }
 
     // The words this command hands a shell as each of its lines: an `eval`'s words, the string a
@@ -278,239 +259,97 @@ impl ShellLineReader {
 
 // Every simple command in the tree, nested ones included: those in a pipeline, a chain, a subshell
 // or a loop, those a substitution runs, inside double quotes, an assignment or a here-document
-// too, and those the parser read before a syntax error; and what the line does beside them. The
-// cursor keeps its own stack, so no nesting depth reaches this thread's.
+// too, and those the parser read before a syntax error; and whether every form of the line is one
+// a reading line may hold. A here-document body the shell passes as text is not read. The cursor
+// keeps its own stack, so no nesting depth reaches this thread's.
 fn commands_in(
     root: Node<'_>,
     builder: &mut WordBuilder<'_>,
-) -> (Vec<Word>, Vec<CommandEntry>, LineEffects) {
+) -> (Vec<Word>, Vec<CommandEntry>, bool) {
     let mut words = Vec::new();
     let mut commands = Vec::new();
-    let mut effects = LineEffects::default();
+    let mut forms = ReadingForms::new();
     let mut pending = VecDeque::new();
+    let mut read_body = None;
     let mut cursor = root.walk();
     loop {
-        note_line_effects(cursor.node(), builder, &mut effects);
-        if push_command_words(cursor.node(), builder, &mut pending)
+        let node = cursor.node();
+        let reads_inside = forms.note(node, builder);
+        if push_command_words(node, builder, &mut pending, &mut read_body)
             && let Some(command) = resolve_command(builder, &mut pending, &mut words)
         {
             commands.push(command);
         }
-        if cursor.goto_first_child() {
+        if reads_inside && cursor.goto_first_child() {
             continue;
         }
         while !cursor.goto_next_sibling() {
             if !cursor.goto_parent() {
-                return (words, commands, effects);
+                return (words, commands, forms.is_reading());
             }
         }
     }
 }
 
-// Notes what `node` does beside running a command: a redirect that writes a file, or a node that
-// can set a variable or run text as code. Arithmetic counts whole, since telling its assignments
-// from its reads gains nothing a reading program needs. The shell evaluates as arithmetic, running
-// any `$(…)` in it even when quoted: an array subscript, zsh's `$name[…]` in a word, a string or a
-// here-document, the operands of a `[[ … ]]` number comparison or `-v`, and a `${…}` offset or
-// length. A `${…}` expansion beyond a plain read can also assign, read the variable a value names
-// or run a value as a prompt, and a `{name}` word before a redirect assigns a descriptor to `name`.
-fn note_line_effects(node: Node<'_>, builder: &mut WordBuilder<'_>, effects: &mut LineEffects) {
-    let line = builder.line();
-    match node.kind() {
-        "file_redirect" => effects.has_file_writing_redirect |= redirect_writes_file(node, builder),
-        "variable_assignment"
-        | "for_statement"
-        | "c_style_for_statement"
-        | "arithmetic_expansion"
-        | "subscript" => {
-            effects.can_set_variable = true;
-        }
-        // `(( … ))`, an arithmetic command.
-        "compound_statement" if node.child(0).is_some_and(|open| open.kind() == "((") => {
-            effects.can_set_variable = true;
-        }
-        "test_command" if node.child(0).is_some_and(|open| open.kind() == "[[") => {
-            effects.can_set_variable |= is_arithmetic_test(node, line);
-        }
-        "expansion" => effects.can_set_variable |= !is_reading_expansion(node, line),
-        // zsh reads `[…]` right after `$name` as its subscript, and `$#name[…]` as the length of
-        // a subscripted name, which the parser reads as `$#` and then a separate name.
-        "simple_expansion" => {
-            let is_length = node_text(node, line) == "$#";
-            effects.can_set_variable |= node.next_sibling().is_some_and(|next| {
-                next.start_byte() == node.end_byte()
-                    && (node_text(next, line).starts_with('[') || (is_length && next.is_named()))
-            });
-        }
-        "concatenation" | "word" => effects.can_set_variable |= is_descriptor_name(node, line),
-        _ => {}
-    }
-}
-
-// The `[[ … ]]` operators whose operands bash evaluates as arithmetic.
-const ARITHMETIC_TEST_OPERATORS: &[&str] = &["-eq", "-ne", "-lt", "-le", "-gt", "-ge", "-v"];
-
-// Whether a `[[ … ]]` test holds an operator whose operands bash evaluates as arithmetic. The walk
-// stays inside the test's own expressions.
-fn is_arithmetic_test(test: Node<'_>, line: &str) -> bool {
-    let mut cursor = test.walk();
-    if !cursor.goto_first_child() {
-        return false;
-    }
-    loop {
-        let node = cursor.node();
-        if node.kind() == "test_operator"
-            && ARITHMETIC_TEST_OPERATORS.contains(&node_text(node, line))
-        {
-            return true;
-        }
-        let descends = matches!(
-            node.kind(),
-            "binary_expression" | "unary_expression" | "parenthesized_expression"
-        );
-        if descends && cursor.goto_first_child() {
-            continue;
-        }
-        while !cursor.goto_next_sibling() {
-            if !cursor.goto_parent() {
-                return false;
-            }
-        }
-    }
-}
-
-// Whether a file redirect writes a file: any but a read, a close, a duplication onto a descriptor
-// number, or one to a standard device alone.
-fn redirect_writes_file(redirect: Node<'_>, builder: &mut WordBuilder<'_>) -> bool {
-    let line = builder.line();
-    let mut operator = "";
-    let mut destination = None;
-    let mut destination_count = 0_usize;
+// Calls `visit` on each word a redirect's grammar takes past its own: a file redirect's
+// destinations after the first, a close's word, and a here-document's words after its start with
+// those of the redirects it holds. A redirect takes one word, so the shell passes each of these
+// to the command as an argument.
+fn visit_redirect_arguments<'t>(redirect: Node<'t>, visit: &mut impl FnMut(Node<'t>)) {
     let mut cursor = redirect.walk();
-    if cursor.goto_first_child() {
-        loop {
-            let child = cursor.node();
-            match cursor.field_name() {
-                Some("destination") => {
-                    destination_count += 1;
-                    destination = Some(child);
-                }
-                None if !child.is_named() => operator = node_text(child, line),
-                Some(_) | None => {}
-            }
-            if !cursor.goto_next_sibling() {
-                break;
-            }
-        }
-    }
-    let destination = destination.filter(|_| destination_count == 1);
-    match operator {
-        "<" | "<&" | "<&-" | ">&-" => false,
-        _ => !destination
-            .is_some_and(|destination| writes_no_file(builder, destination, operator == ">&")),
-    }
-}
-
-// The one device a redirect writes no file through.
-const NULL_DEVICE: &str = "/dev/null";
-
-// Whether a redirect's destination, as the shell passes it, is the null device, or a descriptor
-// number after `>&`. Its word is built to be read and dropped.
-fn writes_no_file(
-    builder: &mut WordBuilder<'_>,
-    destination: Node<'_>,
-    is_duplication: bool,
-) -> bool {
-    let mark = builder.piece_count();
-    let word = builder.push_word(destination);
-    let view = builder.view(word);
-    let writes_none = view.is_decided()
-        && (view.is(NULL_DEVICE)
-            || (is_duplication
-                && view.len() > 0
-                && view.chars().all(|character| character.is_ascii_digit())));
-    builder.truncate(mark);
-    writes_none
-}
-
-// The `${…}` operators that only test, cut, replace in or change the case of the value, and `:`
-// before an offset or a length. Never `=` or `:=`, which assign, `!`, which reads the variable a
-// value names, or an `@` transform, whose `P` runs the value as a prompt.
-const READING_EXPANSION_OPERATORS: &[&str] = &[
-    "-", ":-", "+", ":+", "?", ":?", "#", "##", "%", "%%", "/", "//", "/#", "/%", "^", "^^", ",",
-    ",,", ":",
-];
-
-// The nodes a reading `${…}` holds beside its operators: its braces, its name, and an operand whose
-// own commands and expansions the walk reads.
-const READING_EXPANSION_PARTS: &[&str] = &[
-    "${",
-    "}",
-    "variable_name",
-    "special_variable_name",
-    "word",
-    "concatenation",
-    "string",
-    "raw_string",
-    "ansi_c_string",
-    "simple_expansion",
-    "expansion",
-    "command_substitution",
-    "regex",
-];
-
-// Whether a `${…}` expansion only reads its variable: its operators listed, each `:` offset or
-// length digits alone, its other parts listed, and no `$`, backquote or `(` in a pattern or word
-// token, which holds an expansion or a process substitution the tree does not show.
-fn is_reading_expansion(expansion: Node<'_>, line: &str) -> bool {
-    let mut cursor = expansion.walk();
     if !cursor.goto_first_child() {
-        return true;
+        return;
     }
-    let mut is_offset = false;
+    let mut destination_count = 0_usize;
+    let mut is_close = false;
     loop {
-        let node = cursor.node();
-        let text = node_text(node, line);
-        let is_reading = if cursor.field_name() == Some("operator") {
-            is_offset = text == ":";
-            READING_EXPANSION_OPERATORS.contains(&text)
-        } else if std::mem::take(&mut is_offset) {
-            node.kind() == "number" && text.bytes().all(|byte| byte.is_ascii_digit())
-        } else {
-            READING_EXPANSION_PARTS.contains(&node.kind())
-                && !(matches!(node.kind(), "regex" | "word") && text.contains(['$', '`', '(']))
-        };
-        if !is_reading {
-            return false;
+        let child = cursor.node();
+        match cursor.field_name() {
+            Some("destination") => {
+                destination_count += 1;
+                if destination_count > 1 || is_close {
+                    visit(child);
+                }
+            }
+            Some("argument") => visit(child),
+            Some("redirect") => visit_redirect_arguments(child, visit),
+            Some(_) | None => is_close |= matches!(child.kind(), "<&-" | ">&-"),
         }
         if !cursor.goto_next_sibling() {
-            return true;
+            return;
         }
     }
-}
-
-// Whether a word is `{name}` or `{name[…]}`, which before a redirect assigns the descriptor it
-// opens to `name` or to an array element, whose subscript bash evaluates as arithmetic.
-fn is_descriptor_name(word: Node<'_>, line: &str) -> bool {
-    node_text(word, line)
-        .strip_prefix('{')
-        .and_then(|rest| rest.strip_suffix('}'))
-        .is_some_and(|name| {
-            let subscript = name.trim_start_matches(continues_variable_name);
-            name.chars().next().is_some_and(starts_variable_name)
-                && (subscript.is_empty()
-                    || (subscript.starts_with('[') && subscript.ends_with(']')))
-        })
 }
 
 // Puts the words of a node that runs a command, its program first, in `pending`; false for any
-// other node.
+// other node. A redirected simple command is read at its statement, with the words its redirects'
+// grammar takes past their own as its arguments, and `read_body` keeps it from a second read.
 fn push_command_words(
     node: Node<'_>,
     builder: &mut WordBuilder<'_>,
     pending: &mut VecDeque<Word>,
+    read_body: &mut Option<usize>,
 ) -> bool {
     match node.kind() {
+        "redirected_statement" => {
+            let Some(command) = node
+                .child_by_field_name("body")
+                .filter(|body| body.kind() == "command")
+            else {
+                return false;
+            };
+            *read_body = Some(command.id());
+            push_simple_command_words(command, builder, pending);
+            if !pending.is_empty() {
+                let mut cursor = node.walk();
+                for redirect in node.children_by_field_name("redirect", &mut cursor) {
+                    visit_redirect_arguments(redirect, &mut |word| {
+                        pending.push_back(builder.push_word(word));
+                    });
+                }
+            }
+        }
+        "command" if *read_body == Some(node.id()) => return false,
         "command" => push_simple_command_words(node, builder, pending),
         // `export`, `declare`, `unset` and their kin are commands named by their keyword.
         "declaration_command" | "unset_command" => {
@@ -529,6 +368,7 @@ fn push_command_words(
 // without a bare `time [-p] [--]` or `coproc` before it, which the shell reads as keywords. A
 // `time` followed by any other option is kept as the `time` program: bash in POSIX mode runs that
 // program with the option, and its default mode would run the option as a command, which fails.
+// A `time` with no command after it is kept too, as the command the line runs.
 fn push_simple_command_words(
     command: Node<'_>,
     builder: &mut WordBuilder<'_>,
@@ -580,7 +420,7 @@ fn push_simple_command_words(
                     let word = builder.view(word);
                     word.starts_with("-") && !word.is("-")
                 });
-            if !takes_other_option {
+            if !takes_other_option && pending.len() > keyword_words {
                 pending.drain(..keyword_words);
             }
         }
@@ -670,9 +510,10 @@ fn is_test_word(node: Node<'_>) -> bool {
 }
 
 // The command `pending` runs, its words moved to `words`: the program is the first word that is
-// neither an assignment nor a wrapper that runs the command after its own options and operands;
-// a wrapper whose read of its own words leaves it the program, or leaves no command after them, is
-// the program; a command of assignments alone runs none.
+// neither an assignment nor a wrapper that runs the command after its own options and operands,
+// each wrapper's name followed by the words it took and the assignments after them; a wrapper
+// whose read of its own words leaves it the program, or leaves no command after them, is the
+// program; a command of assignments alone runs none.
 fn resolve_command(
     builder: &mut WordBuilder<'_>,
     pending: &mut VecDeque<Word>,
@@ -681,51 +522,54 @@ fn resolve_command(
     let first_word = words.len();
     let piece_mark = builder.piece_count();
     let mut is_named_by_path = false;
-    let mut has_undecided_wrapper_word = false;
+    let mut last_wrapper = None;
     loop {
-        while pending
-            .front()
-            .is_some_and(|&word| is_variable_assignment(builder.view(word)))
+        while let Some(assignment) =
+            pending.pop_front_if(|word| is_variable_assignment(builder.view(*word)))
         {
-            pending.pop_front();
+            // One after a wrapper is the wrapper's own, as env reads it; one before is the shell's.
+            if last_wrapper.is_some() {
+                words.push(assignment);
+            }
         }
         let Some(name) = pending.pop_front() else {
             // A wrapper whose own words use up the command is its program, as `sudo -s` is.
-            if words.len() > first_word {
-                return Some(CommandEntry {
-                    first: offset(first_word),
-                    program: offset(words.len() - 1),
-                    end: offset(words.len()),
-                    is_named_by_path,
-                    has_undecided_wrapper_word,
-                });
-            }
-            builder.truncate(piece_mark);
-            return None;
+            let Some(program) = last_wrapper else {
+                builder.truncate(piece_mark);
+                return None;
+            };
+            words.truncate(program + 1);
+            return Some(CommandEntry {
+                first: offset(first_word),
+                program: offset(program),
+                end: offset(program + 1),
+                is_named_by_path,
+            });
         };
         let without_folder = builder.basename(name);
         is_named_by_path |= without_folder.is_some();
         let program = without_folder.unwrap_or(name);
         let wrapper = command_wrapper(builder.view(program));
         words.push(program);
+        let name_index = words.len() - 1;
         let is_program = match wrapper {
             Some(wrapper) => matches!(
-                take_wrapper_words(builder, wrapper, pending, &mut has_undecided_wrapper_word),
+                take_wrapper_words(builder, wrapper, pending, words),
                 WrapperRead::WrapperIsProgram
             ),
             None => true,
         };
         if is_program {
-            let program = offset(words.len() - 1);
+            words.truncate(name_index + 1);
             words.extend(pending.drain(..));
             return Some(CommandEntry {
                 first: offset(first_word),
-                program,
+                program: offset(name_index),
                 end: offset(words.len()),
                 is_named_by_path,
-                has_undecided_wrapper_word,
             });
         }
+        last_wrapper = Some(name_index);
     }
 }
 

@@ -6,12 +6,19 @@ use std::borrow::Cow;
 
 use super::words::{PositionedByte, WordText, long_option_named, short_option_named};
 
-/// The command line `line` runs when it is a provider's argv joined by `shlex`: one `sh`, `bash`,
-/// `zsh`, `dash` or `ksh` handed its whole line in a provider's own form, `-c`, a cluster of `l`
-/// and `c` such as `-lc`, or `-l -c`, as a provider wraps a command in `/bin/zsh -lc '…'`. Any
-/// other line is returned as it is: one with an operator outside the quotes, one with words after
-/// the string, and one whose shell takes any other option, which can run or write a file first.
-/// No tree is built for the outer line, so no cap applies to it.
+/// The shells a provider hands a command line in its own form, `<shell> -c '…'` or
+/// `<shell> -lc '…'`, by file name.
+pub const PROVIDER_LINE_SHELLS: [&str; 3] = ["zsh", "bash", "sh"];
+
+// The folders a provider's shell is named from, beside its bare name.
+const PROVIDER_SHELL_FOLDERS: [&str; 2] = ["/bin/", "/usr/bin/"];
+
+/// The command line `line` runs when it is a provider's argv joined by `shlex`: one of
+/// `PROVIDER_LINE_SHELLS`, named alone or from `/bin` or `/usr/bin`, handed its whole line with
+/// `-c`, `-lc`, `-cl` or `-l -c`, as a provider wraps a command in `/bin/zsh -lc '…'`. Any other
+/// line is returned as it is: one with an operator outside the quotes, one with words after the
+/// string, one whose shell another folder names, and one whose shell takes any other option, which
+/// can run or write a file first. No tree is built for the outer line, so no cap applies to it.
 pub fn unwrap_shell_command_line(line: &str) -> Cow<'_, str> {
     let Some(words) = shlex::split(line) else {
         return Cow::Borrowed(line);
@@ -24,31 +31,28 @@ pub fn unwrap_shell_command_line(line: &str) -> Cow<'_, str> {
     {
         return Cow::Borrowed(line);
     }
-    let Some((first, rest)) = words.split_first() else {
+    let Some((shell, rest)) = words.split_first() else {
         return Cow::Borrowed(line);
     };
-    let program = first
-        .rsplit_once('/')
-        .map_or(first.as_str(), |(_, name)| name);
-    let is_shell = matches!(
-        shell_line_program(program),
-        Some(ShellLineProgram::Shell(_))
-    );
+    let name = PROVIDER_SHELL_FOLDERS
+        .iter()
+        .find_map(|folder| shell.strip_prefix(folder))
+        .unwrap_or(shell);
+    if !PROVIDER_LINE_SHELLS.contains(&name) {
+        return Cow::Borrowed(line);
+    }
     match rest.split_last() {
-        Some((command_line, options)) if is_shell && is_provider_line_form(options) => {
+        Some((command_line, options)) if is_provider_line_form(options) => {
             Cow::Owned(command_line.clone())
         }
         Some(_) | None => Cow::Borrowed(line),
     }
 }
 
-// Whether a shell's words before its string are a provider's own: `-c`, one cluster of `l` and
-// `c` with a `c` in it, or `-l -c`.
+// Whether a shell's words before its string are a provider's own: `-c`, `-lc`, `-cl` or `-l -c`.
 fn is_provider_line_form(options: &[String]) -> bool {
     match options {
-        [cluster] => cluster.strip_prefix('-').is_some_and(|letters| {
-            letters.contains('c') && letters.chars().all(|letter| matches!(letter, 'l' | 'c'))
-        }),
+        [form] => matches!(form.as_str(), "-c" | "-lc" | "-cl"),
         [login, line] => login == "-l" && line == "-c",
         _ => false,
     }
