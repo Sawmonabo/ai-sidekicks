@@ -217,7 +217,7 @@ pub(crate) enum AttentionChange {
 
 /// Every event type whose change is not [`AttentionChange::Nothing`]: the live statements read no
 /// event of another type, and a rebuild folds only these.
-pub(crate) const ATTENTION_EVENT_TYPES: [SessionEventType; 29] = [
+pub(crate) const ATTENTION_EVENT_TYPES: [SessionEventType; 28] = [
     SessionEventType::AgentRunWaitingForApproval,
     SessionEventType::AgentRunWaitingForInput,
     SessionEventType::AgentRunQueued,
@@ -246,7 +246,6 @@ pub(crate) const ATTENTION_EVENT_TYPES: [SessionEventType; 29] = [
     SessionEventType::SessionMuted,
     SessionEventType::SessionRenamed,
     SessionEventType::SessionConverted,
-    SessionEventType::UserMessageSent,
 ];
 
 /// What `event` does to the attention entries, read from the event alone.
@@ -450,10 +449,9 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
             AttentionChange::DeleteWorkflowRun(payload.workflow_run_id)
         }
         SessionEvent::SessionMuted(payload) => AttentionChange::WithdrawMuted(payload.session_id),
-        // The name an entry shows is read from the session, its first message or its shape.
+        // The name an entry shows is read from the session's name or its shape.
         SessionEvent::SessionRenamed(payload) => AttentionChange::NameChanged(payload.session_id),
         SessionEvent::SessionConverted(payload) => AttentionChange::NameChanged(payload.session_id),
-        SessionEvent::UserMessageSent(payload) => AttentionChange::NameChanged(payload.session_id),
         // A run's own state change carries every wait these events open and close, and its
         // terminal carries the limit a limit event reports.
         SessionEvent::SessionCreated(_)
@@ -468,6 +466,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::WorktreeRetired(_)
         | SessionEvent::SessionEventCompacted(_)
         | SessionEvent::AgentMessageSent(_)
+        | SessionEvent::UserMessageSent(_)
         | SessionEvent::AgentThinkingUpdated(_)
         | SessionEvent::AgentToolCallInvoked(_)
         | SessionEvent::AgentToolCallCompleted(_)

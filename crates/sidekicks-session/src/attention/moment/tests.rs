@@ -281,7 +281,7 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     json!({"type": "user.message.sent", "payload": {
         "sessionId": SESSION, "actor": "person", "message": "hi",
     }}),
-    AttentionChange::NameChanged(session_id())
+    AttentionChange::Nothing
 )]
 #[case::plan_holding_no_request(
     plan_proposed(false),
