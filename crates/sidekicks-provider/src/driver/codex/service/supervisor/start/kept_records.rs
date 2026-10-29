@@ -13,6 +13,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use futures::future::join_all;
 use sidekicks_platforms::{CAN_LINK_A_SOCKET, ProcessRecord, read_socket_link};
 use tokio::time::Instant;
 
@@ -179,7 +180,8 @@ pub(super) async fn take_kept_service(
 /// Stops every lasting service a record under `data_folder` still keeps, for a daemon stop that
 /// ends work in flight, once the daemon's own services have stopped: one a former daemon kept
 /// that this one never joined is stopped and its record removed, what an ended one left is ended,
-/// and one draining is left to its drain. Each failure is reported and the rest go on.
+/// and one draining is left to its drain. All are stopped together, so the stop takes one grace
+/// whatever the count; each failure is reported.
 pub(crate) async fn stop_kept_services(data_folder: PathBuf) {
     let listed = tokio::task::spawn_blocking(move || recorded_files(&data_folder))
         .await
@@ -192,20 +194,19 @@ pub(crate) async fn stop_kept_services(data_folder: PathBuf) {
             return;
         }
     };
-    for file in files {
-        let stopped = async {
-            let locked = lock_record(file).await?;
-            let Some(record) = read_record(&locked).await? else {
-                return Ok(());
-            };
-            // A service that never answered names no socket, so where no signal stops a process
-            // its stop goes straight to the forced end.
-            let control_socket = record.physical_socket.unwrap_or_default();
-            retire_kept_record(&locked, &control_socket).await
+    let stopped = join_all(files.into_iter().map(|file| async {
+        let locked = lock_record(file).await?;
+        let Some(record) = read_record(&locked).await? else {
+            return Ok(());
         };
-        if let Err(failure) = stopped.await {
-            report_kept_service_unstopped(&failure.error);
-        }
+        // A service that never answered names no socket, so where no signal stops a process its
+        // stop goes straight to the forced end.
+        let control_socket = record.physical_socket.unwrap_or_default();
+        retire_kept_record(&locked, &control_socket).await
+    }))
+    .await;
+    for failure in stopped.into_iter().filter_map(Result::err) {
+        report_kept_service_unstopped(&failure.error);
     }
 }
 

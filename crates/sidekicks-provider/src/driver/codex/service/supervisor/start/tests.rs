@@ -332,23 +332,31 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
         dependencies,
     );
 
-    let mut tokens = Vec::new();
+    let mut starts = Vec::new();
     for launch in [1, 2] {
         let started = tokio::time::timeout(
             deadline,
             start_codex_service(Arc::clone(&service), launch, CancellationToken::new(), None),
         )
-        .await
-        .expect("the start ends within its deadline");
+        .await;
+        let mut sent = Vec::new();
+        while let Ok(request) = recorded.try_recv() {
+            sent.push(request);
+        }
+        starts.push((started, sent));
+    }
+    // The stop a daemon stop makes ends the kept service, which outlives this test otherwise, so
+    // it runs before any assertion can fail.
+    stop_kept_services(service.dependencies().data_folder.clone()).await;
+
+    let mut tokens = Vec::new();
+    for (started, sent) in starts {
+        let started = started.expect("the start ends within its deadline");
         assert!(
             started.is_ok(),
             "the start fails: {:?}",
             started.err().map(|failure| failure.error)
         );
-        let mut sent = Vec::new();
-        while let Ok(request) = recorded.try_recv() {
-            sent.push(request);
-        }
         let added = sent.last().expect("the start sent its requests");
         assert_eq!(added["method"], "environment/add", "{sent:?}");
         assert_eq!(added["params"]["environmentId"], "sidekicks-relay");
@@ -362,9 +370,6 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
             .to_owned();
         tokens.push((url.to_owned(), token));
     }
-
-    // The stop a daemon stop makes ends the kept service, which outlives this test otherwise.
-    stop_kept_services(service.dependencies().data_folder.clone()).await;
 
     let [(url, earlier), (_, current)] = tokens.as_slice() else {
         panic!("two starts");
