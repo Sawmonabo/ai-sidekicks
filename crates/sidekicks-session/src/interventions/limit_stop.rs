@@ -39,7 +39,6 @@ use crate::interventions::store::{
 use crate::run::engine::{InterruptRoute, RunEngineError};
 use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::run::read::safe_run_version;
-use crate::run::state_change::refused_statement_index;
 
 /// How long the engine's stop waits on a limit's hand before it answers with the row pending.
 const LIMIT_HAND_BOUND: Duration = Duration::from_secs(5);
@@ -196,7 +195,7 @@ impl InterventionService {
             )
             .await;
         if let Err(error) = recorded {
-            return Err(match refused_statement_index(&error) {
+            return Err(match error.refused_statement_index() {
                 Some(PENDING_GUARD_INDEX) => no_row(LimitInterruptPending { run_id, limit }),
                 _ => no_row(error),
             });

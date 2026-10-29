@@ -180,7 +180,7 @@ pub fn descriptor_of(provider_id: &str) -> Option<&'static ProviderDescriptor> {
 }
 
 impl ProviderDescriptor {
-    /// The provider's name as a person reads it.
+    /// The provider's name as a person reads it, which a session's lead agent is named.
     pub fn name(&self) -> &'static str {
         self.name
     }

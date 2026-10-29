@@ -1,8 +1,8 @@
 //! What the daemon's start builds over its store, its providers and its repository services for the
 //! serving socket: the session directory's port, the session services, the terminals' table, the
-//! project and clone services, the worktree creator and its setup card, the recovery services and
-//! the stored data's methods, then every method table registered over them; it hands back the
-//! parts the start runs next and the stop ends.
+//! project and clone services, the worktree creator and its setup card, the workspace services,
+//! the recovery services and the stored data's methods, then every method table registered over
+//! them; it hands back the parts the start runs next and the stop ends.
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -51,11 +51,11 @@ use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::credential_store::items::SecretItems;
 use sidekicks_store::machine::identity_key::MachineIdentity;
 use sidekicks_store::machine::local::LocalMachine;
-use sidekicks_workspace::clone::service::{CloneService, CloneServiceDeps};
+use sidekicks_workspace::clone::service::{CloneAttachedListener, CloneService, CloneServiceDeps};
 use sidekicks_workspace::folder::list::FolderListService;
 use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::git::worktree::creation::{WorktreeCreator, WorktreeCreatorDeps};
-use sidekicks_workspace::git::worktree::naming::{WorktreeNaming, worktrees_folder};
+use sidekicks_workspace::git::worktree::naming::WorktreeNaming;
 use sidekicks_workspace::git::worktree::setup::{WorktreeSetupRunner, WorktreeSetupRunnerDeps};
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::managed::service::managed_workspaces_folder;
@@ -77,7 +77,9 @@ use crate::daemon::process::method_tables::{MethodTableServices, register_method
 use crate::daemon::process::projections::rebuild_projections;
 use crate::daemon::process::provider_port::{ProviderPortStart, build_provider_port};
 use crate::daemon::process::providers::Providers;
-use crate::daemon::process::repo_services::RepoServices;
+use crate::daemon::process::repo_services::{
+    ManagedWritesWatermarkFile, RepoServices, managed_writes_watermark_path,
+};
 use crate::daemon::process::session_services::{
     SessionServiceStart, SessionServiceStartError, SessionServices, build_session_services,
 };
@@ -86,6 +88,10 @@ use crate::daemon::process::shell_table::{
 };
 use crate::daemon::process::stored_data::{StoredDataMethodsStart, build_stored_data_methods};
 use crate::daemon::process::supervision::ProcessStateTracker;
+use crate::daemon::process::workspace_services::{
+    ExecutionRootStart, WorkspaceServiceStart, WorkspaceWork, build_execution_root_services,
+    build_workspace_services,
+};
 use crate::daemon::process::worktree_sources::WorktreeSources;
 use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
 use crate::daemon::status_methods::StatusMethodsDeps;
@@ -197,6 +203,8 @@ pub(crate) struct MethodInputs {
     pub(crate) presence: Arc<PresenceRegister>,
     /// The attention service, started right after the recovery pass.
     pub(crate) attention: Arc<AttentionService>,
+    /// The workspace services' work, which the start begins once the recovery pass has ended.
+    pub(crate) workspace_work: WorkspaceWork,
 }
 
 /// Why the method tables' services could not be built.
@@ -320,17 +328,19 @@ pub(crate) async fn register_method_inputs(
         watcher: Arc::clone(&repo.folder_watch),
         sources: Arc::clone(&worktree_sources) as _,
     }));
+    let live_run_folders = Arc::new(SessionLiveRunFolders::new(Arc::clone(&reads)));
+    // The creator's, and the run setup gate's around a run's context write.
+    let checkout_lock = Arc::new(KeyedLock::new());
     let worktree_creator = Arc::new(WorktreeCreator::new(WorktreeCreatorDeps {
         git: git.clone(),
         reads: Arc::clone(&reads),
         writer: Arc::clone(&writer),
         events: Arc::clone(&repo.worktree_events),
-        naming: WorktreeNaming::new(worktrees_folder(home_folder), worktree_sources),
+        naming: WorktreeNaming::new(repo.worktrees_folder.clone(), worktree_sources),
         worktrees: Arc::clone(&repo.worktrees),
         setup: Arc::clone(&worktree_setup),
-        live_run_folders: Arc::new(SessionLiveRunFolders::new(Arc::clone(&reads))),
-        // No run gate holds a checkout lock, so the creator's is its own.
-        checkout_lock: Arc::new(KeyedLock::new()),
+        live_run_folders: Arc::clone(&live_run_folders) as _,
+        checkout_lock: Arc::clone(&checkout_lock),
     }));
     let attention = Arc::new(AttentionService::new(AttentionServiceDependencies {
         writer: Arc::clone(&writer),
@@ -342,6 +352,21 @@ pub(crate) async fn register_method_inputs(
         machine_device_id: machine_device_id.clone(),
         scheduler: Arc::clone(&scheduler),
     }));
+    let project_list_feed = Arc::new(ProjectListFeed::new(
+        Arc::clone(&port.project_records),
+        &database.followers,
+    ));
+    let roots = build_execution_root_services(ExecutionRootStart {
+        reads: Arc::clone(&reads),
+        writer: Arc::clone(&writer),
+        git: git.clone(),
+        repo,
+        creator: Arc::clone(&worktree_creator),
+        setup: Arc::clone(&worktree_setup),
+        live_run_folders,
+        checkout_lock,
+        project_list_feed: Arc::clone(&project_list_feed),
+    });
     // The daemon's `Tokens per run`, which run admission admits each new lead run with.
     let token_limits = PortRegistration::new("run token limits");
     token_limits.register(Arc::clone(&configuration) as Arc<dyn RunTokenLimitReader>)?;
@@ -353,6 +378,7 @@ pub(crate) async fn register_method_inputs(
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
         providers: Arc::clone(&registry),
         execution_postures: Arc::clone(&providers.execution_postures),
+        execution_root_gate: Arc::clone(&roots.gate) as _,
         binding_cursors,
         epochs,
         compose_opening: port.compose_opening,
@@ -383,6 +409,10 @@ pub(crate) async fn register_method_inputs(
             .workspace_writes
             .take()
             .expect("the start takes the chats' writes once"),
+        // The one keeper of the instant the chats' write watch walks from at the next start.
+        managed_writes_watermark: Arc::new(ManagedWritesWatermarkFile {
+            path: managed_writes_watermark_path(home_folder),
+        }),
         clock,
         spawner,
         daemon_program: daemon_program.to_path_buf(),
@@ -415,10 +445,6 @@ pub(crate) async fn register_method_inputs(
         })
         .await?,
     );
-    let project_list_feed = Arc::new(ProjectListFeed::new(
-        Arc::clone(&port.project_records),
-        &database.followers,
-    ));
     let driver_set_names = providers.reserved_names.names().to_vec();
     let projects = Arc::new(ProjectService::new(ProjectServiceDeps {
         writer: Arc::clone(&writer),
@@ -428,9 +454,31 @@ pub(crate) async fn register_method_inputs(
         git: git.clone(),
         settings: Arc::clone(&settings_reader),
         driver_set_names: driver_set_names.clone(),
-        worktrees_folder: worktrees_folder(home_folder),
+        worktrees_folder: repo.worktrees_folder.clone(),
         list_feed: Arc::clone(&project_list_feed),
     }));
+    let workspace = build_workspace_services(WorkspaceServiceStart {
+        reads: Arc::clone(&reads),
+        writer: Arc::clone(&writer),
+        event_log: Arc::clone(&database.event_log),
+        git: git.clone(),
+        repo,
+        roots: &roots,
+        creator: Arc::clone(&worktree_creator),
+        setup: Arc::clone(&worktree_setup),
+        shells: Arc::clone(&shells),
+        appender: Arc::clone(&session.appender),
+        providers: Arc::clone(&registry),
+        settings: Arc::clone(&settings_reader),
+        changes: Arc::clone(&session.changes),
+        projects: Arc::clone(&projects),
+        records: Arc::clone(&port.project_records),
+        project_list_feed: Arc::clone(&project_list_feed),
+        scheduler: Arc::clone(&scheduler),
+    });
+    // The create finishes the sessions a clone holds once it attaches.
+    let clone_attached = Arc::new(PortRegistration::new("clone attached"));
+    clone_attached.register(Arc::clone(&workspace.creation) as Arc<dyn CloneAttachedListener>)?;
     let clones = match repo
         .askpass
         .take()
@@ -442,12 +490,10 @@ pub(crate) async fn register_method_inputs(
             reads: Arc::clone(&reads),
             writer: Arc::clone(&writer),
             askpass,
-            settings: settings_reader,
+            settings: Arc::clone(&settings_reader),
             home_folder: home_folder.to_path_buf(),
             git: git.clone(),
-            // The session create's listener, which finishes the sessions a clone holds, registers
-            // here.
-            clone_attached: Arc::new(PortRegistration::new("clone attached")),
+            clone_attached,
         })
         .await
         .map_err(|error| {
@@ -538,7 +584,7 @@ pub(crate) async fn register_method_inputs(
                 provider_messages_path: filesystem_path(&provider_messages_folder(data_folder))?,
             },
             machine_settings: MachineSettingsMethodsDeps {
-                settings_file: settings,
+                settings_file: Arc::clone(&settings),
                 driver_set_names,
                 find_branch_pattern_refusal: machine_pattern_refusal(Arc::clone(&projects)),
             },
@@ -623,6 +669,14 @@ pub(crate) async fn register_method_inputs(
             machine_folders: Arc::new(FolderListService::new(home_folder.to_path_buf(), git)),
             presence: Arc::clone(&presence),
             attention: Arc::clone(&attention),
+            repo_mounts: workspace.repo_mounts,
+            workspaces: roots.workspaces,
+            execution_roots: roots.execution_roots,
+            worktree_methods: workspace.worktree_methods,
+            session_creation: workspace.creation,
+            session_conversion: workspace.conversion,
+            session_working_folders: roots.session_working_folders,
+            machine_settings_file: settings,
         },
     )?;
     Ok(MethodInputs {
@@ -635,6 +689,7 @@ pub(crate) async fn register_method_inputs(
         machine_device_id,
         presence,
         attention,
+        workspace_work: workspace.work,
     })
 }
 

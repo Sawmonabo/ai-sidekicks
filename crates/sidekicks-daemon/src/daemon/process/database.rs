@@ -54,6 +54,8 @@ use sidekicks_session::attention::service::ATTENTION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
 use sidekicks_session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
 use sidekicks_session::conversation_purge::CONVERSATION_PURGE_STATEMENT_CAPACITY;
+use sidekicks_session::convert::SESSION_CONVERSION_STATEMENT_CAPACITY;
+use sidekicks_session::create::SESSION_CREATION_STATEMENT_CAPACITY;
 use sidekicks_session::directory::list_feed::rows::SESSION_LIST_ROWS_STATEMENT_CAPACITY;
 use sidekicks_session::directory::provider_port::SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY;
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
@@ -79,6 +81,7 @@ use sidekicks_session::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
 use sidekicks_session::service::SESSION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::tags::SESSION_TAG_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::usage_record::USAGE_RECORD_STATEMENT_CAPACITY;
+use sidekicks_session::working_folder::SESSION_WORKING_FOLDERS_STATEMENT_CAPACITY;
 use sidekicks_std::bounded_wait::wait_within;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
@@ -114,14 +117,21 @@ use sidekicks_workflow::runs::deletion::WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY
 use sidekicks_workflow::runs::step_payload::WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY;
 use sidekicks_workflow::runs::store::WORKFLOW_RUN_STORE_STATEMENT_CAPACITY;
 use sidekicks_workspace::clone::requests::CLONE_REQUESTS_STATEMENT_CAPACITY;
+use sidekicks_workspace::execution_root::EXECUTION_ROOT_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_workspace::folder::usage::REPO_FOLDER_USAGE_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::turn_snapshot::service::TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::creation::WORKTREE_CREATOR_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::occupancy::MOUNT_OCCUPANCY_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::removed_store::REMOVED_WORKTREE_STORE_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::service::WORKTREE_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::status::WORKTREE_STATUS_READER_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::unfinished_discards::UNFINISHED_DISCARD_STATEMENT_CAPACITY;
 use sidekicks_workspace::project::records::PROJECT_RECORDS_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::health::REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY;
+use sidekicks_workspace::repo::mount::reattach::REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::service::REPO_MOUNT_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_workspace::run_setup_gates::execution_root::EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY;
+use sidekicks_workspace::service::WORKSPACE_SERVICE_STATEMENT_CAPACITY;
 use tokio::sync::{oneshot, watch};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -159,6 +169,8 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + DRIVER_METHODS_STATEMENT_CAPACITY
     + DRIVERS_STATEMENT_CAPACITY
     + EVENT_LOG_STATEMENT_CAPACITY
+    + EXECUTION_ROOT_SERVICE_STATEMENT_CAPACITY
+    + EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY
     + FILE_SEARCH_STATEMENT_CAPACITY
     + IDLE_SLEEP_STATEMENT_CAPACITY
     + INTERVENTION_SERVICE_STATEMENT_CAPACITY
@@ -175,7 +187,10 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + QUESTION_STATEMENT_CAPACITY
     + READINGS_STATEMENT_CAPACITY
     + RELATED_RANKING_STATEMENT_CAPACITY
+    + REMOVED_WORKTREE_STORE_STATEMENT_CAPACITY
+    + REPO_FOLDER_USAGE_STATEMENT_CAPACITY
     + REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY
+    + REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY
     + REPO_MOUNT_SERVICE_STATEMENT_CAPACITY
     + RESTART_SETTLE_STATEMENT_CAPACITY
     + RETENTION_STATEMENT_CAPACITY
@@ -188,6 +203,8 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + RUNTIME_BINDING_STORE_STATEMENT_CAPACITY
     + SESSION_AUTO_TITLE_STATEMENT_CAPACITY
     + SESSION_CHANGES_STATEMENT_CAPACITY
+    + SESSION_CONVERSION_STATEMENT_CAPACITY
+    + SESSION_CREATION_STATEMENT_CAPACITY
     + SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY
     + SESSION_DRAFT_STORE_STATEMENT_CAPACITY
     + SESSION_LINK_SERVICE_STATEMENT_CAPACITY
@@ -196,6 +213,7 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + SESSION_PURGE_STATEMENT_CAPACITY
     + SESSION_SERVICE_STATEMENT_CAPACITY
     + SESSION_TAG_SERVICE_STATEMENT_CAPACITY
+    + SESSION_WORKING_FOLDERS_STATEMENT_CAPACITY
     + STARTUP_RECOVERY_STATEMENT_CAPACITY
     + TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY
     + UNFINISHED_DISCARD_STATEMENT_CAPACITY
@@ -209,8 +227,10 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + WORKFLOW_RUN_STORE_STATEMENT_CAPACITY
     + WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY
     + WORKFLOW_VERSIONS_STATEMENT_CAPACITY
+    + WORKSPACE_SERVICE_STATEMENT_CAPACITY
     + WORKTREE_CREATOR_STATEMENT_CAPACITY
-    + WORKTREE_SERVICE_STATEMENT_CAPACITY;
+    + WORKTREE_SERVICE_STATEMENT_CAPACITY
+    + WORKTREE_STATUS_READER_STATEMENT_CAPACITY;
 
 /// How the writer's open fails, as [`DatabaseWriter::open`] reports the schema's opener.
 type WriterOpenFailure =

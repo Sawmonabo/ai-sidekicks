@@ -22,7 +22,9 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::project::ProjectId;
-use sidekicks_contracts::repo::folders::{RepoMountAttachRequest, RepoMountAttachResponse};
+use sidekicks_contracts::repo::folders::{
+    RepoMountAttachRequest, RepoMountAttachResponse, RepoMountRootResolutionReason,
+};
 use sidekicks_contracts::repo::mount::{RepoMountHealth, RepoMountId, RepoMountState, VcsType};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -100,12 +102,10 @@ const MANAGED_WORKSPACE_IDS_SQL: &str = "SELECT workspace.id
     WHERE mount.managed_session_id = @session_id";
 
 // Each row that names a workspace on the mount goes before it, and each workspace before the mount,
-// because every foreign key holds on DELETE too.
-static DELETE_MANAGED_MOUNT_SQL: LazyLock<[String; 4]> = LazyLock::new(|| {
+// because every foreign key holds on DELETE too. A chat's run writes no run context, so none names
+// a managed workspace.
+static DELETE_MANAGED_MOUNT_SQL: LazyLock<[String; 3]> = LazyLock::new(|| {
     [
-        format!(
-            "DELETE FROM run_execution_contexts WHERE workspace_id IN ({MANAGED_WORKSPACE_IDS_SQL})"
-        ),
         format!("DELETE FROM branch_contexts WHERE workspace_id IN ({MANAGED_WORKSPACE_IDS_SQL})"),
         "DELETE FROM workspaces
     WHERE repo_mount_id IN (SELECT id FROM repo_mounts WHERE managed_session_id = @session_id)"
@@ -128,7 +128,7 @@ static SELECT_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
 // with the identity anchor, a mount at the root first.
 static SELECT_ACTIVE_MOUNT_OF_REPOSITORY_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT id, origin, project_id
+        "SELECT id, project_id
      FROM repo_mounts
     WHERE machine_id = @machine_id
       AND coalesce(place, '') = coalesce(@place, '')
@@ -207,13 +207,18 @@ pub(crate) struct RepoAttachTarget {
     pub(crate) place: Option<Place>,
 }
 
-/// A folder resolved the way attach resolves it, attaching nothing.
+/// A folder resolved the way attach resolves it, attaching nothing, which an attach then takes
+/// with no second resolution.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ResolvedFolder {
+pub struct ResolvedFolder {
     /// The resolved root.
-    pub(crate) canonical_root: PathBuf,
-    /// The attached project mount of its repository, `None` when none holds it.
-    pub(crate) repo_mount_id: Option<RepoMountId>,
+    pub canonical_root: PathBuf,
+    /// The top level, each link resolved, of the working tree the folder sits in.
+    pub working_tree_root: PathBuf,
+    /// The path as entered.
+    local_path: FilesystemPath,
+    /// The repository's resolved git common folder.
+    common_folder: PathBuf,
 }
 
 /// One mount's stored facts, in any state; the `repoMount.read` reply adds a fresh health
@@ -254,7 +259,6 @@ pub(crate) struct RepoMountRecord {
 // The machine's attached mount holding a repository.
 struct ActiveMount {
     id: RepoMountId,
-    origin: MountOrigin,
     project_id: Option<ProjectId>,
 }
 
@@ -275,7 +279,6 @@ pub struct RepoMountService {
     pub(crate) running_read_pause: PausePoint,
 }
 
-#[expect(dead_code, reason = "the repository mount methods' handlers")]
 impl RepoMountService {
     /// The mounts of `machine_id`'s daemon, written through `writer`, read through `reads`, roots
     /// resolved by `resolver` and a detach's archivals appended through `events`.
@@ -337,31 +340,28 @@ impl RepoMountService {
         ))
     }
 
-    /// Resolves `request`'s path for attach and checks the machine has no active mount of its
-    /// repository, writing nothing. Refuses a path the resolver refuses, a WSL place
-    /// (`repoMount.distributionNotFound`, no distribution being reachable here), a root that
-    /// resolves past the wire's path cap (`request.paramsInvalid`, as the request's own path would
-    /// be), and `repoMount.alreadyAttached` naming the mount that holds the repository.
-    pub(crate) async fn resolve_attach_target(
+    /// The attach target of `resolved`, once the machine has no active mount of its repository,
+    /// writing nothing. Refuses a root that resolved past the wire's path cap
+    /// (`repoMount.rootResolutionFailed`, `pathTooLong`), and `repoMount.alreadyAttached` naming
+    /// the mount that holds the repository.
+    pub(crate) async fn attach_target_of(
         &self,
-        request: &RepoMountAttachRequest,
+        resolved: &ResolvedFolder,
     ) -> Result<RepoAttachTarget, RepoMountServiceError> {
-        refuse_distribution(request.place.as_ref())?;
-        let resolution = self
-            .resolver
-            .resolve_canonical_root(Path::new(request.local_path.as_str()))
-            .await?;
         // A link or junction can resolve to a longer path than the one entered; a resolved path
         // holds no NUL, so passing the cap is the one way it is refused.
-        let root_text = stored_path(&resolution.canonical_root);
-        let code_points = root_text.chars().count();
-        let canonical_root = FilesystemPath::new(root_text)
-            .map_err(|_over_cap| RepoRefusal::ResolvedRootTooLong { code_points })?;
+        let canonical_root =
+            FilesystemPath::new(stored_path(&resolved.canonical_root)).map_err(|_over_cap| {
+                RepoRefusal::RootResolutionFailed {
+                    reason: RepoMountRootResolutionReason::PathTooLong,
+                    detail: None,
+                }
+            })?;
         let place = None;
         if let Some(holder) = self
             .find_active_mount_of_repository(
-                &resolution.canonical_root,
-                Some(&resolution.common_folder),
+                &resolved.canonical_root,
+                Some(&resolved.common_folder),
                 place.clone(),
             )
             .await?
@@ -369,9 +369,9 @@ impl RepoMountService {
             return Err(already_attached(&holder).into());
         }
         Ok(RepoAttachTarget {
-            local_path: request.local_path.clone(),
+            local_path: resolved.local_path.clone(),
             canonical_root,
-            common_folder: resolution.common_folder,
+            common_folder: resolved.common_folder.clone(),
             place,
         })
     }
@@ -424,11 +424,11 @@ impl RepoMountService {
         })
     }
 
-    /// The folder at `request`'s path resolved the way attach resolves it, attaching nothing: its
-    /// canonical root and the attached project mount of its repository. A chat's managed
-    /// workspace is never a project, so its mount is never answered. Refuses as
-    /// [`RepoMountService::resolve_attach_target`] does, `alreadyAttached` aside.
-    pub(crate) async fn resolve_folder(
+    /// The folder at `request`'s path resolved the way attach resolves it, attaching nothing and
+    /// reading no mount: its canonical root and its working tree. Refuses a path the resolver
+    /// refuses, and a WSL place (`repoMount.distributionNotFound`, no distribution being reachable
+    /// here).
+    pub async fn resolve_folder(
         &self,
         request: &RepoMountAttachRequest,
     ) -> Result<ResolvedFolder, RepoMountServiceError> {
@@ -437,24 +437,17 @@ impl RepoMountService {
             .resolver
             .resolve_canonical_root(Path::new(request.local_path.as_str()))
             .await?;
-        let mount = self
-            .find_active_mount_of_repository(
-                &resolution.canonical_root,
-                Some(&resolution.common_folder),
-                None,
-            )
-            .await?;
         Ok(ResolvedFolder {
             canonical_root: resolution.canonical_root,
-            repo_mount_id: mount
-                .filter(|mount| mount.origin == MountOrigin::Attached)
-                .map(|mount| mount.id),
+            working_tree_root: resolution.working_tree_root,
+            local_path: request.local_path.clone(),
+            common_folder: resolution.common_folder,
         })
     }
 
     /// The folder of the chat's managed workspace, or `None` when the session has none. Fails as
     /// the read fails.
-    pub(crate) async fn read_managed_root(
+    pub async fn read_managed_root(
         &self,
         session_id: SessionId,
     ) -> Result<Option<PathBuf>, RepoMountServiceError> {
@@ -635,8 +628,8 @@ impl RepoMountService {
     }
 }
 
-/// The statements that delete a chat's managed mount row with every workspace on it and the run
-/// and branch rows naming those workspaces, in foreign-key order; a session with none matches
+/// The statements that delete a chat's managed mount row with every workspace on it and the branch
+/// rows naming those workspaces, in foreign-key order; a session with none matches
 /// nothing. They go in one write, alone or inside the purge's.
 pub fn managed_mount_deletion_statements(session_id: SessionId) -> Vec<WriteStatement> {
     DELETE_MANAGED_MOUNT_SQL
@@ -659,7 +652,8 @@ fn already_attached(holder: &ActiveMount) -> RepoRefusal {
     }
 }
 
-fn new_repo_mount_id() -> RepoMountId {
+/// A freshly minted repository mount id.
+pub(crate) fn new_repo_mount_id() -> RepoMountId {
     RepoMountId::try_from(mint_uuid_v7()).expect("a minted UUID is a repo mount id")
 }
 
@@ -717,8 +711,7 @@ fn read_active_mount(
             |row| {
                 Ok(ActiveMount {
                     id: text_column(row, 0, |text| RepoMountId::new(&text))?,
-                    origin: text_column(row, 1, closed_word)?,
-                    project_id: optional_text_column(row, 2, |text| ProjectId::new(&text))?,
+                    project_id: optional_text_column(row, 1, |text| ProjectId::new(&text))?,
                 })
             },
         )

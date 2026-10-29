@@ -469,6 +469,7 @@ pub(crate) fn create_params(session_id: SessionId) -> CreateSessionParams {
         agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
         config: Map::new(),
         model: ProviderToken::new("opus".to_owned()).expect("the model fits"),
+        effort: None,
         larger_window: None,
         // The run engine opens every session with a posture.
         execution_posture: Some(compose_execution_posture(

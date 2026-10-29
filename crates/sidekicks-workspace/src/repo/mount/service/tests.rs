@@ -24,6 +24,7 @@ use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e60";
 const WORKSPACE_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e61";
 const SESSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e62";
+const RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e63";
 
 /// The service over a test database holding an attached mount with one workspace on it, and a
 /// connection the test writes rows through.
@@ -69,7 +70,7 @@ fn insert_running_run(rows: &Connection) {
          '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}');
          INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, execution_mode, \
          execution_root, checkout_root, git_common_dir, branch_context_id, created_at) VALUES \
-         ('run', '{SESSION_ID}', '{WORKSPACE_ID}', 'boundRoot', '/repos/app', '/repos/app', \
+         ('{RUN_ID}', '{SESSION_ID}', '{WORKSPACE_ID}', 'boundRoot', '/repos/app', '/repos/app', \
          '/repos/app/.git', 'branch-context', '{PARENT_ROWS_AT}')"
     ))
     .expect("the running run's rows are admitted");
@@ -189,8 +190,12 @@ async fn an_attach_whose_root_resolves_past_the_path_cap_is_refused_before_any_w
         place: None,
     };
 
+    let resolved = service
+        .resolve_folder(&request)
+        .await
+        .expect("the folder resolves");
     let refusal = service
-        .resolve_attach_target(&request)
+        .attach_target_of(&resolved)
         .await
         .expect_err("the resolved root is past the cap");
 
@@ -198,15 +203,10 @@ async fn an_attach_whose_root_resolves_past_the_path_cap_is_refused_before_any_w
         panic!("the attach is refused, not {refusal:?}");
     };
     let refusal = DomainError::from(refusal);
-    assert_eq!(refusal.code, RefusalCode::RequestParamsInvalid);
-    let issue = &refusal.detail.expect("the refusal names its issue")["issues"][0];
-    assert_eq!(issue["path"], serde_json::json!(["localPath"]));
-    let length = (FILE_PATH_MAX_LEN + 1).to_string();
-    assert!(
-        issue["message"]
-            .as_str()
-            .is_some_and(|message| message.contains(&length)),
-        "{issue}"
+    assert_eq!(refusal.code, RefusalCode::RepoMountRootResolutionFailed);
+    assert_eq!(
+        refusal.detail.expect("the refusal names its reason")["reason"],
+        "pathTooLong"
     );
 }
 
@@ -228,7 +228,8 @@ async fn a_detach_whose_run_ends_before_its_session_is_read_detaches_on_its_retr
         .expect("the running check refused the detach");
 
     rows.execute_batch(&format!(
-        "UPDATE run_execution_contexts SET released_at = '{PARENT_ROWS_AT}' WHERE run_id = 'run'"
+        "UPDATE run_execution_contexts SET released_at = '{PARENT_ROWS_AT}' \
+         WHERE run_id = '{RUN_ID}'"
     ))
     .expect("the run ends");
     paused

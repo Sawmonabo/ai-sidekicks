@@ -10,7 +10,7 @@ use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
-    ProviderDeclarationId, ProviderOptionSetting, ProviderValue,
+    ProviderDeclarationId, ProviderOptionSetting, ProviderOptionSettings, ProviderValue,
 };
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBinding;
@@ -256,4 +256,17 @@ pub struct ListModelsParams {
     /// The account: the session's own bound account for its own provider; `None` for the
     /// provider's current account, refused as no account is registered or none is current.
     pub provider_account_id: Option<ProviderAccountId>,
+}
+
+/// Params of `check_lead_binding`: a new session's lead and the axes its binding sets.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LeadBindingCheckParams {
+    /// The lead, which a refusal names.
+    pub agent_id: AgentId,
+    /// The model.
+    pub model_id: ProviderToken,
+    /// The reasoning effort, where the binding sets one.
+    pub effort: Option<ProviderToken>,
+    /// The session options, where the binding sets any.
+    pub options: Option<ProviderOptionSettings>,
 }

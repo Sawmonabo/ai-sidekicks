@@ -13,6 +13,8 @@
 //! - The writes of one path run one at a time, so its numbers follow the order the writes landed.
 //! - A path outside a chat's workspace is no chat's write, and a project session's files are its
 //!   changes, never versions.
+//! - The instant the next start walks from is stored only once every write reported before it is
+//!   recorded, a report held behind an open tool call included, so a crash never skips a write.
 
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
@@ -20,6 +22,7 @@ use std::fs::File;
 use std::io::{self, Read, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::SystemTime;
 
 use bytes::Buf as _;
 use futures::FutureExt as _;
@@ -41,7 +44,8 @@ use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLen
 use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_workspace::managed::write_watcher::{
-    ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
+    ManagedWorkspaceReport, ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
+    ManagedWritesWatermark,
 };
 use tokio::sync::mpsc;
 
@@ -82,6 +86,16 @@ struct HeldPath {
     is_report_waiting: bool,
 }
 
+/// The paths held behind open tool calls, with the caught-up instant their reports hold back.
+#[derive(Default)]
+struct HeldWrites {
+    paths: HashMap<WorkspacePath, HeldPath>,
+    /// The reports waiting on a path's calls or being recorded since they settled.
+    due_reports: usize,
+    /// The newest caught-up instant, stored once the last due report is recorded.
+    deferred_caught_up: Option<SystemTime>,
+}
+
 /// One write to record as a path's next version.
 enum PathWrite {
     /// The path's bytes on disk now, as the watch reported a write.
@@ -112,15 +126,16 @@ pub struct ChatFileVersions {
     spool_folder: PathBuf,
     workspaces_folder: PathBuf,
     clock: Arc<dyn WallClock>,
-    held_paths: Mutex<HashMap<WorkspacePath, HeldPath>>,
+    held_writes: Mutex<HeldWrites>,
     /// Held per path while its next version is written, so its numbers follow its writes.
     path_lock: KeyedLock<WorkspacePath>,
+    watermark: Arc<dyn ManagedWritesWatermark>,
 }
 
 impl ChatFileVersions {
     /// Versions of the writes in the chats' workspaces under `workspaces_folder`, appended through
     /// `appender`, read through `reads`, stored into `payloads` and spooled in `spool_folder`,
-    /// which must be on the store's volume.
+    /// which must be on the store's volume; each caught-up instant is stored through `watermark`.
     pub fn new(
         appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,
@@ -128,6 +143,7 @@ impl ChatFileVersions {
         spool_folder: PathBuf,
         workspaces_folder: PathBuf,
         clock: Arc<dyn WallClock>,
+        watermark: Arc<dyn ManagedWritesWatermark>,
     ) -> Self {
         Self {
             appender,
@@ -136,21 +152,50 @@ impl ChatFileVersions {
             spool_folder,
             workspaces_folder,
             clock,
-            held_paths: Mutex::default(),
+            held_writes: Mutex::default(),
             path_lock: KeyedLock::new(),
+            watermark,
         }
     }
 
-    /// Records each write `writes` reports, one at a time, until its sender is gone; a write that
-    /// could not be recorded is logged, and the next one goes on.
-    pub async fn record_reported_writes(&self, mut writes: mpsc::Receiver<ManagedWorkspaceWrite>) {
-        while let Some(write) = writes.recv().await {
-            if let Err(error) = self.take_reported_write(write).await {
-                tracing::error!(
-                    error = &error as &(dyn Error + 'static),
-                    "a chat's write was not kept as a version"
-                );
+    /// Records each write `reports` names, one at a time, until its sender is gone, and keeps
+    /// each caught-up instant as [`Self::keep_caught_up`] does; a write that could not be recorded
+    /// is logged, and the next one goes on.
+    pub async fn record_reported_writes(
+        &self,
+        mut reports: mpsc::Receiver<ManagedWorkspaceReport>,
+    ) {
+        while let Some(report) = reports.recv().await {
+            match report {
+                ManagedWorkspaceReport::Write(write) => {
+                    if let Err(error) = self.take_reported_write(write).await {
+                        tracing::error!(
+                            error = &error as &(dyn Error + 'static),
+                            "a chat's write was not kept as a version"
+                        );
+                    }
+                }
+                ManagedWorkspaceReport::CaughtUp(instant) => self.keep_caught_up(instant).await,
             }
+        }
+    }
+
+    /// Stores `instant`, before which every write was reported, once each report taken before it
+    /// is recorded: at once when none waits behind an open tool call, else at the settle that
+    /// records the last one, a later instant replacing it meanwhile. A call that never settles
+    /// leaves it unstored, so the next start walks from the instant stored before.
+    pub async fn keep_caught_up(&self, instant: SystemTime) {
+        let is_due_now = {
+            let mut held_writes = self.lock_held_writes();
+            if held_writes.due_reports == 0 {
+                true
+            } else {
+                held_writes.deferred_caught_up = Some(instant);
+                false
+            }
+        };
+        if is_due_now {
+            self.watermark.store(instant).await;
         }
     }
 
@@ -166,9 +211,13 @@ impl ChatFileVersions {
         let key = (write.session_id, path);
         let _path_hold = self.path_lock.acquire(key.clone()).await;
         {
-            let mut held_paths = self.lock_held_paths();
-            if let Some(held) = held_paths.get_mut(&key) {
-                held.is_report_waiting = true;
+            let mut guard = self.lock_held_writes();
+            let held_writes = &mut *guard;
+            if let Some(held) = held_writes.paths.get_mut(&key) {
+                if !held.is_report_waiting {
+                    held.is_report_waiting = true;
+                    held_writes.due_reports += 1;
+                }
                 return Ok(());
             }
         }
@@ -182,7 +231,8 @@ impl ChatFileVersions {
         let Some(key) = self.workspace_path_of(opened.session_id, &opened.path) else {
             return;
         };
-        self.lock_held_paths()
+        self.lock_held_writes()
+            .paths
             .entry(key)
             .or_default()
             .calls
@@ -193,14 +243,16 @@ impl ChatFileVersions {
     }
 
     // Records the call's outcome and every settled call ahead of the path's first open one, in the
-    // order they opened, then a report that waited once none is open.
+    // order they opened, then a report that waited once none is open, and then a caught-up instant
+    // that waited for that report, recorded or not.
     async fn settle_call(&self, settled: FileToolWriteSettled) -> Result<(), ChatFileVersionError> {
         let Some(key) = self.workspace_path_of(settled.session_id, &settled.path) else {
             return Ok(());
         };
         let _path_hold = self.path_lock.acquire(key.clone()).await;
         let (outcomes, is_report_due) = {
-            let mut held_paths = self.lock_held_paths();
+            let mut guard = self.lock_held_writes();
+            let held_paths = &mut guard.paths;
             let call = held_paths
                 .get_mut(&key)
                 .and_then(|held| {
@@ -226,17 +278,47 @@ impl ChatFileVersions {
             }
             (outcomes, is_report_due)
         };
+        let recorded = self.record_settled(&key, outcomes, is_report_due).await;
+        if is_report_due {
+            self.finish_due_report().await;
+        }
+        recorded
+    }
+
+    // Records the settled calls' written bytes in order, then the path's disk when `is_report_due`.
+    async fn record_settled(
+        &self,
+        key: &WorkspacePath,
+        outcomes: Vec<FileToolWriteOutcome>,
+        is_report_due: bool,
+    ) -> Result<(), ChatFileVersionError> {
         for outcome in outcomes {
             if let FileToolWriteOutcome::Written(bytes) = outcome {
-                self.record_version(&key, PathWrite::ToolResult(bytes))
+                self.record_version(key, PathWrite::ToolResult(bytes))
                     .await?;
             }
         }
         if is_report_due {
-            self.record_version(&key, PathWrite::OnDisk(ManagedWorkspaceWriteKind::File))
+            self.record_version(key, PathWrite::OnDisk(ManagedWorkspaceWriteKind::File))
                 .await?;
         }
         Ok(())
+    }
+
+    // Counts a due report done, and stores the caught-up instant it held back when it was the last.
+    async fn finish_due_report(&self) {
+        let caught_up = {
+            let mut held_writes = self.lock_held_writes();
+            held_writes.due_reports -= 1;
+            if held_writes.due_reports == 0 {
+                held_writes.deferred_caught_up.take()
+            } else {
+                None
+            }
+        };
+        if let Some(instant) = caught_up {
+            self.watermark.store(instant).await;
+        }
     }
 
     // Writes `write` as `key`'s next version, unless its bytes equal the newest one's, it is a
@@ -367,8 +449,8 @@ impl ChatFileVersions {
         Some((session_id, workspace_path_text(relative_path)?))
     }
 
-    fn lock_held_paths(&self) -> MutexGuard<'_, HashMap<WorkspacePath, HeldPath>> {
-        lock(&self.held_paths)
+    fn lock_held_writes(&self) -> MutexGuard<'_, HeldWrites> {
+        lock(&self.held_writes)
     }
 }
 
@@ -460,258 +542,4 @@ fn workspace_path_text(relative_path: &Path) -> Option<ComposedText> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::path::PathBuf;
-    use std::sync::Arc;
-
-    use sidekicks_contracts::artifacts::id::ArtifactId;
-    use sidekicks_contracts::artifacts::operations::{
-        ArtifactListEntry, ArtifactPayloadSelection, ArtifactReadRequest, ArtifactReadResponse,
-    };
-    use sidekicks_contracts::wire::integer::SafeInt;
-    use sidekicks_platforms::WallClockTimer;
-    use sidekicks_provider::port::file_tool_write::{
-        FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort as _, FileToolWriteSettled,
-    };
-    use sidekicks_workspace::managed::write_watcher::{
-        ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
-    };
-    use tempfile::TempDir;
-
-    use super::ChatFileVersions;
-    use crate::list::list_artifacts;
-    use crate::read::read_artifact;
-    use crate::test_store::ArtifactTestStore;
-
-    /// A chat's versions over the test store, its workspace in a folder of its own.
-    struct Fixture {
-        store: ArtifactTestStore,
-        versions: ChatFileVersions,
-        workspace: PathBuf,
-        _workspaces: TempDir,
-    }
-
-    /// `artifact.read` of the stored id `id` at `version`, whole when it is not `None`'s handle.
-    async fn read(
-        store: &ArtifactTestStore,
-        id: &str,
-        version: Option<u64>,
-    ) -> ArtifactReadResponse {
-        read_artifact(
-            &store.reads,
-            &store.payloads,
-            ArtifactReadRequest {
-                artifact_id: ArtifactId::new(id).expect("a stored id reads"),
-                version: version.and_then(SafeInt::new),
-                payload_selection: ArtifactPayloadSelection::Whole {},
-            },
-        )
-        .await
-        .expect("the artifact reads")
-    }
-
-    async fn fixture() -> Fixture {
-        let store = ArtifactTestStore::open().await;
-        let workspaces = tempfile::tempdir().expect("the test makes a temporary folder");
-        let workspace = workspaces.path().join(store.session_id.to_string());
-        std::fs::create_dir_all(&workspace).expect("the test makes the chat's workspace");
-        let versions = ChatFileVersions::new(
-            Arc::clone(&store.appender),
-            Arc::clone(&store.reads),
-            Arc::clone(&store.payloads),
-            store.spool_folder().to_path_buf(),
-            workspaces.path().to_path_buf(),
-            Arc::new(WallClockTimer::new().expect("the test arms a wall clock")),
-        );
-        Fixture {
-            store,
-            versions,
-            workspace,
-            _workspaces: workspaces,
-        }
-    }
-
-    impl Fixture {
-        /// Writes `bytes` to `name` in the workspace, as the chat would.
-        fn write_file(&self, name: &str, bytes: &str) {
-            std::fs::write(self.workspace.join(name), bytes).expect("the test writes a file");
-        }
-
-        /// The watch's report of a write to `name`.
-        async fn report(&self, name: &str, kind: ManagedWorkspaceWriteKind) {
-            self.versions
-                .take_reported_write(ManagedWorkspaceWrite {
-                    session_id: self.store.session_id,
-                    relative_path: PathBuf::from(name),
-                    kind,
-                })
-                .await
-                .expect("the report is kept");
-        }
-
-        /// The session's file entries, each with its path, its newest media type and its count.
-        async fn file_entries(&self) -> Vec<(String, serde_json::Value, u64)> {
-            list_artifacts(&self.store.reads, self.store.session_id)
-                .await
-                .expect("the list reads")
-                .artifacts
-                .into_iter()
-                .map(|entry| {
-                    let ArtifactListEntry::File {
-                        manifest,
-                        path,
-                        version_count,
-                    } = entry
-                    else {
-                        panic!("a chat's write lists as a file: {entry:?}");
-                    };
-                    let media_type = manifest.metadata.as_map()["mediaType"].0.clone();
-                    (path.as_str().to_owned(), media_type, version_count.get())
-                })
-                .collect()
-        }
-
-        /// Every version's bytes of `name`, oldest first, read as `artifact.read` answers them.
-        async fn version_bytes(&self, name: &str) -> Vec<String> {
-            let rows = self.store.read_rows(
-                "SELECT id || ' ' || version_number FROM artifact_manifests \
-                 WHERE workspace_path = ?1 ORDER BY version_number",
-                name,
-            );
-            let mut versions = Vec::new();
-            for row in rows {
-                let (id, version) = row.split_once(' ').expect("the row joins id and version");
-                let version = version.parse().expect("a version number reads");
-                let ArtifactReadResponse::Inline(inline) =
-                    read(&self.store, id, Some(version)).await
-                else {
-                    panic!("a small payload reads inline");
-                };
-                versions.push(
-                    String::from_utf8(inline.payload.into_bytes().to_vec())
-                        .expect("the test writes text"),
-                );
-            }
-            versions
-        }
-    }
-
-    /// A chat that writes one file three times lists it once with three versions; a read by the
-    /// first version's id with no version answers the third of three, written at the third write,
-    /// and a read of version 1 by the third's id answers the bytes first written. Each write
-    /// appends one `artifact.published`.
-    #[tokio::test]
-    async fn each_write_of_a_path_is_its_next_version_and_never_changes_an_earlier_one() {
-        let fixture = fixture().await;
-        for bytes in ["one", "two", "three"] {
-            fixture.write_file("notes.txt", bytes);
-            fixture
-                .report("notes.txt", ManagedWorkspaceWriteKind::File)
-                .await;
-        }
-
-        let ids = fixture.store.read_rows(
-            "SELECT id FROM artifact_manifests WHERE workspace_path = ?1 ORDER BY version_number",
-            "notes.txt",
-        );
-        let third_written_at = fixture.store.read_rows(
-            "SELECT created_at FROM artifact_manifests \
-             WHERE workspace_path = ?1 AND version_number = 3",
-            "notes.txt",
-        );
-        let ArtifactReadResponse::Inline(newest) = read(&fixture.store, &ids[0], None).await else {
-            panic!("a small payload reads inline");
-        };
-        let ArtifactReadResponse::Inline(first) = read(&fixture.store, &ids[2], Some(1)).await
-        else {
-            panic!("a small payload reads inline");
-        };
-
-        assert_eq!(
-            fixture.file_entries().await,
-            [("notes.txt".to_owned(), "text/plain".into(), 3)]
-        );
-        assert_eq!(
-            (newest.version_number.get(), newest.version_count.get()),
-            (3, 3)
-        );
-        assert_eq!(newest.manifest.created_at.as_str(), third_written_at[0]);
-        assert_eq!(newest.payload.as_bytes(), b"three");
-        assert_eq!(first.payload.as_bytes(), b"one");
-        assert_eq!(fixture.store.count_events("artifact.published"), 3);
-    }
-
-    /// A folder is one entry over the empty payload, and a second report of it, or of a file whose
-    /// bytes equal its newest version's, writes no version and no event.
-    #[tokio::test]
-    async fn a_folder_and_an_unchanged_file_write_no_second_version() {
-        let fixture = fixture().await;
-        std::fs::create_dir(fixture.workspace.join("drafts")).expect("the test makes a folder");
-        fixture.write_file("notes.txt", "same");
-        for _ in 0..2 {
-            fixture
-                .report("drafts", ManagedWorkspaceWriteKind::Folder)
-                .await;
-            fixture
-                .report("notes.txt", ManagedWorkspaceWriteKind::File)
-                .await;
-        }
-
-        assert_eq!(
-            fixture.file_entries().await,
-            [
-                ("drafts".to_owned(), "inode/directory".into(), 1),
-                ("notes.txt".to_owned(), "text/plain".into(), 1),
-            ]
-        );
-        assert_eq!(
-            fixture.store.read_rows(
-                "SELECT CAST(size_bytes AS TEXT) FROM artifact_manifests WHERE workspace_path = ?1",
-                "drafts",
-            ),
-            ["0"]
-        );
-        assert_eq!(fixture.store.count_events("artifact.published"), 2);
-    }
-
-    /// Two file tool writes the watch merged into one report still land two versions, in the order
-    /// their calls opened though they settled the other way, and the report that waited for them
-    /// adds none when the disk holds the second.
-    #[tokio::test]
-    async fn tool_writes_merged_into_one_report_land_their_own_versions_in_call_order() {
-        let fixture = fixture().await;
-        let path = fixture.workspace.join("notes.txt");
-        for call_id in ["first", "second"] {
-            fixture
-                .versions
-                .open_file_tool_write(FileToolWriteOpened {
-                    session_id: fixture.store.session_id,
-                    call_id: call_id.to_owned(),
-                    path: path.clone(),
-                })
-                .await
-                .expect("the call is held");
-        }
-        fixture.write_file("notes.txt", "second");
-        fixture
-            .report("notes.txt", ManagedWorkspaceWriteKind::File)
-            .await;
-        for (call_id, bytes) in [("second", "second"), ("first", "first")] {
-            fixture
-                .versions
-                .settle_file_tool_write(FileToolWriteSettled {
-                    session_id: fixture.store.session_id,
-                    call_id: call_id.to_owned(),
-                    path: path.clone(),
-                    outcome: FileToolWriteOutcome::Written(bytes::Bytes::from(bytes)),
-                })
-                .await
-                .expect("the call settles");
-        }
-
-        assert_eq!(
-            fixture.version_bytes("notes.txt").await,
-            ["first", "second"]
-        );
-    }
-}
+mod tests;

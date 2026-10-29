@@ -44,6 +44,8 @@ pub(crate) struct ClaudeOfferedModel {
     pub(crate) resolved_model: Option<String>,
     /// The name Claude Code shows for it, where the reply gives one.
     pub(crate) display_name: Option<String>,
+    /// The effort levels it takes; `None` for a model with no effort axis.
+    pub(crate) effort_levels: Option<Vec<String>>,
 }
 
 /// What the `initialize` reply declared about the session's models and styles: the models it
@@ -163,6 +165,7 @@ mod tests {
             value: value.to_owned(),
             resolved_model: resolved_model.map(str::to_owned),
             display_name: None,
+            effort_levels: None,
         }
     }
 

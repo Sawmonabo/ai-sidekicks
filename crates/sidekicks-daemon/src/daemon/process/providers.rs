@@ -64,7 +64,6 @@ use sidekicks_std::port_registration::PortRegistrationError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_workspace::git::process::GitRunner;
-use sidekicks_workspace::git::worktree::naming::worktrees_folder;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
@@ -81,6 +80,8 @@ pub(crate) struct ProviderStart {
     pub(crate) data_folder: PathBuf,
     /// The person's home folder.
     pub(crate) home_folder: PathBuf,
+    /// The daemon's worktrees folder, its links resolved, where a staged review's tree is made.
+    pub(crate) worktrees_folder: PathBuf,
     /// The daemon's session token file, which no provider process may read.
     pub(crate) session_token_path: PathBuf,
     /// The one read pool.
@@ -152,8 +153,7 @@ pub(crate) fn build_providers(
     let background_work = Arc::new(BackgroundWorkForms::of_providers(&descriptors));
     let processes = Arc::new(ProviderProcessRegistry::default());
     let provider_services = Arc::new(ProviderServiceProcesses::default());
-    let staged_changes =
-        StagedChangesWorktrees::new(&worktrees_folder(&start.home_folder), start.git);
+    let staged_changes = StagedChangesWorktrees::new(&start.worktrees_folder, start.git);
     let execution_postures = Arc::new(ExecutionPostureService::new(
         &start.home_folder,
         start.session_token_path,
@@ -627,6 +627,7 @@ mod tests {
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::events::log_service::test_fixture::open_log;
     use sidekicks_workspace::git::process::{GitLimits, GitRunner};
+    use sidekicks_workspace::git::worktree::naming::worktrees_folder;
     use tempfile::TempDir;
     use tokio::runtime::Handle;
 
@@ -668,6 +669,7 @@ mod tests {
                     spawner: spawner.clone(),
                     data_folder: self.home.path().join("data"),
                     home_folder: self.home.path().to_owned(),
+                    worktrees_folder: worktrees_folder(self.home.path()),
                     session_token_path: self.home.path().join("daemon.token"),
                     reads: Arc::new(DatabaseReadPool::new(
                         self.database.path(),

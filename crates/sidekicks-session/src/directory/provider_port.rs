@@ -197,10 +197,10 @@ impl SessionDirectoryProviderPort {
     }
 
     /// What `session_id`'s provider session opens with on `provider_account_id`'s account: its
-    /// lead's provider, the model it runs on now and the output speed, options and larger window
-    /// its binding names, at the posture of the level it stands at, in the mode it was last moved
-    /// to, with the row values set in the app for that provider. Fails for a session with no lead
-    /// or no workspace, and as the reads, git or the settings file fail.
+    /// lead's provider, the model it runs on now and the effort, output speed, options and larger
+    /// window its binding names, at the posture of the level it stands at, in the mode it was last
+    /// moved to, with the row values set in the app for that provider. Fails for a session with no
+    /// lead or no workspace, and as the reads, git or the settings file fail.
     pub async fn compose_opening(
         &self,
         session_id: SessionId,
@@ -224,6 +224,7 @@ impl SessionDirectoryProviderPort {
                 agent_id,
                 config: Map::new(),
                 model: running_model,
+                effort: binding.effort,
                 larger_window: binding.larger_window,
                 execution_posture: Some(standing.execution_posture),
                 mode: standing.mode,

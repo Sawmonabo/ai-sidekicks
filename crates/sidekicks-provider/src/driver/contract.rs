@@ -26,9 +26,9 @@ use sidekicks_contracts::session::id::SessionId;
 
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
-    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
-    ListProviderCommandsParams, ProviderCommandsSubscription, RespondToRequestParams,
-    SessionProcessState, StartRunParams,
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
+    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+    RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -170,6 +170,18 @@ pub trait ProviderDriver: Send + Sync {
         None
     }
 
+    /// The advisor a new session is born with, as the app's own row values `app_values` pick it:
+    /// a fixed fact of the driver, like [`message_handing`](Self::message_handing). `None` on a
+    /// provider that offers no advisor or where the app never set one, so the provider's own
+    /// setting holds; `Some(None)` for no advisor; `Some(model)` for one.
+    #[expect(
+        unused_variables,
+        reason = "only a driver whose provider offers an advisor reads the app's values"
+    )]
+    fn session_advisor_pick(&self, app_values: &ProviderRowValues) -> Option<Option<String>> {
+        None
+    }
+
     /// Whether a run started on `session_id` now brings a provider process up, which the memory
     /// gate weighs before the start; `false` when one already serves the session. A session with
     /// no live process is weighed on `provider_account_id`, the account the run is admitted
@@ -292,6 +304,12 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: ListModelsParams,
     ) -> BoxFuture<'_, Result<Vec<ProviderModel>, DriverError>>;
+
+    /// Checks a new session's lead binding from what the driver holds, before the session is
+    /// made: refuses `agent.providerAxisInvalid` only for a model, effort or session option the
+    /// driver's own start would refuse, and leaves what only a running provider can answer to
+    /// that start, which refuses it with the same code. Starts no process and reads nothing.
+    fn check_lead_binding(&self, params: LeadBindingCheckParams) -> Result<(), DriverError>;
 
     /// The provider's modes.
     fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>>;

@@ -20,7 +20,7 @@ const SLOW_TICK_INTERVAL: Duration = Duration::from_secs(180);
 
 /// A runner over `git`, `reads` and `events` reading its steps from `sources`. Panics when the
 /// spawner thread or the timer cannot be had.
-pub(crate) fn test_setup_runner(
+pub fn test_setup_runner(
     git: GitRunner,
     reads: Arc<DatabaseReadPool>,
     events: Arc<WorktreeEventEmitter>,

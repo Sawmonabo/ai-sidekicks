@@ -37,7 +37,6 @@ use sidekicks_session::queue_store::{
     supersede_undelivered_statement,
 };
 use sidekicks_session::run::projection::insert_queued_run_statement;
-use sidekicks_session::run::state_change::refused_statement_index;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -162,7 +161,7 @@ impl QueueRecordError {
     /// reads as the write expected. Nothing was written.
     pub(crate) fn is_refused(&self) -> bool {
         match self {
-            Self::Append(error) => refused_statement_index(error).is_some(),
+            Self::Append(error) => error.refused_statement_index().is_some(),
             Self::Write(error) => error.refused_statement_index().is_some(),
             Self::Draft(_) | Self::Read(_) | Self::Pool(_) | Self::Unreadable { .. } => false,
         }
@@ -339,7 +338,8 @@ impl QueueRecorder {
             ..SessionEventLinkage::default()
         };
         if let Err(error) = self.appender.append(draft, linkage).await {
-            let refusal = refused_statement_index(&error)
+            let refusal = error
+                .refused_statement_index()
                 .and_then(|statement_index| send_refusal_at(statement_index, is_retry));
             return Err(match refusal {
                 Some(refusal) => RecordSendError::Refused(refusal),

@@ -53,8 +53,8 @@ struct CopyEntry {
     bytes_in_flight: u64,
 }
 
-/// What a copy across volumes reports while it runs. Ending it, by [`WorktreeCopyReport::end`] or
-/// by dropping it, takes the copy off the list, sends the list at once and stops its ticks.
+/// What a copy across volumes reports while it runs. Dropping it, whether the copy succeeded or
+/// failed, takes the copy off the list, sends the list at once and stops its ticks.
 pub(crate) struct WorktreeCopyReport {
     state: Arc<CopiesState>,
     entry_id: u64,
@@ -62,7 +62,7 @@ pub(crate) struct WorktreeCopyReport {
 }
 
 /// One follower of the copies under way in a project, or in every project.
-pub(crate) struct WorktreeCopyFollower {
+pub struct WorktreeCopyFollower {
     // `None` follows every project's copies.
     project_id: Option<ProjectId>,
     copies: watch::Receiver<Vec<WorktreeCopy>>,
@@ -123,7 +123,7 @@ impl WorktreeCopiesUnderWay {
 
     /// Follows the copies under way in `project_id`, or in every project when it is `None`: the
     /// follower's first read answers them at once, and each later read waits for them to change.
-    pub(crate) fn follow(&self, project_id: Option<ProjectId>) -> WorktreeCopyFollower {
+    pub fn follow(&self, project_id: Option<ProjectId>) -> WorktreeCopyFollower {
         WorktreeCopyFollower {
             project_id,
             copies: self.state.published.subscribe(),
@@ -138,14 +138,9 @@ impl WorktreeCopyReport {
         let mut entries = self.state.lock_entries();
         let entry = entries
             .find_mut(self.entry_id)
-            .expect("a copy stays listed until its report ends");
+            .expect("a copy stays listed until its report is dropped");
         entry.finished_bytes += bytes;
         entry.bytes_in_flight = 0;
-    }
-
-    /// Ends the copy, whether it succeeded or failed, as dropping the report does.
-    pub(crate) fn end(self) {
-        drop(self);
     }
 }
 
@@ -161,7 +156,7 @@ impl Drop for WorktreeCopyReport {
 impl WorktreeCopyFollower {
     /// The copies under way in the followed project: at once on the first call, then whenever they
     /// differ from the last answer. `None` once the list it follows is gone.
-    pub(crate) async fn next(&mut self) -> Option<WorktreeCopyProgress> {
+    pub async fn next(&mut self) -> Option<WorktreeCopyProgress> {
         loop {
             let progress = progress_in(self.project_id.as_ref(), &self.copies.borrow_and_update());
             // A change to another project's copy leaves this one's list as it was.
@@ -374,7 +369,7 @@ mod tests {
 
         // The copy ends while the third read is stalled: the ticking task is released at once.
         stalled.await.expect("the third read stalls");
-        report.end();
+        drop(report);
         assert_eq!(follower.next().await, Some(progress_of(Vec::new())));
         tokio::task::yield_now().await;
         assert_eq!(Arc::strong_count(&reads), 1);

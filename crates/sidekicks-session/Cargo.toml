@@ -11,6 +11,8 @@ publish.workspace = true
 doctest = false
 
 [dependencies]
+# The skipped-file cursor's base64url encoding.
+base64.workspace = true
 blake3.workspace = true
 # The wire message other crates' tests split into its attachments.
 bytes = { workspace = true, optional = true }
@@ -51,10 +53,10 @@ mockall.workspace = true
 rstest.workspace = true
 # The credit gate the list feed's tests read through.
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
-# The illegal byte sequence check the tests read.
+# The illegal byte sequence check and the name that is not Unicode the tests read.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
 # The test driver registry, the mock driver, the recorded diagnostics, the runtime binding's test
-# store and the unanswered driver error the tests build on.
+# store, the unanswered driver error and the starting level a test's driver answers.
 sidekicks-provider = { workspace = true, features = ["test-support"] }
 # The documents an index holds under a row's key, for the search apply's damaged-row test.
 sidekicks-search = { workspace = true, features = ["index", "test-support"] }

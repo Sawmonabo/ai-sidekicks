@@ -85,7 +85,7 @@ pub(crate) struct WorktreeStatusReading {
 
 /// Why a reading could not be folded. Neither message names a path.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorktreeStatusProjectionError {
+pub enum WorktreeStatusProjectionError {
     /// A record belongs to another mount than the reading's. Leaving it out would hide the
     /// caller's mispaired query, and listing it would show another project's trees as this one's.
     #[error(

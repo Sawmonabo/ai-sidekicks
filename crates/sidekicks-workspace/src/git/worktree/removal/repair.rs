@@ -19,7 +19,7 @@ use super::{
 };
 use crate::git::worktree::kept_copy::KEPT_TREE_ENTRY;
 use crate::git::worktree::kept_copy::folder_move::list_leftover_copies;
-use crate::git::worktree::kept_copy::held_work::{HeldWorkSubject, held_answer, log_landed_late};
+use crate::git::worktree::kept_copy::held_work::{HeldWorkSubject, log_landed_late};
 use crate::git::worktree::reads::common_folder_of_record;
 use crate::git::worktree::removed_store::RemovedWorktreeStoreError;
 use crate::git::worktree::removed_store::rows::finish_statement;
@@ -242,7 +242,7 @@ impl RemovalShared {
         removed_worktree_id: RemovedWorktreeId,
     ) -> Result<DiscardRepairOutcome, WorktreeRemovalError> {
         let held = Arc::clone(self);
-        let landed = self
+        let repair = self
             .deps
             .removed_worktrees
             .kept_copy_lock()
@@ -257,8 +257,7 @@ impl RemovalShared {
                     HeldWorkSubject::KeptCopy(removed_worktree_id),
                 ),
             )
-            .await;
-        let repair = held_answer(landed)?;
+            .await??;
         if let Some(PendingSweep {
             row,
             record_removal,

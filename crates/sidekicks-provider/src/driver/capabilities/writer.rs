@@ -24,7 +24,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::keyed_lock::{HeldWorkEnd, KeyedLock};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -35,7 +35,6 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 use sidekicks_store::database::writer::messages::WriteJob;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use strum::VariantArray;
-use tokio::task::JoinError;
 
 use crate::build_record::{
     BuildRecordReaders, RecordedArrival, RecordedProviderBuild, record_statements, recorded_arrival,
@@ -171,10 +170,10 @@ pub enum DriverCapabilitiesWriterError {
     /// The write was not kept.
     #[error("storing the capabilities failed")]
     Write(#[from] WriteError),
-    /// The declare's task ended without an answer: it panicked or its runtime stopped (`Some`), or
-    /// it skipped its work once its caller stopped waiting (`None`).
+    /// The declare's task ended without an answer: it panicked or its runtime stopped, or it
+    /// skipped its work once its caller stopped waiting.
     #[error("the capability declare ended without an answer")]
-    Unanswered(#[source] Option<JoinError>),
+    Unanswered(#[from] HeldWorkEnd),
 }
 
 /// Stores each provider's declared capabilities and rebuilds them without asking the driver; one
@@ -281,12 +280,7 @@ impl DriverCapabilitiesWriter {
                 },
             )
             .await;
-        match landed {
-            Ok(Some(answer)) => answer,
-            // The task skips its work only once its caller stopped waiting.
-            Ok(None) => Err(DriverCapabilitiesWriterError::Unanswered(None)),
-            Err(interrupted) => Err(DriverCapabilitiesWriterError::Unanswered(Some(interrupted))),
-        }
+        landed?
     }
 
     /// Rebuilds `provider`'s stored capability reading without asking the driver, in one read

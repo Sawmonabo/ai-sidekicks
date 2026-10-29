@@ -26,7 +26,6 @@ use super::held::MovedAnswer;
 use super::{ChoiceDialog, is_settled_since, latest_request, settlement_guard};
 use crate::run::engine::RunEngineError;
 use crate::run::read::{RunStateReader, SessionRun, session_run_of_row};
-use crate::run::state_change::refused_statement_index;
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 // Every ended run holding a choice requested and never settled, with its session: a request with
@@ -170,7 +169,7 @@ pub async fn settle_open_choices_of_ended_run(
         };
         match appender.append(last, linkage).await {
             Ok(_receipt) => return Ok(()),
-            Err(error) if refused_statement_index(&error).is_some() && !is_read_again => {
+            Err(error) if error.refused_statement_index().is_some() && !is_read_again => {
                 is_read_again = true;
             }
             Err(error) => return Err(error.into()),

@@ -22,6 +22,7 @@ mod stored_data;
 pub(crate) mod supervision;
 #[cfg(test)]
 mod tests;
+pub(crate) mod workspace_services;
 mod worktree_sources;
 
 use std::error::Error;
@@ -95,7 +96,8 @@ use crate::daemon::process::providers::{
     register_providers, sweep_left_staged_worktrees,
 };
 use crate::daemon::process::repo_services::{
-    RepoAttachments, RepoServiceStart, RepoServices, build_repo_services, start_repo_attachments,
+    RepoAttachments, RepoServiceStart, RepoServices, build_repo_services, make_worktrees_folder,
+    managed_writes_watermark_path, read_managed_writes_watermark, start_repo_attachments,
 };
 use crate::daemon::process::session_services::{
     SessionAttachments, SessionServices, start_session_attachments,
@@ -104,6 +106,7 @@ use crate::daemon::process::start_error::{DaemonStartError, DaemonStartFailure};
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
 use crate::daemon::process::stop::{DaemonStopFailure, close_data_folder, stop_work};
 use crate::daemon::process::supervision::{ProcessStateTracker, ServingSocketHooks};
+use crate::daemon::process::workspace_services::{WorkspaceWork, settle_interrupted_creations};
 use crate::daemon::run_folder::{bind_socket, mint_session_token, prepare_run_folder};
 use crate::daemon::service_status::remove_service_status;
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
@@ -195,6 +198,9 @@ pub(crate) struct DaemonProcess {
     pub(crate) worktree_setup: Option<Arc<WorktreeSetupRunner>>,
     /// Makes worktrees and answers the new-worktree form's suggestion.
     pub(crate) worktree_creator: Option<Arc<WorktreeCreator>>,
+    /// The workspace services' work: the stop ends the cleanup's requests and waits for the
+    /// start's tasks, and lets the kept worktrees' reads settle last.
+    pub(crate) workspace_work: Option<WorkspaceWork>,
 }
 
 // What a failed start's release is called in its error.
@@ -254,6 +260,7 @@ impl DaemonProcess {
             project_list_feed: None,
             worktree_setup: None,
             worktree_creator: None,
+            workspace_work: None,
         };
         let started = process.run_start(options).await;
         match started {
@@ -420,6 +427,11 @@ impl DaemonProcess {
             GitLimits::DAEMON,
         );
         self.git = Some(git.clone());
+        let worktrees_folder = make_worktrees_folder(home_folder)
+            .await
+            .map_err(DaemonStartError::WorktreesFolder)?;
+        let missed_since =
+            read_managed_writes_watermark(&managed_writes_watermark_path(home_folder)).await;
         let list_feed = Arc::new(SessionListFeed::new(
             Arc::clone(&reads),
             &followers,
@@ -438,6 +450,8 @@ impl DaemonProcess {
             scheduler: Arc::clone(&scheduler),
             list_feed: Arc::clone(&list_feed),
             stop: self.work_stop.clone(),
+            worktrees_folder: worktrees_folder.clone(),
+            missed_since,
         })?);
         let authorizer = Arc::new(Authorizer::load_built_in()?);
         let secret_items = SecretItems::new(SecretItemsStart {
@@ -472,6 +486,7 @@ impl DaemonProcess {
                 spawner: self.spawner.clone(),
                 data_folder: data_folder.clone(),
                 home_folder: home_folder.to_path_buf(),
+                worktrees_folder,
                 session_token_path: run_folder.token_path.clone(),
                 reads: Arc::clone(&reads),
                 writer: Arc::clone(&writer),
@@ -561,7 +576,9 @@ impl DaemonProcess {
         self.project_list_feed = Some(inputs.project_list_feed);
         self.clones = inputs.clones;
         self.worktree_setup = Some(inputs.worktree_setup);
-        self.worktree_creator = Some(inputs.worktree_creator);
+        self.workspace_work = Some(inputs.workspace_work);
+        // Before the socket serves, so no creation is under way.
+        settle_interrupted_creations(self.worktree_creator.insert(inputs.worktree_creator)).await;
         let session = self.session.insert(inputs.session);
         let queue = Arc::clone(&session.queue);
         let caller_check = CallerCheck::new(
@@ -627,6 +644,10 @@ impl DaemonProcess {
         // Right after the recovery pass, so the sweep reads what the last stop left before the
         // session services' follows begin.
         self.attention = Some(attention.start(self.work_stop.clone()).await?);
+        self.workspace_work
+            .as_mut()
+            .expect("the workspace services are built before their work begins")
+            .start();
         let session = self
             .session
             .as_ref()

@@ -62,6 +62,9 @@ pub struct CreateSessionParams {
     /// The session's model. A provider that takes it at process start applies a usage-credits
     /// prompt's `switchDefault` to this session alone, never to the account's saved default.
     pub model: ProviderToken,
+    /// The lead's reasoning effort, which the start refuses `agent.providerAxisInvalid` on the
+    /// effort axis when the provider lists the model without that level; `None` checks none.
+    pub effort: Option<ProviderToken>,
     /// The larger window chosen for the model, in tokens, as recorded when it was picked; `None`
     /// runs the model's default window. A provider whose model id names the window refuses one.
     pub larger_window: Option<SafeInt<1>>,
@@ -90,8 +93,7 @@ pub struct CreateSessionParams {
     /// `mcp`); the driver hands each to the provider as an entry on the daemon's route.
     pub tool_servers: Option<Vec<SessionToolServer>>,
     /// A JSON Schema the final output must meet, for a provider that binds it per session (gated
-    /// on `structuredOutput`); one that binds it per turn reads
-    /// [`StartRunParams::output_schema`](super::contract::params_and_results::StartRunParams::output_schema).
+    /// on `structuredOutput`); one that binds it per turn reads `StartRunParams::output_schema`.
     pub output_schema: Option<Map<String, Value>>,
     /// The account the leg is admitted against, resolved by the daemon before the spawn. The spawn
     /// path pins the account's credential home, so the driver only carries it.
@@ -237,6 +239,22 @@ pub struct StartingLevelParams {
     pub(crate) provider_account_id: ProviderAccountId,
 }
 
+impl StartingLevelParams {
+    /// The params of a session starting in `working_folder` on `model`, run on
+    /// `provider_account_id`.
+    pub fn new(
+        working_folder: PathBuf,
+        model: ProviderToken,
+        provider_account_id: ProviderAccountId,
+    ) -> Self {
+        Self {
+            working_folder,
+            model,
+            provider_account_id,
+        }
+    }
+}
+
 /// The level and mode a new session starts at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StartingLevel {
@@ -244,6 +262,27 @@ pub struct StartingLevel {
     pub(crate) level: PermissionLevel,
     /// Plan where the provider itself would start planning, else Build.
     pub(crate) session_mode: SessionMode,
+}
+
+impl StartingLevel {
+    /// A session starting at `level` in `session_mode`, as a test's driver answers it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn new(level: PermissionLevel, session_mode: SessionMode) -> Self {
+        Self {
+            level,
+            session_mode,
+        }
+    }
+
+    /// The level.
+    pub fn level(&self) -> PermissionLevel {
+        self.level
+    }
+
+    /// The mode: Plan where the provider itself would start planning, else Build.
+    pub fn session_mode(&self) -> SessionMode {
+        self.session_mode
+    }
 }
 
 /// What a goal operation did: the provider took it, or the driver took a fallback instead.

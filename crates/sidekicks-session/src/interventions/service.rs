@@ -81,7 +81,7 @@ use crate::run::engine::{InterruptRoute, RunEngine, RunEngineError};
 use crate::run::projection::advance_run_version_statement;
 use crate::run::read::{RunRead, read_run_through};
 use crate::run::refusals::RunRefusal;
-use crate::run::state_change::{RunStateChangeCompanions, refused_statement_index};
+use crate::run::state_change::RunStateChangeCompanions;
 use crate::run::transitions::states_that_may_enter;
 
 /// The statements the service's reads prepare on its pooled connection: the run's row, its
@@ -395,7 +395,7 @@ impl InterventionService {
             .await;
         match inserted {
             Ok(()) => Ok(()),
-            Err(error) => match refused_statement_index(&error) {
+            Err(error) => match error.refused_statement_index() {
                 Some(INSERT_STATEMENT_INDEX) => {
                     let saved = self
                         .read_saved_intervention(run_id, key)
@@ -508,7 +508,7 @@ impl InterventionService {
             )
             .await;
         if let Err(error) = accepted {
-            return match refused_statement_index(&error) {
+            return match error.refused_statement_index() {
                 Some(ACCEPT_VERSION_GUARD_INDEX) => Ok(Dispatched::Unaccepted(Resolution::Expired)),
                 Some(ACCEPT_STATE_GUARD_INDEX) => Ok(Dispatched::Unaccepted(Resolution::Rejected(
                     FreeFormText::new(RefusalCode::AgentRunInvalidTransition.as_str().to_owned())
@@ -700,7 +700,7 @@ impl InterventionService {
             };
             let row_move_index = statements.len() - 1;
             if let Err(error) = self.append(event, statements, Vec::new()).await {
-                return match refused_statement_index(&error) {
+                return match error.refused_statement_index() {
                     Some(index) if index == row_move_index => {
                         self.settled_since_or(target, error.into()).await
                     }
@@ -742,7 +742,7 @@ impl InterventionService {
             Err(record) => record,
         };
         // The row's move is the write's one statement.
-        let is_settled_since = if refused_statement_index(&record) == Some(0) {
+        let is_settled_since = if record.refused_statement_index() == Some(0) {
             self.is_settled_since(target).await
         } else {
             Ok(false)
@@ -793,7 +793,7 @@ impl InterventionService {
         match resolved {
             Ok(()) => Ok(RowMove::Made(state)),
             // The row's move is the write's one statement.
-            Err(error) if refused_statement_index(&error) == Some(0) => {
+            Err(error) if error.refused_statement_index() == Some(0) => {
                 self.settled_since_or(target, error.into()).await
             }
             Err(error) => Err(error.into()),

@@ -72,7 +72,7 @@ use sidekicks_terminal::{CommandLine, Terminals};
 use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
-use sidekicks_workspace::managed::write_watcher::ManagedWorkspaceWrite;
+use sidekicks_workspace::managed::write_watcher::{ManagedWorkspaceReport, ManagedWritesWatermark};
 use sidekicks_workspace::run_setup_gates::RunSetupGate;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -101,6 +101,9 @@ pub(crate) struct SessionServiceStart {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// Each live run's posture, the engine's first setup gate.
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
+    /// Binds each repository-bound run to its working folder; the engine's gate before the
+    /// approval side's, so its end runs after theirs.
+    pub(crate) execution_root_gate: Arc<dyn RunSetupGate>,
     /// Each run's binding cursors over the runtime binding rows, which an opening opens and
     /// records and the session directory's relaunches open too.
     pub(crate) binding_cursors: Arc<RunBindingCursors>,
@@ -139,7 +142,10 @@ pub(crate) struct SessionServiceStart {
     /// The folder of the chats' managed workspaces.
     pub(crate) workspaces_folder: PathBuf,
     /// The chats' writes the managed workspaces' watch reports.
-    pub(crate) workspace_writes: mpsc::Receiver<ManagedWorkspaceWrite>,
+    pub(crate) workspace_writes: mpsc::Receiver<ManagedWorkspaceReport>,
+    /// Where the recording of those writes keeps each instant the watch's walk caught up to, once
+    /// every write sent ahead of it is recorded, a write held behind a tool call included.
+    pub(crate) managed_writes_watermark: Arc<dyn ManagedWritesWatermark>,
     /// The daemon's wall clock.
     pub(crate) clock: Arc<dyn WallClock>,
     /// The thread every terminal child starts on.
@@ -261,6 +267,7 @@ pub(crate) fn build_session_services(
         read_damaged_from_sequence,
         providers,
         execution_postures,
+        execution_root_gate,
         binding_cursors,
         epochs,
         compose_opening,
@@ -280,6 +287,7 @@ pub(crate) fn build_session_services(
         spool_folder,
         workspaces_folder,
         workspace_writes,
+        managed_writes_watermark,
         clock,
         spawner,
         daemon_program,
@@ -332,6 +340,9 @@ pub(crate) fn build_session_services(
             },
             engine.clone(),
         );
+        // The end hooks run in reverse, so the approvals and turn readings are released before
+        // this gate releases, sweeps and moves the run's folder.
+        built.register_setup_gate(execution_root_gate);
         built.register_setup_gate(Arc::clone(&approvals.run_end) as Arc<dyn RunSetupGate>);
         // A run's end releases its turn readings, so their subscribers' streams finish.
         built.register_setup_gate(Arc::clone(&turn_readings) as Arc<dyn RunSetupGate>);
@@ -442,6 +453,7 @@ pub(crate) fn build_session_services(
         spool_folder,
         workspaces_folder,
         clock,
+        managed_writes_watermark,
     ));
     let chat_version_recording = {
         let chat_versions = Arc::clone(&chat_versions);

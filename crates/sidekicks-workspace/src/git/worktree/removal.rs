@@ -39,12 +39,12 @@ use sidekicks_contracts::worktree::lifecycle::{
     WorktreeRetireConflictDetails, WorktreeRetireIncompleteDetails, WorktreeRetireRequest,
     WorktreeRetireResponse, WorktreeState,
 };
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::DOES_WATCH_OUTLIVE_TREE_MOVE;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
-use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::keyed_lock::{HeldWorkEnd, KeyedLock};
 use sidekicks_std::settle_all::settle_all;
-use tokio::task::JoinError;
 
 pub use self::repair::{InterruptedKeptCopyFailure, InterruptedKeptCopyRepair};
 use crate::folder::canonical_path::canonical_folder_path;
@@ -52,9 +52,7 @@ use crate::git::branch_name_pattern::last_fatal_line;
 use crate::git::process::{GitError, GitRunner};
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::kept_copy::folder_move::FolderMoveError;
-use crate::git::worktree::kept_copy::held_work::{
-    HeldWorkEnd, HeldWorkSubject, held_answer, log_landed_late,
-};
+use crate::git::worktree::kept_copy::held_work::{HeldWorkSubject, log_landed_late};
 use crate::git::worktree::kept_copy::{
     KEPT_TREE_ENTRY, KeepFailure, KeptCopyTools, MoveAsideError, MovedAsideWorktree, WorktreeAside,
     move_worktree_aside,
@@ -215,12 +213,25 @@ pub enum WorktreeRemovalError {
     /// A read, a write, a git call or a file step failed.
     #[error(transparent)]
     Failed(Box<dyn Error + Send + Sync>),
-    /// The task that ran the removal or the keeping aside ended before it finished.
-    #[error("the removal ended before it finished")]
-    Interrupted(#[source] JoinError),
-    /// The removal or the keeping aside ended without an answer.
+    /// The task that ran the removal or the keeping aside under its lock ended without answering.
     #[error("the removal ended without an answer")]
-    Unanswered,
+    Unanswered(#[from] HeldWorkEnd),
+}
+
+impl From<WorktreeRemovalError> for HandlerError {
+    /// A refusal is answered with its code; every other failure is a fault.
+    fn from(error: WorktreeRemovalError) -> Self {
+        match error {
+            WorktreeRemovalError::Refused(refusal) => Self::Refused(refusal.into()),
+            fault @ (WorktreeRemovalError::EndProcesses(_)
+            | WorktreeRemovalError::FileWatchStop { .. }
+            | WorktreeRemovalError::Folder(_)
+            | WorktreeRemovalError::Sweep(_)
+            | WorktreeRemovalError::RecordRemoval { .. }
+            | WorktreeRemovalError::Failed(_)
+            | WorktreeRemovalError::Unanswered(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 impl From<WorktreeServiceError> for WorktreeRemovalError {
@@ -249,8 +260,7 @@ impl From<RemovedWorktreeStoreError> for WorktreeRemovalError {
         match failure {
             RemovedWorktreeStoreError::Refused(refusal) => Self::Refused(refusal),
             RemovedWorktreeStoreError::Failed(failure) => Self::Failed(failure),
-            RemovedWorktreeStoreError::Interrupted(interrupted) => Self::Interrupted(interrupted),
-            RemovedWorktreeStoreError::Unanswered => Self::Unanswered,
+            RemovedWorktreeStoreError::Unanswered(end) => Self::Unanswered(end),
         }
     }
 }
@@ -333,8 +343,7 @@ impl WorktreeRemoval {
     ) -> Result<WorktreeRetireResponse, WorktreeRemovalError> {
         let shared = Arc::clone(&self.shared);
         let held_request = request.clone();
-        let landed = self
-            .shared
+        self.shared
             .retirements
             .run_held(
                 request.worktree_id,
@@ -344,8 +353,7 @@ impl WorktreeRemoval {
                     HeldWorkSubject::Worktree(request.worktree_id),
                 ),
             )
-            .await;
-        held_answer(landed)
+            .await?
     }
 }
 
@@ -360,7 +368,7 @@ impl RetiredWorktreeKeeper for WorktreeRemoval {
         let shared = Arc::clone(&self.shared);
         let held_row = row.clone();
         Box::pin(async move {
-            let landed = self
+            let kept = self
                 .shared
                 .retirements
                 .run_held(
@@ -374,8 +382,9 @@ impl RetiredWorktreeKeeper for WorktreeRemoval {
                         HeldWorkSubject::Worktree(row.id),
                     ),
                 )
-                .await;
-            Ok(held_answer(landed)?)
+                .await
+                .map_err(WorktreeRemovalError::from)?;
+            Ok(kept?)
         })
     }
 }
@@ -813,15 +822,6 @@ fn retired(worktree_id: WorktreeId, kept: Option<KeptWorktree>) -> WorktreeRetir
 /// A new kept copy's id, minted.
 pub(crate) fn new_removed_worktree_id() -> RemovedWorktreeId {
     RemovedWorktreeId::try_from(mint_uuid_v7()).expect("a minted UUID is a removed worktree id")
-}
-
-impl From<HeldWorkEnd> for WorktreeRemovalError {
-    fn from(end: HeldWorkEnd) -> Self {
-        match end {
-            HeldWorkEnd::Unanswered => Self::Unanswered,
-            HeldWorkEnd::Interrupted(interrupted) => Self::Interrupted(interrupted),
-        }
-    }
 }
 
 #[cfg(test)]

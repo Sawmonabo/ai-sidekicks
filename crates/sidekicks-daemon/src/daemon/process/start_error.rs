@@ -115,6 +115,9 @@ pub(crate) enum DaemonStartError {
     /// The providers' registration ended abnormally.
     #[error("the providers' registration ended abnormally")]
     ProvidersRegistration(#[source] JoinError),
+    /// The daemon's worktrees folder could not be made or resolved.
+    #[error("the worktrees folder could not be made")]
+    WorktreesFolder(#[source] std::io::Error),
     /// The repository services could not be built: another daemon binds the askpass program's
     /// socket in the run folder.
     #[error(transparent)]

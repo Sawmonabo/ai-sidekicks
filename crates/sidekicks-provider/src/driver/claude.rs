@@ -27,14 +27,18 @@ use crate::command::running_set::takes_no_input;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
+use crate::driver::claude::session::establishment::context::{
+    CLAUDE_ADVISOR_ROW_ID, read_claude_row_choice,
+};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
-    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
-    ListProviderCommandsParams, ProviderCommandsSubscription, RespondToRequestParams,
-    SessionProcessState, StartRunParams,
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
+    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+    RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
@@ -361,6 +365,10 @@ impl ProviderDriver for ClaudeDriver {
         Some(CLAUDE_PICTURE_BASE64_LIMIT)
     }
 
+    fn session_advisor_pick(&self, app_values: &ProviderRowValues) -> Option<Option<String>> {
+        read_claude_row_choice(app_values, CLAUDE_ADVISOR_ROW_ID)
+    }
+
     // Each Claude Code session runs a process of its own, so the account weighs nothing here.
     fn starts_process(
         &self,
@@ -472,6 +480,18 @@ impl ProviderDriver for ClaudeDriver {
         params: ListModelsParams,
     ) -> BoxFuture<'_, Result<Vec<ProviderModel>, DriverError>> {
         self.list_models(params).boxed()
+    }
+
+    // Claude Code's start decides a model its catalog does not list, and the effort levels sit in
+    // a catalog only a running process reads, so the start checks both; the session options are
+    // the driver's own.
+    fn check_lead_binding(&self, params: LeadBindingCheckParams) -> Result<(), DriverError> {
+        ProviderAxisInvalid::check_options(
+            params.agent_id,
+            params.options.as_ref(),
+            &Self::session_options(),
+        )
+        .map_err(DriverError::from)
     }
 
     fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {

@@ -72,7 +72,6 @@ use crate::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateChangeWriter,
-    refused_statement_index,
 };
 
 /// The statements the engine's reads prepare on a pooled connection: the run's row, the live
@@ -735,7 +734,7 @@ impl RunEngine {
                 Ok(receipt) => return Ok(Some((run, receipt))),
                 Err(error)
                     if attempt < LIVE_APPEND_ATTEMPTS
-                        && refused_statement_index(&error)
+                        && error.refused_statement_index()
                             == Some(LIVE_APPEND_VERSION_GUARD_INDEX) => {}
                 Err(error) => return Err(error.into()),
             }

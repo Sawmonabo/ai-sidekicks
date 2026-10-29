@@ -20,7 +20,6 @@ use sidekicks_store::events::session::appender::{
 use crate::queue_store::{no_continue_waiting_statement, no_live_lead_run_statement};
 use crate::run::projection::insert_queued_run_statement;
 use crate::run::refusals::RunRefusal;
-use crate::run::state_change::refused_statement_index;
 
 /// Why a daemon turn's run was not queued; nothing was written.
 #[derive(Debug, thiserror::Error)]
@@ -78,7 +77,11 @@ pub(crate) async fn queue_daemon_turn_run(
         .await
     {
         Ok(_receipt) => Ok(run_id),
-        Err(error) if refused_statement_index(&error).is_some_and(|index| index < guard_count) => {
+        Err(error)
+            if error
+                .refused_statement_index()
+                .is_some_and(|index| index < guard_count) =>
+        {
             Err(RunRefusal::SessionTurnHeld {
                 session_id: request.session_id,
                 source: Box::new(error),

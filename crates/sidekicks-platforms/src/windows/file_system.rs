@@ -1,18 +1,21 @@
-//! Making, renaming and removing entries on Windows: `create_new_file` makes a file only where
-//! nothing stands, `rename_replacing` renames over a file at the destination and is on disk when it
-//! returns, and `remove_tree` removes a path and everything under it, as `rm -rf` does.
+//! Making, opening, renaming and removing entries on Windows: `create_new_file` makes a file only
+//! where nothing stands, `open_regular_file` opens one without following a link,
+//! `rename_replacing` renames over a file at the destination and is on disk when it returns, and
+//! `remove_tree` removes a path and everything under it, as `rm -rf` does.
 
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io;
-use std::os::windows::fs::FileTypeExt;
+use std::os::windows::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::path::Path;
 
 use walkdir::WalkDir;
 use windows_sys::Win32::Storage::FileSystem::{
-    MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH, MoveFileExW,
+    FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_OPEN_REPARSE_POINT, MOVEFILE_REPLACE_EXISTING,
+    MOVEFILE_WRITE_THROUGH, MoveFileExW,
 };
 
+use crate::regular_file_open::{RegularFileOpen, check_stays_beneath};
 use crate::windows::real_path::verbatim_path;
 
 /// Whether a rename of a folder replaces an empty folder already at its destination: never, since
@@ -24,6 +27,39 @@ pub const CAN_RENAME_REPLACE_EMPTY_FOLDER: bool = false;
 /// open's error.
 pub fn create_new_file(path: &Path, _mode: u32) -> io::Result<File> {
     OpenOptions::new().write(true).create_new(true).open(path)
+}
+
+/// Opens the regular file at `relative` under the folder `root` for reading without following a
+/// link or any other reparse point at it, or answers what stood there instead. A reparse point in
+/// a folder on the way is followed today. Fails with `InvalidInput` before any open when
+/// `relative` is absolute, names a drive or holds a `..`, or with the open's or the stat's other
+/// errors, a folder's refused open among them.
+pub fn open_regular_file(root: &Path, relative: &Path) -> io::Result<RegularFileOpen> {
+    check_stays_beneath(relative)?;
+    let opened = OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(root.join(relative));
+    let file = match opened {
+        Ok(file) => file,
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+            ) =>
+        {
+            return Ok(RegularFileOpen::Gone);
+        }
+        Err(error) => return Err(error),
+    };
+    let metadata = file.metadata()?;
+    if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Ok(RegularFileOpen::Link);
+    }
+    if !metadata.is_file() {
+        return Ok(RegularFileOpen::SpecialFile);
+    }
+    Ok(RegularFileOpen::Opened(file))
 }
 
 /// Whether the entry at `path` has the mode `mode`: always, since Windows keeps no mode and

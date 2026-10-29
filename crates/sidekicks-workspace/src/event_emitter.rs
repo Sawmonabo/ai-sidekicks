@@ -16,6 +16,7 @@ use sidekicks_contracts::repo::mount::{
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_store::events::log_service::{EventLogAppendReceipt, EventLogService};
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventEmitError, SessionEventLinkage,
 };
@@ -42,10 +43,6 @@ pub struct WorkspaceEventEmitter {
     appender: SessionEventAppender,
 }
 
-#[expect(
-    dead_code,
-    reason = "the workspace lifecycle transitions that prepare a workspace and mark its root lost"
-)]
 impl WorkspaceEventEmitter {
     /// An emitter appending to `event_log` at the session events' envelope version.
     pub fn new(event_log: Arc<EventLogService>) -> Self {
@@ -54,36 +51,40 @@ impl WorkspaceEventEmitter {
         }
     }
 
-    /// Appends `workspace.preparing`: the workspace's preparation began. Fails as
-    /// [`SessionEventEmitError`] says.
+    /// Appends `workspace.preparing`: the workspace's preparation began; under `append_hold` where
+    /// the caller holds the session. Fails as [`SessionEventEmitError`] says.
     pub(crate) async fn emit_workspace_preparing(
         &self,
         input: EmitWorkspaceEventInput,
         linkage: SessionEventLinkage,
+        append_hold: Option<&SessionAppendHold>,
     ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
-        self.append_workspace_event(WorkspaceTransition::Preparing, input, linkage)
+        self.append_workspace_event(WorkspaceTransition::Preparing, input, linkage, append_hold)
             .await
     }
 
-    /// Appends `workspace.prepared`: the workspace is ready for runs. Fails as
-    /// [`SessionEventEmitError`] says.
+    /// Appends `workspace.prepared`: the workspace is ready for runs; under `append_hold` where the
+    /// caller holds the session. Fails as [`SessionEventEmitError`] says.
     pub(crate) async fn emit_workspace_prepared(
         &self,
         input: EmitWorkspaceEventInput,
         linkage: SessionEventLinkage,
+        append_hold: Option<&SessionAppendHold>,
     ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
-        self.append_workspace_event(WorkspaceTransition::Prepared, input, linkage)
+        self.append_workspace_event(WorkspaceTransition::Prepared, input, linkage, append_hold)
             .await
     }
 
     /// Appends `workspace.rootLost`: the workspace's working root became unavailable, and it needs
-    /// preparing again before further use. Fails as [`SessionEventEmitError`] says.
+    /// preparing again before further use; under `append_hold` where the caller holds the session.
+    /// Fails as [`SessionEventEmitError`] says.
     pub(crate) async fn emit_workspace_root_lost(
         &self,
         input: EmitWorkspaceEventInput,
         linkage: SessionEventLinkage,
+        append_hold: Option<&SessionAppendHold>,
     ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
-        self.append_workspace_event(WorkspaceTransition::RootLost, input, linkage)
+        self.append_workspace_event(WorkspaceTransition::RootLost, input, linkage, append_hold)
             .await
     }
 
@@ -94,7 +95,7 @@ impl WorkspaceEventEmitter {
         input: EmitWorkspaceEventInput,
         linkage: SessionEventLinkage,
     ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
-        self.append_workspace_event(WorkspaceTransition::Archived, input, linkage)
+        self.append_workspace_event(WorkspaceTransition::Archived, input, linkage, None)
             .await
     }
 
@@ -121,6 +122,7 @@ impl WorkspaceEventEmitter {
         transition: WorkspaceTransition,
         input: EmitWorkspaceEventInput,
         linkage: SessionEventLinkage,
+        append_hold: Option<&SessionAppendHold>,
     ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let payload = WorkspaceLifecyclePayload {
             session_id: input.session_id,
@@ -132,15 +134,14 @@ impl WorkspaceEventEmitter {
             actor: Some(input.actor),
         };
         let draft = SessionEventDraft::new(payload, transition.event())?;
-        Ok(self.appender.append(draft, linkage).await?)
+        Ok(match append_hold {
+            Some(hold) => self.appender.append_held(hold, draft, linkage).await?,
+            None => self.appender.append(draft, linkage).await?,
+        })
     }
 }
 
 /// The workspace lifecycle events, each naming the one state its workspace is in after it.
-#[expect(
-    dead_code,
-    reason = "the workspace lifecycle transitions that prepare a workspace and mark its root lost"
-)]
 #[derive(Clone, Copy, Debug)]
 enum WorkspaceTransition {
     Preparing,

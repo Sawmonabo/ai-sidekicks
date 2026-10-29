@@ -712,7 +712,9 @@ fn read_mount_checkouts(
         .collect::<rusqlite::Result<_>>()?)
 }
 
-fn read_sessions_on_mount(
+/// The sessions with a live workspace on the mount, each once, in id order. Fails as the read
+/// fails, and for a stored id the contracts refuse.
+pub(crate) fn read_sessions_on_mount(
     connection: &Connection,
     repo_mount_id: RepoMountId,
 ) -> Result<Vec<SessionId>, MountHealthReadError> {

@@ -11,6 +11,12 @@
 //!   chat's, so neither is reported.
 //! - A watch started again once ready walks for what landed before it was armed, from the instant
 //!   its owner hands it, so no write in between is lost.
+//! - After each batch it has sent, the watch publishes the instant before which every write has
+//!   been sent; a clean stop lets the batch under way finish, so that instant is where the next
+//!   start walks from.
+//! - Once its walk for the missed writes has sent them all, the watch sends the instant it walked
+//!   to behind them on the same channel, so the reader keeps that instant only after it has
+//!   recorded every write ahead of it, and a crash before then has the next start walk again.
 //! - Every session a change names, a removal among them, is named to the owner's count of the
 //!   files in that session's workspace, once per batch of changes.
 
@@ -20,18 +26,21 @@ use std::ffi::OsStr;
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+use futures::future::BoxFuture;
 use lru::LruCache;
 use notify::{RecommendedWatcher, Watcher};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{EntryIdentity, entry_identity};
 use sidekicks_std::file::bounded_read::run_on_own_thread;
 use sidekicks_std::missing_entry::is_missing_entry;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::events::session::pending::PendingSessions;
 use tokio::sync::{mpsc, oneshot};
-use tokio::task::JoinHandle;
+use tokio::task::{JoinError, JoinHandle};
+use tokio_util::sync::CancellationToken;
 
 use crate::file_watch::{
     ChangeFeed, FileWatch, FileWatchError, FileWatchNotice, WalkFilter, WatchedRoot,
@@ -43,6 +52,24 @@ const GIT_METADATA_FOLDER_NAME: &str = ".git";
 // write; a path pushed out is reported once more on its next notice, which costs one extra version.
 const RECENT_REPORTED_PATH_LIMIT: NonZeroUsize =
     NonZeroUsize::new(10_000).expect("the recent-path limit is not zero");
+
+/// Keeps the instant the next start's walk for the chats' writes begins at, outside the folder
+/// the walk reads.
+pub trait ManagedWritesWatermark: Send + Sync {
+    /// Stores `instant`, before which every write a chat made has been recorded; a failure is the
+    /// keeper's to log, since the next start then walks from the instant stored before.
+    fn store(&self, instant: SystemTime) -> BoxFuture<'_, ()>;
+}
+
+/// What the managed workspaces watch sends its reader, in the order it found them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ManagedWorkspaceReport {
+    /// A write a chat made.
+    Write(ManagedWorkspaceWrite),
+    /// The watch's walk for the writes it had missed has sent every write changed before this
+    /// instant ahead of it, so once those are recorded the next start may walk from here.
+    CaughtUp(SystemTime),
+}
 
 /// One write a chat made in its managed workspace.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,31 +108,46 @@ pub(crate) enum ManagedWorkspaceWatchError {
     Interrupted(#[source] io::Error),
 }
 
-/// The one watch over every chat's managed workspace; dropping it stops the watch and its task.
+/// The one watch over every chat's managed workspace; [`ManagedWorkspaceWriteWatcher::stop`] ends
+/// it once the batch under way is sent, and dropping it ends it at once.
 pub(crate) struct ManagedWorkspaceWriteWatcher {
     task: JoinHandle<()>,
+    stop: CancellationToken,
 }
 
 impl ManagedWorkspaceWriteWatcher {
     /// Makes `workspaces_folder` when absent, watches it, walks it once ready for every write
-    /// changed at or after `missed_since`, and sends each write on `writes`, waiting for room so a
-    /// slow reader slows only this watch; every session a change names, a removal among them, is
-    /// added to `changed_folders`. When the watch cannot start or fails, the reason is
-    /// logged and the receiver answers with the instant since which writes may be unreported, for
-    /// the next watch's `missed_since`; it never answers otherwise.
+    /// changed at or after `missed_since`, and sends each write on `reports`, waiting for room so
+    /// a slow reader slows only this watch; every session a change names, a removal among them, is
+    /// added to `changed_folders`. After each batch it sent, it stores in `whole_since` the instant
+    /// before which every write has been sent, and once that instant passes `missed_since` it
+    /// sends it on `reports` too, once, behind the batch. When the watch cannot start or fails,
+    /// the reason is logged and the receiver answers with the instant since which writes may be
+    /// unreported, for the next watch's `missed_since`; it never answers otherwise.
     pub(crate) fn start(
         workspaces_folder: PathBuf,
-        writes: mpsc::Sender<ManagedWorkspaceWrite>,
+        reports: mpsc::Sender<ManagedWorkspaceReport>,
         changed_folders: Arc<PendingSessions>,
         missed_since: SystemTime,
+        whole_since: Arc<Mutex<SystemTime>>,
     ) -> (Self, oneshot::Receiver<SystemTime>) {
         let (failure_sender, failure) = oneshot::channel();
+        let stop = CancellationToken::new();
+        let stopped = stop.clone();
         let task = tokio::spawn(async move {
             let (outcome, unreported_since) =
                 match open_watch::<RecommendedWatcher>(workspaces_folder).await {
                     Ok((mut watch, _feed)) => {
                         watch.catch_up(missed_since);
-                        let outcome = report_writes(&mut watch, &writes, &changed_folders).await;
+                        let outcome = report_writes(
+                            &mut watch,
+                            &reports,
+                            &changed_folders,
+                            &stopped,
+                            &whole_since,
+                            missed_since,
+                        )
+                        .await;
                         (outcome, watch.whole_since())
                     }
                     Err(error) => (Err(error), missed_since),
@@ -120,12 +162,22 @@ impl ManagedWorkspaceWriteWatcher {
                 }
             }
         });
-        (Self { task }, failure)
+        (Self { task, stop }, failure)
     }
 
     /// Whether the watch's task has ended, for any reason.
     pub(crate) fn has_finished(&self) -> bool {
         self.task.is_finished()
+    }
+
+    /// Ends the watch once the batch under way is sent, and waits for its task. Fails only when
+    /// the task panicked.
+    pub(crate) async fn stop(mut self) -> Result<(), JoinError> {
+        self.stop.cancel();
+        match (&mut self.task).await {
+            Err(error) if error.is_panic() => Err(error),
+            Ok(()) | Err(_) => Ok(()),
+        }
     }
 }
 
@@ -155,11 +207,18 @@ async fn open_watch<W: Watcher + Send + 'static>(
     .map_err(ManagedWorkspaceWatchError::NotStarted)
 }
 
-// Reads the watch's notices until it fails or the reader of `writes` is gone.
+// Reads the watch's notices until it fails, the reader of `reports` is gone or `stop` is
+// canceled, storing in `whole_since` after each batch the instant before which every write has
+// been sent, and sending behind the batch the first such instant past `missed_since`: the walk for
+// the missed writes has sent them all by then. A walk that finds nothing sends no batch, so the
+// instant is sent behind the next batch, or the clean stop stores `whole_since`.
 async fn report_writes<W: Watcher + Send + 'static>(
     watch: &mut FileWatch<W>,
-    writes: &mpsc::Sender<ManagedWorkspaceWrite>,
+    reports: &mpsc::Sender<ManagedWorkspaceReport>,
     changed_folders: &PendingSessions,
+    stop: &CancellationToken,
+    whole_since: &Mutex<SystemTime>,
+    missed_since: SystemTime,
 ) -> Result<(), ManagedWorkspaceWatchError> {
     let root = watch
         .roots()
@@ -170,11 +229,32 @@ async fn report_writes<W: Watcher + Send + 'static>(
         root,
         recent: LruCache::new(RECENT_REPORTED_PATH_LIMIT),
     };
-    while let Some(notice) = watch.next_notice().await {
+    let mut is_caught_up = false;
+    loop {
+        let notice = tokio::select! {
+            biased;
+            () = stop.cancelled() => return Ok(()),
+            notice = watch.next_notice() => notice,
+        };
+        let Some(notice) = notice else {
+            return Ok(());
+        };
         match notice {
             FileWatchNotice::Changed(paths) => {
-                if !reporter.report(paths, writes, changed_folders).await? {
+                if !reporter.report(paths, reports, changed_folders).await? {
                     return Ok(());
+                }
+                let sent_before = watch.whole_since();
+                *lock(whole_since) = sent_before;
+                if !is_caught_up && sent_before > missed_since {
+                    is_caught_up = true;
+                    if reports
+                        .send(ManagedWorkspaceReport::CaughtUp(sent_before))
+                        .await
+                        .is_err()
+                    {
+                        return Ok(());
+                    }
                 }
             }
             FileWatchNotice::Incomplete => tracing::warn!(
@@ -186,7 +266,6 @@ async fn report_writes<W: Watcher + Send + 'static>(
             }
         }
     }
-    Ok(())
 }
 
 // A changed path that names an entry inside one session's workspace.
@@ -229,11 +308,11 @@ struct WriteReporter {
 impl WriteReporter {
     // Reads every changed path in one batch on a thread of its own and sends each new write, then
     // names each session the batch changed to `changed_folders`; answers false once the reader of
-    // `writes` is gone.
+    // `reports` is gone.
     async fn report(
         &mut self,
         paths: Vec<PathBuf>,
-        writes: &mpsc::Sender<ManagedWorkspaceWrite>,
+        reports: &mpsc::Sender<ManagedWorkspaceReport>,
         changed_folders: &PendingSessions,
     ) -> Result<bool, ManagedWorkspaceWatchError> {
         let candidates: Vec<Candidate> = paths
@@ -285,7 +364,11 @@ impl WriteReporter {
                 relative_path: candidate.relative_path,
                 kind,
             };
-            if writes.send(write).await.is_err() {
+            if reports
+                .send(ManagedWorkspaceReport::Write(write))
+                .await
+                .is_err()
+            {
                 return Ok(false);
             }
         }
@@ -373,7 +456,7 @@ mod tests {
     use std::collections::HashSet;
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
 
     use notify::event::{DataChange, ModifyKind};
@@ -381,8 +464,12 @@ mod tests {
     use sidekicks_store::events::session::pending::PendingSessions;
     use tokio::sync::mpsc;
     use tokio::time::timeout;
+    use tokio_util::sync::CancellationToken;
 
-    use super::{ManagedWorkspaceWrite, ManagedWorkspaceWriteKind, open_watch, report_writes};
+    use super::{
+        ManagedWorkspaceReport, ManagedWorkspaceWrite, ManagedWorkspaceWriteKind, open_watch,
+        report_writes,
+    };
     use crate::file_watch::{FEED_CAPACITY, wait_for_the_next_whole_second};
 
     const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
@@ -394,10 +481,31 @@ mod tests {
         paths.iter().cloned().fold(event, Event::add_path)
     }
 
+    async fn next_report(
+        reports: &mut mpsc::Receiver<ManagedWorkspaceReport>,
+    ) -> ManagedWorkspaceReport {
+        timeout(WAIT, reports.recv())
+            .await
+            .expect("a report is sent in time")
+            .expect("the watch keeps reporting")
+    }
+
+    // The next write reported, past any instant the walk caught up to; `None` once the watch ends.
+    async fn received_write(
+        reports: &mut mpsc::Receiver<ManagedWorkspaceReport>,
+    ) -> Option<ManagedWorkspaceWrite> {
+        loop {
+            match reports.recv().await? {
+                ManagedWorkspaceReport::Write(write) => return Some(write),
+                ManagedWorkspaceReport::CaughtUp(_) => {}
+            }
+        }
+    }
+
     async fn next_write(
-        writes: &mut mpsc::Receiver<ManagedWorkspaceWrite>,
+        reports: &mut mpsc::Receiver<ManagedWorkspaceReport>,
     ) -> ManagedWorkspaceWrite {
-        timeout(WAIT, writes.recv())
+        timeout(WAIT, received_write(reports))
             .await
             .expect("a write is reported in time")
             .expect("the watch keeps reporting")
@@ -412,6 +520,10 @@ mod tests {
         }
     }
 
+    fn reported(relative_path: &str, kind: ManagedWorkspaceWriteKind) -> ManagedWorkspaceReport {
+        ManagedWorkspaceReport::Write(write(relative_path, kind))
+    }
+
     fn session_folder(root: &Path) -> PathBuf {
         let session = root.join(SESSION);
         fs::create_dir_all(session.join(".git")).expect("the workspace and its .git are made");
@@ -419,8 +531,9 @@ mod tests {
     }
 
     // Catches a repeated notice reported twice, the workspace's `.git` reported, a removed entry
-    // reported as a write, and a removal not named to the count of the session's files, which
-    // would leave the count high after a delete.
+    // reported as a write, a removal not named to the count of the session's files, which would
+    // leave the count high after a delete, and the walk's caught-up instant sent ahead of the
+    // batch's writes or not at all, which would let the reader keep it before recording them.
     #[tokio::test]
     async fn managed_write_watch_reports_each_write_once_never_git_and_counts_a_removal() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
@@ -438,7 +551,17 @@ mod tests {
         let named_folders = Arc::clone(&changed_folders);
         let task = tokio::spawn(async move {
             let mut watch = watch;
-            report_writes(&mut watch, &writes_sender, &named_folders).await
+            let whole_since = Mutex::new(SystemTime::UNIX_EPOCH);
+            let stop = CancellationToken::new();
+            report_writes(
+                &mut watch,
+                &writes_sender,
+                &named_folders,
+                &stop,
+                &whole_since,
+                SystemTime::UNIX_EPOCH,
+            )
+            .await
         });
 
         feed.handle_event(Ok(notice(&[
@@ -447,17 +570,21 @@ mod tests {
             session.join("made"),
         ])));
         assert_eq!(
-            next_write(&mut writes).await,
-            write("a.txt", ManagedWorkspaceWriteKind::File)
+            next_report(&mut writes).await,
+            reported("a.txt", ManagedWorkspaceWriteKind::File)
         );
         assert_eq!(
-            next_write(&mut writes).await,
-            write("b.txt", ManagedWorkspaceWriteKind::File)
+            next_report(&mut writes).await,
+            reported("b.txt", ManagedWorkspaceWriteKind::File)
         );
         assert_eq!(
-            next_write(&mut writes).await,
-            write("made", ManagedWorkspaceWriteKind::Folder)
+            next_report(&mut writes).await,
+            reported("made", ManagedWorkspaceWriteKind::Folder)
         );
+        let ManagedWorkspaceReport::CaughtUp(caught_up) = next_report(&mut writes).await else {
+            panic!("the walk's instant follows the batch's writes");
+        };
+        assert!(caught_up > SystemTime::UNIX_EPOCH);
 
         fs::remove_file(session.join("b.txt")).expect("the file is removed");
         fs::write(session.join("zz-last.txt"), "last").expect("a file is written");
@@ -469,8 +596,8 @@ mod tests {
         // Sent last and sorted last, so any write the notices above wrongly cause comes first.
         feed.handle_event(Ok(notice(&[session.join("zz-last.txt")])));
         assert_eq!(
-            next_write(&mut writes).await,
-            write("zz-last.txt", ManagedWorkspaceWriteKind::File)
+            next_report(&mut writes).await,
+            reported("zz-last.txt", ManagedWorkspaceWriteKind::File)
         );
         assert!(writes.try_recv().is_err(), "nothing more is reported");
 
@@ -527,7 +654,18 @@ mod tests {
         let (writes_sender, mut writes) = mpsc::channel(16);
         let task = tokio::spawn(async move {
             let mut watch = watch;
-            report_writes(&mut watch, &writes_sender, &PendingSessions::default()).await
+            let changed_folders = PendingSessions::default();
+            let whole_since = Mutex::new(SystemTime::UNIX_EPOCH);
+            let stop = CancellationToken::new();
+            report_writes(
+                &mut watch,
+                &writes_sender,
+                &changed_folders,
+                &stop,
+                &whole_since,
+                SystemTime::UNIX_EPOCH,
+            )
+            .await
         });
 
         let mut reported = vec![next_write(&mut writes).await, next_write(&mut writes).await];
@@ -540,7 +678,7 @@ mod tests {
             ]
         );
         assert!(
-            timeout(Duration::from_millis(500), writes.recv())
+            timeout(Duration::from_millis(500), received_write(&mut writes))
                 .await
                 .is_err(),
             "the unchanged file is not reported"

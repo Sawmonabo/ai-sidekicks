@@ -3,6 +3,9 @@
 
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, Weak};
+use std::time::SystemTime;
+
+use futures::future::BoxFuture;
 
 use sidekicks_artifact::admission::UploadAdmission;
 use sidekicks_artifact::payload_store::PayloadStore;
@@ -53,11 +56,13 @@ use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_workspace::git::process::{GitLimits, GitRunner};
+use sidekicks_workspace::git::worktree::naming::worktrees_folder;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::managed::service::{ManagedWorkspaceService, managed_workspaces_folder};
 use sidekicks_workspace::managed::write_watcher::{
-    ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
+    ManagedWorkspaceReport, ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
 };
+use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate, RunSetupGateError};
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -66,7 +71,10 @@ use super::{
     SessionServiceStart, SessionServices, build_session_services, start_session_attachments,
 };
 use crate::daemon::configuration::ConfigurationStore;
-use crate::daemon::process::repo_services::{RepoServiceStart, RepoServices, build_repo_services};
+use crate::daemon::process::repo_services::{
+    ManagedWritesWatermarkFile, RepoServiceStart, RepoServices, build_repo_services,
+    managed_writes_watermark_path,
+};
 use crate::daemon::schema::schema_parts;
 
 // The statements the tests' read pool prepares, every reader's together.
@@ -81,6 +89,18 @@ impl ProviderProcessIds for NoProcess {
     }
 }
 
+// A run setup gate that lets every run start, in the place of the execution roots' gate.
+struct PassingGate;
+
+impl RunSetupGate for PassingGate {
+    fn assert_run_ready<'a>(
+        &'a self,
+        _context: &'a RunSetupContext,
+    ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
+        Box::pin(std::future::ready(Ok(())))
+    }
+}
+
 /// The repository and session services built over a test database on a temporary home.
 struct Fixture {
     database: TestDatabase,
@@ -89,7 +109,7 @@ struct Fixture {
     folder_watch: Arc<WorkingFolderWatcher>,
     workspaces: Arc<ManagedWorkspaceService>,
     // Stands in for the workspaces' watch as the sender of the chats' writes.
-    writes: Option<mpsc::Sender<ManagedWorkspaceWrite>>,
+    writes: Option<mpsc::Sender<ManagedWorkspaceReport>>,
     session: SessionServices,
     home: TempDir,
 }
@@ -136,6 +156,8 @@ async fn fixture() -> Fixture {
         scheduler: Arc::clone(&scheduler),
         list_feed: Arc::clone(&list_feed),
         stop: CancellationToken::new(),
+        worktrees_folder: worktrees_folder(home.path()),
+        missed_since: SystemTime::now(),
     })
     .expect("the repository services build");
     let RepoServices {
@@ -186,6 +208,7 @@ async fn fixture() -> Fixture {
             home.path(),
             home.path().join("session-token"),
         )),
+        execution_root_gate: Arc::new(PassingGate),
         binding_cursors: Arc::new(RunBindingCursors::new(
             Arc::clone(&reads),
             Arc::new(RuntimeBindingStore::new(reads, Arc::clone(&log.writer))),
@@ -217,6 +240,9 @@ async fn fixture() -> Fixture {
         spool_folder,
         workspaces_folder: managed_workspaces_folder(home.path()),
         workspace_writes,
+        managed_writes_watermark: Arc::new(ManagedWritesWatermarkFile {
+            path: managed_writes_watermark_path(home.path()),
+        }),
         clock,
         spawner,
         daemon_program,
@@ -337,11 +363,11 @@ async fn the_stop_records_every_write_sent_before_it() {
         std::fs::write(workspace.join(&name), format!("note {index}"))
             .expect("the test writes a file");
         writes
-            .send(ManagedWorkspaceWrite {
+            .send(ManagedWorkspaceReport::Write(ManagedWorkspaceWrite {
                 session_id,
                 relative_path: name.into(),
                 kind: ManagedWorkspaceWriteKind::File,
-            })
+            }))
             .await
             .expect("the recording reads the writes");
     }
