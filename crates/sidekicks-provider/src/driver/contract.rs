@@ -297,6 +297,18 @@ pub trait ProviderDriver: Send + Sync {
         None
     }
 
+    /// The advisor a new session is born with, as the app's own row values `app_values` pick it:
+    /// a fixed fact of the driver, like [`message_handing`](Self::message_handing). `None` on a
+    /// provider that offers no advisor or where the app never set one, so the provider's own
+    /// setting holds; `Some(None)` for no advisor; `Some(model)` for one.
+    #[expect(
+        clippy::option_option,
+        reason = "a pick the app never made differs from one set to no advisor"
+    )]
+    fn session_advisor_pick(&self, _app_values: &ProviderRowValues) -> Option<Option<String>> {
+        None
+    }
+
     /// Whether a run started on `session_id` now brings a provider process up, which the memory
     /// gate weighs before the start; `false` when one already serves the session. A session with
     /// no live process is weighed on `provider_account_id`, the account the run is admitted

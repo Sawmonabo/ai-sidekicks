@@ -166,6 +166,11 @@ pub(crate) fn shell_prefix_command_of(provider_id: &str) -> Option<&'static Shel
 }
 
 impl ProviderDescriptor {
+    /// The provider's name as a person reads it, which a session's lead agent is named.
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
     /// The variables a Terminal pane's shell is given while `Simplify for a screen reader` is on.
     pub fn screen_reader_environment_names(&self) -> &'static [&'static str] {
         self.screen_reader_environment_names

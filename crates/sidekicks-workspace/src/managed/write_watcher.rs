@@ -11,6 +11,9 @@
 //!   chat's, so neither is reported.
 //! - A watch started again once ready walks for what landed before it was armed, from the instant
 //!   its owner hands it, so no write in between is lost.
+//! - After each batch it has sent, the watch publishes the instant before which every write has
+//!   been sent; a clean stop lets the batch under way finish, so that instant is where the next
+//!   start walks from.
 //! - Every session a change names, a removal among them, is named to the owner's count of the
 //!   files in that session's workspace, once per batch of changes.
 
@@ -20,7 +23,7 @@ use std::ffi::OsStr;
 use std::io;
 use std::num::NonZeroUsize;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use lru::LruCache;
@@ -29,9 +32,11 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{EntryIdentity, entry_identity};
 use sidekicks_std::file::bounded_read::run_on_own_thread;
 use sidekicks_std::missing_entry::is_missing_entry;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::events::session::pending::PendingSessions;
 use tokio::sync::{mpsc, oneshot};
-use tokio::task::JoinHandle;
+use tokio::task::{JoinError, JoinHandle};
+use tokio_util::sync::CancellationToken;
 
 use crate::file_watch::{
     ChangeFeed, FileWatch, FileWatchError, FileWatchNotice, WalkFilter, WatchedRoot,
@@ -81,16 +86,19 @@ pub(crate) enum ManagedWorkspaceWatchError {
     Interrupted(#[source] io::Error),
 }
 
-/// The one watch over every chat's managed workspace; dropping it stops the watch and its task.
+/// The one watch over every chat's managed workspace; [`ManagedWorkspaceWriteWatcher::stop`] ends
+/// it once the batch under way is sent, and dropping it ends it at once.
 pub(crate) struct ManagedWorkspaceWriteWatcher {
     task: JoinHandle<()>,
+    stop: CancellationToken,
 }
 
 impl ManagedWorkspaceWriteWatcher {
     /// Makes `workspaces_folder` when absent, watches it, walks it once ready for every write
     /// changed at or after `missed_since`, and sends each write on `writes`, waiting for room so a
     /// slow reader slows only this watch; every session a change names, a removal among them, is
-    /// added to `changed_folders`. When the watch cannot start or fails, the reason is
+    /// added to `changed_folders`. After each batch it sent, it stores in `whole_since` the instant
+    /// before which every write has been sent. When the watch cannot start or fails, the reason is
     /// logged and the receiver answers with the instant since which writes may be unreported, for
     /// the next watch's `missed_since`; it never answers otherwise.
     pub(crate) fn start(
@@ -98,14 +106,24 @@ impl ManagedWorkspaceWriteWatcher {
         writes: mpsc::Sender<ManagedWorkspaceWrite>,
         changed_folders: Arc<PendingSessions>,
         missed_since: SystemTime,
+        whole_since: Arc<Mutex<SystemTime>>,
     ) -> (Self, oneshot::Receiver<SystemTime>) {
         let (failure_sender, failure) = oneshot::channel();
+        let stop = CancellationToken::new();
+        let stopped = stop.clone();
         let task = tokio::spawn(async move {
             let (outcome, unreported_since) =
                 match open_watch::<RecommendedWatcher>(workspaces_folder).await {
                     Ok((mut watch, _feed)) => {
                         watch.catch_up(missed_since);
-                        let outcome = report_writes(&mut watch, &writes, &changed_folders).await;
+                        let outcome = report_writes(
+                            &mut watch,
+                            &writes,
+                            &changed_folders,
+                            &stopped,
+                            &whole_since,
+                        )
+                        .await;
                         (outcome, watch.whole_since())
                     }
                     Err(error) => (Err(error), missed_since),
@@ -120,12 +138,22 @@ impl ManagedWorkspaceWriteWatcher {
                 }
             }
         });
-        (Self { task }, failure)
+        (Self { task, stop }, failure)
     }
 
     /// Whether the watch's task has ended, for any reason.
     pub(crate) fn has_finished(&self) -> bool {
         self.task.is_finished()
+    }
+
+    /// Ends the watch once the batch under way is sent, and waits for its task. Fails only when
+    /// the task panicked.
+    pub(crate) async fn stop(mut self) -> Result<(), JoinError> {
+        self.stop.cancel();
+        match (&mut self.task).await {
+            Err(error) if error.is_panic() => Err(error),
+            Ok(()) | Err(_) => Ok(()),
+        }
     }
 }
 
@@ -155,11 +183,14 @@ async fn open_watch<W: Watcher + Send + 'static>(
     .map_err(ManagedWorkspaceWatchError::NotStarted)
 }
 
-// Reads the watch's notices until it fails or the reader of `writes` is gone.
+// Reads the watch's notices until it fails, the reader of `writes` is gone or `stop` is canceled,
+// storing in `whole_since` after each batch the instant before which every write has been sent.
 async fn report_writes<W: Watcher + Send + 'static>(
     watch: &mut FileWatch<W>,
     writes: &mpsc::Sender<ManagedWorkspaceWrite>,
     changed_folders: &PendingSessions,
+    stop: &CancellationToken,
+    whole_since: &Mutex<SystemTime>,
 ) -> Result<(), ManagedWorkspaceWatchError> {
     let root = watch
         .roots()
@@ -170,12 +201,21 @@ async fn report_writes<W: Watcher + Send + 'static>(
         root,
         recent: LruCache::new(RECENT_REPORTED_PATH_LIMIT),
     };
-    while let Some(notice) = watch.next_notice().await {
+    loop {
+        let notice = tokio::select! {
+            biased;
+            () = stop.cancelled() => return Ok(()),
+            notice = watch.next_notice() => notice,
+        };
+        let Some(notice) = notice else {
+            return Ok(());
+        };
         match notice {
             FileWatchNotice::Changed(paths) => {
                 if !reporter.report(paths, writes, changed_folders).await? {
                     return Ok(());
                 }
+                *lock(whole_since) = watch.whole_since();
             }
             FileWatchNotice::Incomplete => tracing::warn!(
                 "some managed workspace folders are not watched, so writes in them are not \
@@ -186,7 +226,6 @@ async fn report_writes<W: Watcher + Send + 'static>(
             }
         }
     }
-    Ok(())
 }
 
 // A changed path that names an entry inside one session's workspace.
@@ -373,7 +412,7 @@ mod tests {
     use std::collections::HashSet;
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
 
     use notify::event::{DataChange, ModifyKind};
@@ -381,6 +420,7 @@ mod tests {
     use sidekicks_store::events::session::pending::PendingSessions;
     use tokio::sync::mpsc;
     use tokio::time::timeout;
+    use tokio_util::sync::CancellationToken;
 
     use super::{ManagedWorkspaceWrite, ManagedWorkspaceWriteKind, open_watch, report_writes};
     use crate::file_watch::{FEED_CAPACITY, wait_for_the_next_whole_second};
@@ -438,7 +478,16 @@ mod tests {
         let named_folders = Arc::clone(&changed_folders);
         let task = tokio::spawn(async move {
             let mut watch = watch;
-            report_writes(&mut watch, &writes_sender, &named_folders).await
+            let whole_since = Mutex::new(SystemTime::UNIX_EPOCH);
+            let stop = CancellationToken::new();
+            report_writes(
+                &mut watch,
+                &writes_sender,
+                &named_folders,
+                &stop,
+                &whole_since,
+            )
+            .await
         });
 
         feed.handle_event(Ok(notice(&[
@@ -527,7 +576,17 @@ mod tests {
         let (writes_sender, mut writes) = mpsc::channel(16);
         let task = tokio::spawn(async move {
             let mut watch = watch;
-            report_writes(&mut watch, &writes_sender, &PendingSessions::default()).await
+            let changed_folders = PendingSessions::default();
+            let whole_since = Mutex::new(SystemTime::UNIX_EPOCH);
+            let stop = CancellationToken::new();
+            report_writes(
+                &mut watch,
+                &writes_sender,
+                &changed_folders,
+                &stop,
+                &whole_since,
+            )
+            .await
         });
 
         let mut reported = vec![next_write(&mut writes).await, next_write(&mut writes).await];

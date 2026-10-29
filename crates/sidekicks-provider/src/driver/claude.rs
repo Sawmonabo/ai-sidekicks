@@ -25,6 +25,9 @@ use sidekicks_platforms::{
 
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::lifecycle::ClaudeDriver;
+use crate::driver::claude::session::establishment::context::{
+    CLAUDE_ADVISOR_ROW_ID, read_claude_row_choice,
+};
 use crate::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
     ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
@@ -353,6 +356,10 @@ impl ProviderDriver for ClaudeDriver {
 
     fn picture_base64_size_limit(&self) -> Option<u64> {
         Some(CLAUDE_PICTURE_BASE64_LIMIT)
+    }
+
+    fn session_advisor_pick(&self, app_values: &ProviderRowValues) -> Option<Option<String>> {
+        read_claude_row_choice(app_values, CLAUDE_ADVISOR_ROW_ID)
     }
 
     // Each Claude Code session runs a process of its own, so the account weighs nothing here.

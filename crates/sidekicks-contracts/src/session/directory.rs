@@ -589,6 +589,7 @@ methods! {
             result: SessionCreateResponse,
             refusals: [
                 ProjectNotFound,
+                RepoMountNotFound,
                 SessionGroupRefused,
                 ProviderAccountCurrentNotSet,
                 ProviderAccountNotRegistered,

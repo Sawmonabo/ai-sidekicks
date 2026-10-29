@@ -128,15 +128,23 @@ pub struct ProviderAxisInvalid {
     pub(crate) value: Value,
 }
 
+impl ProviderAxisInvalid {
+    /// The refusal of a binding that names `provider`, which no registered driver answers, for
+    /// the agent `agent_id`.
+    pub fn provider_not_registered(agent_id: AgentId, provider: &ProviderId) -> Self {
+        Self {
+            agent_id,
+            axis: ProviderAxis::ProviderName,
+            value: json!(provider.as_str()),
+        }
+    }
+}
+
 /// The request members that set a provider axis, named as the request names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum ProviderAxis {
     /// The provider.
-    #[expect(
-        dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
-    )]
     ProviderName,
     /// The model.
     ModelId,

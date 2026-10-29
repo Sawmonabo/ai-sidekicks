@@ -232,6 +232,22 @@ pub struct StartingLevelParams {
     pub(crate) provider_account_id: Option<ProviderAccountId>,
 }
 
+impl StartingLevelParams {
+    /// The params of a session starting in `working_folder` on `model`, run on
+    /// `provider_account_id` (`None` on the person's own sign-in).
+    pub fn new(
+        working_folder: PathBuf,
+        model: ProviderToken,
+        provider_account_id: Option<ProviderAccountId>,
+    ) -> Self {
+        Self {
+            working_folder,
+            model,
+            provider_account_id,
+        }
+    }
+}
+
 /// The level and mode a new session starts at.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StartingLevel {
@@ -239,6 +255,26 @@ pub struct StartingLevel {
     pub(crate) level: PermissionLevel,
     /// Plan where the provider itself would start planning, else Build.
     pub(crate) session_mode: SessionMode,
+}
+
+impl StartingLevel {
+    /// A session starting at `level` in `session_mode`.
+    pub fn new(level: PermissionLevel, session_mode: SessionMode) -> Self {
+        Self {
+            level,
+            session_mode,
+        }
+    }
+
+    /// The level.
+    pub fn level(&self) -> PermissionLevel {
+        self.level
+    }
+
+    /// The mode: Plan where the provider itself would start planning, else Build.
+    pub fn session_mode(&self) -> SessionMode {
+        self.session_mode
+    }
 }
 
 /// What a goal operation did: the provider took it, or the driver took a fallback instead.

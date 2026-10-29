@@ -1,10 +1,13 @@
 //! A chat's managed workspace: the git-initialized folder `<home>/.ai-sidekicks/workspaces/<session
 //! id>` the daemon makes at the chat's create and registers as the chat's managed mount, kept while
 //! the chat is archived, and deleted whole when the chat is purged or when its create stopped
-//! before the chat was born. It holds the one watch over every chat's workspace and starts it
-//! again whenever a create finds the folder holding them gone, since the watch ends with it, or
-//! the watch ended; the watch started again walks for every write made since the earlier one
-//! last told them all, or for every entry in a folder made again. Each change the watch names
+//! before the chat was born. It holds the one watch over every chat's workspace, which walks at its
+//! start for every write since the instant its owner hands it, and starts it again whenever a
+//! create finds the folder holding them gone, since the watch ends with it, or the watch ended;
+//! the watch started again walks for every write made since the earlier one last told them all,
+//! or for every entry in a folder made again. A clean stop lets the watch send the batch under
+//! way, and [`ManagedWorkspaceService::whole_since`] then names the instant the next start walks
+//! from. Each change the watch names
 //! recounts the files in that chat's folder onto its managed mount's row, which the sessions list
 //! reads as the chat's document count.
 
@@ -60,11 +63,13 @@ pub trait SessionListRefresh: Send + Sync {
 
 /// A chat's managed workspace as its create made it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ManagedWorkspace {
+pub struct ManagedWorkspace {
     /// Its managed mount.
-    pub(crate) repo_mount_id: RepoMountId,
+    pub repo_mount_id: RepoMountId,
     /// The workspace folder, with every link resolved: the mount's canonical root.
-    pub(crate) path: PathBuf,
+    pub path: PathBuf,
+    /// Where the folder is; `None` on macOS and Linux.
+    pub place: Option<Place>,
 }
 
 /// Why making or deleting a chat's managed workspace failed.
@@ -93,7 +98,6 @@ pub enum ManagedWorkspaceError {
 
 /// Makes and deletes chats' managed workspaces, each with its managed mount row, and reports the
 /// writes chats make in them.
-#[cfg_attr(not(test), expect(dead_code, reason = "a chat's create and its purge"))]
 pub struct ManagedWorkspaceService {
     workspaces_folder: PathBuf,
     place: Option<Place>,
@@ -102,6 +106,8 @@ pub struct ManagedWorkspaceService {
     changed_folders: Arc<PendingSessions>,
     // `None` once stopped, so no watch starts again.
     write_watch: Mutex<Option<WriteWatch>>,
+    // The instant before which every write a chat made has been sent, across every watch started.
+    whole_since: Arc<Mutex<SystemTime>>,
     document_counting: Mutex<Option<AbortOnDropHandle<()>>>,
 }
 
@@ -114,18 +120,22 @@ struct WriteWatch {
 }
 
 impl WriteWatch {
-    // Starts the watch, which walks for every write changed at or after `missed_since` once ready.
+    // Starts the watch, which walks for every write changed at or after `missed_since` once ready,
+    // keeping `whole_since` from that instant on.
     fn start(
         workspaces_folder: PathBuf,
         writes: mpsc::Sender<ManagedWorkspaceWrite>,
         changed_folders: Arc<PendingSessions>,
         missed_since: SystemTime,
+        whole_since: &Arc<Mutex<SystemTime>>,
     ) -> Self {
+        *lock(whole_since) = missed_since;
         let (watcher, failure) = ManagedWorkspaceWriteWatcher::start(
             workspaces_folder,
             writes.clone(),
             changed_folders,
             missed_since,
+            Arc::clone(whole_since),
         );
         Self {
             watcher,
@@ -146,13 +156,14 @@ impl WriteWatch {
     }
 }
 
-#[expect(dead_code, reason = "a chat's create and its purge")]
 impl ManagedWorkspaceService {
     /// The workspaces under `home_folder`, which is in `place` (`None` on macOS and Linux), their
     /// rows written through `repo_mounts`, each made a repository through `git`, and every write a
-    /// chat makes in one sent on `writes`; starts the watch that reports them, and the task that
-    /// recounts a chat's files on each change and names the chat to `list_feed` when its count
-    /// moved. Dropping the service ends both.
+    /// chat makes in one sent on `writes`; starts the watch that reports them, walking first for
+    /// every write since `missed_since` (the instant [`Self::whole_since`] named at the last clean
+    /// stop, or after a crash the previous start's instant), and the task that recounts a chat's
+    /// files on each change and names the chat to `list_feed` when its count moved. Dropping the
+    /// service ends both.
     pub fn new(
         home_folder: &Path,
         place: Option<Place>,
@@ -160,15 +171,17 @@ impl ManagedWorkspaceService {
         git: GitRunner,
         writes: mpsc::Sender<ManagedWorkspaceWrite>,
         list_feed: Arc<dyn SessionListRefresh>,
+        missed_since: SystemTime,
     ) -> Self {
         let workspaces_folder = managed_workspaces_folder(home_folder);
         let changed_folders = Arc::new(PendingSessions::default());
-        // A create right after this may write before the watch is ready, so it catches up from now.
+        let whole_since = Arc::new(Mutex::new(missed_since));
         let write_watch = WriteWatch::start(
             workspaces_folder.clone(),
             writes,
             Arc::clone(&changed_folders),
-            SystemTime::now(),
+            missed_since,
+            &whole_since,
         );
         let document_counting = AbortOnDropHandle::new(tokio::spawn(count_documents(
             workspaces_folder.clone(),
@@ -183,24 +196,20 @@ impl ManagedWorkspaceService {
             git,
             changed_folders,
             write_watch: Mutex::new(Some(write_watch)),
+            whole_since,
             document_counting: Mutex::new(Some(document_counting)),
         }
     }
 
-    /// Ends the watch of the chats' writes, which drops the last sender of `writes` once its task
-    /// is gone, so their reader ends after the writes already sent, and ends the recount of the
-    /// chats' files, waiting for it. A write the watch had not yet sent is not kept as a version,
-    /// which the stop logs once. A create after it starts no watch. Fails only when the recount's
-    /// task panicked.
+    /// Ends the watch of the chats' writes once the batch under way is sent, which drops the last
+    /// sender of `writes`, so their reader ends after the writes already sent, and ends the
+    /// recount of the chats' files, waiting for both. A write the watch had not yet sent is walked
+    /// for at the next start from [`Self::whole_since`]. A create after it starts no watch. Fails
+    /// only when the watch's or the recount's task panicked.
     pub async fn stop(&self) -> Result<(), JoinError> {
         let write_watch = lock(&self.write_watch).take();
         if let Some(write_watch) = write_watch {
-            drop(write_watch);
-            tracing::info!(
-                stopped_at = %jiff::Timestamp::now(),
-                "the chats' write watch stopped; writes it had not yet reported are not kept as \
-                 versions"
-            );
+            write_watch.watcher.stop().await?;
         }
         let counting = lock(&self.document_counting).take();
         let Some(counting) = counting else {
@@ -213,11 +222,18 @@ impl ManagedWorkspaceService {
         }
     }
 
+    /// The instant before which every write a chat made in its workspace has been sent on the
+    /// service's `writes`: once the reader of `writes` has kept them all after [`Self::stop`], the
+    /// instant the next start walks from.
+    pub fn whole_since(&self) -> SystemTime {
+        *lock(&self.whole_since)
+    }
+
     /// Makes the chat's workspace folder, makes it a git repository and registers it as the chat's
     /// managed mount. Refuses `repoMount.alreadyAttached` when the session already has one, before
     /// touching any folder; a failure after the row is written removes the folder and the row, and
     /// fails with [`ManagedWorkspaceError::MadeAndNotRemoved`] when that removal fails too.
-    pub(crate) async fn create(
+    pub async fn create(
         &self,
         session_id: SessionId,
     ) -> Result<ManagedWorkspace, ManagedWorkspaceError> {
@@ -254,13 +270,14 @@ impl ManagedWorkspaceService {
         Ok(ManagedWorkspace {
             repo_mount_id,
             path: workspace_path,
+            place: self.place.clone(),
         })
     }
 
     /// Deletes the chat's workspace folder whole, then its mount row and every row on it. A
     /// session with no managed workspace changes nothing, so a repeat is safe. Fails with the
     /// removal's or the write's failure.
-    pub(crate) async fn delete(&self, session_id: SessionId) -> Result<(), ManagedWorkspaceError> {
+    pub async fn delete(&self, session_id: SessionId) -> Result<(), ManagedWorkspaceError> {
         self.remove(session_id, &self.workspace_path_of(session_id))
             .await
     }
@@ -294,6 +311,7 @@ impl ManagedWorkspaceService {
             write_watch.writes.clone(),
             Arc::clone(&self.changed_folders),
             missed_since,
+            &self.whole_since,
         );
     }
 
@@ -505,6 +523,7 @@ mod tests {
             test_git_runner(),
             writes,
             Arc::new(NamedSessions(named_sender)),
+            std::time::SystemTime::now(),
         );
         (named, service)
     }
