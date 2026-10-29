@@ -291,6 +291,8 @@ mod tests {
 
         ScriptedDriver::exit(&first);
         let relaunched = fixture.next_start().await;
+        // Reported once the resume answered, so the relaunched process holds the session's slot.
+        fixture.relaunches.reported(1).await;
         let routes = &fixture
             .driver
             .composed_parts()

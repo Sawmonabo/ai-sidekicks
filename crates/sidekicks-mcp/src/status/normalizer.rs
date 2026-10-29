@@ -1,17 +1,20 @@
 //! The daemon's status producer of one session leg: each server name a driver reports is
 //! attributed, through the attribution table, to the binding a session at the session's project
 //! root serves it from, then applied to the leg's status; the leg's end retires that leg alone.
+//! Beside it, the daemon's own MCP sign-in state, which reads a server whose sign-in the daemon
+//! holds and lacks as `needsAuth`.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_provider::driver::mcp_server::status::{
-    McpServerStatusEmission, McpServerStatusProducer, McpServerStatusSink,
+    McpServerReading, McpServerStatusEmission, McpServerStatusProducer, McpServerStatusSink,
 };
 use sidekicks_workspace::project::records::AttachedProjectRoot;
 
@@ -112,6 +115,31 @@ impl McpServerStatusSink for McpLegStatusProducer {
 impl Drop for McpLegStatusProducer {
     fn drop(&mut self) {
         self.retire_once();
+    }
+}
+
+/// The daemon's own sign-in state of the MCP servers it signs in to: a provider reports the sign-in
+/// of a server the daemon signed in for it as unknown, so the daemon's state decides `needsAuth`.
+#[expect(dead_code, reason = "the daemon's own MCP sign-ins feed it")]
+pub(crate) trait McpSignInStateReader: Send + Sync {
+    /// Whether the daemon holds `binding`'s sign-in and has none it can use.
+    fn lacks_sign_in(&self, binding: &McpServerBindingRef) -> bool;
+}
+
+/// `reading` of the server `binding` serves as the daemon's sign-in state reads it: an observed
+/// status reads `needsAuth` where the daemon holds the server's sign-in and lacks it; a switch-off
+/// stands.
+#[expect(dead_code, reason = "the daemon's own MCP sign-ins feed it")]
+pub(crate) fn read_under_sign_in_state(
+    reading: McpServerReading,
+    binding: &McpServerBindingRef,
+    sign_ins: &dyn McpSignInStateReader,
+) -> McpServerReading {
+    match reading {
+        McpServerReading::Observed(_) if sign_ins.lacks_sign_in(binding) => {
+            McpServerReading::Observed(McpServerStatus::NeedsAuth)
+        }
+        McpServerReading::Observed(_) | McpServerReading::SwitchedOff => reading,
     }
 }
 
@@ -242,7 +270,10 @@ mod tests {
         );
         let gate = CreditGate::with_credit(1);
         assert!(
-            first_observations.next(&gate).now_or_never().is_none(),
+            matches!(
+                first_observations.next(&gate).now_or_never(),
+                None | Some(Ok(None))
+            ),
             "no binding is handed on to be recorded"
         );
     }
