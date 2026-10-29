@@ -319,7 +319,7 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
 
     let sent = &channel.control_requests()[0]["servers"];
     assert_eq!(
-        sent.as_object().map(|servers| servers.len()),
+        sent.as_object().map(serde_json::Map::len),
         Some(1),
         "{sent}"
     );

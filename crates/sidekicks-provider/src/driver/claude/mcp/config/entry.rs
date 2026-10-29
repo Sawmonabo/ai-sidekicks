@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
+use tokio::sync::OnceCell;
 
 use super::{
     ClaudePersonConfigFiles, InstalledPluginRoot, SERVERS_FILE, plugin_server_files,
@@ -34,7 +35,8 @@ pub(crate) struct ClaudePluginFolders {
 pub(crate) struct ClaudeServerEntryReader<'sources> {
     person: &'sources ClaudePersonConfigFiles,
     plugin_home: &'sources Path,
-    person_config: Option<Option<Value>>,
+    // `.claude.json`, read on first use; `None` inside where the file is absent.
+    person_config: OnceCell<Option<Value>>,
     plugins: Option<Vec<InstalledPluginRoot>>,
 }
 
@@ -47,7 +49,7 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
         Self {
             person,
             plugin_home,
-            person_config: None,
+            person_config: OnceCell::new(),
             plugins: None,
         }
     }
@@ -126,10 +128,11 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
 
     // The person's `.claude.json`, read on first use.
     async fn person_config(&mut self) -> Result<Option<&Value>, ClaudeSettingsReadError> {
-        if self.person_config.is_none() {
-            self.person_config = Some(read_json_file(&self.person.person_config).await?);
-        }
-        Ok(self.person_config.as_ref().and_then(Option::as_ref))
+        let person_config = self
+            .person_config
+            .get_or_try_init(|| read_json_file(&self.person.person_config))
+            .await?;
+        Ok(person_config.as_ref())
     }
 }
 

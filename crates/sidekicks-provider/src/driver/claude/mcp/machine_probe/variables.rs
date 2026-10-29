@@ -208,6 +208,7 @@ const REMOTE_COVERED: &[&str] = &[
     "HTTPS_PROXY",
     "HTTP_PROXY",
     "ALL_PROXY",
+    "NPM_TOKEN",
     "CODEARTIFACT_AUTH_TOKEN",
     "PIP_INDEX_URL",
     "PIP_EXTRA_INDEX_URL",
