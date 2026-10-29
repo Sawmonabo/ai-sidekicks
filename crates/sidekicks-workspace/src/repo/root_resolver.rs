@@ -222,7 +222,7 @@ impl RepoRootResolver {
 
     /// The top level, each link resolved, of the working tree `folder` sits in, or `None` when git
     /// answers that it sits in none. Fails with `vcsError` when git cannot answer.
-    pub(crate) async fn read_working_tree_root(
+    pub async fn read_working_tree_root(
         &self,
         folder: &Path,
     ) -> Result<Option<PathBuf>, RepoRefusal> {

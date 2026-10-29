@@ -98,6 +98,7 @@ mod process_tree;
 mod program_install_folders;
 mod program_start;
 mod recreate_link;
+mod regular_file_open;
 mod run_folder;
 mod running_program;
 #[cfg(any(test, feature = "test-support"))]
@@ -309,7 +310,8 @@ pub use posix::file_system::{
 };
 #[cfg(unix)]
 pub use posix::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, open_regular_file,
+    remove_tree, rename_replacing,
 };
 #[cfg(unix)]
 pub use posix::login_shell::{login_shell, name_as_login_shell};
@@ -402,6 +404,7 @@ pub use process_tree::{end_processes, process_table, tree_under};
 pub use program_install_folders::{ProgramFolder, program_install_folders};
 pub use program_start::{ProgramStart, program_start};
 pub use recreate_link::recreate_link;
+pub use regular_file_open::RegularFileOpen;
 pub use run_folder::{DaemonRunFolder, RunFolderRefused, askpass_socket_path};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
 #[cfg(any(test, feature = "test-support"))]
@@ -497,7 +500,8 @@ pub use windows::file_system::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, open_regular_file,
+    remove_tree, rename_replacing,
 };
 #[cfg(target_os = "windows")]
 pub use windows::input_wait::{may_wait_for_input, read_input_wait};

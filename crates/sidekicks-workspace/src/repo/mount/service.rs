@@ -100,12 +100,10 @@ const MANAGED_WORKSPACE_IDS_SQL: &str = "SELECT workspace.id
     WHERE mount.managed_session_id = @session_id";
 
 // Each row that names a workspace on the mount goes before it, and each workspace before the mount,
-// because every foreign key holds on DELETE too.
-static DELETE_MANAGED_MOUNT_SQL: LazyLock<[String; 4]> = LazyLock::new(|| {
+// because every foreign key holds on DELETE too. A chat's run writes no run context, so none names
+// a managed workspace.
+static DELETE_MANAGED_MOUNT_SQL: LazyLock<[String; 3]> = LazyLock::new(|| {
     [
-        format!(
-            "DELETE FROM run_execution_contexts WHERE workspace_id IN ({MANAGED_WORKSPACE_IDS_SQL})"
-        ),
         format!("DELETE FROM branch_contexts WHERE workspace_id IN ({MANAGED_WORKSPACE_IDS_SQL})"),
         "DELETE FROM workspaces
     WHERE repo_mount_id IN (SELECT id FROM repo_mounts WHERE managed_session_id = @session_id)"
@@ -209,11 +207,11 @@ pub(crate) struct RepoAttachTarget {
 
 /// A folder resolved the way attach resolves it, attaching nothing.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ResolvedFolder {
+pub struct ResolvedFolder {
     /// The resolved root.
-    pub(crate) canonical_root: PathBuf,
+    pub canonical_root: PathBuf,
     /// The attached project mount of its repository, `None` when none holds it.
-    pub(crate) repo_mount_id: Option<RepoMountId>,
+    pub repo_mount_id: Option<RepoMountId>,
 }
 
 /// One mount's stored facts, in any state; the `repoMount.read` reply adds a fresh health
@@ -244,6 +242,10 @@ pub(crate) struct RepoMountRow {
 
 /// One mount's stored facts with a freshly probed health verdict.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the repository mount read's handler")
+)]
 pub(crate) struct RepoMountRecord {
     /// The stored facts.
     pub(crate) row: RepoMountRow,
@@ -275,7 +277,6 @@ pub struct RepoMountService {
     pub(crate) running_read_pause: PausePoint,
 }
 
-#[expect(dead_code, reason = "the repository mount methods' handlers")]
 impl RepoMountService {
     /// The mounts of `machine_id`'s daemon, written through `writer`, read through `reads`, roots
     /// resolved by `resolver` and a detach's archivals appended through `events`.
@@ -428,7 +429,7 @@ impl RepoMountService {
     /// canonical root and the attached project mount of its repository. A chat's managed
     /// workspace is never a project, so its mount is never answered. Refuses as
     /// [`RepoMountService::resolve_attach_target`] does, `alreadyAttached` aside.
-    pub(crate) async fn resolve_folder(
+    pub async fn resolve_folder(
         &self,
         request: &RepoMountAttachRequest,
     ) -> Result<ResolvedFolder, RepoMountServiceError> {
@@ -454,7 +455,7 @@ impl RepoMountService {
 
     /// The folder of the chat's managed workspace, or `None` when the session has none. Fails as
     /// the read fails.
-    pub(crate) async fn read_managed_root(
+    pub async fn read_managed_root(
         &self,
         session_id: SessionId,
     ) -> Result<Option<PathBuf>, RepoMountServiceError> {
@@ -559,6 +560,10 @@ impl RepoMountService {
     /// the root or git gives no answer in time. Refuses `repoMount.notFound`, and
     /// `repoMount.rootResolutionFailed` (`vcsError`) when git cannot answer for the root otherwise;
     /// fails as [`RepoMountService::read_row`] does.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the repository mount read's handler")
+    )]
     pub(crate) async fn read(
         &self,
         repo_mount_id: RepoMountId,
@@ -635,8 +640,8 @@ impl RepoMountService {
     }
 }
 
-/// The statements that delete a chat's managed mount row with every workspace on it and the run
-/// and branch rows naming those workspaces, in foreign-key order; a session with none matches
+/// The statements that delete a chat's managed mount row with every workspace on it and the branch
+/// rows naming those workspaces, in foreign-key order; a session with none matches
 /// nothing. They go in one write, alone or inside the purge's.
 pub fn managed_mount_deletion_statements(session_id: SessionId) -> Vec<WriteStatement> {
     DELETE_MANAGED_MOUNT_SQL

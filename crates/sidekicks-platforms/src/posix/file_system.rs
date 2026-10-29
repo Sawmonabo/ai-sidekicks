@@ -1,11 +1,14 @@
-//! Making, renaming and removing entries on macOS and Linux: `create_new_file` makes a file only
-//! where nothing stands, `rename_replacing` renames over what is at the destination, and
-//! `remove_tree` removes a path and everything under it, as `rm -rf` does.
+//! Making, opening, renaming and removing entries on macOS and Linux: `create_new_file` makes a
+//! file only where nothing stands, `open_regular_file` opens one without following a link,
+//! `rename_replacing` renames over what is at the destination, and `remove_tree` removes a path
+//! and everything under it, as `rm -rf` does.
 
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
+
+use crate::regular_file_open::RegularFileOpen;
 
 /// Whether a rename of a folder replaces an empty folder already at its destination: yes, as
 /// `rename(2)` does.
@@ -19,6 +22,43 @@ pub fn create_new_file(path: &Path, mode: u32) -> io::Result<File> {
         .create_new(true)
         .mode(mode)
         .open(path)
+}
+
+/// Opens the regular file at `path` for reading without following a link at its last component,
+/// or answers what stood there instead; a pipe opens without waiting for a writer and is then
+/// answered as a special file. Fails with the open's or the stat's other errors.
+pub fn open_regular_file(path: &Path) -> io::Result<RegularFileOpen> {
+    let opened = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path);
+    let file = match opened {
+        Ok(file) => file,
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+            ) =>
+        {
+            return Ok(RegularFileOpen::Gone);
+        }
+        Err(error) if error.raw_os_error() == Some(libc::ELOOP) => {
+            return Ok(RegularFileOpen::Link);
+        }
+        // A socket refuses an open: `ENXIO` on Linux, `EOPNOTSUPP` on macOS.
+        Err(error)
+            if error
+                .raw_os_error()
+                .is_some_and(|code| code == libc::ENXIO || code == libc::EOPNOTSUPP) =>
+        {
+            return Ok(RegularFileOpen::SpecialFile);
+        }
+        Err(error) => return Err(error),
+    };
+    if !file.metadata()?.is_file() {
+        return Ok(RegularFileOpen::SpecialFile);
+    }
+    Ok(RegularFileOpen::Opened(file))
 }
 
 /// Whether the entry at `path`, never followed through a link, has exactly the mode bits `mode`:

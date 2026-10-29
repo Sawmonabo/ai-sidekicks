@@ -25,7 +25,7 @@ use crate::database::stored_column::{closed_word, text_column};
 /// copied for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, VariantArray, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
-enum ConvertedFileOutcome {
+pub enum ConvertedFileOutcome {
     /// The file was copied into the repository.
     Copied,
 }
