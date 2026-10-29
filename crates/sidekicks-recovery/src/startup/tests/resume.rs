@@ -89,7 +89,6 @@ impl PassFixture {
         self.status
             .read(&self.store.reads)
             .await
-            .expect("the status reads")
             .sessions
             .into_iter()
             .find(|session| session.session_id == session_id)
