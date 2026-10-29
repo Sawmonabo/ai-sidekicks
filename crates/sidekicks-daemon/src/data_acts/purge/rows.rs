@@ -174,8 +174,10 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 
 // The session's own deletes after its run-keyed ones, up to its row, in foreign-key order: a
 // snapshot and a recovery checkpoint name the event they reflect, an ask goes after its answer and
-// after the gate answers found through it, and an artifact after the reference to its payload.
-const DELETES_THROUGH_SESSION_ROW: [&str; 21] = [
+// after the gate answers found through it, and an artifact after the reference to its payload. The
+// attention rows go after the machine's attention count is raised, so its readers drop the
+// session's entries, and an entry's delivery before the entry it is found through.
+const DELETES_THROUGH_SESSIO26_ROW: [&str; 26] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
     "DELETE FROM session_events WHERE session_id = @sessionId",
@@ -201,6 +203,14 @@ const DELETES_THROUGH_SESSION_ROW: [&str; 21] = [
     "DELETE FROM session_tags WHERE session_id = @sessionId",
     "DELETE FROM session_related WHERE session_id = @sessionId
        OR related_session_id = @sessionId",
+    "UPDATE attention_versions SET version = version + 1
+       WHERE scope_key = '' AND EXISTS
+         (SELECT 1 FROM attention_entries WHERE session_id = @sessionId)",
+    "DELETE FROM attention_deliveries WHERE entry_id IN
+       (SELECT id FROM attention_entries WHERE session_id = @sessionId)",
+    "DELETE FROM attention_entries WHERE session_id = @sessionId",
+    "DELETE FROM attention_seen WHERE session_id = @sessionId",
+    "DELETE FROM attention_versions WHERE scope_key = @sessionId",
     "DELETE FROM sessions WHERE id = @sessionId",
 ];
 

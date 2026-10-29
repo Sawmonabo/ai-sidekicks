@@ -7,33 +7,17 @@
 //! writes, which a rebuild leaves alone. No table refers to another, so a purge deletes them in any
 //! order.
 
-use serde::Serialize;
 use sidekicks_contracts::attention::{
     AttentionBannerState, AttentionSeverity, AttentionTrigger, AttentionWebAddressState,
 };
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
-use sidekicks_store::database::sql_list::sql_list_of;
-use strum::VariantArray;
+use sidekicks_store::database::sql_list::sql_list_of_every;
 
 /// The runs' list, which a run's end reads to raise an entry only for a lead run, and the attention
 /// tables' own part.
 pub fn schema_parts() -> SchemaParts {
     crate::run::schema::schema_parts()
         .with_part(SchemaPart::new("attention", attention_schema_sql()))
-}
-
-/// The word a member of a closed attention set is written as, its wire spelling.
-pub(crate) fn word_of(member: impl Serialize) -> String {
-    serde_json::to_value(member)
-        .ok()
-        .and_then(|word| word.as_str().map(str::to_owned))
-        .expect("a member of a closed attention set serializes as its word")
-}
-
-// Every member of the closed set `Member` as a SQL list for a `CHECK`.
-fn sql_list_of_every<Member: VariantArray + Serialize + Copy>() -> String {
-    let words: Vec<String> = Member::VARIANTS.iter().copied().map(word_of).collect();
-    sql_list_of(words.iter().map(String::as_str))
 }
 
 fn attention_schema_sql() -> String {

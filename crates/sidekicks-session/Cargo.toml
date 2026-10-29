@@ -71,8 +71,9 @@ tracing-subscriber.workspace = true
 
 [features]
 # Helpers other crates' tests use: the run engine built over a test database and its restart pause,
-# the live count's test log, the transcript's test log, the questions service's fixtures, the list
-# feed's test build, the follow count and the search index's test services.
+# the live count's test log, the attention entries' test log, the transcript's test log, the
+# questions service's fixtures, the list feed's test build, the follow count and the search index's
+# test services.
 test-support = [
   "dep:bytes",
   "dep:tempfile",

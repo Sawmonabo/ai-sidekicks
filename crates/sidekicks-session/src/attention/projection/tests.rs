@@ -1,162 +1,15 @@
-use std::sync::Arc;
-
-use rusqlite::{OptionalExtension as _, params};
-use serde_json::{Value, json};
-use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::id::SessionId;
+use serde_json::json;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::statement::WriteStatement;
-use sidekicks_store::database::writer::test_file::{TestDatabase, test_run_id, test_session_id};
-use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use sidekicks_store::events::log_service::{
-    EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
-};
-use sidekicks_store::events::session::appender::{
-    SessionEventAppender, SessionEventDraft, SessionEventLinkage,
-};
-use sidekicks_store::events::session::followers::SessionEventFollowers;
-use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_store::events::session::appender::SessionEventLinkage;
 
-use super::{attention_projection_statements, notify_entry_statements};
-use crate::attention::schema::schema_parts;
-use crate::run::engine::test_fixture::insert_running_run;
+use super::notify_entry_statements;
+use crate::attention::test_log::AttentionTestLog;
 
 const WORKFLOW_RUN: &str = "018f0000-0000-7000-8000-000000000004";
 const NODE: &str = "tell";
-
-/// A log whose appends carry the attention statements, over a fresh database, and the one session
-/// the test appends to.
-struct Harness {
-    database: TestDatabase,
-    appender: SessionEventAppender,
-    session_id: SessionId,
-}
-
-impl Harness {
-    async fn new() -> Self {
-        let database = TestDatabase::new(schema_parts());
-        let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-            .await
-            .expect("the writer opens its database");
-        let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
-            writer: Arc::new(writer),
-            pool: Arc::new(DatabaseReadPool::new(
-                database.path(),
-                EVENT_LOG_STATEMENT_CAPACITY,
-            )),
-            followers: Arc::new(SessionEventFollowers::default()),
-            projection_statements: Some(Box::new(attention_projection_statements)),
-            refuse_session_write: None,
-            read_damaged_from_sequence: None,
-        }));
-        Self {
-            database,
-            appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
-            session_id: test_session_id(),
-        }
-    }
-
-    /// Appends `event`, a session event's `type` and `payload` as JSON, with `prelude` in its write.
-    async fn append_with(&self, event: Value, prelude: Vec<WriteStatement>) {
-        let event: SessionEvent = serde_json::from_value(event).expect("the test event reads");
-        self.appender
-            .append(
-                SessionEventDraft::of_session(self.session_id, &event)
-                    .expect("the test event passes its checks"),
-                SessionEventLinkage {
-                    transactional_prelude: prelude,
-                    ..SessionEventLinkage::default()
-                },
-            )
-            .await
-            .expect("the test event is appended");
-    }
-
-    async fn append(&self, event: Value) {
-        self.append_with(event, Vec::new()).await;
-    }
-
-    /// A running run of the session, under `parent` when it has one.
-    fn run(&self, parent: Option<RunId>) -> RunId {
-        let run_id = test_run_id();
-        insert_running_run(&self.database, self.session_id, run_id);
-        if let Some(parent) = parent {
-            self.database
-                .reader()
-                .execute(
-                    "UPDATE runs SET parent_run_id = ?1 WHERE run_id = ?2",
-                    params![parent.to_string(), run_id.to_string()],
-                )
-                .expect("the test makes the run a child");
-        }
-        run_id
-    }
-
-    /// An `agent.run.<state>` event of `run_id` at `run_version`, with `extra` payload members.
-    fn run_state(&self, run_id: RunId, state: &str, run_version: u64, extra: Value) -> Value {
-        let mut payload = json!({
-            "sessionId": self.session_id, "runId": run_id, "runVersion": run_version,
-            "previousState": "running", "newState": state,
-        });
-        if let (Some(payload), Value::Object(extra)) = (payload.as_object_mut(), extra) {
-            payload.extend(extra);
-        }
-        json!({"type": format!("agent.run.{state}"), "payload": payload})
-    }
-
-    /// The ids of `run_id`'s entries, and how many of them are open.
-    fn entries_of(&self, run_id: RunId) -> (Vec<String>, usize) {
-        let connection = self.database.reader();
-        let mut statement = connection
-            .prepare("SELECT id, resolved_at IS NULL FROM attention_entries WHERE run_id = ?1")
-            .expect("the entry read prepares");
-        let rows: Vec<(String, bool)> = statement
-            .query_map([run_id.to_string()], |row| Ok((row.get(0)?, row.get(1)?)))
-            .expect("the entry read runs")
-            .collect::<rusqlite::Result<_>>()
-            .expect("each entry reads");
-        let open = rows.iter().filter(|(_, is_open)| *is_open).count();
-        (rows.into_iter().map(|(id, _)| id).collect(), open)
-    }
-
-    /// The one entry `run_id` raised.
-    fn entry_of(&self, run_id: RunId) -> String {
-        let (ids, _) = self.entries_of(run_id);
-        assert_eq!(ids.len(), 1, "one entry for the run");
-        ids.into_iter().next().expect("one entry for the run")
-    }
-
-    /// Stores `entry_id`'s delivery as the gate would have decided it.
-    fn decide(&self, entry_id: &str, banner_state: Option<&str>, merged_into: Option<&str>) {
-        self.database
-            .reader()
-            .execute(
-                "INSERT INTO attention_deliveries (entry_id, banner_state, merged_into)
-                 VALUES (?1, ?2, ?3)",
-                params![entry_id, banner_state, merged_into],
-            )
-            .expect("the test decides the entry");
-    }
-
-    /// `entry_id`'s banner state and the entry it merged into.
-    fn delivery(&self, entry_id: &str) -> (Option<String>, Option<String>) {
-        self.database
-            .reader()
-            .query_row(
-                "SELECT banner_state, merged_into FROM attention_deliveries WHERE entry_id = ?1",
-                [entry_id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .optional()
-            .expect("the delivery read runs")
-            .expect("the entry has a delivery")
-    }
-}
 
 fn posted() -> Option<String> {
     Some("posted".to_owned())
@@ -165,7 +18,7 @@ fn posted() -> Option<String> {
 /// Mutation: drop the trigger filter from the mute's statements.
 #[tokio::test]
 async fn muting_withdraws_raised_end_banners_and_keeps_waits_and_notices() {
-    let harness = Harness::new().await;
+    let harness = AttentionTestLog::new().await;
     let finished_run = harness.run(None);
     let waiting_run = harness.run(None);
     harness
@@ -191,7 +44,10 @@ async fn muting_withdraws_raised_end_banners_and_keeps_waits_and_notices() {
                 "outputRef": {"kind": "inline", "items": []},
                 "logRef": {"kind": "inline", "items": []},
             }}),
-            notify,
+            SessionEventLinkage {
+                transactional_prelude: notify,
+                ..SessionEventLinkage::default()
+            },
         )
         .await;
     let finished = harness.entry_of(finished_run);
@@ -227,7 +83,7 @@ async fn muting_withdraws_raised_end_banners_and_keeps_waits_and_notices() {
 /// the hand-back.
 #[tokio::test]
 async fn a_resolve_withdraws_raised_banners_and_hands_merged_waits_back() {
-    let harness = Harness::new().await;
+    let harness = AttentionTestLog::new().await;
     let [
         posted_run,
         pending_run,
@@ -281,7 +137,7 @@ async fn a_resolve_withdraws_raised_banners_and_hands_merged_waits_back() {
 /// Mutation: drop `parent_run_id IS NULL` from the run end's insert.
 #[tokio::test]
 async fn a_child_runs_end_raises_nothing_and_its_wait_raises_one_entry() {
-    let harness = Harness::new().await;
+    let harness = AttentionTestLog::new().await;
     let lead_run = harness.run(None);
     let child_run = harness.run(Some(lead_run));
 
@@ -303,7 +159,7 @@ async fn a_child_runs_end_raises_nothing_and_its_wait_raises_one_entry() {
 /// Mutation: resolve only a run's waits, so a limit's failed end stays open.
 #[tokio::test]
 async fn running_after_a_step_limit_interrupt_resolves_its_failed_end() {
-    let harness = Harness::new().await;
+    let harness = AttentionTestLog::new().await;
     let run_id = harness.run(None);
     harness
         .append(harness.run_state(run_id, "interrupted", 2, json!({"trigger": "stepLimit"})))
