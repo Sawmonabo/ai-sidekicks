@@ -27,7 +27,6 @@ pub(crate) enum AttentionMoment {
     /// A workflow run: every waiting step and its end share one moment.
     WorkflowRun(WorkflowRunId),
     /// The session's own aggregate.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the session aggregate's read"))]
     Session(SessionId),
     /// One execution of a workflow's Notify step.
     Notify {
@@ -86,7 +85,6 @@ impl AttentionMoment {
 }
 
 /// Whose entries merge into one banner and share one seen mark.
-#[expect(dead_code, reason = "the attention projection")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum AttentionSubject {
     /// A session, for its agent runs' and plans' entries.

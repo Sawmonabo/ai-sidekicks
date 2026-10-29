@@ -6,7 +6,6 @@ use jiff::Timestamp;
 use sidekicks_contracts::attention::{AttentionId, AttentionSeverity};
 
 /// The members of a run-level item the session-level choice reads.
-#[cfg_attr(not(test), expect(dead_code, reason = "the attention projector"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct AttentionContributor {
     /// The item's id.
@@ -21,7 +20,6 @@ pub(crate) struct AttentionContributor {
 /// severity is actionable while any contributor is; the representative, whose trigger, source
 /// event and time the session item carries, is the one of highest severity, then earliest
 /// `created_at`, then smallest id, a total order so two readers never name different ones.
-#[cfg_attr(not(test), expect(dead_code, reason = "the attention projector"))]
 pub(crate) fn derive_session_aggregate<Contributor: Borrow<AttentionContributor>>(
     contributors: &[Contributor],
 ) -> Option<(&Contributor, AttentionSeverity)> {

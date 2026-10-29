@@ -438,7 +438,7 @@ fn raise_statement(raise: &AttentionRaise, source: &EventSource<'_>) -> WriteSta
 
 /// The bump of the machine's count, keyed `''`, and the session's, when `guard` holds before the
 /// set's other statements run.
-fn version_bump_sql(guard: &str) -> String {
+pub(crate) fn version_bump_sql(guard: &str) -> String {
     format!(
         "INSERT INTO attention_versions (scope_key, version)
   SELECT scope_key, 1 FROM (SELECT '' AS scope_key UNION ALL SELECT @session_id)
@@ -477,11 +477,13 @@ fn step_bindings(step: &WorkflowStepKey) -> Vec<(Cow<'static, str>, Value)> {
     ]
 }
 
-fn session_binding(session_id: SessionId) -> (Cow<'static, str>, Value) {
+/// `session_id` bound as `@session_id`.
+pub(crate) fn session_binding(session_id: SessionId) -> (Cow<'static, str>, Value) {
     binding("@session_id", Value::Text(session_id.to_string()))
 }
 
-fn binding(name: &'static str, value: Value) -> (Cow<'static, str>, Value) {
+/// `value` bound to the named parameter `name`.
+pub(crate) fn binding(name: &'static str, value: Value) -> (Cow<'static, str>, Value) {
     (Cow::Borrowed(name), value)
 }
 
@@ -492,7 +494,11 @@ fn with<const COUNT: usize>(
     bindings.iter().cloned().chain(more).collect()
 }
 
-fn statement(sql: &'static str, bindings: Vec<(Cow<'static, str>, Value)>) -> WriteStatement {
+/// `sql` with its named `bindings`, whatever row count it touches.
+pub(crate) fn statement(
+    sql: &'static str,
+    bindings: Vec<(Cow<'static, str>, Value)>,
+) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(sql),
         bindings: StatementBindings::Named(bindings),
