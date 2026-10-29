@@ -20,7 +20,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 /// distribution a project root is in (each `''` where the scope has none), and the server's name.
 /// One path in two distributions is two keys, and same-named servers in two scopes stay two keys.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct McpBindingKey {
+pub struct McpBindingKey {
     /// The provider's id.
     pub(crate) provider: ProviderId,
     /// The binding's scope.
@@ -137,13 +137,6 @@ impl McpBindingKey {
 }
 
 /// Why a binding's first observation was not recorded.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the first-observation drain records each binding through it"
-    )
-)]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum McpBindingStoreError {
     /// The row's write failed.
@@ -152,13 +145,6 @@ pub(crate) enum McpBindingStoreError {
 }
 
 // A row already present is left as it is, its switch and baseline kept.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the first-observation drain records each binding through it"
-    )
-)]
 static RECORD_FIRST_OBSERVATION_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO mcp_server_bindings
@@ -170,40 +156,19 @@ static RECORD_FIRST_OBSERVATION_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 /// Writes the bindings' governance rows.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the first-observation drain records each binding through it"
-    )
-)]
-pub(crate) struct McpBindingStore {
+pub struct McpBindingStore {
     /// The writer every row goes through.
     writer: Arc<DatabaseWriter>,
 }
 
 impl McpBindingStore {
     /// A store writing through `writer`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the first-observation drain records each binding through it"
-        )
-    )]
-    pub(crate) fn new(writer: Arc<DatabaseWriter>) -> Self {
+    pub fn new(writer: Arc<DatabaseWriter>) -> Self {
         Self { writer }
     }
 
     /// Records `binding`'s row the first time it is observed; a binding that already has a row
     /// keeps it untouched. Fails with [`McpBindingStoreError::Write`] as the write fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the first-observation drain records each binding through it"
-        )
-    )]
     pub(crate) async fn record_first_observation(
         &self,
         binding: &McpServerBindingRef,
@@ -232,14 +197,7 @@ impl McpBindingStore {
 /// in this process and ends once the tracker, holding the outlet, is dropped. A binding whose
 /// write fails is logged and not marked recorded, so its next reading, a leg's or the probe's,
 /// tries again.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the status tracker over it and spawns the run"
-    )
-)]
-pub(crate) async fn open_first_observation_drain(
+pub async fn open_first_observation_drain(
     store: McpBindingStore,
 ) -> (
     KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,

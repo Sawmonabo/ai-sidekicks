@@ -19,10 +19,6 @@ use super::McpBindingStatusReading;
 use crate::binding_store::McpBindingKey;
 
 /// One leg: a runtime binding of one session.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker keys its legs by it")
-)]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(super) struct LegId {
     /// The session.
