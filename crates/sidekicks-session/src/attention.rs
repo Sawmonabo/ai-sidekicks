@@ -9,8 +9,10 @@ pub(crate) mod aggregate;
 pub mod banner_launcher;
 pub(crate) mod moment;
 pub mod projection;
+pub mod read;
 pub mod rebuild;
 pub mod retention;
 pub mod schema;
+pub mod seen;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_log;

@@ -177,7 +177,7 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 // after the gate answers found through it, and an artifact after the reference to its payload. The
 // attention rows go after the machine's attention count is raised, so its readers drop the
 // session's entries, and an entry's delivery before the entry it is found through.
-const DELETES_THROUGH_SESSIO26_ROW: [&str; 26] = [
+const DELETES_THROUGH_SESSION_ROW: [&str; 26] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
     "DELETE FROM session_events WHERE session_id = @sessionId",

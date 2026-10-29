@@ -48,7 +48,8 @@ pub fn session_exists_statement(session_id: &SessionId) -> WriteStatement {
 /// Why a write kept only while its session has a row was not kept.
 #[derive(Debug, thiserror::Error)]
 pub enum SessionWriteError {
-    /// The session is not one this daemon holds (`session.notFound`).
+    /// The session is not one this daemon holds (`session.notFound`), or a part of it the write
+    /// names is not, such as a workflow run (`workflow.run.notFound`).
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// The write was not kept.
