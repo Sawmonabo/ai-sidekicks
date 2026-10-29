@@ -232,7 +232,8 @@ async fn with_the_store_failing_the_list_leaves_out_what_the_store_holds_and_an_
  {
     let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
-    // The bindings' table gone, every read of the store fails.
+    // The bindings' table gone, every read of the store fails; the tables that reference it hold
+    // no row, so the drop's implicit delete breaks no foreign key.
     database
         .reader()
         .execute_batch("DROP TABLE mcp_server_bindings")
@@ -293,7 +294,11 @@ async fn with_the_store_failing_the_list_leaves_out_what_the_store_holds_and_an_
         .dispatch(
             request(
                 McpServerRead::DESCRIPTOR.method,
-                Some(&binding_of(&provider, "user", "", "missing")),
+                Some(&json!({
+                    "provider": provider.as_str(),
+                    "scope": "user",
+                    "serverName": "missing",
+                })),
             ),
             context(1),
         )
