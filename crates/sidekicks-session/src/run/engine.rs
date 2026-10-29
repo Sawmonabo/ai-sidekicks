@@ -10,6 +10,7 @@ mod ending;
 mod host;
 mod limits;
 mod live;
+mod provider_started;
 mod running_wait;
 mod settle;
 mod start;

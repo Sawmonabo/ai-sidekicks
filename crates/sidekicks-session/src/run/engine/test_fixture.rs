@@ -1,6 +1,7 @@
-//! What the session's tests and other crates' tests share: an engine over a test database and a
-//! resolver of its runs' choices, a stand-in for the open sessions' postures, the running runs and
-//! events they seed, and a read of a run's stored state.
+//! What the session's tests and other crates' tests share: an engine over a test database, with
+//! no driver or the drivers a test gives it, a resolver of its runs' choices, a stand-in for the
+//! open sessions' postures, the running runs and events they seed, and a read of a run's stored
+//! state.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -46,7 +47,45 @@ pub fn test_engine_with(
     plan_holds: Arc<dyn PlanHolds>,
     setup_gates: Vec<Arc<dyn RunSetupGate>>,
 ) -> Arc<RunEngine> {
-    let services = test_driver_services();
+    let providers = ProviderRegistry::register_from(&[], &test_driver_services());
+    build_test_engine(
+        database,
+        event_log,
+        home,
+        plan_holds,
+        setup_gates,
+        providers,
+    )
+}
+
+/// [`test_engine`] whose runs reach their drivers through `providers`, with `setup_gates`
+/// registered after the posture gate, in order.
+pub fn test_engine_on(
+    database: &TestDatabase,
+    event_log: Arc<EventLogService>,
+    home: &Path,
+    providers: ProviderRegistry,
+    setup_gates: Vec<Arc<dyn RunSetupGate>>,
+) -> Arc<RunEngine> {
+    build_test_engine(
+        database,
+        event_log,
+        home,
+        Arc::new(NoPlanHolds),
+        setup_gates,
+        providers,
+    )
+}
+
+// The engine every test engine is: its parts over `database`, its posture files under `home`.
+fn build_test_engine(
+    database: &TestDatabase,
+    event_log: Arc<EventLogService>,
+    home: &Path,
+    plan_holds: Arc<dyn PlanHolds>,
+    setup_gates: Vec<Arc<dyn RunSetupGate>>,
+    providers: ProviderRegistry,
+) -> Arc<RunEngine> {
     let deps = RunEngineDeps {
         pool: Arc::new(DatabaseReadPool::new(
             database.path(),
@@ -57,7 +96,7 @@ pub fn test_engine_with(
             home,
             home.join("session-token"),
         )),
-        providers: Arc::new(ProviderRegistry::register_from(&[], &services)),
+        providers: Arc::new(providers),
         plan_holds,
         held_choice_answers: Arc::new(HeldChoiceAnswers::default()),
     };
