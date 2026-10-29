@@ -5,6 +5,10 @@
 use std::error::Error;
 use std::sync::Arc;
 
+/// Whether the daemon's credential store keeps its items in a file in the data folder: no, since
+/// they go into the Credential Manager, the account's own.
+pub const CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER: bool = false;
+
 /// What holds the items, for the service log.
 pub(crate) const DESCRIPTION: &str =
     "the Credential Manager, each item kept at local-machine persistence";
