@@ -7,4 +7,8 @@
 pub(crate) mod aggregate;
 pub(crate) mod moment;
 pub mod projection;
+pub mod rebuild;
+pub mod retention;
 pub mod schema;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_log;

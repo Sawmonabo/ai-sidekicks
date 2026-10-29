@@ -3,16 +3,16 @@
 //! workflow run's, withdraws a muted session's ends, or only tells the readers a name changed.
 //!
 //! Every set opens with the bump of the machine's and the session's change counts, guarded by the
-//! rows it is about to touch, so a set that changes nothing wakes no subscriber. An entry's sequence
-//! is read from its source event's row by id, never stored: the projection statements run before
-//! the event rows are written, so the sequence does not exist yet when an entry is raised.
+//! rows it is about to touch, so a set that changes nothing wakes no subscriber, and a set that
+//! resolves entries ends with the retention rule. An entry's sequence is read from its source
+//! event's row by id, never stored: the projection statements run before the event rows are
+//! written, so the sequence does not exist yet when an entry is raised.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value;
 use sidekicks_contracts::attention::{AttentionBannerState, AttentionSeverity, AttentionTrigger};
-use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -25,43 +25,10 @@ use sidekicks_store::events::log_service::ProjectionError;
 use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
 
 use crate::attention::moment::{
-    AttentionChange, AttentionEnd, AttentionMoment, AttentionOpenEntries, AttentionRaise,
-    AttentionWait, entry_change_of,
+    ATTENTION_EVENT_TYPES, AttentionChange, AttentionEnd, AttentionMoment, AttentionOpenEntries,
+    AttentionRaise, AttentionWait, entry_change_of,
 };
-use crate::attention::schema::word_of;
-
-/// Every event type whose change is not nothing; an event of any other type is not read.
-const ATTENTION_EVENT_TYPES: [SessionEventType; 29] = [
-    SessionEventType::AgentRunWaitingForApproval,
-    SessionEventType::AgentRunWaitingForInput,
-    SessionEventType::AgentRunQueued,
-    SessionEventType::AgentRunStarting,
-    SessionEventType::AgentRunRunning,
-    SessionEventType::AgentRunPausing,
-    SessionEventType::AgentRunPaused,
-    SessionEventType::AgentRunCompleted,
-    SessionEventType::AgentRunFailed,
-    SessionEventType::AgentRunInterrupted,
-    SessionEventType::AgentRunStopped,
-    SessionEventType::PlanProposed,
-    SessionEventType::PlanAccepted,
-    SessionEventType::PlanKept,
-    SessionEventType::PlanHandedOff,
-    SessionEventType::WorkflowPhaseSuspended,
-    SessionEventType::WorkflowPhaseResumed,
-    SessionEventType::WorkflowStepCompleted,
-    SessionEventType::WorkflowStepFailed,
-    SessionEventType::WorkflowStepCanceled,
-    SessionEventType::WorkflowRunResumed,
-    SessionEventType::WorkflowRunCanceled,
-    SessionEventType::WorkflowRunCompleted,
-    SessionEventType::WorkflowRunFailed,
-    SessionEventType::WorkflowRunDeleted,
-    SessionEventType::SessionMuted,
-    SessionEventType::SessionRenamed,
-    SessionEventType::SessionConverted,
-    SessionEventType::UserMessageSent,
-];
+use crate::attention::retention::retention_statements;
 
 const ENTRY_COLUMNS: &str = "id, moment_id, session_id, run_id, workflow_run_id, plan_id, node_id,
     attempt, execution_index, trigger, severity, notice_text, source_event_id, created_at";
@@ -110,7 +77,7 @@ impl ResolveSql {
                 "UPDATE attention_deliveries SET banner_state = '{withdrawn}'
   WHERE banner_state IN ({raised})
     AND entry_id IN (SELECT id FROM attention_entries WHERE {open_entries})",
-                withdrawn = word_of(AttentionBannerState::Withdrawn),
+                withdrawn = <&'static str>::from(AttentionBannerState::Withdrawn),
             ),
             // An entry resolving in the same set keeps its merge: it is never decided.
             unmerge: format!(
@@ -159,8 +126,8 @@ static MUTED_END_BANNERS: LazyLock<String> = LazyLock::new(|| {
         "banner_state IN ({raised}) AND entry_id IN (SELECT id FROM attention_entries
     WHERE session_id = @session_id AND trigger IN ('{completed}', '{failed}'))",
         raised = raised_banner_states(),
-        completed = word_of(AttentionTrigger::RunCompleted),
-        failed = word_of(AttentionTrigger::RunFailed),
+        completed = <&'static str>::from(AttentionTrigger::RunCompleted),
+        failed = <&'static str>::from(AttentionTrigger::RunFailed),
     )
 });
 
@@ -174,7 +141,7 @@ static BUMP_IF_MUTED_END_BANNERS_SQL: LazyLock<String> = LazyLock::new(|| {
 static WITHDRAW_MUTED_END_BANNERS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE attention_deliveries SET banner_state = '{withdrawn}' WHERE {muted}",
-        withdrawn = word_of(AttentionBannerState::Withdrawn),
+        withdrawn = <&'static str>::from(AttentionBannerState::Withdrawn),
         muted = *MUTED_END_BANNERS,
     )
 });
@@ -233,8 +200,8 @@ pub fn notify_entry_statements(
         node_id: Some(node_id.as_str().to_owned()),
         attempt: None,
         execution_index: Some(i64::from(execution_index)),
-        trigger: word_of(AttentionTrigger::WorkflowNotify),
-        severity: word_of(AttentionSeverity::Informational),
+        trigger: <&'static str>::from(AttentionTrigger::WorkflowNotify),
+        severity: <&'static str>::from(AttentionSeverity::Informational),
         notice_text: Some(notice.as_str().to_owned()),
         source_event_id: started_event_id.to_owned(),
         created_at: occurred_at.to_owned(),
@@ -246,10 +213,13 @@ pub fn notify_entry_statements(
 }
 
 /// The event a change comes from: its id, its session and its instant in the stored form.
-struct EventSource<'event> {
-    event_id: &'event str,
-    session_id: SessionId,
-    occurred_at: &'event str,
+pub(crate) struct EventSource<'event> {
+    /// The event's id.
+    pub(crate) event_id: &'event str,
+    /// The event's session.
+    pub(crate) session_id: SessionId,
+    /// The event's instant, in the stored form.
+    pub(crate) occurred_at: &'event str,
 }
 
 /// One `attention_entries` row as an insert binds it.
@@ -263,8 +233,8 @@ struct EntryRow {
     node_id: Option<String>,
     attempt: Option<i64>,
     execution_index: Option<i64>,
-    trigger: String,
-    severity: String,
+    trigger: &'static str,
+    severity: &'static str,
     notice_text: Option<String>,
     source_event_id: String,
     created_at: String,
@@ -283,8 +253,8 @@ impl EntryRow {
             node_id: None,
             attempt: None,
             execution_index: None,
-            trigger: word_of(raise.trigger()),
-            severity: word_of(raise.severity()),
+            trigger: <&'static str>::from(raise.trigger()),
+            severity: <&'static str>::from(raise.severity()),
             notice_text: None,
             source_event_id: source.event_id.to_owned(),
             created_at: source.occurred_at.to_owned(),
@@ -330,8 +300,8 @@ impl EntryRow {
             binding("@node_id", Value::from(self.node_id)),
             binding("@attempt", Value::from(self.attempt)),
             binding("@execution_index", Value::from(self.execution_index)),
-            binding("@trigger", Value::Text(self.trigger)),
-            binding("@severity", Value::Text(self.severity)),
+            binding("@trigger", Value::Text(self.trigger.to_owned())),
+            binding("@severity", Value::Text(self.severity.to_owned())),
             binding("@notice_text", Value::from(self.notice_text)),
             binding("@source_event_id", Value::Text(self.source_event_id)),
             binding("@created_at", Value::Text(self.created_at)),
@@ -339,8 +309,12 @@ impl EntryRow {
     }
 }
 
-/// The statements `change` takes for the event `source`, the counts' bump first.
-fn change_statements(change: &AttentionChange, source: &EventSource<'_>) -> Vec<WriteStatement> {
+/// The statements `change` takes for the event `source`, the counts' bump first: the live write's
+/// and a rebuild's alike, every row at the event's own instant.
+pub(crate) fn change_statements(
+    change: &AttentionChange,
+    source: &EventSource<'_>,
+) -> Vec<WriteStatement> {
     let session = session_binding(source.session_id);
     match change {
         AttentionChange::Raise(raise) => vec![
@@ -385,6 +359,7 @@ fn change_statements(change: &AttentionChange, source: &EventSource<'_>) -> Vec<
                 statement(&sql.resolve, with(&open_entries, [resolved_at])),
             ];
             statements.extend(then.iter().map(|raise| raise_statement(raise, source)));
+            statements.extend(retention_statements(source.session_id));
             statements
         }
         AttentionChange::DeleteWorkflowRun(workflow_run_id) => {
@@ -438,7 +413,7 @@ fn raise_statement(raise: &AttentionRaise, source: &EventSource<'_>) -> WriteSta
 
 /// The bump of the machine's count, keyed `''`, and the session's, when `guard` holds before the
 /// set's other statements run.
-fn version_bump_sql(guard: &str) -> String {
+pub(crate) fn version_bump_sql(guard: &str) -> String {
     format!(
         "INSERT INTO attention_versions (scope_key, version)
   SELECT scope_key, 1 FROM (SELECT '' AS scope_key UNION ALL SELECT @session_id)
@@ -450,8 +425,8 @@ fn version_bump_sql(guard: &str) -> String {
 fn raised_banner_states() -> String {
     format!(
         "'{}', '{}'",
-        word_of(AttentionBannerState::Pending),
-        word_of(AttentionBannerState::Posted)
+        <&'static str>::from(AttentionBannerState::Pending),
+        <&'static str>::from(AttentionBannerState::Posted)
     )
 }
 
@@ -477,11 +452,13 @@ fn step_bindings(step: &WorkflowStepKey) -> Vec<(Cow<'static, str>, Value)> {
     ]
 }
 
-fn session_binding(session_id: SessionId) -> (Cow<'static, str>, Value) {
+/// `session_id` bound as `@session_id`.
+pub(crate) fn session_binding(session_id: SessionId) -> (Cow<'static, str>, Value) {
     binding("@session_id", Value::Text(session_id.to_string()))
 }
 
-fn binding(name: &'static str, value: Value) -> (Cow<'static, str>, Value) {
+/// `value` bound to the named parameter `name`.
+pub(crate) fn binding(name: &'static str, value: Value) -> (Cow<'static, str>, Value) {
     (Cow::Borrowed(name), value)
 }
 
@@ -492,7 +469,11 @@ fn with<const COUNT: usize>(
     bindings.iter().cloned().chain(more).collect()
 }
 
-fn statement(sql: &'static str, bindings: Vec<(Cow<'static, str>, Value)>) -> WriteStatement {
+/// `sql` with its named `bindings`, whatever row count it touches.
+pub(crate) fn statement(
+    sql: &'static str,
+    bindings: Vec<(Cow<'static, str>, Value)>,
+) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(sql),
         bindings: StatementBindings::Named(bindings),

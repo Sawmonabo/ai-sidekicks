@@ -2,6 +2,7 @@
 //! its id, and the subject the banner merge and the seen mark group entries by.
 
 use sidekicks_contracts::attention::{AttentionId, AttentionMomentTrigger, AttentionSeverity};
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::orchestration::InterruptReason;
 use sidekicks_contracts::plan::PlanId;
@@ -218,6 +219,40 @@ pub(crate) enum AttentionChange {
     /// Nothing changes.
     Nothing,
 }
+
+/// Every event type whose change is not [`AttentionChange::Nothing`]: the live statements read no
+/// event of another type, and a rebuild folds only these.
+pub(crate) const ATTENTION_EVENT_TYPES: [SessionEventType; 29] = [
+    SessionEventType::AgentRunWaitingForApproval,
+    SessionEventType::AgentRunWaitingForInput,
+    SessionEventType::AgentRunQueued,
+    SessionEventType::AgentRunStarting,
+    SessionEventType::AgentRunRunning,
+    SessionEventType::AgentRunPausing,
+    SessionEventType::AgentRunPaused,
+    SessionEventType::AgentRunCompleted,
+    SessionEventType::AgentRunFailed,
+    SessionEventType::AgentRunInterrupted,
+    SessionEventType::AgentRunStopped,
+    SessionEventType::PlanProposed,
+    SessionEventType::PlanAccepted,
+    SessionEventType::PlanKept,
+    SessionEventType::PlanHandedOff,
+    SessionEventType::WorkflowPhaseSuspended,
+    SessionEventType::WorkflowPhaseResumed,
+    SessionEventType::WorkflowStepCompleted,
+    SessionEventType::WorkflowStepFailed,
+    SessionEventType::WorkflowStepCanceled,
+    SessionEventType::WorkflowRunResumed,
+    SessionEventType::WorkflowRunCanceled,
+    SessionEventType::WorkflowRunCompleted,
+    SessionEventType::WorkflowRunFailed,
+    SessionEventType::WorkflowRunDeleted,
+    SessionEventType::SessionMuted,
+    SessionEventType::SessionRenamed,
+    SessionEventType::SessionConverted,
+    SessionEventType::UserMessageSent,
+];
 
 /// What `event` does to the attention entries, read from the event alone.
 pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
