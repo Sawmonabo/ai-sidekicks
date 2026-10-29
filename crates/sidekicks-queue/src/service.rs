@@ -31,7 +31,7 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::ports::ProcessGoneListener;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -341,10 +341,11 @@ impl RunQueue {
     /// opens a run of its own: behind the live lead run's turn or the messages waiting to continue
     /// the interrupted one, else at once, waking a session with no live process as a message does;
     /// its report lands as the agent's reply. A start again under the same key answers the review
-    /// the first queued. Refuses a session the daemon does not hold or whose provider has no
-    /// driver or no account to run on (`provider.account.notRegistered`,
-    /// `provider.account.current.notSet`), one closed (`session.alreadyClosed`) or being purged (`session.changeRefused`), a
-    /// review the store cannot keep and one whose lead run kept moving under it, writing nothing.
+    /// the first queued. Refuses a session the daemon does not hold or whose provider has no driver
+    /// or no account to run on (`provider.account.notRegistered`,
+    /// `provider.account.current.notSet`), one closed (`session.alreadyClosed`) or being purged
+    /// (`session.changeRefused`), a review the store cannot keep and one whose lead run kept moving
+    /// under it, writing nothing.
     pub async fn queue_review(
         &self,
         request: SessionCodeReviewStartRequest,

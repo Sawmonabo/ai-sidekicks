@@ -364,10 +364,12 @@ impl Drop for Scheduler {
 impl ScheduledJobHandle {
     /// Waits until the job's instant is settled: the refusal when the operating system would not
     /// arm the wall-clock timer for it, which drops the job, or `None` once it ran, was canceled or
-    /// the scheduler stopped. A job set a delay away, or a second call, settles at once with
-    /// `None`.
-    pub async fn refusal(&mut self) -> Option<ScheduleError> {
-        self.refusal.take()?.await.ok()
+    /// the scheduler stopped. The wait owns what it needs, so it may outlive the handle's borrow
+    /// while the handle stays with its owner to cancel. A job set a delay away, or a second call,
+    /// settles at once with `None`.
+    pub fn refusal(&mut self) -> impl Future<Output = Option<ScheduleError>> + Send + 'static {
+        let refusal = self.refusal.take();
+        async move { refusal?.await.ok() }
     }
 
     /// Removes the job's future runs; a run already going finishes. A repeat does nothing.

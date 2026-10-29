@@ -1,9 +1,11 @@
 //! The checks on provider-declared text the daemon stores, beside the SQL CHECK constraints: the
-//! bounds of `runtime_bindings` and `driver_contract_meta` live here once, and every refusal is a
-//! [`ProviderOutputValidationError`] that names the field and never the value.
+//! bounds of `runtime_bindings` and `driver_contract_meta` live here once, but for the printed
+//! version's, which the wire's provider version bound sets. A refusal names the field and never
+//! the value, as a [`ProviderOutputValidationError`].
 
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::provider::settings::PROVIDER_VERSION_MAX_LEN;
 use sidekicks_contracts::wire::integer::MAX_SAFE_INTEGER;
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -11,9 +13,6 @@ use crate::driver::contract::params_and_results::DriverCliVersionReport;
 
 /// The longest provider-owned `resume_handle`, in code points; equals the SQL CHECK bound.
 pub(crate) const RESUME_HANDLE_MAX_LEN: usize = 4096;
-
-/// The longest `DriverCliVersionReport::raw_version`, in code points; equals the SQL CHECK bound.
-pub(crate) const CLI_VERSION_RAW_MAX_LEN: usize = 128;
 
 /// The longest `DriverCliVersionReport::parsed_version`, in code points; equals the SQL CHECK
 /// bound.
@@ -84,7 +83,7 @@ pub(crate) fn check_cli_version_report(
     provider_name: ProviderId,
     report: &DriverCliVersionReport,
 ) -> Result<(), ProviderOutputValidationError> {
-    if !is_free_form_text::<CLI_VERSION_RAW_MAX_LEN>(&report.raw_version) {
+    if !is_free_form_text::<PROVIDER_VERSION_MAX_LEN>(&report.raw_version) {
         return Err(ProviderOutputValidationError {
             provider_name: Some(provider_name),
             field: "cli_version_raw",

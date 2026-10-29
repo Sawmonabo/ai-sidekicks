@@ -7,10 +7,11 @@
 //! inside a caller's future, so a caller that stops waiting (a canceled request, a closed
 //! connection) loses no pass. A trigger that arrives while a pass runs asks for one more, any
 //! number of triggers during one pass ask for that one pass, and each caller returns once a pass
-//! that started after its ask has finished. Each driver's read and declare share one deadline,
-//! and a read that misses it is canceled by dropping it, never left running: the declare's lock is
-//! released, a write already handed to the database writer still commits whole, and a handshake
-//! child the driver started with `kill_on_drop` ends with it.
+//! that started after its ask has finished. Each driver's read and declare share one deadline. A
+//! read that misses it is canceled by dropping it, never left running, and a handshake child the
+//! driver started with `kill_on_drop` ends with it; a declare that already took its turn runs on
+//! to its commit in its own task, holding the provider's turn, so the next pass reads what it
+//! wrote; a declare still waiting for its turn is dropped unrun.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -33,8 +34,8 @@ use crate::driver::diagnostics::{
 };
 use crate::driver::registry::ProviderRegistry;
 
-/// How long one driver's read and declare may take before the refresh cancels it, so a read that
-/// never settles cannot hold the refresh and every trigger after it.
+/// How long one driver's read and declare may take before the refresh stops waiting for them, so a
+/// read that never settles cannot hold the refresh and every trigger after it.
 pub(crate) const CAPABILITY_REFRESH_READ_TIMEOUT: Duration = Duration::from_mins(2);
 
 /// Reads every registered driver's capabilities again when asked; see the module doc.
@@ -242,8 +243,8 @@ fn report_refresh_failure(provider: &ProviderId, failure: Option<&CapabilityRefr
             describe_error(failure),
         ),
         None => (
-            "capability read missed the refresh deadline; canceled, and read again on the next \
-             trigger",
+            "capability read missed the refresh deadline; no longer awaited, and read again on the \
+             next trigger",
             format!(
                 "the read did not land within {} s",
                 CAPABILITY_REFRESH_READ_TIMEOUT.as_secs()
@@ -283,7 +284,7 @@ mod tests {
     use tokio::sync::Semaphore;
 
     use super::CapabilityRefresher;
-    use crate::driver::capabilities::writer::test_capabilities_writer;
+    use crate::driver::capabilities::writer::{NoRecordReaders, test_capabilities_writer};
     use crate::driver::contract::error::DriverError;
     use crate::driver::contract::{MockProviderDriver, ProviderDriver};
     use crate::driver::registry::ProviderRegistry;
@@ -340,7 +341,7 @@ mod tests {
         let database = TestDatabase::new(schema_parts());
         let (refresher, refreshing) = CapabilityRefresher::start(
             Arc::new(ProviderRegistry::register_from(&table, &services)),
-            Arc::new(test_capabilities_writer(&database).await),
+            Arc::new(test_capabilities_writer(&database, Arc::new(NoRecordReaders)).await),
         );
         let refresher = Arc::new(refresher);
 

@@ -37,8 +37,8 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -354,7 +354,8 @@ impl SessionService {
     /// with [`SessionServiceError::Log`] when a stored row is not a well-formed envelope.
     #[expect(
         dead_code,
-        reason = "the session core's rebuild of a session's record from its whole log, read in order"
+        reason = "the session core's rebuild of a session's record from its whole log, read in \
+                  order"
     )]
     pub(crate) async fn rebuild_session(
         &self,

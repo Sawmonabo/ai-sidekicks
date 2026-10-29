@@ -82,8 +82,9 @@ const SLOTLESS_REPLIES_MAX: usize = 100;
 
 /// Serves one accepted connection until it closes, its replies and streams going out through
 /// `outbox`: the reader runs here, the writer on its own task. Every close cancels every call in
-/// flight, drops the connection's subscriptions and handshake state, lets the writer send what
-/// lane 0 holds for at most [`CONNECTION_CLOSE_WAIT`], and reports exactly one `on_disconnect`.
+/// flight, drops the connection's subscriptions, handshake state and heartbeats, lets the writer
+/// send what lane 0 holds for at most [`CONNECTION_CLOSE_WAIT`], and reports exactly one
+/// `on_disconnect`.
 pub(crate) async fn serve_connection<S>(
     stream: S,
     outbox: Arc<Outbox>,
@@ -123,6 +124,7 @@ pub(crate) async fn serve_connection<S>(
     calls.cancel();
     services.subscriptions.cleanup_transport(transport);
     services.negotiator.cleanup_transport(transport);
+    services.presence.cleanup_transport(transport);
     outbox.close();
     match tokio::time::timeout(CONNECTION_CLOSE_WAIT, &mut writing).await {
         Ok(Ok(())) => {}

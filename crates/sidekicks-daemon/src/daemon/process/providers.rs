@@ -23,6 +23,7 @@ use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_platforms::{PathRules, Spawner, current_user_id};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::background_work::BackgroundWorkForms;
+use sidekicks_provider::build_record::BuildRecordReaders;
 use sidekicks_provider::callback_tools::host::CallbackToolHost;
 use sidekicks_provider::capability::refresh::{CapabilityRefresher, CapabilityRefreshing};
 use sidekicks_provider::command::running_set::RunningCommandSets;
@@ -96,6 +97,9 @@ pub(crate) struct ProviderStart {
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
     /// Reads where a command channel's party runs.
     pub(crate) caller_processes: Arc<dyn CallerProcessReader>,
+    /// The readers of the record of each provider's builds: the attention projection, which lists
+    /// them.
+    pub(crate) build_record_readers: Arc<dyn BuildRecordReaders>,
 }
 
 /// The providers the daemon runs: their registry, the ports their drivers read, the capability
@@ -183,7 +187,12 @@ pub(crate) fn build_providers(
         ports: Arc::clone(&ports),
     };
     let registry = Arc::new(ProviderRegistry::register_from(registrations, &services));
-    let capabilities = Arc::new(DriverCapabilitiesWriter::new(start.reads, start.writer));
+    // A recorded build's write wakes the attention projection's followers, which list it.
+    let capabilities = Arc::new(DriverCapabilitiesWriter::new(
+        start.reads,
+        start.writer,
+        start.build_record_readers,
+    ));
     let (refresher, refreshing) =
         CapabilityRefresher::start(Arc::clone(&registry), Arc::clone(&capabilities));
     Providers {
@@ -612,6 +621,7 @@ mod tests {
         NothingServed, registrations_of_first_providers,
     };
     use sidekicks_provider::driver::{PROVIDERS, ProviderRegistration};
+    use sidekicks_session::attention::changes::attention_changes_after_commits;
     use sidekicks_std::mutex_lock::lock;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -677,6 +687,7 @@ mod tests {
                         ProcessTableReader::for_this_program()
                             .expect("this program's reader builds"),
                     ),
+                    build_record_readers: Arc::new(attention_changes_after_commits().1),
                 },
             )
         }

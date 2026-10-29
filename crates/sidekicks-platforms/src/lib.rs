@@ -125,6 +125,7 @@ mod user_namespace;
 mod wake_watch;
 mod wall_clock;
 mod watch;
+mod windowless_app;
 #[cfg(target_os = "windows")]
 mod windows;
 mod wsl;
@@ -207,6 +208,8 @@ pub use linux::user_namespace::can_create_user_namespace;
 #[cfg(target_os = "linux")]
 pub use linux::user_scope::leave_daemon_scope;
 #[cfg(target_os = "linux")]
+pub use linux::windowless_app::launch_app_windowless;
+#[cfg(target_os = "linux")]
 pub use linux::{
     CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, SHOULD_MEMORY_MAP_READS, machine_name,
     windows_drive_mounts,
@@ -249,6 +252,8 @@ pub use macos::read_command_argument_limit;
 pub use macos::responsibility::become_own_root;
 #[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
+#[cfg(target_os = "macos")]
+pub use macos::windowless_app::launch_app_windowless;
 #[cfg(target_os = "macos")]
 pub use macos::{
     CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, SHOULD_MEMORY_MAP_READS, machine_name,
@@ -457,6 +462,7 @@ pub use user_namespace::can_create_user_namespace;
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
 pub use watch::{FileAppendWatch, FolderArrivalWait, FolderArrivalWatch};
+pub use windowless_app::WindowlessLaunch;
 #[cfg(target_os = "windows")]
 pub use windows::allocator::{
     GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
@@ -611,6 +617,8 @@ pub use windows::terminal::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::thread_cpu_time::thread_cpu_time;
+#[cfg(target_os = "windows")]
+pub use windows::windowless_app::launch_app_windowless;
 #[cfg(target_os = "windows")]
 pub use windows::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 #[cfg(target_os = "windows")]

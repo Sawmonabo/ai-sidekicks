@@ -1,7 +1,8 @@
-//! The session read and subscribe shapes, the frame a session's stream sends, the verbs called on
-//! one session (rename, archive, reactivate, close, pin, mute, restart, and the two actions of a
-//! session whose history is damaged), the two searches and the read of a conversion's skipped
-//! files. The events those verbs append are in `session::events`.
+//! The session read and subscribe shapes, the names an untitled session shows, the frame a
+//! session's stream sends, the verbs called on one session (rename, archive, reactivate, close,
+//! pin, mute, restart, and the two actions of a session whose history is damaged), the two searches
+//! and the read of a conversion's skipped files. The events those verbs append are in
+//! `session::events`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -33,7 +34,7 @@ use crate::tag::TagList;
 use crate::transcript::child_run_summary::ChildRunSummary;
 use crate::transcript::content::{BlockCutFailure, BlockStarts, TranscriptRowContent};
 use crate::transcript::row::TranscriptRunStamp;
-use crate::typescript::{Definition, TypeScriptModule};
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt, count_bound};
 use crate::wire::list::{BoundedVec, ListKey, UniqueList};
@@ -92,6 +93,13 @@ pub enum SessionShape {
     Chat,
     /// An attached repository.
     Project,
+}
+
+ts_constants! {
+    /// The words a chat with no name reads by where no first message stands in for one.
+    pub const UNTITLED_CHAT_NAME: &str = "New chat";
+    /// The words a project session with no name reads by where no first message stands in for one.
+    pub const UNTITLED_PROJECT_NAME: &str = "New session";
 }
 
 /// The working-folder move a session's next run boundary applies.
@@ -853,6 +861,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionFileSearchEntry>(),
         Definition::read::<SessionFileSearchResponse>().checked(),
     ],
-    constants: &[],
+    constants: TS_CONSTANTS,
     method_tables: &[&SESSION_METHOD_DESCRIPTORS],
 };

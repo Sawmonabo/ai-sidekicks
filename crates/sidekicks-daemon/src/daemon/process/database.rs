@@ -48,6 +48,9 @@ use sidekicks_recovery::restart_settle::RESTART_SETTLE_STATEMENT_CAPACITY;
 use sidekicks_recovery::session_write_refusal::refuse_session_event;
 use sidekicks_recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
 use sidekicks_recovery::status::RecoveryStatusTracker;
+use sidekicks_session::attention::changes::{AttentionChanges, attention_changes_after_commits};
+use sidekicks_session::attention::projection::attention_projection_statements;
+use sidekicks_session::attention::service::ATTENTION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
 use sidekicks_session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
 use sidekicks_session::conversation_purge::CONVERSATION_PURGE_STATEMENT_CAPACITY;
@@ -145,6 +148,8 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + APPROVAL_REQUEST_READER_STATEMENT_CAPACITY
     + APPROVAL_RULES_STATEMENT_CAPACITY
     + ARTIFACT_STATEMENT_CAPACITY
+    // The attention service's set holds the attention read's.
+    + ATTENTION_SERVICE_STATEMENT_CAPACITY
     + BACKUP_STATEMENT_CAPACITY
     + CLONE_REQUESTS_STATEMENT_CAPACITY
     + CONVERSATION_PURGE_STATEMENT_CAPACITY
@@ -331,6 +336,8 @@ pub(crate) struct DatabaseFile {
     pub(crate) followers: Arc<SessionEventFollowers>,
     /// The count of live runs, read after each commit.
     pub(crate) live_runs: watch::Receiver<u32>,
+    /// The attention change counts, raised after each commit that changed attention.
+    pub(crate) attention_changes: AttentionChanges,
     /// Truncates the write-ahead log, asked once the check has answered and after each purge.
     pub(crate) truncation: Arc<WriteAheadLogTruncation>,
     /// Where each damaged session's log stops being readable, as the recovery status says.
@@ -425,6 +432,7 @@ pub(crate) async fn open_database_file(
     let status = Arc::new(RecoveryStatusTracker::new());
     let listener_writer = Arc::new(OnceLock::new());
     let (after_commit, live_runs) = count_live_runs_after_commits();
+    let (attention_after_commit, attention_changes) = attention_changes_after_commits();
     let writer = open_writer(
         &database_path,
         schema,
@@ -435,7 +443,7 @@ pub(crate) async fn open_database_file(
                 Arc::clone(&status),
                 Arc::clone(&listener_writer),
             )),
-            after_commit: Some(after_commit),
+            after_commits: vec![after_commit, attention_after_commit],
         },
     )
     .await?;
@@ -492,6 +500,7 @@ pub(crate) async fn open_database_file(
         event_log,
         followers,
         live_runs,
+        attention_changes,
         truncation,
         read_damaged_from_sequence,
         check,
@@ -634,12 +643,14 @@ async fn open_writer(
 }
 
 // The statements the projections kept in each event's own write take for `envelope`: the session's
-// directory row first, which the others' rows refer to, then the questions' queued answers.
+// directory row first, which the others' rows refer to, then the questions' queued answers, then
+// the attention entries.
 fn session_projection_statements(
     envelope: &UnsequencedEventEnvelope,
 ) -> Result<Vec<WriteStatement>, ProjectionError> {
     let mut statements = directory_statements_for(&DirectoryEvent::from(envelope))?;
     statements.extend(question_projection_statements(envelope));
+    statements.extend(attention_projection_statements(envelope)?);
     Ok(statements)
 }
 

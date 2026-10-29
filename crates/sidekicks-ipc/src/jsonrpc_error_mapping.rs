@@ -25,9 +25,9 @@ use sidekicks_contracts::wire::record::Record;
 use sidekicks_store::events::log_service::{EventLogFollowError, EventLogReadError};
 
 use crate::domain_error::{DomainError, refusal_fields};
+use crate::not_found::session::session_not_found;
 use crate::redaction::{cap_text, redact_paths};
 use crate::registry::{DispatchError, HandlerError};
-use crate::session_not_found::session_not_found;
 
 /// Longest string kept in a field, in code points, so one long string cannot balloon the reply.
 const FIELDS_VALUE_MAX_LEN: usize = 512;

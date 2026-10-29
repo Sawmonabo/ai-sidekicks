@@ -69,6 +69,7 @@ use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
 use sidekicks_workspace::git::worktree::setup::WorktreeSetupRunner;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::bootstrap::{SecureDefaults, SecureDefaultsConfig};
@@ -184,6 +185,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) session: Option<SessionServices>,
     /// The session services' follows of the log, ended by the stop with the chats' write watch.
     pub(crate) session_attachments: Option<SessionAttachments>,
+    /// The attention service's decision task, which ends with the work's stop and is waited out.
+    pub(crate) attention: Option<JoinHandle<()>>,
     /// The clone service, which owns the askpass broker; the stop closes it.
     pub(crate) clones: Option<Arc<CloneService>>,
     /// The live projects list, closed by the stop.
@@ -246,6 +249,7 @@ impl DaemonProcess {
             repo_attachments: None,
             session: None,
             session_attachments: None,
+            attention: None,
             clones: None,
             project_list_feed: None,
             worktree_setup: None,
@@ -371,6 +375,7 @@ impl DaemonProcess {
         let status = Arc::clone(&database.status);
         let damage = DispatchDamageWatch(Arc::clone(&database.damage));
         let live_runs = database.live_runs.clone();
+        let attention_changes = database.attention_changes.clone();
         let idle_memory = Arc::clone(self.idle_memory.insert(Arc::new(IdleMemoryCollect::start(
             live_runs.clone(),
             self.work_stop.clone(),
@@ -475,6 +480,7 @@ impl DaemonProcess {
                 base_environment: Arc::clone(&base_environment),
                 shell_lines: Arc::clone(&shell_lines),
                 caller_processes: Arc::clone(&caller_process_reader),
+                build_record_readers: Arc::new(attention_changes),
             },
         );
         let backups = Backups::new(BackupDeps {
@@ -517,7 +523,7 @@ impl DaemonProcess {
                 providers: &providers,
                 artifacts: &artifacts,
                 machine,
-                machine_device_id: machine_device_id.clone(),
+                machine_device_id,
                 scheduler: Arc::clone(&scheduler),
                 search_index: Arc::clone(&search_index),
                 clock: wall_clock,
@@ -551,6 +557,7 @@ impl DaemonProcess {
         )
         .await?;
         let recovery = inputs.recovery;
+        let attention = inputs.attention;
         self.project_list_feed = Some(inputs.project_list_feed);
         self.clones = inputs.clones;
         self.worktree_setup = Some(inputs.worktree_setup);
@@ -575,11 +582,12 @@ impl DaemonProcess {
         );
         self.in_flight = Some(gates.in_flight);
         let services = GatewayServices {
-            device_id: Some(machine_device_id),
+            device_id: Some(inputs.machine_device_id),
             dispatch: gates.dispatch,
             registry,
             negotiator,
             subscriptions,
+            presence: inputs.presence,
             hooks: Arc::new(ServingSocketHooks {
                 process_state: Arc::clone(&self.process_state),
             }),
@@ -616,6 +624,9 @@ impl DaemonProcess {
         self.providers = Some(providers);
         // Settles what the last stop left before any follow of the log or any folder watch starts.
         recovery.run(&self.work_stop).await;
+        // Right after the recovery pass, so the sweep reads what the last stop left before the
+        // session services' follows begin.
+        self.attention = Some(attention.start(self.work_stop.clone()).await?);
         let session = self
             .session
             .as_ref()

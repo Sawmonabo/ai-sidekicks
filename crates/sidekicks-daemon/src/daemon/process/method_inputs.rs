@@ -17,6 +17,7 @@ use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::text::{BoundedText, TextError};
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
+use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
 use sidekicks_platforms::{
     DaemonRunFolder, Spawner, TOOL_MEMORY_CAP_ENFORCEABLE, WallClock, available_memory,
@@ -33,6 +34,8 @@ use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::{RestartSettle, RestartSettleDeps};
 use sidekicks_recovery::startup::{StartupRecovery, StartupRecoveryDeps};
+use sidekicks_session::attention::banner_launcher::BannerLauncher;
+use sidekicks_session::attention::service::{AttentionService, AttentionServiceDependencies};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::plan_holds::PlanHolds;
@@ -187,6 +190,13 @@ pub(crate) struct MethodInputs {
     pub(crate) worktree_setup: Arc<WorktreeSetupRunner>,
     /// Makes worktrees and answers the new-worktree form's suggestion.
     pub(crate) worktree_creator: Arc<WorktreeCreator>,
+    /// This machine's device, the device of every connection to its socket.
+    pub(crate) machine_device_id: DeviceId,
+    /// The devices' heartbeats, which the presence methods answer from and each closing
+    /// connection drops its own from.
+    pub(crate) presence: Arc<PresenceRegister>,
+    /// The attention service, started right after the recovery pass.
+    pub(crate) attention: Arc<AttentionService>,
 }
 
 /// Why the method tables' services could not be built.
@@ -273,6 +283,7 @@ pub(crate) async fn register_method_inputs(
         stop_work,
         close_data_folder,
     } = start;
+    let presence = Arc::new(PresenceRegister::default());
     let reads = Arc::clone(&database.pool);
     let writer = Arc::clone(&database.writer);
     let read_damaged_from_sequence = Arc::clone(&database.read_damaged_from_sequence);
@@ -320,6 +331,16 @@ pub(crate) async fn register_method_inputs(
         live_run_folders: Arc::new(SessionLiveRunFolders::new(Arc::clone(&reads))),
         // No run gate holds a checkout lock, so the creator's is its own.
         checkout_lock: Arc::new(KeyedLock::new()),
+    }));
+    let attention = Arc::new(AttentionService::new(AttentionServiceDependencies {
+        writer: Arc::clone(&writer),
+        pool: Arc::clone(&reads),
+        changes: database.attention_changes.clone(),
+        settings: Arc::clone(&settings_reader),
+        presence: Arc::clone(&presence),
+        launcher: Arc::new(BannerLauncher::new(Arc::new(spawner.clone()))),
+        machine_device_id: machine_device_id.clone(),
+        scheduler: Arc::clone(&scheduler),
     }));
     // The daemon's `Tokens per run`, which run admission admits each new lead run with.
     let token_limits = PortRegistration::new("run token limits");
@@ -372,7 +393,7 @@ pub(crate) async fn register_method_inputs(
     let shells = Arc::new(
         build_shell_table(ShellTableStart {
             terminals: Arc::clone(&session.terminals),
-            machine_device_id,
+            machine_device_id: machine_device_id.clone(),
             reads: Arc::clone(&reads),
             appender: Arc::clone(&session.appender),
             settings: Arc::clone(&settings),
@@ -600,6 +621,8 @@ pub(crate) async fn register_method_inputs(
             project_list_feed: Arc::clone(&project_list_feed),
             clones: clones.clone(),
             machine_folders: Arc::new(FolderListService::new(home_folder.to_path_buf(), git)),
+            presence: Arc::clone(&presence),
+            attention: Arc::clone(&attention),
         },
     )?;
     Ok(MethodInputs {
@@ -609,6 +632,9 @@ pub(crate) async fn register_method_inputs(
         clones: clones.ok(),
         worktree_setup,
         worktree_creator,
+        machine_device_id,
+        presence,
+        attention,
     })
 }
 

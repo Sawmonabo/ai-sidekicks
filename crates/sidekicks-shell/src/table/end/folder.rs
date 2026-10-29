@@ -16,8 +16,8 @@ use std::sync::{Arc, Weak};
 
 use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_platforms::{
     DOES_SHELL_MODE_KEEP_ITS_FOLDER, end_processes, process_table, tree_under,
 };

@@ -13,7 +13,7 @@ use sidekicks_contracts::repo::mount::{RepoMountId, RepoMountState, WorkspaceSta
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use strum::VariantArray;

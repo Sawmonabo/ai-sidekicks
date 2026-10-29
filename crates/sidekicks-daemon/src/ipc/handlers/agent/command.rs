@@ -15,10 +15,10 @@ use sidekicks_contracts::method_descriptor::NullPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::{False, True};
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_ipc::stream::feed::Feed;
 use sidekicks_provider::command::running_set::{CommandInput, RunningCommandSets};
 use sidekicks_provider::driver::contract::ProviderDriver;

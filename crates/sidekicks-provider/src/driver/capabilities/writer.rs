@@ -6,10 +6,14 @@
 //! - The CLI version pair describes the reading, not a capability, so it sits outside change
 //!   detection; an unchanged reading rewrites only the pair, and only when it differs.
 //! - One provider's declares take turns, each write committing before the next declare reads, so
-//!   two declares never decide from one stale snapshot or overwrite each other.
+//!   two declares never decide from one stale snapshot or overwrite each other; a declare its
+//!   caller stops waiting for still runs to its commit before the next one reads.
+//! - A printed version that differs from the stored one is the provider's new build: the write
+//!   that moves the pair also records it, so the pair never moves without its line in the record.
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::error::Error;
 use std::sync::Arc;
 
 use rusqlite::types::Value;
@@ -18,6 +22,7 @@ use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSI
 use sidekicks_contracts::provider::driver::tools::ProviderToolMetadata;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::connection::read_pool::{
@@ -27,9 +32,14 @@ use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::writer::messages::WriteJob;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use strum::VariantArray;
+use tokio::task::JoinError;
 
+use crate::build_record::{
+    BuildRecordReaders, RecordedArrival, RecordedProviderBuild, record_statements, recorded_arrival,
+};
 use crate::driver::ProviderDescriptor;
 use crate::driver::capabilities::{
     DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
@@ -38,8 +48,8 @@ use crate::driver::contract::params_and_results::{DriverCliVersionReport, GetCap
 use crate::output_validation::{ProviderOutputValidationError, check_contract_version};
 
 /// The statements a [`DriverCapabilitiesWriter`] prepares on a read connection: the contract row,
-/// the flag rows and the tool rows.
-pub const DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY: usize = 3;
+/// the flag rows, the tool rows and the declared build's row in the record of builds.
+pub const DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY: usize = 4;
 
 // The pair comes from the parent row itself, so a row with no version stays apart from no row.
 const SELECT_CONTRACT_META_SQL: &str = "
@@ -161,6 +171,10 @@ pub enum DriverCapabilitiesWriterError {
     /// The write was not kept.
     #[error("storing the capabilities failed")]
     Write(#[from] WriteError),
+    /// The declare's task ended without an answer: it panicked or its runtime stopped (`Some`), or
+    /// it skipped its work once its caller stopped waiting (`None`).
+    #[error("the capability declare ended without an answer")]
+    Unanswered(#[source] Option<JoinError>),
 }
 
 /// Stores each provider's declared capabilities and rebuilds them without asking the driver; one
@@ -168,8 +182,10 @@ pub enum DriverCapabilitiesWriterError {
 pub struct DriverCapabilitiesWriter {
     reads: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
+    // The record's readers, told of each build recorded.
+    record_readers: Arc<dyn BuildRecordReaders>,
     // One provider's declares take turns, each committing before the next reads.
-    declares: KeyedLock<ProviderId>,
+    declares: Arc<KeyedLock<ProviderId>>,
 }
 
 // What is stored for one provider: the snapshot, and the version pair, `None` when the row has
@@ -188,20 +204,30 @@ struct CapabilitySnapshot {
 }
 
 impl DriverCapabilitiesWriter {
-    /// A writer reading through `reads` and writing through `writer`.
-    pub fn new(reads: Arc<DatabaseReadPool>, writer: Arc<DatabaseWriter>) -> Self {
+    /// A writer reading through `reads` and writing through `writer`, which carries
+    /// `record_readers`' statements in each write that records a provider's new build and tells
+    /// them once that write committed.
+    pub fn new(
+        reads: Arc<DatabaseReadPool>,
+        writer: Arc<DatabaseWriter>,
+        record_readers: Arc<dyn BuildRecordReaders>,
+    ) -> Self {
         Self {
             reads,
             writer,
-            declares: KeyedLock::new(),
+            record_readers,
+            declares: Arc::new(KeyedLock::new()),
         }
     }
 
     /// Stores `provider`'s capability reading in one write, in turn with its other declares; an
     /// identical reading writes no capability row and rewrites the CLI version pair only when it
-    /// differs. Fails with [`DriverCapabilitiesWriterError::InvalidOutput`] for a contract version
-    /// that is no canonical semantic version or a tool name declared twice, before anything is
-    /// read or written, and otherwise when the read or the write fails.
+    /// differs. A printed version other than the stored one, of a build the record does not hold
+    /// as installed, is recorded in the same write, moved from the stored one. Fails with
+    /// [`DriverCapabilitiesWriterError::InvalidOutput`] for a contract version that is no
+    /// canonical semantic version or a tool name declared twice, before anything is read or
+    /// written, and otherwise when the read or the write fails. A declare that took its turn runs
+    /// to its commit before the next one reads, even after its caller stops waiting.
     pub async fn declare(
         &self,
         provider: &ProviderId,
@@ -229,56 +255,38 @@ impl DriverCapabilitiesWriter {
             capabilities: result.capabilities.clone(),
             tools,
         };
-        let declared_cli_version = &result.cli_version;
-
-        let _turn = self.declares.acquire(provider.clone()).await;
-        let stored_provider = provider.clone();
-        let stored = self
-            .reads
-            .read(ReadLength::Short, move |reader| {
-                read_stored_capabilities(reader, &stored_provider)
-            })
-            .await?;
-        let is_cli_version_refreshed = stored
-            .as_ref()
-            .is_none_or(|stored| stored.cli_version.as_ref() != Some(declared_cli_version));
-        let refreshed_at = WireInstant::now();
-
-        let snapshot_change = match &stored {
-            Some(stored) if stored.snapshot == declared => {
-                // A new build with the same capabilities still refreshes the pair, or the stored
-                // version would name a build no longer installed.
-                if is_cli_version_refreshed {
-                    self.writer
-                        .write(vec![refresh_cli_version_statement(
-                            provider,
-                            declared_cli_version,
-                            &refreshed_at,
-                        )])
-                        .await?;
-                }
-                CapabilitySnapshotChange::Unchanged
-            }
-            Some(_) | None => {
-                self.writer
-                    .write(snapshot_statements(
-                        provider,
-                        &declared,
-                        declared_cli_version,
-                        &refreshed_at,
-                    ))
-                    .await?;
-                if stored.is_some() {
-                    CapabilitySnapshotChange::Changed
-                } else {
-                    CapabilitySnapshotChange::Created
-                }
-            }
-        };
-        Ok(DeclaredCapabilities {
-            snapshot_change,
-            is_cli_version_refreshed,
-        })
+        let logged_provider = provider.clone();
+        let landed = self
+            .declares
+            .run_held(
+                provider.clone(),
+                store_declared(
+                    Arc::clone(&self.reads),
+                    Arc::clone(&self.writer),
+                    Arc::clone(&self.record_readers),
+                    provider.clone(),
+                    declared,
+                    result.cli_version.clone(),
+                ),
+                move |answer| match answer {
+                    Ok(_) => tracing::debug!(
+                        provider = logged_provider.as_str(),
+                        "a capability declare was stored after its caller stopped waiting"
+                    ),
+                    Err(error) => tracing::warn!(
+                        provider = logged_provider.as_str(),
+                        error = error as &(dyn Error + 'static),
+                        "a capability declare failed after its caller stopped waiting"
+                    ),
+                },
+            )
+            .await;
+        match landed {
+            Ok(Some(answer)) => answer,
+            // The task skips its work only once its caller stopped waiting.
+            Ok(None) => Err(DriverCapabilitiesWriterError::Unanswered(None)),
+            Err(interrupted) => Err(DriverCapabilitiesWriterError::Unanswered(Some(interrupted))),
+        }
     }
 
     /// Rebuilds `provider`'s stored capability reading without asking the driver, in one read
@@ -320,6 +328,108 @@ impl DriverCapabilitiesWriter {
             },
         })
     }
+}
+
+// A declare's read, decision and write for `provider`, run while its key is held: the stored
+// reading compared with `declared`, and the one write the difference needs.
+async fn store_declared(
+    reads: Arc<DatabaseReadPool>,
+    writer: Arc<DatabaseWriter>,
+    record_readers: Arc<dyn BuildRecordReaders>,
+    provider: ProviderId,
+    declared: CapabilitySnapshot,
+    declared_cli_version: DriverCliVersionReport,
+) -> Result<DeclaredCapabilities, DriverCapabilitiesWriterError> {
+    let stored_provider = provider.clone();
+    let declared_raw_version = declared_cli_version.raw_version.clone();
+    let (stored, moved_from_version) = reads
+        .read(ReadLength::Short, move |reader| {
+            let stored = read_stored_capabilities(reader, &stored_provider)?;
+            let moved_from_version = match stored
+                .as_ref()
+                .and_then(|stored| stored.cli_version.as_ref())
+            {
+                // Versions compare as printed; a build already installed is never recorded
+                // again, retired or not.
+                Some(stored_version) if stored_version.raw_version != declared_raw_version => {
+                    (recorded_arrival(reader, &stored_provider, &declared_raw_version)?
+                        != Some(RecordedArrival::Installed))
+                    .then(|| stored_version.raw_version.clone())
+                }
+                Some(_) | None => None,
+            };
+            Ok::<_, DriverCapabilitiesWriterError>((stored, moved_from_version))
+        })
+        .await?;
+    let is_cli_version_refreshed = stored
+        .as_ref()
+        .is_none_or(|stored| stored.cli_version.as_ref() != Some(&declared_cli_version));
+    let refreshed_at = WireInstant::now();
+    let is_build_recorded = moved_from_version.is_some();
+    let build_record = moved_from_version.map_or_else(Vec::new, |from_version| {
+        record_statements(
+            &RecordedProviderBuild {
+                provider: provider.clone(),
+                version: declared_cli_version.raw_version.clone(),
+                from_version: Some(from_version),
+                recorded_at: refreshed_at.clone(),
+            },
+            record_readers.change_statements(),
+        )
+    });
+
+    let snapshot_change = match &stored {
+        Some(stored) if stored.snapshot == declared => {
+            // A new build with the same capabilities still refreshes the pair, or the stored
+            // version would name a build no longer installed.
+            if is_cli_version_refreshed {
+                let mut statements = vec![refresh_cli_version_statement(
+                    &provider,
+                    &declared_cli_version,
+                    &refreshed_at,
+                )];
+                statements.extend(build_record);
+                write_declared(&writer, &record_readers, statements, is_build_recorded).await?;
+            }
+            CapabilitySnapshotChange::Unchanged
+        }
+        Some(_) | None => {
+            let mut statements =
+                snapshot_statements(&provider, &declared, &declared_cli_version, &refreshed_at);
+            statements.extend(build_record);
+            write_declared(&writer, &record_readers, statements, is_build_recorded).await?;
+            if stored.is_some() {
+                CapabilitySnapshotChange::Changed
+            } else {
+                CapabilitySnapshotChange::Created
+            }
+        }
+    };
+    Ok(DeclaredCapabilities {
+        snapshot_change,
+        is_cli_version_refreshed,
+    })
+}
+
+// Runs `statements` as one write; one that records a build tells the record's readers once it
+// commits, whether or not the declare is still awaited then.
+async fn write_declared(
+    writer: &DatabaseWriter,
+    record_readers: &Arc<dyn BuildRecordReaders>,
+    statements: Vec<WriteStatement>,
+    is_build_recorded: bool,
+) -> Result<(), WriteError> {
+    let on_commit = is_build_recorded.then(|| {
+        let record_readers = Arc::clone(record_readers);
+        Box::new(move |_sequences: &[SafeInt<0>]| record_readers.build_recorded())
+            as Box<dyn FnOnce(&[SafeInt<0>]) + Send>
+    });
+    let job = WriteJob {
+        statements,
+        events: Vec::new(),
+    };
+    writer.enqueue(job, on_commit)?.await?;
+    Ok(())
 }
 
 // The three reads in one transaction, so a declare committing between them cannot tear the read.
@@ -481,10 +591,12 @@ fn refresh_cli_version_statement(
     }
 }
 
-/// A writer over `database`, opening its database writer, for tests that declare a reading.
+/// A writer over `database`, opening its database writer and telling a recorded build's readers
+/// through `record_readers`, for tests that declare a reading.
 #[cfg(test)]
 pub(crate) async fn test_capabilities_writer(
     database: &sidekicks_store::database::writer::test_file::TestDatabase,
+    record_readers: Arc<dyn BuildRecordReaders>,
 ) -> DriverCapabilitiesWriter {
     let writer = DatabaseWriter::open(
         database.opener(),
@@ -496,144 +608,21 @@ pub(crate) async fn test_capabilities_writer(
         database.path(),
         DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY,
     );
-    DriverCapabilitiesWriter::new(Arc::new(reads), Arc::new(writer))
+    DriverCapabilitiesWriter::new(Arc::new(reads), Arc::new(writer), record_readers)
+}
+
+/// No reader of the record, for tests that record no build or read none.
+#[cfg(test)]
+pub(crate) struct NoRecordReaders;
+
+#[cfg(test)]
+impl BuildRecordReaders for NoRecordReaders {
+    fn change_statements(&self) -> Vec<WriteStatement> {
+        Vec::new()
+    }
+
+    fn build_recorded(&self) {}
 }
 
 #[cfg(test)]
-mod tests {
-    use rusqlite::Connection;
-    use sidekicks_contracts::provider::driver::tools::{IdempotencyClass, ProviderToolMetadata};
-    use sidekicks_contracts::provider::id::ProviderId;
-    use sidekicks_contracts::wire::text::FreeFormText;
-    use sidekicks_store::database::writer::test_file::TestDatabase;
-
-    use super::{
-        CapabilitySnapshotChange, DriverCapabilitiesWriterError, test_capabilities_writer,
-    };
-    use crate::driver::PROVIDERS;
-    use crate::driver::capabilities::{
-        DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
-    };
-    use crate::driver::contract::params_and_results::{
-        DriverCliVersionReport, GetCapabilitiesResult,
-    };
-    use crate::driver::schema::schema_parts;
-
-    const SENTINEL: &str = "2000-01-01T00:00:00.000Z";
-
-    fn provider() -> ProviderId {
-        ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id")
-    }
-
-    fn reading(cli_version: &str) -> GetCapabilitiesResult {
-        GetCapabilitiesResult {
-            capabilities: DriverCapabilities {
-                flags: DriverCapabilityFlags::from_fn(|flag| flag == DriverCapabilityFlag::Resume),
-                contract_version: FreeFormText::new("1.0.0".to_owned()).expect("a version"),
-            },
-            tools: vec![ProviderToolMetadata {
-                name: FreeFormText::new("Read".to_owned()).expect("a tool name"),
-                idempotency_class: IdempotencyClass::Idempotent,
-                description: None,
-            }],
-            cli_version: DriverCliVersionReport {
-                raw_version: cli_version.to_owned(),
-                parsed_version: Some(cli_version.to_owned()),
-            },
-            detection_source: None,
-            output_speed_levels: None,
-        }
-    }
-
-    // Every capability and tool row's refresh time, read through a connection of the test's own.
-    fn refreshed_at_of_capability_rows(connection: &Connection) -> Vec<String> {
-        let mut statement = connection
-            .prepare(
-                "SELECT refreshed_at FROM driver_capabilities
-                 UNION ALL SELECT refreshed_at FROM driver_tools",
-            )
-            .expect("the test's read prepares");
-        statement
-            .query_map([], |row| row.get(0))
-            .expect("the test's read runs")
-            .collect::<rusqlite::Result<_>>()
-            .expect("each row reads")
-    }
-
-    #[tokio::test]
-    async fn a_same_reading_writes_no_capability_row_and_a_new_build_rewrites_only_its_version() {
-        let database = TestDatabase::new(schema_parts());
-        let writer = test_capabilities_writer(&database).await;
-        let provider = provider();
-        let first = writer
-            .declare(&provider, &reading("2.0.0"))
-            .await
-            .expect("the first reading is stored");
-        assert_eq!(first.snapshot_change, CapabilitySnapshotChange::Created);
-        let connection = database.reader();
-        connection
-            .execute_batch(&format!(
-                "UPDATE driver_capabilities SET refreshed_at = '{SENTINEL}';
-                 UPDATE driver_tools SET refreshed_at = '{SENTINEL}';"
-            ))
-            .expect("the test marks every capability row");
-
-        let same = writer
-            .declare(&provider, &reading("2.0.0"))
-            .await
-            .expect("the same reading is declared");
-        assert_eq!(same.snapshot_change, CapabilitySnapshotChange::Unchanged);
-        assert!(!same.is_cli_version_refreshed);
-
-        let new_build = writer
-            .declare(&provider, &reading("2.1.0"))
-            .await
-            .expect("the new build's reading is declared");
-        assert_eq!(
-            new_build.snapshot_change,
-            CapabilitySnapshotChange::Unchanged
-        );
-        assert!(new_build.is_cli_version_refreshed);
-
-        let refreshed = refreshed_at_of_capability_rows(&connection);
-        assert_ne!(refreshed, [] as [String; 0]);
-        assert!(refreshed.iter().all(|at| at == SENTINEL));
-        let stored_version: String = connection
-            .query_row(
-                "SELECT cli_version_raw FROM driver_contract_meta WHERE provider_name = ?",
-                [provider.as_str()],
-                |row| row.get(0),
-            )
-            .expect("the parent row reads");
-        assert_eq!(stored_version, "2.1.0");
-    }
-
-    #[tokio::test]
-    async fn a_stored_flag_set_missing_a_flag_fails_the_rebuild() {
-        let database = TestDatabase::new(schema_parts());
-        let writer = test_capabilities_writer(&database).await;
-        let provider = provider();
-        writer
-            .declare(&provider, &reading("2.0.0"))
-            .await
-            .expect("the reading is stored");
-        database
-            .reader()
-            .execute(
-                "DELETE FROM driver_capabilities WHERE provider_name = ? AND capability_flag = ?",
-                [provider.as_str(), <&str>::from(DriverCapabilityFlag::Steer)],
-            )
-            .expect("the test removes one flag row");
-
-        let rebuilt = writer.hydrate(&provider, PROVIDERS[0]).await;
-        assert!(
-            matches!(
-                &rebuilt,
-                Err(DriverCapabilitiesWriterError::FlagSetMismatch(mismatch))
-                    if mismatch.missing == [DriverCapabilityFlag::Steer]
-                        && mismatch.unexpected.is_empty()
-            ),
-            "{rebuilt:?}"
-        );
-    }
-}
+mod tests;

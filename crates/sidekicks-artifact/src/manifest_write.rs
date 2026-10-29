@@ -34,7 +34,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_platforms::WallClock;
 use sidekicks_session::directory::lookups::{session_exists, session_exists_statement};
 use sidekicks_session::run::ids::{RUN_IN_SESSION_SQL, run_in_session_statement};
