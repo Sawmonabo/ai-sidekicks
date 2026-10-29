@@ -523,6 +523,7 @@ async fn a_resend_records_the_rule_a_daemon_card_failed_to_record() {
             approvals.session_id,
             ProviderAskActionKind::Tool,
             subject,
+            None,
             true,
         )
     };

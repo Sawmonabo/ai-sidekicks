@@ -44,6 +44,14 @@ pub struct ApprovalResourceDescriptor {
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
     pub(crate) tool_name: Option<NonEmptyText>,
+    /// The tool server and its tool a workflow step's call names, apart, which a session rule
+    /// over the call keys on.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "sidekicks_contracts::wire::present"
+    )]
+    pub(crate) tool_server_tool: Option<ToolServerTool>,
     /// The provider's own line saying why it stopped.
     #[serde(
         default,
@@ -51,6 +59,17 @@ pub struct ApprovalResourceDescriptor {
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
     pub(crate) prompt: Option<NonEmptyText>,
+}
+
+/// A tool server's tool by its server's name and its own, never joined, since either may hold the
+/// separator a joined name uses.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ToolServerTool {
+    /// The server's name.
+    pub(crate) server: String,
+    /// The tool's name on that server.
+    pub(crate) tool: String,
 }
 
 impl ApprovalResourceDescriptor {

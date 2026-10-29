@@ -91,6 +91,7 @@ pub(crate) fn describe_provider_ask(
             editable: action.corrected_subject().is_some(),
             action: Some(action.clone()),
             tool_name: Some(tool_name),
+            tool_server_tool: None,
             // A prompt with no text is no prompt.
             prompt: ask.prompt.clone().and_then(NonEmptyText::new),
         },

@@ -35,6 +35,7 @@ croner.workspace = true
 csv.workspace = true
 dugong.workspace = true
 flate2.workspace = true
+futures.workspace = true
 garde.workspace = true
 jiff.workspace = true
 jsonata-core.workspace = true
@@ -53,7 +54,6 @@ thiserror.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
-futures.workspace = true
 proptest.workspace = true
 rstest.workspace = true
 # The test database the tests build on.

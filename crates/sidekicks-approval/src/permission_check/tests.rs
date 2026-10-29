@@ -26,12 +26,11 @@ use sidekicks_provider::port::permission_ask::{
 };
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_workflow::runs::step_action::{StepAction, StepActionCheck};
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
-use super::step_action::{
-    ASKING_TOOL_REFUSAL, GIT_FOLDER_REFUSAL, OUTSIDE_CHECKOUT_REFUSAL, StepAction,
-};
+use super::step_action::{ASKING_TOOL_REFUSAL, GIT_FOLDER_REFUSAL, OUTSIDE_CHECKOUT_REFUSAL};
 use super::test_fixture::{TestPermissionCheck, test_permission_check};
 use super::{PermissionCheck, PermissionCheckError, ProviderAskVerdict, ToolCallVerdict};
 use crate::permission_asks::tests::{AsksFixture, device};
@@ -229,12 +228,7 @@ impl CheckFixture {
     async fn step_verdict(&self, level: PermissionLevel, action: &StepAction) -> String {
         let verdict = self
             .check
-            .check_step_action(
-                self.approvals.session_id,
-                self.approvals.run_id,
-                level,
-                action,
-            )
+            .check_step_action(self.step_check(level, action))
             .await
             .expect("the check decides");
         match verdict {
@@ -245,6 +239,17 @@ impl CheckFixture {
                 format!("denied: {reason}")
             }
             ToolCallVerdict::CardRaised(card) => self.card_words(&card.approval_request_id),
+        }
+    }
+
+    // The check of a workflow step's `action` at `level` on the fixture's run, asked by the step.
+    fn step_check(&self, level: PermissionLevel, action: &StepAction) -> StepActionCheck {
+        StepActionCheck {
+            session_id: self.approvals.session_id,
+            run_id: self.approvals.run_id,
+            requested_by: NonEmptyText::new(STEP_ASKER.to_owned()).expect("a step's name"),
+            level,
+            action: action.clone(),
         }
     }
 
@@ -426,10 +431,13 @@ fn file_write(target: &Path) -> StepAction {
     }
 }
 
-fn mcp_call(server: &str, approval_mode: McpApprovalMode) -> StepAction {
+// Who asks on a step's card.
+const STEP_ASKER: &str = "workflow-step";
+
+fn mcp_call(server: &str, tool: &str, approval_mode: McpApprovalMode) -> StepAction {
     StepAction::McpCall {
         server: McpServerName::new(server.to_owned()).expect("a short server name"),
-        tool: McpToolName::new("search".to_owned()).expect("a short tool name"),
+        tool: McpToolName::new(tool.to_owned()).expect("a short tool name"),
         approval_mode,
     }
 }
@@ -490,7 +498,7 @@ async fn a_steps_tool_call_follows_its_bindings_approval_mode(
     for level in LEVELS {
         verdicts.push(
             fixture
-                .step_verdict(level, &mcp_call("docs", approval_mode))
+                .step_verdict(level, &mcp_call("docs", "search", approval_mode))
                 .await,
         );
     }
@@ -498,7 +506,7 @@ async fn a_steps_tool_call_follows_its_bindings_approval_mode(
     assert_eq!(verdicts, expected);
 }
 
-// Stand for the refusals a case expects, which the step's module words.
+// Stand-ins for the refusals a case expects, in the step module's words.
 const OUTSIDE: &str = "outside";
 const GIT: &str = "git";
 const ASKING: &str = "asking";
@@ -513,31 +521,41 @@ fn step_words(verdict: &str) -> String {
 }
 
 // An "Always allow" on a step's card keeps a session rule the daemon answers the same action with
-// next time, with no card, while a same-named tool on another server still asks. Killed by skipping
-// the rule lookup and by a subject that drops the tool's server.
+// next time, with no card, while a same-named tool on another server still asks, as does a tool
+// whose server and name join to the same words; the card is asked by the step that names itself.
+// Killed by skipping the rule lookup, by a subject that drops the tool's server, by a rule keyed
+// on the joined name alone, and by asking the card as the run's agent.
 #[tokio::test]
 async fn a_session_rule_answers_a_steps_second_identical_action() {
     let fixture = AsksFixture::new().await;
     let check = &fixture.check;
     let write = file_write(Path::new("/work/notes.md"));
-    let docs_search = mcp_call("docs", McpApprovalMode::Prompt);
+    let docs_search = mcp_call("docs", "search", McpApprovalMode::Prompt);
+    let joined_left = mcp_call("a__b", "c", McpApprovalMode::Prompt);
     for (action, subject) in [
         (&write, "/work/notes.md"),
         (&docs_search, "mcp__docs__search"),
+        (&joined_left, "mcp__a__b__c"),
     ] {
         let card = check
             .check
-            .check_step_action(
-                check.approvals.session_id,
-                check.approvals.run_id,
-                PermissionLevel::Ask,
-                action,
-            )
+            .check_step_action(check.step_check(PermissionLevel::Ask, action))
             .await
             .expect("the check decides");
         let ToolCallVerdict::CardRaised(card) = card else {
             panic!("the first {subject} raises its card");
         };
+        let requested_by: String = check
+            .approvals
+            .database
+            .reader()
+            .query_row(
+                "SELECT requested_by FROM approval_requests WHERE id = ?1",
+                [card.approval_request_id.text().as_str()],
+                |row| row.get(0),
+            )
+            .expect("the card is stored");
+        assert_eq!(requested_by, STEP_ASKER);
         let request: ApprovalResolveRequest = from_json(json!({
             "decision": "approved",
             "approvalRequestId": card.approval_request_id,
@@ -554,7 +572,9 @@ async fn a_session_rule_answers_a_steps_second_identical_action() {
     for action in [
         &write,
         &docs_search,
-        &mcp_call("wiki", McpApprovalMode::Prompt),
+        &mcp_call("wiki", "search", McpApprovalMode::Prompt),
+        &mcp_call("a", "b__c", McpApprovalMode::Prompt),
+        &joined_left,
     ] {
         verdicts.push(check.step_verdict(PermissionLevel::Ask, action).await);
     }
@@ -563,7 +583,9 @@ async fn a_session_rule_answers_a_steps_second_identical_action() {
         [
             "allowed by RememberedRule",
             "allowed by RememberedRule",
-            CARD
+            CARD,
+            CARD,
+            "allowed by RememberedRule",
         ]
     );
 }

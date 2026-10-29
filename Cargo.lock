@@ -8292,6 +8292,7 @@ dependencies = [
  "sidekicks-session",
  "sidekicks-std",
  "sidekicks-store",
+ "sidekicks-workflow",
  "sidekicks-workspace",
  "tempfile",
  "thiserror 2.0.21",
