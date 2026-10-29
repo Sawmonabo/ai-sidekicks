@@ -1,5 +1,6 @@
 //! The session directory's stand-in a test hands the driver's relaunches, which hears each
-//! relaunch's opening and record and refuses the step a test names.
+//! relaunch's opening and record, answers the legs a test hands it and refuses the step a test
+//! names.
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -29,6 +30,8 @@ pub(crate) struct TakenRelaunches {
     pub(crate) heard: Box<dyn Fn(String) + Send + Sync>,
     /// The step refused.
     pub(crate) refused: RefusedRelaunchStep,
+    /// The legs each opening answers.
+    pub(crate) legs: ResumeFunctionLegs,
 }
 
 impl SessionRelaunchListener for TakenRelaunches {
@@ -39,11 +42,12 @@ impl SessionRelaunchListener for TakenRelaunches {
     ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn std::error::Error + Send + Sync>>> {
         (self.heard)(format!("opened {binding_id:?}"));
         let is_refused = self.refused == RefusedRelaunchStep::Opening;
+        let legs = self.legs.clone();
         async move {
             if is_refused {
                 return Err("the test refuses the opening".into());
             }
-            Ok(ResumeFunctionLegs::default())
+            Ok(legs)
         }
         .boxed()
     }
@@ -54,7 +58,8 @@ impl SessionRelaunchListener for TakenRelaunches {
         binding_id: RuntimeBindingId,
     ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn std::error::Error + Send + Sync>>> {
         (self.heard)(format!("legs {binding_id:?}"));
-        async { Ok(ResumeFunctionLegs::default()) }.boxed()
+        let legs = self.legs.clone();
+        async move { Ok(legs) }.boxed()
     }
 
     fn session_relaunched(

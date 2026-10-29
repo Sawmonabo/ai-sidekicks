@@ -4,9 +4,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::super::CodexDriver;
 use super::super::intake::CodexSessionIntake;
-use super::answer_stopping_request;
+use super::{answer_stopping_request, driver_holding};
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
@@ -15,7 +14,7 @@ use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::lifecycle_call::let_go_codex_session_record;
 use crate::driver::codex::session::test_fixture::open_test_record;
 use crate::driver::codex::session::test_fixture::status_sink::CountingStatusSink;
-use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
+use crate::driver::test_registry::{new_run_id, new_session_id};
 
 /// How long the exit and the let-go may take before the test counts them as stuck.
 const STEP_BOUND: Duration = Duration::from_secs(10);
@@ -28,7 +27,8 @@ const STEP_BOUND: Duration = Duration::from_secs(10);
 #[tokio::test]
 async fn a_service_exit_ends_each_attached_sessions_status_leg_once() {
     let mut scripted = start_scripted_codex_service();
-    let driver = CodexDriver::new(&test_driver_services());
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let driver = driver_holding(&scripted, folder.path());
     let parts = Arc::clone(driver.parts().expect("the driver composes"));
     let mut sessions = Vec::new();
     for live_turns in [2, 0] {

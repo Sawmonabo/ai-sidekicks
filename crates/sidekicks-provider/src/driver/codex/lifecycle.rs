@@ -413,6 +413,7 @@ impl CodexDriver {
                     tool_server_route: Arc::clone(&ports.tool_server_route),
                     reviewer_denials: Arc::clone(&ports.reviewer_denials),
                     pending_compactions: self.pending_compactions.clone(),
+                    session_relaunched: Arc::clone(&ports.session_relaunched),
                 },
                 runs: CodexRunCallDependencies {
                     run_routes: Arc::clone(&self.run_routes),

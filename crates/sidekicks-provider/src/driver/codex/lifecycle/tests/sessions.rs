@@ -40,6 +40,7 @@ use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::session_control::CloseSessionParams;
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
+use crate::runtime_binding::resume::ResumeFunctionLegs;
 
 /// How long a close may take before the test counts it as stuck.
 const CLOSE_BOUND: Duration = Duration::from_secs(10);
@@ -483,6 +484,7 @@ async fn a_conversation_not_resumed_in_place_tells_the_queue(#[case] failure: Re
     let relaunches = TakenRelaunches {
         heard: Box::new(drop),
         refused: RefusedRelaunchStep::Nothing,
+        legs: ResumeFunctionLegs::default(),
     };
     assert!(
         parts

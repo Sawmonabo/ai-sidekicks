@@ -32,8 +32,8 @@ use tokio::sync::Notify;
 
 use super::channel::ScriptedChannel;
 use super::daemon_services::{
-    RecordingPorts, RecordingUsage, ScriptedAttachments, register_scripted_ports,
-    test_callback_tool_host,
+    RecordingPorts, RecordingUsage, ScriptedAttachments, TakenBindingWrites,
+    register_scripted_ports, test_callback_tool_host,
 };
 use super::starts::{ScriptedStartRecord, ScriptedStarts};
 use super::{
@@ -320,6 +320,7 @@ impl ScriptedDriver {
                 &home,
                 folder.path().join("session-token"),
             )),
+            runtime_bindings: Arc::new(TakenBindingWrites),
             ..test_driver_services()
         };
         let ports = &base.ports;

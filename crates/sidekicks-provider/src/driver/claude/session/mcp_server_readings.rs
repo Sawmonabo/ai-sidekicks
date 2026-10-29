@@ -137,6 +137,7 @@ mod tests {
     use serde_json::{Value, json};
     use sidekicks_contracts::mcp::server::McpServerStatus;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_std::mutex_lock::lock;
 
     use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
@@ -148,8 +149,11 @@ mod tests {
     use crate::driver::mcp_server::status::{
         McpServerReading, McpServerStatusEmission, McpServerStatusSink,
     };
-    use crate::driver::session_control::CreateSessionParams;
+    use crate::driver::session_control::{
+        CreateSessionParams, MoveSessionToForkParams, MoveSessionToForkResult,
+    };
     use crate::driver::test_registry::new_session_id;
+    use crate::runtime_binding::store::mint_runtime_binding_id;
 
     // A status sink that records what reaches it and counts its leg's ends.
     #[derive(Default)]
@@ -403,5 +407,93 @@ mod tests {
             .map(|(opened_session, _binding)| opened_session)
             .collect();
         assert_eq!(legs_sessions, [session_id]);
+    }
+
+    // A rewind's fork reports its census on a leg the session directory answered for it, under a
+    // binding of its own, and the predecessor's leg ends once as the predecessor stops. Killed by
+    // the fork carrying the predecessor's producer (the census reaches the ended sink), and by the
+    // fork's legs opened under the binding the session keeps, which the predecessor's end retires.
+    #[tokio::test(start_paused = true)]
+    async fn a_rewind_fork_reports_on_its_own_leg_once_the_predecessors_ended() {
+        let fixture = ScriptedDriver::new();
+        let (ended_sink, forked_sink) = (
+            Arc::new(RecordingSink::default()),
+            Arc::new(RecordingSink::default()),
+        );
+        *lock(&fixture.relaunches.status_sink) = Some(Arc::clone(&forked_sink) as _);
+        let session_id = new_session_id();
+        fixture
+            .starts
+            .script_session(Arc::new(ScriptedChannel::default()));
+        fixture
+            .driver
+            .create_session(CreateSessionParams {
+                on_mcp_server_status: Some(Arc::clone(&ended_sink) as _),
+                ..create_params(session_id)
+            })
+            .await
+            .expect("the session opens");
+        fixture.next_start().await;
+        let conversation = fixture
+            .driver
+            .composed_parts()
+            .expect("composed")
+            .slots()
+            .live_session(session_id)
+            .expect("the session is live")
+            .provider_session_id
+            .clone();
+        // Two turns, so a fork after the first has a later turn to discard.
+        let project_folder = fixture.home.join(".claude/projects/work");
+        std::fs::create_dir_all(&project_folder).expect("the project folder is made");
+        std::fs::write(
+            project_folder.join(format!("{conversation}.jsonl")),
+            concat!(
+                r#"{"type":"user","uuid":"u1","message":{"content":"first"}}"#,
+                "\n",
+                r#"{"type":"assistant","uuid":"a1","message":{"content":"one"}}"#,
+                "\n",
+                r#"{"type":"user","uuid":"u2","message":{"content":"second"}}"#,
+                "\n",
+                r#"{"type":"assistant","uuid":"a2","message":{"content":"two"}}"#,
+                "\n",
+            ),
+        )
+        .expect("the conversation is written");
+        fixture
+            .starts
+            .script_session(Arc::new(ScriptedChannel::default()));
+        let kept_binding = mint_runtime_binding_id();
+
+        let moved = fixture
+            .driver
+            .move_session_to_fork(MoveSessionToForkParams {
+                session_id,
+                position: SafeInt::new(1).expect("1 is a position"),
+                binding_id: kept_binding.clone(),
+            })
+            .await
+            .expect("the fork is answered");
+        assert!(
+            matches!(moved, MoveSessionToForkResult::Applied { .. }),
+            "{moved:?}"
+        );
+        let forked = fixture.next_start().await;
+        hand_github_census(&fixture, &forked, session_id).await;
+
+        assert_eq!(ended_sink.ends.load(Ordering::SeqCst), 1);
+        assert!(reports_of(&ended_sink).is_empty());
+        assert_eq!(
+            reports_of(&forked_sink),
+            [(
+                "github".to_owned(),
+                McpServerReading::Observed(McpServerStatus::Connected)
+            )]
+        );
+        assert_eq!(forked_sink.ends.load(Ordering::SeqCst), 0);
+        let legs_opened = fixture.relaunches.legs_opened();
+        assert_eq!(legs_opened.len(), 1);
+        assert_eq!(legs_opened[0].0, session_id);
+        assert_ne!(legs_opened[0].1, kept_binding);
     }
 }

@@ -223,6 +223,7 @@ impl TestCodexSession {
                 tool_server_route: Arc::new(PortRegistration::new("tool server route")),
                 reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
                 pending_compactions,
+                session_relaunched: Arc::new(PortRegistration::new("session relaunched")),
             },
             runs: CodexRunCallDependencies {
                 run_routes: Arc::clone(&run_routes),

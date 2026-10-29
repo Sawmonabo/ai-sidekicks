@@ -33,6 +33,7 @@ use crate::driver::session_control::ProviderBuildChange;
 use crate::driver::test_registry::new_run_id;
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
+use crate::runtime_binding::resume::ResumeFunctionLegs;
 
 // What the stand-ins for the reviewer denials and the queue heard, in order, each with the turn
 // ends the run engine took before it, and what held each gone session's slot as the queue heard.
@@ -121,6 +122,7 @@ fn test_recovery(
     let relaunches: Arc<dyn SessionRelaunchListener> = Arc::new(TakenRelaunches {
         heard: Box::new(move |step| heard.push(step)),
         refused,
+        legs: ResumeFunctionLegs::default(),
     });
     session_relaunched
         .register(relaunches)
