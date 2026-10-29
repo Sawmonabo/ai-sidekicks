@@ -411,3 +411,171 @@ async fn a_layer_codex_ignores_binds_nothing() {
     assert!(reading.declarations.is_empty());
     assert!(reading.roots[0].provider_loaded.is_empty());
 }
+
+fn plugin_binding(plugin: &str, name: &str) -> McpServerBindingRef {
+    McpServerBindingRef::Plugin {
+        provider: DESCRIPTOR.provider_id(),
+        scope_ref: PluginToken::new(plugin.to_owned()).expect("a plugin name"),
+        server_name: server_name(name),
+    }
+}
+
+// Writes a plugin in Codex's own format under `plugin_home`, its servers inline in its manifest.
+fn write_codex_plugin(plugin_home: &Path, marketplace: &str, plugin: &str, servers: &Value) {
+    let folder = plugin_home.join(format!("plugins/cache/{marketplace}/{plugin}/1.0.0"));
+    std::fs::create_dir_all(folder.join(".codex-plugin")).expect("the plugin folder is made");
+    std::fs::write(
+        folder.join(".codex-plugin/plugin.json"),
+        json!({"name": plugin, "mcpServers": servers}).to_string(),
+    )
+    .expect("the manifest is written");
+}
+
+// A plugin switched off by its own key, by every plugin's default, or a plugin's server switched
+// off under its plugin's table, is disabled in the file that switches it off, and a plugin a
+// higher layer switches back on is not. Killed by the plugin's switch read by its name alone, by
+// the default read over an explicit switch, by the server's own switch ignored, and by a lower
+// layer read over a higher one.
+#[tokio::test]
+async fn a_plugin_the_config_switches_off_is_disabled_in_that_file() {
+    let plugin_home = tempfile::tempdir().expect("a scratch folder is made");
+    let one_server = |name: &str| json!({ name: {"command": format!("{name}-server")} });
+    write_codex_plugin(plugin_home.path(), "market", "tools", &one_server("search"));
+    write_codex_plugin(
+        plugin_home.path(),
+        "market",
+        "helpers",
+        &json!({"lookup": {"command": "lookup-server"}, "other": {"command": "other-server"}}),
+    );
+    write_codex_plugin(plugin_home.path(), "market", "extra", &one_server("notes"));
+    write_codex_plugin(plugin_home.path(), "market", "kept", &one_server("pages"));
+    let mut user = user_layer(json!({}));
+    user["config"]["plugins"] = json!({
+        "tools": {"enabled": true},
+        "tools@market": {"enabled": false},
+        "helpers@market": {"enabled": true, "mcp_servers": {"lookup": {"enabled": false}}},
+        "kept@market": {"enabled": false},
+    });
+    let mut project = project_layer(json!({}));
+    project["config"]["plugins"] = json!({
+        "_default": {"enabled": false},
+        "kept@market": {"enabled": true},
+    });
+    let reply = json!({"config": {}, "origins": {}, "layers": [project, user]});
+
+    let reading = read_scripted(&[attached_root()], plugin_home.path(), &[reply]).await;
+
+    let user_file = McpOverrideOrigin::Placed(placed(USER_FILE));
+    let project_file = McpOverrideOrigin::Placed(placed(&format!("{ROOT}/.codex/config.toml")));
+    let disabled_in = |plugin: &str, name: &str| {
+        declaration(&reading, &plugin_binding(plugin, name))
+            .disabled_in
+            .clone()
+    };
+    assert_eq!(disabled_in("tools", "search"), [user_file.clone()]);
+    assert_eq!(disabled_in("helpers", "lookup"), [user_file]);
+    assert!(disabled_in("helpers", "other").is_empty());
+    assert_eq!(disabled_in("extra", "notes"), [project_file]);
+    assert!(disabled_in("kept", "pages").is_empty());
+}
+
+// A plugin whose root manifest names the Agent Plugins schema declares the servers of its own
+// `mcp.json` as Codex normalizes them, and one whose root manifest names another schema is read
+// in Codex's format. Killed by the format's manifest ignored, by a program or working folder left
+// relative, by the plugin's folders left unfilled, by a client-owned header sent, and by a server
+// Codex refuses declared.
+#[tokio::test]
+async fn an_agent_format_plugin_declares_its_servers_as_codex_reads_them() {
+    let plugin_home = tempfile::tempdir().expect("a scratch folder is made");
+    let agent = plugin_home.path().join("plugins/cache/market/agent/1.0.0");
+    std::fs::create_dir_all(&agent).expect("the plugin folder is made");
+    std::fs::write(
+        agent.join("plugin.json"),
+        json!({
+            "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+            "name": "agent",
+            "mcpServers": {"ignored": {"command": "ignored-server"}},
+        })
+        .to_string(),
+    )
+    .expect("the manifest is written");
+    std::fs::write(
+        agent.join("mcp.json"),
+        json!({
+            "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+            "mcpServers": {
+                "local": {
+                    "type": "stdio",
+                    "command": "./bin/server",
+                    "args": ["--config", "${PLUGIN_ROOT}/config.json"],
+                    "env": {"CACHE": "${PLUGIN_DATA}/cache"},
+                    "cwd": "${PLUGIN_DATA}",
+                },
+                "remote": {
+                    "type": "streamable-http",
+                    "url": "https://mcp.example.com/mcp",
+                    "headers": {"Authorization": "Bearer x", "X-Team": "core"},
+                },
+                "legacy": {"type": "sse", "url": "https://mcp.example.com/sse"},
+                "plain": {"type": "streamable-http", "url": "http://mcp.example.com/mcp"},
+                "climbing": {"type": "stdio", "command": "./../outside"},
+            },
+        })
+        .to_string(),
+    )
+    .expect("the MCP file is written");
+    let unrelated = plugin_home.path().join("plugins/cache/market/codex/1.0.0");
+    std::fs::create_dir_all(unrelated.join(".codex-plugin")).expect("the plugin folder is made");
+    std::fs::write(
+        unrelated.join("plugin.json"),
+        json!({"$schema": "https://example.com/other.json"}).to_string(),
+    )
+    .expect("the unrelated manifest is written");
+    std::fs::write(
+        unrelated.join(".codex-plugin/plugin.json"),
+        json!({"name": "codex", "mcpServers": {"own": {"command": "own-server"}}}).to_string(),
+    )
+    .expect("the manifest is written");
+
+    let servers = super::plugins::read_plugin_server_entries(plugin_home.path()).await;
+
+    let names: Vec<(&str, &str)> = servers
+        .iter()
+        .map(|server| match &server.declaration.binding {
+            McpServerBindingRef::Plugin {
+                scope_ref,
+                server_name,
+                ..
+            } => (scope_ref.as_str(), server_name.as_str()),
+            _ => panic!("a plugin's server binds to its plugin"),
+        })
+        .collect();
+    assert_eq!(
+        names,
+        [("agent", "local"), ("agent", "remote"), ("codex", "own")]
+    );
+    let root = agent.display().to_string();
+    let data = agent.join(".plugin-data").display().to_string();
+    assert_eq!(
+        Value::Object(servers[0].compose_codex_entry()),
+        json!({
+            "command": format!("{root}/bin/server"),
+            "args": ["--config", format!("{root}/config.json")],
+            "env": {"CACHE": format!("{data}/cache"), "PLUGIN_ROOT": root, "PLUGIN_DATA": data},
+            "cwd": data,
+            "enabled": true,
+        })
+    );
+    assert!(
+        agent.join(".plugin-data").is_dir(),
+        "the data folder is made"
+    );
+    assert_eq!(
+        Value::Object(servers[1].compose_codex_entry()),
+        json!({
+            "url": "https://mcp.example.com/mcp",
+            "http_headers": {"X-Team": "core"},
+            "enabled": true,
+        })
+    );
+}

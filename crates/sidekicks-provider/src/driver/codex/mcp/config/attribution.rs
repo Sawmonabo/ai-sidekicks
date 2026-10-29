@@ -14,7 +14,7 @@ use sidekicks_platforms::PathRules;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::config_read::CodexConfigLayer;
 use crate::driver::codex::mcp::config::server_entry::{
-    CodexServerTransport, has_transport, is_switched_off, read_codex_server_entry,
+    CodexServerTransport, ENABLED_MEMBER, has_transport, is_switched_off, read_codex_server_entry,
     read_codex_server_transport, read_switch, sets_other_members,
 };
 use crate::driver::codex::mcp::config::{CodexMcpConfigReading, CodexRootConfigRead};
@@ -23,6 +23,10 @@ use crate::driver::mcp_server::read::{McpRootReading, McpServerDeclaration, McpS
 
 // The file a project's `.codex` folder holds its config in.
 const PROJECT_CONFIG_FILE_NAME: &str = "config.toml";
+// The config table of the plugins' switches and their servers' overrides, and its member holding
+// the switch every plugin without its own takes.
+const PLUGINS_KEY: &str = "plugins";
+const PLUGINS_DEFAULT_KEY: &str = "_default";
 
 // What a layer is to the person: their own, a project's, or an administrator's. A layer of another
 // kind (the launch's own flags, or a kind this reader does not know) binds nothing.
@@ -178,6 +182,53 @@ pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> Code
         // The requirements' allow lists fill it once the read has every declaration.
         home_kept_out_server_names: Vec::new(),
     }
+}
+
+/// Where the config at each of `reads` switches off the server `server` of the plugin keyed
+/// `plugin_key` (`<plugin>@<marketplace>`), as Codex decides it: the highest layer that sets the
+/// plugin's own switch, else the highest that sets every plugin's default, and the highest layer
+/// that sets the server's own switch under the plugin's table. A layer of no known origin that
+/// switches it off cannot be named.
+pub(crate) fn find_plugin_switch_offs(
+    reads: &[CodexRootConfigRead],
+    plugin_key: &str,
+    server: &str,
+) -> Vec<McpOverrideOrigin> {
+    let mut disabled_in: Vec<McpOverrideOrigin> = Vec::new();
+    for root_read in reads {
+        let layers: Vec<&CodexConfigLayer> = root_read
+            .read
+            .layers
+            .iter()
+            .flatten()
+            .filter(|layer| layer.disabled_reason.is_none())
+            .collect();
+        // The highest layer whose plugins' table sets the switch `read` finds, and its value.
+        let decide = |read: &dyn Fn(&Map<String, Value>) -> Option<bool>| {
+            layers.iter().find_map(|layer| {
+                let plugins = layer.config.get(PLUGINS_KEY)?.as_object()?;
+                read(plugins).map(|is_on| (is_on, *layer))
+            })
+        };
+        let plugin_switch = decide(&|plugins| read_enabled(plugins.get(plugin_key)?))
+            .or_else(|| decide(&|plugins| read_enabled(plugins.get(PLUGINS_DEFAULT_KEY)?)));
+        let server_switch = decide(&|plugins| {
+            read_enabled(plugins.get(plugin_key)?.get(MCP_SERVERS_KEY)?.get(server)?)
+        });
+        for (is_on, layer) in [plugin_switch, server_switch].into_iter().flatten() {
+            let origin =
+                rank_layer(layer, root_read.root.as_ref()).and_then(|ranked| ranked.origin);
+            if let (false, Some(origin)) = (is_on, origin) {
+                push_once(&mut disabled_in, &origin);
+            }
+        }
+    }
+    disabled_in
+}
+
+// The `enabled` switch a plugins' table entry sets, where it sets one.
+fn read_enabled(entry: &Value) -> Option<bool> {
+    entry.get(ENABLED_MEMBER)?.as_bool()
 }
 
 // `layer`'s role, servers and origin; `None` for a layer that binds nothing.

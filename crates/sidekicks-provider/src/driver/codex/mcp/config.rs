@@ -11,7 +11,9 @@ use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
 
 use crate::driver::codex::config_read::{CodexConfigRead, read_codex_config};
-use crate::driver::codex::mcp::config::attribution::attribute_codex_mcp_servers;
+use crate::driver::codex::mcp::config::attribution::{
+    attribute_codex_mcp_servers, find_plugin_switch_offs,
+};
 use crate::driver::codex::mcp::config::plugins::read_plugin_server_entries;
 use crate::driver::codex::mcp::config::server_entry::CodexServerTransport;
 use crate::driver::codex::mcp::requirements::read_codex_mcp_requirements;
@@ -128,7 +130,12 @@ async fn read_codex_mcp_config_over(
         });
     }
     let mut reading = attribute_codex_mcp_servers(&reads);
-    for server in read_plugin_server_entries(plugin_home).await {
+    for mut server in read_plugin_server_entries(plugin_home).await {
+        server.declaration.disabled_in = find_plugin_switch_offs(
+            &reads,
+            &server.plugin_key,
+            server.declaration.binding.server_name().as_str(),
+        );
         if let Some(transport) = server.read_transport() {
             reading
                 .transports

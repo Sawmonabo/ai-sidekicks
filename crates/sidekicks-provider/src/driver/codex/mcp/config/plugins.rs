@@ -1,6 +1,7 @@
 //! The servers of the plugins installed in the daemon's plugin home for Codex, laid out as Codex
 //! lays out its own home's plugins: `plugins/cache/<marketplace>/<plugin>/<version>/`, each
-//! plugin's servers in the MCP file its manifest names, or written inline in the manifest.
+//! plugin's servers in the MCP file its manifest names, or written inline in the manifest, or, for
+//! a plugin in the Agent Plugins format, in its own servers' file.
 
 use std::cmp::Ordering;
 use std::error::Error;
@@ -19,6 +20,10 @@ use crate::driver::codex::mcp::config::server_entry::{
 };
 use crate::driver::mcp_server::read::McpServerDeclaration;
 use crate::inbound_json::decode_inbound_json;
+
+mod agent_format;
+
+use agent_format::read_agent_format_servers;
 
 // The folder of a Codex home that holds each installed plugin's versions.
 const PLUGIN_CACHE_FOLDER: [&str; 2] = ["plugins", "cache"];
@@ -56,6 +61,8 @@ const WORKING_FOLDER_MEMBER: &str = "cwd";
 pub(crate) struct CodexPluginServer {
     /// The declaration, bound to its plugin and read-only.
     pub(crate) declaration: McpServerDeclaration,
+    /// The key Codex's config names the plugin by: `<plugin>@<marketplace>`.
+    pub(crate) plugin_key: String,
     /// The entry as the plugin's file writes it.
     entry: Map<String, Value>,
     /// The folder of the plugin's version Codex runs, which a relative working folder names.
@@ -158,6 +165,7 @@ pub(crate) async fn read_plugin_server_entries(plugin_home: &Path) -> Vec<CodexP
                         tool_defaults: declared.tool_defaults,
                         organization_managed: None,
                     },
+                    plugin_key: format!("{plugin}@{marketplace}"),
                     entry,
                     plugin_root: plugin_root.clone(),
                 });
@@ -197,10 +205,14 @@ struct CodexPluginManifest {
     mcp_servers: Option<Value>,
 }
 
-// The servers of the plugin in `plugin_root`, by name: none where it has no manifest.
+// The servers of the plugin in `plugin_root`, by name: none where it has no manifest. A plugin in
+// the Agent Plugins format is read in its own format first, as Codex reads it.
 async fn read_plugin_server_map(
     plugin_root: &Path,
 ) -> Result<Map<String, Value>, PluginFileReadError> {
+    if let Some(servers) = read_agent_format_servers(plugin_root).await? {
+        return Ok(servers);
+    }
     let mut manifest = None;
     for [folder, file] in MANIFEST_PATHS {
         let path = plugin_root.join(folder).join(file);
