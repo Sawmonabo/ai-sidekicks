@@ -49,6 +49,8 @@ sidekicks-workspace = { path = "crates/sidekicks-workspace" }
 anstream = { version = "1.0.0", default-features = false, features = ["auto"] }
 anstyle-query = "1.1.5"
 anyhow = "1.0.104"
+# rmcp's credential store trait is written with it, so an implementation needs it too.
+async-trait = "0.1.92"
 clap = { version = "4.6.7", features = ["derive"] }
 flexi_logger = { version = "0.31.10", default-features = false }
 futures = { version = "0.3.34", default-features = false, features = ["async-await", "std"] }
@@ -168,6 +170,7 @@ reqwest = { version = "0.13.5", features = ["json", "stream"] }
 rmcp = {
   version = "3.7.0",
   features = [
+    "auth",
     "client",
     "transport-child-process",
     "transport-streamable-http-client",
