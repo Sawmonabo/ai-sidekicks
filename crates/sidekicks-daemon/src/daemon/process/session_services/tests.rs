@@ -18,7 +18,7 @@ use sidekicks_contracts::session::id::{SessionId, UserId};
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_mcp::binding_store::{McpBindingStore, open_first_observation_drain};
+use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::notices::McpNoticeBoard;
 use sidekicks_platforms::{Spawner, WallClockTimer};

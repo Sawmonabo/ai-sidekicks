@@ -18,7 +18,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::text::{BoundedText, TextError};
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
-use sidekicks_mcp::binding_store::{McpBindingStore, open_first_observation_drain};
+use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::notices::McpNoticeBoard;
 use sidekicks_platforms::{

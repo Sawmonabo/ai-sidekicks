@@ -4,7 +4,7 @@
 //! daemon's schema. It sits over std, store, ipc and provider and is taken by session and the
 //! daemon.
 
-pub mod binding_store;
+pub mod binding;
 pub(crate) mod client;
 pub(crate) mod command_receipts;
 pub(crate) mod errors;

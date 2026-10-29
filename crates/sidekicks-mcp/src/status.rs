@@ -26,7 +26,7 @@ use sidekicks_std::mutex_lock::lock;
 
 use self::legs::{ChangeOrigin, LegId, McpLegs, ObservationOutcome, StatusChange};
 use self::notices::{McpNoticeBoard, McpNoticeKey, McpNoticeKind, McpNoticeOrigin};
-use crate::binding_store::McpBindingKey;
+use crate::binding::store::McpBindingKey;
 
 /// A binding's status as the inventory reads it.
 #[cfg_attr(

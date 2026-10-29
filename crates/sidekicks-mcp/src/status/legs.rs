@@ -16,7 +16,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_provider::driver::mcp_server::status::{McpServerReading, McpServerStatusUpdate};
 
 use super::McpBindingStatusReading;
-use crate::binding_store::McpBindingKey;
+use crate::binding::store::McpBindingKey;
 
 /// One leg: a runtime binding of one session.
 #[derive(Clone, PartialEq, Eq, Hash)]
