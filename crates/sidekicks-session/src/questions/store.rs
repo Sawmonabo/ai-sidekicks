@@ -98,11 +98,12 @@ static UNSETTLED_HELD_OF_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The run's open question that came on the provider's request, oldest first.
+// The run's open question its agent waits on that came on the provider's request, oldest first.
 static OPEN_OF_PROVIDER_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT id FROM questions
   WHERE run_id = @runId AND provider_request_id = @providerRequestId AND state = '{open}'
+    AND is_agent_waiting = 1
   ORDER BY rowid
   LIMIT 1",
         open = <&'static str>::from(QuestionState::Open)
@@ -334,8 +335,8 @@ pub(crate) fn read_asked(
         .optional()
 }
 
-/// The open question `run_id` holds that came on the provider's request `provider_request_id`, or
-/// `None` when it holds none. Fails as SQLite does, or when a stored id does not read.
+/// The open question `run_id` holds, its agent waiting on it, that came on the provider's request
+/// `provider_request_id`, or `None` when it holds none. Fails as SQLite does, or when a stored id does not read.
 pub(crate) fn read_open_question_of_request(
     connection: &Connection,
     run_id: &RunId,

@@ -294,11 +294,11 @@ async fn another_action_under_a_held_request_id_is_another_ask() {
     assert_eq!(fixture.card_states(), ["canceled", "approved", "canceled"]);
 }
 
-// A provider that resends its waiting ask after the daemon's restart, under its request id and
-// tool call, finds the card its first delivery raised: no second card and no second
+// A provider that resends its waiting ask after the daemon's restart, under the same tool call and
+// a request id of its own, finds the card its first delivery raised: no second card and no second
 // `approval.requested`, and the person's answer to that card goes back under the resent request.
 // Killed by dropping the match, which raises a second card and refuses the first card's answer,
-// and by handing the answer under a key no delivery holds.
+// and by handing the answer under the first delivery's request id.
 #[tokio::test]
 async fn an_ask_resent_after_a_restart_returns_to_its_pending_card() {
     let fixture = AsksFixture::new().await;
@@ -314,7 +314,10 @@ async fn an_ask_resent_after_a_restart_returns_to_its_pending_card() {
     let [card] = <[String; 1]>::try_from(fixture.pending_cards()).expect("one card waits");
     let restarted = fixture.restarted_intake();
     restarted
-        .take_ask(ask)
+        .take_ask(ProviderPermissionAsk {
+            request_id: "ask-2".to_owned(),
+            ..ask
+        })
         .await
         .expect("the resent ask is taken");
     assert_eq!(fixture.pending_cards(), [card.clone()]);
@@ -329,7 +332,7 @@ async fn an_ask_resent_after_a_restart_returns_to_its_pending_card() {
         .expect("the answer is handed");
     assert_eq!(fixture.card_states(), ["approved"]);
     assert_eq!(fixture.handed(), [plain_allow()]);
-    assert_eq!(fixture.handed_under(), ["ask-1"]);
+    assert_eq!(fixture.handed_under(), ["ask-2"]);
 }
 
 // An ask whose check failed is refused at its provider with the check-failed line, and the
