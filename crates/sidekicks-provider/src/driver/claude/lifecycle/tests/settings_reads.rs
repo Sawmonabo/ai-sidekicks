@@ -1,13 +1,16 @@
 //! What Settings and a new session read before any session runs: the starting level, and the
 //! Settings rows the installed build offers.
 
+use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::machine::settings::ProviderRowValue;
 use sidekicks_contracts::provider::declaration::{
     ProviderDeclarationId, ProviderRow, ProviderSettingControl, ProviderValueText,
 };
+use sidekicks_contracts::provider::driver::capabilities::ProviderMode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::Record;
 
 use crate::driver::ProviderAccountFolders;
@@ -15,6 +18,7 @@ use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeLocalCommandReply, ClaudeReplyReserveReads,
 };
+use crate::driver::contract::ListModesParams;
 use crate::driver::session_control::StartingLevelParams;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
@@ -103,6 +107,63 @@ async fn a_new_session_starts_at_reviewed_only_on_a_model_that_runs_auto_mode() 
         "the account's catalog is read on its own config folder"
     );
     assert_eq!(environments.len(), 3);
+}
+
+// Killed by offering Reviewed on the system's word alone, whatever the account's catalog says of
+// the model, and by checking the catalog's auto-mode models against anything but the model named;
+// every other level stays as this system offers it.
+#[rstest]
+#[case::model_without_auto_mode("haiku", false)]
+#[case::model_with_auto_mode("opus", true)]
+#[tokio::test(start_paused = true)]
+async fn the_level_list_offers_reviewed_only_on_a_model_the_account_runs_auto_mode_on(
+    #[case] model: &str,
+    #[case] is_reviewed_offered: bool,
+) {
+    let account_folder = tempfile::tempdir().expect("the test makes an account folder");
+    let fixture = ScriptedDriver::with_account_folders(Some(ProviderAccountFolders {
+        configuration_folder: account_folder.path().join("config"),
+        credential_store_folder: account_folder.path().join("credentials"),
+    }));
+    fixture.starts.script_catalog(json!({"models": [
+        {"value": "opus", "displayName": "Opus", "supportsAutoMode": true},
+        {"value": "haiku", "displayName": "Haiku", "supportsAutoMode": false},
+    ]}));
+    let mode_ids = |modes: Vec<ProviderMode>| -> Vec<String> {
+        modes
+            .into_iter()
+            .map(|mode| mode.id.as_str().to_owned())
+            .collect()
+    };
+
+    let listed = fixture
+        .driver
+        .list_modes(ListModesParams {
+            session_id: Some(
+                SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("the text is a UUID"),
+            ),
+            provider_account_id: Some(test_provider_account_id()),
+            model: Some(ProviderToken::new(model.to_owned()).expect("the model fits")),
+        })
+        .await
+        .expect("the levels read");
+    let on_system = fixture
+        .driver
+        .list_modes(ListModesParams {
+            session_id: None,
+            provider_account_id: None,
+            model: None,
+        })
+        .await
+        .expect("the system's levels read");
+
+    let reviewed = <&str>::from(PermissionLevel::Reviewed);
+    let expected: Vec<String> = mode_ids(on_system)
+        .into_iter()
+        .filter(|id| is_reviewed_offered || id != reviewed)
+        .collect();
+    assert!(expected.iter().any(|id| id == reviewed) == is_reviewed_offered);
+    assert_eq!(mode_ids(listed), expected);
 }
 
 // Killed by removing the capability read's configuration folder only after a read that succeeded.

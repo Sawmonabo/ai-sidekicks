@@ -424,8 +424,13 @@ pub trait ProviderDriver: Send + Sync {
         params: ListModelsParams,
     ) -> BoxFuture<'_, Result<Vec<ProviderModel>, DriverError>>;
 
-    /// The provider's modes.
-    fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>>;
+    /// The levels the provider runs for a session's level control, as modes: read against the
+    /// model the params name on their account, or the current account where they name none; with
+    /// no model, the levels this system runs.
+    fn list_modes(
+        &self,
+        params: ListModesParams,
+    ) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>>;
 
     /// The driver's capability flags, tool declarations and provider version, read live.
     fn get_capabilities(&self) -> BoxFuture<'_, Result<GetCapabilitiesResult, DriverError>>;
@@ -879,4 +884,16 @@ pub struct ListModelsParams {
     /// The account: the session's own bound account for its own provider; `None` for the
     /// provider's current account, refused as no account is registered or none is current.
     pub provider_account_id: Option<ProviderAccountId>,
+}
+
+/// Params of `list_modes`: the session whose level control reads the levels, and the account and
+/// model to read them against.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListModesParams {
+    /// The session, only where this is the session's own provider; `None` for any other.
+    pub session_id: Option<SessionId>,
+    /// The session's own bound account for its own provider; `None` for the current account.
+    pub provider_account_id: Option<ProviderAccountId>,
+    /// The model the session runs on now, only for its own provider; `None` for any other.
+    pub model: Option<ProviderToken>,
 }

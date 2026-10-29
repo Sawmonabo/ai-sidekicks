@@ -20,6 +20,7 @@ use sidekicks_contracts::provider::declaration::{
 };
 use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, ProviderModel};
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
@@ -64,7 +65,7 @@ use crate::driver::claude::spawn::legs::{
 };
 use crate::driver::contract::ProviderCommandsSubscription;
 use crate::driver::contract::{
-    DriverError, GetCapabilitiesResult, ListModelsParams, ProviderReportedLevel,
+    DriverError, GetCapabilitiesResult, ListModelsParams, ListModesParams, ProviderReportedLevel,
 };
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::ports::SessionPlace;
@@ -94,6 +95,21 @@ const SETTINGS_FILE_NAME: &str = "settings.json";
 /// The folder under the daemon's data folder the capability read runs on.
 const CLAUDE_CAPABILITY_READ_FOLDER: &str = "claude-capability-read";
 
+/// Which levels one account and this system run, read once for a starting level or a level list.
+struct ClaudeOfferedLevels {
+    /// The models the account's catalog runs auto mode on; empty where the catalog was not read.
+    auto_mode_models: HashSet<String>,
+    /// Whether Claude Code's command sandbox runs here.
+    can_run_sandbox: bool,
+}
+
+impl ClaudeOfferedLevels {
+    // Whether a process on `model` runs at `level` on this account and system.
+    fn offers(&self, level: PermissionLevel, model: &str) -> bool {
+        can_run_claude_level(level, model, &self.auto_mode_models, self.can_run_sandbox)
+    }
+}
+
 impl ClaudeDriver {
     /// The level and mode a new session starts at, as Claude Code's own settings for the folder set
     /// them, moved to the nearest more careful level the model and this system run. A catalog that
@@ -106,30 +122,10 @@ impl ClaudeDriver {
         let environment = self
             .account_environment(&params.provider_account_id)
             .await?;
-        let (catalog, can_run_sandbox, repository) = tokio::join!(
-            self.starts.read_model_catalog(environment.clone()),
-            read_claude_sandbox_support(
-                &self.sources.spawner,
-                &environment,
-                &params.working_folder,
-                None,
-            ),
+        let (offered, repository) = tokio::join!(
+            self.read_offered_levels(&environment, &params.working_folder),
             self.read_repository(&params.working_folder),
         );
-        let auto_mode_models = match catalog {
-            Ok(catalog) => {
-                read_claude_initialize_declaration(catalog.initialize.as_deref()).auto_mode_models
-            }
-            Err(error) => {
-                record_unheard_claude_failure(
-                    DriverDiagnosticKind::ControlOnlyReadFailed,
-                    None,
-                    "the model catalog read for a session's starting level",
-                    &error,
-                );
-                HashSet::new()
-            }
-        };
         let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
         let project_folder = claude_project_folder(&params.working_folder, repository.as_ref());
         let account_settings_file = account_config_folder(&environment).join(SETTINGS_FILE_NAME);
@@ -141,14 +137,7 @@ impl ClaudeDriver {
                 account_settings_file: &account_settings_file,
                 path_rules: PathRules::NATIVE,
             },
-            |level| {
-                can_run_claude_level(
-                    level,
-                    params.model.as_str(),
-                    &auto_mode_models,
-                    can_run_sandbox,
-                )
-            },
+            |level| offered.offers(level, params.model.as_str()),
         )
         .await
         .map_err(internal)?;
@@ -358,21 +347,85 @@ impl ClaudeDriver {
         resolve_claude_model_catalog(reading, &self.figures.current(), &environment)
     }
 
-    /// The levels Claude Code runs on this system, as modes.
-    pub(crate) async fn list_modes(&self) -> Result<Vec<ProviderMode>, DriverError> {
-        // The check only finds the sandbox's programs and starts no Claude Code, so the folder it
-        // names is never made.
-        let folder = self.capability_read_folder();
-        let environment =
-            self.process_environment(ClaudeProcessHome::Throwaway { folder: &folder }, &[], &[])?;
-        let can_run_sandbox = read_claude_sandbox_support(
-            &self.sources.spawner,
-            &environment,
-            &self.sources.home_folder,
-            None,
-        )
-        .await;
-        Ok(list_claude_modes(can_run_sandbox))
+    /// The levels Claude Code runs for a session's level control, as modes: with a model named,
+    /// the levels that model runs on the named account, or the current account where none is
+    /// named, and this system; with none, the levels this system runs. A catalog that cannot be
+    /// read offers no Reviewed and is recorded; fails as the current account or the account's
+    /// environment cannot be read.
+    pub(crate) async fn list_modes(
+        &self,
+        params: ListModesParams,
+    ) -> Result<Vec<ProviderMode>, DriverError> {
+        let Some(model) = params.model else {
+            // The check only finds the sandbox's programs and starts no Claude Code, so the folder
+            // it names is never made.
+            let folder = self.capability_read_folder();
+            let environment = self.process_environment(
+                ClaudeProcessHome::Throwaway { folder: &folder },
+                &[],
+                &[],
+            )?;
+            let can_run_sandbox = read_claude_sandbox_support(
+                &self.sources.spawner,
+                &environment,
+                &self.sources.home_folder,
+                None,
+            )
+            .await;
+            return Ok(list_claude_modes(can_run_sandbox));
+        };
+        let provider_account_id = match params.provider_account_id {
+            Some(provider_account_id) => provider_account_id,
+            None => {
+                read_current_account(
+                    &self.sources.ports.provider_accounts,
+                    DESCRIPTOR.provider_id(),
+                )
+                .await?
+            }
+        };
+        let environment = self.account_environment(&provider_account_id).await?;
+        let offered = self
+            .read_offered_levels(&environment, &self.sources.home_folder)
+            .await;
+        let mut modes = list_claude_modes(offered.can_run_sandbox);
+        if !offered.offers(PermissionLevel::Reviewed, model.as_str()) {
+            let reviewed = <&str>::from(PermissionLevel::Reviewed);
+            modes.retain(|mode| mode.id.as_str() != reviewed);
+        }
+        Ok(modes)
+    }
+
+    /// Which levels the account `environment` composes and this system run in `working_folder`:
+    /// the account's catalog and the command sandbox, read at once. A catalog that cannot be read
+    /// offers no Reviewed and is recorded.
+    async fn read_offered_levels(
+        &self,
+        environment: &[(String, String)],
+        working_folder: &Path,
+    ) -> ClaudeOfferedLevels {
+        let (catalog, can_run_sandbox) = tokio::join!(
+            self.starts.read_model_catalog(environment.to_vec()),
+            read_claude_sandbox_support(&self.sources.spawner, environment, working_folder, None),
+        );
+        let auto_mode_models = match catalog {
+            Ok(catalog) => {
+                read_claude_initialize_declaration(catalog.initialize.as_deref()).auto_mode_models
+            }
+            Err(error) => {
+                record_unheard_claude_failure(
+                    DriverDiagnosticKind::ControlOnlyReadFailed,
+                    None,
+                    "the model catalog read for a session's levels",
+                    &error,
+                );
+                HashSet::new()
+            }
+        };
+        ClaudeOfferedLevels {
+            auto_mode_models,
+            can_run_sandbox,
+        }
     }
 
     /// The installed build's capabilities, version and tools, read live on a configuration folder
