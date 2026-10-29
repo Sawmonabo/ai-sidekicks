@@ -10,6 +10,7 @@ use rusqlite::types::Value;
 use serde::Serialize;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceId};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
@@ -229,7 +230,7 @@ pub(crate) fn workflow_run_creation_statements(
                         .worktree_id
                         .map(|worktree_id| worktree_id.text())
                         .as_ref()
-                        .map(|worktree_id| worktree_id.as_str()),
+                        .map(UuidText::as_str),
                 ),
                 text_binding(
                     "@branch_context_id",
