@@ -291,8 +291,9 @@ interface McpLiveApplicationResult {
 // one whose read fails is left out of `servers` and named in `failedProviders` with its cause,
 // sanitized (no credential, URL query or path outside a web address) and capped at the error
 // message's length; the other providers' rows still list
-//   mcp.server.read       McpServerBindingRef → {server: McpServerInventoryEntry} // a provider
-// whose read fails answers its refusal (`provider.unavailable`, `provider.timeout`)
+//   mcp.server.read       McpServerBindingRef → {server: McpServerInventoryEntry} // a driver's
+// refusal answers by its code (`provider.unavailable`, `provider.timeout`); any other failure of
+// the provider's read is an internal error
 //   mcp.subscribe {} → AsyncIterable<EventEnvelope | McpServerBindingRef & {type:
 // "mcp.server.config.changed"} | McpServerStatusChangedNotice> // live-tail of every mcpGovernance
 // envelope as appended, a live notice after each edit to a binding (an add, a change, a switch, a
