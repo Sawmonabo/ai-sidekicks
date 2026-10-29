@@ -139,7 +139,7 @@ pub struct McpInventorySources {
 pub enum McpInventoryError {
     /// No provider declares the binding asked for.
     #[error(transparent)]
-    Refused(#[from] McpRefusal),
+    Refused(Box<McpRefusal>),
     /// The attached projects could not be read.
     #[error("the attached projects could not be read")]
     Projects(#[source] ProjectReadError),
@@ -161,6 +161,12 @@ pub enum McpInventoryError {
         #[source]
         source: DriverError,
     },
+}
+
+impl From<McpRefusal> for McpInventoryError {
+    fn from(refusal: McpRefusal) -> Self {
+        Self::Refused(Box::new(refusal))
+    }
 }
 
 /// The inventory `mcp.server.list` and `mcp.server.read` answer from. It keeps nothing between

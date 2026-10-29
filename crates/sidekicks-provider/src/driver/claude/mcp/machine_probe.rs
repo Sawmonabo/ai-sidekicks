@@ -135,7 +135,11 @@ pub(crate) async fn probe_claude_mcp_servers(
                     McpServerBindingRef::Managed { server_name, .. } => {
                         sources.organization_entries.get(server_name).cloned()
                     }
-                    binding => {
+                    binding @ (McpServerBindingRef::User { .. }
+                    | McpServerBindingRef::Project { .. }
+                    | McpServerBindingRef::Local { .. }
+                    | McpServerBindingRef::Plugin { .. }
+                    | McpServerBindingRef::Connector { .. }) => {
                         read_claude_mcp_server_entry(sources.home, sources.plugin_home, binding)
                             .await
                             .map_err(|error| DriverError::Internal(Box::new(error)))?
@@ -454,7 +458,9 @@ mod tests {
 
     use rstest::rstest;
     use serde_json::{Value, json};
-    use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpServerStatus};
+    use sidekicks_contracts::mcp::server::{
+        McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
+    };
     use sidekicks_platforms::Spawner;
     use tempfile::TempDir;
     use tokio::runtime::Handle;
@@ -754,7 +760,7 @@ mod tests {
             readings[0].reading,
             McpServerReading::Observed(McpServerStatus::Starting)
         );
-        assert!(readings[0].tool_names.is_empty());
+        assert_eq!(readings[0].tool_names, [] as [McpToolName; 0]);
     }
 
     // A real Claude Code, its home signed in, probed for a reachable MCP server and one nothing
@@ -822,7 +828,7 @@ mod tests {
             reachable.reading,
             McpServerReading::Observed(McpServerStatus::Connected)
         );
-        assert!(!reachable.tool_names.is_empty());
+        assert_ne!(reachable.tool_names, [] as [McpToolName; 0]);
         assert_eq!(
             unreachable.reading,
             McpServerReading::Observed(McpServerStatus::Failed)

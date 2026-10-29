@@ -112,7 +112,7 @@ pub(crate) async fn read_claude_mcp_servers(
                     reading: McpServerReading::Observed(McpServerStatus::Unknown),
                     failure_text: None,
                     tool_names: Vec::new(),
-                }))
+                }));
             }
             Some(account) => {
                 let probe_sources = ClaudeMcpProbeSources {

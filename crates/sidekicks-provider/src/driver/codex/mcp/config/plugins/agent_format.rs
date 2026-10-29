@@ -178,7 +178,7 @@ impl PluginFolders {
                 cwd,
             } => {
                 let command = match command.strip_prefix(RELATIVE_PREFIX) {
-                    Some(relative) => self.contain(&self.root, relative)?,
+                    Some(relative) => Self::contain(&self.root, relative)?,
                     None if is_bare_name(&command) => command,
                     None => return Err("the program is neither a name nor in the plugin".into()),
                 };
@@ -252,7 +252,7 @@ impl PluginFolders {
     // A working folder `./…`, `${PLUGIN_ROOT}[/…]` or `${PLUGIN_DATA}[/…]`, kept inside its folder.
     fn resolve_working_folder(&self, cwd: &str) -> Result<String, String> {
         if let Some(relative) = cwd.strip_prefix(RELATIVE_PREFIX) {
-            return self.contain(&self.root, relative);
+            return Self::contain(&self.root, relative);
         }
         for (variable, folder) in [
             (PLUGIN_ROOT_VARIABLE, &self.root),
@@ -265,14 +265,14 @@ impl PluginFolders {
                 return Ok(folder.display().to_string());
             }
             if let Some(relative) = rest.strip_prefix('/') {
-                return self.contain(folder, relative);
+                return Self::contain(folder, relative);
             }
         }
         Err("the working folder is not in the plugin's folders".into())
     }
 
     // `relative` in `folder`, refused where it climbs out of it or is absolute.
-    fn contain(&self, folder: &Path, relative: &str) -> Result<String, String> {
+    fn contain(folder: &Path, relative: &str) -> Result<String, String> {
         let path = Path::new(relative);
         if path
             .components()

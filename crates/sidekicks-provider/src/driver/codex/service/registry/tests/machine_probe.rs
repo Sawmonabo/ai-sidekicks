@@ -5,6 +5,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpServerStatus};
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, short_socket_folder};
 
 use super::stand_in::{CRASH_WAIT, REQUEST_RECORD_NAME, stand_in_services, this_daemon};
@@ -133,7 +134,7 @@ async fn the_probe_reads_each_server_once_and_retires_its_own_service() {
         let tools: Vec<&str> = reading
             .tool_names
             .iter()
-            .map(|name| name.as_str())
+            .map(FreeFormText::as_str)
             .collect();
         assert_eq!(tools, [PROBE_TOOL_NAME]);
     }

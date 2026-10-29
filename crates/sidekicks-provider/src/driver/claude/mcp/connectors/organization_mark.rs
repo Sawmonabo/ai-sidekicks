@@ -176,7 +176,7 @@ impl ClaudeOrganizationMarks {
             }
         };
         Some(index_connector_marks(
-            list.data.map(|entries| entries.0).unwrap_or_default(),
+            &list.data.map(|entries| entries.0).unwrap_or_default(),
         ))
     }
 }
@@ -400,10 +400,10 @@ lenient_object!(ConnectorListEntry);
 // Each entry's mark by its normalized id, as Claude Code indexes its list: the first entry per
 // normalized address is a row, a later one at that address its sibling read with the row's mark,
 // and an additional account's entry a row of its own.
-fn index_connector_marks(entries: Vec<ConnectorListEntry>) -> ClaudeConnectorMarks {
+fn index_connector_marks(entries: &[ConnectorListEntry]) -> ClaudeConnectorMarks {
     let mut row_by_address: HashMap<String, bool> = HashMap::new();
     let mut by_connector_id: HashMap<String, bool> = HashMap::new();
-    for entry in &entries {
+    for entry in entries {
         let mark = entry.enterprise_managed == Some(true);
         if entry.additional_install == Some(true) {
             if let Some(id) = &entry.id {
@@ -424,7 +424,7 @@ fn index_connector_marks(entries: Vec<ConnectorListEntry>) -> ClaudeConnectorMar
             by_connector_id.insert(normalize_connector_id(id), mark);
         }
     }
-    for entry in &entries {
+    for entry in entries {
         let Some(id) = &entry.id else { continue };
         let id = normalize_connector_id(id);
         if by_connector_id.contains_key(&id) {

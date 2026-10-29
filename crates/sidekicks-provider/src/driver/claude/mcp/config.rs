@@ -265,6 +265,10 @@ struct ClaudePersonConfigFile {
 // One project's entry in `.claude.json`, keyed by its root.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[expect(
+    clippy::struct_field_names,
+    reason = "the fields name the file's own members"
+)]
 struct ClaudeProjectEntry {
     #[serde(default)]
     mcp_servers: ClaudeServerMap,
@@ -287,6 +291,10 @@ struct ClaudeMcpServersFile {
 // outlives the parse; the address is held only until it is stripped and folded. It derives no
 // `Debug`, so nothing prints the address.
 #[derive(Deserialize)]
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "only the keys are read; each value is skipped unread so none outlives the parse"
+)]
 struct ClaudeServerEntry {
     #[serde(rename = "type", default)]
     transport: Option<String>,
@@ -402,6 +410,10 @@ fn read_servers(
 
 // The redacted declaration of one entry and its endpoint; `None` for a transport the declaration
 // view has no form for.
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "only the keys are read; each value is skipped unread so none outlives the parse"
+)]
 fn read_server_entry(
     entry: &ClaudeServerEntry,
 ) -> Option<(McpServerConfigView, Option<ClaudeMcpEndpoint>)> {
@@ -769,7 +781,7 @@ mod tests {
             "{source:?}"
         );
         assert_eq!(root_a.switched_off_server_names, [server_name("off")]);
-        assert!(root_b.switched_off_server_names.is_empty());
+        assert_eq!(root_b.switched_off_server_names, [] as [McpServerName; 0]);
     }
 
     // Killed by keeping any value: a header, a bearer token, a query, userinfo or an environment

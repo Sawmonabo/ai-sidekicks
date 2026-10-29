@@ -136,6 +136,7 @@ mod tests {
 
     use serde_json::{Value, json};
     use sidekicks_contracts::mcp::server::McpServerStatus;
+    use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_std::mutex_lock::lock;
@@ -336,7 +337,10 @@ mod tests {
         hand_github_census(&fixture, &relaunched, session_id).await;
 
         assert_eq!(ended_sink.ends.load(Ordering::SeqCst), 1);
-        assert!(reports_of(&ended_sink).is_empty());
+        assert_eq!(
+            reports_of(&ended_sink),
+            [] as [(String, McpServerReading); 0]
+        );
         assert_eq!(
             reports_of(&relaunched_sink),
             [(
@@ -390,7 +394,10 @@ mod tests {
         hand_github_census(&fixture, &relaunched, session_id).await;
 
         assert_eq!(ended_sink.ends.load(Ordering::SeqCst), 1);
-        assert!(reports_of(&ended_sink).is_empty());
+        assert_eq!(
+            reports_of(&ended_sink),
+            [] as [(String, McpServerReading); 0]
+        );
         assert_eq!(
             reports_of(&relaunched_sink),
             [(
@@ -399,7 +406,10 @@ mod tests {
             )]
         );
         assert_eq!(relaunched_sink.ends.load(Ordering::SeqCst), 0);
-        assert!(fixture.relaunches.opened().is_empty());
+        assert_eq!(
+            fixture.relaunches.opened(),
+            [] as [(SessionId, RuntimeBindingId); 0]
+        );
         let legs_sessions: Vec<_> = fixture
             .relaunches
             .legs_opened()
@@ -482,7 +492,10 @@ mod tests {
         hand_github_census(&fixture, &forked, session_id).await;
 
         assert_eq!(ended_sink.ends.load(Ordering::SeqCst), 1);
-        assert!(reports_of(&ended_sink).is_empty());
+        assert_eq!(
+            reports_of(&ended_sink),
+            [] as [(String, McpServerReading); 0]
+        );
         assert_eq!(
             reports_of(&forked_sink),
             [(

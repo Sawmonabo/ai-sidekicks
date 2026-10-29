@@ -91,11 +91,7 @@ pub enum McpRefusal {
 impl From<McpRefusal> for DomainError {
     fn from(refusal: McpRefusal) -> Self {
         let message = refusal.to_string();
-        let (code, detail, source): (
-            _,
-            Option<Map<String, Value>>,
-            Option<Box<dyn Error + Send + Sync>>,
-        ) = match refusal {
+        let (code, detail, source) = match refusal {
             McpRefusal::BindingStoreUnavailable { source } => {
                 (RefusalCode::McpBindingStoreUnavailable, None, Some(source))
             }

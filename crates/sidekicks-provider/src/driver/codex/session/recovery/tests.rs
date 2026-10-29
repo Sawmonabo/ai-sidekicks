@@ -736,19 +736,23 @@ async fn an_account_service_s_build_move_records_its_resume_under_the_binding_it
 // under a bound.
 #[tokio::test]
 async fn an_account_service_s_build_move_its_new_build_refuses_lets_the_record_go() {
-    tokio::time::timeout(Duration::from_secs(30), async {
-        let (session, _folder, steps, recovery) = account_build_move_session().await;
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        Box::pin(async {
+            let (session, _folder, steps, recovery) = account_build_move_session().await;
 
-        let (moved, task) = move_account_service_build(session, &recovery, refuse_resumes).await;
+            let (moved, task) =
+                move_account_service_build(session, &recovery, refuse_resumes).await;
 
-        moved.expect("the build move ends");
-        assert_eq!(task.let_go_exits, [CodexRecordExit::SessionContinues]);
-        assert_eq!(
-            steps.holders_at_gone(),
-            [None],
-            "the queue hears once, the slot empty"
-        );
-    })
+            moved.expect("the build move ends");
+            assert_eq!(task.let_go_exits, [CodexRecordExit::SessionContinues]);
+            assert_eq!(
+                steps.holders_at_gone(),
+                [None],
+                "the queue hears once, the slot empty"
+            );
+        }),
+    )
     .await
     .expect("the build move ends within the bound");
 }

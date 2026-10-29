@@ -55,7 +55,7 @@ pub(super) fn register_inventory_methods(
 /// a fault inside the daemon.
 fn inventory_handler_error(error: McpInventoryError) -> HandlerError {
     match error {
-        McpInventoryError::Refused(refusal) => HandlerError::Refused(DomainError::from(refusal)),
+        McpInventoryError::Refused(refusal) => HandlerError::Refused(DomainError::from(*refusal)),
         fault @ (McpInventoryError::Projects(_)
         | McpInventoryError::ProjectRoot(_)
         | McpInventoryError::Accounts(_)

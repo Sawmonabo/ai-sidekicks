@@ -215,7 +215,7 @@ impl McpLegs {
                             server.status = Some(status);
                             server.is_switched_off = false;
                             // The newest text, so a later notice this leg decides quotes it.
-                            server.failure_text = update.failure_text.clone();
+                            server.failure_text.clone_from(&update.failure_text);
                         }
                         // The last status and its text stay; the leg leaves the aggregate, answered
                         // below with a `sessionEnded`.
@@ -223,7 +223,7 @@ impl McpLegs {
                     }
                     server.observed_at = observed_at.clone();
                     if tool_names.is_some() {
-                        server.tool_names = tool_names.clone();
+                        server.tool_names.clone_from(&tool_names);
                     }
                     let has_left_aggregate = was_in_aggregate && server.is_switched_off;
                     (previous, None, false, has_left_aggregate)
@@ -348,7 +348,7 @@ impl McpLegs {
         });
         self.refold(&key);
         let changes = (previous_status != status)
-            .then(|| StatusChange {
+            .then_some(StatusChange {
                 binding_key: key,
                 origin: ChangeOrigin::MachineProbe,
                 previous_status,

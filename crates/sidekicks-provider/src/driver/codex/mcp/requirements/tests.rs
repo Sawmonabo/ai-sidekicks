@@ -183,7 +183,10 @@ url = "https://mcp.example.com/v1"
             McpServerPolicyEntry::ServerName(server_name("remote")),
         ])
     );
-    assert!(reading.server_policy.denied.is_empty());
+    assert_eq!(
+        reading.server_policy.denied,
+        [] as [McpServerPolicyEntry; 0]
+    );
     assert_eq!(
         reading.roots[0].kept_out_server_names,
         [
@@ -222,9 +225,9 @@ url = { match = "prefix", value = "https://search.example.com/" }
     assert!(requirements.allows(&user("anything"), Some(&started("anything"))));
 
     let refusing = parsed(
-        r#"
+        r"
 [mcp_servers]
-"#,
+",
     );
     assert!(!refusing.allows(&plugin("helpers", "search"), Some(&search)));
 }

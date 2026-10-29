@@ -153,6 +153,7 @@ mod tests {
     use futures::FutureExt as _;
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::mcp::server::McpServerStatus::{self, Connected, Failed};
+    use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
     use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
     use sidekicks_contracts::place::PlacedPath;
     use sidekicks_contracts::project::ProjectId;
@@ -247,8 +248,7 @@ mod tests {
         let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
         let [ended_leg, kept_leg] = ["leg-ended", "leg-kept"]
             .map(|name| RuntimeBindingId::new(name.to_owned()).expect("a binding id"));
-        let ended =
-            open_mcp_leg_status_producer(&tracker, attribution(), session_id, ended_leg.clone());
+        let ended = open_mcp_leg_status_producer(&tracker, attribution(), session_id, ended_leg);
         let kept =
             open_mcp_leg_status_producer(&tracker, attribution(), session_id, kept_leg.clone());
         ended.report_status(report("docs", Failed));
@@ -279,11 +279,9 @@ mod tests {
 
         producer.report_status(report("mail", Connected));
 
-        assert!(
-            tracker
-                .reading(&McpBindingKey::of(&binding("mail")))
-                .legs
-                .is_empty()
+        assert_eq!(
+            tracker.reading(&McpBindingKey::of(&binding("mail"))).legs,
+            [] as [McpServerLegStatus; 0]
         );
         let gate = CreditGate::with_credit(1);
         assert!(

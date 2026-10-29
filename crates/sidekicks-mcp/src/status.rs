@@ -697,7 +697,11 @@ mod tests {
                 Step::Observe(name, scope, reading, failure_text) => {
                     let observed_binding = match scope {
                         Managed => &managed_binding,
-                        _ => &binding,
+                        User
+                        | McpBindingScope::Project
+                        | McpBindingScope::Local
+                        | McpBindingScope::Plugin
+                        | McpBindingScope::Connector => &binding,
                     };
                     sinks
                         .get(name)

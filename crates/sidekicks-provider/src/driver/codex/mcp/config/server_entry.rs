@@ -109,6 +109,10 @@ pub(crate) fn sets_other_members(entry: &Value) -> bool {
 
 /// The redacted declaration of `entry`; `None` for an entry that names no transport or does not
 /// read as a server entry.
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "only the keys are read; each value is skipped unread so none outlives the parse"
+)]
 pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclaration> {
     let entry = CodexServerEntry::deserialize(entry).ok()?;
     let sign_in_client = entry
@@ -222,6 +226,10 @@ fn read_tool_names(names: Vec<String>) -> Vec<McpToolName> {
 // held only until it is stripped; a header read from a variable keeps the variable's name, never
 // its value. It derives no `Debug`, so nothing prints the address.
 #[derive(Deserialize)]
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "only the keys are read; each value is skipped unread so none outlives the parse"
+)]
 struct CodexServerEntry {
     #[serde(default)]
     command: Option<String>,

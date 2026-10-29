@@ -221,7 +221,7 @@ async fn a_token_without_the_lists_scope_sends_no_request() {
         .await;
 
     assert!(read.is_none());
-    assert!(list.paths().is_empty());
+    assert_eq!(list.paths(), [] as [String; 0]);
 }
 
 // The list marks a connector row by its normalized id, an `mcprs` entry matching the row's

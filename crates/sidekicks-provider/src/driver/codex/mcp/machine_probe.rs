@@ -155,7 +155,12 @@ pub(crate) fn codex_probe_targets(
                     )
                 })
                 .collect(),
-            _ => Vec::new(),
+            McpServerBindingRef::User { .. }
+            | McpServerBindingRef::Project { .. }
+            | McpServerBindingRef::Local { .. }
+            | McpServerBindingRef::Plugin { .. }
+            | McpServerBindingRef::Connector { .. }
+            | McpServerBindingRef::Managed { .. } => Vec::new(),
         };
         if locals.is_empty() {
             if request.probe.contains(&target.binding) {

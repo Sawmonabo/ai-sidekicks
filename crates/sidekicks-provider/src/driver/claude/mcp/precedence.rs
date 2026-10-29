@@ -432,19 +432,28 @@ mod tests {
         let ranking = rank_claude_mcp_servers(&reading, &accounts, true);
 
         let declarations = &ranking.declarations;
-        let at_root = McpOverrideOrigin::Placed(root.clone());
+        let at_root = McpOverrideOrigin::Placed(root);
         assert_eq!(
             superseded_in(declarations, &user("github")),
-            [at_root.clone()]
+            std::slice::from_ref(&at_root)
         );
-        assert!(superseded_in(declarations, &user("docs")).is_empty());
+        assert_eq!(
+            superseded_in(declarations, &user("docs")),
+            [] as [McpOverrideOrigin; 0]
+        );
         let account_declarations = &ranking.account_servers[0].declarations;
-        assert!(superseded_in(account_declarations, &organization).is_empty());
+        assert_eq!(
+            superseded_in(account_declarations, &organization),
+            [] as [McpOverrideOrigin; 0]
+        );
         assert_eq!(
             superseded_in(account_declarations, &connector("Docs")),
             [at_root]
         );
-        assert!(superseded_in(account_declarations, &connector("Docs team")).is_empty());
+        assert_eq!(
+            superseded_in(account_declarations, &connector("Docs team")),
+            [] as [McpOverrideOrigin; 0]
+        );
         // Under a managed file Claude Code loads the organization's servers alone, so the
         // person's own are kept out but the one the organization's loads under its name.
         assert_eq!(ranking.roots[0].provider_loaded, [organization]);
@@ -453,6 +462,9 @@ mod tests {
             [server_name("docs")]
         );
         let unmanaged = rank_claude_mcp_servers(&reading, &accounts, false);
-        assert!(unmanaged.roots[0].kept_out_server_names.is_empty());
+        assert_eq!(
+            unmanaged.roots[0].kept_out_server_names,
+            [] as [McpServerName; 0]
+        );
     }
 }

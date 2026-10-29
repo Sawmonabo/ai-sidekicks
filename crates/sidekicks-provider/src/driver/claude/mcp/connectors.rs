@@ -220,6 +220,7 @@ mod tests {
     use serde_json::value::{RawValue, to_raw_value};
     use sidekicks_contracts::mcp::server::config::McpServerConfigView;
     use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
+    use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_platforms::{ProgramStart, Spawner};
     use tokio::runtime::Handle;
 
@@ -248,8 +249,8 @@ mod tests {
     // How long a probe waits for a server it hands over to report connected.
     const PROBE_CONNECT_DEADLINE: Duration = Duration::from_secs(60);
 
-    fn raw(value: &serde_json::Value) -> Option<Box<RawValue>> {
-        Some(to_raw_value(value).expect("a test reply serializes"))
+    fn raw(value: &serde_json::Value) -> Box<RawValue> {
+        to_raw_value(value).expect("a test reply serializes")
     }
 
     fn remote_url(config: &McpServerConfigView) -> &str {
@@ -270,7 +271,7 @@ mod tests {
     fn an_accounts_rows_become_read_only_connectors_and_host_only_organization_servers() {
         let account = test_provider_account_id();
         let answers = ClaudeAccountServerAnswers {
-            mcp_status: raw(&json!({
+            mcp_status: Some(raw(&json!({
                 "mcpServers": [
                     {
                         "name": "claude.ai Slack",
@@ -303,8 +304,8 @@ mod tests {
                         "config": { "type": "http", "url": "https://notes.example.com/mcp" }
                     }
                 ]
-            })),
-            settings: raw(&json!({
+            }))),
+            settings: Some(raw(&json!({
                 "effective": {
                     "managedMcpServers": {
                         "docs": {
@@ -314,7 +315,7 @@ mod tests {
                         }
                     }
                 }
-            })),
+            }))),
             build_version: None,
         };
 
@@ -348,7 +349,7 @@ mod tests {
         let tool_names: Vec<&str> = reading
             .tool_names
             .iter()
-            .map(|name| name.as_str())
+            .map(FreeFormText::as_str)
             .collect();
         assert_eq!(tool_names, ["send_message"]);
         let sendable: Vec<(&str, &ClaudeToolServerEntry)> = servers

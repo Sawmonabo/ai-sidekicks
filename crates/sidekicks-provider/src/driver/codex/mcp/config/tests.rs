@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::slice;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -18,7 +19,9 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
 use crate::driver::codex::transport::connection::CodexConnectionHandlers;
 use crate::driver::codex::transport::connection::scripted_service::connect_scripted_service;
-use crate::driver::mcp_server::read::{McpServerDeclaration, McpServerSignInClient};
+use crate::driver::mcp_server::read::{
+    McpRootReading, McpServerDeclaration, McpServerSignInClient,
+};
 
 /// The largest message the scripted connection takes, far above any a test sends.
 const MESSAGE_LIMIT: usize = 1 << 20;
@@ -123,7 +126,7 @@ fn declaration<'reading>(
         .expect("the binding is declared")
 }
 
-fn user_layer(servers: Value) -> Value {
+fn user_layer(servers: &Value) -> Value {
     json!({
         "name": {"type": "user", "file": USER_FILE, "profile": null},
         "version": "1",
@@ -131,7 +134,7 @@ fn user_layer(servers: Value) -> Value {
     })
 }
 
-fn project_layer(servers: Value) -> Value {
+fn project_layer(servers: &Value) -> Value {
     json!({
         "name": {"type": "project", "dotCodexFolder": format!("{ROOT}/.codex")},
         "version": "1",
@@ -167,7 +170,7 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
     let reply = json!({
         "config": {"mcp_servers": servers},
         "origins": {},
-        "layers": [user_layer(servers.clone())],
+        "layers": [user_layer(&servers)],
     });
     let plugin_home = tempfile::tempdir().expect("a scratch folder is made");
     let plugin = plugin_home.path().join("plugins/cache/market/tools/1.0.0");
@@ -280,11 +283,11 @@ async fn each_layer_binds_its_own_declaration_and_a_higher_entry_supersedes_it()
         }},
         "origins": {},
         "layers": [
-            project_layer(json!({
+            project_layer(&json!({
                 "docs": {"url": "https://docs.example.com/mcp"},
                 "tuned": {"startup_timeout_sec": 30},
             })),
-            user_layer(json!({
+            user_layer(&json!({
                 "docs": {"command": "docs-server"},
                 "tuned": {"command": "tuned-server"},
             })),
@@ -300,14 +303,14 @@ async fn each_layer_binds_its_own_declaration_and_a_higher_entry_supersedes_it()
         project_docs.config,
         McpServerConfigView::Http { .. }
     ));
-    assert!(project_docs.superseded_in.is_empty());
+    assert_eq!(project_docs.superseded_in, [] as [McpOverrideOrigin; 0]);
     assert_eq!(
         declaration(&reading, &user("docs")).superseded_in,
         vec![project_file.clone()]
     );
     let user_tuned = declaration(&reading, &user("tuned"));
     assert_eq!(user_tuned.superseded_in, vec![project_file]);
-    assert!(user_tuned.disabled_in.is_empty());
+    assert_eq!(user_tuned.disabled_in, [] as [McpOverrideOrigin; 0]);
     assert!(matches!(
         user_tuned.config,
         McpServerConfigView::Stdio { startup_timeout_sec: Some(timeout), .. }
@@ -324,7 +327,10 @@ async fn each_layer_binds_its_own_declaration_and_a_higher_entry_supersedes_it()
     assert_eq!(reading.roots.len(), 1);
     assert_eq!(reading.roots[0].root, placed(ROOT));
     assert_eq!(reading.roots[0].provider_loaded, vec![project("docs")]);
-    assert!(reading.roots[0].kept_out_server_names.is_empty());
+    assert_eq!(
+        reading.roots[0].kept_out_server_names,
+        [] as [McpServerName; 0]
+    );
     assert!(!reading.is_machine_managed);
 }
 
@@ -338,7 +344,7 @@ async fn an_administrator_server_reads_managed_and_names_the_file_that_overrides
         }},
         "origins": {},
         "layers": [
-            user_layer(json!({"corp": {"tool_timeout_sec": 60}})),
+            user_layer(&json!({"corp": {"tool_timeout_sec": 60}})),
             {
                 "name": {"type": "mdm", "domain": "com.openai.codex", "key": "config_toml_base64"},
                 "version": "1",
@@ -367,7 +373,7 @@ async fn an_administrator_server_reads_managed_and_names_the_file_that_overrides
         "the person's override binds nothing"
     );
     assert!(reading.is_machine_managed);
-    assert!(reading.roots.is_empty());
+    assert_eq!(reading.roots, [] as [McpRootReading; 0]);
 }
 
 // Killed by naming no origin for an administrator's layer written in no file, and by naming it
@@ -383,7 +389,7 @@ async fn a_device_management_layer_is_named_where_it_overrides_the_persons_serve
                 "version": "1",
                 "config": {"mcp_servers": {"docs": {"enabled": false, "tool_timeout_sec": 9}}},
             },
-            user_layer(json!({"docs": {"command": "docs-server"}})),
+            user_layer(&json!({"docs": {"command": "docs-server"}})),
         ],
     });
     let plugin_home = tempfile::tempdir().expect("a scratch folder is made");
@@ -401,15 +407,18 @@ async fn a_device_management_layer_is_named_where_it_overrides_the_persons_serve
 // Killed by reading a layer Codex ignores.
 #[tokio::test]
 async fn a_layer_codex_ignores_binds_nothing() {
-    let mut ignored = project_layer(json!({"ghost": {"command": "ghost-server"}}));
+    let mut ignored = project_layer(&json!({"ghost": {"command": "ghost-server"}}));
     ignored["disabledReason"] = json!("the project is not trusted");
     let reply = json!({"config": {}, "origins": {}, "layers": [ignored]});
     let plugin_home = tempfile::tempdir().expect("a scratch folder is made");
 
     let reading = read_scripted(&[attached_root()], plugin_home.path(), &[reply]).await;
 
-    assert!(reading.declarations.is_empty());
-    assert!(reading.roots[0].provider_loaded.is_empty());
+    assert_eq!(reading.declarations, [] as [McpServerDeclaration; 0]);
+    assert_eq!(
+        reading.roots[0].provider_loaded,
+        [] as [McpServerBindingRef; 0]
+    );
 }
 
 fn plugin_binding(plugin: &str, name: &str) -> McpServerBindingRef {
@@ -449,14 +458,14 @@ async fn a_plugin_the_config_switches_off_is_disabled_in_that_file() {
     );
     write_codex_plugin(plugin_home.path(), "market", "extra", &one_server("notes"));
     write_codex_plugin(plugin_home.path(), "market", "kept", &one_server("pages"));
-    let mut user = user_layer(json!({}));
+    let mut user = user_layer(&json!({}));
     user["config"]["plugins"] = json!({
         "tools": {"enabled": true},
         "tools@market": {"enabled": false},
         "helpers@market": {"enabled": true, "mcp_servers": {"lookup": {"enabled": false}}},
         "kept@market": {"enabled": false},
     });
-    let mut project = project_layer(json!({}));
+    let mut project = project_layer(&json!({}));
     project["config"]["plugins"] = json!({
         "_default": {"enabled": false},
         "kept@market": {"enabled": true},
@@ -472,11 +481,14 @@ async fn a_plugin_the_config_switches_off_is_disabled_in_that_file() {
             .disabled_in
             .clone()
     };
-    assert_eq!(disabled_in("tools", "search"), [user_file.clone()]);
+    assert_eq!(disabled_in("tools", "search"), slice::from_ref(&user_file));
     assert_eq!(disabled_in("helpers", "lookup"), [user_file]);
-    assert!(disabled_in("helpers", "other").is_empty());
+    assert_eq!(
+        disabled_in("helpers", "other"),
+        [] as [McpOverrideOrigin; 0]
+    );
     assert_eq!(disabled_in("extra", "notes"), [project_file]);
-    assert!(disabled_in("kept", "pages").is_empty());
+    assert_eq!(disabled_in("kept", "pages"), [] as [McpOverrideOrigin; 0]);
 }
 
 // A plugin whose root manifest names the Agent Plugins schema declares the servers of its own
@@ -547,7 +559,13 @@ async fn an_agent_format_plugin_declares_its_servers_as_codex_reads_them() {
                 server_name,
                 ..
             } => (scope_ref.as_str(), server_name.as_str()),
-            _ => panic!("a plugin's server binds to its plugin"),
+            McpServerBindingRef::User { .. }
+            | McpServerBindingRef::Project { .. }
+            | McpServerBindingRef::Local { .. }
+            | McpServerBindingRef::Connector { .. }
+            | McpServerBindingRef::Managed { .. } => {
+                panic!("a plugin's server binds to its plugin")
+            }
         })
         .collect();
     assert_eq!(

@@ -278,7 +278,7 @@ async fn a_refresh_records_the_probes_reading_and_a_plain_list_sends_no_probe() 
         [McpProbeScope::None, McpProbeScope::EveryBinding]
     );
     assert_eq!(plain_status, McpServerStatus::Unknown);
-    assert!(plain_tools.is_empty());
+    assert_eq!(plain_tools, [] as [McpToolReading; 0]);
     assert_eq!(refreshed_status, McpServerStatus::Connected);
     assert_eq!(
         refreshed_tools,
@@ -455,18 +455,18 @@ async fn a_binding_gone_from_the_config_loses_its_probe_reading_and_a_live_leg_s
         .await
         .expect("the inventory lists");
 
-    assert!(entries.is_empty());
+    assert_eq!(entries, [] as [McpServerInventoryEntry; 0]);
     let docs = inventory
         .tracker
         .reading(&McpBindingKey::of(&docs_binding(&inventory.provider)));
     assert_eq!(docs.status, McpServerStatus::Unknown);
-    assert!(docs.tool_names.is_empty());
+    assert_eq!(docs.tool_names, [] as [McpToolName; 0]);
     let news = inventory
         .tracker
         .reading(&McpBindingKey::of(&news(&inventory.provider)));
     assert_eq!(news.legs.len(), 1);
     assert_eq!(news.status, McpServerStatus::Failed);
-    assert!(news.tool_names.is_empty());
+    assert_eq!(news.tool_names, [] as [McpToolName; 0]);
 }
 
 /// A `local` row the store keeps for the person's `docs` entry, which is off by default, reaches
