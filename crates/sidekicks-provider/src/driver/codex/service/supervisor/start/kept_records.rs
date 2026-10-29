@@ -21,7 +21,8 @@ use crate::driver::codex::service::process::{
     LastingCodexService, codex_lasting_service_environment_entry, repin_lasting_codex_service,
 };
 use crate::driver::codex::service::record::{
-    LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord, recorded_files,
+    LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
+    one_recorded_file_per_folder,
 };
 use crate::driver::codex::service::socket_link::{
     clear_socket_link_of, is_listening, restore_socket_link,
@@ -183,7 +184,7 @@ pub(super) async fn take_kept_service(
 /// and one draining is left to its drain. All are stopped together, so the stop takes one grace
 /// whatever the count; each failure is reported.
 pub(crate) async fn stop_kept_services(data_folder: PathBuf) {
-    let listed = tokio::task::spawn_blocking(move || recorded_files(&data_folder))
+    let listed = tokio::task::spawn_blocking(move || one_recorded_file_per_folder(&data_folder))
         .await
         .map_err(io::Error::other)
         .and_then(|listed| listed);
@@ -194,20 +195,48 @@ pub(crate) async fn stop_kept_services(data_folder: PathBuf) {
             return;
         }
     };
-    let stopped = join_all(files.into_iter().map(|file| async {
-        let locked = lock_record(file).await?;
-        let Some(record) = read_record(&locked).await? else {
-            return Ok(());
-        };
-        // A service that never answered names no socket, so where no signal stops a process its
-        // stop goes straight to the forced end.
-        let control_socket = record.physical_socket.unwrap_or_default();
-        retire_kept_record(&locked, &control_socket).await
-    }))
-    .await;
-    for failure in stopped.into_iter().filter_map(Result::err) {
+    let stopped = join_all(files.into_iter().map(stop_folder_kept_services)).await;
+    for failure in stopped.into_iter().flatten().filter_map(Result::err) {
         report_kept_service_unstopped(&failure.error);
     }
+}
+
+// Stops every service the records of `file`'s Codex folder keep, all together under the one hold
+// of the folder's lock, so no retire waits on another's hold; answers each record's outcome, or
+// the lock's or the listing's failure.
+async fn stop_folder_kept_services(
+    file: LastingServiceRecordFile,
+) -> Vec<Result<(), StartFailure>> {
+    let held = async {
+        let locked = lock_record(file).await?;
+        let others = on_record(&locked, LockedServiceRecord::others)
+            .await
+            .map_err(|error| {
+                start_failed("The Codex services' records could not be listed.", error)
+            })?;
+        Ok::<_, StartFailure>(
+            std::iter::once(locked)
+                .chain(others.into_iter().map(Arc::new))
+                .collect::<Vec<_>>(),
+        )
+    }
+    .await;
+    let records = match held {
+        Ok(records) => records,
+        Err(failure) => return vec![Err(failure)],
+    };
+    join_all(records.iter().map(stop_kept_record)).await
+}
+
+// Stops the service the record `locked` holds still keeps, as `retire_kept_record` retires it.
+async fn stop_kept_record(locked: &Arc<LockedServiceRecord>) -> Result<(), StartFailure> {
+    let Some(record) = read_record(locked).await? else {
+        return Ok(());
+    };
+    // A service that never answered names no socket, so where no signal stops a process its stop
+    // goes straight to the forced end.
+    let control_socket = record.physical_socket.unwrap_or_default();
+    retire_kept_record(locked, &control_socket).await
 }
 
 // Reports a kept service the stop could not stop, which then runs on in its record.

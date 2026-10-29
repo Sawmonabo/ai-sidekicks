@@ -151,9 +151,21 @@ pub(crate) fn recorded_home_keys(data_folder: &Path) -> io::Result<Vec<String>> 
     Ok(keys)
 }
 
-/// Every record file kept under `data_folder`, of every Codex folder, a folder's records listed
-/// together; none when no record was ever kept. Blocking. Fails with a folder's read error.
-pub(crate) fn recorded_files(data_folder: &Path) -> io::Result<Vec<LastingServiceRecordFile>> {
+/// One record file of each Codex folder that keeps a record under `data_folder`, whose lock and
+/// [`LockedServiceRecord::others`] reach the folder's every record; none when no record was ever
+/// kept. Blocking. Fails with a folder's read error.
+pub(crate) fn one_recorded_file_per_folder(
+    data_folder: &Path,
+) -> io::Result<Vec<LastingServiceRecordFile>> {
+    let mut files = recorded_files(data_folder)?;
+    // A folder's records are listed together, and share the folder's one lock.
+    files.dedup_by(|file, kept| file.lock == kept.lock);
+    Ok(files)
+}
+
+// Every record file kept under `data_folder`, of every Codex folder, a folder's records listed
+// together; none when no record was ever kept. Blocking. Fails with a folder's read error.
+fn recorded_files(data_folder: &Path) -> io::Result<Vec<LastingServiceRecordFile>> {
     let folders = match std::fs::read_dir(data_folder.join(RECORD_FOLDER_NAME)) {
         Ok(folders) => folders,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
