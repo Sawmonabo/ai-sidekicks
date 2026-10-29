@@ -167,6 +167,8 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::prompt_entry;
+    use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
+
     use crate::client::test_server::{
         Reply, method_not_found, open_test_server, test_client, v1_initialize_result,
     };
@@ -180,7 +182,7 @@ mod tests {
         let server = FreeFormText::new("github".to_owned()).expect("a server name");
         let binding = ProviderCommandBinding {
             provider_name: ProviderId::new("test-provider".to_owned()).expect("a provider id"),
-            provider_account_id: None,
+            provider_account_id: test_provider_account_id(),
         };
 
         let entry = prompt_entry(prompt, &server, &binding).expect("the prompt is in bounds");

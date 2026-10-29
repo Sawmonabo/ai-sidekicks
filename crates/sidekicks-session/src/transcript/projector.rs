@@ -29,7 +29,7 @@ use sidekicks_store::events::session::read::{
 use sidekicks_store::transcript::rejoin::{RowReads, joined_body_of, joined_row_content_of};
 use sidekicks_store::transcript::whole_patch::OMITTED_PATCHES_PAYLOAD_KEY;
 
-use crate::run::agent::read_lead_binding;
+use crate::run::agent::read_session_lead;
 use crate::service::ProviderDriverLookup;
 use crate::transcript::block_cut::{BlockParse, prose_body_of, with_block_starts};
 use crate::transcript::task_list_call::is_task_list_call;
@@ -114,8 +114,8 @@ where
         .collect();
     let unended_rows = row_reads.unended_rows(&prose_rows, head)?;
     let read_bound = session_read_bound(&read_damaged_from_sequence, session_id, None);
-    let task_list_driver = read_lead_binding(reader, session_id, read_bound)?
-        .and_then(|(provider, _)| driver_of(&provider));
+    let task_list_driver = read_session_lead(reader, session_id, read_bound)?
+        .and_then(|lead| driver_of(&lead.binding.provider_name));
     let reads = RunTurnReads::new(reader, &read_damaged_from_sequence);
     let mut attribution = SessionTurnAttribution::new(*session_id);
     rows.iter()

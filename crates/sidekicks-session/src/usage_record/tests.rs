@@ -314,7 +314,6 @@ fn queued(
             resolved_agent: None,
             parent_run_id,
             reached_by: parent_run_id.map(|_| ChildRunProvenance::ProviderSubagent),
-            is_apart: None,
             effective_run_config: token_limit.map(|limit| OrchestrationRunConfig {
                 token_limit: Some(TokensPerRun(
                     SafeInt::new(limit).expect("the test's limit is a safe integer"),

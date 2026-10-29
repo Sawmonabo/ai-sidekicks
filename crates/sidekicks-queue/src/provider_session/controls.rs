@@ -4,6 +4,7 @@
 //! driver brings back itself, takes the move first; a session with none takes it from the store
 //! when its next process opens.
 
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -21,7 +22,17 @@ use sidekicks_session::permission_level::{
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
-use super::{OpenedProcess, ProviderSessionError, ProviderSessions, ResumeOpening};
+use super::resume::ComposedResume;
+use super::{OpenedProcess, ProviderSessionError, ProviderSessions};
+
+/// What a side question is asked from: the session's binding its usage is recorded on, and the
+/// resume material its copy is forked from.
+pub struct SideQuestionSource {
+    /// The binding of the session's newest conversation.
+    pub binding_id: RuntimeBindingId,
+    /// That conversation, composed as a resume of it is.
+    pub resume: ResumeSessionParams,
+}
 
 impl ProviderSessions {
     /// Moves the session to `level` and stores it, unless it stands there already. A process that
@@ -152,22 +163,26 @@ impl ProviderSessions {
         }
     }
 
-    /// The resume material a side question's throwaway copy is forked from: the session's newest
+    /// What a side question's throwaway copy is forked from and recorded on: the session's newest
     /// conversation, composed as a resume of it is, whether or not a process runs it, since the
-    /// driver forks the live process where one runs. `None` for a session that never ran. Fails as
-    /// the leg's read or the opening's composition fails.
-    pub async fn side_question_resume(
+    /// driver forks the live process where one runs, and that conversation's binding, which the
+    /// copy's usage is recorded on. `None` for a session that never ran. Fails as the leg's read or
+    /// the opening's composition fails.
+    pub async fn side_question_source(
         &self,
         session_id: SessionId,
-    ) -> Result<Option<ResumeSessionParams>, ProviderSessionError> {
+    ) -> Result<Option<SideQuestionSource>, ProviderSessionError> {
         let Some(leg) = read_session_leg(&self.deps.pool, session_id).await? else {
             return Ok(None);
         };
         // The copy runs under no binding of the session's; the id only fills the material.
-        let ResumeOpening { params, .. } = self
+        let ComposedResume { params, .. } = self
             .compose_resume(session_id, &leg, mint_runtime_binding_id())
             .await?;
-        Ok(Some(params))
+        Ok(Some(SideQuestionSource {
+            binding_id: leg.id,
+            resume: params,
+        }))
     }
 
     // Stores `level` while the session has a directory row.
