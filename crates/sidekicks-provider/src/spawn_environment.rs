@@ -385,6 +385,7 @@ mod tests {
         callback_tools_asked: false,
         account_home_diagnostic_folders: &[],
         account_home_conversation_folders: &[],
+        account_home_memory_folder: None,
         shell_prefix_command: None,
     };
 

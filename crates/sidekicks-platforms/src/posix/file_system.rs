@@ -105,7 +105,6 @@ pub fn is_superuser() -> bool {
 }
 
 /// Makes `link` a symbolic link to the folder `target`. Fails with the system's error.
-#[cfg(any(test, feature = "test-support"))]
 pub fn make_folder_link(target: &Path, link: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(target, link)
 }

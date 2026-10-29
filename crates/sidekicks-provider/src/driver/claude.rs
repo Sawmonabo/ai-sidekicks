@@ -245,6 +245,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         &["uploads"],
         &["dev-mods"],
     ],
+    // Each agent's user-scope memory, which every account's agents share with the daemon's own.
+    account_home_memory_folder: Some(&["agent-memory"]),
     shell_prefix_command: Some(command_shape::CLAUDE_SHELL_PREFIX_COMMAND),
 };
 

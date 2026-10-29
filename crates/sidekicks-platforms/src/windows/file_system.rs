@@ -163,7 +163,6 @@ pub fn is_superuser() -> bool {
 
 /// Makes `link` a symbolic link to the folder `target`, which needs the person's developer mode or
 /// the right to make links. Fails with the system's error.
-#[cfg(any(test, feature = "test-support"))]
 pub fn make_folder_link(target: &Path, link: &Path) -> io::Result<()> {
     std::os::windows::fs::symlink_dir(target, link)
 }

@@ -20,7 +20,7 @@ use std::time::{Duration, SystemTime};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_platforms::atomic_write_target_of;
-use sidekicks_provider::account_homes::{account_home_diagnostic_folders, read_account_homes};
+use sidekicks_provider::account::homes::{account_home_diagnostic_folders, read_account_homes};
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::service_log::{
