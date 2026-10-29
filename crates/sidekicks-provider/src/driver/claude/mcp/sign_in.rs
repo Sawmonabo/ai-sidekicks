@@ -457,11 +457,11 @@ struct ClaudeDiscoveryState {
 }
 
 /// A saved sign-in read back, its client id where Claude Code kept one.
-pub(crate) struct ClaudeSavedSignInReading {
+struct ClaudeSavedSignInReading {
     /// The credentials, their client id empty where Claude Code kept none.
-    pub(crate) takeover: ProviderSignInTakeover,
+    takeover: ProviderSignInTakeover,
     /// Whether the saved sign-in named its client.
-    pub(crate) has_client_id: bool,
+    has_client_id: bool,
 }
 
 /// The sign-in Claude Code's credentials file `text` holds for the server `name` at `address`,
@@ -469,7 +469,7 @@ pub(crate) struct ClaudeSavedSignInReading {
 /// computes; the expiry Claude Code keeps in milliseconds since the epoch, the scopes as one
 /// space-separated text. Fails with `CredentialsUnreadable` for a file Claude Code did not write,
 /// and `NoSavedSignIn` when none with an access token matches.
-pub(crate) fn read_claude_saved_sign_in(
+fn read_claude_saved_sign_in(
     text: &str,
     name: &McpServerName,
     address: &McpServerAddress,

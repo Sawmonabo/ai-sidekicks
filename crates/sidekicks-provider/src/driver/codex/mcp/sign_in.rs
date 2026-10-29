@@ -216,7 +216,7 @@ async fn make_sign_in_folder(
 /// The settings of a sign-in's own Codex home: sign-ins kept in a file, and `entry` as the one
 /// server `name`, its `null` members dropped since TOML has none. Fails when the entry holds a
 /// value TOML cannot write.
-pub(crate) fn compose_sign_in_settings(
+fn compose_sign_in_settings(
     name: &McpServerName,
     entry: Map<String, Value>,
 ) -> Result<String, toml::ser::Error> {
@@ -437,7 +437,7 @@ struct CodexSavedSignIn {
 /// matched by the saved name and address, never by the file's key, whose hash Codex may compute
 /// differently between builds; the expiry Codex keeps in milliseconds since the epoch. Fails with
 /// `CredentialsUnreadable` for a file Codex did not write, and `NoSavedSignIn` when none matches.
-pub(crate) fn read_codex_saved_sign_in(
+fn read_codex_saved_sign_in(
     text: &str,
     name: &McpServerName,
     address: &McpServerAddress,
