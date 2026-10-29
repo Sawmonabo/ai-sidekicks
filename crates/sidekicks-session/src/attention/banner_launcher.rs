@@ -284,15 +284,16 @@ mod tests {
 
         match lift {
             Lift::SubscriptionOpens => drop(launcher.hold_local_subscription()),
+            // The hold is three times the slowest start measured, 630 ms in all.
             Lift::FallbackPasses => {
-                sleep(UNWATCHED_START_HOLD.saturating_sub(Duration::from_millis(2))).await;
+                sleep(Duration::from_millis(627)).await;
                 launcher.request_start();
                 assert_eq!(
                     starter.launches(),
                     1,
                     "the guard lifted before the hold passed"
                 );
-                sleep(Duration::from_millis(2)).await;
+                sleep(Duration::from_millis(3)).await;
             }
             Lift::ProcessExits => {
                 launcher.request_start();
