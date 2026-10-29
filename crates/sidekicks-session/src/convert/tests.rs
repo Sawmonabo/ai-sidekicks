@@ -171,6 +171,10 @@ impl Fixture {
                     after_cursor = Some(page.next_cursor);
                 }
                 SessionConversionSkippedFileListResponse::Terminal(page) => {
+                    assert!(
+                        pages == 1 || !page.files.as_slice().is_empty(),
+                        "a page said more files follow, and the next page held none",
+                    );
                     files.extend(page.files.as_slice().iter().cloned());
                     return (files, pages);
                 }
@@ -430,6 +434,7 @@ async fn a_copy_cut_short_is_removed_at_start_and_on_resume() {
 }
 
 // Kills the cursor's `>` written `>=`: each page would carry the previous page's last file again.
+// Kills the page's more-follows check written `>=`: a full last page would say more follows.
 #[tokio::test]
 async fn every_skipped_file_is_read_back_once_in_path_order_over_pages_cut_at_the_budget() {
     let fixture = Fixture::new().await;
