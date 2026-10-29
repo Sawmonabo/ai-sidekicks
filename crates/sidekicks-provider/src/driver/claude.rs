@@ -72,6 +72,7 @@ mod hooks;
 pub(crate) mod inbox;
 mod intervention;
 mod lifecycle;
+mod mcp;
 mod output_speed;
 mod rate_limit_windows;
 mod run;
