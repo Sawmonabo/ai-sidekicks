@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::approval::{ApprovalCategory, ApprovalScope};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
+use sidekicks_contracts::mcp::server::{McpServerName, McpToolName};
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -44,6 +45,14 @@ pub struct ApprovalResourceDescriptor {
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
     pub(crate) tool_name: Option<NonEmptyText>,
+    /// The tool server and its tool a workflow step's call names, apart, which a session rule
+    /// over the call keys on.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "sidekicks_contracts::wire::present"
+    )]
+    pub(crate) tool_server_tool: Option<ToolServerTool>,
     /// The provider's own line saying why it stopped.
     #[serde(
         default,
@@ -51,6 +60,17 @@ pub struct ApprovalResourceDescriptor {
         deserialize_with = "sidekicks_contracts::wire::present"
     )]
     pub(crate) prompt: Option<NonEmptyText>,
+}
+
+/// A tool server's tool by its server's name and its own, never joined, since either may hold the
+/// separator a joined name uses.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ToolServerTool {
+    /// The server's name.
+    pub(crate) server: McpServerName,
+    /// The tool's name on that server.
+    pub(crate) tool: McpToolName,
 }
 
 impl ApprovalResourceDescriptor {

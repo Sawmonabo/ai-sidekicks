@@ -25,7 +25,7 @@ use crate::database::stored_column::{closed_word, text_column};
 /// copied for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, VariantArray, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
-enum ConvertedFileOutcome {
+pub enum ConvertedFileOutcome {
     /// The file was copied into the repository.
     Copied,
 }
@@ -143,6 +143,11 @@ CREATE TABLE sessions (
   -- The folder a requested working-folder move goes to, applied at the active run's next
   -- boundary; NULL while no move waits.
   pending_working_folder     TEXT,
+  -- The workspace the waiting move was asked for, set and cleared with the folder; a move whose
+  -- session works in another workspace by then is dropped.
+  pending_working_folder_workspace_id TEXT
+                             CHECK((pending_working_folder IS NULL)
+                                   = (pending_working_folder_workspace_id IS NULL)),
   -- The level every process the session opens or resumes starts at, which the run queue's
   -- admission reads.
   permission_level           TEXT NOT NULL DEFAULT '{yolo}'
@@ -181,12 +186,15 @@ CREATE TABLE session_convert_requests (
 ) STRICT;
 
 -- Each workspace file a conversion has dealt with, recorded as its copy lands: copied, or not
--- copied with the reason. A resumed conversion skips every path here and counts from these rows.
+-- copied with the reason. A file is keyed by its path's stable bytes, the system's own form of each
+-- name, and shown by its path as text, a name that is not Unicode written lossily. A resumed
+-- conversion skips every key here and counts from these rows.
 CREATE TABLE session_convert_files (
   session_id  TEXT NOT NULL,
+  path_key    BLOB NOT NULL,
   path        TEXT NOT NULL,
   outcome     TEXT NOT NULL CHECK(outcome IN ({convert_outcomes})),
-  PRIMARY KEY (session_id, path)
+  PRIMARY KEY (session_id, path_key)
 ) STRICT, WITHOUT ROWID;
 
 -- What a session holds outside its event log that the spawn path reads: configuration the person

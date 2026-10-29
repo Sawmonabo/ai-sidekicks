@@ -27,7 +27,8 @@ use sidekicks_std::missing_entry::is_missing_entry;
 use sidekicks_std::text_cut::cut_to_code_points;
 
 use crate::git::process::{
-    GitCall, GitError, GitRunner, background_read, read_git_common_folder, strip_line_end,
+    GIT_FATAL_EXIT_CODE, GitCall, GitError, GitRunner, background_read, read_git_common_folder,
+    strip_line_end,
 };
 use crate::git::worktree::reads::{ListedWorktree, read_listed_worktrees};
 use crate::repo::errors::RepoRefusal;
@@ -39,9 +40,6 @@ use crate::trust_envelope::{components_equal, is_contained_within};
 /// them. A call past it reads `notReadable`, as a file read past that ceiling does, since a git
 /// that cannot finish reading the folder says the folder is out of reach.
 pub(crate) const ROOT_RESOLUTION_GIT_TIMEOUT: Duration = Duration::from_secs(10);
-
-/// git's exit code for a fatal error, half of its not-a-repository verdict.
-const GIT_FATAL_EXIT_CODE: i32 = 128;
 
 /// The start of git's not-a-repository line, matched at the start of a standard error line without
 /// case: anywhere else it could sit inside a quoted path of another fatal error, and git escapes
@@ -82,10 +80,6 @@ pub struct RepoRootResolver {
     canned_resolution: Option<RepoRootResolution>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the repository mount attach and its health read")
-)]
 impl RepoRootResolver {
     /// The resolver asking `git`, each call held to `ROOT_RESOLUTION_GIT_TIMEOUT`.
     pub fn new(git: GitRunner) -> Self {
@@ -226,7 +220,7 @@ impl RepoRootResolver {
 
     /// The top level, each link resolved, of the working tree `folder` sits in, or `None` when git
     /// answers that it sits in none. Fails with `vcsError` when git cannot answer.
-    pub(crate) async fn read_working_tree_root(
+    pub async fn read_working_tree_root(
         &self,
         folder: &Path,
     ) -> Result<Option<PathBuf>, RepoRefusal> {

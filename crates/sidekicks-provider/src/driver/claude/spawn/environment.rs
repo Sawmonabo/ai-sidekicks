@@ -20,6 +20,10 @@ use crate::spawn_environment::{
 const CLAUDE_SCRATCH_FOLDER: &str = "claude-scratch";
 const ACCOUNT_SCRATCH_FOLDERS: &str = "accounts";
 
+/// The environment key that has a resumed Claude Code process continue the turn its conversation
+/// left interrupted, which it otherwise leaves as it is.
+pub(crate) const CLAUDE_RESUME_INTERRUPTED_TURN_KEY: &str = "CLAUDE_CODE_RESUME_INTERRUPTED_TURN";
+
 /// The folders of an account the daemon manages, which Claude Code reads through
 /// `CLAUDE_CONFIG_DIR` and `CLAUDE_SECURESTORAGE_CONFIG_DIR`; each an absolute path.
 pub(crate) struct ClaudeAccountFolders {
@@ -142,6 +146,17 @@ pub(crate) fn compose_claude_process_environment(
         },
         additional_mandated_pairs,
     )
+}
+
+/// `environment` without the key that continues an interrupted turn, which a resume sets on the
+/// one process it starts, so no later process started from the same environment continues it.
+pub(crate) fn without_interrupted_turn_resume(
+    environment: Vec<(String, String)>,
+) -> Vec<(String, String)> {
+    environment
+        .into_iter()
+        .filter(|(name, _)| name != CLAUDE_RESUME_INTERRUPTED_TURN_KEY)
+        .collect()
 }
 
 #[cfg(test)]

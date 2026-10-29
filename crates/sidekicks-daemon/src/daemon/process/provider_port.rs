@@ -9,9 +9,12 @@ use futures::FutureExt as _;
 use sidekicks_provider::driver::SessionSpawnContextResolver;
 use sidekicks_provider::driver::ports::{DriverPorts, SessionRelaunchListener};
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
-use sidekicks_queue::provider_session::{ProviderSessionOpening, ProviderSessionOpeningComposer};
+use sidekicks_queue::provider_session::{
+    GitFolderReadError, ProviderSessionGitFolderReader, ProviderSessionOpening,
+    ProviderSessionOpeningComposer,
+};
 use sidekicks_session::directory::provider_port::{
-    SessionDirectoryProviderPort, SessionDirectoryProviderPortDeps,
+    SessionDirectoryProviderPort, SessionDirectoryProviderPortDeps, SessionGitFolder,
 };
 use sidekicks_session::directory::run_activity::ProjectSessionActivityReader;
 use sidekicks_session::plan_holds::PlanHolds;
@@ -47,6 +50,8 @@ pub(crate) struct ProviderPort {
     pub(crate) project_records: Arc<ProjectRecords>,
     /// Composes a session's opening from its lead, for the queue.
     pub(crate) compose_opening: ProviderSessionOpeningComposer,
+    /// Reads a session's git folder, for the queue's level moves and run gates.
+    pub(crate) read_git_folder: ProviderSessionGitFolderReader,
 }
 
 /// Builds the project records and the session directory's port over `start`, and registers the
@@ -87,7 +92,8 @@ pub(crate) fn build_provider_port(
         .register(Arc::clone(&port) as Arc<dyn SessionRelaunchListener>)?;
     Ok(ProviderPort {
         project_records,
-        compose_opening: compose_opening(port),
+        compose_opening: compose_opening(Arc::clone(&port)),
+        read_git_folder: read_git_folder(port),
     })
 }
 
@@ -106,6 +112,23 @@ fn compose_opening(port: Arc<SessionDirectoryProviderPort>) -> ProviderSessionOp
                 create_params: opening.create_params,
                 function_legs_for: Arc::new(|_| ResumeFunctionLegs::default()),
             })
+        }
+        .boxed()
+    })
+}
+
+// A session's git folder as `port` reads it, unavailable where the port says the session has none.
+fn read_git_folder(port: Arc<SessionDirectoryProviderPort>) -> ProviderSessionGitFolderReader {
+    Arc::new(move |session_id| {
+        let port = Arc::clone(&port);
+        async move {
+            match port.read_git_folder(session_id).await {
+                Ok(SessionGitFolder::Available(git_folder)) => Ok(git_folder),
+                Ok(SessionGitFolder::Unavailable(why)) => {
+                    Err(GitFolderReadError::Unavailable(Box::new(why)))
+                }
+                Err(failure) => Err(GitFolderReadError::Failed(Box::new(failure))),
+            }
         }
         .boxed()
     })

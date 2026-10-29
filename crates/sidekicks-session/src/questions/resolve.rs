@@ -117,6 +117,7 @@ impl QuestionsService {
             run_id,
             request_id,
             answered_by,
+            ..
         } = self
             .held_request(&question_id)
             .ok_or(QuestionError::RequestNotHeld { question_id })?;

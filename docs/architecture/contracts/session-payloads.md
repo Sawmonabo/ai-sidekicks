@@ -232,6 +232,11 @@ interface SessionRecord {
   // it interrupts the turn (agent.turn.interrupted with cause "stepLimit", its partial result kept),
   // and the run rests as agent.run.interrupted with trigger "stepLimit" until a send continues it.
   maxStepsPerTurn?: number;
+  // The level the session runs at and whether its next turns plan or build, as the level and mode
+  // controls read them when the session is opened; a later move reaches an open client as the
+  // `session.notice.posted` kind `levelMoved`.
+  permissionLevel: PermissionLevel;
+  sessionMode: SessionMode;
   // The addresses another session writes to when it messages this one — what the session inspector
   // offers as `Copy address`, one row each. Each names an inbox the daemon holds for the session in
   // one place where Claude Code is installed — a socket in Claude Code's default socket folder of
@@ -351,9 +356,10 @@ interface SessionWorkingFolderUpdateResponse {
   sessionId: SessionId;
   // `applied` — the session moved now, either because it was idle or because the request
   // re-targeted the current directory and thereby cleared a pending move. `pending` — a run was
-  // live and the intent is recorded for the boundary. These two arms are what the composer strip
-  // reads to draw either the new tree or `<current> → <target> when this run ends`.
-  disposition: "applied" | "pending";
+  // live and the intent is recorded for the boundary. `dropped` — the session moved to another
+  // workspace before the move was made, so it was dropped. The first two arms are what the
+  // composer strip reads to draw either the new tree or `<current> → <target> when this run ends`.
+  disposition: "applied" | "pending" | "dropped";
   path: string;
 }
 
@@ -506,8 +512,11 @@ interface SessionConvertSkippedFile {
 }
 
 // SessionConversionSkippedFileList — session.conversion.skippedFile.list. The files a conversion
-// did not copy, a page at a time in path order, every one on some page. A session never converted,
-// or one that copied every file, answers an empty last page.
+// did not copy, a page at a time in the order of their path keys, every one on some page. A path
+// key is the path's stable bytes compared byte by byte: on macOS and Linux the path's own bytes, on
+// Windows its UTF-16 units as two little-endian bytes each, so the order follows no text collation
+// and a client keeps it as given. A session never converted, or one that copied every file,
+// answers an empty last page.
 interface SessionConversionSkippedFileListRequest {
   sessionId: SessionId;
   afterCursor?: SessionConvertSkippedFileCursor; // opaque, the daemon's own: the previous page's nextCursor

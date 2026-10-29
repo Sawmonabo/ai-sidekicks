@@ -25,8 +25,8 @@ use sidekicks_contracts::session::links::{
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::retry::waits::retry_wait;
 use sidekicks_store::database::connection::read_pool::{

@@ -25,6 +25,8 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
+use crate::run::delivery::RunSetupRefusal;
+
 /// A skill picked for a message as its provider listed it: its name and the file the provider
 /// loads it from, absolute. The daemon resolves a person's pick to it, so no path a client sent
 /// reaches a provider; reading one refuses an empty field or an unknown member.
@@ -332,9 +334,40 @@ pub struct RunToolBoundary {
     pub run_id: RunId,
 }
 
-/// The reason a helper reads when its next tool use is refused at its token limit.
-pub const HELPER_TOKEN_LIMIT_REASON: &str =
-    "You have reached your token limit. Report what you completed and what remains.";
+/// Why a helper is stopped alone while its lead goes on; each reason gives the sentence the helper
+/// reads as its next tool use is refused.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HelperStopReason {
+    /// The helper's own run passed its token limit.
+    TokenLimit,
+    /// The daemon refused the helper's run at its setup after the provider started it.
+    SetupRefused {
+        /// The setup's refusal, whose cause the sentence names.
+        refusal: RunSetupRefusal,
+    },
+}
+
+impl HelperStopReason {
+    /// The sentence the helper reads.
+    #[must_use]
+    pub fn sentence(&self) -> String {
+        match self {
+            Self::TokenLimit => {
+                "You have reached your token limit. Report what you completed and what remains."
+                    .to_owned()
+            }
+            Self::SetupRefused { refusal } if refusal.is_posture_rejection => format!(
+                "Stopped: this session's permission level cannot run right now, because {}. \
+                 Report what you did and stop.",
+                refusal.cause
+            ),
+            Self::SetupRefused { refusal } => format!(
+                "Stopped: the run could not be set up, because {}. Report what you did and stop.",
+                refusal.cause
+            ),
+        }
+    }
+}
 
 /// Params of `stop_helper_at_token_limit`: the helper whose own run passed its token limit, which
 /// stops alone while its lead goes on.

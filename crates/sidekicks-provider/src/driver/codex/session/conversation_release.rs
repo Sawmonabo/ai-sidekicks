@@ -15,7 +15,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 
-use crate::driver::codex::app_server_protocol::{ThreadResumeParams, ThreadUnsubscribeParams};
+use crate::driver::codex::app_server_protocol::ThreadUnsubscribeParams;
 use crate::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_STATUS_CHANGED_METHOD,
 };
@@ -26,10 +26,10 @@ use crate::driver::codex::session::background_terminals::{
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::session::slots::THREAD_UNSUBSCRIBE_METHOD;
+use crate::driver::codex::thread::settings::compose_codex_bare_thread_resume_params;
+use crate::driver::codex::thread::view::THREAD_RESUME_METHOD;
 use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
-
-const THREAD_RESUME_METHOD: &str = "thread/resume";
 
 /// The item type of a command Codex runs.
 const CODEX_COMMAND_ITEM_TYPE: &str = "commandExecution";
@@ -229,26 +229,7 @@ impl CodexConversationRelease {
                 Ok(connection) => connection
                     .request(
                         THREAD_RESUME_METHOD,
-                        &ThreadResumeParams {
-                            thread_id: thread_id.clone(),
-                            exclude_turns: Some(true),
-                            approval_policy: None,
-                            approvals_reviewer: None,
-                            base_instructions: None,
-                            config: None,
-                            cwd: None,
-                            developer_instructions: None,
-                            history: None,
-                            initial_turns_page: None,
-                            model: None,
-                            model_provider: None,
-                            path: None,
-                            permissions: None,
-                            personality: None,
-                            runtime_workspace_roots: None,
-                            sandbox: None,
-                            service_tier: None,
-                        },
+                        &compose_codex_bare_thread_resume_params(thread_id.clone()),
                     )
                     .await
                     .map(drop),

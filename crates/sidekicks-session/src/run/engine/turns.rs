@@ -33,8 +33,8 @@ use crate::interventions::store::run_at_version_statement;
 use crate::run::engine::limits::LimitStop;
 use crate::run::engine::live::LiveRuns;
 use crate::run::engine::{
-    LIVE_APPEND_VERSION_GUARD_INDEX, RunEngine, RunEngineError, refused_statement_index,
-    safe_run_version, with_cleanup_failures,
+    LIVE_APPEND_VERSION_GUARD_INDEX, RunEngine, RunEngineError, safe_run_version,
+    with_cleanup_failures,
 };
 use crate::run::read::RunRead;
 use crate::run::restart::{TurnCut, limit_turn_cause, read_turn_cuts};
@@ -132,11 +132,22 @@ pub(super) struct StepCount {
 impl StepCount {
     /// The count of `turn_number` at its start, bounded at `bound` steps.
     pub(super) fn new(turn_number: SafeInt<1>, bound: SafeInt<1>) -> Self {
+        Self::counted(turn_number, bound, 0, false)
+    }
+
+    /// The count of `turn_number` as its log shows it after a restart: `steps` taken against
+    /// `bound`, and whether the turn's step limit was reached.
+    pub(super) fn counted(
+        turn_number: SafeInt<1>,
+        bound: SafeInt<1>,
+        steps: u64,
+        is_reached: bool,
+    ) -> Self {
         Self {
             turn_number,
             bound,
-            steps: 0,
-            is_reached: false,
+            steps,
+            is_reached,
         }
     }
 }
@@ -274,7 +285,7 @@ impl RunEngine {
                 Err(error)
                     if attempt < TURN_START_ATTEMPTS
                         && matches!(
-                            refused_statement_index(&error),
+                            error.refused_statement_index(),
                             Some(LIVE_APPEND_VERSION_GUARD_INDEX | TURN_START_GUARD_INDEX)
                         ) => {}
                 Err(error) => return Err(error.into()),
@@ -520,7 +531,7 @@ impl RunEngine {
             .await;
         let is_written = match appended {
             Ok(_receipt) => true,
-            Err(error) if refused_statement_index(&error) == Some(LONE_TURN_END_GUARD_INDEX) => {
+            Err(error) if error.refused_statement_index() == Some(LONE_TURN_END_GUARD_INDEX) => {
                 false
             }
             Err(error) => return Err(error.into()),

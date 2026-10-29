@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
+use rstest::rstest;
 use serde_json::{Value, json};
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -12,7 +14,9 @@ use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, TestCodexSession, create_session_params, fork_reply, no_turns,
 };
-use crate::driver::session_control::DriverResumeResult;
+use crate::driver::contract::error::DriverError;
+use crate::driver::error_causes::ProviderAxis;
+use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
 use crate::process_identity::ProviderProcessIds as _;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 
@@ -50,6 +54,58 @@ async fn a_start_whose_profile_reads_back_wrong_lets_its_conversation_go_and_ins
         session.scripted.service.threads_of(&session_id),
         Vec::<String>::new()
     );
+}
+
+// Killed by a start that takes an effort its model's catalog row does not list, and by one that
+// checks the effort only once the conversation started.
+#[rstest]
+#[case::listed("high", false)]
+#[case::not_listed("max", true)]
+#[tokio::test(start_paused = true)]
+async fn a_start_refuses_an_effort_its_models_row_does_not_list_before_any_conversation(
+    #[case] effort: &str,
+    #[case] is_refused: bool,
+) {
+    let mut session = TestCodexSession::start().await;
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let establishment = session.establishment(folder.path());
+    let session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+    let params = CreateSessionParams {
+        effort: Some(ProviderToken::new(effort.to_owned()).expect("the effort fits")),
+        ..create_session_params(session_id)
+    };
+    let agent_id = params.agent_id;
+
+    let created = tokio::spawn(async move { establishment.create(&params).await.map(|_| ()) });
+    let script = &mut session.scripted.script;
+    let listed = script.next_sent().await;
+    assert_eq!(listed["method"], "model/list");
+    script.answer(
+        &listed,
+        &json!({
+            "data": [{
+                "id": "gpt-5",
+                "displayName": "GPT-5",
+                "hidden": false,
+                "supportedReasoningEfforts": [{"reasoningEffort": "high", "description": "Deep"}],
+            }],
+            "nextCursor": null,
+        }),
+    );
+
+    if is_refused {
+        let Err(CodexError::Driver(DriverError::ProviderAxisInvalid(invalid))) =
+            created.await.expect("the create's task ends")
+        else {
+            panic!("an effort the model's row does not list is refused for the session's lead");
+        };
+        assert_eq!(invalid.agent_id, agent_id);
+        assert_eq!(invalid.axis, ProviderAxis::Effort);
+        assert_eq!(invalid.value, Value::from(effort));
+    } else {
+        assert_eq!(script.next_sent().await["method"], "thread/start");
+        created.abort();
+    }
 }
 
 // Resumes the test session's conversation in place on a second service whose process is

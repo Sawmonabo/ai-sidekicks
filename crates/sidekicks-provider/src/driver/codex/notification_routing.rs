@@ -31,8 +31,8 @@ use crate::driver::diagnostics::{
 };
 use crate::terminal_emission_gate::TerminalEmissionGate;
 use crate::thread_frame_router::{
-    ChildRegistrationResult, ChildSpendAttribution, RoutableProviderFrame, ThreadFrameFamilyClass,
-    ThreadFrameRoute, ThreadFrameRouter,
+    ChildRegistrationResult, ChildSpendAttribution, ChildThreadAnnouncement, RoutableProviderFrame,
+    ThreadFrameFamilyClass, ThreadFrameRoute, ThreadFrameRouter,
 };
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, MeteredUsageDelta, ThreadBaseEstablishment, UsageAxisCounts,
@@ -211,6 +211,43 @@ impl CodexSessionRouting {
             )
             .await;
         self.accountant.release_thread(pre_fork_thread_id);
+        routed
+    }
+
+    /// Registers again a helper of the session's conversation that a resume found loaded, beneath
+    /// the conversation, its usage based on `prior_emitted_cumulative`, what was already metered
+    /// on it, and delivers the frames that waited for it. Starts no child run: the helper's run
+    /// is the one it already holds.
+    pub(crate) async fn restore_helper_thread(
+        &mut self,
+        delivery: &CodexFrameDelivery,
+        record: &mut CodexSessionRecord,
+        helper_thread_id: String,
+        prior_emitted_cumulative: UsageAxisCounts,
+    ) -> CodexRoutedFrames {
+        self.accountant.establish_thread(
+            helper_thread_id.clone(),
+            ThreadBaseEstablishment::Resume {
+                prior_emitted_cumulative,
+            },
+        );
+        let mut routed = CodexRoutedFrames::default();
+        let registered = self.router.register_child_thread(ChildThreadAnnouncement {
+            child_thread_id: helper_thread_id.clone(),
+            declared_parent_thread_id: Some(record.thread_id.clone()),
+            // A helper's own id is its conversation's.
+            subagent_id: Some(helper_thread_id),
+            waiting_call_id: None,
+        });
+        if let ChildRegistrationResult::Registered {
+            released_frames, ..
+        } = registered
+        {
+            for frame in released_frames {
+                self.route_frame(delivery, record, &frame, &mut routed)
+                    .await;
+            }
+        }
         routed
     }
 

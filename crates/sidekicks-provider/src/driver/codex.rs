@@ -37,11 +37,12 @@ use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
-    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
-    ListProviderCommandsParams, ProviderCommandsSubscription, RespondToRequestParams,
-    SessionProcessState, StartRunParams,
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
+    ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
@@ -94,6 +95,7 @@ mod notification_routing;
 mod output_speed;
 mod permission_level;
 mod rate_limits;
+mod release_notes;
 mod rules;
 mod run;
 mod server_requests;
@@ -110,12 +112,17 @@ mod vendored_schema;
 mod version;
 
 #[cfg(any(test, feature = "test-support"))]
-pub use service::supervisor::test_service::{ScriptedCodexService, start_scripted_codex_service};
+pub use service::supervisor::test_service::{
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, ScriptedCodexService,
+    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
+    write_codex_service_script,
+};
 
 /// Codex's fixed facts.
 pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     id: "codex",
     name: "Codex",
+    release_notes_address: release_notes::release_notes_address,
     plan_words: &[
         ("free", "Free"),
         ("go", "Go"),
@@ -270,6 +277,9 @@ const CODEX_MESSAGE_HANDING: MessageHanding = MessageHanding {
     kept_by_process: false,
     reads_priority_message: false,
 };
+
+/// The session options the Codex driver declares: none.
+const CODEX_SESSION_OPTIONS: &[ProviderSessionOption] = &[];
 
 impl ProviderDriver for CodexDriver {
     fn create_session(
@@ -470,7 +480,21 @@ impl ProviderDriver for CodexDriver {
         self.list_models(params).boxed()
     }
 
-    fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
+    // Codex takes any model id, and the effort levels sit in the catalog its service lists, so the
+    // start checks the effort; Codex declares no session option, so any option is refused.
+    fn check_lead_binding(&self, params: LeadBindingCheckParams) -> Result<(), DriverError> {
+        ProviderAxisInvalid::check_options(
+            params.agent_id,
+            params.options.as_ref(),
+            CODEX_SESSION_OPTIONS,
+        )
+        .map_err(DriverError::from)
+    }
+
+    fn list_modes(
+        &self,
+        _params: ListModesParams,
+    ) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
         ready(Ok(list_codex_modes())).boxed()
     }
 
@@ -559,6 +583,11 @@ impl ProviderDriver for CodexDriver {
         self.observed_output_speed_for(*session_id)
     }
 
+    // Codex reports no permission mode of its own.
+    fn reported_level(&self, _session_id: &SessionId) -> Option<ProviderReportedLevel> {
+        None
+    }
+
     fn read_rows(
         &self,
         app_values: ProviderRowValues,
@@ -577,9 +606,8 @@ impl ProviderDriver for CodexDriver {
         self.apply_row_value(params).boxed()
     }
 
-    // Codex declares no session option.
     fn session_options(&self) -> BoxFuture<'_, Result<Vec<ProviderSessionOption>, DriverError>> {
-        ready(Ok(Vec::new())).boxed()
+        ready(Ok(CODEX_SESSION_OPTIONS.to_vec())).boxed()
     }
 
     // With no option declared, there is none to observe.

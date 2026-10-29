@@ -52,11 +52,11 @@ use crate::driver::codex::run::control::{CodexRunControl, CodexRunControlDepende
 use crate::driver::codex::run::faster_model_retry::{
     CodexFasterModelRetries, CodexFasterModelRetryDependencies,
 };
-use crate::driver::codex::run::helper_token_limit::CodexLimitStoppedHelpers;
 use crate::driver::codex::run::routes::CodexRunRoutes;
 use crate::driver::codex::run::self_started_turns::CodexSelfStartedTurnDependencies;
 use crate::driver::codex::run::start::record::{CodexBindingAdoptions, CodexRunCallDependencies};
 use crate::driver::codex::run::start::{CodexRunStart, CodexRunStartDependencies};
+use crate::driver::codex::run::stopped_helpers::CodexStoppedHelpers;
 use crate::driver::codex::service::home::CodexHomes;
 use crate::driver::codex::service::program::CodexInstalledProgram;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
@@ -104,8 +104,8 @@ pub(crate) struct CodexDriver {
     shell_lines: Arc<sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound>,
     background_work: Arc<BackgroundWorkForms>,
     pending_compactions: PendingCompactionRegistry,
-    /// The helpers stopped at their token limit, whose later turns are interrupted at their start.
-    pub(crate) limit_stopped_helpers: Arc<CodexLimitStoppedHelpers>,
+    /// The helpers stopped alone, whose later turns are interrupted at their start.
+    pub(crate) stopped_helpers: Arc<CodexStoppedHelpers>,
     processes: Arc<ProviderProcessRegistry>,
     ports: Arc<DriverPorts>,
     helper_roles_folder: PathBuf,
@@ -202,6 +202,7 @@ impl CodexDriver {
                 spawner: services.spawner.clone(),
                 provider_services: Arc::clone(&services.provider_services),
                 processes: Arc::clone(&services.processes),
+                child_records: Arc::clone(&services.child_records),
                 program: Arc::new(CodexInstalledProgram::new(
                     Arc::clone(&services.command_search),
                     services.home_folder.clone(),
@@ -246,7 +247,7 @@ impl CodexDriver {
             shell_lines: Arc::clone(&services.shell_lines),
             background_work: Arc::clone(&services.background_work),
             pending_compactions: services.pending_compactions.clone(),
-            limit_stopped_helpers: Arc::new(CodexLimitStoppedHelpers::new(tasks.clone())),
+            stopped_helpers: Arc::new(CodexStoppedHelpers::new(tasks.clone())),
             processes: Arc::clone(&services.processes),
             ports: Arc::clone(&services.ports),
             helper_roles_folder: services.data_folder.join(CODEX_HELPER_ROLES_FOLDER_NAME),
@@ -307,7 +308,7 @@ impl CodexDriver {
             reviewer_denials: Arc::clone(&ports.reviewer_denials),
             command_output: Arc::clone(&ports.command_output),
             pending_compactions: self.pending_compactions.clone(),
-            limit_stopped_helpers: Arc::clone(&self.limit_stopped_helpers),
+            stopped_helpers: Arc::clone(&self.stopped_helpers),
             effects,
         }));
         let hand_off = Arc::new(CodexAskHandOff::new(CodexAskHandOffDependencies {
@@ -331,6 +332,7 @@ impl CodexDriver {
                 helper_roles_folder: self.helper_roles_folder.clone(),
                 tool_server_route: Arc::clone(&ports.tool_server_route),
                 delivery: Arc::clone(&delivery),
+                run_routes: Arc::clone(&self.run_routes),
                 pending_compactions: self.pending_compactions.clone(),
                 provider_commands: Arc::clone(&self.provider_commands),
                 processes: Arc::clone(&self.processes),

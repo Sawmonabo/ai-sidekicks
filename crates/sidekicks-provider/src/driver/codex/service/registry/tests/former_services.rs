@@ -4,25 +4,23 @@ use std::time::Duration;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, bind_socket_listener, read_socket_link,
-    replace_socket_link, short_socket_folder,
+    replace_socket_link,
 };
 
 use super::stand_in::{
-    CRASH_WAIT, HANG_UP_IGNORED_NAME, StandInServices, cut_short_planned_restart, home_record_file,
-    is_running, mark_kept_records_draining, send_signal, stand_in_services, this_daemon,
+    CRASH_WAIT, cut_short_planned_restart, home_record_file, is_running,
+    mark_kept_records_draining, send_signal, stand_in_services, this_daemon,
     wait_for_end_and_record_removal, wait_until_gone,
 };
 use crate::driver::codex::service::registry::home_socket_path;
-use crate::driver::codex::service::supervisor::test_service::answer_as_codex_service;
+use crate::driver::codex::service::supervisor::test_service::{
+    HANG_UP_IGNORED_NAME, answer_as_codex_service,
+};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
-// The services of one test in a folder whose socket paths fit the system's bound on them.
-fn folder_and_services() -> (tempfile::TempDir, StandInServices) {
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let services = stand_in_services(folder.path(), |program| Arc::new(program));
-    (folder, services)
-}
+// The start bound of the daemon whose join of a stopped former service must run out.
+const JOIN_START_BOUND: Duration = Duration::from_secs(3);
 
 // Fails when a daemon restarted in the middle of a planned restart retires both services, which
 // ends every terminal session inside them, joins the one the home's link does not name, or leaves
@@ -32,7 +30,7 @@ async fn a_restart_cut_short_joins_the_socket_link_holder_and_drains_the_other()
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let (_folder, services) = folder_and_services();
+    let services = stand_in_services(|program| Arc::new(program));
     let startup_timeout = services.dependencies.startup_timeout;
     let (first_process, second_process, _first_socket) = cut_short_planned_restart(&services).await;
 
@@ -65,7 +63,7 @@ async fn a_restart_cut_short_whose_socket_link_holder_died_points_the_link_back_
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let (_folder, services) = folder_and_services();
+    let services = stand_in_services(|program| Arc::new(program));
     let startup_timeout = services.dependencies.startup_timeout;
     let (first_process, second_process, first_socket) = cut_short_planned_restart(&services).await;
     let is_second_killed = send_signal(second_process, "-KILL");
@@ -100,7 +98,7 @@ async fn a_restart_joins_an_unrecorded_service_on_the_link_and_drains_the_record
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let (_folder, services) = folder_and_services();
+    let services = stand_in_services(|program| Arc::new(program));
     let startup_timeout = services.dependencies.startup_timeout;
     let (first_process, second_process, _first_socket) = cut_short_planned_restart(&services).await;
     let is_second_killed = send_signal(second_process, "-KILL");
@@ -111,7 +109,7 @@ async fn a_restart_joins_an_unrecorded_service_on_the_link_and_drains_the_record
         bind_socket_listener(&unrecorded_socket).expect("the unrecorded listener listens");
     let answering = tokio::spawn(async move {
         while let Ok(stream) = unrecorded.accept().await {
-            tokio::spawn(answer_as_codex_service(stream));
+            tokio::spawn(answer_as_codex_service(stream, |_method| {}));
         }
     });
     replace_socket_link(&home_socket, &unrecorded_socket).expect("the link names the listener");
@@ -147,9 +145,13 @@ async fn a_former_service_that_never_answers_its_join_is_stopped_and_the_next_st
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let (_folder, services) = folder_and_services();
-    let startup_timeout = services.dependencies.startup_timeout;
+    let mut services = stand_in_services(|program| Arc::new(program));
     let (first_process, second_process, _first_socket) = cut_short_planned_restart(&services).await;
+    // The join fails only once its start bound runs out, so the test's daemon takes a short one.
+    Arc::get_mut(&mut services.dependencies)
+        .expect("no daemon holds the test's dependencies yet")
+        .startup_timeout = JOIN_START_BOUND;
+    let startup_timeout = services.dependencies.startup_timeout;
     let is_second_killed = send_signal(second_process, "-KILL");
     let is_second_gone = wait_until_gone(second_process).await;
     let is_first_stopped = send_signal(first_process, "-STOP");
@@ -194,7 +196,7 @@ async fn a_draining_service_is_never_where_the_link_is_pointed_back() {
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let (_folder, services) = folder_and_services();
+    let services = stand_in_services(|program| Arc::new(program));
     let startup_timeout = services.dependencies.startup_timeout;
     let (first_process, second_process, _first_socket) = cut_short_planned_restart(&services).await;
     let is_second_killed = send_signal(second_process, "-KILL");
@@ -239,7 +241,7 @@ async fn a_restart_finding_every_service_draining_launches_beside_them_at_once()
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let (_folder, services) = folder_and_services();
+    let services = stand_in_services(|program| Arc::new(program));
     let startup_timeout = services.dependencies.startup_timeout;
     let (first_process, second_process, _first_socket) = cut_short_planned_restart(&services).await;
     let marked = mark_kept_records_draining(&services);
@@ -280,8 +282,7 @@ async fn a_daemon_stop_returns_without_waiting_on_a_drain_under_way() {
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let services = stand_in_services(folder.path(), |mut program| {
+    let services = stand_in_services(|mut program| {
         program
             .environment
             .push((HANG_UP_IGNORED_NAME.to_owned(), "1".to_owned()));

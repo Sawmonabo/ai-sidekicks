@@ -30,6 +30,7 @@ use sidekicks_contracts::approval::{
     ApprovalScope, ApprovalState, RememberedRuleSense, RememberedScope, RememberedScopeKind,
 };
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -38,7 +39,6 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_session::run::state_change::refused_statement_index;
 use sidekicks_std::keyed_wait::{ArmedWait, KeyedWaits};
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
@@ -289,7 +289,7 @@ impl ApprovalService {
             requested_by: requested_by.clone(),
             resource_descriptor: resource_descriptor.to_record(),
             ask_id: origin.ask_id.clone(),
-            tool_call_id: origin.tool_call_id,
+            tool_call_id: origin.tool_call_id.clone(),
         };
         let inserted = InsertedApprovalRequest {
             approval_request_id,
@@ -300,6 +300,7 @@ impl ApprovalService {
             scope,
             resource_descriptor,
             ask_id: origin.ask_id,
+            tool_call_id: origin.tool_call_id,
             created_at: created_at.clone(),
         };
         let draft = SessionEventDraft::new(payload, SessionEvent::ApprovalRequested)?;
@@ -318,7 +319,7 @@ impl ApprovalService {
             approval_request_id,
         });
         if let Err(failure) = self.events.append(draft, linkage).await {
-            let refusal = match refused_statement_index(&failure) {
+            let refusal = match failure.refused_statement_index() {
                 Some(SESSION_OPEN_GUARD_INDEX) => approval_late_create(
                     session_id,
                     run_id,
@@ -406,7 +407,7 @@ impl ApprovalService {
             ..SessionEventLinkage::default()
         };
         if let Err(failure) = self.events.append(draft, linkage).await {
-            return match refused_statement_index(&failure) {
+            return match failure.refused_statement_index() {
                 // Settled between the read and the write; the ask reads back while its session
                 // stands.
                 Some(PENDING_GUARD_INDEX) => {
@@ -541,6 +542,21 @@ impl ApprovalService {
             .await
     }
 
+    /// The run's pending ask that holds `tool_call_id`, oldest first where several do, or `None`
+    /// when none does. Fails as the read fails.
+    pub(crate) async fn read_pending_tool_call_request(
+        &self,
+        run_id: RunId,
+        tool_call_id: ToolCallId,
+    ) -> Result<Option<StoredApprovalRequest>, ApprovalServiceError> {
+        let pending = self
+            .read(move |reader| reader.list_pending_for_run(&run_id))
+            .await?;
+        Ok(pending
+            .into_iter()
+            .find(|stored| stored.tool_call_id.as_ref() == Some(&tool_call_id)))
+    }
+
     /// Cancels every ask the run still holds pending, one `approval.canceled` each and no
     /// resolution row, appending under `hold` where the caller already holds the session's
     /// appends; an ask answered meanwhile keeps its answer. A failed cancel does not stop the
@@ -643,7 +659,7 @@ impl ApprovalService {
                 );
                 Ok(true)
             }
-            Err(failure) if refused_statement_index(&failure) == Some(PENDING_GUARD_INDEX) => {
+            Err(failure) if failure.refused_statement_index() == Some(PENDING_GUARD_INDEX) => {
                 Ok(false)
             }
             Err(failure) => Err(ApprovalServiceError::Cancel(failure)),

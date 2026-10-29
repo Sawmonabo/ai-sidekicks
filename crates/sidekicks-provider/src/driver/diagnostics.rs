@@ -148,6 +148,9 @@ pub enum DriverDiagnosticKind {
     /// A session's inbox could not be bound, or a frame it received could not be passed on; its
     /// sender gets no answer.
     SessionInboxFailed,
+    /// The provider reported a permission mode the driver does not know, which is not taken as a
+    /// mode.
+    PermissionModeUnknown,
 }
 
 impl DriverDiagnosticKind {
@@ -207,6 +210,7 @@ impl DriverDiagnosticKind {
             Self::StreamedTextDiverged => "driver.streamedText.diverged",
             Self::StreamedBlocksAbandoned => "driver.streamedText.blocksAbandoned",
             Self::SessionInboxFailed => "driver.sessionInbox.failed",
+            Self::PermissionModeUnknown => "driver.permissionMode.unknown",
         }
     }
 }
@@ -335,7 +339,7 @@ mod recorded_events {
             tracing::subscriber::set_default(tracing_subscriber::registry().with(self.clone()))
         }
 
-        /// The counter of each diagnostic recorded, in order.
+        /// The counter of each diagnostic recorded, in order; only this crate's own tests read it.
         #[cfg(test)]
         pub(crate) fn counters(&self) -> Vec<String> {
             self.fields_where(|_fields| true, "counter")

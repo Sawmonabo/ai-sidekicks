@@ -17,8 +17,9 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
 use tokio_util::sync::CancellationToken;
 
-use super::kept_records::retire_former_service;
+use super::kept_records::{retire_former_service, stop_kept_services};
 use super::{StartFailure, StartedService, start_codex_service};
+use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::process::{
     CodexProcessLaunch, repin_lasting_codex_service, start_lasting_codex_service,
@@ -99,6 +100,7 @@ async fn start_terminal_service_on(
             environment: Vec::new(),
         }),
         Arc::new(UnheardEvents),
+        Arc::new(UnrecordedChildren),
     );
     let deadline = dependencies.startup_timeout;
     let service = CodexService::new(
@@ -233,7 +235,7 @@ async fn a_start_on_a_free_listener_no_pid_file_names_joins_it() {
     };
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
-            tokio::spawn(answer_as_codex_service(stream));
+            tokio::spawn(answer_as_codex_service(stream, |_method| {}));
         }
     });
 
@@ -314,6 +316,7 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
             environment: vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())],
         }),
         Arc::new(UnheardEvents),
+        Arc::new(UnrecordedChildren),
     );
     let deadline = dependencies.startup_timeout;
     let service = CodexService::new(
@@ -329,23 +332,31 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
         dependencies,
     );
 
-    let mut tokens = Vec::new();
+    let mut starts = Vec::new();
     for launch in [1, 2] {
         let started = tokio::time::timeout(
             deadline,
             start_codex_service(Arc::clone(&service), launch, CancellationToken::new(), None),
         )
-        .await
-        .expect("the start ends within its deadline");
+        .await;
+        let mut sent = Vec::new();
+        while let Ok(request) = recorded.try_recv() {
+            sent.push(request);
+        }
+        starts.push((started, sent));
+    }
+    // The stop a daemon stop makes ends the kept service, which outlives this test otherwise, so
+    // it runs before any assertion can fail.
+    stop_kept_services(service.dependencies().data_folder.clone()).await;
+
+    let mut tokens = Vec::new();
+    for (started, sent) in starts {
+        let started = started.expect("the start ends within its deadline");
         assert!(
             started.is_ok(),
             "the start fails: {:?}",
             started.err().map(|failure| failure.error)
         );
-        let mut sent = Vec::new();
-        while let Ok(request) = recorded.try_recv() {
-            sent.push(request);
-        }
         let added = sent.last().expect("the start sent its requests");
         assert_eq!(added["method"], "environment/add", "{sent:?}");
         assert_eq!(added["params"]["environmentId"], "sidekicks-relay");

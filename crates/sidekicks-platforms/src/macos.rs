@@ -7,8 +7,8 @@
 //! the wakes of a folder's and a file's watch, whether a terminal's program waits for input, the
 //! machine's wakes from sleep, whether it runs on AC power, a wall-clock timer, the login keychain,
 //! the Region setting's locale and hour cycle, an address's opening in the application
-//! registered for it, the service's login agent and system service, and the shells the live test
-//! opens on a folder.
+//! registered for it, the app's start with no window, the service's login agent and system
+//! service, and the shells the live test opens on a folder.
 
 pub(crate) mod address_opening;
 pub(crate) mod bash_start;
@@ -35,6 +35,7 @@ pub(crate) mod system_service;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 pub(crate) mod watch;
+pub(crate) mod windowless_app;
 
 use std::io;
 use std::path::PathBuf;

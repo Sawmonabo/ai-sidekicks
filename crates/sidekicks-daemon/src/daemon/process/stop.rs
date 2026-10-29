@@ -59,6 +59,10 @@ pub(crate) enum DaemonStopFailure {
     /// A worktree's setup command could not be ended.
     #[error(transparent)]
     WorktreeSetup(#[from] WorktreeSetupError),
+    /// A task the start began in the background was still running when the drain bound ran out,
+    /// and was ended; the next start does its work again.
+    #[error("the {0} was still running when the stop's drain bound ran out")]
+    StartTaskRunning(&'static str),
 }
 
 /// A service's background task, a follow of the log among them, that ended abnormally at the stop.
@@ -94,12 +98,14 @@ pub(crate) enum CrashMonitorEndFailure {
 
 /// Ends the daemon's work: the stop token, so the work under way ends; the socket, so no new call
 /// comes; then, within what is left of `bound`, the mutating calls under way, the machine keys'
-/// background read, the capability refresh, the providers' registration, the run queue, the clone
-/// service with its askpass broker, the worktrees' setup commands, the repository services'
-/// background work, the session services' follows with the chats' write watch and file recount,
-/// the renames' name pushes, the highlighter, the terminals, the scheduler, the working-folder
-/// watch, the projects list, the search index, the drivers and the git trees a failed call left.
-/// Answers each step's failure, every step having run.
+/// background read, the capability refresh, the providers' registration, the run queue, the
+/// worktree cleanup's requests and the start's background tasks, the clone service with its askpass
+/// broker, the worktrees' setup commands, the repository services' background work, the attention
+/// decisions, the session services' follows with the chats' write watch and file recount, whose
+/// watermark a clean end stores, the renames' name pushes, the highlighter, the terminals, the
+/// scheduler, the working-folder watch, the projects list, the search index, the drivers, the git
+/// trees a failed call left and, last, the kept worktrees' reads. Answers each step's failure,
+/// every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     intent: DaemonStopIntent,
@@ -150,6 +156,11 @@ pub(crate) async fn stop_work(
     if let Some(session) = &process.session {
         session.queue.stop().await;
     }
+    // Before the scheduler, which runs the cleanup, and before the services the tasks write
+    // through.
+    if let Some(workspace_work) = &mut process.workspace_work {
+        failures.extend(workspace_work.stop(remaining()).await);
+    }
     // Before the session attachments' stop, so a clone that attaches tells sessions still served;
     // taken, so a stop run again finds no broker to close.
     if let Some(clones) = process.clones.take()
@@ -169,19 +180,36 @@ pub(crate) async fn stop_work(
     {
         failures.push(failure.into());
     }
+    // The work's stop ends the attention decisions; a write under way is waited out.
+    if let Some(attention) = process.attention.take()
+        && let Err(error) = attention.await
+    {
+        failures.push(
+            TaskStopFailure {
+                task: "attention decisions",
+                error,
+            }
+            .into(),
+        );
+    }
     // The session services' follows end with the chats' write watch, which they wait out.
     match (
         process.session_attachments.take(),
         &mut process.session,
         &process.repo,
     ) {
-        (Some(attachments), Some(session), Some(repo)) => failures.extend(
-            attachments
-                .stop(session, &repo.workspaces)
-                .await
-                .into_iter()
-                .map(DaemonStopFailure::from),
-        ),
+        (Some(attachments), Some(session), Some(repo)) => {
+            let ended = attachments.stop(session, &repo.workspaces).await;
+            // Every write the watch sent was taken, so the next start walks from here once each
+            // report held behind an open tool call is recorded too.
+            if ended.is_empty() {
+                session
+                    .chat_versions
+                    .keep_caught_up(repo.workspaces.whole_since())
+                    .await;
+            }
+            failures.extend(ended.into_iter().map(DaemonStopFailure::from));
+        }
         (_, _, Some(repo)) => {
             if let Err(error) = repo.workspaces.stop().await {
                 failures.push(
@@ -229,6 +257,10 @@ pub(crate) async fn stop_work(
     }
     if let Some(git) = &process.git {
         git.wait_for_tree_ends().await;
+    }
+    // Last, so nothing writes once the stop resolves.
+    if let Some(workspace_work) = process.workspace_work.take() {
+        workspace_work.settle().await;
     }
     // After the drain, so every child it ended is still retired.
     drop(process.orphan_guard.take());

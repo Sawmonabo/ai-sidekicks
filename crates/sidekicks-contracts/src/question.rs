@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::internal::branded::branded_uuid_id;
 use crate::method::methods;
+use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -20,7 +21,7 @@ use crate::wire::Never;
 use crate::wire::id::UuidTextForm;
 use crate::wire::list::BoundedVec;
 use crate::wire::number::Number;
-use crate::wire::text::NonEmptyText;
+use crate::wire::text::{FreeFormText, NonEmptyText};
 
 branded_uuid_id! {
     /// The daemon-minted id of one question record.
@@ -267,6 +268,16 @@ question_asked! {
         pub run_id: RunId,
         /// Whether the question is answerable at once or waits for its run.
         pub state: QuestionAskedState,
+        /// The provider's own id of the request the question came on, by which a request the
+        /// provider sends again after the daemon's restart finds its record; absent where the id
+        /// is longer than a provider handle.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
+        pub provider_request_id: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
         /// Only a workflow step's question names a wait.
         #[serde(
             default,

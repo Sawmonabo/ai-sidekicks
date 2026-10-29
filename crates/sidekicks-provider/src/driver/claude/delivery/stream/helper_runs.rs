@@ -1,11 +1,13 @@
 //! A helper's child run: started beneath the lead run when routing reads the helper's start, bound
 //! by the agent id its frames and requests carry once the run engine answers, and moved on the
-//! helper's own `task_notification`, after which its route retires. A helper's start and end are
-//! also rows on the lead run. The start is dispatched on the session's task before any later
-//! arrival, so a request of the helper finds its run bound.
+//! helper's own `task_notification`, after which its route retires. A helper whose run the daemon
+//! refused is bound to that ended run all the same, which absorbs its frames, and is stopped. A
+//! helper's start and end are also rows on the lead run. The start is dispatched on the session's
+//! task before any later arrival, so a request of the helper finds its run bound.
 
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
+use sidekicks_std::mutex_lock::lock;
 
 use super::{
     ClaudeDeliveryStream, ClaudeSessionStream, UNHELD_FRAME_REASON, bound, record_unmapped,
@@ -14,6 +16,7 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
 use crate::driver::claude::delivery::system::read_claude_helper_end;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeChildRunRoute, ClaudeRunRoute};
+use crate::driver::run_control::HelperStopReason;
 use crate::run::delivery::{
     DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome, LateAppendableRow,
 };
@@ -58,9 +61,24 @@ impl ClaudeDeliveryStream {
                 },
                 parent_run_id: lead.run_id,
             };
-            if let Some(InboundOutcome::ChildRunStarted { run_id }) =
-                self.send(session, child, Some("system/task_started")).await
-            {
+            let (run_id, refusal) =
+                match self.send(session, child, Some("system/task_started")).await {
+                    Some(InboundOutcome::ChildRunStarted { run_id }) => (Some(run_id), None),
+                    Some(InboundOutcome::ChildRunRefused { run_id, reason }) => {
+                        (Some(run_id), Some(reason))
+                    }
+                    Some(
+                        InboundOutcome::TurnOpened
+                        | InboundOutcome::Transitioned { .. }
+                        | InboundOutcome::Published
+                        | InboundOutcome::AskAdmitted
+                        | InboundOutcome::Appended { .. }
+                        | InboundOutcome::AppendedStamped { .. }
+                        | InboundOutcome::Absorbed { .. },
+                    )
+                    | None => (None, None),
+                };
+            if let Some(run_id) = run_id {
                 child_run_id = Some(run_id);
                 routes.bind_child_run(
                     run_id,
@@ -70,6 +88,15 @@ impl ClaudeDeliveryStream {
                         parent_run_id: lead.run_id,
                         binding_id: lead.binding_id.clone(),
                     },
+                );
+            }
+            // A refused helper still runs in Claude Code: its next tool use is denied, so it
+            // reports and finishes while the lead's turn goes on.
+            if let Some(refusal) = refusal {
+                lock(&self.dependencies.pauses).stop_helper(
+                    session.session_id,
+                    &emission.subagent_id,
+                    HelperStopReason::SetupRefused { refusal },
                 );
             }
         }

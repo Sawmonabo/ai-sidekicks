@@ -1,18 +1,18 @@
 //! The provider drivers' part of the daemon's schema. A run's binding to its provider and the
 //! conversations a session left on its provider are truth no event holds: recovery resumes from
 //! the binding, and the purge deletes every conversation left. The capability cache is a cache of
-//! what each driver last reported, so a cold start answers without asking the driver. Every
+//! what each driver last reported, so a cold start answers without asking the driver. The record of
+//! each provider's builds lists each build a provider moved to or has available. Every
 //! provider-declared text column is bounded by the same constants its write checks.
 
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::provider::driver::tools::IdempotencyClass;
+use sidekicks_contracts::provider::settings::PROVIDER_VERSION_MAX_LEN;
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::sql_list_of_every;
 
 use crate::driver::capabilities::DriverCapabilityFlag;
-use crate::output_validation::{
-    CLI_VERSION_RAW_MAX_LEN, CLI_VERSION_SEMVER_MAX_LEN, RESUME_HANDLE_MAX_LEN,
-};
+use crate::output_validation::{CLI_VERSION_SEMVER_MAX_LEN, RESUME_HANDLE_MAX_LEN};
 
 /// The worktrees' list and the provider drivers' own part.
 pub fn schema_parts() -> SchemaParts {
@@ -30,10 +30,9 @@ fn provider_drivers_schema_sql() -> String {
         "length(contract_version) > 0 AND length(contract_version) <= \
          {PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN} AND instr(contract_version, char(0)) = 0"
     );
-    let cli_version_raw_bound = format!(
-        "length(cli_version_raw) > 0 AND length(cli_version_raw) <= {CLI_VERSION_RAW_MAX_LEN} \
-         AND instr(cli_version_raw, char(0)) = 0"
-    );
+    let cli_version_raw_bound = printed_version_bound("cli_version_raw");
+    let build_version_bound = printed_version_bound("version");
+    let from_version_bound = printed_version_bound("from_version");
     let cli_version_semver_check = format!(
         "cli_version_semver IS NULL OR (length(cli_version_semver) > 0 \
          AND length(cli_version_semver) <= {CLI_VERSION_SEMVER_MAX_LEN} \
@@ -42,11 +41,11 @@ fn provider_drivers_schema_sql() -> String {
     format!(
         "
 -- ---------------------------------------------------------------------------
--- Provider drivers: run bindings, left conversations and the capability cache.
+-- Provider drivers: run bindings, left conversations, the capability cache and the builds.
 -- ---------------------------------------------------------------------------
--- contract_version, resume_handle and the CLI version are provider-declared text. The `CHECK` constraints bound
--- what SQLite can express (length in code points, no NUL); the write checks the same bounds and
--- the semantic-version shape.
+-- contract_version, resume_handle and the CLI version are provider-declared text. The `CHECK`
+-- constraints bound what SQLite can express (length in code points, no NUL); the write checks the
+-- same bounds and the semantic-version shape.
 CREATE TABLE runtime_bindings (
   id                  TEXT PRIMARY KEY,
   run_id              TEXT NOT NULL,
@@ -122,6 +121,27 @@ CREATE TABLE driver_contract_meta (
   -- driver_capabilities.refreshed_at.
   refreshed_at        TEXT NOT NULL
 ) STRICT;
+
+-- The record of each provider's builds: one row per provider and build. A row with a from_version
+-- is a build the provider's command moved to; one without is a build only available. A provider's
+-- next build takes the place of its earlier rows. A retired row is listed no more and stays, so the
+-- same build named again lists nothing.
+CREATE TABLE provider_builds (
+  provider_name  TEXT NOT NULL,
+  version        TEXT NOT NULL CHECK({build_version_bound}), -- as the command printed it
+  from_version   TEXT CHECK(from_version IS NULL OR ({from_version_bound})),
+  recorded_at    TEXT NOT NULL,
+  retired_at     TEXT,
+  PRIMARY KEY (provider_name, version)
+) STRICT;
 "
+    )
+}
+
+// A printed version's bound on `column`: within the wire's bound in code points, no NUL.
+fn printed_version_bound(column: &str) -> String {
+    format!(
+        "length({column}) > 0 AND length({column}) <= {PROVIDER_VERSION_MAX_LEN} \
+         AND instr({column}, char(0)) = 0"
     )
 }

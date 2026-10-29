@@ -21,13 +21,25 @@ interface SessionNoticeProviderWarning {
   details?: string; // a deprecation's details; absent on a warning
 }
 
-// session.notice.posted of kind `levelUnavailable`: an account switch moved the session onto an
-// account that cannot run the level it was at, so it runs at `Ask`. One flow row, `Reviewed isn't
-// available on this Claude Code account`, naming the level it left.
+// session.notice.posted of kind `levelUnavailable`: a level the session cannot run here. Either an
+// account switch moved the session onto an account that cannot run the level it was at, so it runs
+// at `Ask`, or the provider reported running `Sandboxed` where its sandbox cannot start here, so the
+// level moves and its commands fail rather than run unsandboxed. One flow row naming the level, such
+// as `Reviewed isn't available on this Claude Code account`.
 interface SessionNoticeLevelUnavailable {
   sessionId: SessionId;
   kind: "levelUnavailable";
-  level: PermissionLevel; // the level it left
+  level: PermissionLevel; // the level that cannot run
+}
+
+// session.notice.posted of kind `levelMoved`: the session's level or mode moved, by the person or by
+// a mode its provider reported running, whether a process was open or not. It carries both as they
+// now stand, so every client's level and mode controls read one source, and draws no row.
+interface SessionNoticeLevelMoved {
+  sessionId: SessionId;
+  kind: "levelMoved";
+  level: PermissionLevel;
+  sessionMode: SessionMode;
 }
 
 // session.notice.posted of kind `providerUpdated`: the session moved to the provider's new build,

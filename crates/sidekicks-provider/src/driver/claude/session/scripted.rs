@@ -18,16 +18,14 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::driver::capabilities::{CredentialPolicyRef, ExecutionPosture};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::controls::methods::SessionMode;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_platforms::Spawner;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_workspace::git::process::{GitLimits, GitRunner};
+use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tempfile::TempDir;
-use tokio::runtime::Handle;
 use tokio::sync::SetOnce;
 
 use self::channel::ScriptedChannel;
@@ -50,6 +48,8 @@ use crate::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, unreadable_claude_command_choices,
 };
 use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
+use crate::driver::claude::session::permission_level::claude_permission_mode_for;
+use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
 use crate::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
 use crate::driver::claude::session::state::{
     ClaudeLiveSettings, ClaudeRequestedSpawn, ClaudeSpawnBinding, LiveClaudeSession,
@@ -71,10 +71,9 @@ use crate::runtime_binding::test_store::{spawned_build, test_provider_account_id
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
 fn scripted_staged_changes() -> StagedChangesWorktrees {
-    let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
     StagedChangesWorktrees::new(
         &std::env::temp_dir().join("sidekicks-scripted-worktrees"),
-        GitRunner::new(spawner, None, Arc::from([]), GitLimits::DAEMON),
+        test_git_runner(),
     )
 }
 
@@ -139,6 +138,9 @@ pub(crate) fn scripted_live_session(
             ultracode_requested: None,
             ultracode: None,
         }),
+        permission_mode: Arc::new(ClaudePermissionModeRecord::new(claude_permission_mode_for(
+            Some(PermissionLevel::Ask),
+        ))),
         spawned_version: spawned_build(SCRIPTED_BUILD_VERSION, "/scripted/claude"),
         resumed_binding_id: None,
         requested_spawn: ClaudeRequestedSpawn::default(),
@@ -221,6 +223,7 @@ impl ScriptedSession {
                 value: "opus".to_owned(),
                 resolved_model: None,
                 display_name: None,
+                effort_levels: None,
             }],
             ..ClaudeInitializeDeclaration::default()
         });

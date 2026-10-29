@@ -29,6 +29,7 @@ use crate::driver::claude::delivery::stream::{
 use crate::driver::claude::goals::ClaudeGoalCommands;
 use crate::driver::claude::hooks::callbacks::{
     ClaudeRequestRoute, answer_background_work_check, answer_claude_request, route_claude_request,
+    route_helper_start,
 };
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
@@ -197,8 +198,7 @@ impl ClaudeSessionTask {
 
     async fn take_request(&mut self, event: ClaudeInboundRequestEvent) {
         let services = Arc::clone(&self.services);
-        let live = &self.live;
-        let session_id = live.session_id;
+        let session_id = self.live.session_id;
         let level = self.level();
         let route = route_claude_request(
             event,
@@ -208,8 +208,32 @@ impl ClaudeSessionTask {
             &mut lock(&services.helpers),
             &mut lock(&services.helper_steers),
         );
+        self.take_route(route, level).await;
+    }
+
+    // Answers, holds or hands on one request as its route says; a helper start's check settles
+    // into an answer or a hold, which is taken in its turn.
+    async fn take_route(&mut self, route: ClaudeRequestRoute, level: Option<PermissionLevel>) {
+        let services = Arc::clone(&self.services);
+        let live = &self.live;
+        let session_id = live.session_id;
         let account = &live.admitted_provider_account_id;
         match route {
+            ClaudeRequestRoute::CheckHelperStart {
+                request_id,
+                agent_id,
+            } => {
+                let posture = lock(&live.settings).execution_posture.clone();
+                let settled = route_helper_start(
+                    posture.as_ref(),
+                    &services.pauses,
+                    &session_id,
+                    request_id,
+                    agent_id,
+                )
+                .await;
+                Box::pin(self.take_route(settled, level)).await;
+            }
             ClaudeRequestRoute::Answer { request_id, answer } => {
                 answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
                     .await;

@@ -28,6 +28,7 @@ pub(crate) mod user_scope;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 pub(crate) mod watch;
+pub(crate) mod windowless_app;
 
 use std::ffi::OsString;
 use std::io::{self, ErrorKind};

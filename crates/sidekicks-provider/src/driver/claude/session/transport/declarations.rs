@@ -31,8 +31,6 @@ pub(crate) struct ClaudeHandshakeDeclaration {
     pub(crate) terminal_slash_commands: Vec<String>,
     /// The open `capabilities` set, each token as sent, such as `interrupt_cancel_queued_v1`.
     pub(crate) capabilities: Vec<String>,
-    /// The permission mode the process runs in, which may differ from the one it was asked for.
-    pub(crate) permission_mode: Option<String>,
 }
 
 /// One model the `initialize` reply offers.
@@ -44,6 +42,8 @@ pub(crate) struct ClaudeOfferedModel {
     pub(crate) resolved_model: Option<String>,
     /// The name Claude Code shows for it, where the reply gives one.
     pub(crate) display_name: Option<String>,
+    /// The effort levels it takes; `None` for a model with no effort axis.
+    pub(crate) effort_levels: Option<Vec<String>>,
 }
 
 /// What the `initialize` reply declared about the session's models and styles: the models it
@@ -163,6 +163,7 @@ mod tests {
             value: value.to_owned(),
             resolved_model: resolved_model.map(str::to_owned),
             display_name: None,
+            effort_levels: None,
         }
     }
 

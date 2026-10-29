@@ -10,7 +10,7 @@ use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
-    ProviderDeclarationId, ProviderOptionSetting, ProviderValue,
+    ProviderDeclarationId, ProviderOptionSetting, ProviderOptionSettings, ProviderValue,
 };
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBinding;
@@ -19,7 +19,9 @@ use sidekicks_contracts::provider::driver::tools::ProviderToolMetadata;
 use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
-use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
+use sidekicks_contracts::session::controls::methods::{
+    PermissionLevel, SessionMode, SessionReviewTarget,
+};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
@@ -41,6 +43,16 @@ pub enum SessionProcessState {
     /// reads the stored mode and level: never opened in this daemon, asleep, closed, or stopped
     /// restarting after a crash loop.
     Down,
+}
+
+/// The level and session mode a provider reported its process moved to on its own: no level where
+/// the reported mode runs none, as a planning mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProviderReportedLevel {
+    /// The level the reported mode runs, if it runs one.
+    pub level: Option<PermissionLevel>,
+    /// Plan where the reported mode plans, else Build.
+    pub session_mode: SessionMode,
 }
 
 /// A follow of a session's live command list, ended when this drops.
@@ -256,4 +268,29 @@ pub struct ListModelsParams {
     /// The account: the session's own bound account for its own provider; `None` for the
     /// provider's current account, refused as no account is registered or none is current.
     pub provider_account_id: Option<ProviderAccountId>,
+}
+
+/// Params of `list_modes`: the session whose level control reads the levels, and the account and
+/// model to read them against.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ListModesParams {
+    /// The session, only where this is the session's own provider; `None` for any other.
+    pub session_id: Option<SessionId>,
+    /// The session's own bound account for its own provider; `None` for the current account.
+    pub provider_account_id: Option<ProviderAccountId>,
+    /// The model the session runs on now, only for its own provider; `None` for any other.
+    pub model: Option<ProviderToken>,
+}
+
+/// Params of `check_lead_binding`: a new session's lead and the axes its binding sets.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LeadBindingCheckParams {
+    /// The lead, which a refusal names.
+    pub agent_id: AgentId,
+    /// The model.
+    pub model_id: ProviderToken,
+    /// The reasoning effort, where the binding sets one.
+    pub effort: Option<ProviderToken>,
+    /// The session options, where the binding sets any.
+    pub options: Option<ProviderOptionSettings>,
 }

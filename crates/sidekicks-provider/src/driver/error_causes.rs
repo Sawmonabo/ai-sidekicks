@@ -11,6 +11,7 @@ use std::sync::LazyLock;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::declaration::{ProviderOptionSettings, ProviderSessionOption};
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
@@ -128,41 +129,82 @@ pub struct ProviderAxisInvalid {
     pub(crate) value: Value,
 }
 
+impl ProviderAxisInvalid {
+    /// The refusal of a binding that names `provider`, which no registered driver answers, for
+    /// the agent `agent_id`.
+    pub fn provider_not_registered(agent_id: AgentId, provider: &ProviderId) -> Self {
+        Self {
+            agent_id,
+            axis: ProviderAxis::ProviderName,
+            value: json!(provider.as_str()),
+        }
+    }
+
+    /// Checks a binding's session options against `options`, the ones its driver declares:
+    /// refuses the first option the driver does not declare, or whose value its declaration
+    /// refuses.
+    pub(crate) fn check_options(
+        agent_id: AgentId,
+        option_settings: Option<&ProviderOptionSettings>,
+        options: &[ProviderSessionOption],
+    ) -> Result<(), Self> {
+        for setting in option_settings.map_or(&[][..], ProviderOptionSettings::as_slice) {
+            let is_offered = options
+                .iter()
+                .find(|option| option.id == setting.id)
+                .is_some_and(|option| option.check_value(&setting.value).is_ok());
+            if !is_offered {
+                return Err(Self {
+                    agent_id,
+                    axis: ProviderAxis::Options,
+                    value: json!(setting),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Checks a binding's `effort` against `effort_levels`, the levels the provider lists for the
+    /// binding's model, `None` for a model with no effort axis, which takes none.
+    pub(crate) fn check_effort<Level: AsRef<str>>(
+        agent_id: AgentId,
+        effort: &str,
+        effort_levels: Option<&[Level]>,
+    ) -> Result<(), Self> {
+        if effort_levels.is_some_and(|levels| levels.iter().any(|level| level.as_ref() == effort)) {
+            return Ok(());
+        }
+        Err(Self {
+            agent_id,
+            axis: ProviderAxis::Effort,
+            value: json!(effort),
+        })
+    }
+}
+
 /// The request members that set a provider axis, named as the request names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum ProviderAxis {
     /// The provider.
-    #[expect(
-        dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
-    )]
     ProviderName,
     /// The model.
     ModelId,
     /// The model's larger context window.
     #[expect(
         dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
+        reason = "the binding check of an agent's provider switch names it"
     )]
     LargerWindow,
     /// The reasoning effort.
-    #[expect(
-        dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
-    )]
     Effort,
     /// The output speed.
     #[expect(
         dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
+        reason = "the binding check of an agent's provider switch names it"
     )]
     OutputSpeed,
     /// A session option.
-    #[expect(
-        dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
-    )]
     Options,
 }
 

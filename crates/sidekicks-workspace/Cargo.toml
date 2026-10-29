@@ -32,6 +32,8 @@ sidekicks-platforms.workspace = true
 sidekicks-std.workspace = true
 sidekicks-store.workspace = true
 strum.workspace = true
+# The scratch folder the execution roots' test fixture makes its repository in.
+tempfile = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
@@ -55,8 +57,9 @@ tokio = { workspace = true, features = ["test-util"] }
 
 [features]
 # Helpers other crates' tests use: the workspace and worktree rows other tables build on, the git
-# runner a test scripts, the link it writes through git, and the background fetch's counts.
-test-support = []
+# runner a test scripts, the link it writes through git, the background fetch's counts, and the
+# execution roots over a test database with the stand-ins their worktree creator reads.
+test-support = ["dep:tempfile", "sidekicks-store/test-support"]
 
 [lints]
 workspace = true

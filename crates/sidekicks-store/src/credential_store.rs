@@ -21,6 +21,7 @@ use std::error::Error;
 use futures::future::BoxFuture;
 use secrecy::{ExposeSecret, SecretString};
 use sidekicks_contracts::keychain::KeychainRefusalCause;
+use sidekicks_std::keyed_lock::HeldWorkEnd;
 use subtle::ConstantTimeEq as _;
 
 /// One keychain service's items, each addressed by an account name. Every call fails with
@@ -100,6 +101,21 @@ pub struct KeychainRefusal {
     /// Whether the refusal came from the sealed secrets file not opening, which the status read
     /// names on its own.
     is_secrets_file_unopened: bool,
+}
+
+impl From<HeldWorkEnd> for KeychainRefusal {
+    /// A keychain call run under its item's key that ended without answering is `unavailable`,
+    /// keeping the task's failure where it had one.
+    fn from(end: HeldWorkEnd) -> Self {
+        let refusal = Self::new(
+            KeychainRefusalCause::Unavailable,
+            "the keychain call ended without an answer",
+        );
+        match end {
+            HeldWorkEnd::Unanswered => refusal,
+            HeldWorkEnd::Interrupted(interrupted) => refusal.with_failure(interrupted),
+        }
+    }
 }
 
 impl KeychainRefusal {

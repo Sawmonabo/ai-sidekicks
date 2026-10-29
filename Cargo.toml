@@ -199,7 +199,7 @@ uuid = { version = "1.28.0", features = ["v7"] }
 # Signing, sealing and secrets.
 # `starlark` pins `=1.8.2`, so no newer 1.x resolves.
 blake3 = "1.8.2"
-cedar-policy = "4.13.0"
+cedar-policy = "4.14.0"
 ed25519-dalek = "3.0.0"
 gcp_auth = { version = "0.12.7", default-features = false, features = ["aws-lc-rs"] }
 getrandom = "0.4.3"

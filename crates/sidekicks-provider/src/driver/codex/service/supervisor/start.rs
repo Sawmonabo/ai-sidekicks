@@ -1,10 +1,12 @@
 //! How each kind of Codex service starts, and what every start shares: the connect, the read of
-//! the loaded conversations and of the reported version, and the launch on Codex's native program.
-//! A service on an account home is the daemon's own child, dialed once it listens, with the
-//! daemon's relay to its executor added before it answers; the capability read's runs without one;
-//! the terminal service on the person's own Codex folder starts as `terminal` says.
+//! the loaded conversations and of the reported version, the launch on Codex's native program and
+//! the launch of a lasting service kept in its record. A service on an account home is a lasting
+//! service started or joined as `account` says, with the daemon's relay to its executor added
+//! before it answers; the capability read's is the daemon's own child, dialed once it listens,
+//! with no relay; the terminal service on the person's own Codex folder starts as `terminal` says.
 
-pub(super) mod kept_records;
+mod account;
+pub(crate) mod kept_records;
 mod terminal;
 
 use std::io;
@@ -29,11 +31,15 @@ use crate::driver::codex::service::command_line::{
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceKind};
 use crate::driver::codex::service::process::{
     CodexProcessLaunch, CodexServiceExit, LastingCodexService, ManagedCodexService,
-    start_managed_codex_service,
+    start_lasting_codex_service, start_managed_codex_service,
 };
-use crate::driver::codex::service::record::LastingServiceRecordFile;
+use crate::driver::codex::service::record::{
+    LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
+};
 use crate::driver::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::start::account::start_account_home_service;
+use crate::driver::codex::service::supervisor::start::kept_records::on_record;
 use crate::driver::codex::service::supervisor::start::terminal::start_terminal_service;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::{
@@ -45,6 +51,7 @@ use crate::driver::codex::version::{
 };
 use crate::driver::contract::params_and_results::DriverCliVersionReport;
 use crate::output_validation::check_cli_version_report;
+use crate::service_log::provider_service_log_file;
 use crate::spawned_version::{
     ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
 };
@@ -65,9 +72,10 @@ const ENVIRONMENT_ADD_METHOD: &str = "environment/add";
 
 /// A service process the daemon started or re-pinned.
 pub(crate) enum CodexServiceProcess {
-    /// The daemon's own child on an account home.
+    /// The daemon's own child, the capability read's service.
     Managed(ManagedCodexService),
-    /// The lasting service on the person's own Codex folder, with the file its record is kept in.
+    /// A lasting service, on the person's own Codex folder or an account home, with the file its
+    /// record is kept in.
     Lasting {
         /// The service.
         service: LastingCodexService,
@@ -162,7 +170,7 @@ pub(super) async fn start_codex_service(
             start_relayed_service(&service, launch, &cancel, &executable).await
         }
         CodexHomeKind::CapabilityRead => {
-            start_account_service(&service, launch, &cancel, &executable).await
+            start_capability_read_service(&service, launch, &cancel, &executable).await
         }
         CodexHomeKind::PersonalFolder => {
             start_terminal_service(&service, launch, &cancel, &executable, start_lock).await
@@ -170,9 +178,10 @@ pub(super) async fn start_codex_service(
     }
 }
 
-// An account's service: its relay readied first, the service then started as every child of the
-// daemon is, and the relay's environment added on its connection before the start answers, so it
-// precedes any resume of a conversation there.
+// An account's service: its relay readied first, the service then started or joined as a lasting
+// service, and the relay's environment added on its connection before the start answers, so it
+// precedes any resume of a conversation there; a joined service takes the new relay's environment
+// in place of the one its former daemon's relay served.
 async fn start_relayed_service(
     service: &Arc<CodexService>,
     launch: u64,
@@ -190,7 +199,7 @@ async fn start_relayed_service(
     )
     .await?;
     let environment_add = relay.start(executor_launch.into_command()).await?;
-    let started = start_account_service(service, launch, cancel, executable).await?;
+    let started = start_account_home_service(service, launch, cancel, executable).await?;
     match started
         .connection
         .request(ENVIRONMENT_ADD_METHOD, &environment_add)
@@ -227,8 +236,9 @@ fn compose_exec_relay(service: &Arc<CodexService>) -> Arc<CodexExecRelay> {
     )
 }
 
-// The daemon's own child: launched with the shared switches alone, dialed once it listens.
-async fn start_account_service(
+// The capability read's service, the daemon's own child: launched with the shared switches alone,
+// dialed once it listens.
+async fn start_capability_read_service(
     service: &Arc<CodexService>,
     launch: u64,
     cancel: &CancellationToken,
@@ -241,9 +251,14 @@ async fn start_account_service(
         service.socket_path(),
     )
     .await?;
-    let managed = start_managed_codex_service(&service.dependencies().spawner, process_launch)
-        .await
-        .map_err(|error| start_failed("The Codex service could not be started.", error))?;
+    let dependencies = service.dependencies();
+    let managed = start_managed_codex_service(
+        &dependencies.spawner,
+        &dependencies.child_records,
+        process_launch,
+    )
+    .await
+    .map_err(|error| start_failed("The Codex service could not be started.", error))?;
     let opened = connect(
         service,
         service.socket_path(),
@@ -274,6 +289,111 @@ async fn start_account_service(
             error,
             process: process.map(Box::new),
         }),
+    }
+}
+
+/// A lasting service launched and answering on its socket, kept in its record: its process, the
+/// daemon's connection and its `initialize` reply, and where its socket really is.
+pub(super) struct LaunchedLastingService {
+    /// The process, kept in its record.
+    pub(super) process: CodexServiceProcess,
+    /// The daemon's connection.
+    pub(super) connection: Arc<CodexAppServerConnection>,
+    /// The service's answer to the connection's `initialize`.
+    pub(super) reply: Box<RawValue>,
+    /// Where its socket really is.
+    pub(super) physical_socket: PathBuf,
+}
+
+/// Names the log every lasting service on `service`'s home writes and records it as the service's.
+/// Fails when the log cannot be named.
+pub(super) fn name_lasting_log_file(service: &CodexService) -> Result<PathBuf, StartFailure> {
+    let log_file = provider_service_log_file(
+        &service.dependencies().logs_folder,
+        &DESCRIPTOR.provider_id(),
+        &service.home().codex_home,
+    )
+    .map_err(|error| start_failed("The Codex service's log could not be named.", error))?;
+    service.set_lasting_log_file(log_file.clone());
+    Ok(log_file)
+}
+
+/// Launches `process_launch` as a lasting service writing `log_file`, keeps its record under
+/// `locked` as launched and, once it answers on `launch_socket` under the ticket `launch`, with
+/// where its socket really is; `cancel` stands the wait down. Fails as the launch, the connect,
+/// the socket's read or a record's write does, a launched process handed back with the failure
+/// for the start's teardown.
+pub(super) async fn launch_lasting_service(
+    service: &Arc<CodexService>,
+    launch: u64,
+    cancel: &CancellationToken,
+    process_launch: CodexProcessLaunch,
+    log_file: &Path,
+    locked: &Arc<LockedServiceRecord>,
+    launch_socket: &Path,
+) -> Result<LaunchedLastingService, StartFailure> {
+    let lasting =
+        start_lasting_codex_service(&service.dependencies().spawner, process_launch, log_file)
+            .await
+            .map_err(|error| start_failed("The Codex service could not be started.", error))?;
+    let record_file = locked.file().clone();
+    let launched = LastingServiceRecord::launched(lasting.record().clone());
+    if let Err(error) = on_record(locked, move |locked| locked.write(&launched)).await {
+        return Err(StartFailure {
+            error: record_unkept(error),
+            process: Some(Box::new(CodexServiceProcess::Lasting {
+                service: lasting,
+                record_file,
+            })),
+        });
+    }
+    let opened = connect(
+        service,
+        launch_socket,
+        launch,
+        CodexSocketWait::UntilListening,
+        lasting.exited(),
+        cancel,
+    )
+    .await;
+    let answered = LastingServiceRecord::launched(lasting.record().clone());
+    let process = CodexServiceProcess::Lasting {
+        service: lasting,
+        record_file,
+    };
+    let kept = async {
+        let (connection, reply) = opened?;
+        let physical_socket = read_physical_socket(launch_socket).await?;
+        // Kept under the same hold, so a later daemon finds the socket the service really holds.
+        let answered = LastingServiceRecord {
+            physical_socket: Some(physical_socket.clone()),
+            ..answered
+        };
+        on_record(locked, move |locked| locked.write(&answered))
+            .await
+            .map_err(record_unkept)?;
+        Ok::<_, CodexError>((connection, reply, physical_socket))
+    }
+    .await;
+    match kept {
+        Ok((connection, reply, physical_socket)) => Ok(LaunchedLastingService {
+            process,
+            connection,
+            reply,
+            physical_socket,
+        }),
+        Err(error) => Err(StartFailure {
+            error,
+            process: Some(Box::new(process)),
+        }),
+    }
+}
+
+// A record write that failed, which fails the start.
+fn record_unkept(error: io::Error) -> CodexError {
+    CodexError::Transport {
+        detail: "The Codex service's record could not be kept.".to_owned(),
+        cause: Some(Box::new(error)),
     }
 }
 

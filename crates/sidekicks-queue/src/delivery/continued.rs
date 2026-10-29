@@ -2,7 +2,10 @@
 //! session lock, admitted once the driver continued the run, given back when it did not, and kept
 //! when the resume went out with no answer back. A kept message is read by no later continue and
 //! stays handed past the run's end, until the provider shows it took it or its own record says
-//! what became of it, which is final only once no live provider process still holds it.
+//! what became of it, which is final only once no live provider process still holds it. After the
+//! daemon's restart, when no hand is remembered, a resumed run's record settles the waiting
+//! messages the same way: one it holds admitted, every one ended not delivered when it is
+//! unreadable.
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::run::id::RunId;
@@ -79,13 +82,10 @@ impl QueueDelivery {
     ) -> Result<(), DeliveryError> {
         let kept = self.lock_state().continued_of(run_id, true);
         for item_id in kept.into_iter().filter(|item_id| settled.contains(item_id)) {
-            match self.read_item(item_id).await? {
-                Some(item)
-                    if item.state == RecordedQueueItemState::Queued && taken.contains(&item_id) =>
-                {
-                    self.record_admission(&item, run_id).await?;
-                }
-                Some(_) | None => self.forget_hand(item_id),
+            if taken.contains(&item_id) {
+                self.admit_taken(item_id, run_id).await?;
+            } else {
+                self.forget_hand(item_id);
             }
         }
         Ok(())
@@ -104,16 +104,70 @@ impl QueueDelivery {
             .into_iter()
             .filter(|item_id| message_ids.contains(item_id))
         {
-            match self.read_item(item_id).await? {
-                Some(item) if item.state == RecordedQueueItemState::Queued => {
-                    let failed = self.record_failed(&item).await;
-                    self.forget_hand(item_id);
-                    failed?;
-                }
-                Some(_) | None => self.forget_hand(item_id),
-            }
+            self.fail_waiting(item_id).await?;
         }
         Ok(())
+    }
+
+    /// Admits into `run_id` each of `taken` still waiting, the provider's own record of the run's
+    /// conversation holding it after the daemon's restart, so no hand sends it again; one no
+    /// longer waiting is left as it stands. Called by a resume's ingress for each lead run the
+    /// resume named, before the resumed binding is recorded, under the session's transition lock
+    /// alone. Fails at the first read or record that fails, the admissions before it kept.
+    pub async fn admit_taken_after_restart(
+        &self,
+        run_id: RunId,
+        taken: &[QueueItemId],
+    ) -> Result<(), DeliveryError> {
+        for item_id in taken {
+            self.admit_taken(*item_id, run_id).await?;
+        }
+        Ok(())
+    }
+
+    /// Ends each of `message_ids` still waiting not delivered, the provider's record of the run
+    /// they were looked up against unreadable after the daemon's restart, so the person decides
+    /// whether to send each again; one no longer waiting is left as it stands. Called by a
+    /// resume's ingress before the resumed binding is recorded, under the session's transition
+    /// lock alone. Fails at the first read or record that fails, the ends before it kept.
+    pub async fn fail_unread_after_restart(
+        &self,
+        message_ids: &[QueueItemId],
+    ) -> Result<(), DeliveryError> {
+        for item_id in message_ids {
+            self.fail_waiting(*item_id).await?;
+        }
+        Ok(())
+    }
+
+    // Admits `item_id` into `run_id` while it still waits, its provider having taken it; its
+    // hand, if any, is forgotten either way.
+    async fn admit_taken(&self, item_id: QueueItemId, run_id: RunId) -> Result<(), DeliveryError> {
+        match self.read_item(item_id).await? {
+            Some(item) if item.state == RecordedQueueItemState::Queued => {
+                self.record_admission(&item, run_id).await
+            }
+            Some(_) | None => {
+                self.forget_hand(item_id);
+                Ok(())
+            }
+        }
+    }
+
+    // Ends `item_id` not delivered while it still waits; its hand, if any, is forgotten either
+    // way.
+    async fn fail_waiting(&self, item_id: QueueItemId) -> Result<(), DeliveryError> {
+        match self.read_item(item_id).await? {
+            Some(item) if item.state == RecordedQueueItemState::Queued => {
+                let failed = self.record_failed(&item).await;
+                self.forget_hand(item_id);
+                failed
+            }
+            Some(_) | None => {
+                self.forget_hand(item_id);
+                Ok(())
+            }
+        }
     }
 }
 

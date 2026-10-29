@@ -66,6 +66,9 @@ use crate::driver::claude::session::establishment::{
     ClaudeSessionEstablishment, ClaudeSpawnSources,
 };
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
+#[cfg(test)]
+use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
+use crate::driver::claude::session::permission_level::check_claude_command_sandbox;
 use crate::driver::claude::session::restart::ClaudeSessionRestarts;
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
 use crate::driver::claude::spawn::environment::{
@@ -125,6 +128,7 @@ impl ClaudeDriver {
     pub(crate) fn new(services: &DriverServices) -> Self {
         let launcher = Arc::new(ClaudeProcessLauncher::new(
             services.spawner.clone(),
+            Arc::clone(&services.child_records),
             Arc::clone(&services.processes),
             &services.data_folder,
         ));
@@ -150,6 +154,7 @@ impl ClaudeDriver {
             starts,
             sources: Arc::new(ClaudeSpawnSources {
                 spawner: services.spawner.clone(),
+                command_sandbox_check: check_claude_command_sandbox,
                 runtime_bindings: Arc::clone(&services.runtime_bindings),
                 pool: Arc::clone(&services.pool),
                 execution_postures: Arc::clone(&services.execution_postures),
@@ -184,16 +189,21 @@ impl ClaudeDriver {
         }
     }
 
-    /// The driver with its session pieces composed over `engine` and its `dispatch` now, for a
-    /// test that records what reaches the run engine.
+    /// The driver with its session pieces composed over `engine` and its `dispatch` now, checking
+    /// the command sandbox with `command_sandbox_check`, for a test that records what reaches the
+    /// run engine.
     #[cfg(test)]
     pub(crate) fn with_engine(
         services: &DriverServices,
         starts: Arc<dyn ClaudeProcessStarts>,
         engine: &Arc<dyn RunHost>,
         dispatch: &Arc<dyn InboundDispatch>,
+        command_sandbox_check: ClaudeCommandSandboxCheck,
     ) -> Result<Self, DriverError> {
-        let driver = Self::with_starts(services, starts);
+        let mut driver = Self::with_starts(services, starts);
+        Arc::get_mut(&mut driver.sources)
+            .expect("no session piece holds the sources before they compose")
+            .command_sandbox_check = command_sandbox_check;
         let parts = driver.compose(engine, dispatch)?;
         drop(driver.parts.set(Arc::new(parts)));
         Ok(driver)

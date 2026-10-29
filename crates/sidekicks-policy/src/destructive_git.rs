@@ -172,9 +172,9 @@ fn take_git_subcommand<W: WordText>(
     }
 }
 
-// Whether `word` is `option`, alone or with `=<value>`; every option here is ASCII, so its byte
-// length counts its characters.
-fn is_option(word: impl WordText, option: &str) -> bool {
+/// Whether `word` is `option`, alone or with `=<value>`; `option` is ASCII, so its byte length
+/// counts its characters.
+pub(crate) fn is_option(word: impl WordText, option: &str) -> bool {
     word.starts_with(option) && matches!(word.chars().nth(option.len()), None | Some('='))
 }
 
@@ -215,6 +215,8 @@ mod tests {
     #[case::lease_with_value("git push --force-with-lease=x", true)]
     #[case::branch_delete("git branch -D x", true)]
     #[case::push_cluster("git push -qf", true)]
+    // A letter an expansion makes is no `command -v`, so `command` runs the push.
+    #[case::undecided_lookup_option("command -$v git push --force", true)]
     #[case::dry_run("git push --dry-run origin main", false)]
     #[case::branch_long_option_with_d("git branch --edit-description", false)]
     fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool) {

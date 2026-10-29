@@ -133,14 +133,18 @@ refusal_codes! {
         (InvalidArgument, 422);
     /// Agent does not exist in the session (`data.fields`: `agentId`).
     AgentNotFound = "agent.notFound" (NotFound, 404);
-    /// A provider-axis member on `agent.config.update` or `session.create` names something the
-    /// machine cannot honor: an unregistered driver, a model absent from the target driver's
+    /// A provider-axis member names something the machine cannot honor. `agent.config.update`
+    /// refuses an unregistered driver, a model absent from the target driver's
     /// `provider.model.list`, an effort absent from that model's `effortLevels`, a larger window
     /// (the `largerWindow` axis) the target model's catalog does not offer at that figure, an
     /// output-speed value absent from the `outputSpeedLevels` published for the
     /// target model (its own list where its provider publishes one per model, else the driver's),
     /// a session option the target driver does not declare, or a session option's value outside
     /// the target driver's declaration of it or one the provider reports this session cannot run.
+    /// `session.create` refuses an unregistered driver and a session option the driver does not
+    /// declare or whose value its declaration refuses; the model is the driver's to accept when it
+    /// starts the session, and an effort the model does not list is refused at the first run's
+    /// start.
     AgentProviderAxisInvalid = "agent.providerAxisInvalid" (InvalidArgument, 422);
     /// A change to a waiting message refused: a removal (`agent.queueItem.cancel`) or an edit
     /// (`agent.queueItem.create` with `replacesQueueItemId`) of a message the agent has already

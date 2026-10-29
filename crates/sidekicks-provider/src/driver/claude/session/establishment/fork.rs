@@ -97,6 +97,7 @@ impl ClaudeSessionEstablishment {
             step_bound,
             resumed_binding_id: None,
             requested_spawn: predecessor.requested_spawn.clone(),
+            continued_turn: None,
         };
         let rebind = |resume_handle: &str, left: Vec<LeftConversation>| RuntimeBindingRebind {
             binding_id: params.binding_id.clone(),

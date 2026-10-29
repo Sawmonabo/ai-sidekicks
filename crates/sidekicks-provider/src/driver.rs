@@ -32,6 +32,7 @@ use crate::command::waiting_checks::InputWaitReader;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::AttachmentResolver;
+use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
@@ -44,6 +45,7 @@ use crate::spawn_environment::ReservedEnvironmentNames;
 pub mod attachments;
 pub mod callback_tool;
 pub mod capabilities;
+pub mod child_records;
 mod claude;
 mod codex;
 pub(crate) mod context_window;
@@ -83,6 +85,10 @@ pub struct ProviderDescriptor {
     pub id: &'static str,
     /// The provider's name as a person reads it.
     pub(crate) name: &'static str,
+    /// The address of the provider's official release notes for a version as its command printed
+    /// it: that version's own notes where it is a canonical semantic version, else the notes' first
+    /// page.
+    pub release_notes_address: fn(&str) -> String,
     /// Each plan id the provider sends and the word a person reads it as.
     pub(crate) plan_words: &'static [(&'static str, &'static str)],
     /// The provider's built-in tools in its own spelling, each with the words the picker draws.
@@ -164,13 +170,23 @@ pub(crate) struct ShellPrefixCommand {
 /// The shell prefix contract of the provider whose id is `provider_id`; `None` for an unknown id or
 /// a provider that prefixes no command.
 pub(crate) fn shell_prefix_command_of(provider_id: &str) -> Option<&'static ShellPrefixCommand> {
+    descriptor_of(provider_id).and_then(|descriptor| descriptor.shell_prefix_command.as_ref())
+}
+
+/// The descriptor of the provider whose id is `provider_id`; `None` for an id no provider has.
+pub fn descriptor_of(provider_id: &str) -> Option<&'static ProviderDescriptor> {
     PROVIDERS
         .iter()
+        .copied()
         .find(|descriptor| descriptor.id == provider_id)
-        .and_then(|descriptor| descriptor.shell_prefix_command.as_ref())
 }
 
 impl ProviderDescriptor {
+    /// The provider's name as a person reads it, which a session's lead agent is named.
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+
     /// The variables a Terminal pane's shell is given while `Simplify for a screen reader` is on.
     pub fn screen_reader_environment_names(&self) -> &'static [&'static str] {
         self.screen_reader_environment_names
@@ -470,6 +486,9 @@ pub struct DriverServices {
     pub pending_compactions: PendingCompactionRegistry,
     /// Which provider process runs each session, which each driver writes at spawn and exit.
     pub processes: Arc<ProviderProcessRegistry>,
+    /// The daemon's record of its own children, which every provider process a driver starts as
+    /// the daemon's child is recorded in, so a start after the daemon died ends it.
+    pub child_records: Arc<dyn DaemonChildRecords>,
     /// The processes serving the provider services the daemon holds a connection to, which each
     /// driver's dial holds and the daemon's caller check reads.
     pub provider_services: Arc<ProviderServiceProcesses>,
@@ -712,4 +731,40 @@ pub(crate) const fn is_same_text(left: &str, right: &str) -> bool {
         i += 1;
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::{ProviderDescriptor, claude, codex};
+
+    #[rstest]
+    #[case::claude_version(
+        &claude::DESCRIPTOR,
+        "2.1.294",
+        "https://code.claude.com/docs/en/changelog#2-1-294"
+    )]
+    #[case::codex_version(
+        &codex::DESCRIPTOR,
+        "0.163.0",
+        "https://github.com/openai/codex/releases/tag/rust-v0.163.0"
+    )]
+    #[case::claude_unparsed(
+        &claude::DESCRIPTOR,
+        "2.1.294 (Claude Code)",
+        "https://code.claude.com/docs/en/changelog"
+    )]
+    #[case::codex_unparsed(
+        &codex::DESCRIPTOR,
+        "codex_cli_rs/0.163.0 (Mac OS 26.1.0; arm64)",
+        "https://github.com/openai/codex/releases"
+    )]
+    fn a_printed_version_opens_its_providers_release_notes(
+        #[case] descriptor: &ProviderDescriptor,
+        #[case] version: &str,
+        #[case] address: &str,
+    ) {
+        assert_eq!((descriptor.release_notes_address)(version), address);
+    }
 }

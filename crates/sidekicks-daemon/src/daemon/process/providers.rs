@@ -4,11 +4,13 @@
 //! lasting service answers by connecting to it.
 
 use std::collections::BTreeSet;
+use std::error::Error;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use futures::future::join_all;
+use futures::FutureExt as _;
+use futures::future::{BoxFuture, join_all};
 use serde_json::{Map, Value};
 use sidekicks_approval::permission_asks::PermissionAsks;
 use sidekicks_approval::reviewer_denials::ReviewerDenials;
@@ -18,11 +20,13 @@ use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderSettingVa
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValue};
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_platforms::{PathRules, Spawner, current_user_id};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::background_work::BackgroundWorkForms;
+use sidekicks_provider::build_record::BuildRecordReaders;
 use sidekicks_provider::callback_tools::host::CallbackToolHost;
 use sidekicks_provider::capability::refresh::{CapabilityRefresher, CapabilityRefreshing};
 use sidekicks_provider::command::running_set::RunningCommandSets;
@@ -33,6 +37,7 @@ use sidekicks_provider::driver::attachments::AttachmentResolver;
 use sidekicks_provider::driver::capabilities::writer::{
     CapabilityHydration, DriverCapabilitiesWriter,
 };
+use sidekicks_provider::driver::child_records::DaemonChildRecords;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::ApplyRowValueParams;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
@@ -42,12 +47,14 @@ use sidekicks_provider::driver::diagnostics::{
 use sidekicks_provider::driver::ports::{DriverPorts, ProcessGoneListener, SessionPlace};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
+use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
 use sidekicks_provider::process_registry::ProviderProcessRegistry;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_queue::admission::QueueAdmission;
 use sidekicks_queue::delivery::QueueDelivery;
+use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_session::addresses::{ForeignPlaceError, SessionInboxAddresses};
 use sidekicks_session::console_state::ConsoleStateAdvisors;
 use sidekicks_session::idle_sleep::SessionIdleSleep;
@@ -63,9 +70,9 @@ use sidekicks_std::port_registration::PortRegistrationError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_workspace::git::process::GitRunner;
-use sidekicks_workspace::git::worktree::naming::worktrees_folder;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio::task::JoinError;
+use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::daemon::machine_settings::file::MachineSettingsFile;
@@ -80,6 +87,8 @@ pub(crate) struct ProviderStart {
     pub(crate) data_folder: PathBuf,
     /// The person's home folder.
     pub(crate) home_folder: PathBuf,
+    /// The daemon's worktrees folder, its links resolved, where a staged review's tree is made.
+    pub(crate) worktrees_folder: PathBuf,
     /// The daemon's session token file, which no provider process may read.
     pub(crate) session_token_path: PathBuf,
     /// The one read pool.
@@ -96,6 +105,11 @@ pub(crate) struct ProviderStart {
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
     /// Reads where a command channel's party runs.
     pub(crate) caller_processes: Arc<dyn CallerProcessReader>,
+    /// The readers of the record of each provider's builds: the attention projection, which lists
+    /// them.
+    pub(crate) build_record_readers: Arc<dyn BuildRecordReaders>,
+    /// The daemon's record of its own children, opened and swept before the providers are built.
+    pub(crate) child_records: Arc<dyn DaemonChildRecords>,
 }
 
 /// The providers the daemon runs: their registry, the ports their drivers read, the capability
@@ -148,8 +162,7 @@ pub(crate) fn build_providers(
     let background_work = Arc::new(BackgroundWorkForms::of_providers(&descriptors));
     let processes = Arc::new(ProviderProcessRegistry::default());
     let provider_services = Arc::new(ProviderServiceProcesses::default());
-    let staged_changes =
-        StagedChangesWorktrees::new(&worktrees_folder(&start.home_folder), start.git);
+    let staged_changes = StagedChangesWorktrees::new(&start.worktrees_folder, start.git);
     let execution_postures = Arc::new(ExecutionPostureService::new(
         &start.home_folder,
         start.session_token_path,
@@ -171,6 +184,7 @@ pub(crate) fn build_providers(
         command_search: Arc::new(ProviderCommandSearch::new(start.spawner.clone())),
         pending_compactions: PendingCompactionRegistry::default(),
         processes: Arc::clone(&processes),
+        child_records: start.child_records,
         provider_services: Arc::clone(&provider_services),
         runtime_bindings: Arc::clone(&runtime_bindings) as _,
         shell_lines: start.shell_lines,
@@ -183,7 +197,12 @@ pub(crate) fn build_providers(
         ports: Arc::clone(&ports),
     };
     let registry = Arc::new(ProviderRegistry::register_from(registrations, &services));
-    let capabilities = Arc::new(DriverCapabilitiesWriter::new(start.reads, start.writer));
+    // A recorded build's write wakes the attention projection's followers, which list it.
+    let capabilities = Arc::new(DriverCapabilitiesWriter::new(
+        start.reads,
+        start.writer,
+        start.build_record_readers,
+    ));
     let (refresher, refreshing) =
         CapabilityRefresher::start(Arc::clone(&registry), Arc::clone(&capabilities));
     Providers {
@@ -281,6 +300,8 @@ pub(crate) struct DriverPortOwners {
     pub(crate) idle_sleep: Arc<SessionIdleSleep>,
     /// The stored resume of a sleeping session a driver holds nothing for.
     pub(crate) session_resumes: Arc<StoredSessionResumes>,
+    /// Each session's provider session, which follows a level or mode its provider reported.
+    pub(crate) provider_sessions: Arc<ProviderSessions>,
 }
 
 /// The places the daemon runs sessions in: this computer's own system alone, its login shell's
@@ -344,7 +365,36 @@ pub(crate) fn register_driver_ports(
     ports
         .callback_tool_host
         .register(owners.callback_tool_host)?;
+    ports
+        .session_level_followers
+        .register(Arc::new(WeakLevelFollower(Arc::downgrade(
+            &owners.provider_sessions,
+        ))))?;
     ports.run_pauses.register(owners.run_pauses)
+}
+
+/// The provider sessions as the drivers' level follower, held weakly: they hold the registry whose
+/// drivers hold this port, so a strong hold would keep both alive for good.
+#[expect(
+    dead_code,
+    reason = "the daemon's start registers the ports, this follower among them"
+)]
+struct WeakLevelFollower(Weak<ProviderSessions>);
+
+impl SessionLevelFollower for WeakLevelFollower {
+    /// Follows the report through the provider sessions; fails once they are gone, as while the
+    /// daemon stops.
+    fn follow_reported_level(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        let sessions = self.0.upgrade();
+        async move {
+            let sessions = sessions.ok_or("the provider sessions are gone")?;
+            SessionLevelFollower::follow_reported_level(sessions.as_ref(), session_id).await
+        }
+        .boxed()
+    }
 }
 
 /// Why no session's inbox addresses can be composed.
@@ -397,8 +447,8 @@ pub(crate) async fn sweep_left_staged_worktrees(providers: &Providers) {
     }
 }
 
-/// The providers' registration running on its own task, which the start waits for before the run
-/// queue's recovery and the stop ends before the drivers.
+/// The providers' first capability reads running on their own task, which the start waits for
+/// before the run queue's recovery and the stop ends before the drivers.
 pub(crate) struct ProvidersRegistration {
     /// The task, until it is seen to end; dropped, it ends the task.
     task: Option<AbortOnDropHandle<()>>,
@@ -416,8 +466,8 @@ pub(crate) enum ProvidersRegistrationStopFailure {
 }
 
 impl ProvidersRegistration {
-    /// Waits until every driver's first read landed, failed or missed its deadline and every row
-    /// value was applied; at once when it ended already. Fails when its task panicked.
+    /// Waits until every driver's first read landed, failed or missed its deadline; at once when it
+    /// ended already. Fails when its task panicked.
     pub(crate) async fn finished(&mut self) -> Result<(), JoinError> {
         let Some(task) = self.task.as_mut() else {
             return Ok(());
@@ -450,36 +500,45 @@ impl ProvidersRegistration {
     }
 }
 
-/// Starts the providers' registration on its own task, not awaited: once `index_opened` settles,
-/// every driver's capabilities are read, declared and recorded at once, a provider with a lasting
-/// service connecting to it in its read, then each driver's Settings rows take their values, each
-/// one `settings_file` stores over the driver's default. It ends once every read landed, failed or
-/// missed its deadline and every value was applied, or, applying none, once the refresh stopped
-/// before the reads; a failure is logged, never returned. Dropping the handle ends it. A value
-/// changed later is applied by the provider settings' update, through the same driver call.
-pub(crate) fn register_providers(
-    providers: &Providers,
-    index_opened: impl Future<Output = ()> + Send + 'static,
-    settings_file: Arc<MachineSettingsFile>,
-) -> ProvidersRegistration {
-    let refresher = Arc::clone(&providers.refresher);
-    let registry = Arc::clone(&providers.registry);
-    let task = tokio::spawn(async move {
-        index_opened.await;
-        if !refresher.refresh_now().await {
-            tracing::warn!(
-                "the capability refresh ended before the providers' first reads, so no row value \
-                 is applied"
-            );
-            return;
-        }
+/// Applies to every driver its Settings rows' values, all drivers at once, each one
+/// `settings_file` stores over the driver's default, before anything provider-facing runs: a
+/// provider with a lasting service joins it here, or starts it on the same socket, before any
+/// session's recovery or capability read reaches for it. Each driver's own start bound is the only
+/// bound, and `stop` ends the wait where it stands. A row that fails to apply, or a settings file
+/// that cannot be read, is logged and the start goes on. A value changed later is applied by the
+/// provider settings' update, through the same driver call.
+pub(crate) async fn apply_stored_rows(
+    registry: &ProviderRegistry,
+    settings_file: &MachineSettingsFile,
+    stop: &CancellationToken,
+) {
+    let applying = async {
         match settings_file.read().await {
-            Ok(reading) => apply_row_values(&registry, &reading.settings.provider_settings).await,
+            Ok(reading) => apply_row_values(registry, &reading.settings.provider_settings).await,
             Err(error) => tracing::error!(
                 error = &error as &(dyn std::error::Error + 'static),
                 "the providers' stored settings could not be read, so none was applied"
             ),
         }
+    };
+    tokio::select! {
+        () = applying => {}
+        () = stop.cancelled() => {}
+    }
+}
+
+/// Starts the providers' first capability reads on their own task, not awaited: once
+/// `index_opened` settles, every driver's capabilities are read, declared and recorded at once. It
+/// ends once every read landed, failed or missed its deadline, or once the refresh stopped before
+/// the reads; a failure is logged, never returned. Dropping the handle ends it.
+pub(crate) fn register_providers(
+    providers: &Providers,
+    index_opened: impl Future<Output = ()> + Send + 'static,
+) -> ProvidersRegistration {
+    let refresher = Arc::clone(&providers.refresher);
+    let task = tokio::spawn(async move {
+        index_opened.await;
+        refresher.refresh_now().await;
     });
     ProvidersRegistration {
         task: Some(AbortOnDropHandle::new(task)),
@@ -603,8 +662,8 @@ mod tests {
     use sidekicks_provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
+    use sidekicks_provider::driver::child_records::UnrecordedChildren;
     use sidekicks_provider::driver::contract::MockProviderDriver;
-    use sidekicks_provider::driver::contract::error::DriverError;
     use sidekicks_provider::driver::contract::params_and_results::{
         ApplyRowValueParams, DriverCliVersionReport, GetCapabilitiesResult,
     };
@@ -612,16 +671,19 @@ mod tests {
         NothingServed, registrations_of_first_providers,
     };
     use sidekicks_provider::driver::{PROVIDERS, ProviderRegistration};
+    use sidekicks_session::attention::changes::attention_changes_after_commits;
     use sidekicks_std::mutex_lock::lock;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::events::log_service::test_fixture::open_log;
     use sidekicks_workspace::git::process::{GitLimits, GitRunner};
+    use sidekicks_workspace::git::worktree::naming::worktrees_folder;
     use tempfile::TempDir;
     use tokio::runtime::Handle;
+    use tokio_util::sync::CancellationToken;
 
     use super::{
-        ProviderStart, Providers, build_providers, hydrate_capabilities, register_providers,
+        ProviderStart, Providers, apply_stored_rows, build_providers, hydrate_capabilities,
     };
     use crate::daemon::machine_settings::file::MachineSettingsFile;
     use crate::daemon::schema::schema_parts;
@@ -658,6 +720,7 @@ mod tests {
                     spawner: spawner.clone(),
                     data_folder: self.home.path().join("data"),
                     home_folder: self.home.path().to_owned(),
+                    worktrees_folder: worktrees_folder(self.home.path()),
                     session_token_path: self.home.path().join("daemon.token"),
                     reads: Arc::new(DatabaseReadPool::new(
                         self.database.path(),
@@ -677,6 +740,8 @@ mod tests {
                         ProcessTableReader::for_this_program()
                             .expect("this program's reader builds"),
                     ),
+                    build_record_readers: Arc::new(attention_changes_after_commits().1),
+                    child_records: Arc::new(UnrecordedChildren),
                 },
             )
         }
@@ -756,17 +821,14 @@ mod tests {
         .expect("no test row is the prototype key")
     }
 
-    // The registration applies each row's value once the first reads ran: the driver's default
-    // where the app stored none, the stored value over it where it did. Killed by leaving the
-    // replay out, which applies nothing, or by applying the defaults alone.
+    // The stored rows' application applies each row's value: the driver's default where the app
+    // stored none, the stored value over it where it did. Killed by leaving the replay out, which
+    // applies nothing, or by applying the defaults alone.
     #[tokio::test]
-    async fn the_registration_applies_each_rows_stored_value_over_the_drivers_default() {
+    async fn the_stored_rows_apply_each_rows_stored_value_over_the_drivers_default() {
         let start = TestStart::new();
         let applied = Arc::new(Mutex::new(Vec::new()));
         let mut driver = MockProviderDriver::new();
-        driver.expect_get_capabilities().returning(|| {
-            async { Err(DriverError::Internal("no read in the test".into())) }.boxed()
-        });
         driver.expect_row_defaults().returning(|| {
             rows(vec![
                 ("reach", switch_row(true)),
@@ -803,14 +865,12 @@ mod tests {
         )
         .expect("the test stores the settings");
 
-        register_providers(
-            &providers,
-            async {},
-            Arc::new(MachineSettingsFile::new(settings_path)),
+        apply_stored_rows(
+            &providers.registry,
+            &MachineSettingsFile::new(settings_path),
+            &CancellationToken::new(),
         )
-        .finished()
-        .await
-        .expect("the registration ends");
+        .await;
 
         assert_eq!(
             *lock(&applied),

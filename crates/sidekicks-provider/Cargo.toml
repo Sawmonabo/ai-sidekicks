@@ -80,8 +80,13 @@ rstest.workspace = true
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
 # The stand-in programs, the harness's test names and the socket folders the tests use.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
+# The keyed lock's count of queued holders, which tells a declare waiting on its provider's turn,
+# and the held file reads the posture tests resolve a root across.
+sidekicks-std = { workspace = true, features = ["test-support"] }
 # The test database and the session test log the tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }
+# The scratch repository a staged review's test opens its worktree from.
+sidekicks-workspace = { workspace = true, features = ["test-support"] }
 # The paused clock the drivers' and the command waits' tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
@@ -100,8 +105,14 @@ zstd.workspace = true
 # Helpers other crates' tests use: the drivers' test registry with its session inbox addresser, the
 # test provider id, the driver's mock, the unanswered request, the diagnostics recorder, the
 # runtime binding's test store, the question port's test card, the provider process stand-in and
-# its test identity, and the late appendable row's `Clone` and `PartialEq`.
-test-support = ["dep:mockall", "dep:tracing-subscriber", "sidekicks-store/test-support"]
+# its test identity, the late appendable row's `Clone` and `PartialEq`, and the kept terminal
+# service with its listener and its recording `codex` command.
+test-support = [
+  "dep:mockall",
+  "dep:tracing-subscriber",
+  "sidekicks-platforms/test-support",
+  "sidekicks-store/test-support",
+]
 
 [lints]
 workspace = true

@@ -1,6 +1,7 @@
 //! What the registry's tests on real processes run as Codex: this test program as a stand-in
 //! service that listens as Codex does, the folders and dependencies each test's services share,
-//! and the former daemon's planned restart a later daemon meets.
+//! the former daemon's planned restart a later daemon meets, and the stand-in's end with the test
+//! program that launched it.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -8,21 +9,20 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
-use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_contracts::run::control::ProcessExit;
-use sidekicks_platforms::{
-    LeftoverSweep, bind_socket_listener, pin_running_process, replace_file_atomically,
-    replace_socket_link,
-};
+use sidekicks_platforms::{pin_running_process, short_socket_folder};
+use tempfile::TempDir;
 use tokio::sync::mpsc;
 
+use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
 use crate::driver::codex::service::record::LastingServiceRecordFile;
 use crate::driver::codex::service::registry::OneHome;
 use crate::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
 use crate::driver::codex::service::supervisor::test_service::{
-    ExitsHeard, TestCodexProgram, UnheardEvents, answer_as_codex_service,
-    test_codex_service_dependencies,
+    CODEX_HOME_NAME, CodexServiceScript, ExitsHeard, LAUNCH_ARGUMENTS_FILE, TestCodexProgram,
+    UnheardEvents, serve_as_codex_service_stand_in, test_codex_service_dependencies,
+    write_codex_service_script,
 };
 use crate::driver::codex::service::supervisor::{CodexProgramResolver, CodexServiceDependencies};
 use crate::driver::contract::error::DriverError;
@@ -30,67 +30,21 @@ use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
 
+mod end;
+
 /// The stand-in Codex service: this test program, run by the script the registry's services
 /// start as Codex.
 const APP_SERVER_STAND_IN: &str =
     "driver::codex::service::registry::tests::stand_in::an_app_server_stand_in";
 
-/// The address the stand-in listens on, as its `--listen` names it; only its script sets it.
-const LISTEN_ADDRESS_NAME: &str = "SIDEKICKS_TEST_LISTEN_ADDRESS";
-
-/// Set for a stand-in that ignores the hang-up, as a service still finishing its replies does;
-/// only a test's program sets it.
-pub(super) const HANG_UP_IGNORED_NAME: &str = "SIDEKICKS_TEST_HANG_UP_IGNORED";
-
-/// The Codex home the stand-in serves, as Codex reads it.
-const CODEX_HOME_NAME: &str = "CODEX_HOME";
-
 /// How long a test waits on a crash, a recovery or a process's end to be heard.
 pub(super) const CRASH_WAIT: Duration = Duration::from_secs(10);
 
-// Listens as Codex does: on a real socket of its own, with the path it was given made a link to
-// it, answering the daemon's start. Skips unless a test's script started it.
+// Listens as Codex does, answering the daemon's start. Skips unless a test's script started it.
 #[tokio::test]
 #[ignore = "run only as a registry test's Codex service"]
 async fn an_app_server_stand_in() {
-    let Ok(address) = std::env::var(LISTEN_ADDRESS_NAME) else {
-        return;
-    };
-    let codex_home = PathBuf::from(std::env::var(CODEX_HOME_NAME).expect("the home is named"));
-    let link = match address.strip_prefix("unix://").expect("a socket address") {
-        "" => home_socket_path(&codex_home),
-        path => PathBuf::from(path),
-    };
-    std::fs::create_dir_all(link.parent().expect("the link has a folder"))
-        .expect("the link's folder is made");
-    let real_socket = codex_home.join(format!("real-{}.sock", std::process::id()));
-    let listener = bind_socket_listener(&real_socket).expect("the real socket listens");
-    replace_socket_link(&link, &real_socket).expect("the link names the real socket");
-    while let Ok(stream) = listener.accept().await {
-        tokio::spawn(answer_as_codex_service(stream));
-    }
-}
-
-/// The file the stand-in's script keeps its last launch's arguments in, one to a line.
-const LAUNCH_ARGUMENTS_FILE: &str = "codex-arguments";
-
-// The script the services start as Codex: it keeps its arguments, hands the stand-in the address
-// its `--listen` names, and has it ignore the hang-up where the test's program asks.
-fn write_stand_in_script(folder: &Path) -> PathBuf {
-    let program = std::env::current_exe().expect("the test program names itself");
-    let script = folder.join("codex");
-    let body = format!(
-        "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n\
-         while [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = --listen ]; then \
-         {LISTEN_ADDRESS_NAME}=\"$2\"; export {LISTEN_ADDRESS_NAME}; fi\n  shift\ndone\n\
-         if [ -n \"${HANG_UP_IGNORED_NAME}\" ]; then trap '' HUP; fi\n\
-         exec '{}' --exact {APP_SERVER_STAND_IN} --include-ignored >/dev/null 2>&1\n",
-        folder.join(LAUNCH_ARGUMENTS_FILE).display(),
-        program.display()
-    );
-    replace_file_atomically(&script, body.as_bytes(), 0o755, LeftoverSweep::Unswept)
-        .expect("the script is written");
-    script
+    serve_as_codex_service_stand_in().await;
 }
 
 // The home on the person's own Codex folder, under `folder`.
@@ -104,11 +58,10 @@ fn terminal_home(folder: &Path) -> CodexServiceHome {
 }
 
 /// What the services of one test run on: the stand-in as Codex, resolved through `program` when
-/// one is given, its exits and recoveries told on the two receivers.
+/// one is given, its exits and recoveries told on the two receivers; every stand-in the test
+/// launched that still runs is ended when it drops.
 pub(super) struct StandInServices {
-    /// The folder the data, logs and home sit in.
-    pub(super) folder: PathBuf,
-    /// The person's own Codex folder.
+    /// The Codex home the services run on: the person's own folder, or an account's home.
     pub(super) home: CodexServiceHome,
     /// What the test's daemon runs its services on.
     pub(super) dependencies: Arc<CodexServiceDependencies>,
@@ -116,33 +69,64 @@ pub(super) struct StandInServices {
     pub(super) exits: mpsc::UnboundedReceiver<Option<ProcessExit>>,
     /// One message per service back after a crash.
     pub(super) recoveries: mpsc::UnboundedReceiver<()>,
+    // The script the stand-in starts through, which ends its launches when it drops.
+    _script: CodexServiceScript,
+    /// The folder the data, logs and home sit in; declared after the script, so its launches are
+    /// read before the folder is removed.
+    pub(super) folder: TempDir,
 }
 
-/// The services of one test under `folder`, the stand-in resolved through what `program` makes
-/// of it.
+/// The services of one test on the person's own Codex folder in a scratch folder of their own
+/// whose socket paths fit the system's bound on them, the stand-in resolved through what
+/// `program` makes of it.
 pub(super) fn stand_in_services(
-    folder: &Path,
     program: impl FnOnce(TestCodexProgram) -> Arc<dyn CodexProgramResolver>,
 ) -> StandInServices {
-    let home = terminal_home(folder);
+    let folder = short_socket_folder().expect("a scratch folder is made");
+    services_on(terminal_home(folder.path()), folder, program)
+}
+
+/// The services of one test on an account's home in a scratch folder of their own whose socket
+/// paths fit the system's bound on them, the stand-in resolved as it is.
+pub(super) fn account_stand_in_services() -> StandInServices {
+    let folder = short_socket_folder().expect("a scratch folder is made");
+    let codex_home = folder.path().join("account");
+    std::fs::create_dir_all(&codex_home).expect("the home is made");
+    let home = CodexServiceHome {
+        codex_home,
+        kind: CodexHomeKind::Account(test_provider_account_id()),
+    };
+    services_on(home, folder, |program| Arc::new(program))
+}
+
+// The services of one test on `home` in `folder`, which they own, the stand-in resolved through
+// what `program` makes of it.
+fn services_on(
+    home: CodexServiceHome,
+    folder: TempDir,
+    program: impl FnOnce(TestCodexProgram) -> Arc<dyn CodexProgramResolver>,
+) -> StandInServices {
     let (heard, exits, recoveries) = ExitsHeard::new();
+    let script = write_codex_service_script(folder.path(), APP_SERVER_STAND_IN, None);
     let dependencies = test_codex_service_dependencies(
-        folder,
+        folder.path(),
         program(TestCodexProgram {
-            program: write_stand_in_script(folder),
+            program: script.path().to_owned(),
             environment: vec![(
                 CODEX_HOME_NAME.to_owned(),
                 home.codex_home.display().to_string(),
             )],
         }),
         Arc::new(heard),
+        Arc::new(UnrecordedChildren),
     );
     StandInServices {
-        folder: folder.to_owned(),
         home,
         dependencies,
         exits,
         recoveries,
+        _script: script,
+        folder,
     }
 }
 
@@ -152,9 +136,10 @@ pub(super) fn another_daemon(services: &StandInServices) -> CodexServiceRegistry
     CodexServiceRegistry::new(
         Arc::new(OneHome(services.home.clone())),
         test_codex_service_dependencies(
-            &services.folder,
+            services.folder.path(),
             Arc::clone(&services.dependencies.program),
             Arc::new(UnheardEvents),
+            Arc::new(UnrecordedChildren),
         ),
     )
 }
@@ -169,7 +154,7 @@ pub(super) fn this_daemon(services: &StandInServices) -> CodexServiceRegistry {
 
 /// The arguments the stand-in's last launch under `services` ran with.
 pub(super) fn last_launch_arguments(services: &StandInServices) -> Vec<String> {
-    std::fs::read_to_string(services.folder.join(LAUNCH_ARGUMENTS_FILE))
+    std::fs::read_to_string(services.folder.path().join(LAUNCH_ARGUMENTS_FILE))
         .expect("the launch's arguments were kept")
         .lines()
         .map(str::to_owned)

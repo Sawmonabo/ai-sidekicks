@@ -51,17 +51,15 @@ impl ProviderProcessIds for ProviderProcessRegistry {
 
 #[cfg(test)]
 mod tests {
-    use sidekicks_contracts::session::id::SessionId;
-
     use super::ProviderProcessRegistry;
+    use crate::driver::test_registry::fixed_session_id;
     use crate::process_identity::{ProviderProcessIdentity, ProviderProcessIds};
 
     // Killed by removing a session's entry on any exit without comparing its spawn sequence.
     #[test]
     fn a_replaced_process_exit_leaves_its_successor_recorded() {
         let registry = ProviderProcessRegistry::default();
-        let session_id =
-            SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id");
+        let session_id = fixed_session_id();
         let first = ProviderProcessIdentity {
             process_id: 40,
             spawn_sequence: registry.mint_spawn_sequence(),

@@ -1,6 +1,7 @@
 //! The app's identity with the operating system: the name it shows the system under, the bundle
-//! identifier the desktop's build signs the app under, from which the daemon derives the
-//! identifier its client helper carries, and the launchd label the service runs under on a Mac.
+//! identifier the desktop's build signs the app under, by which the daemon starts the app and from
+//! which it derives the identifier its client helper carries, and the launchd label the service
+//! runs under on a Mac.
 
 use crate::typescript::{TypeScriptModule, ts_constants};
 
@@ -18,7 +19,8 @@ ts_constants! {
     pub const APP_DISPLAY_NAME: &str = "AI Sidekicks";
 
     /// The app's bundle identifier: the desktop's build signs the app under it, and on macOS the
-    /// daemon admits the desktop's client helper by the identifier derived from it.
+    /// daemon starts the app by it with no window for a banner and admits the desktop's client
+    /// helper by the identifier derived from it.
     pub const APP_BUNDLE_IDENTIFIER: &str = app_bundle_identifier!();
 
     /// The launchd label the service runs under on a Mac, one label so one service runs there. It

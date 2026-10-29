@@ -233,7 +233,9 @@ impl ClaudeDeliveryStream {
             ClaudeWireFrameKind::SystemInit | ClaudeWireFrameKind::SystemStatus
         ) && let Some(mode) = read_non_empty_string(&members, "permissionMode")
         {
-            session.lock().permission_mode = Some(mode.to_owned());
+            session
+                .permission_mode()
+                .note_report(mode, frame_kind, &session.provider_account_id);
         }
         if kind == ClaudeWireFrameKind::CommandLifecycle {
             self.read_command_lifecycle(session, &members);

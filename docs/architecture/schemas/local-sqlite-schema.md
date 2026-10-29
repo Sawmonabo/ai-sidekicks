@@ -6,13 +6,14 @@ The database is one schema, created whole when the daemon first opens it. There 
 
 **Storage boundary:** Machine-scoped execution truth and recovery data. See [Data Architecture](../data-architecture.md).
 
-Nine areas keep their tables in files of their own, beside this one:
+Ten areas keep their tables in files of their own, beside this one:
 
 - [Session Tables (Plan-001)](local-sqlite-session-tables.md)
 - [Session Search Index Tables (ADR-041)](local-sqlite-session-search-tables.md)
 - [Workspace and Git Tables (Plan-006, Plan-007, Plan-008)](local-sqlite-workspace-and-git-tables.md)
 - [Orchestration Tables (Plan-013)](local-sqlite-orchestration-tables.md)
 - [Workflow Tables (Plan-014)](local-sqlite-workflow-tables.md)
+- [Attention Tables (Plan-016)](local-sqlite-attention-tables.md)
 - [MCP Governance Tables (Plan-022)](local-sqlite-mcp-governance-tables.md)
 - [Provider Account Tables (Plan-023)](local-sqlite-provider-account-tables.md)
 - [Agent Definition Tables (Plan-024)](local-sqlite-agent-definition-tables.md)
@@ -626,6 +627,9 @@ CREATE TABLE approval_requests (
                                               -- minted by the CP-009-5 permission-ask normalizer; rebuilt from
                                               -- approval.requested.askId on rebuild (D-009-6/D-009-7) so outcome routing to the native
                                               -- ask survives restart with several in-flight asks on one run
+  tool_call_id          TEXT,                 -- the provider's id of the tool call the ask holds, from
+                                              -- approval.requested.toolCallId; NULL where the provider sent none
+                                              -- and on a card the daemon raised itself
   state                 TEXT NOT NULL DEFAULT 'pending'
                         CHECK(state IN ('pending', 'approved', 'rejected', 'canceled')),
                                               -- No 'expired' state and no deadline column: a request waits until it is
@@ -644,8 +648,9 @@ CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = 'pending';
 CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_id) WHERE ask_id IS NOT NULL;
 -- UNIQUE (run_id, ask_id): one approval row per ask id. The daemon mints the id once for each
--- provider ask it takes, and a provider ask delivered again while it is held is matched to the held
--- one in memory, so no second row is minted for it (Spec-010 one ask↔one approval)
+-- provider ask it takes; a provider ask delivered again while it is held is matched to the held
+-- one in memory, and one resent with none held (after a restart) is matched to its pending row by
+-- tool_call_id and action, so no second row is minted for it (Spec-010 one ask↔one approval)
 
 -- Owner: Plan-009
 CREATE TABLE approval_resolutions (
@@ -741,6 +746,8 @@ CREATE TABLE questions (
   session_id        TEXT NOT NULL,
   run_id            TEXT,              -- the run that holds it, or
   wait_id           TEXT,              -- the workflow wait that holds it
+  provider_request_id TEXT,            -- the provider's request a run's question came on, from question.asked.providerRequestId,
+                                       -- so a request sent again after a restart finds its open record; NULL on a wait's question
   is_agent_waiting  INTEGER NOT NULL CHECK(is_agent_waiting IN (0, 1)), -- 0: a queued message answers it
   state             TEXT NOT NULL DEFAULT 'open' CHECK(state IN ('waitingForRun', 'open', 'answered', 'canceled')),
   CHECK((run_id IS NULL) <> (wait_id IS NULL))
@@ -838,26 +845,6 @@ CREATE TABLE skill_records (
 CREATE UNIQUE INDEX idx_skill_records_folder ON skill_records(folder_path) WHERE orphaned = 0;
 ```
 
-## Attention Delivery State (Plan-016)
+## Attention Tables (Plan-016)
 
-The attention service's entries carry the state its two deliveries beyond the app need to survive a service restart ([Spec-017 §Cross-Device Delivery](../../specs/017-notifications-and-attention-model.md#cross-device-delivery)). No table here holds a mail password, a web address or its signing secret: each is kept as its own item in the operating system's credential store and never written to a column, a reply, an event, a log or an error ([ADR-036](../../decisions/036-workflow-secrets-in-the-os-keychain.md)).
-
-- **Each attention entry** carries a nullable `digested_at`, the instant the entry went out in an email digest, so no entry is listed twice and the digest's one timer is restored from it at start; and a nullable `web_address_state` (`pending`, `delivered` or `undelivered`) with its attempt count, so a retry to the web address survives a restart. Both live as long as the entry.
-- **Each delivery channel** — the web address and the email digest — keeps one outcome row: when the last attempt ran, its result (`delivered`, `refused`, `unreachable`, `timedOut`, `signInRefused`, `notEncrypted` or `notAnAddress`), the HTTP status where there was one, and how many moments are undelivered. The row is overwritten on each attempt and removed with the channel's secret; `attention.delivery.list` returns it.
-- **The session row's `muted_at`** ([Session Tables §Session Directory](local-sqlite-session-tables.md#session-directory-plan-001)) keeps a muted session's `Finished` and `Failed` moments out of both channels.
-- **Each push to another device** keeps a `push_deliveries` row, its device one of `trusted_devices` ([Remote Control Tables §The Account's Devices](local-sqlite-remote-control-tables.md#the-accounts-devices)).
-
-```sql
--- Owner: Plan-016 (T3.6)
--- One row per device a push went to, so a withdrawal reaches exactly the devices that got the entry.
--- A row goes when its entry is withdrawn or 24 hours after it was sent.
-CREATE TABLE push_deliveries (
-  entry_id     TEXT NOT NULL,                     -- the attention entry the push announced
-  device_id    TEXT NOT NULL REFERENCES trusted_devices(device_id),
-  collapse_id  TEXT NOT NULL,                     -- the moment's stable id, sent as the push's collapse id, so a later push for the same moment replaces it in place
-  state        TEXT NOT NULL
-               CHECK(state IN ('sent', 'replaced')),  -- 'replaced' once a later push for the same moment took its place, which leaves nothing to withdraw
-  sent_at      TEXT NOT NULL,
-  PRIMARY KEY (entry_id, device_id)
-) STRICT;
-```
+The attention tables and the record of each provider's builds are in [Attention Tables (Plan-016)](local-sqlite-attention-tables.md).

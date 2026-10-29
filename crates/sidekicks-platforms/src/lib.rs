@@ -102,6 +102,7 @@ mod program_install_folders;
 mod program_link;
 mod program_start;
 mod recreate_link;
+mod regular_file_open;
 mod run_folder;
 mod running_program;
 #[cfg(any(test, feature = "test-support"))]
@@ -129,6 +130,7 @@ mod user_namespace;
 mod wake_watch;
 mod wall_clock;
 mod watch;
+mod windowless_app;
 #[cfg(target_os = "windows")]
 mod windows;
 mod wsl;
@@ -213,6 +215,8 @@ pub use linux::user_namespace::can_create_user_namespace;
 #[cfg(target_os = "linux")]
 pub use linux::user_scope::leave_daemon_scope;
 #[cfg(target_os = "linux")]
+pub use linux::windowless_app::launch_app_windowless;
+#[cfg(target_os = "linux")]
 pub use linux::{
     CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, SHOULD_MEMORY_MAP_READS, machine_name,
     windows_drive_mounts,
@@ -260,6 +264,8 @@ pub use macos::service_registration::{ServiceRegistration, service_registration}
 #[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "macos")]
+pub use macos::windowless_app::launch_app_windowless;
+#[cfg(target_os = "macos")]
 pub use macos::{
     CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, SHOULD_MEMORY_MAP_READS, machine_name,
     windows_drive_mounts,
@@ -288,6 +294,7 @@ pub use posix::askpass::askpass_listener;
 pub use posix::child_command::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
     prepare_child_command, spawn_lasting_child, wrap_child_command, wrap_group_child_command,
+    wrap_leading_child_command,
 };
 #[cfg(unix)]
 pub use posix::command_wrapper::{
@@ -334,14 +341,17 @@ pub use posix::file_system::{
 };
 #[cfg(unix)]
 pub use posix::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, open_regular_file,
+    remove_tree, rename_replacing,
 };
 #[cfg(unix)]
 pub use posix::login_shell::{login_shell, name_as_login_shell};
 #[cfg(unix)]
 pub use posix::null_device::NULL_DEVICE_PATH;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::os_text::non_unicode_name;
 #[cfg(unix)]
-pub use posix::os_text::os_text_bytes;
+pub use posix::os_text::{os_text_bytes, os_text_stable_bytes};
 #[cfg(unix)]
 pub use posix::private_folder::{
     create_missing_private_folders, create_new_private_folder, create_private_folder,
@@ -428,6 +438,7 @@ pub use program_install_folders::{ProgramFolder, program_install_folders};
 pub use program_link::{ProgramLinkError, link_program};
 pub use program_start::{ProgramStart, program_start};
 pub use recreate_link::recreate_link;
+pub use regular_file_open::RegularFileOpen;
 pub use run_folder::{DaemonRunFolder, RunFolderRefused, askpass_socket_path};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
 #[cfg(any(test, feature = "test-support"))]
@@ -472,6 +483,7 @@ pub use user_namespace::can_create_user_namespace;
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
 pub use watch::{FileAppendWatch, FolderArrivalWait, FolderArrivalWatch};
+pub use windowless_app::WindowlessLaunch;
 #[cfg(target_os = "windows")]
 pub use windows::address_opening::open_address;
 #[cfg(target_os = "windows")]
@@ -488,6 +500,7 @@ pub use windows::caller_process::{
 pub use windows::child_command::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
     prepare_child_command, wrap_child_command, wrap_group_child_command,
+    wrap_leading_child_command,
 };
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
@@ -532,7 +545,8 @@ pub use windows::file_system::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, open_regular_file,
+    remove_tree, rename_replacing,
 };
 #[cfg(target_os = "windows")]
 pub use windows::input_wait::{may_wait_for_input, read_input_wait};
@@ -550,8 +564,10 @@ pub use windows::memory::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::null_device::NULL_DEVICE_PATH;
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::os_text::non_unicode_name;
 #[cfg(target_os = "windows")]
-pub use windows::os_text::os_text_bytes;
+pub use windows::os_text::{os_text_bytes, os_text_stable_bytes};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::pinned_process::this_process;
 #[cfg(target_os = "windows")]
@@ -628,6 +644,8 @@ pub use windows::terminal::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::thread_cpu_time::thread_cpu_time;
+#[cfg(target_os = "windows")]
+pub use windows::windowless_app::launch_app_windowless;
 #[cfg(target_os = "windows")]
 pub use windows::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 #[cfg(target_os = "windows")]

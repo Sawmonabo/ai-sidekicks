@@ -109,7 +109,7 @@ pub fn read_left_conversations(
 /// A stored provider id that is not a valid one.
 #[derive(Debug, thiserror::Error)]
 #[error("the stored provider id is not a valid provider id")]
-struct StoredProviderIdInvalidError;
+pub(crate) struct StoredProviderIdInvalidError;
 
 /// A stored account id that is not a valid one: empty or past its length bound.
 #[derive(Debug, thiserror::Error)]

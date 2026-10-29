@@ -1,0 +1,760 @@
+//! The attention service: the task that decides each entry's banner and web-address message once
+//! per entry, and again for a handed-back wait's banner, the settle that records what main did with
+//! a banner, the seen mark, the projection's read and change count its subscribers follow, and the
+//! sweep at start of what a stop left undecided or standing.
+//!
+//! The decision task follows the machine's change count and reads the undecided entries. A
+//! subject's first undecided entry opens a fixed half-second window that later entries do not
+//! extend; at its close the gate decides every undecided entry of the subject from one settings
+//! read and one snapshot of the entries and their sessions' mutes, and the newest open wait the
+//! gate lets through, else the newest end, keeps its banner while the others it lets through merge
+//! into it. A Notify step's entry is the person's own instruction and is decided at once, never
+//! merged.
+//!
+//! A provider build's line moved to retires on its day: the service keeps the earliest due
+//! retirement armed on the wall clock's timer, which fires across sleep, and arms it again at the
+//! start, after each advance and whenever a build is recorded, never on another attention change.
+//! A slot left empty by a refused timer or a failed retirement is tried again a minute later on the
+//! monotonic clock, and again each minute while it keeps failing.
+
+use std::collections::HashMap;
+use std::error::Error;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::Duration;
+
+use jiff::Timestamp;
+use rusqlite::types::Value;
+use rusqlite::{Connection, OptionalExtension as _, Row};
+use sidekicks_contracts::attention::{
+    AttentionBannerSettledState, AttentionBannerState, AttentionId, AttentionProjection,
+    AttentionSeenSubject, AttentionSeverity, AttentionSubscribeRequest, AttentionTrigger,
+};
+use sidekicks_contracts::machine::settings::NotificationSettings;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_ipc::presence::PresenceRegister;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::failure_episode::FailureEpisode;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_workspace::machine_settings::MachineSettingsReader;
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
+use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
+
+use crate::attention::banner_launcher::{BannerLauncher, LocalSubscriptionHold};
+use crate::attention::changes::AttentionChanges;
+use crate::attention::gate::{
+    Decision, DeliveryDecision, decide, decided_sessions, read_notification_settings,
+    write_decisions,
+};
+use crate::attention::moment::AttentionSubject;
+use crate::attention::projection::{
+    binding, raised_banner_states, session_binding, statement, version_bump_sql,
+};
+use crate::attention::read::{
+    ATTENTION_STATEMENT_CAPACITY, AttentionReadError, read_attention_projection,
+};
+use crate::attention::retention::{
+    ENTRY_SEQUENCE, advance_retention_statements, provider_build_retirement_statements,
+};
+use crate::attention::seen::write_seen;
+use crate::attention::service::build_retirement::RetirementSlot;
+use crate::directory::lookups::SessionWriteError;
+
+/// The statements the service prepares on a read connection: the undecided entries, the sessions
+/// with entries, an entry's session, whether a provider build is due to retire, and the projection
+/// read its follow serves.
+pub const ATTENTION_SERVICE_STATEMENT_CAPACITY: usize = 4 + ATTENTION_STATEMENT_CAPACITY;
+
+/// How long a subject's first undecided entry waits for the entries that follow it.
+const MERGE_WINDOW: Duration = Duration::from_millis(500);
+
+// Every entry whose banner is undecided, with no delivery row or a banner handed back, with its
+// source event's sequence and its session's mute, read in one snapshot.
+static UNDECIDED_ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT attention_entries.id, attention_entries.session_id,
+    attention_entries.workflow_run_id, attention_entries.trigger, attention_entries.severity,
+    attention_entries.resolved_at IS NOT NULL, {ENTRY_SEQUENCE}, session_row.muted_at
+  FROM attention_entries
+  LEFT JOIN attention_deliveries AS delivery ON delivery.entry_id = attention_entries.id
+  LEFT JOIN sessions AS session_row ON session_row.id = attention_entries.session_id
+  WHERE delivery.banner_state IS NULL"
+    )
+});
+
+// The sessions with attention entries: each has its counts' row, which the raise that made the
+// entries wrote.
+const SESSIONS_WITH_ENTRIES_SQL: &str =
+    "SELECT scope_key FROM attention_versions WHERE scope_key <> ''";
+
+const ENTRY_SESSION_SQL: &str = "SELECT session_id FROM attention_entries WHERE id = ?1";
+
+// A resolved entry's banner a stop left standing.
+static STANDING_RESOLVED_BANNERS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "banner_state IN ({raised}) AND entry_id IN (SELECT id FROM attention_entries
+    WHERE session_id = @session_id AND resolved_at IS NOT NULL)",
+        raised = raised_banner_states(),
+    )
+});
+
+static BUMP_IF_STANDING_RESOLVED_BANNERS_SQL: LazyLock<String> = LazyLock::new(|| {
+    version_bump_sql(&format!(
+        "EXISTS (SELECT 1 FROM attention_deliveries WHERE {})",
+        *STANDING_RESOLVED_BANNERS
+    ))
+});
+
+static WITHDRAW_STANDING_RESOLVED_BANNERS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE attention_deliveries SET banner_state = '{withdrawn}' WHERE {standing}",
+        withdrawn = <&'static str>::from(AttentionBannerState::Withdrawn),
+        standing = *STANDING_RESOLVED_BANNERS,
+    )
+});
+
+// The entry's banner while main may still settle it.
+static PENDING_BANNER: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "entry_id = @entry_id AND banner_state = '{pending}'",
+        pending = <&'static str>::from(AttentionBannerState::Pending),
+    )
+});
+
+static BUMP_IF_PENDING_BANNER_SQL: LazyLock<String> = LazyLock::new(|| {
+    version_bump_sql(&format!(
+        "EXISTS (SELECT 1 FROM attention_deliveries WHERE {})",
+        *PENDING_BANNER
+    ))
+});
+
+static SETTLE_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE attention_deliveries SET banner_state = @state WHERE {}",
+        *PENDING_BANNER
+    )
+});
+
+/// What the attention service works over.
+pub struct AttentionServiceDependencies {
+    /// The writer every decision, settle and seen mark goes through.
+    pub writer: Arc<DatabaseWriter>,
+    /// The read pool the undecided entries are read on.
+    pub pool: Arc<DatabaseReadPool>,
+    /// The change counts the decision task follows.
+    pub changes: AttentionChanges,
+    /// The machine's settings file, read once per decision batch.
+    pub settings: Arc<dyn MachineSettingsReader>,
+    /// The devices connected, which say whether an app window is in front anywhere.
+    pub presence: Arc<PresenceRegister>,
+    /// The app's windowless start, asked after a batch wrote a pending banner.
+    pub launcher: Arc<BannerLauncher>,
+    /// This machine's device, the one whose main process settles its banners.
+    pub machine_device_id: DeviceId,
+    /// The daemon's scheduler, whose wall-clock timer retires a provider build's line on its day.
+    pub scheduler: Arc<Scheduler>,
+}
+
+/// Decides, settles and marks seen the attention entries, and sweeps what a stop left behind.
+pub struct AttentionService {
+    writer: Arc<DatabaseWriter>,
+    pool: Arc<DatabaseReadPool>,
+    changes: AttentionChanges,
+    settings: Arc<dyn MachineSettingsReader>,
+    presence: Arc<PresenceRegister>,
+    launcher: Arc<BannerLauncher>,
+    machine_device_id: DeviceId,
+    scheduler: Arc<Scheduler>,
+    // The retirement of the next provider build line, armed on the wall clock.
+    retirement: Mutex<RetirementSlot>,
+}
+
+/// Why the attention service could not read or write its rows.
+#[derive(Debug, thiserror::Error)]
+pub enum AttentionServiceError {
+    /// The write was not kept.
+    #[error(transparent)]
+    Write(#[from] WriteError),
+    /// SQLite refused a read, or a stored value does not read as its column's.
+    #[error("a read of the attention entries failed")]
+    Database(#[from] rusqlite::Error),
+    /// The read pool is closed, a connection did not open, or the read's blocking task did not
+    /// finish.
+    #[error(transparent)]
+    Pool(#[from] DatabaseReadError),
+    /// The projection's read was refused or failed.
+    #[error(transparent)]
+    Read(#[from] AttentionReadError),
+}
+
+impl AttentionServiceError {
+    /// Whether the read pool closed under the daemon's stop, which ends a follow finished.
+    pub fn is_pool_closed(&self) -> bool {
+        match self {
+            Self::Pool(DatabaseReadError::Closed)
+            | Self::Read(AttentionReadError::Pool(DatabaseReadError::Closed)) => true,
+            Self::Pool(DatabaseReadError::Open(_) | DatabaseReadError::Join(_))
+            | Self::Read(_)
+            | Self::Write(_)
+            | Self::Database(_) => false,
+        }
+    }
+}
+
+impl From<AttentionServiceError> for HandlerError {
+    /// A refused read answers by its code; a failed read or write is a fault in the daemon.
+    fn from(error: AttentionServiceError) -> Self {
+        match error {
+            AttentionServiceError::Read(read) => Self::from(read),
+            fault @ (AttentionServiceError::Write(_)
+            | AttentionServiceError::Database(_)
+            | AttentionServiceError::Pool(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
+}
+
+/// One undecided entry as the gate reads it.
+struct UndecidedEntry {
+    id: String,
+    session_id: SessionId,
+    subject: AttentionSubject,
+    trigger: AttentionTrigger,
+    severity: AttentionSeverity,
+    is_resolved: bool,
+    // The source event's sequence, which orders a subject's entries.
+    sequence: Option<i64>,
+    // The session's mute in the stored form; `None` while unmuted.
+    muted_at: Option<String>,
+}
+
+impl UndecidedEntry {
+    /// A row of [`UNDECIDED_ENTRIES_SQL`].
+    fn of_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+        let session_id = text_column(row, 1, |text| SessionId::new(&text))?;
+        let workflow_run_id = optional_text_column(row, 2, |text| WorkflowRunId::new(&text))?;
+        Ok(Self {
+            id: row.get(0)?,
+            session_id,
+            subject: workflow_run_id
+                .map_or(AttentionSubject::Session(session_id), |workflow_run_id| {
+                    AttentionSubject::WorkflowRun(workflow_run_id)
+                }),
+            trigger: text_column(row, 3, closed_word)?,
+            severity: text_column(row, 4, closed_word)?,
+            is_resolved: row.get(5)?,
+            sequence: row.get(6)?,
+            muted_at: row.get(7)?,
+        })
+    }
+
+    /// The gate's decision for this entry, as the settings and presence read now say.
+    fn decision(&self, settings: Option<&NotificationSettings>, is_app_in_front: bool) -> Decision {
+        decide(
+            settings,
+            self.trigger,
+            self.muted_at.is_some(),
+            self.is_resolved,
+            is_app_in_front,
+        )
+    }
+
+    /// The write of `decision` for this entry, merged into `merged_into` when given.
+    fn delivery(&self, decision: Decision, merged_into: Option<String>) -> DeliveryDecision {
+        DeliveryDecision {
+            entry_id: self.id.clone(),
+            session_id: self.session_id,
+            decision,
+            merged_into,
+            muted_at: self.muted_at.clone(),
+        }
+    }
+}
+
+impl AttentionService {
+    /// The service over `dependencies`; nothing runs until [`AttentionService::start`].
+    pub fn new(dependencies: AttentionServiceDependencies) -> Self {
+        Self {
+            writer: dependencies.writer,
+            pool: dependencies.pool,
+            changes: dependencies.changes,
+            settings: dependencies.settings,
+            presence: dependencies.presence,
+            launcher: dependencies.launcher,
+            machine_device_id: dependencies.machine_device_id,
+            scheduler: dependencies.scheduler,
+            retirement: Mutex::new(RetirementSlot::default()),
+        }
+    }
+
+    /// Run once after the recovery pass: withdraws a resolved entry's banner a stop left standing,
+    /// withholds the banner of every entry a stop left undecided but an open wait, whose web
+    /// address is still decided unless it resolved, advances every session's retention cut,
+    /// retires the day-old provider builds and arms the next one's retirement, then starts the
+    /// decision task, which the open waits go through and which ends with `stop`. Fails when the
+    /// sweep's reads or writes fail, before the task starts.
+    pub async fn start(
+        self: &Arc<Self>,
+        stop: CancellationToken,
+    ) -> Result<JoinHandle<()>, AttentionServiceError> {
+        // Followed before the advance arms, so a build recorded after its read arms again.
+        let recorded_builds = self.changes.follow_recorded_builds();
+        let sessions = self.read_sessions_with_entries().await?;
+        self.sweep_after_stop(&sessions).await?;
+        self.advance_retention(sessions, Timestamp::now()).await?;
+        let count = self.changes.follow(None);
+        Ok(tokio::spawn(run_decisions(
+            DecisionTask::new(Arc::clone(self)),
+            DecisionWakes {
+                count,
+                recorded_builds,
+            },
+            stop,
+        )))
+    }
+
+    /// Records what main did with `entry_id`'s pending banner. Ignored unless `device_id` is this
+    /// machine's, for an entry with no row, and once the banner left `pending`.
+    pub async fn settle(
+        &self,
+        entry_id: &AttentionId,
+        state: AttentionBannerSettledState,
+        device_id: Option<&DeviceId>,
+    ) -> Result<(), AttentionServiceError> {
+        if !self.is_this_machine(device_id) {
+            return Ok(());
+        }
+        let entry = entry_id.as_str().to_owned();
+        let Some(session_id) = self
+            .pool
+            .read(ReadLength::Short, move |connection| {
+                read_entry_session(connection, &entry)
+            })
+            .await?
+        else {
+            return Ok(());
+        };
+        let state = match state {
+            AttentionBannerSettledState::Posted => AttentionBannerState::Posted,
+            AttentionBannerSettledState::Withheld => AttentionBannerState::Withheld,
+            AttentionBannerSettledState::Withdrawn => AttentionBannerState::Withdrawn,
+        };
+        let entry = || binding("@entry_id", Value::Text(entry_id.as_str().to_owned()));
+        self.writer
+            .write(vec![
+                statement(
+                    &BUMP_IF_PENDING_BANNER_SQL,
+                    vec![session_binding(session_id), entry()],
+                ),
+                statement(
+                    &SETTLE_SQL,
+                    vec![
+                        entry(),
+                        binding(
+                            "@state",
+                            Value::Text(<&'static str>::from(state).to_owned()),
+                        ),
+                    ],
+                ),
+            ])
+            .await?;
+        Ok(())
+    }
+
+    /// The count a follower of `session_id`'s projection, or the whole machine's for `None`, waits
+    /// on; taken before the first read, so a change during it costs one more read, never a miss.
+    pub fn follow(&self, session_id: Option<SessionId>) -> watch::Receiver<u64> {
+        self.changes.follow(session_id)
+    }
+
+    /// The projection `request` asks for, read in one snapshot. Fails with
+    /// [`AttentionServiceError::Read`] holding `session.notFound` for a named session with no row.
+    pub async fn read(
+        &self,
+        request: &AttentionSubscribeRequest,
+    ) -> Result<AttentionProjection, AttentionServiceError> {
+        let request = request.clone();
+        Ok(self
+            .pool
+            .read(ReadLength::Short, move |connection| {
+                read_attention_projection(connection, &request)
+            })
+            .await?)
+    }
+
+    /// Whether `device_id` is this machine's device, whose app posts its banners.
+    pub fn is_this_machine(&self, device_id: Option<&DeviceId>) -> bool {
+        device_id == Some(&self.machine_device_id)
+    }
+
+    /// Holds back the app's windowless start while this machine's own app follows every entry,
+    /// until the hold drops.
+    pub fn hold_local_subscription(&self) -> LocalSubscriptionHold {
+        self.launcher.hold_local_subscription()
+    }
+
+    /// Marks `subject` seen through its session's newest event; fails as [`write_seen`] does.
+    pub async fn mark_seen(&self, subject: &AttentionSeenSubject) -> Result<(), SessionWriteError> {
+        write_seen(&self.writer, subject).await
+    }
+
+    // Withdraws each resolved entry's standing banner, then decides each undecided entry but an
+    // open wait: a resolved one withheld on every channel, any other its banner withheld and its
+    // web address by the gate.
+    async fn sweep_after_stop(&self, sessions: &[SessionId]) -> Result<(), AttentionServiceError> {
+        let withdrawals = sessions
+            .iter()
+            .flat_map(|session_id| {
+                [
+                    statement(
+                        &BUMP_IF_STANDING_RESOLVED_BANNERS_SQL,
+                        vec![session_binding(*session_id)],
+                    ),
+                    statement(
+                        &WITHDRAW_STANDING_RESOLVED_BANNERS_SQL,
+                        vec![session_binding(*session_id)],
+                    ),
+                ]
+            })
+            .collect::<Vec<WriteStatement>>();
+        if !withdrawals.is_empty() {
+            self.writer.write(withdrawals).await?;
+        }
+        let undecided = self.read_undecided().await?;
+        let crash_undecided = undecided
+            .iter()
+            .filter(|entry| entry.is_resolved || entry.severity != AttentionSeverity::Actionable)
+            .collect::<Vec<_>>();
+        if crash_undecided.is_empty() {
+            return Ok(());
+        }
+        let settings = read_notification_settings(&*self.settings).await;
+        let is_app_in_front = self.presence.is_app_visible_on_any_device();
+        let decisions = crash_undecided
+            .into_iter()
+            .map(|entry| {
+                let decision = Decision {
+                    banner_state: AttentionBannerState::Withheld,
+                    ..entry.decision(settings.as_ref(), is_app_in_front)
+                };
+                entry.delivery(decision, None)
+            })
+            .collect::<Vec<_>>();
+        write_decisions(&self.writer, &decisions).await?;
+        Ok(())
+    }
+
+    // Decides `notify` each on its own and every entry of each closed window as one merge, in one
+    // write; then asks for the app's start when a banner went pending, and advances the decided
+    // sessions' retention and the provider builds', logging a failed advance, which the next
+    // advance makes up, since the decisions were kept.
+    async fn decide_batch(
+        self: &Arc<Self>,
+        notify: Vec<UndecidedEntry>,
+        closed: Vec<Vec<UndecidedEntry>>,
+    ) -> Result<(), AttentionServiceError> {
+        let settings = read_notification_settings(&*self.settings).await;
+        let is_app_in_front = self.presence.is_app_visible_on_any_device();
+        let mut decisions = notify
+            .iter()
+            .map(|entry| entry.delivery(entry.decision(settings.as_ref(), is_app_in_front), None))
+            .collect::<Vec<_>>();
+        for window in &closed {
+            decisions.extend(merged_decisions(window, |entry| {
+                entry.decision(settings.as_ref(), is_app_in_front)
+            }));
+        }
+        write_decisions(&self.writer, &decisions).await?;
+        if decisions
+            .iter()
+            .any(|decided| decided.decision.banner_state == AttentionBannerState::Pending)
+        {
+            self.launcher.request_start();
+        }
+        if let Err(error) = self
+            .advance_retention(decided_sessions(&decisions), Timestamp::now())
+            .await
+        {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the attention entries were decided, but their retention was not advanced; the \
+                 next advance moves it"
+            );
+        }
+        Ok(())
+    }
+
+    // Moves each of `sessions`' retention cut and retires the provider builds moved to a day
+    // before `now`, in one write, writing nothing when neither has anything to do; then arms the
+    // next build's retirement.
+    async fn advance_retention(
+        self: &Arc<Self>,
+        sessions: Vec<SessionId>,
+        now: Timestamp,
+    ) -> Result<(), AttentionServiceError> {
+        let mut statements = self
+            .pool
+            .read(ReadLength::Short, move |connection| {
+                Ok::<_, AttentionServiceError>(provider_build_retirement_statements(
+                    connection, now,
+                )?)
+            })
+            .await?;
+        statements.extend(
+            sessions
+                .into_iter()
+                .flat_map(|session_id| advance_retention_statements(session_id, now)),
+        );
+        if !statements.is_empty() {
+            self.writer.write(statements).await?;
+        }
+        self.arm_provider_build_retirement().await;
+        Ok(())
+    }
+
+    async fn read_undecided(&self) -> Result<Vec<UndecidedEntry>, AttentionServiceError> {
+        self.pool
+            .read(ReadLength::Short, |connection| {
+                let snapshot = connection.unchecked_transaction()?;
+                let entries = snapshot
+                    .prepare_cached(&UNDECIDED_ENTRIES_SQL)?
+                    .query_map([], UndecidedEntry::of_row)?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                snapshot.commit()?;
+                Ok(entries)
+            })
+            .await
+    }
+
+    async fn read_sessions_with_entries(&self) -> Result<Vec<SessionId>, AttentionServiceError> {
+        self.pool
+            .read(ReadLength::Short, |connection| {
+                Ok(connection
+                    .prepare_cached(SESSIONS_WITH_ENTRIES_SQL)?
+                    .query_map([], |row| text_column(row, 0, |text| SessionId::new(&text)))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?)
+            })
+            .await
+    }
+}
+
+fn read_entry_session(
+    connection: &Connection,
+    entry_id: &str,
+) -> Result<Option<SessionId>, AttentionServiceError> {
+    Ok(connection
+        .prepare_cached(ENTRY_SESSION_SQL)?
+        .query_row([entry_id], |row| {
+            text_column(row, 0, |text| SessionId::new(&text))
+        })
+        .optional()?)
+}
+
+/// The decisions of one subject's closed window: each entry as `decision_of` decides it, and of
+/// those it lets raise a banner only the newest open wait keeps it, else the newest end, the others
+/// withheld and merged into it. An entry the gate withholds on its own never merges.
+fn merged_decisions(
+    window: &[UndecidedEntry],
+    decision_of: impl Fn(&UndecidedEntry) -> Decision,
+) -> Vec<DeliveryDecision> {
+    let decided = window
+        .iter()
+        .map(|entry| (entry, decision_of(entry)))
+        .collect::<Vec<_>>();
+    let picked = decided
+        .iter()
+        .filter(|(_, decision)| decision.banner_state == AttentionBannerState::Pending)
+        .max_by_key(|(entry, _)| {
+            (
+                entry.severity == AttentionSeverity::Actionable,
+                entry.sequence,
+                entry.id.as_str(),
+            )
+        })
+        .map(|(entry, _)| entry.id.clone());
+    decided
+        .into_iter()
+        .map(|(entry, decision)| match &picked {
+            Some(picked)
+                if decision.banner_state == AttentionBannerState::Pending
+                    && entry.id != *picked =>
+            {
+                entry.delivery(
+                    Decision {
+                        banner_state: AttentionBannerState::Withheld,
+                        ..decision
+                    },
+                    Some(picked.clone()),
+                )
+            }
+            Some(_) | None => entry.delivery(decision, None),
+        })
+        .collect()
+}
+
+/// The decision task's windows: when each subject's open window closes, and when a failed pass is
+/// tried again.
+struct DecisionTask {
+    service: Arc<AttentionService>,
+    windows: HashMap<AttentionSubject, Instant>,
+    // A window after the last failed pass, cleared by a pass that succeeds, so a failure is retried
+    // with no window open and no attention change.
+    retry_at: Option<Instant>,
+}
+
+impl DecisionTask {
+    fn new(service: Arc<AttentionService>) -> Self {
+        Self {
+            service,
+            windows: HashMap::new(),
+            retry_at: None,
+        }
+    }
+
+    /// Reads the undecided entries, opens a window for each subject that has none, decides the
+    /// Notify entries and every subject whose window has closed, and answers whether it wrote a
+    /// decision. A failed read or decision keeps the closed windows, closing again a window later,
+    /// and sets the pass to be tried again then.
+    async fn pass(&mut self) -> Result<bool, AttentionServiceError> {
+        let undecided = match self.service.read_undecided().await {
+            Ok(undecided) => undecided,
+            Err(error) => {
+                self.defer_after_failure(Instant::now());
+                return Err(error);
+            }
+        };
+        let now = Instant::now();
+        let mut notify = Vec::new();
+        let mut by_subject: HashMap<AttentionSubject, Vec<UndecidedEntry>> = HashMap::new();
+        for entry in undecided {
+            if entry.trigger == AttentionTrigger::WorkflowNotify {
+                notify.push(entry);
+            } else {
+                by_subject.entry(entry.subject).or_default().push(entry);
+            }
+        }
+        self.windows
+            .retain(|subject, _| by_subject.contains_key(subject));
+        let mut closed_subjects = Vec::new();
+        let mut closed = Vec::new();
+        for (subject, entries) in by_subject {
+            let closes_at = *self.windows.entry(subject).or_insert(now + MERGE_WINDOW);
+            if closes_at <= now {
+                closed_subjects.push(subject);
+                closed.push(entries);
+            }
+        }
+        let has_decided = !notify.is_empty() || !closed.is_empty();
+        if has_decided {
+            if let Err(error) = self.service.decide_batch(notify, closed).await {
+                self.defer_after_failure(now);
+                return Err(error);
+            }
+            for subject in &closed_subjects {
+                self.windows.remove(subject);
+            }
+        }
+        self.retry_at = None;
+        Ok(has_decided)
+    }
+
+    /// When the next open window closes or a failed pass is tried again, whichever is first;
+    /// `None` while neither is due.
+    fn next_close(&self) -> Option<Instant> {
+        self.windows.values().copied().chain(self.retry_at).min()
+    }
+
+    // Closes every window closed by `now` again a window after it and sets the retry then, so a
+    // failed pass is tried again a window later, never at once and never only at the next change.
+    fn defer_after_failure(&mut self, now: Instant) {
+        let retry_at = now + MERGE_WINDOW;
+        for closes_at in self.windows.values_mut() {
+            if *closes_at <= now {
+                *closes_at = retry_at;
+            }
+        }
+        self.retry_at = Some(retry_at);
+    }
+}
+
+/// What wakes the decision task besides its windows.
+struct DecisionWakes {
+    // The machine's change count, which moves with every attention write.
+    count: watch::Receiver<u64>,
+    // The builds recorded, after which the next provider build's retirement is armed again.
+    recorded_builds: watch::Receiver<u64>,
+}
+
+// Passes over the undecided entries at once, then whenever the machine's count moves or a window
+// closes or a failed pass is due again, and arms the next provider build's retirement whenever a
+// build is recorded, until `stop`; a failed pass is logged, at warn the first since a pass decided
+// something and at debug after, and is tried again a window later or at the next change.
+async fn run_decisions(mut task: DecisionTask, mut wakes: DecisionWakes, stop: CancellationToken) {
+    let mut next_close = None;
+    let mut is_pass_due = true;
+    let failure_episode = FailureEpisode::default();
+    loop {
+        if is_pass_due {
+            match task.pass().await {
+                // A pass that read nothing to decide leaves the episode open.
+                Ok(has_decided) => {
+                    if has_decided {
+                        failure_episode.mark_succeeded();
+                    }
+                }
+                Err(error) => {
+                    let error = &error as &(dyn Error + 'static);
+                    if failure_episode.is_first_failure() {
+                        tracing::warn!(
+                            error,
+                            "the attention entries were not decided; they are read again a \
+                             window later"
+                        );
+                    } else {
+                        tracing::debug!(
+                            error,
+                            "the attention entries still were not decided; they are read again \
+                             a window later"
+                        );
+                    }
+                }
+            }
+            next_close = task.next_close();
+        }
+        let window_closes = async {
+            match next_close {
+                Some(closes_at) => tokio::time::sleep_until(closes_at).await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            () = stop.cancelled() => return,
+            changed = wakes.count.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                is_pass_due = true;
+            }
+            changed = wakes.recorded_builds.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                is_pass_due = false;
+                task.service.arm_provider_build_retirement().await;
+            }
+            () = window_closes => is_pass_due = true,
+        }
+    }
+}
+
+mod build_retirement;
+#[cfg(test)]
+mod tests;

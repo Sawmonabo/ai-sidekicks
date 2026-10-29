@@ -140,13 +140,10 @@ pub(crate) async fn bring_up_claude_process(
         !matches!(request.conversation, ClaudeConversationStart::Fork { .. });
     let arguments = compose_claude_arguments(&ClaudeArgumentsRequest {
         model: &legs.model,
-        permission_mode: request.permission_mode.unwrap_or_else(|| {
-            claude_permission_mode_for(
-                legs.execution_posture
-                    .as_ref()
-                    .map(ExecutionPosture::permission_level),
-            )
-        }),
+        permission_mode: claude_spawn_permission_mode(
+            request.permission_mode,
+            legs.execution_posture.as_ref(),
+        ),
         settings: &settings,
         output_schema: legs.output_schema.as_ref(),
         is_helper_tool_withheld: matches!(legs.subagent_policy, Some(SubagentPolicy::Disabled {})),
@@ -239,6 +236,17 @@ fn read_settings_readback(reply: Option<&RawValue>) -> ClaudeSettingsReadback {
     }
 }
 
+/// The mode a process starts in: `requested` where given, else the mode the posture's level runs
+/// in, Read-only's for a process with no posture.
+pub(crate) fn claude_spawn_permission_mode(
+    requested: Option<ClaudePermissionMode>,
+    posture: Option<&ExecutionPosture>,
+) -> ClaudePermissionMode {
+    requested.unwrap_or_else(|| {
+        claude_permission_mode_for(posture.map(ExecutionPosture::permission_level))
+    })
+}
+
 // Whether Claude Code can read an administrator's MCP file in its managed folder. Only its
 // presence is checked, never its contents: a parse that disagreed with Claude Code's own would
 // fail toward the startup exit.
@@ -255,6 +263,9 @@ async fn has_readable_managed_mcp_file() -> bool {
 mod tests {
     use std::sync::Arc;
 
+    use rstest::rstest;
+    use sidekicks_contracts::free_form_string::FilesystemPath;
+    use sidekicks_contracts::session::controls::methods::PermissionLevel;
     use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
     use sidekicks_platforms::{
         PathRules, ProgramStart, Spawner, StandInAnswer, StandInProgram, write_stand_in_program,
@@ -263,12 +274,14 @@ mod tests {
     use tokio::runtime::Handle;
 
     use super::{
-        ClaudeBringUpRequest, ClaudeSessionSpawn, ClaudeSpawnBoundLegs, bring_up_claude_process,
+        ClaudeBringUpRequest, ClaudePermissionMode, ClaudeSessionSpawn, ClaudeSpawnBoundLegs,
+        bring_up_claude_process, claude_spawn_permission_mode,
     };
     use crate::background_work::BackgroundWorkForms;
     use crate::command::running_set::unbound_running_command_sets;
     use crate::command::waiting_checks::SystemInputWaitReader;
     use crate::driver::PROVIDERS;
+    use crate::driver::child_records::UnrecordedChildren;
     use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeCommandPrograms};
     use crate::driver::claude::session::process::{
         ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
@@ -279,8 +292,36 @@ mod tests {
     use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
     use crate::driver::test_registry::new_session_id;
     use crate::process_registry::ProviderProcessRegistry;
+    use crate::run::posture::compose_execution_posture;
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::spawned_version::ResolvedProviderExecutable;
+
+    // Killed by a path that hard-codes `Default`, which starts every level in Read-only's mode,
+    // and by one that ignores the requested mode, which drops a stored Plan at the start.
+    #[rstest]
+    #[case::none(None, ClaudePermissionMode::Default)]
+    #[case::readonly(Some(PermissionLevel::Readonly), ClaudePermissionMode::Default)]
+    #[case::ask(Some(PermissionLevel::Ask), ClaudePermissionMode::AcceptEdits)]
+    #[case::reviewed(Some(PermissionLevel::Reviewed), ClaudePermissionMode::Auto)]
+    #[case::sandboxed(Some(PermissionLevel::Sandboxed), ClaudePermissionMode::DontAsk)]
+    #[case::yolo(Some(PermissionLevel::Yolo), ClaudePermissionMode::BypassPermissions)]
+    fn a_process_starts_in_the_requested_mode_else_its_levels_own(
+        #[case] level: Option<PermissionLevel>,
+        #[case] levels_own: ClaudePermissionMode,
+        #[values(None, Some(ClaudePermissionMode::Plan))] requested: Option<ClaudePermissionMode>,
+    ) {
+        let posture = level.map(|level| {
+            compose_execution_posture(
+                level,
+                FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+            )
+        });
+
+        assert_eq!(
+            claude_spawn_permission_mode(requested, posture.as_ref()),
+            requested.unwrap_or(levels_own)
+        );
+    }
 
     struct NoSession;
 
@@ -370,6 +411,7 @@ mod tests {
         };
         let launcher = ClaudeProcessLauncher::new(
             spawner,
+            Arc::new(UnrecordedChildren),
             Arc::new(ProviderProcessRegistry::default()),
             folder.path(),
         );

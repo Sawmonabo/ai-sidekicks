@@ -16,9 +16,11 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use serde_json::Map;
+use serde_json::{Map, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
@@ -26,7 +28,7 @@ use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::controls::methods::SessionMode;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -39,6 +41,11 @@ use sidekicks_provider::driver::contract::params_and_results::{
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{CloseSessionParams, CreateSessionParams};
+use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
+use sidekicks_provider::run::posture::{
+    ExecutionPostureRejection, ExecutionPostureService, StoredSessionPosture,
+    compose_execution_posture, compose_folderless_posture,
+};
 use sidekicks_provider::runtime_binding::resume::{ResumeFunctionLegs, RuntimeBindingNotResumable};
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, RuntimeBindingStoreError,
@@ -46,21 +53,27 @@ use sidekicks_provider::runtime_binding::store::{
 };
 use sidekicks_session::changes::refuse_unchangeable_session;
 use sidekicks_session::console_state::read_session_mode;
-use sidekicks_session::directory::lookups::SessionWriteError;
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_session::run::agent::{RunAgentReadError, RunAgentReader};
 use sidekicks_session::run::binding_cursors::{RunBindingCursorError, RunBindingCursors};
+use sidekicks_session::run::session_posture::SessionPostureSource;
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::schema::session_directory::read_session_state_through;
-use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::session::appender::SessionEventAppender;
+
+use crate::provider_session::controls::MoveRecordError;
+
+use crate::provider_session::resumed_runs::ResumedRunsIngress;
 
 pub mod controls;
 pub mod resume;
+pub mod resumed_runs;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_opening;
 #[cfg(test)]
@@ -97,12 +110,34 @@ pub type ProviderSessionOpeningComposer = Arc<
         + Sync,
 >;
 
+/// Reads the git folder of a session's repository, which the posture of Sandboxed is built on.
+/// Fails with [`GitFolderReadError::Unavailable`] when the session names no folder or git refuses
+/// the one it names, and with [`GitFolderReadError::Failed`] when the reads fail.
+pub type ProviderSessionGitFolderReader = Arc<
+    dyn Fn(SessionId) -> BoxFuture<'static, Result<FilesystemPath, GitFolderReadError>>
+        + Send
+        + Sync,
+>;
+
+/// Why a session's git folder was not read.
+#[derive(Debug, thiserror::Error)]
+pub enum GitFolderReadError {
+    /// The session names no folder to work in yet, or git refuses the one it names: no repository
+    /// there, the folder gone or unreadable, or a repository git will not use.
+    #[error("the session's repository folder is unavailable")]
+    Unavailable(#[source] Box<dyn Error + Send + Sync>),
+    /// The session's records could not be read, or git could not be run.
+    #[error("the session's git folder could not be read")]
+    Failed(#[source] Box<dyn Error + Send + Sync>),
+}
+
 /// What the provider sessions read, write and call.
 pub struct ProviderSessionsDeps {
     /// The read pool every read of a session's bindings, mode and level goes through.
     pub pool: Arc<DatabaseReadPool>,
-    /// The writer a level or mode move is stored through.
-    pub writer: Arc<DatabaseWriter>,
+    /// The appender a level or mode move is stored through, with the notice that tells every
+    /// client of it.
+    pub appender: Arc<SessionEventAppender>,
     /// Records each binding with its epoch cursor open: a new session's, opened before its
     /// provider runs, a run's on the session's leg, and the one a resume minted.
     pub binding_cursors: Arc<RunBindingCursors>,
@@ -110,12 +145,20 @@ pub struct ProviderSessionsDeps {
     pub providers: Arc<ProviderRegistry>,
     /// Composes a session's opening from its lead.
     pub compose_opening: ProviderSessionOpeningComposer,
+    /// Reads a session's git folder, where no process of the session is open to name it.
+    pub read_git_folder: ProviderSessionGitFolderReader,
     /// The session-wide transition lock, which a session's close holds from its driver's close
     /// until its `session.closed` write; each opening, run binding, level or mode move and the
     /// forgetting of a process gone takes it.
     pub transition_lock: Arc<KeyedLock<SessionId>>,
     /// The idle sleep, told of each session whose process opens or resumes and each close.
     pub process_follower: Arc<dyn SessionProcessFollower>,
+    /// The runs' resolved postures, which a level move carries to the session's moved posture and
+    /// a close forgets.
+    pub execution_postures: Arc<ExecutionPostureService>,
+    /// Settles each run a resume named as the provider answered for it, before the resumed
+    /// binding is recorded.
+    pub resumed_runs: Arc<PortRegistration<Arc<dyn ResumedRunsIngress>>>,
 }
 
 /// Why a session's provider session was not opened, a run's binding not recorded, or a level or
@@ -194,6 +237,19 @@ pub enum ProviderSessionError {
     /// The binding or its cursor was not recorded.
     #[error(transparent)]
     Cursor(#[from] RunBindingCursorError),
+    /// The runs a resume named were not settled as the provider answered for them, so its binding
+    /// was not recorded.
+    #[error("the runs the resume of session {session_id} named were not settled")]
+    ResumedRuns {
+        /// The session.
+        session_id: SessionId,
+        /// Why.
+        #[source]
+        cause: Box<dyn Error + Send + Sync>,
+    },
+    /// A port the provider sessions call is not registered yet.
+    #[error(transparent)]
+    Port(#[from] PortRegistrationError),
     /// The binding of a process the driver opened was not recorded, and the process could not be
     /// closed.
     #[error(
@@ -203,8 +259,9 @@ pub enum ProviderSessionError {
     UnrecordedNotClosed {
         /// The session.
         session_id: SessionId,
-        /// Why the binding was not recorded.
-        recorded: Box<RunBindingCursorError>,
+        /// Why the binding was not recorded: its record failed, or the runs its resume named were
+        /// not settled.
+        recorded: Box<ProviderSessionError>,
         /// Why the close failed.
         #[source]
         closed: DriverError,
@@ -212,14 +269,34 @@ pub enum ProviderSessionError {
     /// The session's leg could not be read.
     #[error(transparent)]
     Store(#[from] RuntimeBindingStoreError),
+    /// The posture of the level the session was to move to did not resolve, or the folder it names
+    /// is unavailable, so neither its process nor its record moved.
+    #[error("the posture of the level session {session_id} was to move to was refused")]
+    PostureRefused {
+        /// The session.
+        session_id: SessionId,
+        /// Why the posture was refused.
+        #[source]
+        cause: ExecutionPostureRejection,
+    },
+    /// The git folder the posture of the session's level is built on could not be read.
+    #[error("the git folder of session {session_id} could not be read")]
+    GitFolder {
+        /// The session.
+        session_id: SessionId,
+        /// Why.
+        #[source]
+        cause: Box<dyn Error + Send + Sync>,
+    },
     /// The level the session moved to was not stored, and a process it runs moved back.
     #[error("the level session {session_id} moved to was not stored")]
     LevelNotStored {
         /// The session.
         session_id: SessionId,
-        /// Why the store failed: `session.notFound` for a session gone meanwhile, else a fault.
+        /// Why the store failed: a refusal for a session gone meanwhile or whose history takes no
+        /// write, else a fault.
         #[source]
-        cause: SessionWriteError,
+        cause: MoveRecordError,
     },
     /// The level was not stored, and the process could not move back to the one stored.
     #[error(
@@ -230,7 +307,7 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
         /// Why the store failed.
-        stored: Box<SessionWriteError>,
+        stored: MoveRecordError,
         /// Why the move back failed.
         #[source]
         moved_back: DriverError,
@@ -240,9 +317,10 @@ pub enum ProviderSessionError {
     ModeNotStored {
         /// The session.
         session_id: SessionId,
-        /// Why the store failed: `session.notFound` for a session gone meanwhile, else a fault.
+        /// Why the store failed: a refusal for a session gone meanwhile or whose history takes no
+        /// write, else a fault.
         #[source]
-        cause: SessionWriteError,
+        cause: MoveRecordError,
     },
     /// The mode was not stored, and the process could not move back to the one stored.
     #[error(
@@ -253,7 +331,7 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
         /// Why the store failed.
-        stored: Box<SessionWriteError>,
+        stored: MoveRecordError,
         /// Why the move back failed.
         #[source]
         moved_back: DriverError,
@@ -270,16 +348,18 @@ impl From<ProviderSessionError> for HandlerError {
     /// No driver for the session's provider answers its refusal, a driver's failure answers as the
     /// driver's own, a closed or purging session answers `session.alreadyClosed` or
     /// `session.changeRefused`, and a level or mode store refused for a session gone meanwhile
-    /// answers `session.notFound`; anything else, a resume refused among them, is a fault.
+    /// answers `session.notFound`, or by its history's own code while that is rebuilt or damaged,
+    /// a level whose posture's folder does not resolve answers `workspace.rootUnavailable`;
+    /// anything else, a resume refused among them, is a fault.
     fn from(error: ProviderSessionError) -> Self {
         match error {
             ProviderSessionError::Provider(refusal)
             | ProviderSessionError::LevelNotStored {
-                cause: SessionWriteError::Refused(refusal),
+                cause: MoveRecordError::Refused(refusal),
                 ..
             }
             | ProviderSessionError::ModeNotStored {
-                cause: SessionWriteError::Refused(refusal),
+                cause: MoveRecordError::Refused(refusal),
                 ..
             } => Self::Refused(refusal),
             ProviderSessionError::Driver(driver) => driver.into(),
@@ -289,7 +369,11 @@ impl From<ProviderSessionError> for HandlerError {
             ProviderSessionError::BeingDeleted { session_id } => Self::Refused(
                 unchangeable_session_refusal(&session_id, SessionState::PurgeRequested),
             ),
+            ProviderSessionError::PostureRefused { session_id, cause } => {
+                Self::Refused(posture_refusal(&session_id, cause))
+            }
             fault @ (ProviderSessionError::Compose { .. }
+            | ProviderSessionError::GitFolder { .. }
             | ProviderSessionError::AdmittedAccount(_)
             | ProviderSessionError::NoPosture { .. }
             | ProviderSessionError::NoContractVersion { .. }
@@ -298,15 +382,17 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::NotOpen { .. }
             | ProviderSessionError::NoConversation { .. }
             | ProviderSessionError::Cursor(_)
+            | ProviderSessionError::ResumedRuns { .. }
+            | ProviderSessionError::Port(_)
             | ProviderSessionError::UnrecordedNotClosed { .. }
             | ProviderSessionError::Store(_)
             | ProviderSessionError::LevelNotStored {
-                cause: SessionWriteError::Write(_),
+                cause: MoveRecordError::Emit(_),
                 ..
             }
             | ProviderSessionError::LevelNotMovedBack { .. }
             | ProviderSessionError::ModeNotStored {
-                cause: SessionWriteError::Write(_),
+                cause: MoveRecordError::Emit(_),
                 ..
             }
             | ProviderSessionError::ModeNotMovedBack { .. }
@@ -317,17 +403,18 @@ impl From<ProviderSessionError> for HandlerError {
 }
 
 // Closes the process `driver` opened for `session_id` whose binding was not recorded, so none runs
-// under a binding with no row; the error to answer is the record's, or both when the close failed.
+// under a binding with no row; the error to answer is `recorded`, why it was not recorded, or both
+// when the close failed.
 async fn close_unrecorded(
     driver: &dyn ProviderDriver,
     session_id: SessionId,
-    recorded: RunBindingCursorError,
+    recorded: ProviderSessionError,
 ) -> ProviderSessionError {
     match driver
         .close_session(CloseSessionParams { session_id })
         .await
     {
-        Ok(()) => recorded.into(),
+        Ok(()) => recorded,
         Err(closed) => ProviderSessionError::UnrecordedNotClosed {
             session_id,
             recorded: Box::new(recorded),
@@ -340,6 +427,18 @@ async fn close_unrecorded(
 fn unchangeable_session_refusal(session_id: &SessionId, state: SessionState) -> DomainError {
     refuse_unchangeable_session(session_id, state)
         .expect_err("a closed or purging session takes no change")
+}
+
+// The refusal a level move answers whose posture's folder no longer resolves, keeping the
+// rejection as its cause; its message names no path, since a refusal can reach a remote caller.
+fn posture_refusal(session_id: &SessionId, cause: ExecutionPostureRejection) -> DomainError {
+    DomainError::new(
+        "The folder this level lets the session write to is unreachable, so the level did not \
+         move.",
+        RefusalCode::WorkspaceRootUnavailable,
+    )
+    .with_detail(json!({ "sessionId": session_id }))
+    .with_source(cause)
 }
 
 // A session this daemon opened, where its process stands as the driver answers, and that driver.
@@ -456,10 +555,11 @@ impl ProviderSessions {
         }
     }
 
-    /// Forgets a closed session's provider session, whose process its close ended, and has the
-    /// idle sleep forget it too.
+    /// Forgets a closed session's provider session, whose process its close ended, with what the
+    /// posture service kept for it, and has the idle sleep forget it too.
     pub(crate) fn forget(&self, session_id: SessionId) {
         self.lock_opened().remove(&session_id);
+        self.deps.execution_postures.forget_session(&session_id);
         self.deps.process_follower.forget_closed(session_id);
     }
 
@@ -484,6 +584,9 @@ impl ProviderSessions {
             // The session is not closed, so the idle sleep keeps its stored timed fires.
             Some(SessionProcessState::Down) => {
                 self.lock_opened().remove(&session_id);
+                self.deps
+                    .execution_postures
+                    .forget_moved_posture(&session_id);
             }
             Some(SessionProcessState::Live | SessionProcessState::Restarting) | None => {}
         }
@@ -542,15 +645,7 @@ impl ProviderSessions {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<OpenedSession, ProviderSessionError> {
-        let provider_account_id = self
-            .deps
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, ProviderSessionError>(
-                    RunAgentReader::new(reader).read_admitted_account(&session_id, &run_id)?,
-                )
-            })
-            .await?;
+        let provider_account_id = self.read_admitted_account(session_id, run_id).await?;
         let opening = self.compose(session_id, provider_account_id).await?;
         let execution_posture = posture_of(session_id, &opening)?;
         let ProviderSessionOpening {
@@ -606,13 +701,29 @@ impl ProviderSessions {
             })
             .await;
         if let Err(unrecorded) = recorded {
-            return Err(close_unrecorded(driver.as_ref(), session_id, unrecorded).await);
+            return Err(close_unrecorded(driver.as_ref(), session_id, unrecorded.into()).await);
         }
         Ok(OpenedSession {
             provider,
             execution_posture,
             git_folder,
         })
+    }
+
+    // The account `run_id` was admitted against.
+    async fn read_admitted_account(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+    ) -> Result<ProviderAccountId, ProviderSessionError> {
+        self.deps
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, ProviderSessionError>(
+                    RunAgentReader::new(reader).read_admitted_account(&session_id, &run_id)?,
+                )
+            })
+            .await
     }
 
     async fn compose(
@@ -652,6 +763,41 @@ impl ProviderSessions {
         }))
     }
 
+    // The posture the session's process runs at at `level`, over the opened process's git folder,
+    // else the session's as read now, which only a level whose posture names it reads. Fails with
+    // `PostureRefused` where that folder is unavailable, and as its read fails otherwise.
+    async fn level_posture(
+        &self,
+        session_id: SessionId,
+        level: PermissionLevel,
+    ) -> Result<ExecutionPosture, ProviderSessionError> {
+        if let Some(posture) = compose_folderless_posture(level) {
+            return Ok(posture);
+        }
+        let opened_folder = self
+            .lock_opened()
+            .get(&session_id)
+            .map(|opened| opened.git_folder.clone());
+        let git_folder =
+            match opened_folder {
+                Some(git_folder) => git_folder,
+                None => (self.deps.read_git_folder)(session_id)
+                    .await
+                    .map_err(|failure| match failure {
+                        GitFolderReadError::Unavailable(cause) => {
+                            ProviderSessionError::PostureRefused {
+                                session_id,
+                                cause: ExecutionPostureRejection::UnavailableFolder(cause),
+                            }
+                        }
+                        GitFolderReadError::Failed(cause) => {
+                            ProviderSessionError::GitFolder { session_id, cause }
+                        }
+                    })?,
+            };
+        Ok(compose_execution_posture(level, git_folder))
+    }
+
     fn set_posture(&self, session_id: SessionId, posture: ExecutionPosture) {
         if let Some(opened) = self.lock_opened().get_mut(&session_id) {
             opened.execution_posture = posture;
@@ -661,6 +807,79 @@ impl ProviderSessions {
     fn lock_opened(&self) -> MutexGuard<'_, HashMap<SessionId, OpenedSession>> {
         // No code panics while it holds the map, so a poisoned lock still holds a whole one.
         lock(&self.opened)
+    }
+}
+
+impl SessionLevelFollower for ProviderSessions {
+    fn follow_reported_level(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.follow_reported_level(session_id)
+                .await
+                .map_err(|failure| Box::new(failure) as Box<dyn Error + Send + Sync>)
+        }
+        .boxed()
+    }
+}
+
+impl StoredSessionPosture for ProviderSessions {
+    /// The stored level's posture, over the opened process's git folder or the session's as read
+    /// now where it names one. A folder that is unavailable fails with the posture's own
+    /// rejection, which names no move, so the gate counts it a posture the session cannot run.
+    fn stored_posture<'a>(
+        &'a self,
+        session_id: SessionId,
+        requested: &'a ExecutionPosture,
+    ) -> BoxFuture<'a, Result<Option<ExecutionPosture>, Box<dyn Error + Send + Sync>>> {
+        async move {
+            let (level, _mode) = self.read_controls(session_id).await?;
+            if level == requested.permission_level() {
+                return Ok(None);
+            }
+            Ok(Some(self.level_posture(session_id, level).await?))
+        }
+        .map(|read: Result<_, ProviderSessionError>| {
+            read.map_err(|failure| match failure {
+                ProviderSessionError::PostureRefused { cause, .. } => {
+                    Box::new(cause) as Box<dyn Error + Send + Sync>
+                }
+                failure @ (ProviderSessionError::Compose { .. }
+                | ProviderSessionError::AdmittedAccount(_)
+                | ProviderSessionError::NoPosture { .. }
+                | ProviderSessionError::NoContractVersion { .. }
+                | ProviderSessionError::Provider(_)
+                | ProviderSessionError::Driver(_)
+                | ProviderSessionError::ResumeRefused { .. }
+                | ProviderSessionError::NotResumable(_)
+                | ProviderSessionError::Closed { .. }
+                | ProviderSessionError::BeingDeleted { .. }
+                | ProviderSessionError::NotOpen { .. }
+                | ProviderSessionError::NoConversation { .. }
+                | ProviderSessionError::Cursor(_)
+                | ProviderSessionError::ResumedRuns { .. }
+                | ProviderSessionError::Port(_)
+                | ProviderSessionError::UnrecordedNotClosed { .. }
+                | ProviderSessionError::Store(_)
+                | ProviderSessionError::GitFolder { .. }
+                | ProviderSessionError::LevelNotStored { .. }
+                | ProviderSessionError::LevelNotMovedBack { .. }
+                | ProviderSessionError::ModeNotStored { .. }
+                | ProviderSessionError::ModeNotMovedBack { .. }
+                | ProviderSessionError::Read(_)
+                | ProviderSessionError::Pool(_)) => Box::new(failure),
+            })
+        })
+        .boxed()
+    }
+}
+
+impl SessionPostureSource for ProviderSessions {
+    fn opened_execution_posture(&self, session_id: &SessionId) -> Option<ExecutionPosture> {
+        self.lock_opened()
+            .get(session_id)
+            .map(|opened| opened.execution_posture.clone())
     }
 }
 

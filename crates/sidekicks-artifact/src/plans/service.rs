@@ -17,7 +17,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_provider::port::plan::{PlanPort, ProviderPlan, ProviderPlanHoldEnd};
 use sidekicks_session::plan_holds::HeldPlan;
-use sidekicks_session::run::state_change::refused_statement_index;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -196,7 +195,7 @@ impl PlansService {
             .await;
         match appended {
             Ok(_receipt) => Ok(()),
-            Err(failure) if refused_statement_index(&failure) == Some(0) => Ok(()),
+            Err(failure) if failure.refused_statement_index() == Some(0) => Ok(()),
             Err(failure) => Err(failure.into()),
         }
     }

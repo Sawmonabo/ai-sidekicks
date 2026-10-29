@@ -28,8 +28,10 @@ use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_queue::changes::QueueChangeSignals;
 use sidekicks_queue::memory_gate::MemoryGate;
+use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::provider_session::{
-    ProviderSessionOpeningComposer, ProviderSessions, ProviderSessionsDeps,
+    ProviderSessionGitFolderReader, ProviderSessionOpeningComposer, ProviderSessions,
+    ProviderSessionsDeps,
 };
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_queue::service::{RunQueue, RunQueueDeps};
@@ -72,7 +74,7 @@ use sidekicks_terminal::{CommandLine, Terminals};
 use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
-use sidekicks_workspace::managed::write_watcher::ManagedWorkspaceWrite;
+use sidekicks_workspace::managed::write_watcher::{ManagedWorkspaceReport, ManagedWritesWatermark};
 use sidekicks_workspace::run_setup_gates::RunSetupGate;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -101,6 +103,9 @@ pub(crate) struct SessionServiceStart {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// Each live run's posture, the engine's first setup gate.
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
+    /// Binds each repository-bound run to its working folder; the engine's gate before the
+    /// approval side's, so its end runs after theirs.
+    pub(crate) execution_root_gate: Arc<dyn RunSetupGate>,
     /// Each run's binding cursors over the runtime binding rows, which an opening opens and
     /// records and the session directory's relaunches open too.
     pub(crate) binding_cursors: Arc<RunBindingCursors>,
@@ -108,6 +113,8 @@ pub(crate) struct SessionServiceStart {
     pub(crate) epochs: Arc<Mutex<ExecutionEpochs>>,
     /// Composes a session's opening from its lead.
     pub(crate) compose_opening: ProviderSessionOpeningComposer,
+    /// Reads a session's git folder.
+    pub(crate) read_git_folder: ProviderSessionGitFolderReader,
     /// The identity of each session's provider process.
     pub(crate) processes: Arc<dyn ProviderProcessIds>,
     /// The gate every start waits its turn at.
@@ -139,7 +146,10 @@ pub(crate) struct SessionServiceStart {
     /// The folder of the chats' managed workspaces.
     pub(crate) workspaces_folder: PathBuf,
     /// The chats' writes the managed workspaces' watch reports.
-    pub(crate) workspace_writes: mpsc::Receiver<ManagedWorkspaceWrite>,
+    pub(crate) workspace_writes: mpsc::Receiver<ManagedWorkspaceReport>,
+    /// Where the recording of those writes keeps each instant the watch's walk caught up to, once
+    /// every write sent ahead of it is recorded, a write held behind a tool call included.
+    pub(crate) managed_writes_watermark: Arc<dyn ManagedWritesWatermark>,
     /// The daemon's wall clock.
     pub(crate) clock: Arc<dyn WallClock>,
     /// The thread every terminal child starts on.
@@ -174,6 +184,9 @@ pub(crate) struct SessionServices {
     pub(crate) queue: Arc<RunQueue>,
     /// Each session's provider process, which the session controls move.
     pub(crate) provider_sessions: Arc<ProviderSessions>,
+    /// Where a resume hands the runs it named, which recovery's finalize registers on before the
+    /// start serves anything.
+    pub(crate) resumed_runs: Arc<PortRegistration<Arc<dyn ResumedRunsIngress>>>,
     /// Appends to a session's log, which the shell table's changes of holder go through.
     pub(crate) appender: Arc<SessionEventAppender>,
     /// The queues' change signals.
@@ -261,9 +274,11 @@ pub(crate) fn build_session_services(
         read_damaged_from_sequence,
         providers,
         execution_postures,
+        execution_root_gate,
         binding_cursors,
         epochs,
         compose_opening,
+        read_git_folder,
         processes,
         memory_gate,
         machine,
@@ -280,6 +295,7 @@ pub(crate) fn build_session_services(
         spool_folder,
         workspaces_folder,
         workspace_writes,
+        managed_writes_watermark,
         clock,
         spawner,
         daemon_program,
@@ -325,13 +341,16 @@ pub(crate) fn build_session_services(
             RunEngineDeps {
                 pool: Arc::clone(&reads),
                 event_log: Arc::clone(&event_log),
-                execution_postures,
+                execution_postures: Arc::clone(&execution_postures),
                 providers: Arc::clone(&providers),
                 plan_holds,
                 held_choice_answers: Arc::clone(&held_choice_answers),
             },
             engine.clone(),
         );
+        // The end hooks run in reverse, so the approvals and turn readings are released before
+        // this gate releases, sweeps and moves the run's folder.
+        built.register_setup_gate(execution_root_gate);
         built.register_setup_gate(Arc::clone(&approvals.run_end) as Arc<dyn RunSetupGate>);
         // A run's end releases its turn readings, so their subscribers' streams finish.
         built.register_setup_gate(Arc::clone(&turn_readings) as Arc<dyn RunSetupGate>);
@@ -385,15 +404,22 @@ pub(crate) fn build_session_services(
         running_commands: Arc::clone(&running_commands),
         scheduler,
     });
+    let resumed_runs = Arc::new(PortRegistration::new("resumed runs"));
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&reads),
-        writer: Arc::clone(&writer),
+        appender: Arc::clone(&appender),
         binding_cursors: Arc::clone(&binding_cursors),
         providers: Arc::clone(&providers),
         compose_opening,
+        read_git_folder,
         transition_lock: Arc::clone(changes.transition_lock()),
         process_follower: Arc::clone(&idle_sleep) as Arc<dyn SessionProcessFollower>,
+        execution_postures: Arc::clone(&execution_postures),
+        resumed_runs: Arc::clone(&resumed_runs),
     }));
+    execution_postures
+        .set_stored_postures(Arc::downgrade(&provider_sessions) as Weak<_>)
+        .expect("a new posture service reads no stored level yet");
     idle_sleep
         .set_process_waker(Arc::downgrade(&provider_sessions) as Weak<dyn SessionProcessWaker>)
         .expect("a new idle sleep holds no process waker yet");
@@ -421,6 +447,9 @@ pub(crate) fn build_session_services(
     engine
         .set_interrupt_queue(Arc::downgrade(&queue) as Weak<_>)
         .expect("a new engine holds no run queue yet");
+    engine
+        .set_session_postures(Arc::downgrade(&provider_sessions) as Weak<_>)
+        .expect("a new engine holds no posture source yet");
     let interventions = Arc::new(InterventionService::new(InterventionServiceDeps {
         pool: Arc::clone(&reads),
         event_log: Arc::clone(&event_log),
@@ -442,6 +471,7 @@ pub(crate) fn build_session_services(
         spool_folder,
         workspaces_folder,
         clock,
+        managed_writes_watermark,
     ));
     let chat_version_recording = {
         let chat_versions = Arc::clone(&chat_versions);
@@ -456,6 +486,7 @@ pub(crate) fn build_session_services(
         chat_versions,
         queue,
         provider_sessions,
+        resumed_runs,
         signals,
         interventions,
         pauses,
@@ -538,22 +569,32 @@ pub(crate) struct SessionAttachments {
     auto_titling: SessionAutoTitling,
 }
 
+/// Attaches the binding cursors' follow of `followers`, which marks an ended run's cursors to drop
+/// at its session's next binding. Called before the start's recovery pass, whose resumes end runs
+/// on the bindings they open; the follow runs on the writer's pump.
+pub(crate) fn follow_binding_cursors(
+    services: &SessionServices,
+    followers: &Arc<SessionEventFollowers>,
+) -> FollowerAttachment {
+    let binding_cursors = Arc::clone(&services.binding_cursors);
+    followers.follow_all(move |event| binding_cursors.observe(event).map_err(Into::into))
+}
+
 /// Starts the idle sleep, which wakes each session its stored schedules name and checks every
-/// session from then on, then the session services' follows of `followers`: the binding cursors',
-/// the approval side's, the related sessions' rescoring and the self-naming. Called once the
-/// start's recovery pass has settled the runs and the driver ports are registered, since a wake
-/// due at once reads them, inside the daemon's runtime. Fails as the idle sleep's start fails,
-/// with no follow begun.
+/// session from then on, then the session services' other follows of `followers`: the approval
+/// side's, the related sessions' rescoring and the self-naming; holds them beside
+/// `binding_cursors`, the follow [`follow_binding_cursors`] attached. Called once the start's
+/// recovery pass has settled the runs and the driver ports are registered, since a wake due at
+/// once reads them, inside the daemon's runtime. Fails as the idle sleep's start fails, with no
+/// other follow begun and `binding_cursors` detached.
 pub(crate) async fn start_session_attachments(
     services: &SessionServices,
     followers: &Arc<SessionEventFollowers>,
+    binding_cursors: FollowerAttachment,
 ) -> Result<SessionAttachments, IdleSleepError> {
     services.idle_sleep.start().await?;
-    let binding_cursors = Arc::clone(&services.binding_cursors);
     Ok(SessionAttachments {
-        // Runs on the writer's pump.
-        binding_cursors: followers
-            .follow_all(move |event| binding_cursors.observe(event).map_err(Into::into)),
+        binding_cursors,
         approvals: start_approval_attachments(&services.approvals, followers),
         related_rescoring: services.related_ranking.start(followers),
         auto_titling: services.auto_title.start(followers),

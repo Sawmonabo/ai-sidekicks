@@ -1,21 +1,15 @@
-use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use futures::FutureExt as _;
-use futures::future::BoxFuture;
 use notify::NullWatcher;
 use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::git::shared::GitRefName;
-use sidekicks_contracts::machine::settings::{BranchNamePattern, BranchNamePatternChange};
-use sidekicks_contracts::project::ProjectSetup;
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 use sidekicks_contracts::worktree::setup::{WorktreeSetupStage, WorktreeSetupStatus};
 use sidekicks_std::file::atomic_write::write_file_atomically;
 use sidekicks_std::keyed_lock::KeyedLock;
@@ -25,139 +19,39 @@ use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use tempfile::TempDir;
 
+use super::test_sources::{FixedNaming, NoSetupSteps, ScriptedLiveRuns, title_only_pattern};
 use super::{
-    CreateWorktreeInput, LiveRunFolder, LiveRunFolderReadError, LiveRunFolderReader, NameCollision,
-    WorktreeCreationError, WorktreeCreator, WorktreeCreatorDeps, WorktreeNameRequest,
-    undo_unrecorded_tree,
+    CreateWorktreeInput, LiveRunFolder, NameCollision, WorktreeCreationError, WorktreeCreator,
+    WorktreeCreatorDeps, WorktreeNameRequest, undo_unrecorded_tree,
 };
 use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::process::{GitRunner, test_git_runner};
 use crate::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::naming::{
-    WorktreeNameBase, WorktreeNamePlan, WorktreeNaming, WorktreeNamingError, WorktreeNamingSources,
-    WorktreeProjectNaming, short_id_of,
+    WorktreeNameBase, WorktreeNamePlan, WorktreeNaming, short_id_of,
 };
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::reads::has_branch;
 use crate::git::worktree::rows::{AttachedMountRow, LIVE_WORKTREE_STATE_PREDICATE};
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
+use crate::git::worktree::setup::WorktreeSetupRunner;
 use crate::git::worktree::setup::test_runner::test_setup_runner;
-use crate::git::worktree::setup::{WorktreeSetupError, WorktreeSetupRunner, WorktreeSetupSources};
 use crate::test_rows::project_and_mount_rows;
 
 const READ_STATEMENT_CAPACITY: usize = 16;
-
-// Every tree is named by the title alone, so a test reads its branch as the tail it gave.
-const PATTERN: &str = "{title}";
-
-fn pattern() -> BranchNamePattern {
-    BranchNamePattern::new(
-        BranchNamePatternChange::new(PATTERN.to_owned()).expect("a bounded pattern"),
-    )
-    .expect("a pattern holding {title}")
-}
 
 /// The plan for `tail` of the fixture's session, as the creator would build it.
 pub(super) fn plan_for(fixture: &CreationFixture, tail: &str) -> WorktreeNamePlan {
     WorktreeNamePlan::for_tail(
         WorktreeNameBase {
-            pattern: pattern(),
+            pattern: title_only_pattern(),
             session_short_id: fixture.session_short_id(),
             project_folder: fixture.project_folder(),
         },
         tail.to_owned(),
     )
-}
-
-// The project's naming facts: slug `app` and the title-only pattern; the session has no title.
-struct FixedNaming;
-
-impl WorktreeNamingSources for FixedNaming {
-    fn read_project_naming<'a>(
-        &'a self,
-        _repo_mount_id: &'a RepoMountId,
-    ) -> BoxFuture<'a, Result<WorktreeProjectNaming, WorktreeNamingError>> {
-        async {
-            Ok(WorktreeProjectNaming {
-                slug: "app".to_owned(),
-                branch_pattern: Some(pattern()),
-            })
-        }
-        .boxed()
-    }
-
-    fn read_machine_branch_pattern(
-        &self,
-    ) -> BoxFuture<'_, Result<BranchNamePattern, WorktreeNamingError>> {
-        async { Ok(pattern()) }.boxed()
-    }
-
-    fn read_session_title_words<'a>(
-        &'a self,
-        _session_id: &'a SessionId,
-        _fallback_message: Option<&'a str>,
-    ) -> BoxFuture<'a, Result<String, WorktreeNamingError>> {
-        async { Ok(String::new()) }.boxed()
-    }
-}
-
-// A project with no setup steps of its own.
-struct NoSetupSteps;
-
-impl WorktreeSetupSources for NoSetupSteps {
-    fn require_worktree<'a>(
-        &'a self,
-        _worktree_id: &'a WorktreeId,
-    ) -> BoxFuture<'a, Result<(), WorktreeSetupError>> {
-        async { Ok(()) }.boxed()
-    }
-
-    fn read_retired<'a>(
-        &'a self,
-        _worktree_ids: &'a [WorktreeId],
-    ) -> BoxFuture<'a, Result<HashSet<WorktreeId>, WorktreeSetupError>> {
-        async { Ok(HashSet::new()) }.boxed()
-    }
-
-    fn read_project_setup<'a>(
-        &'a self,
-        _worktree_id: &'a WorktreeId,
-    ) -> BoxFuture<'a, Result<ProjectSetup, WorktreeSetupError>> {
-        async {
-            Ok(ProjectSetup {
-                files_to_copy: Vec::new(),
-                commands: Vec::new(),
-                time_limit_seconds: None,
-            })
-        }
-        .boxed()
-    }
-
-    fn read_command_environment<'a>(
-        &'a self,
-        _worktree_id: &'a WorktreeId,
-    ) -> BoxFuture<'a, Result<Vec<(String, String)>, WorktreeSetupError>> {
-        async { Ok(std::env::vars().collect()) }.boxed()
-    }
-}
-
-// Answers each read with the next scripted list of live runs, and none once the script is spent,
-// standing in for the session crate's reader.
-#[derive(Default)]
-struct ScriptedLiveRuns {
-    answers: Mutex<VecDeque<Vec<LiveRunFolder>>>,
-}
-
-impl LiveRunFolderReader for ScriptedLiveRuns {
-    fn read_other_sessions_live_runs<'a>(
-        &'a self,
-        _session_id: &'a SessionId,
-    ) -> BoxFuture<'a, Result<Vec<LiveRunFolder>, LiveRunFolderReadError>> {
-        let answer = lock(&self.answers).pop_front().unwrap_or_default();
-        async move { Ok(answer) }.boxed()
-    }
 }
 
 /// A repository `app` on `main` with one commit, its attached mount, and a creator over them

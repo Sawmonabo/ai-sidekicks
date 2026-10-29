@@ -406,10 +406,8 @@ impl ClaudeInboundRequests {
         let is_sent_by_level_rule = session.level == Some(PermissionLevel::Reviewed)
             && ask.decision_reason_type.as_deref() == Some(CLAUDE_RULE_DECISION)
             && matches_claude_reviewed_removal_rule(&tool_name, &input)
-            && session
-                .stream
-                .permission_mode()
-                .is_some_and(|mode| is_reviewed_mode(&mode));
+            && session.stream.permission_mode().newest_report()
+                == Some(claude_permission_mode_for(Some(PermissionLevel::Reviewed)));
         let flags = Map::from_iter([(
             "suppress_always_allow_rule".to_owned(),
             Value::Bool(ask.suppress_always_allow_rule == Some(true)),
@@ -522,7 +520,8 @@ impl ClaudeInboundRequests {
     }
 
     // A plan the agent proposes is recorded from the ask's own input, Claude Code's `plan` text and
-    // the plan file it wrote beside it; the ask itself goes on to the approval pipeline.
+    // the plan file it wrote beside it; the ask goes on to the approval pipeline and stays held
+    // until answered, so the plan holds its request.
     fn record_plan(&self, session_id: SessionId, run: &ClaudeBoundRun, input: &Map<String, Value>) {
         let Some(text) = input
             .get("plan")
@@ -540,7 +539,7 @@ impl ClaudeInboundRequests {
             text: text.to_owned(),
             plan_file_path: read_non_empty_string(input, "planFilePath")
                 .and_then(|path| FilesystemPath::new(path.to_owned()).ok()),
-            holds_request: false,
+            holds_request: true,
         };
         tokio::spawn(async move {
             if let Err(error) = port.take_plan(plan).await {
@@ -761,12 +760,6 @@ fn made_rule_of(answer: ProviderPermissionAnswer) -> Option<ProviderAnswerRule> 
         ProviderPermissionAnswer::Allow { made_rule, .. }
         | ProviderPermissionAnswer::Refuse { made_rule, .. } => made_rule,
     }
-}
-
-// Whether the mode the process reported is the one Reviewed runs in.
-fn is_reviewed_mode(mode: &str) -> bool {
-    serde_json::to_value(claude_permission_mode_for(Some(PermissionLevel::Reviewed)))
-        .is_ok_and(|reviewed| reviewed == mode)
 }
 
 // A request's relayed input as an object; any other JSON reads as none.

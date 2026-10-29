@@ -1,4 +1,4 @@
-//! Finds terminal children by the nonce in their environment, for children whose process the
+//! Finds the daemon's children by the nonce in their environment, for children whose process the
 //! daemon never recorded and for descendants that left their parent's tree. A system that shows no
 //! other process's environment leaves the search empty, and the registry alone defends there.
 //! macOS hides the start environment of its own restricted programs, such as `/bin/zsh`, from the
@@ -9,8 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 
 use sidekicks_platforms::{list_user_process_ids, read_process_start};
-
-use crate::orphan::registry::SPAWN_NONCE_ENVIRONMENT_NAME;
+use sidekicks_provider::driver::child_records::SPAWN_NONCE_ENVIRONMENT_NAME;
 
 /// Reads the environment of each process this user runs, once, and answers which of `nonces`
 /// each carries, by process id; empty where the system shows no other process's environment.
@@ -25,8 +24,8 @@ pub(crate) fn find_processes_carrying_nonces(nonces: &HashSet<&str>) -> HashMap<
         Err(error) => {
             tracing::warn!(
                 error = &error as &(dyn std::error::Error + 'static),
-                "This user's processes could not be listed, so no terminal child was found by \
-                 its nonce."
+                "This user's processes could not be listed, so no child of the daemon was found \
+                 by its nonce."
             );
             HashMap::new()
         }

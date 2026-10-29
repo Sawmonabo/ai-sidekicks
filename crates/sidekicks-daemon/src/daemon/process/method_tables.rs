@@ -6,13 +6,17 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
+use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
 use sidekicks_ipc::registry::{Dispatch, MethodRegistry, MethodRegistryBuilder, RegistrationError};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_recovery::damaged_history::DamagedHistory;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::write_gate::RecoveryWriteGate;
+use sidekicks_session::attention::service::AttentionService;
 use sidekicks_session::changes::SessionChanges;
+use sidekicks_session::convert::SessionConversion;
+use sidekicks_session::create::SessionCreation;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::draft_store::SessionDraftStore;
 use sidekicks_session::groups::service::SessionGroupService;
@@ -24,14 +28,17 @@ use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::review_note::store::SessionReviewNoteStore;
 use sidekicks_session::service::SessionService;
 use sidekicks_session::tags::SessionTagService;
+use sidekicks_session::working_folder::SessionWorkingFolders;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_workspace::clone::service::CloneService;
+use sidekicks_workspace::execution_root::ExecutionRootService;
 use sidekicks_workspace::folder::list::FolderListService;
 use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use sidekicks_workspace::project::service::ProjectService;
+use sidekicks_workspace::service::WorkspaceService;
 
 use crate::daemon::app_diagnostic_methods::register_app_diagnostic_methods;
 use crate::daemon::backup::methods::{BackupMethodsDeps, register_backup_methods};
@@ -39,25 +46,29 @@ use crate::daemon::config_methods::{ConfigMethodsDeps, register_config_methods};
 use crate::daemon::crash::methods::register_crash_methods;
 use crate::daemon::data_methods::{DataMethodsDeps, register_data_methods};
 use crate::daemon::lifecycle_methods::{LifecycleMethodsDeps, register_lifecycle_methods};
+use crate::daemon::machine_settings::file::MachineSettingsFile;
 use crate::daemon::machine_settings::methods::{
     MachineSettingsMethodsDeps, register_machine_settings_methods,
 };
 use crate::daemon::process::damage_gate::{DamageReportGate, DispatchDamageWatch};
 use crate::daemon::process::jobs::IdleMemoryCollect;
+use crate::daemon::process::workspace_services::{RepoMountMethods, WorktreeMethods};
 use crate::daemon::retention_methods::{RetentionMethodsDeps, register_retention_methods};
 use crate::daemon::status_methods::{StatusMethodsDeps, register_status_methods};
 use crate::highlight::colorer::CodeHighlighter;
 use crate::ipc::handlers::agent::command::{CommandMethodSources, register_command_methods};
 use crate::ipc::handlers::agent::turn::register_turn_methods;
 use crate::ipc::handlers::approval::{ApprovalMethodSources, register_approval_methods};
+use crate::ipc::handlers::attention::register_attention_methods;
 use crate::ipc::handlers::driver::{DriverMethodSources, register_driver_methods};
 use crate::ipc::handlers::highlight::register_highlight_read;
 use crate::ipc::handlers::machine::folder::register_machine_folders;
+use crate::ipc::handlers::presence::register_presence_methods;
 use crate::ipc::handlers::project::clone::register_project_clone_methods;
 use crate::ipc::handlers::project::register_project_methods;
 use crate::ipc::handlers::question::register_question_resolve;
 use crate::ipc::handlers::repo::branches::register_repo_branches;
-use crate::ipc::handlers::repo::working_folder::register_working_folder;
+use crate::ipc::handlers::repo::mount::register_repo_mounts;
 use crate::ipc::handlers::run::control::{RunControlServices, register_run_control};
 use crate::ipc::handlers::run::queue::{RunQueueMethods, register_run_queue};
 use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
@@ -65,6 +76,8 @@ use crate::ipc::handlers::run::state::register_run_state_subscribe;
 use crate::ipc::handlers::session::changes::register_session_changes;
 use crate::ipc::handlers::session::context::register_context_subscribe;
 use crate::ipc::handlers::session::controls::{SessionControlMethods, register_session_controls};
+use crate::ipc::handlers::session::convert::register_session_convert;
+use crate::ipc::handlers::session::create::register_session_create;
 use crate::ipc::handlers::session::draft_update::register_session_draft_update;
 use crate::ipc::handlers::session::event_subscribe::register_session_event_subscribe;
 use crate::ipc::handlers::session::group::register_session_groups;
@@ -75,8 +88,11 @@ use crate::ipc::handlers::session::restart::register_session_restart;
 use crate::ipc::handlers::session::review_note::register_session_review_notes;
 use crate::ipc::handlers::session::search::{SessionSearchMethods, register_session_search};
 use crate::ipc::handlers::session::tags::register_session_tags;
+use crate::ipc::handlers::session::working_folder::register_session_working_folder;
 use crate::ipc::handlers::terminal::{register_terminal_methods, register_terminal_write};
 use crate::ipc::handlers::transcript::register_transcript_reads;
+use crate::ipc::handlers::workspace::register_workspaces;
+use crate::ipc::handlers::worktree::register_worktrees;
 
 /// Every service the method tables take, each table's own inputs where its owner bundles them.
 pub(crate) struct MethodTableServices {
@@ -160,13 +176,34 @@ pub(crate) struct MethodTableServices {
     pub(crate) clones: Result<Arc<CloneService>, String>,
     /// Lists the machine's folders for another device's folder chooser.
     pub(crate) machine_folders: Arc<FolderListService>,
+    /// The devices' heartbeats.
+    pub(crate) presence: Arc<PresenceRegister>,
+    /// The attention entries' projection, banner settles and seen marks.
+    pub(crate) attention: Arc<AttentionService>,
+    /// The repository mount methods' inputs.
+    pub(crate) repo_mounts: RepoMountMethods,
+    /// The workspace lifecycle, which binds a session to a mount and lists its workspaces.
+    pub(crate) workspaces: Arc<WorkspaceService>,
+    /// Prepares a workspace's execution root.
+    pub(crate) execution_roots: Arc<ExecutionRootService>,
+    /// The worktree methods' inputs.
+    pub(crate) worktree_methods: WorktreeMethods,
+    /// Creates sessions.
+    pub(crate) session_creation: Arc<SessionCreation>,
+    /// Turns chats into projects.
+    pub(crate) session_conversion: Arc<SessionConversion>,
+    /// Moves a session to another tree of its repository.
+    pub(crate) session_working_folders: Arc<SessionWorkingFolders>,
+    /// The machine settings file, where a create keeps the last lead pick.
+    pub(crate) machine_settings_file: Arc<MachineSettingsFile>,
 }
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
 /// data, the drivers, the approvals, the runs and their agents' commands and turns, the sessions,
-/// the repositories, the projects and the machine's folders. The handshake, the subscriptions'
-/// cancel and the artifact store's table are registered by the start beside them. Fails when a
-/// method is registered twice.
+/// attention, the repositories, the projects, the folders, workspaces and worktrees, the sessions'
+/// create and convert, the machine's folders and the devices present. The handshake, the
+/// subscriptions' cancel and the artifact store's table are registered by the start beside them.
+/// Fails when a method is registered twice.
 pub(crate) fn register_method_tables(
     builder: &mut MethodRegistryBuilder,
     services: MethodTableServices,
@@ -212,15 +249,30 @@ pub(crate) fn register_method_tables(
     register_session_groups(builder, services.session_groups)?;
     register_session_links(builder, services.links, services.related_ranking)?;
     register_session_recovery_methods(builder, services.damaged_history)?;
+    register_attention_methods(builder, services.attention)?;
     register_question_resolve(builder, services.questions)?;
     register_highlight_read(builder, services.highlighter)?;
     register_terminal_write(builder, services.shells.input_lookup())?;
     register_terminal_methods(builder, services.shells)?;
     register_repo_branches(builder, services.branches)?;
-    register_working_folder(builder, services.working_folders)?;
+    register_session_working_folder(
+        builder,
+        services.session_working_folders,
+        services.working_folders,
+    )?;
     register_project_methods(builder, services.projects, services.project_list_feed)?;
     register_project_clone_methods(builder, services.clones)?;
-    register_machine_folders(builder, services.machine_folders)
+    register_repo_mounts(builder, services.repo_mounts)?;
+    register_workspaces(builder, services.workspaces, services.execution_roots)?;
+    register_worktrees(builder, services.worktree_methods)?;
+    register_session_create(
+        builder,
+        services.session_creation,
+        services.machine_settings_file,
+    )?;
+    register_session_convert(builder, services.session_conversion)?;
+    register_machine_folders(builder, services.machine_folders)?;
+    register_presence_methods(builder, services.presence)
 }
 
 /// The chain a call on the serving socket passes through, and its gate that records mutating calls,

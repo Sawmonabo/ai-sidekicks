@@ -1,3 +1,5 @@
+mod restart;
+
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -80,11 +82,13 @@ fn crash_monitor_stand_in() {
 }
 
 // A temporary home the daemon starts on, its run folder at `run_folder_path`, beside the data
-// folder as a runtime folder sits, and the script that runs the stand-in monitor.
+// folder as a runtime folder sits, the script that runs the stand-in monitor, and the environment
+// its providers start in.
 struct TestHome {
     home: TempDir,
     run_folder: DaemonRunFolder,
     daemon_program: PathBuf,
+    provider_environment: Arc<[(String, String)]>,
 }
 
 impl TestHome {
@@ -123,6 +127,15 @@ impl TestHome {
                 folder_path: run_folder_path,
             },
             daemon_program,
+            provider_environment: Arc::from([]),
+        }
+    }
+
+    // This home with its providers started in `environment` in place of none.
+    fn with_provider_environment(self, environment: Vec<(String, String)>) -> Self {
+        Self {
+            provider_environment: environment.into(),
+            ..self
         }
     }
 
@@ -134,7 +147,8 @@ impl TestHome {
         crash_monitor_socket_path(&self.run_folder.folder_path, std::process::id())
     }
 
-    // Starts the daemon on this home with no providers' environment, its stop `stop`.
+    // Starts the daemon on this home, its providers in its providers' environment, its stop
+    // `stop`.
     async fn start(&self, stop: CancellationToken) -> Result<DaemonProcess, DaemonStartFailure> {
         let data_folder = self.data_folder();
         create_missing_private_folders(&data_folder).expect("the data folder is made");
@@ -151,7 +165,9 @@ impl TestHome {
                 ProcessTableReader::for_this_program().expect("the caller reader is built"),
             ),
             stop,
-            base_environment: ProviderBaseEnvironment::Given(Arc::from([])),
+            base_environment: ProviderBaseEnvironment::Given(Arc::clone(
+                &self.provider_environment,
+            )),
             credential_store: TestStoreAccess::new(CredentialStore::in_memory()) as _,
             service_log_files: open_service_log(&data_folder, io::sink()).files(),
             provider_registrations: PROVIDER_REGISTRATIONS,

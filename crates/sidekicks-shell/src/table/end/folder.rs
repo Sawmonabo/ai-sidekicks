@@ -16,8 +16,8 @@ use std::sync::{Arc, Weak};
 
 use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_platforms::{
     DOES_SHELL_MODE_KEEP_ITS_FOLDER, end_processes, process_table, tree_under,
 };
@@ -442,10 +442,10 @@ mod tests {
     use sidekicks_contracts::terminal::{TerminalId, TerminalOpenRequest};
     use sidekicks_contracts::wire::id::ClientUuid;
     use sidekicks_ipc::registry::HandlerError;
+    use sidekicks_provider::driver::child_records::SPAWN_NONCE_ENVIRONMENT_NAME;
     use tokio::sync::watch;
 
     use super::end_processes_inside;
-    use crate::orphan::registry::SPAWN_NONCE_ENVIRONMENT_NAME;
     use crate::output::stream::ShellOutputEnd;
     use crate::record::ShellRecord;
     use crate::table::TableShared;

@@ -34,12 +34,11 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_platforms::WallClock;
 use sidekicks_session::directory::lookups::{session_exists, session_exists_statement};
 use sidekicks_session::run::ids::{RUN_IN_SESSION_SQL, run_in_session_statement};
 use sidekicks_session::run::refusals::RunRefusal;
-use sidekicks_session::run::state_change::refused_statement_index;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
@@ -150,7 +149,7 @@ pub(crate) fn manifest_write_failure(
     manifest: &ArtifactManifest,
     failure: SessionEventAppendError,
 ) -> ArtifactError {
-    match (refused_statement_index(&failure), manifest.run_id) {
+    match (failure.refused_statement_index(), manifest.run_id) {
         // The second statement is the run check, present when the manifest names a run.
         (Some(1), Some(run_id)) => DomainError::from(RunRefusal::NotFound { run_id }).into(),
         (Some(0), _) => session_not_found(&manifest.session_id).into(),

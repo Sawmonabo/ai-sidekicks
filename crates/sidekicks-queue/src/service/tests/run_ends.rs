@@ -16,7 +16,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::contract::params_and_results::SessionProcessState;
-use sidekicks_provider::driver::session_control::DriverResumeResult;
+use sidekicks_provider::driver::session_control::{DriverResumeResult, answer_every_run_gone};
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_provider::process_identity::TEST_PROVIDER_PROCESS;
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
@@ -180,9 +180,10 @@ async fn a_restart_that_ends_down_leaves_the_next_send_to_resume_the_session() {
         .returning(move |_session_id| *lock(&reading));
     let resumes = Arc::new(AtomicUsize::new(0));
     let resuming = Arc::clone(&resumes);
-    driver.expect_resume_session().returning(move |_params| {
+    driver.expect_resume_session().returning(move |params| {
         resuming.fetch_add(1, Ordering::SeqCst);
-        async {
+        let runs = answer_every_run_gone(&params.live_runs);
+        async move {
             Ok(DriverResumeResult::Resumed {
                 binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
                     .expect("a UUID is a binding id"),
@@ -190,6 +191,7 @@ async fn a_restart_that_ends_down_leaves_the_next_send_to_resume_the_session() {
                 resume_handle: NonEmptyText::new("conversation-1".to_owned())
                     .expect("a resume handle"),
                 spawned_version: spawned_build("1.0.1", "/opt/provider/bin"),
+                runs,
             })
         }
         .boxed()

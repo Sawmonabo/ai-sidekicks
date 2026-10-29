@@ -1,48 +1,56 @@
 //! What a test's Codex services run on: their shared dependencies, a program a test names, a
-//! listener's answers as a Codex service gives them, and a service whose connection a test
-//! scripts, a service of the daemon's own kind published as up and holding a connection on a
-//! `ScriptedService`, its frames and asks routed as a dialed one's are.
+//! listener's answers as a Codex service gives them, a service whose connection a test scripts, a
+//! service of the daemon's own kind published as up and holding a connection on a
+//! `ScriptedService`, its frames and asks routed as a dialed one's are, and the stand-in Codex
+//! service a test program runs as itself.
+
+mod stand_in;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use futures::future::BoxFuture;
-#[cfg(test)]
 use futures::{SinkExt as _, StreamExt as _};
 #[cfg(test)]
 use interprocess::local_socket::tokio::Listener;
-#[cfg(test)]
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
-use sidekicks_platforms::Spawner;
 #[cfg(test)]
 use sidekicks_platforms::{
-    CAN_BIND_A_SOCKET_LISTENER, ProgramStart, StandInAnswer, StandInProgram, bind_socket_listener,
+    CAN_BIND_A_SOCKET_LISTENER, StandInAnswer, StandInProgram, bind_socket_listener,
     write_stand_in_program,
 };
+use sidekicks_platforms::{ProgramStart, Spawner};
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::data_folder::program_link_folder;
 use tempfile::TempDir;
-#[cfg(test)]
 use tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(test)]
 use tokio::sync::mpsc;
 #[cfg(test)]
 use tokio_tungstenite::WebSocketStream;
-#[cfg(test)]
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
+#[cfg(test)]
+pub(crate) use self::stand_in::{
+    CODEX_HOME_NAME, HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE, StandInLaunches,
+};
+pub use self::stand_in::{
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, serve_as_codex_service_stand_in,
+    stand_in_codex_service, write_codex_service_script,
+};
 use crate::command::askpass::command_askpass_program_path;
 use crate::command::channel::command_channel_root;
 use crate::command::waiting_checks::SystemInputWaitReader;
 use crate::command::wrapper::command_wrapper_program_path;
+use crate::driver::child_records::{DaemonChildRecords, UnrecordedChildren};
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::exec_relay::CodexExecRelayDependencies;
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
-#[cfg(test)]
 use crate::driver::codex::service::command_line::{
     TerminalServiceHooks, read_terminal_service_hooks,
 };
@@ -194,11 +202,13 @@ impl ScriptedCodexService {
 }
 
 /// The dependencies a test's services share: their data and logs under `folder`, the build
-/// `program` resolves, and `events` told what happens to them. Must be called within a runtime.
+/// `program` resolves, `events` told what happens to them and `child_records` recording the
+/// daemon's own children. Must be called within a runtime.
 pub(crate) fn test_codex_service_dependencies(
     folder: &Path,
     program: Arc<dyn CodexProgramResolver>,
     events: Arc<dyn CodexServiceEvents>,
+    child_records: Arc<dyn DaemonChildRecords>,
 ) -> Arc<CodexServiceDependencies> {
     // The daemon makes both before any service starts.
     for made in ["data", "logs"] {
@@ -223,6 +233,7 @@ pub(crate) fn test_codex_service_dependencies(
         spawner,
         provider_services: Arc::new(ProviderServiceProcesses::default()),
         processes: Arc::new(ProviderProcessRegistry::default()),
+        child_records,
         program,
         data_folder: folder.join("data"),
         logs_folder: folder.join("logs"),
@@ -238,7 +249,6 @@ pub(crate) fn test_codex_service_dependencies(
 }
 
 /// The program a test names, run as the Codex build with `environment` its whole environment.
-#[cfg(test)]
 pub(crate) struct TestCodexProgram {
     /// The program.
     pub(crate) program: PathBuf,
@@ -246,7 +256,6 @@ pub(crate) struct TestCodexProgram {
     pub(crate) environment: Vec<(String, String)>,
 }
 
-#[cfg(test)]
 impl CodexProgramResolver for TestCodexProgram {
     fn resolve<'call>(
         &'call self,
@@ -318,7 +327,12 @@ fn start_scripted_codex_service_on(
     events: Arc<dyn CodexServiceEvents>,
 ) -> ScriptedCodexService {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let dependencies = test_codex_service_dependencies(folder.path(), program, events);
+    let dependencies = test_codex_service_dependencies(
+        folder.path(),
+        program,
+        events,
+        Arc::new(UnrecordedChildren),
+    );
     let socket: PathBuf = folder.path().join("codex.sock");
     let (service, script) = script_codex_service(
         CodexServiceHome {
@@ -450,11 +464,14 @@ impl CodexServiceEvents for ExitsHeard {
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
 }
 
-/// Answers one connection's requests on `stream` as far as a start needs: the version, the hooks
-/// the daemon starts a terminal service with, as trusted, and no loaded conversation; a config
-/// write is refused, so a start that writes trust fails.
-#[cfg(test)]
-pub(crate) async fn answer_as_codex_service(stream: impl AsyncRead + AsyncWrite + Unpin) {
+/// Answers one connection's requests on `stream` as far as a start needs, telling `on_request`
+/// each request's method as it comes: the version, the hooks the daemon starts a terminal service
+/// with, as trusted, and no loaded conversation; a config write is refused, so a start that writes
+/// trust fails.
+pub(crate) async fn answer_as_codex_service(
+    stream: impl AsyncRead + AsyncWrite + Unpin,
+    mut on_request: impl FnMut(&str),
+) {
     let hooks = match read_terminal_service_hooks(TEST_DISPATCHES_HOOK_MODE)
         .expect("the daemon's hooks read")
     {
@@ -477,6 +494,7 @@ pub(crate) async fn answer_as_codex_service(stream: impl AsyncRead + AsyncWrite 
             continue;
         }
         let id = &request["id"];
+        on_request(request["method"].as_str().unwrap_or_default());
         let reply = match request["method"].as_str() {
             Some("config/value/write") => json!({"id": id,
                 "error": {"code": -32603, "message": "the test service writes no config"}}),
@@ -496,7 +514,6 @@ pub(crate) async fn answer_as_codex_service(stream: impl AsyncRead + AsyncWrite 
     }
 }
 
-#[cfg(test)]
 fn listed_hook(event_name: &str, command: &str) -> Value {
     json!({"source": "sessionFlags", "eventName": event_name, "command": command,
         "key": event_name, "currentHash": "hash", "trustStatus": "trusted"})
@@ -580,4 +597,15 @@ where
         .send(Message::Text(message.to_string().into()))
         .await
         .expect("the daemon reads");
+}
+
+// The environment a daemon's providers start in to take `codex_home` as the person's own Codex
+// folder and `programs_folder`, alone on the search path, as where their `codex` is.
+fn codex_folder_environment(codex_home: &Path, programs_folder: &Path) -> Vec<(String, String)> {
+    DESCRIPTOR
+        .credential_home_environment_names
+        .iter()
+        .map(|name| ((*name).to_owned(), codex_home.display().to_string()))
+        .chain([("PATH".to_owned(), programs_folder.display().to_string())])
+        .collect()
 }
