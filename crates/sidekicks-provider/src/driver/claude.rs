@@ -78,6 +78,7 @@ mod intervention;
 mod lifecycle;
 mod output_speed;
 mod rate_limit_windows;
+mod release_notes;
 mod run;
 mod session;
 mod settings_rows;
@@ -92,6 +93,7 @@ mod version;
 pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     id: "claude",
     name: "Claude Code",
+    release_notes_address: release_notes::release_notes_address,
     plan_words: &[],
     built_in_tools: &tools::CLAUDE_BUILT_IN_TOOLS,
     command: ProviderCommand {

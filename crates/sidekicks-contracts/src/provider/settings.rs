@@ -35,8 +35,9 @@ use crate::wire::list::{ListKey, UniqueList};
 use crate::wire::text::{FreeFormText, branded_text};
 
 ts_constants! {
-    /// The longest provider command version, as the command reports it.
-    pub const PROVIDER_VERSION_MAX_LEN: usize = 64;
+    /// The longest provider command version, as the command prints it, in code points; the
+    /// provider crate stores and checks a printed version within the same bound.
+    pub const PROVIDER_VERSION_MAX_LEN: usize = 128;
     /// The longest protected-path pattern or standing rule text.
     pub const PROVIDER_RULE_TEXT_MAX_LEN: usize = 4096;
     /// The longest standing rule decision word.
