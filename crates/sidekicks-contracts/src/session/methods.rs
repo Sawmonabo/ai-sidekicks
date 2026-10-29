@@ -96,9 +96,9 @@ pub enum SessionShape {
 }
 
 ts_constants! {
-    /// The name every surface shows for a chat with no name of its own.
+    /// The words a chat with no name reads by where no first message stands in for one.
     pub const UNTITLED_CHAT_NAME: &str = "New chat";
-    /// The name every surface shows for a project session with no name of its own.
+    /// The words a project session with no name reads by where no first message stands in for one.
     pub const UNTITLED_PROJECT_NAME: &str = "New session";
 }
 

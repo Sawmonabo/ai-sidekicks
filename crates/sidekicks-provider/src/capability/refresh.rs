@@ -11,7 +11,7 @@
 //! read that misses it is canceled by dropping it, never left running, and a handshake child the
 //! driver started with `kill_on_drop` ends with it; a declare that already took its turn runs on
 //! to its commit in its own task, holding the provider's turn, so the next pass reads what it
-//! wrote.
+//! wrote; a declare still waiting for its turn is dropped unrun.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
