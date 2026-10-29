@@ -1,7 +1,8 @@
 //! The provider accounts' part of the daemon's schema: the registry of the accounts this machine
-//! may run against, truth no event rebuilds, and the newest quota reading per account and limit,
-//! a cache each read replaces. No column holds credential material: credentials live in each
-//! account's credential home, written by the provider's own tooling.
+//! may run against, truth no event rebuilds; the newest quota reading per account and limit, a
+//! cache each read replaces; and one row per turn an account paid for, projected from the session
+//! log's usage events. No column holds credential material: credentials live in each account's
+//! credential home, written by the provider's own tooling.
 
 use sidekicks_contracts::provider::account::record::{
     BillingMode, MemoryImportOutcomeKind, ProviderAccountHealthState,
@@ -75,6 +76,10 @@ CREATE TABLE provider_accounts (
   -- Opt-out for the background health observer only; the probe verb and spawn validation still
   -- write the pair.
   probe_enabled             INTEGER NOT NULL DEFAULT 1 CHECK(probe_enabled IN (0, 1)),
+  -- The limits read's place on its throttle ladder: 0 when the last read answered, one step up
+  -- for each read the provider throttled or refused since. Kept here so a restart resumes it.
+  read_hold_rung            INTEGER NOT NULL DEFAULT 0 CHECK(read_hold_rung >= 0),
+  read_held_until           TEXT,               -- when the latest hold ends; NULL until one is set
   -- An account's redeemable limit resets from its last limits read; NULL where the read
   -- carried none.
   reset_credits_available   INTEGER
@@ -202,6 +207,41 @@ CREATE TABLE provider_account_usage_windows (
   source        TEXT NOT NULL CHECK(source IN ({reading_sources})),
   PRIMARY KEY (account_id, limit_id, window_mins)
 ) STRICT;
+
+-- One row per turn, so an account's figures can be cut by a day and by a model: a projection of
+-- each usage.tokenCount.recorded event, keyed by its id, beside the turns no session owns, which
+-- the observer writes under a minted id. No foreign key to the event log: a session purge must not
+-- reach an account's spend.
+CREATE TABLE provider_account_usage_turns (
+  turn_id         TEXT NOT NULL PRIMARY KEY,
+  account_id      TEXT NOT NULL
+                  REFERENCES provider_accounts(account_id) ON DELETE CASCADE,
+  provider        TEXT NOT NULL,                  -- the account's provider, kept as written
+  occurred_at     TEXT NOT NULL,                  -- the turn's instant; the by-day slice's key
+  session_id      TEXT,                           -- NULL on a turn no session owns
+  run_id          TEXT,
+  model_id        TEXT,                           -- NULL groups as its own unattributed bucket
+  -- Each NULL where the provider reported none; NULL is not zero.
+  input_tokens          INTEGER,
+  output_tokens         INTEGER,
+  cache_read_tokens     INTEGER,
+  cache_write_tokens    INTEGER,
+  reasoning_tokens      INTEGER,
+  -- Whole micro-dollars and where they came from, set once when the turn is priced.
+  cost_usd_micros INTEGER,
+  cost_source     TEXT
+                  CHECK(cost_source IS NULL OR cost_source IN ('providerReported', 'derivedExact')),
+  observed_credential_generation INTEGER NOT NULL
+                  CHECK(observed_credential_generation >= 1),
+  CHECK ((cost_usd_micros IS NULL) = (cost_source IS NULL)),
+  CHECK (run_id IS NULL OR session_id IS NOT NULL)
+) STRICT;
+
+-- The two slices the account surface draws.
+CREATE INDEX idx_provider_account_usage_turns_account_day
+  ON provider_account_usage_turns(account_id, occurred_at);
+CREATE INDEX idx_provider_account_usage_turns_account_model
+  ON provider_account_usage_turns(account_id, model_id);
 "
     )
 }
