@@ -14,7 +14,7 @@ use crate::place::{DistroName, Place};
 use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::{PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN};
 use crate::provider::id::ProviderId;
-use crate::provider::settings::PROVIDER_VERSION_MAX_LEN;
+use crate::provider::settings::ProviderVersion;
 use crate::run::id::RunId;
 use crate::session::controls::methods::{
     PermissionLevel, SessionReviewTarget, SideQuestionId, SideQuestionText,
@@ -261,9 +261,9 @@ pub enum SessionNotice {
         /// The provider.
         provider: ProviderId,
         /// The version it left.
-        from_version: FreeFormText<PROVIDER_VERSION_MAX_LEN>,
+        from_version: ProviderVersion,
         /// The version it runs.
-        to_version: FreeFormText<PROVIDER_VERSION_MAX_LEN>,
+        to_version: ProviderVersion,
     },
     /// The person's restart brought back a provider the crash loop stopped; it ends the crash
     /// loop's banner and draws no row, and the daemon's own restarts write none.
