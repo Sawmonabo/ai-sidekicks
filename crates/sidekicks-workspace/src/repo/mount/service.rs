@@ -656,7 +656,8 @@ fn already_attached(holder: &ActiveMount) -> RepoRefusal {
     }
 }
 
-fn new_repo_mount_id() -> RepoMountId {
+/// A freshly minted repository mount id.
+pub(crate) fn new_repo_mount_id() -> RepoMountId {
     RepoMountId::try_from(mint_uuid_v7()).expect("a minted UUID is a repo mount id")
 }
 

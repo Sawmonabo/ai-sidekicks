@@ -38,7 +38,6 @@ use sidekicks_contracts::repo::folders::{
 use sidekicks_contracts::repo::mount::{RepoMountHealth, RepoMountId, WorkspaceId};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 use sidekicks_ipc::domain_error::DomainError;
@@ -68,6 +67,7 @@ use crate::repo::mount::health::{
     MountHealthProbeError, MountHealthReadError, probe_repo_mount_health, read_sessions_on_mount,
 };
 use crate::repo::mount::service::detach::read_running_run;
+use crate::repo::mount::service::new_repo_mount_id;
 use crate::repo::root_resolver::RepoRootResolver;
 use crate::service::{AttachedMount, WorkspaceService, WorkspaceServiceError, root_mismatch};
 
@@ -583,10 +583,6 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         }
         failures
     }
-}
-
-fn new_repo_mount_id() -> RepoMountId {
-    RepoMountId::try_from(mint_uuid_v7()).expect("a minted UUID is a repo mount id")
 }
 
 fn read_live_worktrees(
