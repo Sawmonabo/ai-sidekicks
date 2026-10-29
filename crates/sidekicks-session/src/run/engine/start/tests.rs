@@ -1,21 +1,31 @@
+use std::time::Duration;
+
 use futures::FutureExt;
 use rusqlite::params;
 use serde_json::{Value, json};
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::DriverError;
 use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::run_control::DriverRunRefusal;
+use sidekicks_provider::run::posture::compose_execution_posture;
+use sidekicks_provider::run::start_request::DriverStep;
 use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_std::file::bounded_read::hold_reads_of;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::open_log;
 
 use crate::questions::schema::schema_parts;
 use crate::run::engine::test_fixture::test_engine;
 use crate::run::engine::tests::{DRIVER_HOLD, SETTLE_WAIT, held_driver, turn_start};
+use crate::run::engine::{InterruptRoute, RunEngineError};
+use crate::run::refusals::RunRefusal;
 use crate::run::start_request::RunStartRequest;
-use crate::run::state_change::RunStateChange;
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 // Killed by recording a driver's refused start as a provider failure, which drops the refusal's
 // model and sentence, or by reading only the driver's error and missing the refusal it carries.
@@ -150,5 +160,90 @@ async fn a_provider_report_during_a_start_waits_for_its_running_write() {
             "agent.run.running",
             "agent.run.waitingForApproval"
         ]
+    );
+}
+
+// Killed by refusing the start of a run that ended during its gate without letting go what the
+// gate took after that end: the run's resolved posture would stay held for the daemon's life.
+#[tokio::test]
+async fn a_run_that_ended_during_its_gate_lets_go_its_resolved_posture() {
+    let database = TestDatabase::new(schema_parts());
+    let log = open_log(&database, None).await;
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    database
+        .reader()
+        .execute(
+            "INSERT INTO runs (run_id, session_id, state, run_version)
+             VALUES (?1, ?2, 'queued', 0)",
+            params![run_id.text().as_str(), test_session_id().text().as_str()],
+        )
+        .expect("the test queues the run");
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let git_folder = home.path().join("repo.git");
+    std::fs::create_dir(&git_folder).expect("the git folder is made");
+    let engine = test_engine(&database, log.service, home.path());
+    let never_started = |_posture| -> DriverStep {
+        panic!("a run that ended during its gate never reaches its driver")
+    };
+    let mut turn = turn_start(run_id, never_started);
+    turn.execution_posture = compose_execution_posture(
+        PermissionLevel::Sandboxed,
+        FilesystemPath::new(git_folder.to_string_lossy().into_owned()).expect("a valid path"),
+    );
+    let request = RunStartRequest {
+        turn,
+        queue_item: None,
+        provider: test_provider(),
+        output_speed: None,
+        running_statements: None,
+    };
+    // The posture gate's read of the root, held until the run has ended.
+    let held = hold_reads_of(&git_folder);
+
+    let engine_ref = &engine;
+    let end_during_gate = async move {
+        while held.arrived() == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let routed = engine_ref
+            .route_interrupt(run_id)
+            .await
+            .expect("the interrupt is routed");
+        assert!(matches!(routed, InterruptRoute::Claimed), "{routed:?}");
+        engine_ref
+            .transition(
+                RunStateChange {
+                    expected_state: Some(RunState::Starting),
+                    ..RunStateChange::new(
+                        run_id,
+                        RunStateEntry::Interrupted {
+                            intended_close: None,
+                            trigger: None,
+                        },
+                    )
+                },
+                RunStateChangeCompanions::default(),
+            )
+            .await
+            .expect("the run's end is written");
+        drop(held);
+    };
+    let (started, ()) = tokio::time::timeout(SETTLE_WAIT, async {
+        tokio::join!(Box::pin(engine.start_run(request)), end_during_gate)
+    })
+    .await
+    .expect("the start and the end settle");
+
+    let refusal = started.expect_err("a run that ended during its gate is not started");
+    assert!(
+        matches!(
+            refusal,
+            RunEngineError::Refused(RunRefusal::InvalidTransition { .. })
+        ),
+        "{refusal:?}"
+    );
+    assert_eq!(
+        engine.execution_postures.resolved_posture_for(&run_id),
+        None
     );
 }
