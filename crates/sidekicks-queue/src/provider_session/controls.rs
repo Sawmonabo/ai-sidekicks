@@ -84,12 +84,9 @@ impl ProviderSessions {
             return Ok(());
         }
         let posture = self.level_posture(session_id, level).await?;
-        let resolved = resolve_posture(&posture).await.map_err(|cause| {
-            ProviderSessionError::PostureRefused {
-                session_id,
-                cause: Box::new(cause),
-            }
-        })?;
+        let resolved = resolve_posture(&posture)
+            .await
+            .map_err(|cause| ProviderSessionError::PostureRefused { session_id, cause })?;
         let (opened, driver) = match self.process_state(session_id)? {
             Some(OpenedProcess {
                 state: SessionProcessState::Live | SessionProcessState::Restarting,
@@ -267,12 +264,9 @@ impl ProviderSessions {
                 .map_err(|cause| ProviderSessionError::ModeNotStored { session_id, cause });
         };
         let posture = compose_execution_posture(level, opened.git_folder);
-        let resolved = resolve_posture(&posture).await.map_err(|cause| {
-            ProviderSessionError::PostureRefused {
-                session_id,
-                cause: Box::new(cause),
-            }
-        })?;
+        let resolved = resolve_posture(&posture)
+            .await
+            .map_err(|cause| ProviderSessionError::PostureRefused { session_id, cause })?;
         driver
             .update_permission_level(UpdatePermissionLevelParams {
                 session_id,

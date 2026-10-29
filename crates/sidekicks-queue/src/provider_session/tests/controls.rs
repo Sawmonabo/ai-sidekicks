@@ -20,14 +20,17 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::contract::{
     DriverError, ProviderReportedLevel, SessionProcessState,
 };
-use sidekicks_provider::run::posture::{compose_execution_posture, resolve_posture};
+use sidekicks_provider::run::posture::{
+    ExecutionPostureRejection, compose_execution_posture, resolve_posture,
+};
 use sidekicks_session::console_state::read_session_mode;
 use sidekicks_session::permission_level::read_session_permission_level;
 use sidekicks_session::run::session_posture::SessionPostureSource as _;
+use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::test_session_id;
-use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate as _};
+use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate as _, RunSetupGateError};
 use tokio::sync::Notify;
 
 use super::Opening;
@@ -96,6 +99,54 @@ async fn a_level_move_whose_root_is_gone_is_refused_before_the_driver_moves(
         );
         assert_eq!(stored, PermissionLevel::Ask);
     }
+}
+
+// A run gated at a stored Sandboxed level whose folder is gone fails with the posture's own
+// rejection, which the gate counts a posture the session cannot run, worded for the run and naming
+// no move. Killed by the stored read answering the move's refusal, or a fault.
+#[tokio::test]
+async fn a_run_gated_at_a_stored_level_whose_folder_is_gone_reads_it_unavailable() {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, _| {
+        driver.expect_update_permission_level().never();
+    })
+    .await;
+    let repository = tempfile::tempdir().expect("a scratch repository");
+    let git_folder = FilesystemPath::new(repository.path().to_string_lossy().into_owned())
+        .expect("the scratch repository is a path");
+    *lock(&opening.git_folder) = Some(git_folder.clone());
+    store_level(&opening, PermissionLevel::Ask);
+    opening
+        .sessions
+        .change_level(opening.session_id, PermissionLevel::Sandboxed)
+        .await
+        .expect("the level is stored");
+    repository.close().expect("the repository is removed");
+
+    let gated = opening
+        .execution_postures
+        .assert_run_ready(&RunSetupContext {
+            run_id: opening.run_id,
+            session_id: opening.session_id,
+            queue_item: None,
+            workspace_id: None,
+            execution_posture: compose_execution_posture(PermissionLevel::Ask, git_folder),
+        })
+        .await;
+
+    let Err(RunSetupGateError::Failed(cause)) = gated else {
+        panic!("the gate fails, not {gated:?}");
+    };
+    assert!(
+        matches!(
+            cause.downcast_ref::<ExecutionPostureRejection>(),
+            Some(ExecutionPostureRejection::UnavailableFolder(_))
+        ),
+        "{cause:?}"
+    );
+    assert!(
+        describe_error(cause.as_ref()).starts_with("the run's folder is unavailable"),
+        "{cause}"
+    );
 }
 
 // A level move carries a run already past its gate to the moved level's posture. Killed by a move

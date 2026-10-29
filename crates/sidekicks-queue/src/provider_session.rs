@@ -41,8 +41,8 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{CloseSessionParams, CreateSessionParams};
 use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
 use sidekicks_provider::run::posture::{
-    ExecutionPostureService, StoredSessionPosture, compose_execution_posture,
-    compose_folderless_posture,
+    ExecutionPostureRejection, ExecutionPostureService, StoredSessionPosture,
+    compose_execution_posture, compose_folderless_posture,
 };
 use sidekicks_provider::runtime_binding::resume::{ResumeFunctionLegs, RuntimeBindingNotResumable};
 use sidekicks_provider::runtime_binding::store::{
@@ -105,8 +105,8 @@ pub type ProviderSessionOpeningComposer = Arc<
 >;
 
 /// Reads the git folder of a session's repository, which the posture of Sandboxed is built on.
-/// Fails with [`GitFolderReadError::Unavailable`] when the session names no folder or git finds
-/// none there, and with [`GitFolderReadError::Failed`] when the reads fail.
+/// Fails with [`GitFolderReadError::Unavailable`] when the session names no folder or git refuses
+/// the one it names, and with [`GitFolderReadError::Failed`] when the reads fail.
 pub type ProviderSessionGitFolderReader = Arc<
     dyn Fn(SessionId) -> BoxFuture<'static, Result<FilesystemPath, GitFolderReadError>>
         + Send
@@ -116,8 +116,8 @@ pub type ProviderSessionGitFolderReader = Arc<
 /// Why a session's git folder was not read.
 #[derive(Debug, thiserror::Error)]
 pub enum GitFolderReadError {
-    /// The session names no folder to work in yet, or git finds no repository where it names one,
-    /// as once its worktree is deleted.
+    /// The session names no folder to work in yet, or git refuses the one it names: no repository
+    /// there, the folder gone or unreadable, or a repository git will not use.
     #[error("the session's repository folder is unavailable")]
     Unavailable(#[source] Box<dyn Error + Send + Sync>),
     /// The session's records could not be read, or git could not be run.
@@ -254,7 +254,7 @@ pub enum ProviderSessionError {
         session_id: SessionId,
         /// Why the posture was refused.
         #[source]
-        cause: Box<dyn Error + Send + Sync>,
+        cause: ExecutionPostureRejection,
     },
     /// The git folder the posture of the session's level is built on could not be read.
     #[error("the git folder of session {session_id} could not be read")]
@@ -405,7 +405,7 @@ fn unchangeable_session_refusal(session_id: &SessionId, state: SessionState) -> 
 
 // The refusal a level move answers whose posture's folder no longer resolves, keeping the
 // rejection as its cause; its message names no path, since a refusal can reach a remote caller.
-fn posture_refusal(session_id: &SessionId, cause: Box<dyn Error + Send + Sync>) -> DomainError {
+fn posture_refusal(session_id: &SessionId, cause: ExecutionPostureRejection) -> DomainError {
     DomainError::new(
         "The folder this level lets the session write to is unreachable, so the level did not \
          move.",
@@ -759,7 +759,10 @@ impl ProviderSessions {
                     .await
                     .map_err(|failure| match failure {
                         GitFolderReadError::Unavailable(cause) => {
-                            ProviderSessionError::PostureRefused { session_id, cause }
+                            ProviderSessionError::PostureRefused {
+                                session_id,
+                                cause: ExecutionPostureRejection::UnavailableFolder(cause),
+                            }
                         }
                         GitFolderReadError::Failed(cause) => {
                             ProviderSessionError::GitFolder { session_id, cause }
@@ -797,7 +800,8 @@ impl SessionLevelFollower for ProviderSessions {
 
 impl StoredSessionPosture for ProviderSessions {
     /// The stored level's posture, over the opened process's git folder or the session's as read
-    /// now where it names one.
+    /// now where it names one. A folder that is unavailable fails with the posture's own
+    /// rejection, which names no move, so the gate counts it a posture the session cannot run.
     fn stored_posture<'a>(
         &'a self,
         session_id: SessionId,
@@ -811,7 +815,33 @@ impl StoredSessionPosture for ProviderSessions {
             Ok(Some(self.level_posture(session_id, level).await?))
         }
         .map(|read: Result<_, ProviderSessionError>| {
-            read.map_err(|failure| Box::new(failure) as Box<dyn Error + Send + Sync>)
+            read.map_err(|failure| match failure {
+                ProviderSessionError::PostureRefused { cause, .. } => {
+                    Box::new(cause) as Box<dyn Error + Send + Sync>
+                }
+                failure @ (ProviderSessionError::Compose { .. }
+                | ProviderSessionError::AdmittedAccount(_)
+                | ProviderSessionError::NoPosture { .. }
+                | ProviderSessionError::NoContractVersion { .. }
+                | ProviderSessionError::Provider(_)
+                | ProviderSessionError::Driver(_)
+                | ProviderSessionError::ResumeRefused { .. }
+                | ProviderSessionError::NotResumable(_)
+                | ProviderSessionError::Closed { .. }
+                | ProviderSessionError::BeingDeleted { .. }
+                | ProviderSessionError::NotOpen { .. }
+                | ProviderSessionError::NoConversation { .. }
+                | ProviderSessionError::Cursor(_)
+                | ProviderSessionError::UnrecordedNotClosed { .. }
+                | ProviderSessionError::Store(_)
+                | ProviderSessionError::GitFolder { .. }
+                | ProviderSessionError::LevelNotStored { .. }
+                | ProviderSessionError::LevelNotMovedBack { .. }
+                | ProviderSessionError::ModeNotStored { .. }
+                | ProviderSessionError::ModeNotMovedBack { .. }
+                | ProviderSessionError::Read(_)
+                | ProviderSessionError::Pool(_)) => Box::new(failure),
+            })
         })
         .boxed()
     }

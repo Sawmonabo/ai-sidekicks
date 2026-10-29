@@ -132,6 +132,10 @@ pub enum ExecutionPostureRejection {
         #[source]
         cause: io::Error,
     },
+    /// The folder the posture of Sandboxed is built on is unavailable: the session names none to
+    /// work in yet, or git refuses the one it names.
+    #[error("the run's folder is unavailable")]
+    UnavailableFolder(#[source] Box<dyn Error + Send + Sync>),
 }
 
 /// Why the curated credential list could not be resolved.
@@ -192,7 +196,7 @@ enum PostureGateError {
     StoredLevelsUnreadable,
     /// The session's level moved or was stored during each of the gate's rounds; the text is the
     /// failed run's message, which the person reads.
-    #[error("The session's level kept changing while this run started.")]
+    #[error("the session's level kept changing while this run started")]
     Unsettled,
 }
 

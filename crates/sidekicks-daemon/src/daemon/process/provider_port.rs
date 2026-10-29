@@ -14,8 +14,7 @@ use sidekicks_queue::provider_session::{
     ProviderSessionOpeningComposer,
 };
 use sidekicks_session::directory::provider_port::{
-    SessionDirectoryProviderPort, SessionDirectoryProviderPortDeps,
-    SessionDirectoryProviderPortError,
+    SessionDirectoryProviderPort, SessionDirectoryProviderPortDeps, SessionGitFolder,
 };
 use sidekicks_session::directory::run_activity::ProjectSessionActivityReader;
 use sidekicks_session::plan_holds::PlanHolds;
@@ -23,7 +22,7 @@ use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_std::port_registration::PortRegistrationError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
-use sidekicks_workspace::git::process::{GitError, GitRunner, NOT_A_REPOSITORY_EXIT_CODE};
+use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::project::records::ProjectRecords;
 
@@ -118,22 +117,18 @@ fn compose_opening(port: Arc<SessionDirectoryProviderPort>) -> ProviderSessionOp
     })
 }
 
-// A session's git folder as `port` reads it: unavailable where the session names no folder yet or
-// git, exiting fatally, finds no repository in it, as once its worktree is deleted.
+// A session's git folder as `port` reads it, unavailable where the port says the session has none.
 fn read_git_folder(port: Arc<SessionDirectoryProviderPort>) -> ProviderSessionGitFolderReader {
     Arc::new(move |session_id| {
         let port = Arc::clone(&port);
         async move {
-            port.read_git_folder(session_id)
-                .await
-                .map_err(|failure| match failure {
-                    SessionDirectoryProviderPortError::NoRunFolder { .. }
-                    | SessionDirectoryProviderPortError::Git(GitError::Exited {
-                        code: Some(NOT_A_REPOSITORY_EXIT_CODE),
-                        ..
-                    }) => GitFolderReadError::Unavailable(Box::new(failure)),
-                    failure => GitFolderReadError::Failed(Box::new(failure)),
-                })
+            match port.read_git_folder(session_id).await {
+                Ok(SessionGitFolder::Available(git_folder)) => Ok(git_folder),
+                Ok(SessionGitFolder::Unavailable(why)) => {
+                    Err(GitFolderReadError::Unavailable(Box::new(why)))
+                }
+                Err(failure) => Err(GitFolderReadError::Failed(Box::new(failure))),
+            }
         }
         .boxed()
     })
