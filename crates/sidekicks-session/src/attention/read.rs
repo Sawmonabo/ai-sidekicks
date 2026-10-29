@@ -9,6 +9,7 @@
 
 use std::borrow::Borrow;
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use jiff::Timestamp;
 use rusqlite::types::ValueRef;
@@ -35,6 +36,7 @@ use sidekicks_store::database::stored_column::{
 
 use crate::attention::aggregate::{AttentionContributor, derive_session_aggregate};
 use crate::attention::moment::AttentionMoment;
+use crate::attention::retention::seen_entry_sql;
 
 /// The statements the projection read prepares: a session's name, the entries and a workflow
 /// run's name.
@@ -56,21 +58,24 @@ const SESSION_NAME_SQL: &str =
 // Every entry the request narrows to, newest first, with its delivery, its seen fact and its
 // session's name. A NULL `@session_id` or `@run_id` narrows nothing; a run is an agent run or a
 // workflow run.
-const ENTRIES_SQL: &str = "SELECT entry.id, entry.moment_id, entry.session_id, entry.run_id,
+static ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT entry.id, entry.moment_id, entry.session_id, entry.run_id,
     entry.workflow_run_id, entry.node_id, entry.trigger, entry.severity, entry.notice_text,
     entry.source_event_id, entry.created_at, entry.resolved_at, delivery.banner_state,
     delivery.web_address_state, delivery.web_address_attempt_count,
-    COALESCE(seen.seen_through_sequence >= source.sequence, 0),
+    {seen},
     session_row.name, session_row.first_message_preview, session_row.shape
   FROM attention_entries AS entry
   JOIN session_events AS source ON source.id = entry.source_event_id
   JOIN sessions AS session_row ON session_row.id = entry.session_id
   LEFT JOIN attention_deliveries AS delivery ON delivery.entry_id = entry.id
-  LEFT JOIN attention_seen AS seen
-    ON seen.session_id = entry.session_id AND seen.run_id = COALESCE(entry.workflow_run_id, '')
   WHERE (@session_id IS NULL OR entry.session_id = @session_id)
     AND (@run_id IS NULL OR entry.run_id = @run_id OR entry.workflow_run_id = @run_id)
-  ORDER BY entry.created_at DESC, entry.id DESC";
+  ORDER BY entry.created_at DESC, entry.id DESC",
+        seen = seen_entry_sql("entry", "source.sequence"),
+    )
+});
 
 // A workflow run's name, its pinned version's.
 const WORKFLOW_NAME_SQL: &str = "SELECT json_extract(version.definition_body, '$.name')
@@ -291,7 +296,7 @@ fn read_entries(
 ) -> rusqlite::Result<Vec<StoredEntry>> {
     let session_id = session_id.map(|session_id| session_id.text());
     reader
-        .prepare_cached(ENTRIES_SQL)?
+        .prepare_cached(&ENTRIES_SQL)?
         .query_map(
             named_params! {
                 "@session_id": session_id.as_ref().map(|text| text.as_str()),

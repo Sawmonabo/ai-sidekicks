@@ -23,28 +23,38 @@ use crate::attention::projection::{binding, session_binding, statement, version_
 /// web-address message is still to send stays until the send is decided.
 const RETENTION_AGE: SignedDuration = SignedDuration::from_hours(24);
 
-// The sequence of the event that raised the `attention_entries` row a statement reads.
-const ENTRY_SEQUENCE: &str =
+/// The sequence of the event that raised the `attention_entries` row a statement reads, as an SQL
+/// expression.
+pub(crate) const ENTRY_SEQUENCE: &str =
     "(SELECT sequence FROM session_events WHERE id = attention_entries.source_event_id)";
 
+/// Whether the entry `entry` names, raised by the event at `sequence`, is seen: its subject's mark
+/// is at or past that sequence. The subject is the session for an agent run's or a plan's entry
+/// and the workflow run for a workflow's. Both are SQL expressions of the statement the condition
+/// sits in.
+pub(crate) fn seen_entry_sql(entry: &str, sequence: &str) -> String {
+    format!(
+        "EXISTS (SELECT 1 FROM attention_seen AS mark
+   WHERE mark.session_id = {entry}.session_id
+     AND mark.run_id = COALESCE({entry}.workflow_run_id, '')
+     AND mark.seen_through_sequence >= {sequence})"
+    )
+}
+
 // The session's entries past its cut that nothing reads: resolved, or informational and seen by
-// their subject, the session for an agent run's or a plan's entry and the workflow run for a
-// workflow's, with no web-address message still to send.
+// their subject, with no web-address message still to send.
 static RETIRED_ENTRIES: LazyLock<String> = LazyLock::new(|| {
     format!(
         "attention_entries.session_id = @session_id
   AND {ENTRY_SEQUENCE} <= (SELECT retained_through_sequence FROM attention_versions
                             WHERE scope_key = @session_id)
   AND (attention_entries.resolved_at IS NOT NULL
-       OR (attention_entries.severity = '{informational}'
-           AND EXISTS (SELECT 1 FROM attention_seen
-                        WHERE attention_seen.session_id = attention_entries.session_id
-                          AND attention_seen.run_id = COALESCE(attention_entries.workflow_run_id, '')
-                          AND attention_seen.seen_through_sequence >= {ENTRY_SEQUENCE})))
+       OR (attention_entries.severity = '{informational}' AND {seen}))
   AND NOT EXISTS (SELECT 1 FROM attention_deliveries AS send
                    WHERE send.entry_id = attention_entries.id
                      AND send.web_address_state = '{pending}')",
         informational = <&'static str>::from(AttentionSeverity::Informational),
+        seen = seen_entry_sql("attention_entries", ENTRY_SEQUENCE),
         pending = <&'static str>::from(AttentionWebAddressState::Pending),
     )
 });

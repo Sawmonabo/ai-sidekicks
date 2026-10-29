@@ -16,7 +16,7 @@ use sidekicks_store::database::writer::DatabaseWriter;
 
 use crate::attention::moment::AttentionSubject;
 use crate::attention::projection::{binding, session_binding, statement, version_bump_sql};
-use crate::attention::retention::retention_statements;
+use crate::attention::retention::{retention_statements, seen_entry_sql};
 use crate::directory::lookups::{SessionWriteError, session_exists_statement};
 
 // Reads a row only while the workflow run is one of the session's.
@@ -34,15 +34,14 @@ const MARK_SEEN_SQL: &str = "INSERT INTO attention_seen (session_id, run_id, see
 // The counts move when an entry of the subject was raised past its mark, which the move makes
 // seen; read before the mark moves.
 static BUMP_IF_UNSEEN_ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
-    version_bump_sql(
+    version_bump_sql(&format!(
         "EXISTS (SELECT 1 FROM attention_entries AS entry
     JOIN session_events AS source ON source.id = entry.source_event_id
    WHERE entry.session_id = @session_id
      AND COALESCE(entry.workflow_run_id, '') = @seen_run_id
-     AND source.sequence > COALESCE(
-       (SELECT seen_through_sequence FROM attention_seen
-         WHERE session_id = @session_id AND run_id = @seen_run_id), -1))",
-    )
+     AND NOT {seen})",
+        seen = seen_entry_sql("entry", "source.sequence"),
+    ))
 });
 
 impl From<&AttentionSeenSubject> for AttentionSubject {
