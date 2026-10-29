@@ -1,8 +1,6 @@
 //! A session's level and mode moves reached through the driver: the person's own and one that
 //! follows a mode Claude Code reported running.
 
-use std::io;
-use std::path::Path;
 use std::sync::Arc;
 
 use rstest::rstest;
@@ -12,10 +10,11 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_std::mutex_lock::lock;
 
-use crate::driver::CommandSandboxAvailability;
 use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
-use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
+use crate::driver::claude::session::scripted::driver::{
+    ScriptedDriver, sandbox_cannot_run, sandbox_runs,
+};
 use crate::driver::contract::DriverError;
 use crate::driver::session_control::{UpdatePermissionLevelParams, UpdateSessionModeParams};
 use crate::run::posture::compose_execution_posture;
@@ -57,7 +56,7 @@ async fn a_reported_sandboxed_level_fails_closed_and_tells_only_where_the_sandbo
     #[case] sandbox_check: ClaudeCommandSandboxCheck,
     #[case] notices: usize,
 ) {
-    let fixture = ScriptedDriver::with_account_folders(None, sandbox_check);
+    let fixture = ScriptedDriver::with_account_folders_and_sandbox_check(None, sandbox_check);
     let channel = Arc::new(ScriptedChannel::default());
     let session_id = fixture.create(&channel).await;
     let parts = fixture.driver.composed_parts().expect("composed");
@@ -109,18 +108,6 @@ async fn a_reported_sandboxed_level_fails_closed_and_tells_only_where_the_sandbo
     live.permission_mode
         .note_report("dontAsk", "system", &live.admitted_provider_account_id);
     assert_eq!(live.permission_mode.reported_level(), None);
-}
-
-// A command sandbox check that answers the sandbox runs.
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "the check's signature is the driver's, whose production check can fail"
-)]
-fn sandbox_runs(
-    _environment: &[(String, String)],
-    _working_folder: &Path,
-) -> io::Result<CommandSandboxAvailability> {
-    Ok(CommandSandboxAvailability::Runs)
 }
 
 // A mode Claude Code reported running, Plan and then Build again, moves the session's mode with

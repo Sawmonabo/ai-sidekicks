@@ -134,7 +134,7 @@ pub enum ExecutionPostureRejection {
     },
     /// The folder the posture of Sandboxed is built on is unavailable: the session names none to
     /// work in yet, or git refuses the one it names.
-    #[error("the run's folder is unavailable")]
+    #[error("the session's folder is unavailable")]
     UnavailableFolder(#[source] Box<dyn Error + Send + Sync>),
 }
 

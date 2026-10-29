@@ -144,7 +144,7 @@ async fn a_run_gated_at_a_stored_level_whose_folder_is_gone_reads_it_unavailable
         "{cause:?}"
     );
     assert!(
-        describe_error(cause.as_ref()).starts_with("the run's folder is unavailable"),
+        describe_error(cause.as_ref()).starts_with("the session's folder is unavailable"),
         "{cause}"
     );
 }

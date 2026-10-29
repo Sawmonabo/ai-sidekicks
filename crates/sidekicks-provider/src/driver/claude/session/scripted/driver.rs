@@ -275,16 +275,28 @@ pub(crate) fn sandbox_cannot_run(
     ))
 }
 
+/// A command sandbox check that answers the sandbox runs, on every system.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the check's signature is the driver's, whose production check can fail"
+)]
+pub(crate) fn sandbox_runs(
+    _environment: &[(String, String)],
+    _working_folder: &Path,
+) -> io::Result<CommandSandboxAvailability> {
+    Ok(CommandSandboxAvailability::Runs)
+}
+
 impl ScriptedDriver {
     /// The driver whose accounts run on Claude Code's default folder in the fixture's home, and
     /// whose command sandbox cannot start.
     pub(crate) fn new() -> Self {
-        Self::with_account_folders(None, sandbox_cannot_run)
+        Self::with_account_folders_and_sandbox_check(None, sandbox_cannot_run)
     }
 
     /// The driver whose accounts run on `account_folders`, else on Claude Code's default folder in
     /// the fixture's home, and whose command sandbox answers as `sandbox_check` does.
-    pub(crate) fn with_account_folders(
+    pub(crate) fn with_account_folders_and_sandbox_check(
         account_folders: Option<ProviderAccountFolders>,
         sandbox_check: ClaudeCommandSandboxCheck,
     ) -> Self {

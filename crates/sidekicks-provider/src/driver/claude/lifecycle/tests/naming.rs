@@ -21,7 +21,7 @@ const STORED_CONVERSATION: &str = "0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d";
 async fn a_rename_at_rest_after_a_restart_names_the_conversation_its_stored_leg_ran() {
     let account_folder = tempfile::tempdir().expect("the test makes an account folder");
     let config_folder = account_folder.path().join("config");
-    let fixture = ScriptedDriver::with_account_folders(
+    let fixture = ScriptedDriver::with_account_folders_and_sandbox_check(
         Some(ProviderAccountFolders {
             configuration_folder: config_folder.clone(),
             credential_store_folder: account_folder.path().join("credentials"),

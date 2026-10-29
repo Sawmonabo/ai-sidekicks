@@ -72,7 +72,7 @@ fn advisor_value(rows: &[ProviderRow]) -> Option<String> {
 async fn a_new_session_starts_at_reviewed_only_on_a_model_that_runs_auto_mode() {
     let account_folder = tempfile::tempdir().expect("the test makes an account folder");
     let config_folder = account_folder.path().join("config");
-    let fixture = ScriptedDriver::with_account_folders(
+    let fixture = ScriptedDriver::with_account_folders_and_sandbox_check(
         Some(ProviderAccountFolders {
             configuration_folder: config_folder.clone(),
             credential_store_folder: account_folder.path().join("credentials"),
@@ -129,7 +129,7 @@ async fn the_level_list_offers_reviewed_only_on_a_model_the_account_runs_auto_mo
     #[case] is_reviewed_offered: bool,
 ) {
     let account_folder = tempfile::tempdir().expect("the test makes an account folder");
-    let fixture = ScriptedDriver::with_account_folders(
+    let fixture = ScriptedDriver::with_account_folders_and_sandbox_check(
         Some(ProviderAccountFolders {
             configuration_folder: account_folder.path().join("config"),
             credential_store_folder: account_folder.path().join("credentials"),
