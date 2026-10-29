@@ -148,7 +148,7 @@ pub enum DriverDiagnosticKind {
     /// A session's inbox could not be bound, or a frame it received could not be passed on; its
     /// sender gets no answer.
     SessionInboxFailed,
-    /// Claude Code reported a permission mode the driver does not know, which is not taken as a
+    /// The provider reported a permission mode the driver does not know, which is not taken as a
     /// mode.
     PermissionModeUnknown,
 }

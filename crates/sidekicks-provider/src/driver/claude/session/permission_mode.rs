@@ -123,7 +123,8 @@ impl ClaudePermissionModeRecord {
         })
     }
 
-    // Settles one send of `mode`, which becomes the mode the process runs when acknowledged.
+    // Settles one send of `mode`, which becomes the mode the process runs when acknowledged. A
+    // failed send wakes the follow on the report it held, which no longer reads as the daemon's.
     fn settle(&self, mode: ClaudePermissionMode, is_acknowledged: bool) {
         let mut sends = lock(&self.sends);
         if is_acknowledged {
@@ -134,6 +135,11 @@ impl ClaudePermissionModeRecord {
             if *count == 0 {
                 sends.in_flight.remove(&mode);
             }
+        }
+        drop(sends);
+        if !is_acknowledged {
+            self.newest_report
+                .send_if_modified(|report| report.is_some());
         }
     }
 }
@@ -222,8 +228,8 @@ mod tests {
 
     // Killed by dropping the in-flight check (the report of a send not yet acknowledged reads as
     // Claude Code's own), by a failed send that never settles (its mode stays the daemon's), by
-    // reading the first report rather than the newest, by mapping `plan` to a level, and by
-    // taking an unknown word as a mode or not logging it.
+    // reading the first report rather than the newest, by mapping `plan` to a level, by reading
+    // `manual` as no mode, and by taking an unknown word as a mode or not logging it.
     #[rstest]
     #[case::report_of_a_mode_in_flight(
         &[Step::Send(ClaudePermissionMode::Auto), Step::Report("auto")],
@@ -253,6 +259,11 @@ mod tests {
     #[case::plan_is_never_a_level(
         &[Step::Report("plan")],
         Some((None, SessionMode::Plan)),
+        0,
+    )]
+    #[case::manual_is_read_only(
+        &[Step::Send(ClaudePermissionMode::Auto), Step::AcknowledgeAll, Step::Report("manual")],
+        Some((Some(PermissionLevel::Readonly), SessionMode::Build)),
         0,
     )]
     #[case::an_unknown_word(&[Step::Report("delegate")], None, 1)]
@@ -297,5 +308,35 @@ mod tests {
         if unknown_mode_diagnostics > 0 {
             assert_eq!(record.newest_report(), None);
         }
+    }
+
+    // A send that fails while Claude Code's report of its mode is held wakes the follow, since the
+    // report now reads as Claude Code's own; an acknowledged send wakes nothing. Killed by not
+    // waking the follow on a failed send.
+    #[rstest]
+    #[case::failed(false, true)]
+    #[case::acknowledged(true, false)]
+    fn a_failed_send_wakes_the_follow_on_the_report_it_held(
+        #[case] is_acknowledged: bool,
+        #[case] is_woken: bool,
+    ) {
+        let record = ClaudePermissionModeRecord::new(ClaudePermissionMode::Default);
+        let mut reports = record.report_changes();
+        let send = record.begin_send(ClaudePermissionMode::Auto);
+        record.note_report("auto", "system/status", &test_provider_account_id());
+        reports.borrow_and_update();
+        assert_eq!(record.reported_level(), None);
+
+        if is_acknowledged {
+            send.acknowledge();
+        } else {
+            drop(send);
+        }
+
+        assert_eq!(
+            reports.has_changed().expect("the record still stands"),
+            is_woken
+        );
+        assert_eq!(record.reported_level().is_some(), is_woken);
     }
 }

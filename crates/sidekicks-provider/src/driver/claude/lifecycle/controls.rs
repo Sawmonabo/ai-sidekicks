@@ -359,9 +359,11 @@ impl ClaudeDriver {
 
     /// The levels Claude Code runs for a session's level control, as modes: with a model named,
     /// the levels that model runs on the named account, or the current account where none is
-    /// named, and this system; with none, the levels this system runs. A catalog that cannot be
-    /// read offers no Reviewed and is recorded; fails as the current account or the account's
-    /// environment cannot be read.
+    /// named, and this system, in the session's own place where a session is named; with none,
+    /// the levels this system runs. A live session's process already read its catalog, so only a
+    /// session with no process starts a control-only read. A catalog that cannot be read offers no
+    /// Reviewed and is recorded; fails as the current account, the session's place or the
+    /// account's environment cannot be read.
     pub(crate) async fn list_modes(
         &self,
         params: ListModesParams,
@@ -386,20 +388,57 @@ impl ClaudeDriver {
                 is_offered_on_system(level, can_run_sandbox)
             }));
         };
-        let provider_account_id = match params.provider_account_id {
-            Some(provider_account_id) => provider_account_id,
-            None => {
-                read_current_account(
-                    &self.sources.ports.provider_accounts,
-                    DESCRIPTOR.provider_id(),
+        let live = params.session_id.and_then(|session_id| {
+            self.composed_parts()
+                .and_then(|parts| parts.slots().live_session(session_id))
+        });
+        let offered = if let Some(live) = live {
+            let legs = &live.spawn_bound_legs;
+            ClaudeOfferedLevels {
+                auto_mode_models: live.initialize.auto_mode_models.clone(),
+                can_run_sandbox: read_claude_sandbox_support(
+                    &self.sources.spawner,
+                    &legs.spawn_environment,
+                    &legs.working_directory,
+                    Some(live.session_id),
                 )
-                .await?
+                .await,
+            }
+        } else {
+            let provider_account_id = match params.provider_account_id {
+                Some(provider_account_id) => provider_account_id,
+                None => {
+                    read_current_account(
+                        &self.sources.ports.provider_accounts,
+                        DESCRIPTOR.provider_id(),
+                    )
+                    .await?
+                }
+            };
+            if let Some(session_id) = params.session_id {
+                let context = self
+                    .sources
+                    .ports
+                    .spawn_contexts
+                    .require_port()
+                    .map_err(internal)?
+                    .resolve_spawn_context(session_id, provider_account_id.clone())
+                    .await
+                    .map_err(DriverError::Internal)?;
+                let environment = self.account_process_environment(
+                    &context.account_folders,
+                    &provider_account_id,
+                    &[],
+                    &[],
+                )?;
+                self.read_offered_levels(&environment, &context.working_directory)
+                    .await
+            } else {
+                let environment = self.account_environment(&provider_account_id).await?;
+                self.read_offered_levels(&environment, &self.sources.home_folder)
+                    .await
             }
         };
-        let environment = self.account_environment(&provider_account_id).await?;
-        let offered = self
-            .read_offered_levels(&environment, &self.sources.home_folder)
-            .await;
         Ok(list_claude_modes(|level| {
             offered.offers(level, model.as_str())
         }))

@@ -1,6 +1,9 @@
 //! What Settings and a new session read before any session runs: the starting level, and the
 //! Settings rows the installed build offers.
 
+use std::collections::HashSet;
+use std::sync::Arc;
+
 use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
@@ -10,16 +13,18 @@ use sidekicks_contracts::provider::declaration::{
 };
 use sidekicks_contracts::provider::driver::capabilities::ProviderMode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::Record;
 
 use crate::driver::ProviderAccountFolders;
+use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
+use crate::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
 use crate::driver::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeLocalCommandReply, ClaudeReplyReserveReads,
 };
 use crate::driver::contract::ListModesParams;
 use crate::driver::session_control::StartingLevelParams;
+use crate::driver::test_registry::fixed_session_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 // A figures read whose build offers the advisors `opus` and `sonnet`.
@@ -139,9 +144,7 @@ async fn the_level_list_offers_reviewed_only_on_a_model_the_account_runs_auto_mo
     let listed = fixture
         .driver
         .list_modes(ListModesParams {
-            session_id: Some(
-                SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("the text is a UUID"),
-            ),
+            session_id: Some(fixed_session_id()),
             provider_account_id: Some(test_provider_account_id()),
             model: Some(ProviderToken::new(model.to_owned()).expect("the model fits")),
         })
@@ -167,6 +170,45 @@ async fn the_level_list_offers_reviewed_only_on_a_model_the_account_runs_auto_mo
         is_reviewed_offered
     );
     assert_eq!(mode_ids(listed), expected);
+}
+
+// A live session's level list reads the auto-mode models its process declared at start, with no
+// control-only read of the catalog. Killed by reading the catalog for a live session.
+#[tokio::test(start_paused = true)]
+async fn a_live_sessions_level_list_reads_its_process_and_starts_no_other() {
+    let fixture = ScriptedDriver::new();
+    fixture
+        .starts
+        .script_initialize(ClaudeInitializeDeclaration {
+            auto_mode_models: HashSet::from(["opus".to_owned()]),
+            ..ClaudeInitializeDeclaration::default()
+        });
+    // A catalog read would offer no Reviewed on the model.
+    fixture.starts.script_catalog(json!({"models": [
+        {"value": "opus", "displayName": "Opus", "supportsAutoMode": false},
+    ]}));
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    fixture.starts.take_catalog_environments();
+
+    let listed = fixture
+        .driver
+        .list_modes(ListModesParams {
+            session_id: Some(session_id),
+            provider_account_id: Some(test_provider_account_id()),
+            model: Some(ProviderToken::new("opus".to_owned()).expect("the model fits")),
+        })
+        .await
+        .expect("the levels read");
+
+    assert!(
+        listed
+            .iter()
+            .any(|mode| mode.id.as_str() == <&str>::from(PermissionLevel::Reviewed))
+    );
+    assert_eq!(
+        fixture.starts.take_catalog_environments(),
+        Vec::<Vec<(String, String)>>::new()
+    );
 }
 
 // Killed by removing the capability read's configuration folder only after a read that succeeded.

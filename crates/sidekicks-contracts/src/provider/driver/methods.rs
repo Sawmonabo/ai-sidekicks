@@ -183,8 +183,8 @@ pub enum ProviderModeReport {
     Failed(ProviderModesFailed),
 }
 
-/// The reply of `provider.mode.list`: one outcome per installed provider, in the provider table's
-/// order.
+/// The reply of `provider.mode.list`: one outcome per installed provider, the session's own
+/// provider first, then the provider table's order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]

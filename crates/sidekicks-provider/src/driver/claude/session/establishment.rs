@@ -35,7 +35,7 @@ use sidekicks_platforms::{PathRules, Spawner};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
-use tokio::sync::SetOnce;
+use tokio::sync::{SetOnce, watch};
 
 use self::context::{ClaudeSpawnContextError, record_claude_resolved_advisor};
 use self::figures::ClaudeHeldFigures;
@@ -582,6 +582,8 @@ impl ClaudeSessionEstablishment {
         let permission_mode = Arc::new(ClaudePermissionModeRecord::new(
             claude_spawn_permission_mode(requested_mode, legs.execution_posture.as_ref()),
         ));
+        // Subscribed before any frame is read, so a report at start-up is followed once adopted.
+        let level_reports = permission_mode.report_changes();
         let (arrivals, receiver) = claude_session_arrivals(session_id);
         let stream = Arc::new(ClaudeSessionStream::new(
             provider_account_id.clone(),
@@ -733,18 +735,21 @@ impl ClaudeSessionEstablishment {
             self.end_unadopted_live(&started, &live).await;
             return Err(ClaudeEstablishmentError::Closed);
         }
-        self.adopt(&live, stream, band, receiver, &started);
+        self.adopt(&live, stream, band, receiver, level_reports, &started);
         Ok(started.spawned_version)
     }
 
     // The adopted process's stream, task and notices; the helper limit counts the helpers its
-    // routing `band` holds, and an interrupt reads there the helpers the session waits on.
+    // routing `band` holds, and an interrupt reads there the helpers the session waits on. The
+    // follow of Claude Code's own mode moves reads `level_reports`, subscribed at the record's
+    // making.
     fn adopt(
         &self,
         live: &Arc<LiveClaudeSession>,
         stream: Arc<ClaudeSessionStream>,
         band: Arc<Mutex<ClaudeSessionRoutingBand>>,
         receiver: crate::driver::claude::session::arrivals::ClaudeArrivalReceiver,
+        level_reports: watch::Receiver<Option<ClaudePermissionMode>>,
         started: &ClaudeStartedSession,
     ) {
         let session_id = live.session_id;
@@ -784,9 +789,11 @@ impl ClaudeSessionEstablishment {
         tokio::spawn(async move {
             drain_claude_session_arrivals(receiver, &mut task, account).await;
         });
+        // No task tracker: the follow ends once the process's record drops at its close, as the
+        // arrivals drain ends with its queue.
         tokio::spawn(follow_claude_reported_levels(
             Arc::downgrade(&live.permission_mode),
-            live.permission_mode.report_changes(),
+            level_reports,
             session_id,
             Arc::clone(&self.sources.ports.session_level_followers),
         ));
