@@ -1,8 +1,9 @@
 //! The attention entries as a rebuild writes them from the session's log: each event through the
-//! live write's own statements at the event's own instant, then the retention rule under the cut
-//! the session keeps, so the entries a rebuild writes are the entries the live writes kept. A
-//! Notify step's entry, which its step's own write keeps and no event raises, stays through the
-//! clear, and what became of each entry's banner and web-address message is never cleared.
+//! live write's own statements at the event's own instant, so each resolving set ends with the
+//! fold's retention, the rule under the cut the session keeps, and the entries a rebuild writes
+//! are the entries the live writes kept. A Notify step's entry, which its step's own write keeps
+//! and no event raises, stays through the clear, and what became of each entry's banner and
+//! web-address message is never cleared.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -20,7 +21,6 @@ use sidekicks_store::events::projection::{
 
 use crate::attention::moment::{ATTENTION_EVENT_TYPES, entry_change_of};
 use crate::attention::projection::{EventSource, change_statements};
-use crate::attention::retention::retention_statements;
 
 static CLEAR_ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -51,10 +51,6 @@ impl SessionProjection for AttentionEntriesProjection {
             )]),
             expected_row_count: None,
         }]
-    }
-
-    fn closing_statements(&self, session_id: &SessionId) -> Vec<WriteStatement> {
-        retention_statements(*session_id)
     }
 
     fn fold(&self, _session_id: &SessionId) -> Box<dyn SessionProjectionFold> {

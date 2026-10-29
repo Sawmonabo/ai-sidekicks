@@ -127,45 +127,91 @@ async fn a_rebuild_writes_the_entries_the_live_writes_kept_and_keeps_their_deliv
 }
 
 // A resolved wait past the cut goes, with its delivery, in the write that moves the cut, and a
-// rebuild under that cut writes it no more; an open wait past the cut stays through both. Killed
-// by a rule that drops a resolved entry, or keeps an open one, and by a rebuild that writes back
-// what the cut retired.
+// rebuild under that cut writes it no more; an open wait past the cut stays through both, and so
+// does a resolved wait whose web-address message is still to send, below the one that goes. The cut
+// stands at the aged event and never moves down, a send decided after it moved included. Killed by
+// a rule that drops a resolved entry, keeps an open one or retires one with a send pending, by a
+// cut held below the first pending send, and by a rebuild that writes back what the cut retired.
 #[tokio::test]
 async fn an_entry_past_the_cut_goes_live_and_stays_gone_after_a_rebuild() {
     let log = AttentionTestLog::new().await;
+    let pending_run = log.run(None);
     let resolved_run = log.run(None);
     let open_run = log.run(None);
     append_at(
         &log,
-        log.run_state(resolved_run, "waitingForApproval", 2, json!({})),
+        log.run_state(pending_run, "waitingForApproval", 2, json!({})),
         "2020-01-01T09:00:00.000Z",
+    )
+    .await;
+    let pending = log.entry_of(pending_run);
+    append_at(
+        &log,
+        log.run_state(resolved_run, "waitingForApproval", 2, json!({})),
+        "2020-01-01T09:01:00.000Z",
     )
     .await;
     let resolved = log.entry_of(resolved_run);
     append_at(
         &log,
         log.run_state(open_run, "waitingForInput", 2, json!({})),
-        "2020-01-01T09:01:00.000Z",
-    )
-    .await;
-    append_at(
-        &log,
-        log.run_state(resolved_run, "running", 3, json!({})),
         "2020-01-01T09:02:00.000Z",
     )
     .await;
+    let open = log.entry_of(open_run);
+    for (run_id, occurred_at) in [
+        (pending_run, "2020-01-01T09:03:00.000Z"),
+        (resolved_run, "2020-01-01T09:04:00.000Z"),
+    ] {
+        append_at(
+            &log,
+            log.run_state(run_id, "running", 3, json!({})),
+            occurred_at,
+        )
+        .await;
+    }
     log.decide(&resolved, Some("withdrawn"), None);
-    assert_eq!(log.entries_of(resolved_run), (vec![resolved.clone()], 0));
-
-    log.writer
-        .write(advance_retention_statements(
-            log.session_id,
-            Timestamp::now(),
-        ))
-        .await
-        .expect("the cut moves");
-
     let reader = log.database.reader();
+    let send_pending = |entry_id: &str| {
+        reader
+            .execute(
+                "INSERT INTO attention_deliveries
+                   (entry_id, banner_state, web_address_state, web_address_attempt_count)
+                 VALUES (?1, 'withdrawn', 'pending', 0)
+                 ON CONFLICT (entry_id) DO UPDATE SET
+                   web_address_state = 'pending', web_address_attempt_count = 0",
+                [entry_id],
+            )
+            .expect("the test leaves the entry's send pending");
+    };
+    send_pending(&pending);
+    assert_eq!(log.entries_of(pending_run), (vec![pending.clone()], 0));
+    assert_eq!(log.entries_of(resolved_run), (vec![resolved.clone()], 0));
+    let newest_sequence: i64 = reader
+        .query_row(
+            "SELECT MAX(sequence) FROM session_events WHERE session_id = ?1",
+            [log.session_id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("the newest sequence reads");
+    let advance = || async {
+        log.writer
+            .write(advance_retention_statements(
+                log.session_id,
+                Timestamp::now(),
+            ))
+            .await
+            .expect("the cut moves");
+    };
+    let cut = || -> Option<i64> {
+        reader
+            .query_row(
+                "SELECT retained_through_sequence FROM attention_versions WHERE scope_key = ?1",
+                [log.session_id.to_string()],
+                |row| row.get(0),
+            )
+            .expect("the cut reads")
+    };
     let delivery_count = |entry_id: &str| -> i64 {
         reader
             .query_row(
@@ -175,12 +221,22 @@ async fn an_entry_past_the_cut_goes_live_and_stays_gone_after_a_rebuild() {
             )
             .expect("the delivery count reads")
     };
-    assert_eq!(log.entries_of(resolved_run).0, Vec::<String>::new());
-    assert_eq!(delivery_count(&resolved), 0);
-    assert_eq!(log.entries_of(open_run).1, 1);
+    let assert_kept = || {
+        assert_eq!(log.entries_of(resolved_run).0, Vec::<String>::new());
+        assert_eq!(delivery_count(&resolved), 0);
+        assert_eq!(log.entries_of(pending_run), (vec![pending.clone()], 0));
+        assert_eq!(delivery_count(&pending), 1);
+        assert_eq!(log.entries_of(open_run), (vec![open.clone()], 1));
+        assert_eq!(cut(), Some(newest_sequence));
+    };
+
+    advance().await;
+    assert_kept();
+
+    send_pending(&open);
+    advance().await;
+    assert_kept();
 
     rebuild(&log).await;
-
-    assert_eq!(log.entries_of(resolved_run).0, Vec::<String>::new());
-    assert_eq!(log.entries_of(open_run).1, 1);
+    assert_kept();
 }
