@@ -101,13 +101,4 @@ impl PendingCompactionRegistry {
             },
         );
     }
-
-    /// How many waits are armed for `key`.
-    #[expect(
-        dead_code,
-        reason = "a reader of how many compaction waits a binding still holds"
-    )]
-    pub(crate) fn pending_count_for(&self, key: &str) -> usize {
-        self.waits.pending_count_for(key)
-    }
 }
