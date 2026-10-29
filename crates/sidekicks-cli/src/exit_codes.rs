@@ -8,6 +8,7 @@ use sidekicks_client::error::ClientError;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
 
+use crate::commands::open::AddressHandlerMissingError;
 use crate::confirmation::ConfirmationUnavailableError;
 
 /// A process exit code the command line returns.
@@ -85,7 +86,8 @@ pub(crate) struct UnmappedExitCodeError {
 }
 
 /// How a failed run ends, from the first cause in its chain that names an ending: an argument
-/// refusal or a confirmation no one can answer, a daemon that is not answering, a closed output pipe, the daemon's error by its number
+/// refusal or a confirmation no one can answer, a daemon or an app for an address that is not
+/// there, a closed output pipe, the daemon's error by its number
 /// (a domain refusal by its category), a call canceled after a Ctrl-C; any other failure is a
 /// software error. Fails with [`UnmappedExitCodeError`] for a daemon number with no exit code.
 pub(crate) fn exit_code_for_failure(
@@ -94,6 +96,9 @@ pub(crate) fn exit_code_for_failure(
     for cause in failure.chain() {
         if cause.is::<clap::Error>() || cause.is::<ConfirmationUnavailableError>() {
             return Ok(ProcessEnding::Exit(ExitCode::Usage));
+        }
+        if cause.is::<AddressHandlerMissingError>() {
+            return Ok(ProcessEnding::Exit(ExitCode::Unavailable));
         }
         if let Some(client_error) = cause.downcast_ref::<ClientError>() {
             return exit_code_for_client_error(client_error);
@@ -181,6 +186,7 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
 
     use super::{ExitCode, ProcessEnding, exit_code_for_failure};
+    use crate::commands::open::AddressHandlerMissingError;
     use crate::confirmation::ConfirmationUnavailableError;
     use crate::program::Cli;
 
@@ -333,6 +339,10 @@ mod tests {
     #[case::no_terminal_to_confirm(
         ConfirmationUnavailableError.into(),
         ProcessEnding::Exit(ExitCode::Usage)
+    )]
+    #[case::no_app_for_the_address(
+        AddressHandlerMissingError.into(),
+        ProcessEnding::Exit(ExitCode::Unavailable)
     )]
     #[case::not_answering(
         ClientError::Unavailable {

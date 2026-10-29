@@ -23,6 +23,8 @@ use sidekicks_platforms::{LocaleCategory, end_as_ctrl_c, system_locale};
 use crate::command_context::CommandContext;
 use crate::commands::crash::{CrashCommand, run_crash_command};
 use crate::commands::daemon::{DaemonCommand, run_daemon_command};
+use crate::commands::data::{DataCommand, run_data_command};
+use crate::commands::open::{OpenArgs, open};
 use crate::exit_codes::{ExitCode, ProcessEnding, exit_code_for_failure};
 
 /// The program's arguments; each command joins [`Command`].
@@ -48,6 +50,11 @@ enum Command {
     /// Read and drive the background service.
     #[command(subcommand)]
     Daemon(DaemonCommand),
+    /// Act on everything the background service keeps.
+    #[command(subcommand)]
+    Data(DataCommand),
+    /// Open a sidekicks:// address in the app.
+    Open(OpenArgs),
 }
 
 /// Runs the program over `args` (the program's name first) and answers how the process ends. Help
@@ -83,6 +90,8 @@ fn run_command<Output: Write, ErrorOutput: Write>(
     match command {
         Command::Crash(command) => run_crash_command(&command, context),
         Command::Daemon(command) => run_daemon_command(&command, context),
+        Command::Data(command) => run_data_command(&command, context),
+        Command::Open(args) => open(&args),
     }
 }
 
@@ -120,6 +129,7 @@ fn report_parse_refusal<Output: Write, ErrorOutput: Write>(
 }
 
 /// The one error boundary: writes `error: <message>` to stderr and answers how the run ends. A
+/// command's argument refused as clap refuses one is written as clap writes it, with its usage. A
 /// daemon number with no exit code adds its own line and exits 70; a closed output pipe exits 141
 /// with nothing written, since no one is left to read it; a call canceled after a Ctrl-C takes the
 /// Ctrl-C ending with nothing written, as the terminal already shows the Ctrl-C.
@@ -127,6 +137,12 @@ pub(crate) fn report_failure<Output: Write, ErrorOutput: Write>(
     failure: &anyhow::Error,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> ProcessEnding {
+    if let Some(refusal) = failure
+        .chain()
+        .find_map(|cause| cause.downcast_ref::<clap::Error>())
+    {
+        return report_parse_refusal(refusal, context);
+    }
     let (code, lines) = match exit_code_for_failure(failure) {
         Ok(ProcessEnding::CtrlC) => return ProcessEnding::CtrlC,
         Ok(ProcessEnding::Exit(ExitCode::BrokenPipe)) => {
