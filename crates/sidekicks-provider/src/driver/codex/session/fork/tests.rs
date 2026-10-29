@@ -6,7 +6,9 @@ use crate::driver::codex::session::fork::establish_codex_fork;
 use crate::driver::codex::session::test_fixture::relaunches::{
     RefusedRelaunchStep, TakenRelaunches,
 };
-use crate::driver::codex::session::test_fixture::status_sink::CountingStatusSink;
+use crate::driver::codex::session::test_fixture::status_sink::{
+    CountingStatusSink, mcp_server_startup,
+};
 use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, TestCodexSession, fork_reply, no_turns,
 };
@@ -67,9 +69,11 @@ async fn a_fork_rebinds_before_it_lets_go_of_the_conversation_left() {
     assert!(!session.task.record.is_config_fork_owed);
 }
 
-// A fork onto another binding ends the leg of the binding it leaves once and reports on the new
-// binding's own legs, opened for that binding. Killed by keeping the predecessor's producer, by
-// leaving its leg open, and by opening the legs of the binding left.
+// A fork onto another binding ends the leg the record held once, reports on legs of its own,
+// opened under a binding minted for them so they share no pair with a leg still open, and
+// forgets the startups the left conversation reported. Killed by keeping the predecessor's
+// producer, by leaving its leg open, by opening the legs under the binding moved to or the one
+// left, and by keeping the left conversation's startups.
 #[tokio::test(start_paused = true)]
 async fn a_fork_onto_another_binding_ends_the_left_leg_and_takes_its_own() {
     let mut session = TestCodexSession::start().await;
@@ -77,9 +81,13 @@ async fn a_fork_onto_another_binding_ends_the_left_leg_and_takes_its_own() {
     let new_binding = session.record_binding().await;
     let left_sink = Arc::new(CountingStatusSink::default());
     let new_sink = Arc::new(CountingStatusSink::default());
-    session.task.record.binding_id = Some(left_binding);
+    session.task.record.binding_id = Some(left_binding.clone());
     session.task.record.on_mcp_server_status =
         Some(Arc::clone(&left_sink) as McpServerStatusProducer);
+    session
+        .task
+        .handle(mcp_server_startup(TEST_THREAD, "github", "starting", None))
+        .await;
     let opened = Arc::new(std::sync::Mutex::new(Vec::new()));
     let heard = Arc::clone(&opened);
     let relaunches: Arc<dyn SessionRelaunchListener> = Arc::new(TakenRelaunches {
@@ -125,9 +133,16 @@ async fn a_fork_onto_another_binding_ends_the_left_leg_and_takes_its_own() {
     let (forked, ()) = tokio::join!(fork, answer);
     forked.expect("the session moves onto the fork");
 
-    assert_eq!(
-        *opened.lock().expect("the steps lock"),
-        [format!("legs {new_binding:?}")]
+    let opened = opened.lock().expect("the steps lock").clone();
+    let [step] = opened.as_slice() else {
+        panic!("one opening of legs, got {opened:?}");
+    };
+    assert!(step.starts_with("legs "), "{step}");
+    assert_ne!(*step, format!("legs {new_binding:?}"));
+    assert_ne!(*step, format!("legs {left_binding:?}"));
+    assert!(
+        session.task.record.mcp_server_startups.is_empty(),
+        "the left conversation's startups were kept"
     );
     assert_eq!(left_sink.ends(), 1, "the left binding's leg ends once");
     assert_eq!(new_sink.ends(), 0, "the new binding's leg stays open");
