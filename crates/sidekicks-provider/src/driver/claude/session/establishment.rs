@@ -86,7 +86,7 @@ use crate::driver::claude::spawn::legs::{
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
 use crate::driver::diagnostics::DriverDiagnosticKind;
-use crate::driver::mcp_server_status::McpServerStatusProducer;
+use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::ports::DriverPorts;
 use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, SessionToolServer,

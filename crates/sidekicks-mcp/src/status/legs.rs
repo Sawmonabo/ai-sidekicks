@@ -13,7 +13,7 @@ use sidekicks_contracts::mcp::server::{
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_provider::driver::mcp_server_status::{McpServerReading, McpServerStatusUpdate};
+use sidekicks_provider::driver::mcp_server::status::{McpServerReading, McpServerStatusUpdate};
 
 use super::McpBindingStatusReading;
 use crate::binding_store::McpBindingKey;
