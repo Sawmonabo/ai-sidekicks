@@ -6,6 +6,7 @@ use sidekicks_contracts::daemon::recovery::{
 };
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::run::control::RunFailureCategory;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -33,7 +34,6 @@ async fn entry_of(
     tracker
         .read(reads)
         .await
-        .expect("the status reads")
         .sessions
         .into_iter()
         .find(|session| session.session_id == *session_id)
@@ -69,11 +69,7 @@ async fn a_halted_run_lists_its_session_without_refusing_it() {
     halted_runs.sort_by_key(|run| run.run_id);
 
     assert_eq!(
-        tracker
-            .read(&reads)
-            .await
-            .expect("the status reads")
-            .overall,
+        tracker.read(&reads).await.overall,
         DaemonRecoveryState::Healthy
     );
     assert_eq!(
@@ -143,9 +139,33 @@ async fn a_halted_run_lists_its_session_without_refusing_it() {
     assert_eq!(entry_of(&tracker, &reads, &halted).await, None);
 }
 
+// The test database with one run of `session` per state, each left in that state.
+fn insert_runs(database: &TestDatabase, session: SessionId, runs: &[(RunId, &str)]) {
+    for &(run_id, run_state) in runs {
+        insert_running_run(database, session, run_id);
+        database
+            .reader()
+            .execute(
+                "UPDATE runs SET state = ?1 WHERE run_id = ?2",
+                params![run_state, run_id.text().as_str()],
+            )
+            .expect("the test sets the run's state");
+    }
+}
+
+// A halt on a diverged resume that carries no failure.
+fn diverged_halt(run_id: RunId) -> DaemonRecoveryHaltedRun {
+    DaemonRecoveryHaltedRun {
+        run_id,
+        recovery_condition: RecoveryCondition::RecoveryNeeded,
+        failure_category: None,
+    }
+}
+
 // A halt whose run has since ended in the store is not listed and the read forgets it, while a
-// failed resume's mark, whose run had ended when it was made, stays. Killed by the check skipped,
-// and by a failed resume's mark checked as a halt.
+// halt whose run is still live and a failed resume's mark, whose run had ended when it was made,
+// stay. Killed by the check skipped, by every halt with a stored run forgotten, and by a failed
+// resume's mark checked as a halt.
 #[tokio::test]
 async fn a_halt_whose_run_ended_is_forgotten() {
     let (database, reads) = test_reads();
@@ -154,36 +174,66 @@ async fn a_halt_whose_run_ended_is_forgotten() {
     let session = test_session_id();
     let ended = test_run_id();
     let failed = test_run_id();
-    for (run_id, run_state) in [(ended, "interrupted"), (failed, "failed")] {
-        insert_running_run(&database, session, run_id);
-        database
-            .reader()
-            .execute(
-                "UPDATE runs SET state = ?1 WHERE run_id = ?2",
-                params![run_state, run_id.text().as_str()],
-            )
-            .expect("the test ends the run");
-    }
-    tracker.mark_run_halted(
-        &session,
-        DaemonRecoveryHaltedRun {
-            run_id: ended,
-            recovery_condition: RecoveryCondition::RecoveryNeeded,
-            failure_category: None,
-        },
+    let live = test_run_id();
+    insert_runs(
+        &database,
+        session,
+        &[
+            (ended, "interrupted"),
+            (failed, "failed"),
+            (live, "waitingForInput"),
+        ],
     );
+    tracker.mark_run_halted(&session, diverged_halt(ended));
     let failed_resume = DaemonRecoveryHaltedRun {
         run_id: failed,
         recovery_condition: RecoveryCondition::ReauthRequired,
         failure_category: Some(RunFailureCategory::ProviderFailure),
     };
     tracker.mark_run_halted(&session, failed_resume.clone());
+    tracker.mark_run_halted(&session, diverged_halt(live));
 
+    let mut listed = vec![failed_resume, diverged_halt(live)];
+    listed.sort_by_key(|run| run.run_id);
     assert_eq!(
         entry_of(&tracker, &reads, &session)
             .await
             .and_then(|entry| entry.halted_runs),
-        Some(vec![failed_resume])
+        Some(listed)
     );
     assert!(!tracker.lock().halted_runs[&session].contains_key(&ended));
+}
+
+// A read that cannot check its halts, through a pool that refuses it or a store that has failed,
+// still answers, every halt listed as marked. Killed by the check's failure raised, and by a
+// failed store's halts checked.
+#[tokio::test]
+async fn a_read_that_cannot_check_its_halts_lists_them_as_marked() {
+    let (database, reads) = test_reads();
+    let tracker = RecoveryStatusTracker::new();
+    tracker.mark_pass_ended();
+    let session = test_session_id();
+    let ended = test_run_id();
+    insert_runs(&database, session, &[(ended, "interrupted")]);
+    tracker.mark_run_halted(&session, diverged_halt(ended));
+
+    reads.close().await.expect("the test closes the pool");
+    let entry = entry_of(&tracker, &reads, &session)
+        .await
+        .expect("the halted session is listed");
+    assert_eq!(entry.state, DaemonRecoverySessionState::Blocked);
+    assert_eq!(entry.halted_runs, Some(vec![diverged_halt(ended)]));
+
+    let reads = DatabaseReadPool::new(database.path(), RECOVERY_STATUS_STATEMENT_CAPACITY);
+    tracker.mark_store_failed();
+    let status = tracker.read(&reads).await;
+    assert_eq!(status.overall, DaemonRecoveryState::Blocked);
+    assert_eq!(
+        status
+            .sessions
+            .into_iter()
+            .find(|session_entry| session_entry.session_id == session)
+            .and_then(|session_entry| session_entry.halted_runs),
+        Some(vec![diverged_halt(ended)])
+    );
 }
