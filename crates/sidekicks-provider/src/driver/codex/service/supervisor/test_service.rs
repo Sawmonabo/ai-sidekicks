@@ -28,6 +28,7 @@ use sidekicks_store::data_folder::program_link_folder;
 use tempfile::TempDir;
 #[cfg(test)]
 use tokio::io::{AsyncRead, AsyncWrite};
+#[cfg(test)]
 use tokio::sync::mpsc;
 #[cfg(test)]
 use tokio_tungstenite::WebSocketStream;
@@ -410,11 +411,13 @@ impl CodexServiceEvents for UnheardEvents {
 }
 
 /// Tells a test how each service process ended, and each time a service is back after a crash.
+#[cfg(test)]
 pub(crate) struct ExitsHeard {
     exits: mpsc::UnboundedSender<Option<ProcessExit>>,
     recoveries: mpsc::UnboundedSender<()>,
 }
 
+#[cfg(test)]
 impl ExitsHeard {
     /// The events, with the receivers of each exit and of each recovery.
     pub(crate) fn new() -> (
@@ -428,6 +431,7 @@ impl ExitsHeard {
     }
 }
 
+#[cfg(test)]
 impl CodexServiceEvents for ExitsHeard {
     fn process_exited(&self, _service: &Arc<CodexService>, exit: Option<&ProcessExit>) {
         let _heard = self.exits.send(exit.cloned());
