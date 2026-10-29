@@ -12,7 +12,7 @@ use sidekicks_provider::driver::contract::SessionProcessState;
 use sidekicks_provider::driver::session_control::{
     ResumeSessionParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
-use sidekicks_provider::run::posture::compose_execution_posture;
+use sidekicks_provider::run::posture::{compose_execution_posture, resolve_posture};
 use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
 use sidekicks_session::console_state::session_mode_change_statement;
 use sidekicks_session::directory::lookups::{SessionWriteError, write_while_session_exists};
@@ -37,11 +37,13 @@ pub struct SideQuestionSource {
 impl ProviderSessions {
     /// Moves the session to `level` and stores it, unless it stands there already. A process that
     /// runs, or that its driver brings back, is moved first, so the record never names a level the
-    /// provider refused; a store that fails then moves it back and fails. A session with no
-    /// process stores the level, which its next process opens at. Fails as the driver's move fails,
-    /// with nothing changed, with [`ProviderSessionError::Closed`] or
-    /// [`ProviderSessionError::BeingDeleted`] for a closed session, and with
-    /// [`ProviderSessionError::LevelNotStored`] carrying `session.notFound` for one gone meanwhile.
+    /// provider refused, and its live runs move with it; a store that fails then moves both back
+    /// and fails. A session with no process stores the level, which its next process opens at.
+    /// Fails with [`ProviderSessionError::PostureRefused`] for a level whose posture does not
+    /// resolve and as the driver's move fails, both with nothing changed, with
+    /// [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for a closed
+    /// session, and with [`ProviderSessionError::LevelNotStored`] carrying `session.notFound` for
+    /// one gone meanwhile.
     pub async fn change_level(
         &self,
         session_id: SessionId,
@@ -70,19 +72,27 @@ impl ProviderSessions {
                 ..
             })
             | None => {
-                return self
-                    .record_level(session_id, level)
+                self.record_level(session_id, level)
                     .await
-                    .map_err(|cause| ProviderSessionError::LevelNotStored { session_id, cause });
+                    .map_err(|cause| ProviderSessionError::LevelNotStored { session_id, cause })?;
+                // Its next process opens at the stored level, which its runs are requested at.
+                self.deps.execution_postures.forget_session(&session_id);
+                return Ok(());
             }
         };
         let posture = compose_execution_posture(level, opened.git_folder.clone());
+        let resolved = resolve_posture(&posture)
+            .await
+            .map_err(|cause| ProviderSessionError::PostureRefused { session_id, cause })?;
         let moved = UpdatePermissionLevelParams {
             session_id,
             execution_posture: posture.clone(),
         };
         driver.update_permission_level(moved).await?;
         self.set_posture(session_id, posture);
+        self.deps
+            .execution_postures
+            .move_session(&session_id, resolved);
         let Err(stored_error) = self.record_level(session_id, level).await else {
             return Ok(());
         };
@@ -92,6 +102,15 @@ impl ProviderSessions {
         };
         match driver.update_permission_level(back).await {
             Ok(()) => {
+                match resolve_posture(&opened.execution_posture).await {
+                    Ok(resolved_back) => self
+                        .deps
+                        .execution_postures
+                        .move_session(&session_id, resolved_back),
+                    // The old level's root is gone too: no posture to carry the runs back to, so
+                    // each later run's gate resolves the one it was requested at.
+                    Err(_unresolved) => self.deps.execution_postures.forget_session(&session_id),
+                }
                 self.set_posture(session_id, opened.execution_posture);
                 Err(ProviderSessionError::LevelNotStored {
                     session_id,

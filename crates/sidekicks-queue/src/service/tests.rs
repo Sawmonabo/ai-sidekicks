@@ -74,7 +74,8 @@ use crate::changes::QueueChangeSignals;
 use crate::error::QueueError;
 use crate::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::provider_session::test_opening::{
-    RecordedProcessFollowing, record_first_provider_capabilities, test_opening_composer,
+    RecordedProcessFollowing, record_first_provider_capabilities, test_execution_postures,
+    test_opening_composer,
 };
 use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
 use crate::run_token_limit::RunTokenLimitReader;
@@ -313,6 +314,7 @@ fn queue_over(
         compose_opening: test_opening_composer(),
         transition_lock: Arc::new(KeyedLock::new()),
         process_follower: Arc::new(RecordedProcessFollowing::default()),
+        execution_postures: test_execution_postures(),
     }));
     let memory_gate = Arc::new(MemoryGate::new(
         MemoryGateFigures {
