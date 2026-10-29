@@ -175,10 +175,10 @@ pub trait ProviderDriver: Send + Sync {
     /// provider that offers no advisor or where the app never set one, so the provider's own
     /// setting holds; `Some(None)` for no advisor; `Some(model)` for one.
     #[expect(
-        clippy::option_option,
-        reason = "a pick the app never made differs from one set to no advisor"
+        unused_variables,
+        reason = "only a driver whose provider offers an advisor reads the app's values"
     )]
-    fn session_advisor_pick(&self, _app_values: &ProviderRowValues) -> Option<Option<String>> {
+    fn session_advisor_pick(&self, app_values: &ProviderRowValues) -> Option<Option<String>> {
         None
     }
 
