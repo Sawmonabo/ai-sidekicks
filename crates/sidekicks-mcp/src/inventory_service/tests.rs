@@ -406,9 +406,10 @@ async fn an_overrides_value_wins_and_keeps_the_servers_own_value(
 
 /// A binding the driver no longer declares loses the probe's reading at the next read, while a
 /// binding a live leg reports keeps that leg. A session's leg reports `news`, which no read
-/// declares; the refresh probes `docs` and `news`; the next read declares neither. Killed by no
-/// pruning (`docs` keeps the probe's `connected` and tools, `news` the probe's tools), and by
-/// pruning a live leg's binding whole (`news` loses its leg).
+/// declares; the refresh declares `docs` and probes `docs` and `news`; the next read declares
+/// neither. Killed by no pruning (`docs` keeps the probe's `connected` and tools, `news` the
+/// probe's tools), by pruning a binding the read declares (the refresh's `docs` reads `unknown`),
+/// and by pruning a live leg's binding whole (`news` loses its leg).
 #[tokio::test]
 async fn a_binding_gone_from_the_config_loses_its_probe_reading_and_a_live_leg_stays() {
     let news = |provider: &ProviderId| McpServerBindingRef::User {
@@ -443,11 +444,13 @@ async fn a_binding_gone_from_the_config_loses_its_probe_reading_and_a_live_leg_s
             None,
         ),
     );
-    inventory
-        .service
-        .list(&REFRESH)
-        .await
-        .expect("the inventory lists on a refresh");
+    let refreshed = docs_entry(
+        inventory
+            .service
+            .list(&REFRESH)
+            .await
+            .expect("the inventory lists on a refresh"),
+    );
 
     let entries = inventory
         .service
@@ -455,6 +458,13 @@ async fn a_binding_gone_from_the_config_loses_its_probe_reading_and_a_live_leg_s
         .await
         .expect("the inventory lists");
 
+    assert_eq!(
+        refreshed,
+        (
+            McpServerStatus::Connected,
+            vec![server_tool("search"), server_tool("delete")]
+        )
+    );
     assert_eq!(entries, [] as [McpServerInventoryEntry; 0]);
     let docs = inventory
         .tracker
