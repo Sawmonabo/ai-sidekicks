@@ -19,7 +19,6 @@ use tokio::sync::OnceCell;
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
-use super::{ClaudeAccountServerAnswers, lists_connectors};
 use crate::driver::claude::account_credentials::{ClaudeAiSignIn, ClaudeSignInReader};
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
 
@@ -88,12 +87,20 @@ pub(crate) struct ClaudeOrganizationMarks {
     http: OnceCell<reqwest::Client>,
 }
 
-/// The organization mark of each connector the list holds, by its normalized id.
+/// The organization mark of each connector the list holds, by its normalized id, and how many
+/// connectors Claude Code lists from it.
 pub(crate) struct ClaudeConnectorMarks {
     by_connector_id: HashMap<String, bool>,
+    listed_row_count: usize,
 }
 
 impl ClaudeConnectorMarks {
+    /// How many connectors Claude Code lists from the list: one per address, and one per
+    /// additional account.
+    pub(crate) fn listed_row_count(&self) -> usize {
+        self.listed_row_count
+    }
+
     /// Whether the organization manages the connector `connector_id` names; `None` for a
     /// connector the list does not hold.
     pub(crate) fn mark(&self, connector_id: &str) -> Option<bool> {
@@ -112,19 +119,16 @@ impl ClaudeOrganizationMarks {
         }
     }
 
-    /// The marks of the connectors `answers` reports, read from the list of the account whose
-    /// process `environment` started. `None`, with the reason logged at debug, where the answers
-    /// report no connector or no build version, the account names a host Claude Code refuses, no
-    /// sign-in with the list's scope is read, or the list cannot be read.
+    /// The marks of the connectors on the list of the account whose process `environment`
+    /// started, read as the build `build_version` reads it. `None`, with the reason logged at
+    /// debug, where the build reported no version, the account names a host Claude Code refuses,
+    /// no sign-in with the list's scope is read, or the list cannot be read.
     pub(crate) async fn read(
         &self,
         environment: &[(String, String)],
-        answers: &ClaudeAccountServerAnswers,
+        build_version: Option<&str>,
     ) -> Option<ClaudeConnectorMarks> {
-        if !lists_connectors(answers) {
-            return None;
-        }
-        let Some(build_version) = answers.build_version.as_deref() else {
+        let Some(build_version) = build_version else {
             tracing::debug!(
                 "no connector marks read: the account's Claude Code reported no version to send"
             );
@@ -165,20 +169,25 @@ impl ClaudeOrganizationMarks {
         };
         let request = ConnectorListRequest::new(sign_in, build_version)?;
         let body = request.send_with_retries(http, base).await?;
-        let list: ConnectorList = match serde_json::from_slice(&body) {
-            Ok(list) => list,
-            Err(error) => {
-                tracing::debug!(
-                    category = ?error.classify(),
-                    "no connector marks read: the connector list is not a JSON object"
-                );
-                return None;
-            }
-        };
-        Some(index_connector_marks(
-            &list.data.map(|entries| entries.0).unwrap_or_default(),
-        ))
+        read_connector_list(&body)
     }
+}
+
+/// The marks of the connector list `body` holds; `None`, logged, where it is not a JSON object.
+pub(crate) fn read_connector_list(body: &[u8]) -> Option<ClaudeConnectorMarks> {
+    let list: ConnectorList = match serde_json::from_slice(body) {
+        Ok(list) => list,
+        Err(error) => {
+            tracing::debug!(
+                category = ?error.classify(),
+                "no connector marks read: the connector list is not a JSON object"
+            );
+            return None;
+        }
+    };
+    Some(index_connector_marks(
+        &list.data.map(|entries| entries.0).unwrap_or_default(),
+    ))
 }
 
 // The client the list is read through: one idle connection, decoding a gzip, deflate or brotli
@@ -403,11 +412,13 @@ lenient_object!(ConnectorListEntry);
 fn index_connector_marks(entries: &[ConnectorListEntry]) -> ClaudeConnectorMarks {
     let mut row_by_address: HashMap<String, bool> = HashMap::new();
     let mut by_connector_id: HashMap<String, bool> = HashMap::new();
+    let mut additional_rows = 0;
     for entry in entries {
         let mark = entry.enterprise_managed == Some(true);
         if entry.additional_install == Some(true) {
             if let Some(id) = &entry.id {
                 by_connector_id.insert(normalize_connector_id(id), mark);
+                additional_rows += 1;
             }
             continue;
         }
@@ -439,7 +450,10 @@ fn index_connector_marks(entries: &[ConnectorListEntry]) -> ClaudeConnectorMarks
             by_connector_id.insert(id, mark);
         }
     }
-    ClaudeConnectorMarks { by_connector_id }
+    ClaudeConnectorMarks {
+        by_connector_id,
+        listed_row_count: row_by_address.len() + additional_rows,
+    }
 }
 
 // A connector id as Claude Code compares it: an `mcprs` prefix read as `mcpsrv`.

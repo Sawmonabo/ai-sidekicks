@@ -264,9 +264,9 @@ pub(crate) async fn probe_claude_mcp_servers(
     Ok(readings)
 }
 
-// How long the probe waits for its servers: Claude Code's one startup timeout, which every server
-// shares, plus the margin.
-fn probe_ceiling(environment: &[(String, String)]) -> Duration {
+/// How long the probe waits for its servers: Claude Code's one startup timeout, which every server
+/// shares, read from `environment` (`MCP_TIMEOUT`, in milliseconds, 30 s where unset), plus 5 s.
+pub(crate) fn probe_ceiling(environment: &[(String, String)]) -> Duration {
     let startup_timeout = environment
         .iter()
         .rev()

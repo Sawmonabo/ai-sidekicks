@@ -17,9 +17,7 @@ use crate::command_search::{ProviderCommandSearch, list_command_folders};
 use crate::driver::ReportedVersionReading;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::read_claude_capabilities;
-use crate::driver::claude::mcp::connectors::{
-    ClaudeAccountServerAnswers, ClaudeAccountServersReadRequest, read_claude_account_answers,
-};
+use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
 use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -114,12 +112,14 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
         environment: Vec<(String, String)>,
     ) -> BoxFuture<'_, Result<GetCapabilitiesResult, DriverError>>;
 
-    /// Takes one account's `mcp_status` and `get_settings` answers from a process that keeps
-    /// nothing, started as `request` names.
-    fn read_account_servers(
+    /// Starts one account's read process, which keeps nothing, as `request` names, its folder made
+    /// where absent, and sends its `initialize`, handing back the process to send the read's
+    /// requests on and close. Fails with `ControlOnlyFolder` when the folder cannot be made, and as
+    /// the start or `initialize` does, the process then closed.
+    fn start_account_servers_read(
         &self,
         request: ClaudeAccountServersReadRequest,
-    ) -> BoxFuture<'_, Result<ClaudeAccountServerAnswers, ClaudeLaunchError>>;
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>>;
 
     /// Starts the MCP server probe's process as `request` names and sends its `initialize`,
     /// handing back the process to send the probe's requests on and close. Fails as the start or
@@ -338,20 +338,30 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
         .boxed()
     }
 
-    fn read_account_servers(
+    fn start_account_servers_read(
         &self,
         request: ClaudeAccountServersReadRequest,
-    ) -> BoxFuture<'_, Result<ClaudeAccountServerAnswers, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
         async move {
             let executable =
                 Self::resolve(&self.command_search, &self.home_folder, request.environment).await?;
-            read_claude_account_answers(
+            tokio::fs::create_dir_all(&request.working_folder)
+                .await
+                .map_err(ClaudeLaunchError::ControlOnlyFolder)?;
+            let short = ClaudeShortProcess::start_control_only(
                 &self.launcher,
                 &executable,
-                request.provider_account_id,
-                request.working_folder,
+                Some(request.working_folder),
+                None,
+                Some(request.provider_account_id),
             )
-            .await
+            .await?;
+            if let Err(error) = short.initialize().await {
+                short.close().await;
+                return Err(error.into());
+            }
+            let process: Arc<dyn ClaudeProcessChannel> = short.process;
+            Ok(process)
         }
         .boxed()
     }

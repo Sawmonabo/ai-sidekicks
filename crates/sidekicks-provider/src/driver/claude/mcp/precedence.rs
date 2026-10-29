@@ -35,6 +35,9 @@ pub(crate) struct ClaudeMcpAccountServers {
     /// Each organization server as `mcp_set_servers` takes it, by its name, where the account's
     /// managed settings declare it whole.
     pub(crate) organization_entries: BTreeMap<McpServerName, ClaudeToolServerEntry>,
+    /// Whether the account's process still reported fewer connectors than its connector list
+    /// holds when the read stopped asking; such a read is never kept.
+    pub(crate) lacks_listed_connectors: bool,
 }
 
 /// The servers one root's sessions would see from each source, which Claude Code ranks in this
@@ -455,6 +458,7 @@ mod tests {
             ],
             connector_readings: Vec::new(),
             organization_entries: BTreeMap::new(),
+            lacks_listed_connectors: false,
         }];
 
         let ranking = rank_claude_mcp_servers(&reading, &accounts, true);

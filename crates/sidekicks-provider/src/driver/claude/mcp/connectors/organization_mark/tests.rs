@@ -22,6 +22,7 @@ use crate::driver::claude::mcp::connectors::{
     ClaudeAccountServerAnswers, read_claude_account_servers,
 };
 use crate::driver::claude::mcp::precedence::rank_claude_mcp_servers;
+use crate::driver::claude::session::transport::mcp_status::ClaudeMcpStatusReply;
 use crate::driver::mcp_server::read::McpServerPolicy;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
@@ -267,16 +268,16 @@ async fn the_list_marks_each_connector_by_its_normalized_id() {
         })
     };
     let answers = ClaudeAccountServerAnswers {
-        mcp_status: Some(
-            to_raw_value(&json!({ "mcpServers": [
+        mcp_status: ClaudeMcpStatusReply::read(Some(
+            &to_raw_value(&json!({ "mcpServers": [
                 row("claude.ai Slack", "mcpsrv_slack", "https://mcp.slack.example.com/mcp"),
                 row("claude.ai Notes", "mcpsrv_notes", "https://notes.example.com/mcp"),
                 row("claude.ai Calendar", "mcpsrv_calendar", "https://cal.example.com/mcp"),
             ] }))
             .expect("a test reply serializes"),
-        ),
+        )),
         settings: None,
-        build_version: Some("2.1.312".to_owned()),
+        lacks_listed_connectors: false,
     };
     let account = test_provider_account_id();
 
