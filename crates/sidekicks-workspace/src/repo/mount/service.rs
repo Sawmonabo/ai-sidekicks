@@ -39,6 +39,7 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError, sqlite_error_code};
 use sidekicks_store::events::session::appender::SessionEventEmitError;
+use tokio::sync::Notify;
 
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::projector::{HealthProjectionError, RepoMountHealthRow};
@@ -267,6 +268,8 @@ pub struct RepoMountService {
     events: Arc<WorkspaceEventEmitter>,
     resolver: RepoRootResolver,
     machine_id: MachineId,
+    // Raised once a project's mount is attached, a raise no one waits for kept for the next wait.
+    project_attached: Notify,
     /// Where a test holds a detach between its row read and its write.
     #[cfg(test)]
     pub(crate) detach_pause: PausePoint,
@@ -292,6 +295,7 @@ impl RepoMountService {
             events,
             resolver,
             machine_id,
+            project_attached: Notify::new(),
             #[cfg(test)]
             detach_pause: PausePoint::default(),
             #[cfg(test)]
@@ -376,10 +380,17 @@ impl RepoMountService {
         })
     }
 
+    /// Settles once a project's mount was attached since the last wait settled, at once when one
+    /// was attached with no one waiting; attaches meanwhile settle one wait.
+    pub async fn wait_for_project_attach(&self) {
+        self.project_attached.notified().await;
+    }
+
     /// Keeps a resolved target as the mount of `project_id`, in one write after
     /// `project_statements` (the project row a new project needs, written with its mount or not
-    /// at all). Refuses `repoMount.alreadyAttached` when the repository was attached since it was
-    /// resolved; fails with the write's failure otherwise.
+    /// at all), then raises [`Self::wait_for_project_attach`]. Refuses `repoMount.alreadyAttached`
+    /// when the repository was attached since it was resolved; fails with the write's failure
+    /// otherwise.
     pub(crate) async fn insert_attached_mount(
         &self,
         target: &RepoAttachTarget,
@@ -415,6 +426,7 @@ impl RepoMountService {
                 )
                 .await);
         }
+        self.project_attached.notify_one();
         Ok(RepoMountAttachResponse {
             repo_mount_id,
             state: RepoMountState::Attached,

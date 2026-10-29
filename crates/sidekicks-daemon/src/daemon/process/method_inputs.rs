@@ -195,6 +195,8 @@ pub(crate) struct MethodInputs {
     pub(crate) worktree_setup: Arc<WorktreeSetupRunner>,
     /// Makes worktrees and answers the new-worktree form's suggestion.
     pub(crate) worktree_creator: Arc<WorktreeCreator>,
+    /// The MCP server inventory, whose fills of the attribution table the start begins.
+    pub(crate) mcp_inventory: Arc<McpInventoryService>,
 }
 
 /// Why the method tables' services could not be built.
@@ -604,7 +606,7 @@ pub(crate) async fn register_method_inputs(
             mcp_methods: McpMethodSources {
                 log: Arc::clone(&database.event_log),
                 board: mcp_notice_board,
-                inventory: mcp_inventory,
+                inventory: Arc::clone(&mcp_inventory),
             },
             run_safety_holds: Arc::clone(&session.run_safety_holds),
             sessions: Arc::clone(&session.sessions),
@@ -648,6 +650,7 @@ pub(crate) async fn register_method_inputs(
         clones: clones.ok(),
         worktree_setup,
         worktree_creator,
+        mcp_inventory,
     })
 }
 

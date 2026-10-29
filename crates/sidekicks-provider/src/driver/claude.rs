@@ -27,7 +27,7 @@ use crate::command::running_set::takes_no_input;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
-use crate::driver::claude::mcp::read_claude_mcp_servers;
+use crate::driver::claude::mcp::{read_claude_mcp_servers, reread_claude_live_mcp_statuses};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
@@ -496,6 +496,10 @@ impl ProviderDriver for ClaudeDriver {
         request: McpServersReadRequest,
     ) -> BoxFuture<'_, Result<ProviderMcpServersReading, DriverError>> {
         read_claude_mcp_servers(self, request).boxed()
+    }
+
+    fn reread_live_mcp_statuses(&self) -> BoxFuture<'_, ()> {
+        reread_claude_live_mcp_statuses(self).boxed()
     }
 
     fn compact_context(

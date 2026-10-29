@@ -33,13 +33,13 @@ use crate::driver::mcp_server::status::McpServerReading;
 
 /// Answers which MCP servers Claude Code declares and loads on this computer for `request`: the
 /// person's config ranked under each requested account's connectors and organization servers, a
-/// refresh also re-reading each account and each live session's server status and answering what
-/// each account's process reported of its connectors as their probe readings, and the probe's
-/// readings of each declared binding the request's probe scope names. An account whose read
-/// failed brings no servers, its failure recorded where the read ran. A connector is never
-/// probed, since its account's process already reports it; an organization's server is probed
-/// under the first account that brings it, and every other binding under the first account that
-/// answered; with no such account no Claude Code process can run, so each target reads `unknown`.
+/// refresh also re-reading each account and answering what each account's process reported of its
+/// connectors as their probe readings, and the probe's readings of each declared binding the
+/// request's probe scope names. An account whose read failed brings no servers, its failure
+/// recorded where the read ran. A connector is never probed, since its account's process already
+/// reports it; an organization's server is probed under the first account that brings it, and
+/// every other binding under the first account that answered; with no such account no Claude Code
+/// process can run, so each target reads `unknown`.
 /// Fails as the config read or the probe does.
 pub(crate) async fn read_claude_mcp_servers(
     driver: &ClaudeDriver,
@@ -73,18 +73,8 @@ pub(crate) async fn read_claude_mcp_servers(
         };
         driver.account_servers.read(account, ask)
     }));
-    let live_reads = async {
-        let live_sessions = match driver.composed_parts() {
-            Some(parts) if request.is_refresh => parts.slots().live_sessions(),
-            Some(_) | None => Vec::new(),
-        };
-        join_all(live_sessions.iter().map(|live| live.read_mcp_status())).await;
-    };
-    let (reading, account_reads, ()) = tokio::join!(
-        read_claude_mcp_config(&config_sources),
-        account_reads,
-        live_reads
-    );
+    let (reading, account_reads) =
+        tokio::join!(read_claude_mcp_config(&config_sources), account_reads);
     let reading = reading.map_err(|error| DriverError::Internal(Box::new(error)))?;
     let accounts: Vec<ClaudeMcpAccountServers> = account_reads
         .into_iter()
@@ -170,4 +160,14 @@ pub(crate) async fn read_claude_mcp_servers(
         account_servers: ranking.account_servers,
         probe_readings,
     })
+}
+
+/// Asks each live session's process for its MCP servers' status again, each reply reported to its
+/// leg; a session whose process does not answer reports nothing.
+pub(crate) async fn reread_claude_live_mcp_statuses(driver: &ClaudeDriver) {
+    let live_sessions = driver
+        .composed_parts()
+        .map(|parts| parts.slots().live_sessions())
+        .unwrap_or_default();
+    join_all(live_sessions.iter().map(|live| live.read_mcp_status())).await;
 }

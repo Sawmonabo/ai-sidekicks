@@ -44,6 +44,7 @@ use crate::binding::store::{McpBindingKey, McpBindingStore, open_first_observati
 use crate::schema::schema_parts;
 use crate::status::McpServerStatusTracker;
 use crate::status::machine_probe::McpMachineProbeGate;
+use crate::status::normalizer::{McpSessionAttribution, open_mcp_leg_status_producer};
 use crate::status::notices::McpNoticeBoard;
 
 /// The statements a read connection keeps prepared: the store's, the accounts' and the roots'.
@@ -81,6 +82,7 @@ struct TestInventory {
     provider: ProviderId,
     service: McpInventoryService,
     tracker: Arc<McpServerStatusTracker>,
+    attribution: Arc<McpAttributionTable>,
     gate: Arc<McpMachineProbeGate>,
     /// The probe scope of each read the driver was asked, in order.
     probes: Arc<Mutex<Vec<McpProbeScope>>>,
@@ -134,6 +136,7 @@ async fn open_inventory(mut answer: DriverAnswer) -> TestInventory {
         outlet,
     ));
     let gate = Arc::new(McpMachineProbeGate::default());
+    let attribution = Arc::new(McpAttributionTable::default());
     let service = McpInventoryService::new(McpInventorySources {
         providers,
         reads: Arc::clone(&reads),
@@ -141,7 +144,7 @@ async fn open_inventory(mut answer: DriverAnswer) -> TestInventory {
         projects: Arc::new(ProjectRecords::new(reads, Arc::new(NoProjectSessions))),
         store,
         tracker: Arc::clone(&tracker),
-        attribution: Arc::new(McpAttributionTable::default()),
+        attribution: Arc::clone(&attribution),
         probe_gate: Arc::clone(&gate),
     });
     TestInventory {
@@ -149,6 +152,7 @@ async fn open_inventory(mut answer: DriverAnswer) -> TestInventory {
         provider,
         service,
         tracker,
+        attribution,
         gate,
         probes,
     }
@@ -541,4 +545,51 @@ async fn a_refresh_reads_an_emulated_local_rows_status_from_its_probe() {
     };
     assert_eq!(scope_ref.as_str(), "/work/app");
     assert_eq!(status, McpServerStatus::Connected);
+}
+
+/// A session in no project reports `docs` before anything filled the attribution table; its report
+/// is held, and the fill the daemon's start runs, or else the first list, resolves it, so the list
+/// shows the leg's status. Killed by the held report dropped or not applied again when the table
+/// is replaced (the entry reads `unknown`), and by the fill reading nothing.
+#[rstest]
+#[case::by_the_first_list(false)]
+#[case::by_the_fill(true)]
+#[tokio::test]
+async fn a_report_before_any_read_shows_once_the_table_is_filled(#[case] is_filled: bool) {
+    let inventory = open_inventory(answering_at_once()).await;
+    let docs = McpBindingKey::of(&docs_binding(&inventory.provider));
+    let producer = open_mcp_leg_status_producer(
+        &inventory.tracker,
+        McpSessionAttribution::new(
+            Arc::clone(&inventory.attribution),
+            inventory.provider.clone(),
+            None,
+        )
+        .expect("a session in no root"),
+        SessionId::try_from(mint_uuid_v7()).expect("a session id"),
+        RuntimeBindingId::new("leg-a".to_owned()).expect("a binding id"),
+    );
+
+    producer.report_status(McpServerStatusEmission::new(
+        McpServerName::new("docs".to_owned()).expect("a server name"),
+        McpServerReading::Observed(McpServerStatus::Connected),
+        None,
+        None,
+    ));
+    assert_eq!(inventory.tracker.reading(&docs).legs.len(), 0);
+    if is_filled {
+        inventory.service.fill_attribution().await;
+        assert_eq!(inventory.tracker.reading(&docs).legs.len(), 1);
+    }
+    let entries = inventory
+        .service
+        .list(&PLAIN_LIST)
+        .await
+        .expect("the inventory lists");
+
+    assert_eq!(
+        docs_entry(entries),
+        (McpServerStatus::Connected, Vec::new())
+    );
+    drop(producer);
 }

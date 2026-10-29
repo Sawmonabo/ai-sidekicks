@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use futures::future::try_join_all;
+use futures::future::{join_all, try_join_all};
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::inventory::{
     McpAnsweredInventoryEntry, McpOverrideOrigin, McpServerIdempotencyClass,
@@ -33,7 +33,7 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_workspace::project::records::{ProjectReadError, ProjectRecords};
 
 use crate::binding::resolver::{
-    McpAttributionTable, McpBindingRow, attached_root_path, resolve_binding_rows,
+    McpAccountsAsked, McpAttributionTable, McpBindingRow, attached_root_path, resolve_binding_rows,
 };
 use crate::binding::store::{McpBindingKey, McpBindingStore, PROJECT_SWITCH_SCOPES};
 use crate::errors::McpRefusal;
@@ -241,6 +241,53 @@ impl McpInventoryService {
             .ok_or_else(|| not_found().into())
     }
 
+    /// Fills the attribution table from one read per provider of what it loads at each attached
+    /// root, with no account, no probe and no refresh, so a leg that reports before any list
+    /// resolves its servers; the status tracker's readings stay as they are. A provider whose read
+    /// fails keeps the table as it was and is logged; a failed read of the attached roots fills
+    /// nothing and is logged.
+    pub async fn fill_attribution(&self) {
+        let attached_roots = match self.read_attached_roots().await {
+            Ok(roots) => roots,
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "the attached roots could not be read, so no MCP server name was attributed"
+                );
+                return;
+            }
+        };
+        join_all(self.sources.providers.drivers().map(|(provider, driver)| {
+            let request = McpServersReadRequest {
+                attached_roots: Vec::clone(&attached_roots),
+                provider_account_ids: Vec::new(),
+                is_refresh: false,
+                probe: McpProbeScope::None,
+                emulated_local_bindings: Vec::new(),
+            };
+            async move {
+                let stamp = self.sources.attribution.stamp_read();
+                match driver.read_mcp_servers(request).await {
+                    Ok(reading) => {
+                        self.sources.attribution.replace_provider_loaded(
+                            provider,
+                            &reading,
+                            McpAccountsAsked::NotAsked,
+                            stamp,
+                        );
+                    }
+                    Err(error) => tracing::warn!(
+                        error = &error as &(dyn std::error::Error + 'static),
+                        provider = provider.as_str(),
+                        "the provider's MCP servers could not be read, so their names resolve \
+                         as the last read left them"
+                    ),
+                }
+            }
+        }))
+        .await;
+    }
+
     // One provider's rows for a list: with no probe, or on a refresh the provider's one probe
     // through the gate, a refresh that finds it running reading after it ends without a probe or a
     // refresh of its own, since the running one refreshed what the driver keeps.
@@ -277,28 +324,36 @@ impl McpInventoryService {
 
     // The attached roots and the accounts, read once for every provider of one read.
     async fn read_context(&self) -> Result<McpInventoryContext, McpInventoryError> {
-        let (roots, accounts) = tokio::join!(
-            self.sources.projects.read_attached_roots(),
+        let (attached_roots, accounts) = tokio::join!(
+            self.read_attached_roots(),
             read_account_homes(&self.sources.reads, &self.sources.meter)
         );
-        let attached_roots = roots
+        Ok(McpInventoryContext {
+            attached_roots: attached_roots?,
+            accounts: accounts.map_err(McpInventoryError::Accounts)?,
+        })
+    }
+
+    // The attached projects' roots.
+    async fn read_attached_roots(&self) -> Result<Vec<PlacedPath>, McpInventoryError> {
+        self.sources
+            .projects
+            .read_attached_roots()
+            .await
             .map_err(McpInventoryError::Projects)?
             .iter()
             .map(attached_root_path)
             .collect::<Result<_, _>>()
-            .map_err(McpInventoryError::ProjectRoot)?;
-        Ok(McpInventoryContext {
-            attached_roots,
-            accounts: accounts.map_err(McpInventoryError::Accounts)?,
-        })
+            .map_err(McpInventoryError::ProjectRoot)
     }
 
     /// Reads `provider`'s bindings through `driver`, asking it to probe the bindings `probe`
     /// names, the store's `local` bindings among them, and, on `is_refresh`, to read again what it
     /// keeps; this is the one read a probe trigger calls. Each row is keyed by its binding. The
-    /// attribution table takes the provider's reading, each probe reading the driver answers lands
-    /// in [`Self::keep_probe_readings`], and the tracker forgets the probe reading of every binding
-    /// of the provider the rows no longer hold. Fails as the driver's read fails; a store that does
+    /// attribution table takes the provider's reading unless a later read already replaced it, a
+    /// refresh then has the driver ask its live sessions again, each probe reading the driver
+    /// answers lands in [`Self::keep_probe_readings`], and, where this read is the newest, the
+    /// tracker forgets the probe reading of every binding of the provider the rows no longer hold. Fails as the driver's read fails; a store that does
     /// not answer gives each row the store-unavailable arm and forgets no probe reading, since
     /// without it the emulated `local` rows are not listed.
     async fn read_provider_rows(
@@ -343,6 +398,7 @@ impl McpInventoryService {
                 .map(|stored| stored.local_bindings.clone())
                 .unwrap_or_default(),
         };
+        let stamp = self.sources.attribution.stamp_read();
         let reading =
             driver
                 .read_mcp_servers(request)
@@ -351,16 +407,23 @@ impl McpInventoryService {
                     provider: provider.clone(),
                     source,
                 })?;
-        self.sources
-            .attribution
-            .replace_provider_loaded(provider, &reading);
+        let is_newest = self.sources.attribution.replace_provider_loaded(
+            provider,
+            &reading,
+            McpAccountsAsked::Asked,
+            stamp,
+        );
+        if is_refresh {
+            // Asked once the table holds this read, so each reply resolves against it.
+            driver.reread_live_mcp_statuses().await;
+        }
         self.keep_probe_readings(&reading.probe_readings);
         let rows: Vec<(McpBindingKey, McpBindingRow)> =
             resolve_binding_rows(&reading, stored.as_ref())
                 .into_iter()
                 .map(|row| (McpBindingKey::of(&row.declaration.binding), row))
                 .collect();
-        if stored.is_some() {
+        if is_newest && stored.is_some() {
             let listed = rows.iter().map(|(key, _row)| key.clone()).collect();
             self.sources.tracker.forget_probes_of(provider, &listed);
         }
