@@ -1,7 +1,7 @@
 //! One server entry of Codex's config or a plugin's MCP file, read into its redacted declaration:
-//! environment and header values are skipped as they are read, the address is stripped, the
-//! sign-in client keeps its id and callback address only, and the values it gives its tools are
-//! kept.
+//! environment and header values are skipped as they are read, the names of the variables a bearer
+//! token and a header are read from are kept, the address is stripped, the sign-in client keeps its
+//! id and callback address only, and the values it gives its tools are kept.
 
 use std::collections::BTreeMap;
 
@@ -11,6 +11,7 @@ use serde_json::Value;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{McpApprovalMode, McpToolName};
 use sidekicks_contracts::wire::number::PositiveNumber;
+use sidekicks_contracts::wire::record::Record;
 
 use crate::driver::mcp_server::address::read_server_address;
 use crate::driver::mcp_server::read::{McpServerSignInClient, McpServerToolDefaults};
@@ -125,8 +126,8 @@ pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclar
         let declared = entry
             .http_headers
             .iter()
-            .chain(&entry.env_http_headers)
             .flat_map(BTreeMap::keys)
+            .chain(entry.env_http_headers.iter().flat_map(BTreeMap::keys))
             .cloned()
             .chain(
                 entry
@@ -144,8 +145,8 @@ pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclar
             url_query_param_names: (!address.query_param_names.is_empty())
                 .then_some(address.query_param_names),
             header_names: (!header_names.is_empty()).then_some(header_names),
-            bearer_token_env_var: None,
-            env_http_headers: None,
+            bearer_token_env_var: entry.bearer_token_env_var,
+            env_http_headers: entry.env_http_headers.and_then(Record::new),
             oauth_scopes: entry.scopes,
             oauth_resource: entry.oauth_resource,
             enabled: entry.enabled,
@@ -171,7 +172,8 @@ fn read_tool_names(names: Vec<String>) -> Vec<McpToolName> {
 
 // The members of a Codex server entry the read keeps. Environment and header values are skipped as
 // they are read, a bearer token and the sign-in client's secret are never read, and the address is
-// held only until it is stripped. It derives no `Debug`, so nothing prints the address.
+// held only until it is stripped; a header read from a variable keeps the variable's name, never
+// its value. It derives no `Debug`, so nothing prints the address.
 #[derive(Deserialize)]
 struct CodexServerEntry {
     #[serde(default)]
@@ -187,7 +189,7 @@ struct CodexServerEntry {
     #[serde(default)]
     http_headers: Option<BTreeMap<String, IgnoredAny>>,
     #[serde(default)]
-    env_http_headers: Option<BTreeMap<String, IgnoredAny>>,
+    env_http_headers: Option<BTreeMap<String, String>>,
     #[serde(default)]
     bearer_token_env_var: Option<String>,
     #[serde(default)]

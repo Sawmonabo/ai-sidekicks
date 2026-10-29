@@ -1,12 +1,17 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+use sidekicks_contracts::mcp::server::inventory::{
+    McpManagedLayer, McpManagedLayerKind, McpOverrideOrigin,
+};
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::plugin::PluginToken;
 use sidekicks_contracts::wire::number::PositiveNumber;
+use sidekicks_contracts::wire::record::Record;
 
 use super::{CodexMcpConfigReading, CodexMcpRoot, read_codex_mcp_config_over};
 use crate::driver::codex::DESCRIPTOR;
@@ -135,16 +140,17 @@ fn project_layer(servers: Value) -> Value {
 }
 
 // Killed by keeping any environment, header, query, user-name, password, bearer token or client
-// secret value, by a derived `Debug` printing the address, and by reading a plugin's malformed file
-// as the whole read's failure.
+// secret value, by a derived `Debug` printing the address, by leaving a bearer token's or a
+// header's variable name out of its own slot, and by reading a plugin's malformed file as the whole
+// read's failure.
 #[tokio::test]
 async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
     let remote = json!({
         "url": "https://alice-userinfo:hunter2-password@mcp.example.com/mcp?token=query-secret",
         "http_headers": {"X-Api-Key": "header-secret"},
-        "env_http_headers": {"X-Team": "TEAM_VARIABLE_SECRET"},
+        "env_http_headers": {"X-Team": "TEAM_VARIABLE"},
         "bearer_token": "bearer-secret",
-        "bearer_token_env_var": "TOKEN_VARIABLE_SECRET",
+        "bearer_token_env_var": "TOKEN_VARIABLE",
         "oauth": {
             "client_id": "client-1",
             "client_secret": "client-secret",
@@ -197,8 +203,11 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
                 "X-Team".to_owned(),
                 "Authorization".to_owned(),
             ]),
-            bearer_token_env_var: None,
-            env_http_headers: None,
+            bearer_token_env_var: Some("TOKEN_VARIABLE".to_owned()),
+            env_http_headers: Record::new(BTreeMap::from([(
+                "X-Team".to_owned(),
+                "TEAM_VARIABLE".to_owned(),
+            )])),
             oauth_scopes: None,
             oauth_resource: None,
             enabled: None,
@@ -250,9 +259,7 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
         "hunter2-password",
         "query-secret",
         "header-secret",
-        "TEAM_VARIABLE_SECRET",
         "bearer-secret",
-        "TOKEN_VARIABLE_SECRET",
         "client-secret",
         "env-secret",
         "plugin-env-secret",
@@ -287,7 +294,7 @@ async fn each_layer_binds_its_own_declaration_and_a_higher_entry_supersedes_it()
 
     let reading = read_scripted(&[attached_root()], plugin_home.path(), &[reply]).await;
 
-    let project_file = placed(&format!("{ROOT}/.codex/config.toml"));
+    let project_file = McpOverrideOrigin::Placed(placed(&format!("{ROOT}/.codex/config.toml")));
     let project_docs = declaration(&reading, &project("docs"));
     assert!(matches!(
         project_docs.config,
@@ -345,7 +352,10 @@ async fn an_administrator_server_reads_managed_and_names_the_file_that_overrides
 
     let corp = declaration(&reading, &managed("corp"));
     assert!(corp.is_read_only);
-    assert_eq!(corp.superseded_in, vec![placed(USER_FILE)]);
+    assert_eq!(
+        corp.superseded_in,
+        vec![McpOverrideOrigin::Placed(placed(USER_FILE))]
+    );
     assert!(matches!(
         corp.config,
         McpServerConfigView::Http { tool_timeout_sec: Some(timeout), .. }
@@ -358,6 +368,34 @@ async fn an_administrator_server_reads_managed_and_names_the_file_that_overrides
     );
     assert!(reading.is_machine_managed);
     assert!(reading.roots.is_empty());
+}
+
+// Killed by naming no origin for an administrator's layer written in no file, and by naming it
+// as another kind.
+#[tokio::test]
+async fn a_device_management_layer_is_named_where_it_overrides_the_persons_server() {
+    let reply = json!({
+        "config": {"mcp_servers": {"docs": {"command": "docs-server", "enabled": false}}},
+        "origins": {},
+        "layers": [
+            {
+                "name": {"type": "legacyManagedConfigTomlFromMdm"},
+                "version": "1",
+                "config": {"mcp_servers": {"docs": {"enabled": false, "tool_timeout_sec": 9}}},
+            },
+            user_layer(json!({"docs": {"command": "docs-server"}})),
+        ],
+    });
+    let plugin_home = tempfile::tempdir().expect("a scratch folder is made");
+
+    let reading = read_scripted(&[], plugin_home.path(), &[reply]).await;
+
+    let device_management = McpOverrideOrigin::ManagedLayer(McpManagedLayer {
+        managed_layer: McpManagedLayerKind::DeviceManagement,
+    });
+    let docs = declaration(&reading, &user("docs"));
+    assert_eq!(docs.disabled_in, vec![device_management.clone()]);
+    assert_eq!(docs.superseded_in, vec![device_management]);
 }
 
 // Killed by reading a layer Codex ignores.

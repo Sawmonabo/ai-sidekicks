@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+use sidekicks_contracts::mcp::server::inventory::McpOverrideOrigin;
 use sidekicks_contracts::mcp::server::{
     McpApprovalMode, McpServerBindingRef, McpServerName, McpToolName,
 };
@@ -100,11 +101,12 @@ pub struct McpServerDeclaration {
     pub binding: McpServerBindingRef,
     /// The declaration with every credential-bearing value reduced to its name.
     pub config: McpServerConfigView,
-    /// Where another declaration takes this one's place: a project root, or the settings file
-    /// whose entry overrides it field by field.
-    pub superseded_in: Vec<PlacedPath>,
-    /// The project roots where the provider's own per-project list switches it off.
-    pub disabled_in: Vec<PlacedPath>,
+    /// Where another declaration takes this one's place: a project root, or the settings file or
+    /// the administrator's layer in no file whose entry overrides it field by field.
+    pub superseded_in: Vec<McpOverrideOrigin>,
+    /// Where it is switched off: the project roots where the provider's own per-project list
+    /// switches it off, or the settings file or administrator's layer whose entry does.
+    pub disabled_in: Vec<McpOverrideOrigin>,
     /// Whether the person cannot write it, since the provider or an administrator owns it.
     pub is_read_only: bool,
     /// The sign-in client the declaration names, where it names one.

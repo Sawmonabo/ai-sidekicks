@@ -10,6 +10,7 @@ use sidekicks_contracts::mcp::governance::{
     McpServerList, McpServerRead, McpServerStatusChangedNotice,
 };
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+use sidekicks_contracts::mcp::server::inventory::McpOverrideOrigin;
 use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerBindingRef};
 use sidekicks_contracts::method::Method as _;
 use sidekicks_contracts::place::PlacedPath;
@@ -204,7 +205,7 @@ fn declaration_of(
             tool_timeout_sec: None,
         },
         superseded_in: Vec::new(),
-        disabled_in: vec![switched_off_at.clone()],
+        disabled_in: vec![McpOverrideOrigin::Placed(switched_off_at.clone())],
         is_read_only: false,
         sign_in_client: None,
         is_switch_kept_by_daemon: true,

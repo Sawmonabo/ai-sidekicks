@@ -8,8 +8,9 @@ use std::sync::Arc;
 use futures::future::try_join_all;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::inventory::{
-    McpAnsweredInventoryEntry, McpServerIdempotencyClass, McpServerInventoryEntry,
-    McpStoreUnavailableInventoryEntry, McpToolOverride, McpToolReading, McpToolSetting,
+    McpAnsweredInventoryEntry, McpOverrideOrigin, McpServerIdempotencyClass,
+    McpServerInventoryEntry, McpStoreUnavailableInventoryEntry, McpToolOverride, McpToolReading,
+    McpToolSetting,
 };
 use sidekicks_contracts::mcp::server::requests::McpServerListRequest;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpToolName};
@@ -434,7 +435,12 @@ impl McpInventoryService {
             declaration
                 .disabled_in
                 .into_iter()
-                .chain(stored.switched_off_in)
+                .chain(
+                    stored
+                        .switched_off_in
+                        .into_iter()
+                        .map(McpOverrideOrigin::Placed),
+                )
                 .collect(),
         );
         let tools = tool_readings(
@@ -473,8 +479,10 @@ fn config_enabled(config: &McpServerConfigView) -> bool {
 }
 
 /// `places` without repeats, in their first order; absent where none is left.
-fn unique_places(places: Vec<PlacedPath>) -> Option<UniqueList<PlacedPath, 1, { usize::MAX }>> {
-    let mut unique: Vec<PlacedPath> = Vec::with_capacity(places.len());
+fn unique_places(
+    places: Vec<McpOverrideOrigin>,
+) -> Option<UniqueList<McpOverrideOrigin, 1, { usize::MAX }>> {
+    let mut unique: Vec<McpOverrideOrigin> = Vec::with_capacity(places.len());
     for place in places {
         if !unique.contains(&place) {
             unique.push(place);

@@ -4,6 +4,9 @@
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::mcp::server::inventory::{
+    McpManagedLayer, McpManagedLayerKind, McpOverrideOrigin,
+};
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_platforms::PathRules;
@@ -30,11 +33,12 @@ enum LayerRole {
     Administrator,
 }
 
-// One layer Codex merges, with its role, its servers and the file it is written in.
+// One layer Codex merges, with its role, its servers and where it comes from: the file it is
+// written in, or for an administrator's layer in no file, its kind.
 struct RankedLayer<'read> {
     role: LayerRole,
     servers: Option<&'read Map<String, Value>>,
-    file: Option<PlacedPath>,
+    origin: Option<McpOverrideOrigin>,
 }
 
 impl RankedLayer<'_> {
@@ -162,7 +166,7 @@ pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> Code
     }
 }
 
-// `layer`'s role, servers and file; `None` for a layer that binds nothing.
+// `layer`'s role, servers and origin; `None` for a layer that binds nothing.
 fn rank_layer<'read>(
     layer: &'read CodexConfigLayer,
     root: Option<&PlacedPath>,
@@ -195,7 +199,6 @@ fn rank_layer<'read>(
                 place,
             })
         }),
-        // An MDM or enterprise layer is written in no file.
         LayerRole::User | LayerRole::Administrator => source.file.as_deref().and_then(|file| {
             Some(PlacedPath {
                 path: FilesystemPath::new(file.to_owned()).ok()?,
@@ -203,32 +206,43 @@ fn rank_layer<'read>(
             })
         }),
     };
+    // An MDM or enterprise layer is written in no file, so it is named by its kind.
+    let fileless_kind = match source.kind.as_str() {
+        "mdm" | "legacyManagedConfigTomlFromMdm" => Some(McpManagedLayerKind::DeviceManagement),
+        "enterpriseManaged" => Some(McpManagedLayerKind::OrganizationCloud),
+        _ => None,
+    };
+    let origin = file.map(McpOverrideOrigin::Placed).or_else(|| {
+        fileless_kind
+            .map(|managed_layer| McpOverrideOrigin::ManagedLayer(McpManagedLayer { managed_layer }))
+    });
     Some(RankedLayer {
         role,
         servers: layer.config.get(MCP_SERVERS_KEY).and_then(Value::as_object),
-        file,
+        origin,
     })
 }
 
-// The files of the layers in `higher` whose entry for `name` takes the place of `layer`'s
+// The origins of the layers in `higher` whose entry for `name` takes the place of `layer`'s
 // declaration (a declaration of another binding, or an override of any member but the switch),
 // and of those whose entry switches it off.
 fn read_overrides(
     higher: &[RankedLayer<'_>],
     layer: &RankedLayer<'_>,
     name: &str,
-) -> (Vec<PlacedPath>, Vec<PlacedPath>) {
-    let mut superseded_in: Vec<PlacedPath> = Vec::new();
-    let mut disabled_in: Vec<PlacedPath> = Vec::new();
+) -> (Vec<McpOverrideOrigin>, Vec<McpOverrideOrigin>) {
+    let mut superseded_in: Vec<McpOverrideOrigin> = Vec::new();
+    let mut disabled_in: Vec<McpOverrideOrigin> = Vec::new();
     for overriding in higher {
         let Some(entry) = overriding.server(name) else {
             continue;
         };
-        // A layer in no file cannot be named; a profile over the user's own file is the same file.
-        let Some(file) = overriding.file.as_ref() else {
+        // A layer of no known origin cannot be named; a profile over the user's own file is the
+        // same file.
+        let Some(file) = overriding.origin.as_ref() else {
             continue;
         };
-        if Some(file) == layer.file.as_ref() {
+        if Some(file) == layer.origin.as_ref() {
             continue;
         }
         if has_transport(entry) {
@@ -281,7 +295,7 @@ fn gather(drafts: &mut Vec<DeclarationDraft>, draft: DeclarationDraft) {
     }
 }
 
-fn push_once(files: &mut Vec<PlacedPath>, file: &PlacedPath) {
+fn push_once(files: &mut Vec<McpOverrideOrigin>, file: &McpOverrideOrigin) {
     if !files.contains(file) {
         files.push(file.clone());
     }

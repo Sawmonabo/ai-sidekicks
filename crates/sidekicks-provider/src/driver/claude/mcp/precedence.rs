@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use sidekicks_contracts::mcp::server::inventory::McpOverrideOrigin;
 use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -117,7 +118,7 @@ pub(crate) fn rank_claude_mcp_servers(
         superseded_in: superseded
             .iter()
             .filter(|(binding, _root)| **binding == server.binding)
-            .map(|(_binding, root)| (*root).clone())
+            .map(|(_binding, root)| McpOverrideOrigin::Placed((*root).clone()))
             .collect(),
         disabled_in: reading
             .roots
@@ -126,7 +127,7 @@ pub(crate) fn rank_claude_mcp_servers(
                 is_declared_at(&server.binding, &root.root)
                     && is_switched_off(&server.binding, &root.switched_off_server_names)
             })
-            .map(|root| root.root.clone())
+            .map(|root| McpOverrideOrigin::Placed(root.root.clone()))
             .collect(),
         is_read_only: !is_writable(&server.binding),
         sign_in_client: None,
@@ -309,6 +310,7 @@ mod tests {
 
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+    use sidekicks_contracts::mcp::server::inventory::McpOverrideOrigin;
     use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
     use sidekicks_contracts::place::PlacedPath;
     use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -352,7 +354,7 @@ mod tests {
     fn superseded_in<'ranked>(
         declarations: &'ranked [McpServerDeclaration],
         binding: &McpServerBindingRef,
-    ) -> &'ranked [PlacedPath] {
+    ) -> &'ranked [McpOverrideOrigin] {
         &declarations
             .iter()
             .find(|declaration| declaration.binding == *binding)
@@ -420,13 +422,17 @@ mod tests {
         let ranking = rank_claude_mcp_servers(&reading, &accounts, true);
 
         let declarations = &ranking.declarations;
-        assert_eq!(superseded_in(declarations, &user("github")), [root.clone()]);
+        let at_root = McpOverrideOrigin::Placed(root.clone());
+        assert_eq!(
+            superseded_in(declarations, &user("github")),
+            [at_root.clone()]
+        );
         assert!(superseded_in(declarations, &user("docs")).is_empty());
         let account_declarations = &ranking.account_servers[0].declarations;
         assert!(superseded_in(account_declarations, &organization).is_empty());
         assert_eq!(
             superseded_in(account_declarations, &connector("Docs")),
-            [root]
+            [at_root]
         );
         assert!(superseded_in(account_declarations, &connector("Docs team")).is_empty());
         // Under a managed file Claude Code loads the organization's servers alone.
