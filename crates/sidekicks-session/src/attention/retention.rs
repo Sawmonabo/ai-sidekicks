@@ -68,18 +68,17 @@ static DELETE_RETIRED_ENTRIES_SQL: LazyLock<String> =
     LazyLock::new(|| format!("DELETE FROM attention_entries WHERE {}", *RETIRED_ENTRIES));
 
 // The cut moves to the last event before the first one at or after `@retained_before`, read
-// upward from the cut it stands at, so each event is passed over once, and never below that cut.
+// upward from the cut it stands at, so each event is passed over once and the cut never falls:
+// the read starts past the stored cut and falls back to the session's newest event.
 // A session with entries has its counts' row, which the raise that made them wrote.
 const ADVANCE_CUT_SQL: &str = "UPDATE attention_versions
-  SET retained_through_sequence = max(
-    COALESCE(attention_versions.retained_through_sequence, -1),
-    COALESCE(
-      (SELECT sequence - 1 FROM session_events
-        WHERE session_id = @session_id
-          AND sequence > COALESCE(attention_versions.retained_through_sequence, -1)
-          AND occurred_at >= @retained_before
-        ORDER BY sequence LIMIT 1),
-      (SELECT MAX(sequence) FROM session_events WHERE session_id = @session_id)))
+  SET retained_through_sequence = COALESCE(
+    (SELECT sequence - 1 FROM session_events
+      WHERE session_id = @session_id
+        AND sequence > COALESCE(attention_versions.retained_through_sequence, -1)
+        AND occurred_at >= @retained_before
+      ORDER BY sequence LIMIT 1),
+    (SELECT MAX(sequence) FROM session_events WHERE session_id = @session_id))
   WHERE scope_key = @session_id";
 
 /// The statements that delete the session's entries past its cut that nothing reads, with their
