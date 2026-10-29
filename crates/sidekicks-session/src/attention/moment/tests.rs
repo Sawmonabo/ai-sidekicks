@@ -154,6 +154,7 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
 #[case::queued_resolves(
     json!({"type": "agent.run.queued", "payload": {
         "sessionId": SESSION, "runId": RUN, "runVersion": 0, "newState": "queued", "agentId": AGENT,
+        "admittedProviderAccountId": "account-1",
     }}),
     resolve(AttentionOpenEntries::Run(run_id()))
 )]
