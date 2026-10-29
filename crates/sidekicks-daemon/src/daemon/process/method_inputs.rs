@@ -17,6 +17,7 @@ use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::text::{BoundedText, TextError};
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
+use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
 use sidekicks_platforms::{
     DaemonRunFolder, Spawner, TOOL_MEMORY_CAP_ENFORCEABLE, WallClock, available_memory,
@@ -185,6 +186,11 @@ pub(crate) struct MethodInputs {
     pub(crate) worktree_setup: Arc<WorktreeSetupRunner>,
     /// Makes worktrees and answers the new-worktree form's suggestion.
     pub(crate) worktree_creator: Arc<WorktreeCreator>,
+    /// This machine's device, the device of every connection to its socket.
+    pub(crate) machine_device_id: DeviceId,
+    /// The devices' heartbeats, which the presence methods answer from and each closing
+    /// connection drops its own from.
+    pub(crate) presence: Arc<PresenceRegister>,
 }
 
 /// Why the method tables' services could not be built.
@@ -269,6 +275,8 @@ pub(crate) async fn register_method_inputs(
         stop_work,
         close_data_folder,
     } = start;
+    let machine_device_id = device_id_of(&machine.machine_id)?;
+    let presence = Arc::new(PresenceRegister::default());
     let reads = Arc::clone(&database.pool);
     let writer = Arc::clone(&database.writer);
     let read_damaged_from_sequence = Arc::clone(&database.read_damaged_from_sequence);
@@ -368,7 +376,7 @@ pub(crate) async fn register_method_inputs(
     let shells = Arc::new(
         build_shell_table(ShellTableStart {
             terminals: Arc::clone(&session.terminals),
-            machine_device_id: device_id_of(&machine.machine_id)?,
+            machine_device_id: machine_device_id.clone(),
             reads: Arc::clone(&reads),
             appender: Arc::clone(&session.appender),
             settings: Arc::clone(&settings),
@@ -596,6 +604,7 @@ pub(crate) async fn register_method_inputs(
             project_list_feed: Arc::clone(&project_list_feed),
             clones: clones.clone(),
             machine_folders: Arc::new(FolderListService::new(home_folder.to_path_buf(), git)),
+            presence: Arc::clone(&presence),
         },
     )?;
     Ok(MethodInputs {
@@ -605,11 +614,13 @@ pub(crate) async fn register_method_inputs(
         clones: clones.ok(),
         worktree_setup,
         worktree_creator,
+        machine_device_id,
+        presence,
     })
 }
 
-// This machine's own device id, which a run's hold on a shell names: a machine's id is the device
-// of every local connection to its service.
+// This machine's own device id, which a run's hold on a shell names and every call on the socket
+// carries: a machine's id is the device of every local connection to its service.
 fn device_id_of(machine_id: &MachineId) -> Result<DeviceId, MethodInputsError> {
     DeviceId::new(machine_id.as_str().to_owned()).ok_or_else(|| {
         MethodInputsError::MachineDeviceId {

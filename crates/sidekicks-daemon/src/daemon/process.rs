@@ -572,11 +572,12 @@ impl DaemonProcess {
         );
         self.in_flight = Some(gates.in_flight);
         let services = GatewayServices {
-            device_id: None,
+            device_id: Some(inputs.machine_device_id),
             dispatch: gates.dispatch,
             registry,
             negotiator,
             subscriptions,
+            presence: inputs.presence,
             hooks: Arc::new(ServingSocketHooks {
                 process_state: Arc::clone(&self.process_state),
             }),
