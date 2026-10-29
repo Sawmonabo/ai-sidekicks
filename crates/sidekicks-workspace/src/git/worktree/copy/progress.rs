@@ -53,8 +53,8 @@ struct CopyEntry {
     bytes_in_flight: u64,
 }
 
-/// What a copy across volumes reports while it runs. Ending it, by [`WorktreeCopyReport::end`] or
-/// by dropping it, takes the copy off the list, sends the list at once and stops its ticks.
+/// What a copy across volumes reports while it runs. Dropping it, whether the copy succeeded or
+/// failed, takes the copy off the list, sends the list at once and stops its ticks.
 pub(crate) struct WorktreeCopyReport {
     state: Arc<CopiesState>,
     entry_id: u64,
@@ -138,21 +138,9 @@ impl WorktreeCopyReport {
         let mut entries = self.state.lock_entries();
         let entry = entries
             .find_mut(self.entry_id)
-            .expect("a copy stays listed until its report ends");
+            .expect("a copy stays listed until its report is dropped");
         entry.finished_bytes += bytes;
         entry.bytes_in_flight = 0;
-    }
-
-    /// Ends the copy, whether it succeeded or failed, as dropping the report does.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "read by the progress tests alone; dropping the report ends a copy"
-        )
-    )]
-    pub(crate) fn end(self) {
-        drop(self);
     }
 }
 
@@ -381,7 +369,7 @@ mod tests {
 
         // The copy ends while the third read is stalled: the ticking task is released at once.
         stalled.await.expect("the third read stalls");
-        report.end();
+        drop(report);
         assert_eq!(follower.next().await, Some(progress_of(Vec::new())));
         tokio::task::yield_now().await;
         assert_eq!(Arc::strong_count(&reads), 1);
