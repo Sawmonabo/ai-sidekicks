@@ -62,13 +62,6 @@ pub(crate) struct ClaudeMcpServerStatusRow {
     pub(crate) config: Option<ClaudeMcpServerStatusConfig>,
     /// The server's tools, each by name; sent while it is connected.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the MCP server settings list a live server's tools from it"
-        )
-    )]
     pub(crate) tools: Option<LenientList<ClaudeMcpServerTool>>,
 }
 
@@ -78,13 +71,6 @@ pub(crate) struct ClaudeMcpServerStatusRow {
 pub(crate) struct ClaudeMcpServerTool {
     /// The tool's name.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the MCP server settings list a live server's tools from it"
-        )
-    )]
     pub(crate) name: Option<String>,
 }
 

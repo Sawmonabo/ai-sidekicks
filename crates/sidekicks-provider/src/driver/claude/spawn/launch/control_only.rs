@@ -1,7 +1,7 @@
 //! The Claude Code processes that keep nothing: brought up only to answer control requests, with
 //! no hooks and no conversation kept, for the sign-in probe, the model catalog and the build's
-//! version and an account's MCP servers, each in the daemon's own empty folder unless a read needs
-//! another. Each is closed once its reads are done, as a session closes.
+//! version, an account's MCP servers and the MCP server probe, each in the daemon's own empty
+//! folder unless a read needs another. Each is closed once its reads are done, as a session closes.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -39,6 +39,20 @@ pub(crate) const CLAUDE_CONTROL_ONLY_ARGUMENTS: [&str; 7] = [
     "--verbose",
     "--no-session-persistence",
 ];
+
+/// The command line of a process that keeps nothing, with the daemon's appended system prompt,
+/// on `model` where given.
+pub(crate) fn compose_claude_control_only_arguments(model: Option<&str>) -> Vec<String> {
+    let mut arguments: Vec<String> = CLAUDE_CONTROL_ONLY_ARGUMENTS
+        .into_iter()
+        .chain(claude_appended_system_prompt_arguments())
+        .map(str::to_owned)
+        .collect();
+    if let Some(model) = model {
+        arguments.extend(["--model".to_owned(), model.to_owned()]);
+    }
+    arguments
+}
 
 /// What one short process wrote, in the order read.
 pub(crate) enum ClaudeShortProcessArrival {
@@ -141,18 +155,10 @@ impl ClaudeShortProcess {
             Some(folder) => folder,
             None => launcher.control_only_folder().await?,
         };
-        let mut arguments: Vec<String> = CLAUDE_CONTROL_ONLY_ARGUMENTS
-            .into_iter()
-            .chain(claude_appended_system_prompt_arguments())
-            .map(str::to_owned)
-            .collect();
-        if let Some(model) = model {
-            arguments.extend(["--model".to_owned(), model.to_owned()]);
-        }
         Self::start(
             launcher,
             executable,
-            arguments,
+            compose_claude_control_only_arguments(model),
             working_folder,
             provider_account_id,
         )

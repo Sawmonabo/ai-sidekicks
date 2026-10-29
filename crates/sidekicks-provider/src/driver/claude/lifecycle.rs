@@ -87,9 +87,11 @@ use crate::spawn_environment::SessionEnvironment;
 
 /// The Claude Code driver: what it stores when built, and the session pieces it composes once.
 pub(crate) struct ClaudeDriver {
-    starts: Arc<dyn ClaudeProcessStarts>,
+    /// Every process the driver starts.
+    pub(crate) starts: Arc<dyn ClaudeProcessStarts>,
     figures: Arc<ClaudeHeldFigures>,
-    account_servers: Arc<ClaudeAccountServerReads>,
+    /// Each account's read of its connectors and organization servers.
+    pub(crate) account_servers: Arc<ClaudeAccountServerReads>,
     /// The daemon's services every session's process is started from.
     pub(crate) sources: Arc<ClaudeSpawnSources>,
     attachments: Arc<dyn AttachmentResolver>,

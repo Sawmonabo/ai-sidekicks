@@ -135,6 +135,7 @@ fn read_connector(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::Duration;
@@ -451,6 +452,7 @@ mod tests {
                     "probe-organization".to_owned(),
                     ClaudeToolServerEntry::Http {
                         url: organization_url.clone(),
+                        headers: BTreeMap::new(),
                     },
                 )]
                 .into(),

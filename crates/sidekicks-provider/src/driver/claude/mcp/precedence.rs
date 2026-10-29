@@ -42,13 +42,6 @@ pub(crate) struct ClaudeMcpRootSources<'servers> {
 
 /// The read's declarations, its roots and each account's servers, after Claude Code's precedence.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude Code driver's MCP server read hands it on"
-    )
-)]
 pub(crate) struct ClaudeMcpRanking {
     /// The `user`, plugin, `local` and `project` declarations.
     pub(crate) declarations: Vec<McpServerDeclaration>,
@@ -62,13 +55,6 @@ pub(crate) struct ClaudeMcpRanking {
 /// servers and connectors the account read hands in, and names what each root loads by Claude
 /// Code's own config: nothing, since sessions start with the person's files left out, unless
 /// `has_managed_mcp_file`, where Claude Code loads only the organization's servers.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude Code driver's MCP server read calls it"
-    )
-)]
 pub(crate) fn rank_claude_mcp_servers(
     reading: &ClaudeMcpConfigReading,
     accounts: &[ClaudeMcpAccountServers],

@@ -20,6 +20,7 @@ use crate::driver::claude::capabilities::read_claude_capabilities;
 use crate::driver::claude::mcp::connectors::{
     ClaudeAccountServerAnswers, ClaudeAccountServersReadRequest, read_claude_account_answers,
 };
+use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
@@ -116,6 +117,14 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
         &self,
         request: ClaudeAccountServersReadRequest,
     ) -> BoxFuture<'_, Result<ClaudeAccountServerAnswers, ClaudeLaunchError>>;
+
+    /// Starts the MCP server probe's process as `request` names and sends its `initialize`,
+    /// handing back the process to send the probe's requests on and close. Fails as the start or
+    /// `initialize` does, the process then closed.
+    fn start_mcp_probe(
+        &self,
+        request: ClaudeMcpProbeProcessRequest,
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>>;
 
     /// Stops every live process and starts none after.
     fn stop_every_process(&self) -> BoxFuture<'_, ()>;
@@ -340,6 +349,35 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                 request.working_folder,
             )
             .await
+        }
+        .boxed()
+    }
+
+    fn start_mcp_probe(
+        &self,
+        request: ClaudeMcpProbeProcessRequest,
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
+        async move {
+            let executable =
+                Self::resolve(&self.command_search, &self.home_folder, request.environment).await?;
+            let working_folder = match request.working_folder {
+                Some(folder) => folder,
+                None => self.launcher.control_only_folder().await?,
+            };
+            let short = ClaudeShortProcess::start(
+                &self.launcher,
+                &executable,
+                request.arguments,
+                working_folder,
+                Some(request.provider_account_id),
+            )
+            .await?;
+            if let Err(error) = short.initialize().await {
+                short.close().await;
+                return Err(error.into());
+            }
+            let process: Arc<dyn ClaudeProcessChannel> = short.process;
+            Ok(process)
         }
         .boxed()
     }

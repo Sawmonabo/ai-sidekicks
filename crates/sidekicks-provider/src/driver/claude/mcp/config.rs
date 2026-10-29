@@ -3,7 +3,8 @@
 //! plugin home, the per-project names kept out of a root or switched off there, and the allow and
 //! deny lists. Every
 //! credential-bearing value is dropped at the read: a declaration keeps names only, and a remote
-//! address is held whole only in memory, for the duplicate match.
+//! address is held whole only in memory, for the duplicate match. The one read that keeps values
+//! takes a single server's entry for the probe that sends it, which drops it once sent.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -34,6 +35,10 @@ const DISABLED_MCPJSON_SERVERS_KEY: &str = "disabledMcpjsonServers";
 const ALLOWED_MCP_SERVERS_KEY: &str = "allowedMcpServers";
 const DENIED_MCP_SERVERS_KEY: &str = "deniedMcpServers";
 const ALLOW_MANAGED_MCP_SERVERS_ONLY_KEY: &str = "allowManagedMcpServersOnly";
+// The person's own config file in their home, holding the `user` and per-project servers.
+const PERSON_CONFIG_FILE: &str = ".claude.json";
+// A project's or a plugin's file of servers.
+const SERVERS_FILE: &str = ".mcp.json";
 
 /// One attached project root and the folder its files are read at on this computer.
 #[derive(Clone, Debug)]
@@ -112,30 +117,20 @@ pub(crate) struct ClaudeMcpConfigReading {
     /// What the read found at each attached root, in the order the roots were given.
     pub(crate) roots: Vec<ClaudeMcpRootConfig>,
     /// The allow and deny lists of the user and managed settings.
-    #[expect(
-        dead_code,
-        reason = "the Claude Code driver's MCP server read hands it on"
-    )]
     pub(crate) server_policy: McpServerPolicy,
 }
 
 /// Reads the person's Claude Code MCP config from `sources`. A file that is absent, not the
 /// daemon's to read or not JSON of the expected shape declares nothing; fails with the path and
 /// the system's error on any other read failure.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude Code driver's MCP server read calls it"
-    )
-)]
 pub(crate) async fn read_claude_mcp_config(
     sources: &ClaudeMcpConfigSources<'_>,
 ) -> Result<ClaudeMcpConfigReading, ClaudeSettingsReadError> {
     let provider = DESCRIPTOR.provider_id();
-    let person_config: ClaudePersonConfigFile = read_json_file(&sources.home.join(".claude.json"))
-        .await?
-        .unwrap_or_default();
+    let person_config: ClaudePersonConfigFile =
+        read_json_file(&sources.home.join(PERSON_CONFIG_FILE))
+            .await?
+            .unwrap_or_default();
     let user_settings = read_settings(&sources.home.join(".claude").join("settings.json")).await?;
     let managed_settings = match sources.managed_settings_folder {
         Some(folder) => read_managed_settings(folder).await?,
@@ -159,7 +154,7 @@ pub(crate) async fn read_claude_mcp_config(
         let project_entry = projects
             .and_then(|projects| projects.get(root.root.path.as_str()))
             .and_then(Tolerated::read);
-        let project_file: ClaudeMcpServersFile = read_json_file(&root.folder.join(".mcp.json"))
+        let project_file: ClaudeMcpServersFile = read_json_file(&root.folder.join(SERVERS_FILE))
             .await?
             .unwrap_or_default();
         let settings_folder = root.folder.join(".claude");
@@ -473,31 +468,9 @@ fn read_server_entry(
 async fn read_plugin_servers(
     plugin_home: &Path,
 ) -> Result<Vec<ClaudeMcpServer>, ClaudeSettingsReadError> {
-    let installed: ClaudeInstalledPluginsFile =
-        read_json_file(&plugin_home.join("plugins").join("installed_plugins.json"))
-            .await?
-            .unwrap_or_default();
     let mut servers: Vec<ClaudeMcpServer> = Vec::new();
-    for (plugin_id, installs) in installed.plugins.read().into_iter().flatten() {
-        // A binding names the plugin by its name, the id's part before the marketplace.
-        let name = plugin_id
-            .rsplit_once('@')
-            .map_or(plugin_id.as_str(), |(name, _)| name);
-        let Ok(plugin_name) = PluginToken::new(name.to_owned()) else {
-            continue;
-        };
-        let Some(install) = installs
-            .read()
-            .and_then(|installs| installs.iter().find_map(Tolerated::read))
-        else {
-            continue;
-        };
-        let root = &install.install_path;
-        let server_files = [
-            root.join(".mcp.json"),
-            root.join(".claude-plugin").join("plugin.json"),
-        ];
-        for file in server_files {
+    for (plugin_name, root) in read_installed_plugin_roots(plugin_home).await? {
+        for file in plugin_server_files(&root) {
             let Some(file) = read_json_file::<ClaudeMcpServersFile>(&file).await? else {
                 continue;
             };
@@ -516,6 +489,109 @@ async fn read_plugin_servers(
         }
     }
     Ok(servers)
+}
+
+// Each plugin `installed_plugins.json` lists in the plugin home, by its name, the id's part before
+// the marketplace, with the root of its first install.
+async fn read_installed_plugin_roots(
+    plugin_home: &Path,
+) -> Result<Vec<(PluginToken, PathBuf)>, ClaudeSettingsReadError> {
+    let installed: ClaudeInstalledPluginsFile =
+        read_json_file(&plugin_home.join("plugins").join("installed_plugins.json"))
+            .await?
+            .unwrap_or_default();
+    Ok(installed
+        .plugins
+        .read()
+        .into_iter()
+        .flatten()
+        .filter_map(|(plugin_id, installs)| {
+            let name = plugin_id
+                .rsplit_once('@')
+                .map_or(plugin_id.as_str(), |(name, _)| name);
+            let plugin_name = PluginToken::new(name.to_owned()).ok()?;
+            let install = installs
+                .read()
+                .and_then(|installs| installs.iter().find_map(Tolerated::read))?;
+            Some((plugin_name, install.install_path.clone()))
+        })
+        .collect())
+}
+
+// The files a plugin declares its servers in, in the order Claude Code reads them: its root's
+// `.mcp.json`, then its manifest.
+fn plugin_server_files(root: &Path) -> [PathBuf; 2] {
+    [
+        root.join(SERVERS_FILE),
+        root.join(".claude-plugin").join("plugin.json"),
+    ]
+}
+
+/// One server's entry as the person wrote it, values included, for a probe that sends it and
+/// drops it: a `user` or `local` entry in `.claude.json` under `home`, a `project` entry in the
+/// root's `.mcp.json`, or a plugin's entry in `plugin_home`. `None` where the file or the entry is
+/// gone, and for a binding no config file declares; fails as the config read does.
+pub(crate) async fn read_claude_mcp_server_entry(
+    home: &Path,
+    plugin_home: &Path,
+    binding: &McpServerBindingRef,
+) -> Result<Option<Value>, ClaudeSettingsReadError> {
+    let entry_of = |file: Option<Value>, keys: &[&str]| {
+        let mut entry = file?;
+        for key in keys {
+            entry = entry.get_mut(*key)?.take();
+        }
+        Some(entry)
+    };
+    match binding {
+        McpServerBindingRef::User { server_name, .. } => Ok(entry_of(
+            read_json_file(&home.join(PERSON_CONFIG_FILE)).await?,
+            &["mcpServers", server_name.as_str()],
+        )),
+        McpServerBindingRef::Local {
+            scope_ref,
+            server_name,
+            ..
+        } => Ok(entry_of(
+            read_json_file(&home.join(PERSON_CONFIG_FILE)).await?,
+            &[
+                "projects",
+                scope_ref.as_str(),
+                "mcpServers",
+                server_name.as_str(),
+            ],
+        )),
+        McpServerBindingRef::Project {
+            scope_ref,
+            server_name,
+            ..
+        } => Ok(entry_of(
+            read_json_file(&Path::new(scope_ref.as_str()).join(SERVERS_FILE)).await?,
+            &["mcpServers", server_name.as_str()],
+        )),
+        McpServerBindingRef::Plugin {
+            scope_ref,
+            server_name,
+            ..
+        } => {
+            for (plugin_name, root) in read_installed_plugin_roots(plugin_home).await? {
+                if plugin_name != *scope_ref {
+                    continue;
+                }
+                for file in plugin_server_files(&root) {
+                    let entry = entry_of(
+                        read_json_file(&file).await?,
+                        &["mcpServers", server_name.as_str()],
+                    );
+                    if entry.is_some() {
+                        return Ok(entry);
+                    }
+                }
+            }
+            Ok(None)
+        }
+        McpServerBindingRef::Connector { .. } | McpServerBindingRef::Managed { .. } => Ok(None),
+    }
 }
 
 // The allow and deny lists Claude Code merges: the deny list from every file, the allow list from
