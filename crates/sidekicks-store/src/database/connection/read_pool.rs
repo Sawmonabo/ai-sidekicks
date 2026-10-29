@@ -20,7 +20,7 @@ use crate::database::connection::setup::open_database_reader;
 
 /// The read-only connections the pool holds at most. It is 4 until a measured workload of short
 /// reads beside long ones on the blocking pool sets it.
-pub(crate) const READ_POOL_SIZE: usize = 4;
+pub const READ_POOL_SIZE: usize = 4;
 
 const CLOSE_OPERATION: &str = "closing the database read pool";
 

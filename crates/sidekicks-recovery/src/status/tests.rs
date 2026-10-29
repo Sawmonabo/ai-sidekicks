@@ -1,5 +1,9 @@
 //! The runs that need the person, as the status read lists them beside the damaged sessions.
 
+use std::sync::Arc;
+use std::task::Poll;
+use std::time::Duration;
+
 use rusqlite::params;
 use sidekicks_contracts::daemon::recovery::{
     DaemonRecoveryHaltedRun, DaemonRecoverySession, DaemonRecoverySessionState, DaemonRecoveryState,
@@ -11,10 +15,15 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, READ_POOL_SIZE, ReadLength,
+};
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_run_id, test_session_id};
 
 use super::{LastGoodPoint, RECOVERY_STATUS_STATEMENT_CAPACITY, RecoveryStatusTracker};
+
+// Bounds every wait the pool and the read must answer, so a hang fails the test.
+const ANSWER_WAIT: Duration = Duration::from_secs(5);
 
 // A database with the daemon's tables and no run, and the read pool the status read checks halts
 // through.
@@ -235,5 +244,77 @@ async fn a_read_that_cannot_check_its_halts_lists_them_as_marked() {
             .find(|session_entry| session_entry.session_id == session)
             .and_then(|session_entry| session_entry.halted_runs),
         Some(vec![diverged_halt(ended)])
+    );
+}
+
+// A failed resume marked on a run while the read waits for a connection, after it took the run's
+// diverged halt to check and before it finds that run ended, stays listed. Killed by the re-lock
+// forgetting an ended halt whatever its mark is by then.
+#[tokio::test]
+async fn a_mark_made_while_the_read_waits_is_kept() {
+    let (database, reads) = test_reads();
+    let reads = Arc::new(reads);
+    let tracker = RecoveryStatusTracker::new();
+    tracker.mark_pass_ended();
+    let session = test_session_id();
+    let run = test_run_id();
+    insert_runs(&database, session, &[(run, "interrupted")]);
+    tracker.mark_run_halted(&session, diverged_halt(run));
+
+    // Reads blocked on a channel hold every connection.
+    let (started_sender, mut started) = tokio::sync::mpsc::unbounded_channel();
+    let (releases, holds): (Vec<_>, Vec<_>) = (0..READ_POOL_SIZE)
+        .map(|_| {
+            let (release, released) = std::sync::mpsc::channel::<()>();
+            let (reads, started) = (Arc::clone(&reads), started_sender.clone());
+            let hold = tokio::spawn(async move {
+                reads
+                    .read(ReadLength::Short, move |_connection| {
+                        started.send(()).expect("the test listens");
+                        released.recv().expect("the test releases the read");
+                        Ok::<_, DatabaseReadError>(())
+                    })
+                    .await
+            });
+            (release, hold)
+        })
+        .unzip();
+    for _ in 0..READ_POOL_SIZE {
+        tokio::time::timeout(ANSWER_WAIT, started.recv())
+            .await
+            .expect("each held read finds a connection")
+            .expect("a held read starts");
+    }
+    // One poll takes the halts to check and leaves the read waiting for a connection.
+    let mut status = Box::pin(tracker.read(&reads));
+    let first_poll = std::future::poll_fn(|context| Poll::Ready(status.as_mut().poll(context)));
+    assert!(first_poll.await.is_pending());
+
+    let failed_resume = DaemonRecoveryHaltedRun {
+        run_id: run,
+        recovery_condition: RecoveryCondition::ReauthRequired,
+        failure_category: Some(RunFailureCategory::ProviderFailure),
+    };
+    tracker.mark_run_halted(&session, failed_resume.clone());
+    for release in releases {
+        release.send(()).expect("the held read waits");
+    }
+    for hold in holds {
+        tokio::time::timeout(ANSWER_WAIT, hold)
+            .await
+            .expect("the held read ends")
+            .expect("the held read's task ends")
+            .expect("the held read runs");
+    }
+    let status = tokio::time::timeout(ANSWER_WAIT, status)
+        .await
+        .expect("the read ends once a connection is free");
+    assert_eq!(
+        status
+            .sessions
+            .into_iter()
+            .find(|entry| entry.session_id == session)
+            .and_then(|entry| entry.halted_runs),
+        Some(vec![failed_resume])
     );
 }
