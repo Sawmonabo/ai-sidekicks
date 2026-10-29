@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
+use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
 use sidekicks_ipc::registry::{Dispatch, MethodRegistry, MethodRegistryBuilder, RegistrationError};
 use sidekicks_recovery::damaged_history::DamagedHistory;
@@ -48,6 +49,7 @@ use crate::ipc::handlers::approval::{ApprovalMethodSources, register_approval_me
 use crate::ipc::handlers::driver::{DriverMethodSources, register_driver_methods};
 use crate::ipc::handlers::highlight::register_highlight_read;
 use crate::ipc::handlers::machine::folder::register_machine_folders;
+use crate::ipc::handlers::presence::register_presence_methods;
 use crate::ipc::handlers::project::clone::register_project_clone_methods;
 use crate::ipc::handlers::project::register_project_methods;
 use crate::ipc::handlers::question::register_question_resolve;
@@ -146,12 +148,15 @@ pub(crate) struct MethodTableServices {
     pub(crate) clones: Result<Arc<CloneService>, String>,
     /// Lists the machine's folders for another device's folder chooser.
     pub(crate) machine_folders: Arc<FolderListService>,
+    /// The devices' heartbeats.
+    pub(crate) presence: Arc<PresenceRegister>,
 }
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
-/// data, the drivers, the approvals, the runs, the sessions, the repositories, the projects and
-/// the machine's folders. The handshake, the subscriptions' cancel and the artifact store's table
-/// are registered by the start beside them. Fails when a method is registered twice.
+/// data, the drivers, the approvals, the runs, the sessions, the repositories, the projects, the
+/// machine's folders and the devices present. The handshake, the subscriptions' cancel and the
+/// artifact store's table are registered by the start beside them. Fails when a method is
+/// registered twice.
 pub(crate) fn register_method_tables(
     builder: &mut MethodRegistryBuilder,
     services: MethodTableServices,
@@ -202,7 +207,8 @@ pub(crate) fn register_method_tables(
     register_working_folder(builder, services.working_folders)?;
     register_project_methods(builder, services.projects, services.project_list_feed)?;
     register_project_clone_methods(builder, services.clones)?;
-    register_machine_folders(builder, services.machine_folders)
+    register_machine_folders(builder, services.machine_folders)?;
+    register_presence_methods(builder, services.presence)
 }
 
 /// The chain a call on the serving socket passes through, and its gate that records mutating calls,
