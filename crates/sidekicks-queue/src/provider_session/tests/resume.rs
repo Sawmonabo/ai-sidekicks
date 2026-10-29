@@ -14,6 +14,7 @@ use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::idle_sleep::{KeptSchedule, SessionSleepState};
 use sidekicks_provider::driver::session_control::{LiveRunResume, OpenTurnResume};
@@ -36,14 +37,15 @@ const PROVIDER_TURN_ID: &str = "provider-turn-7";
 const SUBAGENT_ID: &str = "helper-3";
 
 // Writes an event of `event_type` on `run_id` at `sequence` of the session's log, its turn number
-// in its column where it has one, as the append would.
+// in its column where it has one, as the append would, and answers its id.
 fn insert_run_event(
     database: &TestDatabase,
     session_id: SessionId,
     sequence: i64,
     (event_type, run_id, turn_number): (SessionEventType, RunId, Option<i64>),
     payload: &Value,
-) {
+) -> String {
+    let event_id = mint_uuid_v7().to_string();
     database
         .reader()
         .execute(
@@ -51,7 +53,7 @@ fn insert_run_event(
                category, type, payload, run_id, run_version, turn_number)
              VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, 1, ?9)",
             params![
-                mint_uuid_v7().to_string(),
+                event_id,
                 session_id.text().as_str(),
                 sequence,
                 WireInstant::now().as_str(),
@@ -63,12 +65,14 @@ fn insert_run_event(
             ],
         )
         .expect("the test writes the run's event");
+    event_id
 }
 
 // A resume after a restart names every live run of the session to the provider: the lead whose
-// turn is open under the provider's turn id its start recorded, and its live helper under the
-// helper id its start recorded. Killed by a child left out, a turn id dropped, an open turn left
-// out, and a helper's id not read.
+// turn is open under the provider's turn id and the event id its start recorded, and its live
+// helper under the helper id its start recorded, beneath the lead. Killed by a child left out, a
+// turn id or a start's id dropped, an open turn left out, a helper's id not read and a helper's
+// parent dropped.
 #[tokio::test]
 async fn a_resume_names_each_live_run_with_its_open_turns_and_helper_id() {
     let named = Arc::new(Mutex::new(Vec::new()));
@@ -96,7 +100,7 @@ async fn a_resume_names_each_live_run_with_its_open_turns_and_helper_id() {
             ],
         )
         .expect("the test writes the lead's helper");
-    insert_run_event(
+    let started_event_id = insert_run_event(
         &opening.database,
         opening.session_id,
         100,
@@ -140,11 +144,13 @@ async fn a_resume_names_each_live_run_with_its_open_turns_and_helper_id() {
         named_run(lead),
         LiveRunResume {
             run_id: lead,
+            parent_run_id: None,
             open_turns: vec![OpenTurnResume {
                 turn_number: SafeInt::new(1).expect("one is a turn number"),
                 provider_turn_id: Some(
                     ProviderTurnId::new(PROVIDER_TURN_ID.to_owned()).expect("a turn id"),
                 ),
+                started_event_id: FreeFormText::new(started_event_id).expect("an event id"),
             }],
             subagent_id: None,
         }
@@ -153,6 +159,7 @@ async fn a_resume_names_each_live_run_with_its_open_turns_and_helper_id() {
         named_run(child),
         LiveRunResume {
             run_id: child,
+            parent_run_id: Some(lead),
             open_turns: Vec::new(),
             subagent_id: Some(SubagentId::new(SUBAGENT_ID.to_owned()).expect("a helper id")),
         }

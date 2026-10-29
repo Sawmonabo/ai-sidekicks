@@ -2,8 +2,9 @@
 //! permission level and profile, base instructions, and a `config` carrying its model's window, the
 //! features it runs with, its tool servers, its connectors' defaults, its commands' environment,
 //! its helper limit and its helpers' role files. A resume and a fork send them all again, so a
-//! conversation never falls back to what Codex persisted. A start and every turn select the
-//! daemon's executor relay as the conversation's environment. Also the `turn/start` and
+//! conversation never falls back to what Codex persisted; a resume that joins a conversation the
+//! service holds loaded sends none, since Codex applies none there. A start and every turn select
+//! the daemon's executor relay as the conversation's environment. Also the `turn/start` and
 //! `thread/settings/update` params, whose members carry absent, `null` and a value as three
 //! meanings, the Build or Plan collaboration mode they carry, and the item-injection method a
 //! loaded conversation takes changed instructions through.
@@ -126,6 +127,31 @@ pub(crate) fn compose_codex_thread_resume_params(
         runtime_workspace_roots: None,
         sandbox: None,
         service_tier: None,
+    }
+}
+
+/// The `thread/resume` params that load `thread_id` as it stands, with no setting, its turns left
+/// out of the reply.
+pub(crate) fn compose_codex_bare_thread_resume_params(thread_id: String) -> ThreadResumeParams {
+    ThreadResumeParams {
+        approval_policy: None,
+        approvals_reviewer: None,
+        base_instructions: None,
+        config: None,
+        cwd: None,
+        developer_instructions: None,
+        exclude_turns: Some(true),
+        history: None,
+        initial_turns_page: None,
+        model: None,
+        model_provider: None,
+        path: None,
+        permissions: None,
+        personality: None,
+        runtime_workspace_roots: None,
+        sandbox: None,
+        service_tier: None,
+        thread_id,
     }
 }
 

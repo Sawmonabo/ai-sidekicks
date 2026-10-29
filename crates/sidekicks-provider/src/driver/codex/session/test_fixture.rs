@@ -323,6 +323,7 @@ impl TestCodexSession {
             helper_roles_folder: folder.join("roles"),
             tool_server_route: Arc::new(PortRegistration::new("tool server route")),
             delivery: Arc::clone(&self.task.calls.forks.delivery),
+            run_routes: Arc::clone(&self.task.run_routes),
             pending_compactions: self.task.calls.forks.pending_compactions.clone(),
             provider_commands: CodexProviderCommandCache::new(
                 Arc::new(PortRegistration::new("server prompts")),

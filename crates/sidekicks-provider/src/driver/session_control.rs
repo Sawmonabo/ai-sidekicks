@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::McpServerName;
@@ -157,12 +158,14 @@ pub struct ResumeSessionParams {
     pub live_runs: Vec<LiveRunResume>,
 }
 
-/// A run of a resumed session not yet ended, as its log names it to the provider: its open turns
-/// and, for a provider's helper, the helper's own id.
+/// A run of a resumed session not yet ended, as its log names it to the provider: the run it was
+/// started beneath, its open turns and, for a provider's helper, the helper's own id.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveRunResume {
     /// The run.
     pub run_id: RunId,
+    /// The run it was started beneath; `None` for a run started on its own.
+    pub parent_run_id: Option<RunId>,
     /// Its turns started with no end, in turn order.
     pub open_turns: Vec<OpenTurnResume>,
     /// The provider's own id of the helper the run is, as its `agent.subagent.started` recorded
@@ -178,6 +181,8 @@ pub struct OpenTurnResume {
     /// The provider's own id of the turn as its `agent.turn.started` recorded it; `None` where
     /// the provider reported none.
     pub provider_turn_id: Option<ProviderTurnId>,
+    /// The id of the event that started it, which a flag about the whole turn points at.
+    pub started_event_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
 }
 
 /// What the provider holds of one run's turn after a resume.
