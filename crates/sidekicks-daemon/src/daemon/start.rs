@@ -18,6 +18,7 @@ use sidekicks_platforms::{
     daemon_run_folder, install_tree_sitter_allocator, process_identity, restrict_library_search,
     secret_store_offer, stable_working_folder, turn_off_transparent_huge_pages,
 };
+use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::standard_error::write_error_line;
@@ -215,6 +216,7 @@ fn run_daemon(
                 offer: secret_store_offer(),
             }),
             service_log_files,
+            provider_registrations: PROVIDER_REGISTRATIONS,
         })
         .await;
         let ran = match started {

@@ -26,6 +26,7 @@ use sidekicks_platforms::{
     askpass_socket_path, check_socket_path, create_missing_private_folders, process_identity,
     replace_file_atomically,
 };
+use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::test_driver_services;
@@ -153,6 +154,7 @@ impl TestHome {
             base_environment: ProviderBaseEnvironment::Given(Arc::from([])),
             credential_store: TestStoreAccess::new(CredentialStore::in_memory()) as _,
             service_log_files: open_service_log(&data_folder, io::sink()).files(),
+            provider_registrations: PROVIDER_REGISTRATIONS,
         })
         .await
     }

@@ -8,6 +8,7 @@ use sidekicks_contracts::process_identity::ProcessIdentity;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_platforms::DaemonRunFolder;
+use sidekicks_provider::driver::ProviderRegistration;
 use sidekicks_store::credential_store::os::CredentialStoreAccess;
 use sidekicks_store::data_folder::lock::DataFolderLock;
 use tokio_util::sync::CancellationToken;
@@ -39,6 +40,9 @@ pub(crate) struct DaemonStartOptions {
     pub(crate) credential_store: Arc<dyn CredentialStoreAccess>,
     /// The service log's files, which the diagnostic-log expiry leaves the live one of alone.
     pub(crate) service_log_files: ServiceLogFiles,
+    /// The providers whose drivers the start builds, in their order: the one table of providers,
+    /// or in a test a table whose drivers run over services the test scripts.
+    pub(crate) provider_registrations: &'static [ProviderRegistration],
 }
 
 /// Where the providers' base environment comes from: the real login-shell capture, or, in a test

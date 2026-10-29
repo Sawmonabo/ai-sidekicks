@@ -44,7 +44,6 @@ use sidekicks_platforms::{
 };
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
@@ -272,6 +271,7 @@ impl DaemonProcess {
             base_environment,
             credential_store,
             service_log_files,
+            provider_registrations,
         } = options;
         self.data_folder_lock = Some(data_folder_lock);
         let (home_folder, run_folder, daemon_program) =
@@ -461,7 +461,7 @@ impl DaemonProcess {
             },
         )?;
         let providers = build_providers(
-            PROVIDER_REGISTRATIONS,
+            provider_registrations,
             ProviderStart {
                 spawner: self.spawner.clone(),
                 data_folder: data_folder.clone(),
