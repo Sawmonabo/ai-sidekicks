@@ -7,8 +7,9 @@ use serde::ser::{SerializeMap, Serializer};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::driver::claude::hooks::helper_token_limit::ClaudeHelperTokenLimits;
+use crate::driver::claude::hooks::stopped_helpers::ClaudeStoppedHelpers;
 use crate::driver::hook_pauses::{HookPauses, PAUSED_REASON, PausedRole};
+use crate::driver::run_control::HelperStopReason;
 
 /// A hook answer, written as the JSON Claude Code reads from the hook's output.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -131,8 +132,8 @@ pub(crate) struct ClaudeRunPauses {
     lead_pauses: HookPauses<SessionId, RunId, ()>,
     /// Each paused helper, by session and agent id, and the request ids of its held callbacks.
     helper_pauses: HookPauses<(SessionId, String), (), String>,
-    /// The helpers stopped at their token limit, whose tool uses are denied.
-    helper_token_limits: ClaudeHelperTokenLimits,
+    /// The helpers stopped alone, whose tool uses are denied.
+    stopped_helpers: ClaudeStoppedHelpers,
 }
 
 impl ClaudeRunPauses {
@@ -152,14 +153,19 @@ impl ClaudeRunPauses {
         );
     }
 
-    /// Stops the helper `agent_id` at its token limit: its tool uses are denied from the next on.
-    pub(crate) fn stop_helper_at_token_limit(&mut self, session_id: SessionId, agent_id: &str) {
-        self.helper_token_limits.stop(session_id, agent_id);
+    /// Stops the helper `agent_id` alone for `reason`: its tool uses are denied from the next on.
+    pub(crate) fn stop_helper(
+        &mut self,
+        session_id: SessionId,
+        agent_id: &str,
+        reason: HelperStopReason,
+    ) {
+        self.stopped_helpers.stop(session_id, agent_id, reason);
     }
 
-    /// Answers a pre-tool callback: a helper stopped at its token limit is denied, a paused lead's
-    /// is denied, a paused helper's is held, any other passes with no decision. `agent_id` is the
-    /// helper's, `None` on the lead.
+    /// Answers a pre-tool callback: a helper stopped alone is denied, a paused lead's is denied, a
+    /// paused helper's is held, any other passes with no decision. `agent_id` is the helper's,
+    /// `None` on the lead.
     pub(crate) fn answer_before_tool(
         &mut self,
         session_id: &SessionId,
@@ -167,7 +173,7 @@ impl ClaudeRunPauses {
         request_id: &str,
     ) -> ClaudePauseAnswer {
         if let Some(denial) = self
-            .helper_token_limits
+            .stopped_helpers
             .answer_before_tool(*session_id, agent_id)
         {
             return ClaudePauseAnswer::Answer(denial);
@@ -261,7 +267,7 @@ impl ClaudeRunPauses {
     pub(crate) fn forget_session(&mut self, session_id: &SessionId) {
         self.lead_pauses.forget_session(session_id);
         self.helper_pauses.forget_session(session_id);
-        self.helper_token_limits.forget_session(session_id);
+        self.stopped_helpers.forget_session(session_id);
     }
 }
 

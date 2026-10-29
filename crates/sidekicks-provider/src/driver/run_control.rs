@@ -332,9 +332,32 @@ pub struct RunToolBoundary {
     pub run_id: RunId,
 }
 
-/// The reason a helper reads when its next tool use is refused at its token limit.
-pub const HELPER_TOKEN_LIMIT_REASON: &str =
-    "You have reached your token limit. Report what you completed and what remains.";
+/// Why a helper is stopped alone while its lead goes on; each reason carries the fixed sentence the
+/// helper reads as its next tool use is refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HelperStopReason {
+    /// The helper's own run passed its token limit.
+    TokenLimit,
+    /// The daemon refused the helper's run after the provider started it, since the session's
+    /// permission level cannot run.
+    PostureRefused,
+}
+
+impl HelperStopReason {
+    /// The sentence the helper reads.
+    #[must_use]
+    pub fn sentence(self) -> &'static str {
+        match self {
+            Self::TokenLimit => {
+                "You have reached your token limit. Report what you completed and what remains."
+            }
+            Self::PostureRefused => {
+                "Stopped: this session's permission level cannot run right now, because a folder \
+                 it may write to is gone. Report what you did and stop."
+            }
+        }
+    }
+}
 
 /// Params of `stop_helper_at_token_limit`: the helper whose own run passed its token limit, which
 /// stops alone while its lead goes on.

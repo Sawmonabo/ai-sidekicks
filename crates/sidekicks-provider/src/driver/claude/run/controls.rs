@@ -45,9 +45,9 @@ use crate::driver::claude::session::transport::user_message::{
 use crate::driver::contract::{DriverError, RespondToRequestParams};
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::run_control::{
-    AnswerProviderChoiceParams, AnswerProviderChoiceResult, HelperTokenLimitParams,
-    OverrideDenialParams, PauseRunParams, ResumeRunParams, WithdrawQueuedMessageParams,
-    WithdrawQueuedMessageResult,
+    AnswerProviderChoiceParams, AnswerProviderChoiceResult, HelperStopReason,
+    HelperTokenLimitParams, OverrideDenialParams, PauseRunParams, ResumeRunParams,
+    WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::lenient_json::{lenient_object, read_lenient};
@@ -498,8 +498,11 @@ impl ClaudeRunControls {
         params: &HelperTokenLimitParams,
     ) -> Result<(), DriverError> {
         self.start.live_session(params.session_id)?;
-        lock(&self.pauses)
-            .stop_helper_at_token_limit(params.session_id, params.subagent_id.as_str());
+        lock(&self.pauses).stop_helper(
+            params.session_id,
+            params.subagent_id.as_str(),
+            HelperStopReason::TokenLimit,
+        );
         Ok(())
     }
 
@@ -624,7 +627,7 @@ mod tests {
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
     use crate::driver::run_control::{
-        HELPER_TOKEN_LIMIT_REASON, HelperTokenLimitParams, OverrideDenialParams,
+        HelperStopReason, HelperTokenLimitParams, OverrideDenialParams,
     };
     use crate::port::running_command_publisher::RunningCommandParams;
 
@@ -797,7 +800,7 @@ mod tests {
         };
         let helper_answer = answer_to("helper-tool");
         assert!(helper_answer.contains(r#""permissionDecision":"deny""#));
-        assert!(helper_answer.contains(HELPER_TOKEN_LIMIT_REASON));
+        assert!(helper_answer.contains(HelperStopReason::TokenLimit.sentence()));
         assert!(!answer_to("lead-tool").contains("deny"));
     }
 

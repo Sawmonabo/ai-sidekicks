@@ -511,11 +511,11 @@ pub trait ProviderDriver: Send + Sync {
     fn task_list_change<'call>(&self, call: &ToolCallRecord<'call>) -> Option<TaskListChange>;
 
     /// Stops a helper whose own run passed its token limit, alone, while its lead goes on: the
-    /// provider refuses the helper's next tool use with [`HELPER_TOKEN_LIMIT_REASON`], or ends
-    /// the helper's own turn where it cannot refuse one. Resolves once the provider has the
-    /// request.
+    /// provider refuses the helper's next tool use with [`HelperStopReason::TokenLimit`]'s
+    /// sentence, or ends the helper's own turn where it cannot refuse one. Resolves once the
+    /// provider has the request.
     ///
-    /// [`HELPER_TOKEN_LIMIT_REASON`]: crate::driver::run_control::HELPER_TOKEN_LIMIT_REASON
+    /// [`HelperStopReason::TokenLimit`]: crate::driver::run_control::HelperStopReason::TokenLimit
     fn stop_helper_at_token_limit(
         &self,
         params: HelperTokenLimitParams,

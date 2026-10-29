@@ -7,10 +7,12 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::daemon_ends::ClaudeDaemonEndSettlement;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::session::scripted::channel::ScriptedWrite;
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
 use crate::driver::diagnostics::RecordedEvents;
+use crate::driver::run_control::HelperStopReason;
 use crate::port::run_host::test_host::EngineCall;
 use crate::port::usage_sink::{MeteredUsageOwner, ProviderQuotaWindow};
 use crate::run::delivery::LateAppendableRow;
@@ -716,4 +718,70 @@ async fn a_tool_servers_background_call_closes_on_its_task_notification() {
     settle().await;
     assert_eq!(closed_calls(&session), 1);
     assert_eq!(session.stream.background_work(), 0);
+}
+
+// A `Bash` call's pre-tool hook, the helper `agent_id`'s or, with none, the lead's.
+fn before_tool(agent_id: Option<&str>) -> Value {
+    let mut input = json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_use_id": "call-2",
+        "tool_input": {"command": "ls"},
+    });
+    if let (Some(input), Some(agent_id)) = (input.as_object_mut(), agent_id) {
+        input.insert("agent_id".to_owned(), json!(agent_id));
+    }
+    json!({
+        "subtype": "hook_callback",
+        "callback_id": "sidekicks-pause-before-tool",
+        "input": input,
+    })
+}
+
+// A helper whose run the daemon refused after Claude Code started it stays bound to that ended run
+// and is denied its next tool use with the refusal's sentence, while the lead's next call passes.
+// Killed by leaving the refused helper's route unbound, by not recording its stop, and by stopping
+// it with the token limit's sentence.
+#[tokio::test(start_paused = true)]
+async fn a_refused_helper_is_denied_its_next_tool_use_and_the_lead_goes_on() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    let refused = session.engine.refuse_next_child_run();
+
+    session.frame(&init());
+    session.frame(&helper_started("helper", "local_agent", "call-1"));
+    settle().await;
+    session.request("helper-tool", &before_tool(Some("helper")));
+    session.request("lead-tool", &before_tool(None));
+    settle().await;
+
+    assert_eq!(
+        session
+            .start
+            .routes
+            .child_run_for(session.session_id, "helper"),
+        Some(refused),
+        "the refused helper's frames reach its ended run"
+    );
+    let answers: Vec<(String, String)> = session
+        .channel
+        .writes()
+        .into_iter()
+        .filter_map(|write| match write {
+            ScriptedWrite::Answer { request_id, answer } => Some((request_id, answer.to_string())),
+            ScriptedWrite::Control(_) | ScriptedWrite::User(_) | ScriptedWrite::Terminate => None,
+        })
+        .collect();
+    let answer_to = |request_id: &str| {
+        answers
+            .iter()
+            .find(|(answered, _)| answered == request_id)
+            .map(|(_, answer)| answer.clone())
+            .expect("the hook is answered")
+    };
+    let helper_answer = answer_to("helper-tool");
+    assert!(helper_answer.contains(r#""permissionDecision":"deny""#));
+    assert!(helper_answer.contains(HelperStopReason::PostureRefused.sentence()));
+    assert!(!helper_answer.contains(HelperStopReason::TokenLimit.sentence()));
+    assert!(!answer_to("lead-tool").contains("deny"));
 }
