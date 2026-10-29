@@ -63,7 +63,8 @@ struct ResolveSql {
     bump: String,
     /// Takes down the resolving entries' raised banners.
     withdraw: String,
-    /// Hands back the banner of each open entry merged into a resolving one, undecided.
+    /// Hands back the banner of each open actionable entry merged into a resolving one,
+    /// undecided; an informational entry merged away keeps its withheld banner.
     unmerge: String,
     /// Marks the entries resolved.
     resolve: String,
@@ -88,7 +89,9 @@ impl ResolveSql {
   WHERE merged_into IN (SELECT id FROM attention_entries WHERE {open_entries})
     AND entry_id NOT IN (SELECT id FROM attention_entries WHERE {open_entries})
     AND EXISTS (SELECT 1 FROM attention_entries AS own
-                 WHERE own.id = attention_deliveries.entry_id AND own.resolved_at IS NULL)"
+                 WHERE own.id = attention_deliveries.entry_id AND own.resolved_at IS NULL
+                   AND own.severity = '{actionable}')",
+                actionable = <&'static str>::from(AttentionSeverity::Actionable),
             ),
             resolve: format!(
                 "UPDATE attention_entries SET resolved_at = @resolved_at WHERE {open_entries}"

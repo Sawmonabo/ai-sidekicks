@@ -204,8 +204,9 @@ async fn two_moments_of_one_session_raise_one_banner_and_two_sessions_raise_two(
 }
 
 // A wait outranks a newer end in its session; when the wait resolves, the wait merged into it is
-// decided afresh, and the waits' switch turned off in between withholds it. Killed by newest-wins
-// ranking, and by a re-decision that reuses the first decision.
+// decided afresh, and the waits' switch turned off in between withholds it, while the end merged
+// into it stays withheld. Killed by newest-wins ranking, by a re-decision that reuses the first
+// decision, and by the hand-back taking informational entries.
 #[tokio::test]
 async fn a_wait_wins_its_window_and_a_merged_wait_is_decided_again_when_it_resolves() {
     let fixture = Fixture::new().await;
@@ -241,7 +242,10 @@ async fn a_wait_wins_its_window_and_a_merged_wait_is_decided_again_when_it_resol
     Fixture::pass(&mut task).await;
 
     assert_eq!(fixture.banner(&older_entry), (word("withheld"), None));
-    assert_eq!(fixture.banner(&finished_entry), (word("pending"), None));
+    assert_eq!(
+        fixture.banner(&finished_entry),
+        (word("withheld"), Some(picked_entry))
+    );
 }
 
 // Only this machine's main settles a banner, and only while it is pending. Killed by an
