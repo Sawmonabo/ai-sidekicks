@@ -331,7 +331,6 @@ pub(crate) fn build_workspace_services(start: WorkspaceServiceStart<'_>) -> Work
         mounts: Arc::clone(&repo.mounts),
         projects: Arc::clone(&projects),
         workspaces: Arc::clone(&roots.workspaces),
-        resolver: Arc::new(RepoRootResolver::new(git.clone())),
     }));
     WorkspaceServices {
         repo_mounts: RepoMountMethods {

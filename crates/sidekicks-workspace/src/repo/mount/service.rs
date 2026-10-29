@@ -205,13 +205,20 @@ pub(crate) struct RepoAttachTarget {
     pub(crate) place: Option<Place>,
 }
 
-/// A folder resolved the way attach resolves it, attaching nothing.
+/// A folder resolved the way attach resolves it, attaching nothing, which an attach then takes
+/// with no second resolution.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedFolder {
     /// The resolved root.
     pub canonical_root: PathBuf,
+    /// The top level, each link resolved, of the working tree the folder sits in.
+    pub working_tree_root: PathBuf,
     /// The attached project mount of its repository, `None` when none holds it.
     pub repo_mount_id: Option<RepoMountId>,
+    /// The path as entered.
+    local_path: FilesystemPath,
+    /// The repository's resolved git common folder.
+    common_folder: PathBuf,
 }
 
 /// One mount's stored facts, in any state; the `repoMount.read` reply adds a fresh health
@@ -334,31 +341,25 @@ impl RepoMountService {
         ))
     }
 
-    /// Resolves `request`'s path for attach and checks the machine has no active mount of its
-    /// repository, writing nothing. Refuses a path the resolver refuses, a WSL place
-    /// (`repoMount.distributionNotFound`, no distribution being reachable here), a root that
-    /// resolves past the wire's path cap (`request.paramsInvalid`, as the request's own path would
-    /// be), and `repoMount.alreadyAttached` naming the mount that holds the repository.
-    pub(crate) async fn resolve_attach_target(
+    /// The attach target of `resolved`, once the machine has no active mount of its repository,
+    /// writing nothing. Refuses a root that resolved past the wire's path cap
+    /// (`request.paramsInvalid`, as the request's own path would be), and
+    /// `repoMount.alreadyAttached` naming the mount that holds the repository.
+    pub(crate) async fn attach_target_of(
         &self,
-        request: &RepoMountAttachRequest,
+        resolved: &ResolvedFolder,
     ) -> Result<RepoAttachTarget, RepoMountServiceError> {
-        refuse_distribution(request.place.as_ref())?;
-        let resolution = self
-            .resolver
-            .resolve_canonical_root(Path::new(request.local_path.as_str()))
-            .await?;
         // A link or junction can resolve to a longer path than the one entered; a resolved path
         // holds no NUL, so passing the cap is the one way it is refused.
-        let root_text = stored_path(&resolution.canonical_root);
+        let root_text = stored_path(&resolved.canonical_root);
         let code_points = root_text.chars().count();
         let canonical_root = FilesystemPath::new(root_text)
             .map_err(|_over_cap| RepoRefusal::ResolvedRootTooLong { code_points })?;
         let place = None;
         if let Some(holder) = self
             .find_active_mount_of_repository(
-                &resolution.canonical_root,
-                Some(&resolution.common_folder),
+                &resolved.canonical_root,
+                Some(&resolved.common_folder),
                 place.clone(),
             )
             .await?
@@ -366,9 +367,9 @@ impl RepoMountService {
             return Err(already_attached(&holder).into());
         }
         Ok(RepoAttachTarget {
-            local_path: request.local_path.clone(),
+            local_path: resolved.local_path.clone(),
             canonical_root,
-            common_folder: resolution.common_folder,
+            common_folder: resolved.common_folder.clone(),
             place,
         })
     }
@@ -422,9 +423,10 @@ impl RepoMountService {
     }
 
     /// The folder at `request`'s path resolved the way attach resolves it, attaching nothing: its
-    /// canonical root and the attached project mount of its repository. A chat's managed
-    /// workspace is never a project, so its mount is never answered. Refuses as
-    /// [`RepoMountService::resolve_attach_target`] does, `alreadyAttached` aside.
+    /// canonical root, its working tree and the attached project mount of its repository. A
+    /// chat's managed workspace is never a project, so its mount is never answered. Refuses a path
+    /// the resolver refuses, and a WSL place (`repoMount.distributionNotFound`, no distribution
+    /// being reachable here).
     pub async fn resolve_folder(
         &self,
         request: &RepoMountAttachRequest,
@@ -443,9 +445,12 @@ impl RepoMountService {
             .await?;
         Ok(ResolvedFolder {
             canonical_root: resolution.canonical_root,
+            working_tree_root: resolution.working_tree_root,
             repo_mount_id: mount
                 .filter(|mount| mount.origin == MountOrigin::Attached)
                 .map(|mount| mount.id),
+            local_path: request.local_path.clone(),
+            common_folder: resolution.common_folder,
         })
     }
 

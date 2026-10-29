@@ -28,7 +28,7 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::place::Place;
-use sidekicks_contracts::repo::folders::{RepoMountAttachRequest, RepoMountRootResolutionReason};
+use sidekicks_contracts::repo::folders::RepoMountAttachRequest;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId};
 use sidekicks_contracts::repo::workspace::WorkspaceBindRequest;
 use sidekicks_contracts::session::convert::{
@@ -60,9 +60,7 @@ use sidekicks_store::events::session::appender::{
     SessionEventLinkage,
 };
 use sidekicks_workspace::project::service::{ProjectService, ProjectServiceError};
-use sidekicks_workspace::repo::errors::RepoRefusal;
 use sidekicks_workspace::repo::mount::service::{RepoMountService, RepoMountServiceError};
-use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
 use sidekicks_workspace::service::{WorkspaceService, WorkspaceServiceError};
 
 use crate::changes::{SessionChanges, refuse_provisioning_session, refuse_unchangeable_session};
@@ -162,8 +160,6 @@ pub struct SessionConversionDeps {
     pub projects: Arc<ProjectService>,
     /// Binds the session to the working tree its files were copied into.
     pub workspaces: Arc<WorkspaceService>,
-    /// Reads the working tree the typed folder sits in, as git resolves it.
-    pub resolver: Arc<RepoRootResolver>,
 }
 
 /// Turns chats into projects in place and reads back the files a conversion did not copy. See the
@@ -176,7 +172,6 @@ pub struct SessionConversion {
     mounts: Arc<RepoMountService>,
     projects: Arc<ProjectService>,
     workspaces: Arc<WorkspaceService>,
-    resolver: Arc<RepoRootResolver>,
     // Serializes converts that carry one key across sessions; always taken before the session's
     // transition lock.
     key_lock: KeyedLock<ClientUuid>,
@@ -314,7 +309,6 @@ impl SessionConversion {
             mounts: deps.mounts,
             projects: deps.projects,
             workspaces: deps.workspaces,
-            resolver: deps.resolver,
             key_lock: KeyedLock::new(),
         }
     }
@@ -385,12 +379,11 @@ impl SessionConversion {
             local_path: request.path.clone(),
             place: None,
         };
-        // Resolved as the attach resolves it, and its working tree read, before anything is
-        // attached, so a path that is no repository or sits in no working tree attaches nothing.
-        self.mounts.resolve_folder(&attach).await?;
-        // The files go into the working tree of the path typed, and the session binds there, never
-        // into another checkout of the repository.
-        let working_tree = self.working_tree_of(&request.path).await?;
+        // Resolved once, before anything is attached, so a path that is no repository attaches
+        // nothing. The files go into the working tree of the path typed, and the session binds
+        // there, never into another checkout of the repository.
+        let resolved = self.mounts.resolve_folder(&attach).await?;
+        let working_tree = resolved.working_tree_root.clone();
         let stopped = self.read_conversion(session_id).await?;
         if let Some(stopped) = &stopped
             && working_tree != stopped.working_tree
@@ -406,7 +399,7 @@ impl SessionConversion {
         }
         let repo_mount_id = self
             .projects
-            .attach_or_find(&attach)
+            .attach_or_find_resolved(&resolved)
             .await?
             .mount
             .repo_mount_id;
@@ -570,26 +563,6 @@ impl SessionConversion {
             .into());
         }
         Ok(facts)
-    }
-
-    // The working tree `folder` sits in; refuses `repoMount.rootResolutionFailed`
-    // (`notARepository`) for a folder in none, and as git's read refuses.
-    async fn working_tree_of(
-        &self,
-        folder: &FilesystemPath,
-    ) -> Result<PathBuf, SessionConversionError> {
-        let working_tree = self
-            .resolver
-            .read_working_tree_root(Path::new(folder.as_str()))
-            .await
-            .map_err(DomainError::from)?;
-        working_tree.ok_or_else(|| {
-            DomainError::from(RepoRefusal::RootResolutionFailed {
-                reason: RepoMountRootResolutionReason::NotARepository,
-                detail: None,
-            })
-            .into()
-        })
     }
 
     async fn read_conversion_by_key(

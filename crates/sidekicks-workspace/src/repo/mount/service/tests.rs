@@ -190,8 +190,12 @@ async fn an_attach_whose_root_resolves_past_the_path_cap_is_refused_before_any_w
         place: None,
     };
 
+    let resolved = service
+        .resolve_folder(&request)
+        .await
+        .expect("the folder resolves");
     let refusal = service
-        .resolve_attach_target(&request)
+        .attach_target_of(&resolved)
         .await
         .expect_err("the resolved root is past the cap");
 

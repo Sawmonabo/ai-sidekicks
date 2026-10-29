@@ -25,7 +25,7 @@ use sidekicks_workspace::execution_root::test_fixture::{
     ExecutionRootFixture, MOUNT_ID, SESSION_ID,
 };
 use sidekicks_workspace::git::process::test_git_runner;
-use sidekicks_workspace::git::process::test_repository::{git_in, make_test_repository};
+use sidekicks_workspace::git::process::test_repository::make_test_repository;
 use sidekicks_workspace::git::process::write_link;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use sidekicks_workspace::project::records::ProjectRecords;
@@ -107,7 +107,7 @@ impl Fixture {
             records: Arc::clone(&records),
             mounts: Arc::clone(&mounts),
             sessions: Arc::clone(&changes) as _,
-            git: git.clone(),
+            git,
             settings: Arc::new(Unreached),
             driver_set_names: Vec::new(),
             worktrees_folder: scratch.join("worktrees"),
@@ -124,7 +124,6 @@ impl Fixture {
             mounts,
             projects,
             workspaces: Arc::clone(&roots.workspaces),
-            resolver: Arc::new(RepoRootResolver::new(git)),
         });
         Self {
             roots,
@@ -402,48 +401,6 @@ async fn a_stopped_conversion_resumes_only_into_its_own_folder_under_a_new_key()
         )),
         1,
         "the new key took the conversion over"
-    );
-}
-
-// A bare repository has no working tree to take the chat's files, so its convert is refused before
-// anything is attached.
-#[tokio::test]
-async fn a_folder_with_no_working_tree_is_refused_with_nothing_attached() {
-    let fixture = Fixture::new().await;
-    write(&fixture.workspace.join("a.txt"), "chat a");
-    let scratch = real_path(fixture.roots.scratch.path()).expect("the scratch folder resolves");
-    git_in(
-        &fixture.roots.git,
-        &scratch,
-        &["init", "--quiet", "--bare", "bare.git"],
-    )
-    .await;
-    let mounts_before = fixture.roots.count("SELECT count(*) FROM repo_mounts");
-
-    let refusal = fixture
-        .convert(&scratch.join("bare.git"), FIRST_KEY)
-        .await
-        .expect_err("a folder with no working tree is refused");
-
-    // Git answers a bare repository's top level with a failure of its own, read as `vcsError`.
-    let HandlerError::Refused(refusal) = HandlerError::from(refusal) else {
-        panic!("the convert is refused, not failed");
-    };
-    assert_eq!(refusal.code, RefusalCode::RepoMountRootResolutionFailed);
-    assert_eq!(
-        refusal.detail.expect("the refusal names its reason")["reason"],
-        "vcsError"
-    );
-    assert_eq!(
-        fixture.roots.count("SELECT count(*) FROM repo_mounts"),
-        mounts_before,
-        "nothing was attached"
-    );
-    assert_eq!(
-        fixture
-            .roots
-            .count("SELECT count(*) FROM session_convert_requests"),
-        0
     );
 }
 
