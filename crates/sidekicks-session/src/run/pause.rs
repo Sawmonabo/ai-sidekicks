@@ -74,7 +74,7 @@ pub enum RunPauseError {
         driver: DriverError,
         /// The failed return to `running`.
         #[source]
-        restore: RunEngineError,
+        restore: Box<RunEngineError>,
     },
     /// The messages waiting for the run could not be read; nothing was moved.
     #[error("the messages waiting for the run could not be read")]
@@ -542,7 +542,7 @@ impl RunPauseControl {
             }
             Err(restore) => RunPauseError::NotRestored {
                 driver: driver_error,
-                restore,
+                restore: Box::new(restore),
             },
         }
     }

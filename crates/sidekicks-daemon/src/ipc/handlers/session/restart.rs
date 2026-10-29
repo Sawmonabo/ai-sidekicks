@@ -83,7 +83,25 @@ fn restart_failure(error: ProviderSessionError, session_id: SessionId) -> Handle
             "providerFailureDetail": provider_failure_detail,
         }))
         .into(),
-        other => other.into(),
+        other @ (ProviderSessionError::Compose { .. }
+        | ProviderSessionError::AdmittedAccount(_)
+        | ProviderSessionError::NoPosture { .. }
+        | ProviderSessionError::NoContractVersion { .. }
+        | ProviderSessionError::Provider(_)
+        | ProviderSessionError::Driver(_)
+        | ProviderSessionError::NotResumable(_)
+        | ProviderSessionError::Closed { .. }
+        | ProviderSessionError::BeingDeleted { .. }
+        | ProviderSessionError::NotOpen { .. }
+        | ProviderSessionError::Cursor(_)
+        | ProviderSessionError::UnrecordedNotClosed { .. }
+        | ProviderSessionError::Store(_)
+        | ProviderSessionError::LevelNotStored { .. }
+        | ProviderSessionError::LevelNotMovedBack { .. }
+        | ProviderSessionError::ModeNotStored { .. }
+        | ProviderSessionError::ModeNotMovedBack { .. }
+        | ProviderSessionError::Read(_)
+        | ProviderSessionError::Pool(_)) => other.into(),
     }
 }
 
@@ -158,7 +176,9 @@ mod tests {
 
         let refusal = match restart_failure(error, session_id) {
             HandlerError::Refused(refusal) => refusal,
-            other => panic!("expected a refusal, got {other:?}"),
+            other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
+                panic!("expected a refusal, got {other:?}")
+            }
         };
 
         assert_eq!(refusal.code, code, "{failure:?}");

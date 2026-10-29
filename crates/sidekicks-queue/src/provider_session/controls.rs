@@ -100,7 +100,7 @@ impl ProviderSessions {
             }
             Err(moved_back) => Err(ProviderSessionError::LevelNotMovedBack {
                 session_id,
-                stored: stored_error,
+                stored: Box::new(stored_error),
                 moved_back,
             }),
         }
@@ -157,7 +157,7 @@ impl ProviderSessions {
             }),
             Err(moved_back) => Err(ProviderSessionError::ModeNotMovedBack {
                 session_id,
-                stored: stored_error,
+                stored: Box::new(stored_error),
                 moved_back,
             }),
         }

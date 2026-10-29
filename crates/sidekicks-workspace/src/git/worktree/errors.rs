@@ -159,9 +159,9 @@ pub enum WorktreeRefusal {
     ExecutionRootUnresolved {
         /// The workspace.
         workspace_id: WorkspaceId,
-        /// Why preparing it failed.
+        /// Why preparing it failed, boxed to keep the refusal small.
         #[source]
-        cause: RunSetupGateError,
+        cause: Box<RunSetupGateError>,
     },
     /// A wire prepare omitted its branch name, which the daemon derives only when a run is set up
     /// (`workspace.branchNameRequired`); raised before any git call.
@@ -240,7 +240,7 @@ impl From<WorktreeRefusal> for DomainError {
                 (
                     RefusalCode::WorkspaceExecutionRootUnresolved,
                     refusal_fields(detail),
-                    Some(cause.into()),
+                    Some(cause as Box<dyn Error + Send + Sync>),
                 )
             }
             WorktreeRefusal::BranchNameRequired { workspace_id } => (

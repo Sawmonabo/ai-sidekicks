@@ -491,7 +491,7 @@ mod tests {
             .await
             .expect("the folders read");
 
-        assert_eq!(leftovers, [cut_short.clone()]);
+        assert_eq!(leftovers, std::slice::from_ref(&cut_short));
         drop(copy_in_flight);
         let mut leftovers = list_leftover_copies(&names, worktrees)
             .await

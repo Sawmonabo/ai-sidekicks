@@ -207,11 +207,11 @@ impl DaemonProcess {
             Ok(spawner) => spawner,
             Err(error) => {
                 return Err(DaemonStartFailure {
-                    failures: CleanupFailures::new(
+                    failures: Box::new(CleanupFailures::new(
                         DaemonStartError::Spawner(error),
                         Vec::new(),
                         START_OPERATION,
-                    ),
+                    )),
                     release_started: Instant::now(),
                 });
             }
@@ -655,7 +655,7 @@ impl DaemonProcess {
         for (session_id, error) in queue
             .recover()
             .await
-            .map_err(DaemonStartError::QueueRecovery)?
+            .map_err(|error| DaemonStartError::QueueRecovery(Box::new(error)))?
         {
             tracing::warn!(
                 %session_id,
@@ -687,7 +687,7 @@ impl DaemonProcess {
             stop_work(&mut self, DaemonStopIntent::Stop, DAEMON_STOP_DRAIN_BOUND).await;
         failures.extend(close_data_folder(&mut self).await);
         DaemonStartFailure {
-            failures: CleanupFailures::new(error, failures, START_OPERATION),
+            failures: Box::new(CleanupFailures::new(error, failures, START_OPERATION)),
             release_started,
         }
     }

@@ -204,7 +204,7 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
         /// Why the binding was not recorded.
-        recorded: RunBindingCursorError,
+        recorded: Box<RunBindingCursorError>,
         /// Why the close failed.
         #[source]
         closed: DriverError,
@@ -230,7 +230,7 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
         /// Why the store failed.
-        stored: SessionWriteError,
+        stored: Box<SessionWriteError>,
         /// Why the move back failed.
         #[source]
         moved_back: DriverError,
@@ -253,7 +253,7 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
         /// Why the store failed.
-        stored: SessionWriteError,
+        stored: Box<SessionWriteError>,
         /// Why the move back failed.
         #[source]
         moved_back: DriverError,
@@ -330,7 +330,7 @@ async fn close_unrecorded(
         Ok(()) => recorded.into(),
         Err(closed) => ProviderSessionError::UnrecordedNotClosed {
             session_id,
-            recorded,
+            recorded: Box::new(recorded),
             closed,
         },
     }
