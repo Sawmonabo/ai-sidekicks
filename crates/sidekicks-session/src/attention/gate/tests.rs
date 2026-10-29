@@ -304,4 +304,14 @@ async fn a_decision_for_a_session_purged_after_the_read_writes_no_count() {
         )
         .expect("the count rows are counted");
     assert_eq!(count_rows, 0);
+    let delivery_rows: i64 = harness
+        .database
+        .reader()
+        .query_row(
+            "SELECT count(*) FROM attention_deliveries WHERE entry_id = 'purged'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the delivery rows are counted");
+    assert_eq!(delivery_rows, 0);
 }

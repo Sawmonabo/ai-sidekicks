@@ -69,8 +69,8 @@ CREATE INDEX idx_attention_entries_workflow_run ON attention_entries(workflow_ru
 CREATE INDEX idx_attention_entries_open_moment ON attention_entries(moment_id)
   WHERE resolved_at IS NULL;
 
--- What became of an entry's banner and web-address message, decided once per entry. No row, or
--- a NULL banner_state, is an undecided banner.
+-- What became of an entry's banner and web-address message, decided once per entry, and again
+-- for a handed-back wait's banner. No row, or a NULL banner_state, is an undecided banner.
 CREATE TABLE attention_deliveries (
   entry_id                   TEXT PRIMARY KEY,
   banner_state               TEXT CHECK(banner_state IS NULL OR banner_state IN ({banner_states})),

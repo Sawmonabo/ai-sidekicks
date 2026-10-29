@@ -1,8 +1,8 @@
-//! The gate: whether an entry raises a banner and a web-address message, decided once from the
-//! machine's notification settings as the file stands, the session's mute, whether the entry has
-//! already resolved and whether an app window is in front on any device, and the one write that
-//! records a batch of decisions. A switch or a mute only withholds a channel; the entry stays in
-//! the list and the count.
+//! The gate: whether an entry raises a banner and a web-address message, decided once per entry,
+//! and again for a handed-back wait's banner, from the machine's notification settings as the file
+//! stands, the session's mute, whether the entry has already resolved and whether an app window is
+//! in front on any device, and the one write that records a batch of decisions. A switch or a mute
+//! only withholds a channel; the entry stays in the list and the count.
 
 use std::error::Error;
 use std::sync::LazyLock;
