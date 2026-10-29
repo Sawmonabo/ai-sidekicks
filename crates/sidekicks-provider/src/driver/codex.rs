@@ -88,6 +88,7 @@ mod notification_routing;
 mod output_speed;
 mod permission_level;
 mod rate_limits;
+mod release_notes;
 mod rules;
 mod run;
 mod server_requests;
@@ -107,6 +108,7 @@ mod version;
 pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     id: "codex",
     name: "Codex",
+    release_notes_address: release_notes::release_notes_address,
     plan_words: &[
         ("free", "Free"),
         ("go", "Go"),

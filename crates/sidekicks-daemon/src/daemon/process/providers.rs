@@ -183,7 +183,13 @@ pub(crate) fn build_providers(
         ports: Arc::clone(&ports),
     };
     let registry = Arc::new(ProviderRegistry::register_from(registrations, &services));
-    let capabilities = Arc::new(DriverCapabilitiesWriter::new(start.reads, start.writer));
+    // Nothing that reads the record of builds keeps a version to bump, so a recorded build's write
+    // carries no statement of its own.
+    let capabilities = Arc::new(DriverCapabilitiesWriter::new(
+        start.reads,
+        start.writer,
+        Arc::new(Vec::new),
+    ));
     let (refresher, refreshing) =
         CapabilityRefresher::start(Arc::clone(&registry), Arc::clone(&capabilities));
     Providers {

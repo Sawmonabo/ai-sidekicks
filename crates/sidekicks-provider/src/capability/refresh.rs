@@ -340,7 +340,7 @@ mod tests {
         let database = TestDatabase::new(schema_parts());
         let (refresher, refreshing) = CapabilityRefresher::start(
             Arc::new(ProviderRegistry::register_from(&table, &services)),
-            Arc::new(test_capabilities_writer(&database).await),
+            Arc::new(test_capabilities_writer(&database, Arc::new(Vec::new)).await),
         );
         let refresher = Arc::new(refresher);
 
