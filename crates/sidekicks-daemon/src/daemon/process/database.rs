@@ -140,8 +140,8 @@ use crate::ipc::handlers::approval::APPROVAL_METHODS_STATEMENT_CAPACITY;
 use crate::ipc::handlers::driver::DRIVER_METHODS_STATEMENT_CAPACITY;
 
 /// The statements each read connection keeps prepared: every reading service's set, summed, so a
-/// statement stays prepared on whichever connection a read borrows. A service whose set holds
-/// another's counts it inside its own.
+/// statement stays prepared on whichever connection a read borrows. A statement another set in the
+/// sum already counts is not counted twice: each set counts only the statements no other one holds.
 pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMENT_CAPACITY
     + APPROVAL_REQUEST_READER_STATEMENT_CAPACITY
     + APPROVAL_RULES_STATEMENT_CAPACITY
