@@ -8849,6 +8849,7 @@ dependencies = [
 name = "sidekicks-session"
 version = "0.0.0"
 dependencies = [
+ "blake3",
  "bytes",
  "croner",
  "diffy",

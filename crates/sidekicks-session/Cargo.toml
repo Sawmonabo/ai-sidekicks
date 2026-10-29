@@ -11,6 +11,7 @@ publish.workspace = true
 doctest = false
 
 [dependencies]
+blake3.workspace = true
 # The wire message other crates' tests split into its attachments.
 bytes = { workspace = true, optional = true }
 # The cron matches a provider's recurring job wakes a sleeping session for.
