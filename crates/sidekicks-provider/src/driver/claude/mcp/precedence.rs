@@ -121,9 +121,7 @@ pub(crate) fn rank_claude_mcp_servers(
             .iter()
             .filter(|root| {
                 is_declared_at(&server.binding, &root.root)
-                    && root
-                        .switched_off_server_names
-                        .contains(binding_server_name(&server.binding))
+                    && is_switched_off(&server.binding, &root.switched_off_server_names)
             })
             .map(|root| root.root.clone())
             .collect(),
@@ -153,9 +151,7 @@ pub(crate) fn rank_claude_mcp_servers(
                     .iter()
                     .flat_map(|account| &account.organization_servers)
                     .filter(|server| {
-                        !root
-                            .switched_off_server_names
-                            .contains(binding_server_name(&server.binding))
+                        !is_switched_off(&server.binding, &root.switched_off_server_names)
                     });
                 for server in loaded {
                     if !provider_loaded.contains(&server.binding) {
@@ -233,10 +229,33 @@ pub(crate) fn find_superseded_claude_mcp_servers<'servers>(
 // Whether a server ranked above another is on at the root, so it can take a plugin's or a
 // connector's place.
 fn is_enabled(server: &ClaudeMcpServer, sources: &ClaudeMcpRootSources<'_>) -> bool {
-    let name = binding_server_name(&server.binding);
     let is_kept_out = matches!(server.binding, McpServerBindingRef::Project { .. })
-        && sources.kept_out_server_names.contains(name);
-    !is_kept_out && !sources.switched_off_server_names.contains(name)
+        && sources
+            .kept_out_server_names
+            .contains(binding_server_name(&server.binding));
+    !is_kept_out && !is_switched_off(&server.binding, sources.switched_off_server_names)
+}
+
+// Whether Claude Code's per-project switch turns the server off: it records a plugin's server as
+// `plugin:<plugin>:<server>` and every other server by its name.
+fn is_switched_off(binding: &McpServerBindingRef, switched_off: &[McpServerName]) -> bool {
+    let plugin_server_name;
+    let name = match binding {
+        McpServerBindingRef::Plugin {
+            scope_ref,
+            server_name,
+            ..
+        } => {
+            plugin_server_name = format!("plugin:{}:{}", scope_ref.as_str(), server_name.as_str());
+            plugin_server_name.as_str()
+        }
+        McpServerBindingRef::User { server_name, .. }
+        | McpServerBindingRef::Project { server_name, .. }
+        | McpServerBindingRef::Local { server_name, .. }
+        | McpServerBindingRef::Connector { server_name, .. }
+        | McpServerBindingRef::Managed { server_name, .. } => server_name.as_str(),
+    };
+    switched_off.iter().any(|off| off.as_str() == name)
 }
 
 fn binding_server_name(binding: &McpServerBindingRef) -> &McpServerName {
@@ -292,7 +311,7 @@ mod tests {
         ClaudeMcpConfigReading, ClaudeMcpEndpoint, ClaudeMcpRootConfig, ClaudeMcpServer,
     };
     use crate::driver::mcp_server::address::read_server_address;
-    use crate::driver::mcp_server::read::McpServerDeclaration;
+    use crate::driver::mcp_server::read::{McpServerDeclaration, McpServerPolicy};
 
     fn server_name(name: &str) -> McpServerName {
         McpServerName::new(name.to_owned()).expect("a server name")
@@ -370,7 +389,7 @@ mod tests {
                 kept_out_server_names: Vec::new(),
                 switched_off_server_names: Vec::new(),
             }],
-            server_policy: Default::default(),
+            server_policy: McpServerPolicy::default(),
         };
         let accounts = [ClaudeMcpAccountServers {
             provider_account_id: account_id.clone(),
