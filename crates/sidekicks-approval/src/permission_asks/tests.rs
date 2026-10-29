@@ -17,6 +17,7 @@ use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::ProviderRequestAnswer;
 use sidekicks_provider::driver::error_causes::unanswered;
+use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_providers,
 };
@@ -36,13 +37,16 @@ use crate::service::test_fixture::SETTLE_WAIT;
 use crate::service::tests::from_json;
 use crate::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 
-/// The intake over the check's fixture, and every answer its driver was handed.
+/// The intake over the check's fixture, and every answer its driver was handed with the request
+/// id it was handed under.
 pub(crate) struct AsksFixture {
     /// The check's fixture, its run bound to the stand-in driver.
     pub(crate) check: CheckFixture,
     /// The intake under test.
     pub(crate) asks: Arc<PermissionAsks>,
+    providers: Arc<ProviderRegistry>,
     handed: Arc<Mutex<Vec<ProviderPermissionAnswer>>>,
+    handed_under: Arc<Mutex<Vec<String>>>,
 }
 
 impl AsksFixture {
@@ -61,6 +65,8 @@ impl AsksFixture {
         bind_run_to_first_provider(&check.approvals.database, check.approvals.run_id);
         let handed = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&handed);
+        let handed_under = Arc::new(Mutex::new(Vec::new()));
+        let recorded_under = Arc::clone(&handed_under);
         let calls = AtomicUsize::new(0);
         let mut driver = MockProviderDriver::new();
         driver.expect_respond_to_request().returning(move |params| {
@@ -70,27 +76,28 @@ impl AsksFixture {
                 Some(_) | None => {
                     if let ProviderRequestAnswer::Permission(answer) = params.response {
                         lock(&recorded).push(answer);
+                        lock(&recorded_under).push(params.request_id);
                     }
                     Ok(())
                 }
             };
             async move { outcome }.boxed()
         });
-        let asks = Arc::new(PermissionAsks::new(PermissionAsksDeps {
-            reads: Arc::new(DatabaseReadPool::new(
-                check.approvals.database.path(),
-                APPROVAL_REQUEST_READER_STATEMENT_CAPACITY,
-            )),
-            approvals: Arc::clone(&check.approvals.service),
-            check: Arc::clone(&check.check),
-            rules: Arc::clone(&check.rules),
-            providers: Arc::new(registry_of_first_providers(vec![Arc::new(driver)])),
-        }));
+        let providers = Arc::new(registry_of_first_providers(vec![Arc::new(driver)]));
+        let asks = Arc::new(intake(&check, &providers));
         Self {
             check,
             asks,
+            providers,
             handed,
+            handed_under,
         }
+    }
+
+    /// A second intake over the same rows and driver, holding no ask, as the daemon's intake
+    /// stands after a restart.
+    fn restarted_intake(&self) -> PermissionAsks {
+        intake(&self.check, &self.providers)
     }
 
     fn git_push(&self) -> ProviderPermissionAsk {
@@ -132,6 +139,24 @@ impl AsksFixture {
     fn handed(&self) -> Vec<ProviderPermissionAnswer> {
         lock(&self.handed).clone()
     }
+
+    fn handed_under(&self) -> Vec<String> {
+        lock(&self.handed_under).clone()
+    }
+}
+
+// An intake holding no ask, over `check`'s rows and the drivers in `providers`.
+fn intake(check: &CheckFixture, providers: &Arc<ProviderRegistry>) -> PermissionAsks {
+    PermissionAsks::new(PermissionAsksDeps {
+        reads: Arc::new(DatabaseReadPool::new(
+            check.approvals.database.path(),
+            APPROVAL_REQUEST_READER_STATEMENT_CAPACITY,
+        )),
+        approvals: Arc::clone(&check.approvals.service),
+        check: Arc::clone(&check.check),
+        rules: Arc::clone(&check.rules),
+        providers: Arc::clone(providers),
+    })
 }
 
 /// The device every answer in these tests comes from.
@@ -267,6 +292,47 @@ async fn another_action_under_a_held_request_id_is_another_ask() {
             if refusal.code == RefusalCode::ApprovalRequestCanceled
     ));
     assert_eq!(fixture.card_states(), ["canceled", "approved", "canceled"]);
+}
+
+// A provider that resends its waiting ask after the daemon's restart, under the same tool call and
+// a request id of its own, finds the card its first delivery raised: no second card and no second
+// `approval.requested`, and the person's answer to that card goes back under the resent request.
+// Killed by dropping the match, which raises a second card and refuses the first card's answer,
+// and by handing the answer under the first delivery's request id.
+#[tokio::test]
+async fn an_ask_resent_after_a_restart_returns_to_its_pending_card() {
+    let fixture = AsksFixture::new().await;
+    let ask = ProviderPermissionAsk {
+        tool_call_id: Some("call-1".to_owned()),
+        ..fixture.git_push()
+    };
+    fixture
+        .asks
+        .take_ask(ask.clone())
+        .await
+        .expect("the ask raises its card");
+    let [card] = <[String; 1]>::try_from(fixture.pending_cards()).expect("one card waits");
+    let restarted = fixture.restarted_intake();
+    restarted
+        .take_ask(ProviderPermissionAsk {
+            request_id: "ask-2".to_owned(),
+            ..ask
+        })
+        .await
+        .expect("the resent ask is taken");
+    assert_eq!(fixture.pending_cards(), [card.clone()]);
+    let requested = fixture.read_texts(
+        "SELECT json_extract(payload, '$.approvalRequestId') FROM session_events
+          WHERE type = 'approval.requested'",
+    );
+    assert_eq!(requested, [card.clone()]);
+    restarted
+        .resolve(&approval(&card), device())
+        .await
+        .expect("the answer is handed");
+    assert_eq!(fixture.card_states(), ["approved"]);
+    assert_eq!(fixture.handed(), [plain_allow()]);
+    assert_eq!(fixture.handed_under(), ["ask-2"]);
 }
 
 // An ask whose check failed is refused at its provider with the check-failed line, and the

@@ -63,6 +63,7 @@ fn live_statements(event: &SessionEvent, occurred_at: &WireInstant) -> Vec<Write
             scope: requested.scope.clone(),
             resource_descriptor,
             ask_id: requested.ask_id.clone(),
+            tool_call_id: requested.tool_call_id.clone(),
             created_at: occurred_at.clone(),
         })]
     } else if let SessionEvent::ApprovalApproved(resolved) = event {

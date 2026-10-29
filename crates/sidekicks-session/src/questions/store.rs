@@ -16,6 +16,7 @@ use sidekicks_contracts::question::{
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::{UuidText, UuidTextForm};
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
@@ -24,8 +25,8 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 use crate::questions::schema::QuestionState;
 
 const INSERT_QUESTION_SQL: &str = "INSERT INTO questions
-  (id, session_id, run_id, wait_id, is_agent_waiting, state)
-  VALUES (@id, @sessionId, @runId, @waitId, @isAgentWaiting, @state)";
+  (id, session_id, run_id, wait_id, provider_request_id, is_agent_waiting, state)
+  VALUES (@id, @sessionId, @runId, @waitId, @providerRequestId, @isAgentWaiting, @state)";
 
 // Settles an open question, or cancels one waiting for its run; refused once it is settled.
 static SETTLE_QUESTION_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -97,6 +98,18 @@ static UNSETTLED_HELD_OF_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// The run's open question its agent waits on that came on the provider's request, oldest first.
+static OPEN_OF_PROVIDER_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT id FROM questions
+  WHERE run_id = @runId AND provider_request_id = @providerRequestId AND state = '{open}'
+    AND is_agent_waiting = 1
+  ORDER BY rowid
+  LIMIT 1",
+        open = <&'static str>::from(QuestionState::Open)
+    )
+});
+
 // Which of a JSON array of question ids are not settled: open, or waiting for their run.
 static UNSETTLED_AMONG_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -148,27 +161,30 @@ pub(crate) struct HeldQuestion {
 /// The record's row as `asked` writes it, open or waiting for its run. Refused when the record is
 /// already kept.
 pub(crate) fn insert_question_statement(asked: &QuestionAskedPayload) -> WriteStatement {
-    let (question_id, session_id, run_id, wait_id, is_agent_waiting, state) = match asked {
-        QuestionAskedPayload::Run(asked) => (
-            asked.question_id,
-            asked.session_id,
-            Some(asked.run_id.text()),
-            None,
-            asked.is_agent_waiting,
-            match asked.state {
-                QuestionAskedState::Open => QuestionState::Open,
-                QuestionAskedState::WaitingForRun => QuestionState::WaitingForRun,
-            },
-        ),
-        QuestionAskedPayload::Wait(asked) => (
-            asked.question_id,
-            asked.session_id,
-            None,
-            Some(asked.wait_id.text()),
-            asked.is_agent_waiting,
-            QuestionState::Open,
-        ),
-    };
+    let (question_id, session_id, run_id, wait_id, provider_request_id, is_agent_waiting, state) =
+        match asked {
+            QuestionAskedPayload::Run(asked) => (
+                asked.question_id,
+                asked.session_id,
+                Some(asked.run_id.text()),
+                None,
+                asked.provider_request_id.as_ref().map(FreeFormText::as_str),
+                asked.is_agent_waiting,
+                match asked.state {
+                    QuestionAskedState::Open => QuestionState::Open,
+                    QuestionAskedState::WaitingForRun => QuestionState::WaitingForRun,
+                },
+            ),
+            QuestionAskedPayload::Wait(asked) => (
+                asked.question_id,
+                asked.session_id,
+                None,
+                Some(asked.wait_id.text()),
+                None,
+                asked.is_agent_waiting,
+                QuestionState::Open,
+            ),
+        };
     WriteStatement {
         sql: Cow::Borrowed(INSERT_QUESTION_SQL),
         bindings: StatementBindings::Named(vec![
@@ -176,6 +192,7 @@ pub(crate) fn insert_question_statement(asked: &QuestionAskedPayload) -> WriteSt
             text_binding("@sessionId", session_id.text().as_str()),
             nullable_text_binding("@runId", run_id.as_ref().map(UuidText::as_str)),
             nullable_text_binding("@waitId", wait_id.as_ref().map(UuidText::as_str)),
+            nullable_text_binding("@providerRequestId", provider_request_id),
             (
                 Cow::Borrowed("@isAgentWaiting"),
                 SqlValue::Integer(i64::from(is_agent_waiting)),
@@ -314,6 +331,25 @@ pub(crate) fn read_asked(
                 "@questionId": question_id.text().as_str(),
             },
             |row| text_column(row, 0, |text| serde_json::from_str(&text)),
+        )
+        .optional()
+}
+
+/// The open question `run_id` holds, its agent waiting on it, that came on the provider's request
+/// `provider_request_id`, or `None` when it holds none. Fails as SQLite does, or when a stored id does not read.
+pub(crate) fn read_open_question_of_request(
+    connection: &Connection,
+    run_id: &RunId,
+    provider_request_id: &str,
+) -> rusqlite::Result<Option<QuestionId>> {
+    connection
+        .prepare_cached(&OPEN_OF_PROVIDER_REQUEST_SQL)?
+        .query_row(
+            named_params! {
+                "@runId": run_id.text().as_str(),
+                "@providerRequestId": provider_request_id,
+            },
+            |row| text_column(row, 0, |text| QuestionId::new(&text)),
         )
         .optional()
 }

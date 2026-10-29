@@ -47,6 +47,9 @@ CREATE TABLE questions (
   session_id        TEXT NOT NULL,
   run_id            TEXT,                      -- the run that holds it, or
   wait_id           TEXT,                      -- the workflow wait that holds it
+  -- The provider's own id of the request a run's question came on, by which a request sent again
+  -- after a restart finds its record; NULL on a wait's question and an id past a provider handle.
+  provider_request_id TEXT,
   -- False only on a question the agent does not wait for, which a queued message answers.
   is_agent_waiting  INTEGER NOT NULL CHECK(is_agent_waiting IN (0, 1)),
   state             TEXT NOT NULL DEFAULT '{open}' CHECK(state IN ({states})),
