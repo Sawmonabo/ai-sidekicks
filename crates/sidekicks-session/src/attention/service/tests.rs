@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
@@ -19,7 +18,6 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::presence::PresenceRegister;
-use sidekicks_platforms::WindowlessLaunch;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::{test_run_id, test_session_id};
 use sidekicks_store::events::session::appender::SessionEventLinkage;
@@ -28,6 +26,7 @@ use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
 use super::{AttentionService, AttentionServiceDependencies, DecisionTask, MERGE_WINDOW};
+use crate::attention::banner_launcher::counting_starter::CountingStarter;
 use crate::attention::banner_launcher::{BannerLauncher, WindowlessAppStarter};
 use crate::attention::projection::notify_entry_statements;
 use crate::attention::read::read_attention_projection;
@@ -51,22 +50,6 @@ impl MachineSettingsReader for TestSettings {
     }
 }
 
-/// Counts the app's starts; a started app never exits, so no timer runs behind a start.
-#[derive(Default)]
-struct CountingStarter(AtomicUsize);
-
-impl WindowlessAppStarter for CountingStarter {
-    fn launch_app(&self) -> BoxFuture<'static, std::io::Result<WindowlessLaunch>> {
-        self.0.fetch_add(1, Ordering::SeqCst);
-        async {
-            Ok(WindowlessLaunch::Watched {
-                exit: std::future::pending().boxed(),
-            })
-        }
-        .boxed()
-    }
-}
-
 struct Fixture {
     log: AttentionTestLog,
     service: Arc<AttentionService>,
@@ -80,7 +63,8 @@ impl Fixture {
         let mut settings = MachineSettings::default();
         settings.notifications.web_address.enabled = true;
         let settings = Arc::new(TestSettings(Mutex::new(settings)));
-        let starter = Arc::new(CountingStarter::default());
+        // A started app never exits, so no timer runs behind a start.
+        let starter = Arc::new(CountingStarter::never_exiting());
         let service = Arc::new(AttentionService::new(AttentionServiceDependencies {
             writer: Arc::clone(&log.writer),
             pool: Arc::clone(&log.pool),
@@ -133,7 +117,7 @@ impl Fixture {
     }
 
     fn launches(&self) -> usize {
-        self.starter.0.load(Ordering::SeqCst)
+        self.starter.starts()
     }
 }
 

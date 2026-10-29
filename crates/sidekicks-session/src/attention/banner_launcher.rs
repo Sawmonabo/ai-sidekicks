@@ -10,6 +10,9 @@ use futures::future::BoxFuture;
 use sidekicks_platforms::{Spawner, WindowlessLaunch, launch_app_windowless};
 use sidekicks_std::mutex_lock::lock;
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod counting_starter;
+
 // How long a start that hands back no process keeps the next one back: three times the slowest
 // windowless start measured on macOS (0.21 s), so a started app that ends before it subscribes
 // does not keep every later start back.

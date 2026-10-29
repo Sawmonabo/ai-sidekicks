@@ -79,9 +79,7 @@ async fn follow_projection(
 #[cfg(test)]
 mod tests {
     use std::error::Error;
-    use std::process::ExitStatus;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
     use futures::FutureExt as _;
@@ -94,7 +92,7 @@ mod tests {
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::presence::PresenceRegister;
     use sidekicks_ipc::registry::{Dispatch as _, MethodRegistryBuilder, Reply};
-    use sidekicks_platforms::WindowlessLaunch;
+    use sidekicks_session::attention::banner_launcher::counting_starter::CountingStarter;
     use sidekicks_session::attention::banner_launcher::{BannerLauncher, WindowlessAppStarter};
     use sidekicks_session::attention::service::{AttentionService, AttentionServiceDependencies};
     use sidekicks_session::attention::test_log::AttentionTestLog;
@@ -118,28 +116,6 @@ mod tests {
         }
     }
 
-    /// Counts the app's starts; a started app exits at once, so only a hold keeps the next back.
-    #[derive(Default)]
-    struct CountingStarter(AtomicUsize);
-
-    impl CountingStarter {
-        fn starts(&self) -> usize {
-            self.0.load(Ordering::SeqCst)
-        }
-    }
-
-    impl WindowlessAppStarter for CountingStarter {
-        fn launch_app(&self) -> BoxFuture<'static, std::io::Result<WindowlessLaunch>> {
-            self.0.fetch_add(1, Ordering::SeqCst);
-            async {
-                Ok(WindowlessLaunch::Watched {
-                    exit: async { Ok(ExitStatus::default()) }.boxed(),
-                })
-            }
-            .boxed()
-        }
-    }
-
     fn device(id: &str) -> DeviceId {
         DeviceId::new(id.to_owned()).expect("a test device id")
     }
@@ -160,7 +136,8 @@ mod tests {
         log.append(log.run_state(run_id, "completed", 2, json!({})))
             .await;
         log.decide(&log.entry_of(run_id), Some("pending"), None);
-        let starter = Arc::new(CountingStarter::default());
+        // A started app exits at once, so only a hold keeps the next start back.
+        let starter = Arc::new(CountingStarter::exiting_at_once());
         let launcher = Arc::new(BannerLauncher::new(
             Arc::clone(&starter) as Arc<dyn WindowlessAppStarter>
         ));
