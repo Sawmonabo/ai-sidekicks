@@ -43,9 +43,9 @@ fn provider_drivers_schema_sql() -> String {
 -- ---------------------------------------------------------------------------
 -- Provider drivers: run bindings, left conversations, the capability cache and the builds.
 -- ---------------------------------------------------------------------------
--- contract_version, resume_handle and the CLI version are provider-declared text. The `CHECK` constraints bound
--- what SQLite can express (length in code points, no NUL); the write checks the same bounds and
--- the semantic-version shape.
+-- contract_version, resume_handle and the CLI version are provider-declared text. The `CHECK`
+-- constraints bound what SQLite can express (length in code points, no NUL); the write checks the
+-- same bounds and the semantic-version shape.
 CREATE TABLE runtime_bindings (
   id                  TEXT PRIMARY KEY,
   run_id              TEXT NOT NULL,
