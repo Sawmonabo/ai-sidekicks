@@ -642,6 +642,12 @@ pub enum ProviderAccountNotification {
         /// The account.
         account_id: ProviderAccountId,
     },
+    /// A brokered sign-in waits for the code its sign-in page shows, read from the provider's
+    /// prompt and never its text; `provider.account.signInCode.submit` answers it.
+    SignInCodeRequested {
+        /// The attempt.
+        attempt_id: FreeFormText<PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN>,
+    },
     /// A brokered sign-in ended. `succeeded` means only that the provider's flow finished; the
     /// account's health follows as `accountChanged`.
     SignInCompleted {
@@ -694,6 +700,7 @@ fn window_names_routed_account(
         ProviderAccountNotification::UsageWindowUpdated { .. }
         | ProviderAccountNotification::AccountChanged { .. }
         | ProviderAccountNotification::AccountRemoved { .. }
+        | ProviderAccountNotification::SignInCodeRequested { .. }
         | ProviderAccountNotification::SignInCompleted { .. } => Ok(()),
     }
 }

@@ -21,6 +21,7 @@ use crate::provider::account::sign_in::{
     ProviderAccountCredentialHomeResetRequest, ProviderAccountCredentialHomeResetResponse,
     ProviderAccountRegisterRequest, ProviderAccountRegisterResponse,
     ProviderAccountSignInAttemptCancelRequest, ProviderAccountSignInAttemptCancelResponse,
+    ProviderAccountSignInCodeSubmitRequest, ProviderAccountSignInCodeSubmitResponse,
     ProviderAccountSignInRequest, ProviderAccountSignInResponse,
 };
 use crate::provider::id::ProviderId;
@@ -106,8 +107,10 @@ pub struct ProviderAccountUpdateRequest {
     pub wake_for_window_start_enabled: Option<bool>,
 }
 
-/// Whether the helper that wakes this computer for a window start is installed; one that did not
-/// install leaves the switch off and gives its reason.
+/// Where the helper that wakes this computer for a window start stands. The update reply reads
+/// `installed` or `notInstalled`, one that did not install leaving the switch off and giving its
+/// reason; `daemon.status.read` reads `installed`, `turnedOff` (turned off in the system's login
+/// items) or `missing`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "state",
@@ -123,6 +126,10 @@ pub enum ProviderWakeHelperState {
         /// Why, in the installer's own words.
         reason: FreeFormText<PROVIDER_WAKE_HELPER_REASON_MAX_LEN>,
     },
+    /// Turned off in the system's login items, on macOS alone; nothing wakes the computer.
+    TurnedOff {},
+    /// Gone while an account's wake switch is on; nothing wakes the computer.
+    Missing {},
 }
 
 /// The updated account.
@@ -469,6 +476,13 @@ methods! {
                 ProviderAccountSignInUnsupported,
                 ProviderAccountCredentialHomeUnavailable,
             ],
+        },
+        /// Sends the code a sign-in page shows to the sign-in waiting for it.
+        ProviderAccountSignInCodeSubmit = mutation "provider.account.signInCode.submit" {
+            mutating: true,
+            params: ProviderAccountSignInCodeSubmitRequest,
+            result: ProviderAccountSignInCodeSubmitResponse,
+            refusals: [ProviderAccountPermissionDenied],
         },
         /// Cancels a sign-in attempt.
         ProviderAccountSignInAttemptCancel = mutation "provider.account.signInAttempt.cancel" {

@@ -13,6 +13,7 @@ use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::place::DistroName;
 use crate::process_identity::ProcessIdentity;
+use crate::provider::account::methods::ProviderWakeHelperState;
 use crate::release_manifest::ReleaseVersion;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
@@ -235,6 +236,16 @@ pub struct DaemonStatusReadResponse {
     )]
     #[schemars(with = "DaemonMachineKey")]
     pub machine_key: Option<DaemonMachineKey>,
+    /// The machine's one wake helper, `installed`, `turnedOff` or `missing`: present on a system
+    /// that uses the helper while any account's wake switch is on, and absent on one with no
+    /// helper.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ProviderWakeHelperState")]
+    pub wake_helper: Option<ProviderWakeHelperState>,
 }
 
 /// Where the service stands with its keys for other devices while it does not hold them, and
