@@ -125,6 +125,9 @@ async fn open_inventory_over(answers: Vec<DriverAnswer>) -> TestInventory {
             lock(&driver_probes).push(request.probe.clone());
             answer(provider, request)
         });
+        driver
+            .expect_reread_live_mcp_statuses()
+            .returning(|| ready(()).boxed());
         providers_of_registry.push(provider_of_registry);
         drivers.push(Arc::new(driver));
     }
