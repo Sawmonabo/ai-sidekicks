@@ -1,7 +1,7 @@
 //! The checks on provider-declared text the daemon stores, beside the SQL CHECK constraints: the
 //! bounds of `runtime_bindings` and `driver_contract_meta` live here once, but for the printed
-//! version's, which the wire's provider version bound sets, and every refusal is a
-//! [`ProviderOutputValidationError`] that names the field and never the value.
+//! version's, which the wire's provider version bound sets. A refusal names the field and never
+//! the value, as a [`ProviderOutputValidationError`].
 
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;

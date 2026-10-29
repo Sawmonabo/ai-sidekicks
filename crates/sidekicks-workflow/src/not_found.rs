@@ -12,7 +12,9 @@ use sidekicks_contracts::workflow::definition::document::{
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::not_found::workflow_run::workflow_run_not_found;
+use sidekicks_ipc::not_found::workflow_run::{
+    workflow_run_not_found, workflow_run_not_found_message,
+};
 
 /// A workflow record no row answers to; nothing was read or written. Each kind answers its own
 /// not-found code, with the address it was asked by as the detail.
@@ -29,7 +31,7 @@ pub(crate) enum WorkflowNotFound {
     #[error("No saved workflow version answers to {0}.")]
     Version(WorkflowVersionAddress),
     /// No run has the id (`workflow.run.notFound`).
-    #[error("{}", workflow_run_not_found(.workflow_run_id))]
+    #[error("{}", workflow_run_not_found_message(.workflow_run_id))]
     Run {
         /// The run asked for.
         workflow_run_id: WorkflowRunId,

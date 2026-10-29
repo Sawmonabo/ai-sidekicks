@@ -11,8 +11,13 @@ use crate::domain_error::DomainError;
 /// the reply's `workflowRunId` field.
 pub fn workflow_run_not_found(workflow_run_id: &WorkflowRunId) -> DomainError {
     DomainError::new(
-        format!("No workflow run answers to {workflow_run_id}."),
+        workflow_run_not_found_message(workflow_run_id),
         RefusalCode::WorkflowRunNotFound,
     )
     .with_detail(json!({ "workflowRunId": workflow_run_id }))
+}
+
+/// The sentence the refusal of `workflow_run_id` carries, for an error that displays it alone.
+pub fn workflow_run_not_found_message(workflow_run_id: &WorkflowRunId) -> String {
+    format!("No workflow run answers to {workflow_run_id}.")
 }

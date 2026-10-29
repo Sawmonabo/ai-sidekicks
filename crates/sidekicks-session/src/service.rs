@@ -354,7 +354,8 @@ impl SessionService {
     /// with [`SessionServiceError::Log`] when a stored row is not a well-formed envelope.
     #[expect(
         dead_code,
-        reason = "the session core's rebuild of a session's record from its whole log, read in order"
+        reason = "the session core's rebuild of a session's record from its whole log, read in \
+                  order"
     )]
     pub(crate) async fn rebuild_session(
         &self,

@@ -6,9 +6,8 @@
 //! happened. A rewrite that fails still reads as the defaults, since the settings are known, with
 //! no repair kept; the first such reading since a write succeeded is logged at warn and announced,
 //! so every listener holds what a read answers, and later ones are logged at debug. Reads, writes
-//! and repairs run one at a time, so a change
-//! never interleaves with another and a new listener's first reading is never older than a change
-//! announced after it.
+//! and repairs run one at a time, so a change never interleaves with another and a new listener's
+//! first reading is never older than a change announced after it.
 
 use std::error::Error;
 use std::io;

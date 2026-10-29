@@ -341,10 +341,11 @@ impl RunQueue {
     /// opens a run of its own: behind the live lead run's turn or the messages waiting to continue
     /// the interrupted one, else at once, waking a session with no live process as a message does;
     /// its report lands as the agent's reply. A start again under the same key answers the review
-    /// the first queued. Refuses a session the daemon does not hold or whose provider has no
-    /// driver or no account to run on (`provider.account.notRegistered`,
-    /// `provider.account.current.notSet`), one closed (`session.alreadyClosed`) or being purged (`session.changeRefused`), a
-    /// review the store cannot keep and one whose lead run kept moving under it, writing nothing.
+    /// the first queued. Refuses a session the daemon does not hold or whose provider has no driver
+    /// or no account to run on (`provider.account.notRegistered`,
+    /// `provider.account.current.notSet`), one closed (`session.alreadyClosed`) or being purged
+    /// (`session.changeRefused`), a review the store cannot keep and one whose lead run kept moving
+    /// under it, writing nothing.
     pub async fn queue_review(
         &self,
         request: SessionCodeReviewStartRequest,
