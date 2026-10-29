@@ -169,9 +169,9 @@ pub enum RepoMountReattachError {
         repo_mount_id: RepoMountId,
         /// The mount it replaced.
         replaced_repo_mount_id: RepoMountId,
-        /// Every follow-up that failed.
+        /// Every follow-up that failed, boxed to keep the error small.
         #[source]
-        source: SettleFailures<RepoMountReattachFollowUpFailure>,
+        source: Box<SettleFailures<RepoMountReattachFollowUpFailure>>,
     },
 }
 
@@ -401,7 +401,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
             RepoMountReattachError::FollowUpIncomplete {
                 repo_mount_id: new_repo_mount_id,
                 replaced_repo_mount_id: repo_mount_id,
-                source,
+                source: Box::new(source),
             }
         })?;
         Ok(RepoMountReattachResponse {

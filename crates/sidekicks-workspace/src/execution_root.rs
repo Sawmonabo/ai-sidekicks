@@ -193,7 +193,19 @@ impl From<WorktreeCreationError> for ExecutionRootError {
                     operation,
                 )))
             }
-            fault => Self::Creation(fault),
+            fault @ (WorktreeCreationError::Mount(_)
+            | WorktreeCreationError::Naming(_)
+            | WorktreeCreationError::LiveRunFolders(_)
+            | WorktreeCreationError::Pool(_)
+            | WorktreeCreationError::Database(_)
+            | WorktreeCreationError::Folder(_)
+            | WorktreeCreationError::TreeFolder(_)
+            | WorktreeCreationError::FolderText(_)
+            | WorktreeCreationError::Record(_)
+            | WorktreeCreationError::RowMoved(_)
+            | WorktreeCreationError::Ready(_)
+            | WorktreeCreationError::Setup(_)
+            | WorktreeCreationError::SuggestionText(_)) => Self::Creation(fault),
         }
     }
 }

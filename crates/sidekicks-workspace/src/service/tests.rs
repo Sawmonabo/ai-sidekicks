@@ -100,7 +100,11 @@ fn count(rows: &Connection, sql: &str) -> i64 {
 fn refusal_code(error: &WorkspaceServiceError) -> RefusalCode {
     match error {
         WorkspaceServiceError::Refused(refusal) => refusal.code,
-        other => panic!("the call is refused, not {other:?}"),
+        other @ (WorkspaceServiceError::Invariant(_)
+        | WorkspaceServiceError::Read(_)
+        | WorkspaceServiceError::Row(_)
+        | WorkspaceServiceError::HealthProjection(_)
+        | WorkspaceServiceError::Append(_)) => panic!("the call is refused, not {other:?}"),
     }
 }
 

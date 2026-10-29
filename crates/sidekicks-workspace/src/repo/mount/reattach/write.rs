@@ -280,7 +280,7 @@ pub(super) fn read_written(
         .and_then(|row| row.first())
         .and_then(|value| match value {
             Value::Text(project_id) => Some(project_id.clone()),
-            _ => None,
+            Value::Null | Value::Integer(_) | Value::Real(_) | Value::Blob(_) => None,
         });
     Ok(ReattachWritten {
         moved_workspaces,

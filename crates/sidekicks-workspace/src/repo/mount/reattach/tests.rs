@@ -125,7 +125,9 @@ impl ReattachFixture {
 fn refusal(error: RepoMountReattachError) -> DomainError {
     match HandlerError::from(error) {
         HandlerError::Refused(refusal) => refusal,
-        other => panic!("the re-attach is refused, not {other:?}"),
+        other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
+            panic!("the re-attach is refused, not {other:?}")
+        }
     }
 }
 

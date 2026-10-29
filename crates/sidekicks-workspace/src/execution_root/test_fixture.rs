@@ -50,7 +50,7 @@ const READ_STATEMENT_CAPACITY: usize = 32;
 /// mount `MOUNT_ID` of the repository `app` on `main`, every path resolved.
 pub struct ExecutionRootFixture {
     /// The database, kept open while the fixture lives.
-    pub _database: TestDatabase,
+    pub database: TestDatabase,
     /// The event log and writer on the database.
     pub log: TestLog,
     /// The scratch folder the repository and its trees sit in.
@@ -136,7 +136,7 @@ impl ExecutionRootFixture {
             setup,
         }));
         Self {
-            _database: database,
+            database,
             log,
             scratch,
             git: test_git_runner(),

@@ -486,9 +486,11 @@ mod tests {
 
         match HandlerError::from(failure) {
             HandlerError::Refused(refusal) => {
-                assert_eq!(refusal.code, RefusalCode::ProjectNotFound)
+                assert_eq!(refusal.code, RefusalCode::ProjectNotFound);
             }
-            other => panic!("the read is refused, not {other:?}"),
+            other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
+                panic!("the read is refused, not {other:?}")
+            }
         }
     }
 }

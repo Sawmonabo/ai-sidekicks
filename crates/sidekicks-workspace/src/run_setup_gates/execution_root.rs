@@ -36,6 +36,7 @@ use sidekicks_contracts::repo::mount::{
 };
 use sidekicks_contracts::run::queue::{QueueItemSummary, QueueMessageSummary};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::worktree::lifecycle::{BranchContextId, WorktreeId, WorktreeState};
 use sidekicks_ipc::domain_error::DomainError;
@@ -423,7 +424,7 @@ impl<W: Watcher + Send + 'static> ExecutionRootSetupGate<W> {
         #[cfg(test)]
         self.write_pause.pass().await;
         let _checkout_hold = self.checkout_lock.acquire(checkout_key).await;
-        let upsert = run_context_statement(RunContextRow {
+        let upsert = run_context_statement(&RunContextRow {
             context,
             workspace,
             execution_root,
@@ -580,7 +581,7 @@ struct RunContextRow<'a> {
     branch_context_id: BranchContextId,
 }
 
-fn run_context_statement(row: RunContextRow<'_>) -> WriteStatement {
+fn run_context_statement(row: &RunContextRow<'_>) -> WriteStatement {
     let worktree_id = row.worktree_id.map(|worktree_id| worktree_id.text());
     let now = WireInstant::now();
     WriteStatement {
@@ -600,10 +601,7 @@ fn run_context_statement(row: RunContextRow<'_>) -> WriteStatement {
             text_binding("@execution_root", &row.execution_root.to_string_lossy()),
             text_binding("@checkout_root", &row.checkout_root.to_string_lossy()),
             text_binding("@git_common_dir", &row.common_folder.to_string_lossy()),
-            nullable_text_binding(
-                "@worktree_id",
-                worktree_id.as_ref().map(|text| text.as_str()),
-            ),
+            nullable_text_binding("@worktree_id", worktree_id.as_ref().map(UuidText::as_str)),
             text_binding("@branch_context_id", row.branch_context_id.text().as_str()),
             text_binding("@now", now.as_str()),
         ]),
@@ -622,7 +620,7 @@ fn read_run_workspace(
         .query_row(
             named_params! {
                 "@session_id": session_id.text().as_str(),
-                "@workspace_id": named.as_ref().map(|text| text.as_str()),
+                "@workspace_id": named.as_ref().map(UuidText::as_str),
             },
             |row| {
                 Ok(RunWorkspace {

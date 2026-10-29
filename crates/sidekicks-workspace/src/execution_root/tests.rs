@@ -24,7 +24,9 @@ const DEADLOCK_BOUND: Duration = Duration::from_secs(60);
 fn refusal_code(error: ExecutionRootError) -> RefusalCode {
     match HandlerError::from(error) {
         HandlerError::Refused(refusal) => refusal.code,
-        other => panic!("the call is refused, not {other:?}"),
+        other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
+            panic!("the call is refused, not {other:?}")
+        }
     }
 }
 
