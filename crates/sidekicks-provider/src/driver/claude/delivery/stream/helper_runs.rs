@@ -61,10 +61,12 @@ impl ClaudeDeliveryStream {
                 },
                 parent_run_id: lead.run_id,
             };
-            let (run_id, is_refused) =
+            let (run_id, refusal) =
                 match self.send(session, child, Some("system/task_started")).await {
-                    Some(InboundOutcome::ChildRunStarted { run_id }) => (Some(run_id), false),
-                    Some(InboundOutcome::ChildRunRefused { run_id }) => (Some(run_id), true),
+                    Some(InboundOutcome::ChildRunStarted { run_id }) => (Some(run_id), None),
+                    Some(InboundOutcome::ChildRunRefused { run_id, reason }) => {
+                        (Some(run_id), Some(reason))
+                    }
                     Some(
                         InboundOutcome::TurnOpened
                         | InboundOutcome::Transitioned { .. }
@@ -74,7 +76,7 @@ impl ClaudeDeliveryStream {
                         | InboundOutcome::AppendedStamped { .. }
                         | InboundOutcome::Absorbed { .. },
                     )
-                    | None => (None, false),
+                    | None => (None, None),
                 };
             if let Some(run_id) = run_id {
                 child_run_id = Some(run_id);
@@ -90,11 +92,11 @@ impl ClaudeDeliveryStream {
             }
             // A refused helper still runs in Claude Code: its next tool use is denied, so it
             // reports and finishes while the lead's turn goes on.
-            if is_refused {
+            if let Some(refusal) = refusal {
                 lock(&self.dependencies.pauses).stop_helper(
                     session.session_id,
                     &emission.subagent_id,
-                    HelperStopReason::PostureRefused,
+                    HelperStopReason::PostureRefused { refusal },
                 );
             }
         }

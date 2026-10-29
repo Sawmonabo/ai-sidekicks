@@ -87,10 +87,10 @@ pub(crate) fn attribute_codex_ask(
         .filter(|thread_id| *thread_id != record.thread_id)
         .and_then(|thread_id| record.delivery.child_run_by_thread_id.get(&thread_id));
     if let Some(child) = child {
-        return match &child.started {
-            Some(started) => CodexRoutedAskAttribution::Attributed {
+        return match &child.bound {
+            Some(bound) => CodexRoutedAskAttribution::Attributed {
                 owner: CodexAskOwner {
-                    run_id: started.child_run_id,
+                    run_id: bound.child_run_id,
                     binding_id: child.binding_id.clone(),
                 },
             },

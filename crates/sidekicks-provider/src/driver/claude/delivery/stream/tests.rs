@@ -16,6 +16,7 @@ use crate::driver::run_control::HelperStopReason;
 use crate::port::run_host::test_host::EngineCall;
 use crate::port::usage_sink::{MeteredUsageOwner, ProviderQuotaWindow};
 use crate::run::delivery::LateAppendableRow;
+use crate::run::delivery::RunSetupRefusal;
 use crate::run::state_entry::RunStateEntry;
 use crate::run::turn_end::TurnOutcome;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -739,14 +740,18 @@ fn before_tool(agent_id: Option<&str>) -> Value {
 }
 
 // A helper whose run the daemon refused after Claude Code started it stays bound to that ended run
-// and is denied its next tool use with the refusal's sentence, while the lead's next call passes.
-// Killed by leaving the refused helper's route unbound, by not recording its stop, and by stopping
-// it with the token limit's sentence.
+// and is denied its next tool use with the refusal's sentence, which names the setup's own cause,
+// while the lead's next call passes. Killed by leaving the refused helper's route unbound, by not
+// recording its stop, by stopping it with the token limit's sentence, and by a sentence that drops
+// the setup's cause.
 #[tokio::test(start_paused = true)]
 async fn a_refused_helper_is_denied_its_next_tool_use_and_the_lead_goes_on() {
     let session = ScriptedSession::new().await;
     session.hold_lead_turn("lead");
-    let refused = session.engine.refuse_next_child_run();
+    let refusal = RunSetupRefusal {
+        cause: "the writable root '/gone/repo.git' could not be resolved".to_owned(),
+    };
+    let refused = session.engine.refuse_next_child_run(refusal.clone());
 
     session.frame(&init());
     session.frame(&helper_started("helper", "local_agent", "call-1"));
@@ -781,7 +786,8 @@ async fn a_refused_helper_is_denied_its_next_tool_use_and_the_lead_goes_on() {
     };
     let helper_answer = answer_to("helper-tool");
     assert!(helper_answer.contains(r#""permissionDecision":"deny""#));
-    assert!(helper_answer.contains(HelperStopReason::PostureRefused.sentence()));
-    assert!(!helper_answer.contains(HelperStopReason::TokenLimit.sentence()));
+    assert!(helper_answer.contains(&HelperStopReason::PostureRefused { refusal }.sentence()));
+    assert!(helper_answer.contains("/gone/repo.git"));
+    assert!(!helper_answer.contains(&HelperStopReason::TokenLimit.sentence()));
     assert!(!answer_to("lead-tool").contains("deny"));
 }

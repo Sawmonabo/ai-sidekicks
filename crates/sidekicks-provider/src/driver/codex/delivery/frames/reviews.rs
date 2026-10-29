@@ -40,7 +40,7 @@ impl CodexFrameDelivery {
             // A thread that is neither the session's own nor a live helper's has no run to own
             // it; a helper whose start was refused has none either.
             match thread_id.map(|thread_id| record.child_run_on(thread_id)) {
-                Some(ChildRunLookup::Started {
+                Some(ChildRunLookup::Bound {
                     run,
                     start_row_event_id,
                 }) => (Some(run), start_row_event_id),

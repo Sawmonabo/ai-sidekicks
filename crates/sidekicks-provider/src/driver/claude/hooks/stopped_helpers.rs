@@ -34,7 +34,7 @@ impl ClaudeStoppedHelpers {
         self.stopped
             .get(&(session_id, agent_id.to_owned()))
             .map(|reason| ClaudeHookAnswer::Deny {
-                reason: reason.sentence().to_owned(),
+                reason: reason.sentence(),
             })
     }
 

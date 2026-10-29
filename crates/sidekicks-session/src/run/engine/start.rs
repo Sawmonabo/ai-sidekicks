@@ -644,6 +644,13 @@ fn driver_run_refusal(start_error: &RunEngineError) -> Option<&DriverRunRefusal>
     .find_map(|cause| cause.downcast_ref::<DriverRunRefusal>())
 }
 
+// The words a setup failure's cause records, bounded as the cause holds them.
+pub(super) fn setup_failure_message(
+    setup_error: &RunEngineError,
+) -> FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN> {
+    bound_failure_detail(&failure_words(setup_error), SETUP_FAILURE_FALLBACK.clone())
+}
+
 // The cause a setup failure records: a refusing gate's code, and the failure's own words.
 fn setup_failed_cause(setup_error: &RunEngineError) -> RunFailureCause {
     let code = if let RunEngineError::Gate {
@@ -661,7 +668,7 @@ fn setup_failed_cause(setup_error: &RunEngineError) -> RunFailureCause {
     RunFailureCause::SetupFailed {
         origin: DaemonFailureOrigin::Value,
         code,
-        message: bound_failure_detail(&failure_words(setup_error), SETUP_FAILURE_FALLBACK.clone()),
+        message: setup_failure_message(setup_error),
     }
 }
 

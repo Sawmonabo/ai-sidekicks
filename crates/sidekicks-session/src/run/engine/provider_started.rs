@@ -15,6 +15,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::run_control::InterruptRunRequest;
+use sidekicks_provider::run::delivery::RunSetupRefusal;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::ReadLength;
@@ -24,7 +25,7 @@ use sidekicks_workspace::run_setup_gates::RunSetupContext;
 use crate::driver_resolution::read_run_driver;
 use crate::run::agent::RunAgentReader;
 use crate::run::engine::live::ContinuingGuard;
-use crate::run::engine::start::has_left_interrupted;
+use crate::run::engine::start::{has_left_interrupted, setup_failure_message};
 use crate::run::engine::{
     LiveAppend, RunEngine, RunEngineError, SubagentRunStart, with_cleanup_failures,
 };
@@ -134,7 +135,12 @@ impl RunEngine {
             }
             let gate_error = RunEngineError::Gate { run_id, source };
             return match self.end_setup_failed(run_id, &gate_error).await {
-                Ok(()) => Ok(Some(SubagentRunStart::Refused(run_id))),
+                Ok(()) => Ok(Some(SubagentRunStart::Refused(
+                    run_id,
+                    RunSetupRefusal {
+                        cause: setup_failure_message(&gate_error).as_str().to_owned(),
+                    },
+                ))),
                 Err(fail_error) => Err(with_cleanup_failures(
                     gate_error,
                     [Err(fail_error)],

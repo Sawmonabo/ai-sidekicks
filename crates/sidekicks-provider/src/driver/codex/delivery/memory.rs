@@ -60,14 +60,15 @@ pub(crate) struct CodexSpawnCall {
     pub(crate) run: CodexRowRun,
 }
 
-/// A helper's child run once started: its own id, the run it was started beneath, and the event
-/// of its `subagent.started` row, `None` when that row was refused.
+/// A helper's child run once the run engine started it, or refused and ended it: its own id, the
+/// run it was started beneath, and the event of its `subagent.started` row, `None` when that row
+/// was refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[expect(
     clippy::struct_field_names,
     reason = "each member is an id, named for what it identifies"
 )]
-pub(crate) struct CodexStartedChildRun {
+pub(crate) struct CodexBoundChildRun {
     /// The child run.
     pub(crate) child_run_id: RunId,
     /// The run it was started beneath.
@@ -81,7 +82,7 @@ pub(crate) struct CodexStartedChildRun {
 pub(crate) struct CodexChildRun {
     /// The child run once started, or refused and ended; `None` when its start was absorbed, so no
     /// run owns the helper's rows.
-    pub(crate) started: Option<CodexStartedChildRun>,
+    pub(crate) bound: Option<CodexBoundChildRun>,
     /// The agent whose run the helper works for.
     pub(crate) agent_id: AgentId,
     /// The binding the helper's deliveries go on.

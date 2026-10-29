@@ -152,8 +152,9 @@ async fn a_subagent_runs_at_the_posture_its_session_moved_to_since_its_parent_st
     );
 }
 
-// Killed by a posture stamped on a refused subagent's run, and by the gate's refusal returned as
-// an error in place of the refused answer the driver stops the subagent on.
+// Killed by a posture stamped on a refused subagent's run, by the gate's refusal returned as an
+// error in place of the refused answer the driver stops the subagent on, and by a refused answer
+// whose cause is not the one the run's failure records.
 #[tokio::test]
 async fn a_subagent_whose_sandboxed_root_is_gone_is_refused_and_ended() {
     let database = TestDatabase::new(schema_parts());
@@ -175,7 +176,7 @@ async fn a_subagent_whose_sandboxed_root_is_gone_is_refused_and_ended() {
         .await
         .expect("a refused subagent is answered, not failed");
 
-    let Some(SubagentRunStart::Refused(child)) = started else {
+    let Some(SubagentRunStart::Refused(child, refusal)) = started else {
         panic!("the subagent is refused: {started:?}");
     };
     assert_eq!(stored_run_state(&database, &child).0, "failed");
@@ -183,6 +184,8 @@ async fn a_subagent_whose_sandboxed_root_is_gone_is_refused_and_ended() {
         .expect("the subagent's end is written");
     assert_eq!(failed["failureCategory"], "setupFailure");
     assert_eq!(failed["failureCause"]["cause"], "setupFailed");
+    assert_eq!(failed["failureCause"]["message"], refusal.cause.as_str());
+    assert!(refusal.cause.contains("repo.git"), "{}", refusal.cause);
     assert_eq!(
         run_event_payload(&database, &child, "agent.run.running"),
         None

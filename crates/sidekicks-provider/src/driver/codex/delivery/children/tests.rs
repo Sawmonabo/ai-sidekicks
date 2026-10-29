@@ -5,6 +5,7 @@ use serde_json::json;
 use super::ChildRunLookup;
 use crate::driver::codex::delivery::rows::test_row_run;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
+use crate::run::delivery::RunSetupRefusal;
 
 /// The refused helper's own conversation, which is its id.
 const HELPER_THREAD: &str = "helper-thread";
@@ -19,7 +20,9 @@ const HELPER_TURN: &str = "helper-turn";
 async fn a_refused_helpers_running_turn_is_interrupted() {
     let mut session = TestCodexSession::start().await;
     let delivery = Arc::clone(&session.task.calls.forks.delivery);
-    let refused = session.engine.refuse_next_child_run();
+    let refused = session.engine.refuse_next_child_run(RunSetupRefusal {
+        cause: "the test's gate refuses the run".to_owned(),
+    });
     let mut lead = test_row_run();
     lead.session_id = session.task.record.session_id;
     session
@@ -51,8 +54,7 @@ async fn a_refused_helpers_running_turn_is_interrupted() {
         json!({"threadId": HELPER_THREAD, "turnId": HELPER_TURN})
     );
     session.scripted.script.answer(&interrupt, &json!({}));
-    let ChildRunLookup::Started { run, .. } = session.task.record.child_run_on(HELPER_THREAD)
-    else {
+    let ChildRunLookup::Bound { run, .. } = session.task.record.child_run_on(HELPER_THREAD) else {
         panic!("the refused helper keeps its ended run");
     };
     assert_eq!(run.run_id, refused);

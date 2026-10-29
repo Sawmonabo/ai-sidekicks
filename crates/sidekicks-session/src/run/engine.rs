@@ -39,7 +39,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::run::delivery::RunMarker;
+use sidekicks_provider::run::delivery::{RunMarker, RunSetupRefusal};
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use sidekicks_std::mutex_lock::lock;
@@ -98,12 +98,13 @@ const LIVE_APPEND_VERSION_GUARD_INDEX: usize = 0;
 /// How the start of a run its provider started beneath a live parent went: running at its
 /// session's posture, or refused at its setup and ended `failed`, the subagent left for its driver
 /// to stop.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SubagentRunStart {
     /// The run is `running`, stamped with the posture its gates resolved.
     Running(RunId),
-    /// A setup gate refused the run, which ended `failed` with no posture stamped.
-    Refused(RunId),
+    /// A setup gate refused the run, which ended `failed` with no posture stamped, for the
+    /// refusal its failure cause records.
+    Refused(RunId, RunSetupRefusal),
 }
 
 /// Where an interrupt of a run goes: claimed by the engine for a run no driver has, whose end is

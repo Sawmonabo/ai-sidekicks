@@ -222,6 +222,8 @@ pub enum InboundOutcome {
     ChildRunRefused {
         /// Its ended run.
         run_id: RunId,
+        /// Why its setup refused it.
+        reason: RunSetupRefusal,
     },
     /// The live state went to the run's state stream.
     Published,
@@ -244,6 +246,14 @@ pub enum InboundOutcome {
         /// Why.
         reason: LateEventAbsorbReason,
     },
+}
+
+/// Why the daemon refused a run at its setup, in the refusing gate's own words as the run's
+/// failure cause records them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunSetupRefusal {
+    /// The refusal's cause, such as a writable root that no longer resolves.
+    pub cause: String,
 }
 
 impl InboundOutcome {

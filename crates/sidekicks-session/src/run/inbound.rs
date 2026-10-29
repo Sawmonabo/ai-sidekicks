@@ -588,8 +588,8 @@ impl RunInboundDispatch {
                     Some(SubagentRunStart::Running(run_id)) => {
                         InboundOutcome::ChildRunStarted { run_id }
                     }
-                    Some(SubagentRunStart::Refused(run_id)) => {
-                        InboundOutcome::ChildRunRefused { run_id }
+                    Some(SubagentRunStart::Refused(run_id, reason)) => {
+                        InboundOutcome::ChildRunRefused { run_id, reason }
                     }
                     None => run_ended(),
                 }

@@ -800,7 +800,7 @@ mod tests {
         };
         let helper_answer = answer_to("helper-tool");
         assert!(helper_answer.contains(r#""permissionDecision":"deny""#));
-        assert!(helper_answer.contains(HelperStopReason::TokenLimit.sentence()));
+        assert!(helper_answer.contains(&HelperStopReason::TokenLimit.sentence()));
         assert!(!answer_to("lead-tool").contains("deny"));
     }
 
