@@ -474,7 +474,7 @@ impl RunEngine {
         setup_error: RunEngineError,
     ) -> RunEngineError {
         match self.end_setup_failed(run_id, &setup_error).await {
-            Ok(()) => setup_error,
+            Ok(_) => setup_error,
             Err(fail_error) => with_cleanup_failures(
                 setup_error,
                 [Err(fail_error)],
@@ -483,13 +483,14 @@ impl RunEngine {
         }
     }
 
-    // Ends a run whose setup failed `failed`, its cause the failure. A run an interrupt moved out
-    // of `starting` while a gate ran keeps that end.
+    // Ends a run whose setup failed `failed`, its cause the failure, answering whether this call
+    // ended it. A run an interrupt moved out of `starting` while a gate ran keeps that end, and the
+    // answer is `false`.
     pub(super) async fn end_setup_failed(
         &self,
         run_id: RunId,
         setup_error: &RunEngineError,
-    ) -> Result<(), RunEngineError> {
+    ) -> Result<bool, RunEngineError> {
         let failed = RunStateChange {
             expected_state: Some(RunState::Starting),
             failure_category: Some(RunFailureCategory::SetupFailure),
@@ -507,11 +508,12 @@ impl RunEngine {
             .change(failed, RunStateChangeCompanions::default(), None)
             .await
         {
-            Ok(_) | Err(RunEngineError::Refused(RunRefusal::AlreadyEnded { .. })) => Ok(()),
+            Ok(_) => Ok(true),
+            Err(RunEngineError::Refused(RunRefusal::AlreadyEnded { .. })) => Ok(false),
             Err(RunEngineError::Refused(RunRefusal::InvalidTransition { from_state, .. }))
                 if from_state != RunState::Starting =>
             {
-                Ok(())
+                Ok(false)
             }
             Err(fail_error) => Err(fail_error),
         }

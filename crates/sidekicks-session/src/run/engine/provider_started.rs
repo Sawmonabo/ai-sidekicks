@@ -16,11 +16,12 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::run_control::InterruptRunRequest;
 use sidekicks_provider::run::delivery::RunSetupRefusal;
+use sidekicks_provider::run::posture::ExecutionPostureRejection;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::events::session::appender::SessionEventDraft;
-use sidekicks_workspace::run_setup_gates::RunSetupContext;
+use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGateError};
 
 use crate::driver_resolution::read_run_driver;
 use crate::run::agent::RunAgentReader;
@@ -129,18 +130,25 @@ impl RunEngine {
         if let Err(source) = gated {
             // A run that ended while its gates ran is no refusal: its helper is not stopped, and
             // what a gate took after that end is let go.
-            if let Some(ended) = self.read_ended(run_id).await? {
-                self.release_gates_after_end(run_id, &ended).await?;
+            if self.let_go_if_ended(run_id).await? {
                 return Ok(None);
             }
+            let is_posture_rejection = matches!(&source, RunSetupGateError::Failed(cause)
+                if cause.downcast_ref::<ExecutionPostureRejection>().is_some());
             let gate_error = RunEngineError::Gate { run_id, source };
             return match self.end_setup_failed(run_id, &gate_error).await {
-                Ok(()) => Ok(Some(SubagentRunStart::Refused(
+                Ok(true) => Ok(Some(SubagentRunStart::Refused(
                     run_id,
                     RunSetupRefusal {
                         cause: setup_failure_message(&gate_error).as_str().to_owned(),
+                        is_posture_rejection,
                     },
                 ))),
+                // Ended some other way between the re-read and the failure's write: no refusal.
+                Ok(false) => {
+                    self.let_go_if_ended(run_id).await?;
+                    Ok(None)
+                }
                 Err(fail_error) => Err(with_cleanup_failures(
                     gate_error,
                     [Err(fail_error)],
@@ -149,6 +157,10 @@ impl RunEngine {
             };
         }
         let Some(resolved_posture) = self.execution_postures.resolved_posture_for(&run_id) else {
+            // A run that ended once its gates passed had its posture let go by its end.
+            if self.let_go_if_ended(run_id).await? {
+                return Ok(None);
+            }
             return Err(self
                 .fail_setup(run_id, RunEngineError::NoResolvedPosture { run_id })
                 .await);
@@ -172,16 +184,12 @@ impl RunEngine {
             Ok(_) => Ok(Some(SubagentRunStart::Running(run_id))),
             // A run that ended while its gates ran let go only what they held by then; what a gate
             // took after that end is let go here.
-            Err(
-                refusal @ RunEngineError::Refused(
-                    RunRefusal::InvalidTransition { .. } | RunRefusal::AlreadyEnded { .. },
-                ),
-            ) => {
-                let Some(ended) = self.read_ended(run_id).await? else {
-                    return Err(refusal);
-                };
-                self.release_gates_after_end(run_id, &ended).await?;
-                Ok(None)
+            Err(refusal @ RunEngineError::Refused(RunRefusal::InvalidTransition { .. })) => {
+                if self.let_go_if_ended(run_id).await? {
+                    Ok(None)
+                } else {
+                    Err(refusal)
+                }
             }
             Err(running_error) => Err(running_error),
         }
@@ -260,10 +268,7 @@ impl RunEngine {
             Err(RunEngineError::Refused(RunRefusal::InvalidTransition { .. })) => {
                 // A run that ended while its gates ran let go only what they held by then; what a
                 // gate took after that end is let go here, so no resolved posture outlives the run.
-                let Some(ended) = self.read_ended(run_id).await? else {
-                    return Ok(None);
-                };
-                self.release_gates_after_end(run_id, &ended).await?;
+                self.let_go_if_ended(run_id).await?;
                 Ok(None)
             }
             Err(continue_error) => {
@@ -273,7 +278,7 @@ impl RunEngine {
                 let interrupted = if matches!(&read, Ok(Some(run)) if has_left_interrupted(run)) {
                     Ok(())
                 } else {
-                    self.interrupt_provider_turn(run_id).await
+                    self.interrupt_ended_or_running_turn(run_id).await
                 };
                 let released = self.release_failed_continue(run_id, read).await;
                 Err(with_cleanup_failures(
@@ -294,6 +299,32 @@ impl RunEngine {
             .filter(|run| run.state.is_terminal()))
     }
 
+    // Lets go of what a gate took for `run_id` when it has ended, answering whether it has.
+    async fn let_go_if_ended(&self, run_id: RunId) -> Result<bool, RunEngineError> {
+        let Some(ended) = self.read_ended(run_id).await? else {
+            return Ok(false);
+        };
+        self.release_gates_after_end(run_id, &ended).await?;
+        Ok(true)
+    }
+
+    // Interrupts the turn the provider of `run_id` runs; a run that ended while the interrupt went
+    // out has no turn left, so the driver's failure for it is no failure.
+    async fn interrupt_ended_or_running_turn(&self, run_id: RunId) -> Result<(), RunEngineError> {
+        let Err(interrupt_error) = self.interrupt_provider_turn(run_id).await else {
+            return Ok(());
+        };
+        match self.read_run(run_id).await {
+            Ok(Some(run)) if has_left_interrupted(&run) => Ok(()),
+            Ok(_) => Err(interrupt_error),
+            Err(read_error) => Err(with_cleanup_failures(
+                interrupt_error,
+                [Err(read_error)],
+                "interrupting a continued run's turn failed, and reading the run after failed",
+            )),
+        }
+    }
+
     // Interrupts the turn the provider of `run_id` runs, through the run's own driver.
     async fn interrupt_provider_turn(&self, run_id: RunId) -> Result<(), RunEngineError> {
         let driver = read_run_driver::<RunEngineError>(&self.pool, &self.providers, run_id).await?;
@@ -311,4 +342,4 @@ impl RunEngine {
 }
 
 #[cfg(test)]
-pub(super) mod tests;
+mod tests;

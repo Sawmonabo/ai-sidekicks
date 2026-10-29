@@ -198,10 +198,9 @@ impl ClaudeSessionTask {
 
     async fn take_request(&mut self, event: ClaudeInboundRequestEvent) {
         let services = Arc::clone(&self.services);
-        let live = &self.live;
-        let session_id = live.session_id;
+        let session_id = self.live.session_id;
         let level = self.level();
-        let mut route = route_claude_request(
+        let route = route_claude_request(
             event,
             &session_id,
             level,
@@ -209,70 +208,63 @@ impl ClaudeSessionTask {
             &mut lock(&services.helpers),
             &mut lock(&services.helper_steers),
         );
+        self.take_route(route, level).await;
+    }
+
+    // Answers, holds or hands on one request as its route says; a helper start's check settles
+    // into an answer or a hold, which is taken in its turn.
+    async fn take_route(&mut self, route: ClaudeRequestRoute, level: Option<PermissionLevel>) {
+        let services = Arc::clone(&self.services);
+        let live = &self.live;
+        let session_id = live.session_id;
         let account = &live.admitted_provider_account_id;
-        // A helper start's check settles into an answer or a hold, which the next pass takes.
-        loop {
-            match route {
-                ClaudeRequestRoute::CheckHelperStart {
+        match route {
+            ClaudeRequestRoute::CheckHelperStart {
+                request_id,
+                agent_id,
+            } => {
+                let posture = lock(&live.settings).execution_posture.clone();
+                let settled = route_helper_start(
+                    posture.as_ref(),
+                    &services.pauses,
+                    &session_id,
                     request_id,
                     agent_id,
-                } => {
-                    let posture = lock(&live.settings).execution_posture.clone();
-                    route = route_helper_start(
-                        posture.as_ref(),
-                        &services.pauses,
-                        &session_id,
-                        request_id,
-                        agent_id,
-                    )
+                )
+                .await;
+                Box::pin(self.take_route(settled, level)).await;
+            }
+            ClaudeRequestRoute::Answer { request_id, answer } => {
+                answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
                     .await;
-                    continue;
-                }
-                ClaudeRequestRoute::Answer { request_id, answer } => {
-                    answer_claude_request(
-                        &*live.channel,
-                        &session_id,
-                        account,
-                        request_id,
-                        &answer,
-                    )
-                    .await;
-                }
-                ClaudeRequestRoute::Held { helper_held } => {
-                    if let Some(agent_id) = helper_held {
-                        self.report_helper_paused(&agent_id).await;
-                    }
-                }
-                ClaudeRequestRoute::CheckBackgroundWork { request_id, call } => {
-                    let answer = answer_background_work_check(
-                        &services.shell_lines,
-                        &services.background_work,
-                        call,
-                    )
-                    .await;
-                    answer_claude_request(
-                        &*live.channel,
-                        &session_id,
-                        account,
-                        request_id,
-                        &answer,
-                    )
-                    .await;
-                }
-                ClaudeRequestRoute::Forward(event) => {
-                    let running_model = lock(&live.settings).running_model.clone();
-                    let session = ClaudeRequestSession {
-                        stream: &self.stream,
-                        dialog: claude_dialog_session(live, &running_model),
-                        channel: Arc::clone(&live.channel),
-                        level,
-                        tool_server_calls: &self.tool_server_calls,
-                        tool_servers: services.tool_servers.port().cloned(),
-                    };
-                    services.requests.take_request(&session, event).await;
+            }
+            ClaudeRequestRoute::Held { helper_held } => {
+                if let Some(agent_id) = helper_held {
+                    self.report_helper_paused(&agent_id).await;
                 }
             }
-            return;
+            ClaudeRequestRoute::CheckBackgroundWork { request_id, call } => {
+                let answer = answer_background_work_check(
+                    &services.shell_lines,
+                    &services.background_work,
+                    call,
+                )
+                .await;
+                answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
+                    .await;
+            }
+            ClaudeRequestRoute::Forward(event) => {
+                let running_model = lock(&live.settings).running_model.clone();
+                let session = ClaudeRequestSession {
+                    stream: &self.stream,
+                    dialog: claude_dialog_session(live, &running_model),
+                    channel: Arc::clone(&live.channel),
+                    level,
+                    tool_server_calls: &self.tool_server_calls,
+                    tool_servers: services.tool_servers.port().cloned(),
+                };
+                services.requests.take_request(&session, event).await;
+            }
         }
     }
 

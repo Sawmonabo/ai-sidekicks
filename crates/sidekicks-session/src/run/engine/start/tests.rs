@@ -1,6 +1,5 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
 
 use futures::FutureExt;
 use rusqlite::params;
@@ -22,8 +21,7 @@ use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id
 use sidekicks_store::events::log_service::test_fixture::open_log;
 
 use crate::questions::schema::schema_parts;
-use crate::run::engine::provider_started::tests::end_run_aside;
-use crate::run::engine::test_fixture::test_engine;
+use crate::run::engine::test_fixture::{end_run_aside, test_engine};
 use crate::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, continue_request, held_driver, turn_start,
 };
@@ -207,9 +205,7 @@ async fn a_run_that_ended_during_its_gate_lets_go_its_resolved_posture() {
 
     let engine_ref = &engine;
     let end_during_gate = async move {
-        while held.arrived() == 0 {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
+        held.wait_for_arrival().await;
         let routed = engine_ref
             .route_interrupt(run_id)
             .await

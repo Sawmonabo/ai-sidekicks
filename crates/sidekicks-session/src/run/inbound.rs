@@ -2,10 +2,10 @@
 //! before anything is written. A lifecycle event, child run, marker, live state, unstamped row or
 //! permission ask from the execution before an undo's cut is absorbed there; one for a run already
 //! ended is absorbed by the refusal of its own write, with a diagnostic unless it is the provider's
-//! end of a turn the daemon interrupted, and so is a piece of a reply or of reasoning once no turn
-//! of its ended run is open; any other row is appended, stamped with its source pair when it is
-//! late, a reasoning update among them with its body. A session notice or session row belongs to
-//! no execution and is appended as it is.
+//! end of a turn the daemon interrupted or belongs to a helper refused at its setup, and so is a
+//! piece of a reply or of reasoning once no turn of its ended run is open; any other row is
+//! appended, stamped with its source pair when it is late, a reasoning update among them with its
+//! body. A session notice or session row belongs to no execution and is appended as it is.
 
 mod absorb;
 #[cfg(test)]
@@ -49,7 +49,7 @@ use crate::console_state::advisor_model_change_statement;
 use crate::run::engine::turns::run_live_or_turn_open_statement;
 use crate::run::engine::{RunEngine, RunEngineError, SubagentRunStart};
 use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs};
-use crate::run::inbound::absorb::absorb;
+use crate::run::inbound::absorb::{RefusedChildRuns, absorb};
 use crate::run::provider_choice::ProviderChoiceResolver;
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::{RunStateChange, refused_statement_index};
@@ -79,6 +79,8 @@ pub struct RunInboundDispatch {
     run_state_publisher: Arc<dyn RunStatePublisher>,
     appender: SessionEventAppender,
     choices: Arc<ProviderChoiceResolver>,
+    // The helpers refused at their setup whose later deliveries are expected.
+    refused_child_runs: Mutex<RefusedChildRuns>,
     /// Where a test holds a held answer's settle between its failed try and its retry.
     #[cfg(test)]
     pub(super) settle_retry_pause: PausePoint,
@@ -204,6 +206,7 @@ impl RunInboundDispatch {
             run_state_publisher,
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
             choices,
+            refused_child_runs: Mutex::default(),
             #[cfg(test)]
             settle_retry_pause: PausePoint::default(),
         }
@@ -263,10 +266,9 @@ impl RunInboundDispatch {
                                 return Err(error.into());
                             };
                             self.engine.require_run(run_id).await?;
-                            return Ok(absorb(
+                            return Ok(self.absorb_ended(
                                 &piece.binding,
                                 &piece.absorbed,
-                                LateEventAbsorbReason::RunEnded,
                                 piece.attribution,
                             ));
                         }
@@ -519,14 +521,7 @@ impl RunInboundDispatch {
         work: RunWork,
     ) -> Result<InboundOutcome, InboundDispatchError> {
         let absorbed = work.absorbed();
-        let run_ended = || {
-            absorb(
-                binding,
-                &absorbed,
-                LateEventAbsorbReason::RunEnded,
-                attribution,
-            )
-        };
+        let run_ended = || self.absorb_ended(binding, &absorbed, attribution);
         Ok(match work {
             RunWork::Lifecycle {
                 change,
@@ -589,6 +584,7 @@ impl RunInboundDispatch {
                         InboundOutcome::ChildRunStarted { run_id }
                     }
                     Some(SubagentRunStart::Refused(run_id, reason)) => {
+                        lock(&self.refused_child_runs).note(run_id);
                         InboundOutcome::ChildRunRefused { run_id, reason }
                     }
                     None => run_ended(),
@@ -599,6 +595,32 @@ impl RunInboundDispatch {
                 None => run_ended(),
             },
         })
+    }
+
+    // Absorbs a delivery whose run had ended: one to a helper refused at its setup is expected,
+    // so it is logged at debug alone; any other is reported.
+    fn absorb_ended(
+        &self,
+        binding: &EpochBinding,
+        absorbed: &AbsorbedDelivery,
+        attribution: DeliveryAttribution,
+    ) -> InboundOutcome {
+        if lock(&self.refused_child_runs).is_refused_run(absorbed) {
+            tracing::debug!(
+                run_id = ?absorbed.run_id,
+                kind = absorbed.kind,
+                "a delivery of a helper refused at its setup was absorbed on its ended run"
+            );
+            return InboundOutcome::Absorbed {
+                reason: LateEventAbsorbReason::RunEnded,
+            };
+        }
+        absorb(
+            binding,
+            absorbed,
+            LateEventAbsorbReason::RunEnded,
+            attribution,
+        )
     }
 
     fn lock_epochs(&self) -> MutexGuard<'_, ExecutionEpochs> {

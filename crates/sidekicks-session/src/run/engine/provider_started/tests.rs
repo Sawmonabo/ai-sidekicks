@@ -5,7 +5,7 @@ use std::sync::{Arc, Weak};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use rstest::rstest;
-use rusqlite::{Connection, params};
+use rusqlite::params;
 use serde_json::Value;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -33,7 +33,8 @@ use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate, RunSet
 use crate::plan_holds::NoPlanHolds;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::test_fixture::{
-    TestSessionPostures, append, stored_run_state, test_engine, test_engine_on, test_engine_with,
+    TestSessionPostures, append, end_run_aside, stored_run_state, test_engine, test_engine_on,
+    test_engine_with,
 };
 use crate::run::engine::tests::{started_turn, turn_start};
 use crate::run::engine::{RunEngine, RunEngineError, SubagentRunStart};
@@ -307,19 +308,6 @@ async fn a_refused_continue_on_its_providers_turn_interrupts_the_turn_and_lets_i
         None
     );
     assert_eq!(interrupts.load(Ordering::SeqCst), 1);
-}
-
-// Ends `run_id` `stopped` in the database at `path`, as an end landing beside the engine's writes.
-pub(crate) fn end_run_aside(path: &Path, run_id: &RunId) {
-    Connection::open(path)
-        .and_then(|connection| {
-            connection.execute(
-                "UPDATE runs SET state = 'stopped', run_version = run_version + 1
-                 WHERE run_id = ?1",
-                params![run_id.text().as_str()],
-            )
-        })
-        .expect("the test ends the run");
 }
 
 // A gate after the posture gate that, once armed, ends each run it checks while the posture gate

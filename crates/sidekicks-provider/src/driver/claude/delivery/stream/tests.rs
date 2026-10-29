@@ -2,12 +2,14 @@ use jiff::Timestamp;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::usage::{ApiRetryErrorKind, UsageApiRequestRetriedPayload};
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_std::mutex_lock::lock;
 
 use super::daemon_ends::ClaudeDaemonEndSettlement;
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::session::scripted::channel::ScriptedWrite;
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
@@ -17,6 +19,7 @@ use crate::port::run_host::test_host::EngineCall;
 use crate::port::usage_sink::{MeteredUsageOwner, ProviderQuotaWindow};
 use crate::run::delivery::LateAppendableRow;
 use crate::run::delivery::RunSetupRefusal;
+use crate::run::posture::compose_execution_posture;
 use crate::run::state_entry::RunStateEntry;
 use crate::run::turn_end::TurnOutcome;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -721,11 +724,11 @@ async fn a_tool_servers_background_call_closes_on_its_task_notification() {
     assert_eq!(session.stream.background_work(), 0);
 }
 
-// A `Bash` call's pre-tool hook, the helper `agent_id`'s or, with none, the lead's.
-fn before_tool(agent_id: Option<&str>) -> Value {
+// A `tool_name` call's pre-tool hook, the helper `agent_id`'s or, with none, the lead's.
+fn before_tool(tool_name: &str, agent_id: Option<&str>) -> Value {
     let mut input = json!({
         "hook_event_name": "PreToolUse",
-        "tool_name": "Bash",
+        "tool_name": tool_name,
         "tool_use_id": "call-2",
         "tool_input": {"command": "ls"},
     });
@@ -750,15 +753,15 @@ async fn a_refused_helper_is_denied_its_next_tool_use_and_the_lead_goes_on() {
     session.hold_lead_turn("lead");
     let refusal = RunSetupRefusal {
         cause: "the writable root '/gone/repo.git' could not be resolved".to_owned(),
+        is_posture_rejection: true,
     };
     let refused = session.engine.refuse_next_child_run(refusal.clone());
 
     session.frame(&init());
     session.frame(&helper_started("helper", "local_agent", "call-1"));
     settle().await;
-    session.request("helper-tool", &before_tool(Some("helper")));
-    session.request("lead-tool", &before_tool(None));
-    settle().await;
+    session.request("helper-tool", &before_tool("Bash", Some("helper")));
+    session.request("lead-tool", &before_tool("Bash", None));
 
     assert_eq!(
         session
@@ -768,26 +771,49 @@ async fn a_refused_helper_is_denied_its_next_tool_use_and_the_lead_goes_on() {
         Some(refused),
         "the refused helper's frames reach its ended run"
     );
-    let answers: Vec<(String, String)> = session
-        .channel
-        .writes()
-        .into_iter()
-        .filter_map(|write| match write {
-            ScriptedWrite::Answer { request_id, answer } => Some((request_id, answer.to_string())),
-            ScriptedWrite::Control(_) | ScriptedWrite::User(_) | ScriptedWrite::Terminate => None,
-        })
-        .collect();
-    let answer_to = |request_id: &str| {
-        answers
-            .iter()
-            .find(|(answered, _)| answered == request_id)
-            .map(|(_, answer)| answer.clone())
-            .expect("the hook is answered")
-    };
-    let helper_answer = answer_to("helper-tool");
+    let helper_answer = session.channel.answer_to("helper-tool").await.to_string();
     assert!(helper_answer.contains(r#""permissionDecision":"deny""#));
-    assert!(helper_answer.contains(&HelperStopReason::PostureRefused { refusal }.sentence()));
+    assert!(helper_answer.contains(&HelperStopReason::SetupRefused { refusal }.sentence()));
     assert!(helper_answer.contains("/gone/repo.git"));
     assert!(!helper_answer.contains(&HelperStopReason::TokenLimit.sentence()));
-    assert!(!answer_to("lead-tool").contains("deny"));
+    assert!(
+        !session
+            .channel
+            .answer_to("lead-tool")
+            .await
+            .to_string()
+            .contains("deny")
+    );
+}
+
+// A helper start, the lead's or a helper's, is checked against the live session's own posture:
+// denied with the refusal's cause while its writable root is gone, passed once the root is back.
+// Killed by checking no posture in the session's task, and by not taking the checked route.
+#[tokio::test(start_paused = true)]
+async fn a_helper_start_is_checked_against_the_live_posture() {
+    let session = ScriptedSession::new().await;
+    let folder = tempfile::tempdir().expect("a temporary folder");
+    let root = folder.path().join("repo");
+    let sandboxed_over_root = compose_execution_posture(
+        PermissionLevel::Sandboxed,
+        FilesystemPath::new(root.to_string_lossy().into_owned()).expect("a valid path"),
+    );
+    lock(&session.live.settings).execution_posture = Some(sandboxed_over_root);
+    session.frame(&init());
+
+    session.request("gone-start", &before_tool("Agent", None));
+    let refused = session.channel.answer_to("gone-start").await.to_string();
+    assert!(refused.contains(r#""permissionDecision":"deny""#));
+    assert!(refused.contains("Not started: this session's permission level cannot run right now"));
+
+    std::fs::create_dir(&root).expect("the root is made");
+    session.request("back-start", &before_tool("Agent", Some("helper")));
+    assert!(
+        !session
+            .channel
+            .answer_to("back-start")
+            .await
+            .to_string()
+            .contains("deny")
+    );
 }

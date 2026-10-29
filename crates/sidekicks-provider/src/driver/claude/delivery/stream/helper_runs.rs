@@ -96,7 +96,7 @@ impl ClaudeDeliveryStream {
                 lock(&self.dependencies.pauses).stop_helper(
                     session.session_id,
                     &emission.subagent_id,
-                    HelperStopReason::PostureRefused { refusal },
+                    HelperStopReason::SetupRefused { refusal },
                 );
             }
         }

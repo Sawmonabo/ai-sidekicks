@@ -185,3 +185,18 @@ pub fn stored_run_state(database: &TestDatabase, run_id: &RunId) -> (String, i64
         )
         .expect("the test reads the run's row")
 }
+
+/// Ends `run_id` `stopped` in the database at `path`, as an end landing beside the engine's
+/// writes.
+#[cfg(test)]
+pub(crate) fn end_run_aside(path: &Path, run_id: &RunId) {
+    rusqlite::Connection::open(path)
+        .and_then(|connection| {
+            connection.execute(
+                "UPDATE runs SET state = 'stopped', run_version = run_version + 1
+                 WHERE run_id = ?1",
+                params![run_id.text().as_str()],
+            )
+        })
+        .expect("the test ends the run");
+}

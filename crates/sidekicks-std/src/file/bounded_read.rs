@@ -181,8 +181,10 @@ pub use stalled_reads::{hold_reads_of, stall_reads_of};
 #[cfg(any(test, feature = "test-support"))]
 mod stalled_reads {
     use std::path::{Path, PathBuf};
-    use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+    use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
     use std::time::Duration;
+
+    use tokio::sync::Notify;
 
     use crate::mutex_lock::lock;
 
@@ -198,6 +200,8 @@ mod stalled_reads {
         arrived: usize,
         // Whether a held read gives up after `STALLED_READ_CEILING`, never answering.
         gives_up: bool,
+        // Told of each held read as it reaches its thread.
+        arrival: Arc<Notify>,
     }
 
     static STALLED: Mutex<Vec<Stall>> = Mutex::new(Vec::new());
@@ -207,6 +211,7 @@ mod stalled_reads {
     /// held reads run: a stalled read then answers no one, a held one answers its caller.
     pub struct StalledReads {
         path: PathBuf,
+        arrival: Arc<Notify>,
     }
 
     /// Stalls the bounded reads of exactly `path` after the first `passed` of them, until the
@@ -222,14 +227,17 @@ mod stalled_reads {
     }
 
     fn hold(path: &Path, passed: usize, gives_up: bool) -> StalledReads {
+        let arrival = Arc::new(Notify::new());
         lock_stalled().push(Stall {
             path: path.to_path_buf(),
             passed,
             arrived: 0,
             gives_up,
+            arrival: Arc::clone(&arrival),
         });
         StalledReads {
             path: path.to_path_buf(),
+            arrival,
         }
     }
 
@@ -240,6 +248,13 @@ mod stalled_reads {
                 .iter()
                 .find(|stall| stall.path == self.path)
                 .map_or(0, |stall| stall.arrived)
+        }
+
+        /// Waits until a read of the path reached a thread and was held there.
+        pub async fn wait_for_arrival(&self) {
+            if self.arrived() == 0 {
+                self.arrival.notified().await;
+            }
         }
     }
 
@@ -262,6 +277,7 @@ mod stalled_reads {
             return;
         }
         stall.arrived += 1;
+        stall.arrival.notify_one();
         while stalled.iter().any(|stall| stall.path == path) {
             stalled = RELEASED
                 .wait(stalled)

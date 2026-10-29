@@ -254,6 +254,9 @@ pub enum InboundOutcome {
 pub struct RunSetupRefusal {
     /// The refusal's cause, such as a writable root that no longer resolves.
     pub cause: String,
+    /// Whether the session's permission level cannot run, its posture rejected, rather than any
+    /// other setup failure.
+    pub is_posture_rejection: bool,
 }
 
 impl InboundOutcome {

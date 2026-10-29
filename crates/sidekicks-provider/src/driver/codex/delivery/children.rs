@@ -17,6 +17,7 @@ use crate::driver::codex::delivery::reviewer::end_codex_review_turn;
 use crate::driver::codex::delivery::rows::CodexRowRun;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::turn_evidence::{CodexTurnStatus, compose_codex_child_terminal};
+use crate::driver::run_control::HelperStopReason;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::DeliveryOperation;
 use crate::run::delivery::LateAppendableRow;
@@ -247,7 +248,8 @@ impl CodexFrameDelivery {
     // The child run and its `subagent.started` row, which names the child run the engine started
     // first; the child's start once the run engine started or refused it, `None` when it absorbed
     // it. A refused helper keeps its ended run, which absorbs its rows, and its running turn is
-    // interrupted, as each turn it starts after is.
+    // interrupted, as each turn it starts after is, and its tool calls are denied with the
+    // refusal's sentence.
     async fn deliver_child_start(
         &self,
         record: &mut CodexSessionRecord,
@@ -267,10 +269,12 @@ impl CodexFrameDelivery {
         };
         let child_run_id = match self.send(record, start, "thread/started").await {
             Some(InboundOutcome::ChildRunStarted { run_id }) => Some(run_id),
-            Some(InboundOutcome::ChildRunRefused { run_id, .. }) => {
-                self.dependencies
-                    .stopped_helpers
-                    .stop_running(record, child_thread_id);
+            Some(InboundOutcome::ChildRunRefused { run_id, reason }) => {
+                self.dependencies.stopped_helpers.stop_running(
+                    record,
+                    child_thread_id,
+                    HelperStopReason::SetupRefused { refusal: reason },
+                );
                 Some(run_id)
             }
             Some(

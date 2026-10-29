@@ -340,9 +340,8 @@ pub struct RunToolBoundary {
 pub enum HelperStopReason {
     /// The helper's own run passed its token limit.
     TokenLimit,
-    /// The daemon refused the helper's run at its setup after the provider started it, since the
-    /// session's permission level cannot run.
-    PostureRefused {
+    /// The daemon refused the helper's run at its setup after the provider started it.
+    SetupRefused {
         /// The setup's refusal, whose cause the sentence names.
         refusal: RunSetupRefusal,
     },
@@ -357,9 +356,14 @@ impl HelperStopReason {
                 "You have reached your token limit. Report what you completed and what remains."
                     .to_owned()
             }
-            Self::PostureRefused { refusal } => format!(
+            Self::SetupRefused { refusal } if refusal.is_posture_rejection => format!(
                 "Stopped: this session's permission level cannot run right now, because {}. \
                  Report what you did and stop.",
+                refusal.cause
+            ),
+            Self::SetupRefused { refusal } => format!(
+                "Stopped: the daemon could not set up your run, because {}. Report what you did \
+                 and stop.",
                 refusal.cause
             ),
         }

@@ -1,15 +1,21 @@
 //! A Codex helper stopped alone, at its token limit or refused by the daemon after it started: its
 //! own conversation's running turn is interrupted, so the lead's turn, on its own conversation,
-//! goes on, and each turn it starts after is interrupted at its start.
+//! goes on; each turn it starts after is interrupted at its start, and each of its pre-tool calls
+//! is denied with the sentence its stop's reason carries, which the helper reads.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use futures::future::BoxFuture;
 use serde::Deserialize;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use crate::driver::codex::hooks::server::{
+    CodexHookAnswer, CodexHookAnswerer, CodexHookEvent, CodexHookInput,
+};
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::run::turn_interrupt::interrupt_codex_turn;
 use crate::driver::codex::session::errors::CodexError;
@@ -18,7 +24,7 @@ use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::contract::DriverError;
-use crate::driver::run_control::HelperTokenLimitParams;
+use crate::driver::run_control::{HelperStopReason, HelperTokenLimitParams};
 
 // The member of a listed turn this stop reads.
 #[derive(Deserialize)]
@@ -26,12 +32,19 @@ struct ListedTurnStatus {
     status: Option<String>,
 }
 
-/// The helper conversations of each session stopped alone, whose every later turn is interrupted
-/// at its start.
+/// The helper conversations stopped alone, whose every later turn is interrupted at its start and
+/// whose every pre-tool call is denied.
 pub(crate) struct CodexStoppedHelpers {
-    helpers: Mutex<HashMap<SessionId, HashSet<String>>>,
+    // Each stopped helper by its own conversation's id, which no other conversation shares.
+    helpers: Mutex<HashMap<String, StoppedHelper>>,
     // The driver's tasks, which each interrupt runs on.
     tasks: TaskTracker,
+}
+
+// A stopped helper's session and why it was stopped.
+struct StoppedHelper {
+    session_id: SessionId,
+    reason: HelperStopReason,
 }
 
 impl CodexStoppedHelpers {
@@ -43,20 +56,31 @@ impl CodexStoppedHelpers {
         }
     }
 
-    /// Marks the helper conversation `helper_thread_id` of `session_id` stopped.
-    pub(crate) fn stop(&self, session_id: SessionId, helper_thread_id: &str) {
-        lock(&self.helpers)
-            .entry(session_id)
-            .or_default()
-            .insert(helper_thread_id.to_owned());
+    /// Marks the helper conversation `helper_thread_id` of `session_id` stopped for `reason`; a
+    /// later stop's reason replaces an earlier one.
+    pub(crate) fn stop(
+        &self,
+        session_id: SessionId,
+        helper_thread_id: &str,
+        reason: HelperStopReason,
+    ) {
+        lock(&self.helpers).insert(
+            helper_thread_id.to_owned(),
+            StoppedHelper { session_id, reason },
+        );
     }
 
-    /// Stops the helper conversation `helper_thread_id` of the session `record` holds, as
-    /// [`Self::stop`] does, and interrupts the turn it is running; the interrupt runs on a task of
-    /// the driver's, since the frame that asks for it is still being delivered, and a failed one
-    /// is logged.
-    pub(crate) fn stop_running(&self, record: &CodexSessionRecord, helper_thread_id: &str) {
-        self.stop(record.session_id, helper_thread_id);
+    /// Stops the helper conversation `helper_thread_id` of the session `record` holds for
+    /// `reason`, as [`Self::stop`] does, and interrupts the turn it is running; the interrupt runs
+    /// on a task of the driver's, since the frame that asks for it is still being delivered, and a
+    /// failed one is logged.
+    pub(crate) fn stop_running(
+        &self,
+        record: &CodexSessionRecord,
+        helper_thread_id: &str,
+        reason: HelperStopReason,
+    ) {
+        self.stop(record.session_id, helper_thread_id, reason);
         let service = Arc::clone(&record.service);
         let session_id = record.session_id;
         let helper_thread_id = helper_thread_id.to_owned();
@@ -86,8 +110,8 @@ impl CodexStoppedHelpers {
         turn_id: &str,
     ) {
         let is_stopped = lock(&self.helpers)
-            .get(&record.session_id)
-            .is_some_and(|stopped| stopped.contains(helper_thread_id));
+            .get(helper_thread_id)
+            .is_some_and(|stopped| stopped.session_id == record.session_id);
         if !is_stopped {
             return;
         }
@@ -116,7 +140,29 @@ impl CodexStoppedHelpers {
 
     /// Lets go of a closed session's stopped helpers.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
-        lock(&self.helpers).remove(&session_id);
+        lock(&self.helpers).retain(|_, stopped| stopped.session_id != session_id);
+    }
+}
+
+impl CodexHookAnswerer for CodexStoppedHelpers {
+    /// Denies a stopped helper's pre-tool call with its stop's sentence; any other call is left to
+    /// the next answerer. Never fails.
+    fn answer<'a>(
+        &'a self,
+        input: &'a CodexHookInput,
+        _token: &'a CancellationToken,
+    ) -> BoxFuture<'a, Result<Option<CodexHookAnswer>, CodexError>> {
+        let answer = match input.event {
+            CodexHookEvent::PreToolUse => {
+                lock(&self.helpers)
+                    .get(&input.thread_id)
+                    .map(|stopped| CodexHookAnswer::Deny {
+                        reason: stopped.reason.sentence(),
+                    })
+            }
+            CodexHookEvent::PostToolUse => None,
+        };
+        Box::pin(std::future::ready(Ok(answer)))
     }
 }
 
@@ -129,8 +175,11 @@ impl CodexDriver {
         &self,
         params: HelperTokenLimitParams,
     ) -> Result<(), DriverError> {
-        self.stopped_helpers
-            .stop(params.session_id, params.subagent_id.as_str());
+        self.stopped_helpers.stop(
+            params.session_id,
+            params.subagent_id.as_str(),
+            HelperStopReason::TokenLimit,
+        );
         let Some(conversation) = self.views.conversation(params.session_id) else {
             return Ok(());
         };
@@ -161,13 +210,23 @@ async fn stop_codex_helper_turn(
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-    use serde_json::json;
+    use std::sync::Arc;
 
-    use super::stop_codex_helper_turn;
+    use rstest::rstest;
+    use serde_json::{Map, Value, json};
+    use tokio_util::sync::CancellationToken;
+    use tokio_util::task::TaskTracker;
+
+    use super::{CodexStoppedHelpers, stop_codex_helper_turn};
+    use crate::driver::codex::hooks::server::{
+        CodexHookAnswer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
+    };
     use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
     use crate::driver::codex::transport::connection::CodexConnectionHandlers;
     use crate::driver::codex::transport::connection::scripted_service::connect_scripted_service;
+    use crate::driver::run_control::HelperStopReason;
+    use crate::driver::test_registry::new_session_id;
+    use crate::run::delivery::RunSetupRefusal;
 
     /// The largest message the scripted connection takes, far above any a test sends.
     const MESSAGE_LIMIT: usize = 1 << 20;
@@ -237,6 +296,86 @@ mod tests {
         assert!(
             script.sent.try_recv().is_err(),
             "nothing else is sent to the service"
+        );
+    }
+
+    /// The lead's own conversation.
+    const LEAD_THREAD: &str = "lead-thread";
+
+    // One hook call of `event` on `thread_id`, through a dispatch point whose only answerer is
+    // the stopped helpers; the arguments name the lead's conversation as the session, so only
+    // `_meta` tells a helper's call.
+    async fn hook_call(
+        stopped: &Arc<CodexStoppedHelpers>,
+        event: CodexHookEvent,
+        thread_id: &str,
+    ) -> Option<CodexHookAnswer> {
+        let event_name = match event {
+            CodexHookEvent::PreToolUse => "PreToolUse",
+            CodexHookEvent::PostToolUse => "PostToolUse",
+        };
+        let call = CodexHookCall {
+            arguments: Map::from_iter([
+                ("hook_event_name".to_owned(), Value::from(event_name)),
+                ("session_id".to_owned(), Value::from(LEAD_THREAD)),
+            ]),
+            meta: Map::from_iter([("threadId".to_owned(), Value::from(thread_id))]),
+        };
+        CodexHookDispatch::new(vec![Arc::clone(stopped) as _])
+            .answer(event, call, &CancellationToken::new())
+            .await
+    }
+
+    fn setup_refused(is_posture_rejection: bool) -> HelperStopReason {
+        HelperStopReason::SetupRefused {
+            refusal: RunSetupRefusal {
+                cause: "the writable root '/gone/repo.git' could not be resolved".to_owned(),
+                is_posture_rejection,
+            },
+        }
+    }
+
+    // A stopped helper's every pre-tool call is denied with its stop's sentence, which names the
+    // session's level only for a posture rejection, while the lead's calls and the helper's
+    // post-tool calls pass, and a forgotten session's helper passes again. Killed by a stop that
+    // keeps no reason, by an answer keyed off another conversation, and by a setup refusal worded
+    // as a level that cannot run.
+    #[rstest]
+    #[case::token_limit(HelperStopReason::TokenLimit, false)]
+    #[case::posture_refused(setup_refused(true), true)]
+    #[case::setup_refused(setup_refused(false), false)]
+    #[tokio::test]
+    async fn a_stopped_helpers_tool_calls_are_denied_with_its_reason(
+        #[case] reason: HelperStopReason,
+        #[case] names_the_level: bool,
+    ) {
+        let stopped = Arc::new(CodexStoppedHelpers::new(TaskTracker::new()));
+        let session_id = new_session_id();
+        let sentence = reason.sentence();
+        stopped.stop(session_id, HELPER_THREAD, reason);
+
+        let denied = Some(CodexHookAnswer::Deny {
+            reason: sentence.clone(),
+        });
+        for _ in 0..2 {
+            assert_eq!(
+                hook_call(&stopped, CodexHookEvent::PreToolUse, HELPER_THREAD).await,
+                denied
+            );
+        }
+        assert_eq!(sentence.contains("permission level"), names_the_level);
+        assert_eq!(
+            hook_call(&stopped, CodexHookEvent::PreToolUse, LEAD_THREAD).await,
+            Some(CodexHookAnswer::Pass)
+        );
+        assert_eq!(
+            hook_call(&stopped, CodexHookEvent::PostToolUse, HELPER_THREAD).await,
+            Some(CodexHookAnswer::Pass)
+        );
+        stopped.forget_session(session_id);
+        assert_eq!(
+            hook_call(&stopped, CodexHookEvent::PreToolUse, HELPER_THREAD).await,
+            Some(CodexHookAnswer::Pass)
         );
     }
 }
