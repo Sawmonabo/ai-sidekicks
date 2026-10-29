@@ -30,8 +30,9 @@ use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::permission_level::list_codex_modes;
 use crate::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
-    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
-    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
+    ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+    ProviderDriver, ProviderReportedLevel, RespondToRequestParams, SessionProcessState,
+    StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -437,7 +438,10 @@ impl ProviderDriver for CodexDriver {
         self.list_models(params).boxed()
     }
 
-    fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
+    fn list_modes(
+        &self,
+        _params: ListModesParams,
+    ) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
         ready(Ok(list_codex_modes())).boxed()
     }
 

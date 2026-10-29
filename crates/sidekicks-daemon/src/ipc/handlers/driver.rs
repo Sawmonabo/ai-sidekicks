@@ -9,7 +9,6 @@ use futures::future::{join_all, try_join_all};
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandBinding, ProviderCommandListResponse,
 };
@@ -31,11 +30,12 @@ use sidekicks_ipc::registry::{
 use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::contract::{
-    CompactContextParams, DriverError, ListModelsParams, ListProviderCommandsParams,
+    CompactContextParams, DriverError, ListModelsParams, ListModesParams,
+    ListProviderCommandsParams, ProviderDriver,
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_session::directory::lookups::session_exists;
-use sidekicks_session::run::agent::read_session_lead;
+use sidekicks_session::run::agent::{SessionLead, read_session_lead};
 use sidekicks_session::run::live_bindings::{
     AgentBindingResolution, RunBindingResolution, resolve_agent_bindings, resolve_run_binding,
 };
@@ -98,12 +98,10 @@ pub(crate) fn register_driver_methods(
         async move { list_models(&sources, request.session_id).await }.boxed()
     })?;
     let mode_sources = Arc::clone(sources);
-    registry.register::<ProviderModeList, _>(
-        move |_request: EmptyPayload, _context: HandlerContext| {
-            let sources = Arc::clone(&mode_sources);
-            async move { list_modes(&sources.providers).await }.boxed()
-        },
-    )?;
+    registry.register::<ProviderModeList, _>(move |request, _context: HandlerContext| {
+        let sources = Arc::clone(&mode_sources);
+        async move { list_modes(&sources, request.session_id).await }.boxed()
+    })?;
     let compact_sources = Arc::clone(sources);
     registry.register::<AgentRunContextCompact, _>(move |request, _context: HandlerContext| {
         let sources = Arc::clone(&compact_sources);
@@ -124,40 +122,11 @@ async fn list_models(
     sources: &DriverMethodSources,
     session_id: SessionId,
 ) -> Result<ProviderModelListResponse, HandlerError> {
-    let read_bound = session_read_bound(
-        sources.read_damaged_from_sequence.as_ref(),
-        &session_id,
-        None,
-    );
-    let lead = sources
-        .pool
-        .read(
-            ReadLength::Short,
-            move |reader| -> Result<_, DriverMethodReadError> {
-                if !session_exists(reader, &session_id)? {
-                    return Ok(None);
-                }
-                Ok(Some(read_session_lead(reader, &session_id, read_bound)?))
-            },
-        )
-        .await?;
-    let Some(lead) = lead else {
-        return Err(session_not_found(&session_id).into());
-    };
-    let (own_provider, own_account) = lead.map_or((None, None), |lead| {
-        (
-            Some(lead.binding.provider_name),
-            lead.binding.provider_account_id,
-        )
-    });
-    let mut drivers: Vec<_> = sources.providers.drivers().collect();
-    // Stable, so the rest keep the table's order.
-    drivers.sort_by_key(|(provider, _)| Some(*provider) != own_provider.as_ref());
-    let reads = drivers.into_iter().map(|(provider, driver)| {
-        let is_own = Some(provider) == own_provider.as_ref();
+    let drivers = read_drivers_own_first(sources, session_id).await?;
+    let reads = drivers.into_iter().map(|(provider, driver, own_lead)| {
         let read = driver.list_models(ListModelsParams {
-            session_id: is_own.then_some(session_id),
-            provider_account_id: if is_own { own_account.clone() } else { None },
+            session_id: own_lead.is_some().then_some(session_id),
+            provider_account_id: own_lead.and_then(|lead| lead.binding.provider_account_id),
         });
         async move { (provider.clone(), read.await) }
     });
@@ -186,6 +155,51 @@ async fn list_models(
         })
         .collect();
     Ok(ProviderModelListResponse { providers })
+}
+
+// Every registered driver, the session's own provider first and the rest in the table's order,
+// each beside the session's lead where it is the lead's provider; the session's existence and its
+// lead are read in one short read. Refused `session.notFound` for a session the daemon does not
+// hold.
+async fn read_drivers_own_first(
+    sources: &DriverMethodSources,
+    session_id: SessionId,
+) -> Result<Vec<(&ProviderId, &Arc<dyn ProviderDriver>, Option<SessionLead>)>, HandlerError> {
+    let read_bound = session_read_bound(
+        sources.read_damaged_from_sequence.as_ref(),
+        &session_id,
+        None,
+    );
+    let lead = sources
+        .pool
+        .read(
+            ReadLength::Short,
+            move |reader| -> Result<_, DriverMethodReadError> {
+                if !session_exists(reader, &session_id)? {
+                    return Ok(None);
+                }
+                Ok(Some(read_session_lead(reader, &session_id, read_bound)?))
+            },
+        )
+        .await?;
+    let Some(mut lead) = lead else {
+        return Err(session_not_found(&session_id).into());
+    };
+    let own_provider = lead.as_ref().map(|lead| lead.binding.provider_name.clone());
+    let mut drivers: Vec<_> = sources.providers.drivers().collect();
+    // Stable, so the rest keep the table's order.
+    drivers.sort_by_key(|(provider, _)| Some(*provider) != own_provider.as_ref());
+    Ok(drivers
+        .into_iter()
+        .map(|(provider, driver)| {
+            let own_lead = if Some(provider) == own_provider.as_ref() {
+                lead.take()
+            } else {
+                None
+            };
+            (provider, driver, own_lead)
+        })
+        .collect())
 }
 
 // One provider's outcome of a read of its models or modes: `listed` with what it read, or `failed`
@@ -251,13 +265,28 @@ fn read_failure(provider: &ProviderId, failed: DriverError) -> ProviderReadFailu
     }
 }
 
-// Each installed provider's modes in the table's order; a provider whose bare command name no
-// search found is not installed and is left out, and one whose read failed carries its failure.
+// Each installed provider's levels, the session's own provider first and read against its bound
+// account and the model the lead runs on now, every other one against this system alone; a
+// provider whose bare command name no search found is not installed and is left out, and one whose
+// read failed carries its failure.
 async fn list_modes(
-    providers: &ProviderRegistry,
+    sources: &DriverMethodSources,
+    session_id: SessionId,
 ) -> Result<ProviderModeListResponse, HandlerError> {
-    let reads = providers.drivers().map(|(provider, driver)| {
-        let read = driver.list_modes();
+    let drivers = read_drivers_own_first(sources, session_id).await?;
+    let reads = drivers.into_iter().map(|(provider, driver, own_lead)| {
+        let read = driver.list_modes(match own_lead {
+            Some(lead) => ListModesParams {
+                session_id: Some(session_id),
+                provider_account_id: lead.binding.provider_account_id,
+                model: Some(lead.running_model),
+            },
+            None => ListModesParams {
+                session_id: None,
+                provider_account_id: None,
+                model: None,
+            },
+        });
         async move { (provider.clone(), read.await) }
     });
     let providers = join_all(reads)
@@ -605,13 +634,13 @@ mod tests {
         first
             .expect_list_modes()
             .times(1)
-            .returning(|| async { Ok(vec![mode("mode-a")]) }.boxed());
+            .returning(|_| async { Ok(vec![mode("mode-a")]) }.boxed());
         let mut failing = MockProviderDriver::new();
         failing.expect_list_models().times(1).returning(move |_| {
             let failed = second.error();
             async move { Err(failed) }.boxed()
         });
-        failing.expect_list_modes().times(1).returning(move || {
+        failing.expect_list_modes().times(1).returning(move |_| {
             let failed = second.error();
             async move { Err(failed) }.boxed()
         });
@@ -620,7 +649,7 @@ mod tests {
         let models = list_models(&fixture.sources, fixture.session_id)
             .await
             .expect("the model list answers");
-        let modes = list_modes(&fixture.sources.providers)
+        let modes = list_modes(&fixture.sources, fixture.session_id)
             .await
             .expect("the mode list answers");
 
