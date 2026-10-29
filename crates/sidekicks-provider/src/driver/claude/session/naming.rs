@@ -18,7 +18,7 @@ use crate::driver::claude::session::conversation_file::title::append_claude_cust
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
 use crate::driver::claude::session::establishment::ClaudeSpawnSources;
 use crate::driver::claude::session::establishment::context::resolve_claude_spawn_context;
-use crate::driver::claude::session::restart::ClaudeEndedConversation;
+use crate::driver::claude::session::restart::ended_process::ClaudeEndedConversation;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::driver::claude::session::transport::control::{

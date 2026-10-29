@@ -27,6 +27,7 @@ use crate::command::running_set::takes_no_input;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
+use crate::driver::claude::mcp::read_claude_mcp_servers;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
@@ -36,6 +37,7 @@ use crate::driver::contract::params_and_results::{
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
+use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
@@ -62,6 +64,7 @@ use crate::driver::{
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
+mod account_credentials;
 mod attachments;
 mod capabilities;
 mod capability_probe;
@@ -76,6 +79,7 @@ mod hooks;
 pub(crate) mod inbox;
 mod intervention;
 mod lifecycle;
+mod mcp;
 mod output_speed;
 mod rate_limit_windows;
 mod run;
@@ -485,6 +489,13 @@ impl ProviderDriver for ClaudeDriver {
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>> {
         self.probe_auth(provider_account_id).boxed()
+    }
+
+    fn read_mcp_servers(
+        &self,
+        request: McpServersReadRequest,
+    ) -> BoxFuture<'_, Result<ProviderMcpServersReading, DriverError>> {
+        read_claude_mcp_servers(self, request).boxed()
     }
 
     fn compact_context(

@@ -512,6 +512,7 @@ mod tests {
             },
             CodexServiceKind::Account,
             dependencies,
+            Vec::new(),
         );
         let request = CodexCalibrationRequest {
             model_id,

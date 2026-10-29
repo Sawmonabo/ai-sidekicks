@@ -1,6 +1,7 @@
 //! Claude Code's tools: the catalog the driver reports with each tool's idempotency class (whether
 //! a call may safely be repeated, shown on Settings › MCP servers), the built-in tools a person
-//! picks for an agent, and the MCP server readings `system/init` and the MCP status read report.
+//! picks for an agent, and the MCP server readings `system/init` and the `mcp_status` answer
+//! report.
 //!
 //! Only pure reads of local state are `idempotent`; a wrongly permissive class tells the person a
 //! repeat is safe when it is not. No entry is `compensable` (no built-in tool accepts a dedupe key)
@@ -9,9 +10,12 @@
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::McpServerStatus;
 use sidekicks_contracts::provider::driver::tools::{IdempotencyClass, ProviderToolMetadata};
-use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
+use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::driver::mcp_server_status::{
+use crate::driver::claude::session::transport::mcp_status::{
+    ClaudeMcpServerStatus, ClaudeMcpStatusReply,
+};
+use crate::driver::mcp_server::status::{
     McpServerReading, McpServerStatusIngestRejection, McpServerStatusIngestResult,
     bound_mcp_server_status_emission,
 };
@@ -61,39 +65,39 @@ pub(crate) fn claude_tool_metadata() -> Vec<ProviderToolMetadata> {
         .collect()
 }
 
-// Claude Code's status words, read trimmed and lower-cased: the init census and the MCP status
-// read send these five. `disabled` is the server switched off for the project, not a status; any
-// other word, or a value that is not text, reads as `unknown`.
-fn map_claude_status_token(raw_token: &Value) -> McpServerReading {
-    let Some(raw_token) = raw_token.as_str() else {
-        return McpServerReading::Observed(McpServerStatus::Unknown);
-    };
-    match raw_token
-        .trim_matches(is_ecmascript_whitespace)
-        .to_lowercase()
-        .as_str()
-    {
-        "connected" => McpServerReading::Observed(McpServerStatus::Connected),
-        "failed" => McpServerReading::Observed(McpServerStatus::Failed),
-        "needs-auth" => McpServerReading::Observed(McpServerStatus::NeedsAuth),
-        "pending" => McpServerReading::Observed(McpServerStatus::Starting),
-        "disabled" => McpServerReading::SwitchedOff,
-        _ => McpServerReading::Observed(McpServerStatus::Unknown),
+// The reading of one status Claude Code sent for a server, the one map the `system/init` list and
+// the `mcp_status` answer share: `disabled` is the server switched off for the project, not a
+// status, and a status that is none of the five words (`None`) reads as `unknown`.
+fn claude_mcp_server_reading(status: Option<ClaudeMcpServerStatus>) -> McpServerReading {
+    match status {
+        Some(ClaudeMcpServerStatus::Connected) => {
+            McpServerReading::Observed(McpServerStatus::Connected)
+        }
+        Some(ClaudeMcpServerStatus::Failed) => McpServerReading::Observed(McpServerStatus::Failed),
+        Some(ClaudeMcpServerStatus::NeedsAuth) => {
+            McpServerReading::Observed(McpServerStatus::NeedsAuth)
+        }
+        Some(ClaudeMcpServerStatus::Pending) => {
+            McpServerReading::Observed(McpServerStatus::Starting)
+        }
+        Some(ClaudeMcpServerStatus::Disabled) => McpServerReading::SwitchedOff,
+        None => McpServerReading::Observed(McpServerStatus::Unknown),
     }
 }
 
-/// Reads Claude Code's MCP server rows, the `system/init` frame's `mcp_servers` list or the MCP
-/// status read's rows, as one reading per server, each with the row's `error` text where it has
-/// one. A list that is not an array is one rejection with no emissions, and a row that is not an
-/// object, or whose name fails the wire bound, is one rejection; the rest are emitted.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the MCP server settings' live status reads each Claude Code session's servers \
-                  from its init frame and its MCP status read through it"
+// A raw status word's reading; a value that is not text reads as `unknown`.
+fn map_claude_status_token(raw_token: &Value) -> McpServerReading {
+    claude_mcp_server_reading(
+        raw_token
+            .as_str()
+            .and_then(ClaudeMcpServerStatus::from_word),
     )
-)]
+}
+
+/// Reads the `system/init` frame's `mcp_servers` list as one reading per server, each with the
+/// row's `error` text where it has one. A list that is not an array is one rejection with no
+/// emissions, and a row that is not an object, or whose name fails the wire bound, is one
+/// rejection; the rest are emitted.
 pub(crate) fn normalize_claude_mcp_server_init_census(
     raw_servers: &Value,
 ) -> McpServerStatusIngestResult {
@@ -120,12 +124,38 @@ pub(crate) fn normalize_claude_mcp_server_init_census(
             row.get("name").unwrap_or(&Value::Null),
             reading,
             row.get("error").unwrap_or(&Value::Null),
+            // The list names no tools.
+            None,
         ) {
             Ok(emission) => result.emissions.push(emission),
             Err(rejection) => result.rejections.push(rejection),
         }
     }
     result
+}
+
+/// Reads an `mcp_status` answer's rows as one reading per server, each with its scrubbed error
+/// text and the names of its tools where the row lists them; `None` for an answer that carries no
+/// list. A row whose name fails the wire bound is one
+/// rejection; the rest are emitted.
+pub(crate) fn normalize_claude_mcp_status_reply(
+    reply: &ClaudeMcpStatusReply,
+) -> Option<McpServerStatusIngestResult> {
+    let rows = &reply.servers.as_ref()?.0;
+    let mut result = McpServerStatusIngestResult::default();
+    for row in rows {
+        let text_of = |text: &Option<String>| text.clone().map_or(Value::Null, Value::String);
+        match bound_mcp_server_status_emission(
+            &text_of(&row.name),
+            claude_mcp_server_reading(row.status),
+            &text_of(&row.error),
+            row.tools.is_some().then(|| row.tool_names()),
+        ) {
+            Ok(emission) => result.emissions.push(emission),
+            Err(rejection) => result.rejections.push(rejection),
+        }
+    }
+    Some(result)
 }
 
 #[cfg(test)]
@@ -136,9 +166,10 @@ mod tests {
         Connected, Failed, NeedsAuth, Starting, Unknown,
     };
 
-    use super::normalize_claude_mcp_server_init_census;
-    use crate::driver::mcp_server_status::McpServerReading;
-    use crate::driver::mcp_server_status::McpServerReading::{Observed, SwitchedOff};
+    use super::{normalize_claude_mcp_server_init_census, normalize_claude_mcp_status_reply};
+    use crate::driver::claude::session::transport::mcp_status::ClaudeMcpStatusReply;
+    use crate::driver::mcp_server::status::McpServerReading;
+    use crate::driver::mcp_server::status::McpServerReading::{Observed, SwitchedOff};
 
     // Every status word Claude Code sends maps to its reading, `disabled` to the server switched
     // off rather than a status, and a row's `error` text reaches the emission. Killed by mapping
@@ -175,5 +206,40 @@ mod tests {
         assert_eq!(emission.server_name.as_str(), "github");
         assert_eq!(emission.reading, expected_reading);
         assert_eq!(emission.failure_text.as_deref(), expected_failure_text);
+    }
+
+    // An `mcp_status` row that lists its tools carries their names, and a row that sends no list,
+    // as one still starting does, carries none, so the leg keeps the list it last read. Killed by
+    // an absent list read as an empty one, and by the row's tools dropped.
+    #[test]
+    fn a_status_row_carries_its_tools_only_where_it_lists_them() {
+        let raw = serde_json::value::to_raw_value(&json!({ "mcpServers": [
+            { "name": "github", "status": "connected", "tools": [{ "name": "search" }] },
+            { "name": "tracker", "status": "pending" },
+        ] }))
+        .expect("the answer is JSON");
+        let read = normalize_claude_mcp_status_reply(&ClaudeMcpStatusReply::read(Some(&*raw)))
+            .expect("the answer carries a list");
+
+        let tools: Vec<_> = read
+            .emissions
+            .iter()
+            .map(|emission| {
+                let names = emission.tool_names.as_ref().map(|names| {
+                    names
+                        .iter()
+                        .map(|name| name.as_str().to_owned())
+                        .collect::<Vec<_>>()
+                });
+                (emission.server_name.as_str().to_owned(), names)
+            })
+            .collect();
+        assert_eq!(
+            tools,
+            [
+                ("github".to_owned(), Some(vec!["search".to_owned()])),
+                ("tracker".to_owned(), None),
+            ]
+        );
     }
 }

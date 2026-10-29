@@ -53,6 +53,7 @@ use crate::ipc::handlers::approval::{ApprovalMethodSources, register_approval_me
 use crate::ipc::handlers::driver::{DriverMethodSources, register_driver_methods};
 use crate::ipc::handlers::highlight::register_highlight_read;
 use crate::ipc::handlers::machine::folder::register_machine_folders;
+use crate::ipc::handlers::mcp::{McpMethodSources, register_mcp_methods};
 use crate::ipc::handlers::project::clone::register_project_clone_methods;
 use crate::ipc::handlers::project::register_project_methods;
 use crate::ipc::handlers::question::register_question_resolve;
@@ -114,6 +115,8 @@ pub(crate) struct MethodTableServices {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// The event log, which the session and run-state subscriptions read.
     pub(crate) event_log: Arc<EventLogService>,
+    /// The `mcp.*` methods' sources.
+    pub(crate) mcp_methods: McpMethodSources,
     /// Each session's live safety holds.
     pub(crate) run_safety_holds: Arc<RunSafetyHolds>,
     /// The sessions, which the transcript reads go through.
@@ -163,10 +166,10 @@ pub(crate) struct MethodTableServices {
 }
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
-/// data, the drivers, the approvals, the runs and their agents' commands and turns, the sessions,
-/// the repositories, the projects and the machine's folders. The handshake, the subscriptions'
-/// cancel and the artifact store's table are registered by the start beside them. Fails when a
-/// method is registered twice.
+/// data, the drivers, the approvals, the runs and their agents' commands and turns, the MCP
+/// servers, the sessions, the repositories, the projects and the machine's folders. The handshake,
+/// the subscriptions' cancel and the artifact store's table are registered by the start beside
+/// them. Fails when a method is registered twice.
 pub(crate) fn register_method_tables(
     builder: &mut MethodRegistryBuilder,
     services: MethodTableServices,
@@ -197,6 +200,7 @@ pub(crate) fn register_method_tables(
         Arc::clone(&services.session_search.index),
     )?;
     register_session_list(builder, services.list_feed)?;
+    register_mcp_methods(builder, services.mcp_methods)?;
     register_session_event_subscribe(builder, services.event_log, Arc::clone(&services.providers))?;
     register_session_draft_update(builder, services.drafts)?;
     register_session_changes(builder, services.session_changes)?;

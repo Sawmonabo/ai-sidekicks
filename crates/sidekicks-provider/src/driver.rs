@@ -54,7 +54,7 @@ pub mod diagnostics;
 pub mod error_causes;
 pub(crate) mod hook_pauses;
 pub mod idle_sleep;
-pub mod mcp_server_status;
+pub mod mcp_server;
 pub mod message_handing;
 pub mod ports;
 pub(crate) mod question_answers;

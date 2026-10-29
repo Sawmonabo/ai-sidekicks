@@ -2,9 +2,11 @@
 //! moves to a new provider build: running turns end with the process, every conversation resumes
 //! once it runs again, and the sessions hear what the person needs to: the crash loop that keeps
 //! the service down, the person's restart that brought it back, and the build a move left them
-//! on. The daemon's own restarts write no notice. The moves to a new build are in `build_move`.
+//! on. The daemon's own restarts write no notice. The moves to a new build are in `build_move`,
+//! and the resume in place a session's task runs is in `in_place_resume`.
 
 mod build_move;
+pub(crate) mod in_place_resume;
 #[cfg(test)]
 mod tests;
 
@@ -14,9 +16,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use serde::Deserialize;
 use serde_json::json;
-use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
@@ -30,8 +30,6 @@ use tokio_util::task::TaskTracker;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
-use crate::driver::codex::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
-use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::run::control::fail_codex_run;
 use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
@@ -51,9 +49,7 @@ use crate::driver::codex::session::lifecycle_call::let_go_codex_session_record;
 use crate::driver::codex::session::slots::{
     CodexRecoveryGeneration, CodexSessionClaim, CodexSessionSlots,
 };
-use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
-use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::contract::error::bound_failure_detail;
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::driver::diagnostics::{
@@ -67,6 +63,8 @@ use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
 use crate::runtime_binding::store::mint_runtime_binding_id;
+
+use self::in_place_resume::CodexInPlaceResumeCall;
 
 /// The words a run is failed with when its service ended with no exit the daemon could read.
 const CODEX_EXIT_UNREAD_FAILURE: &str = "The Codex service ended";
@@ -83,18 +81,6 @@ pub(crate) struct CodexDroppedTurns {
 /// Answers whether the runtime that still wrote a conversation let it go, so a refused resume is
 /// tried again; `false` ends the tries.
 pub(crate) type CodexWriterLeft = Box<dyn FnMut() -> BoxFuture<'static, bool> + Send>;
-
-/// One resume in place, as a call carries it to the session's task.
-pub(crate) struct CodexInPlaceResumeCall {
-    /// The establishment that resumes it.
-    pub(crate) establishment: Arc<CodexSessionEstablishment>,
-    /// The service it resumes on.
-    pub(crate) service: Arc<CodexService>,
-    /// The binding it resumes under, its cursor already open.
-    pub(crate) binding_id: RuntimeBindingId,
-    /// Whether a refusing writer let the conversation go.
-    pub(crate) writer_left: CodexWriterLeft,
-}
 
 /// What recovery acts through.
 pub(crate) struct CodexServiceRecoveryDependencies {
@@ -552,7 +538,7 @@ impl CodexServiceRecovery {
         let session_id = inbound.session_id();
         let binding_id = mint_runtime_binding_id();
         let session_relaunched = &self.dependencies.session_relaunched;
-        let opened = match session_relaunched.require_port() {
+        let function_legs = match session_relaunched.require_port() {
             Ok(listener) => {
                 listener
                     .open_relaunch_binding(session_id, binding_id.clone())
@@ -560,20 +546,24 @@ impl CodexServiceRecovery {
             }
             Err(unregistered) => Err(unregistered.into()),
         };
-        if let Err(cause) = opened {
-            let error = CodexError::PortFailed {
-                port: session_relaunched.port_name(),
-                cause,
-            };
-            return Some(CodexInPlaceOutcome {
-                result: compose_failed_resume(None, &error).await,
-                is_service_lost: false,
-            });
-        }
+        let function_legs = match function_legs {
+            Ok(function_legs) => function_legs,
+            Err(cause) => {
+                let error = CodexError::PortFailed {
+                    port: session_relaunched.port_name(),
+                    cause,
+                };
+                return Some(CodexInPlaceOutcome {
+                    result: compose_failed_resume(None, &error).await,
+                    is_service_lost: false,
+                });
+            }
+        };
         let resume = CodexInPlaceResumeCall {
             establishment: Arc::clone(&self.dependencies.establishment),
             service: Arc::clone(service),
             binding_id,
+            function_legs,
             writer_left,
         };
         let resumed = call_codex_session(inbound, |reply| CodexSessionCall::ResumeInPlace {
@@ -808,71 +798,6 @@ pub(crate) fn drop_codex_turns(
         run_ids,
         binding_id: record.binding_id.clone(),
     }
-}
-
-/// Resumes the session's conversation in place on the session's task, then ends each turn the
-/// session still owed an end that the resume lists as over: its `turn/completed` was sent while
-/// the daemon was not connected, and Codex sends none again. Answers the resume's outcome and the
-/// frames its routing released.
-pub(crate) async fn resume_codex_session_in_place(
-    task: &mut CodexSessionTask<'_>,
-    dependencies: &CodexSessionCallDependencies,
-    resume: CodexInPlaceResumeCall,
-) -> (CodexInPlaceOutcome, CodexRoutedFrames) {
-    let CodexInPlaceResumeCall {
-        establishment,
-        service,
-        binding_id,
-        writer_left,
-    } = resume;
-    let resumed = establishment
-        .resume_in_place(task, service, binding_id, writer_left)
-        .await;
-    let mut routed = resumed.routed;
-    for listed in resumed.listed_turns {
-        let is_owed = task.record.active_turn_run(&listed.id).is_some()
-            || task.record.ending_turn_ids().contains(&listed.id.as_str());
-        if !is_owed || is_turn_in_progress(&listed.turn) {
-            continue;
-        }
-        let Some(params) = compose_turn_completed_params(&task.record.thread_id, &listed.turn)
-        else {
-            continue;
-        };
-        let ended = task
-            .routing
-            .route_notification(
-                &dependencies.forks.delivery,
-                task.record,
-                CODEX_TURN_COMPLETED_METHOD.to_owned(),
-                params,
-            )
-            .await;
-        routed.extend(ended);
-    }
-    (resumed.outcome, routed)
-}
-
-// Whether a listed turn still runs.
-fn is_turn_in_progress(turn: &RawValue) -> bool {
-    #[derive(Deserialize)]
-    struct ListedTurnStatus {
-        status: Option<String>,
-    }
-    read_codex_object::<ListedTurnStatus>(turn.get())
-        .and_then(|listed| listed.status)
-        .and_then(|status| CodexTurnStatus::read(&status))
-        == Some(CodexTurnStatus::InProgress)
-}
-
-// The params of the `turn/completed` Codex sent for a listed turn: the conversation and the turn.
-fn compose_turn_completed_params(thread_id: &str, turn: &RawValue) -> Option<Box<RawValue>> {
-    let thread_id = serde_json::to_string(thread_id).ok()?;
-    RawValue::from_string(format!(
-        r#"{{"threadId":{thread_id},"turn":{}}}"#,
-        turn.get()
-    ))
-    .ok()
 }
 
 // Records that the service runs again in place of a process that ended, with how it ended where

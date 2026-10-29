@@ -43,6 +43,7 @@ use crate::driver::contract::params_and_results::{
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
+use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
@@ -80,6 +81,7 @@ mod capabilities;
 mod capability_probe;
 mod commands;
 mod compaction;
+mod config_read;
 mod delivery;
 mod event_normalizer;
 mod exec_relay;
@@ -88,6 +90,7 @@ mod hooks;
 mod input_limit;
 mod intervention;
 mod lifecycle;
+mod mcp;
 mod model_windows;
 mod native_program;
 mod notification_routing;
@@ -483,6 +486,13 @@ impl ProviderDriver for CodexDriver {
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>> {
         self.probe_auth(provider_account_id).boxed()
+    }
+
+    fn read_mcp_servers(
+        &self,
+        request: McpServersReadRequest,
+    ) -> BoxFuture<'_, Result<ProviderMcpServersReading, DriverError>> {
+        self.read_mcp_servers(request).boxed()
     }
 
     fn compact_context(

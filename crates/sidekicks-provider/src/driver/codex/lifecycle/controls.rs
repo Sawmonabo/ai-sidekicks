@@ -1,7 +1,7 @@
 //! A Codex session's controls and the driver's reads: a level or mode move, a side question, a
 //! compaction, its goal, a revoked rule, its command list and declared speed; the models, modes,
-//! capabilities, sign-in and starting level read on a service; the terminal-reach row; and the
-//! expiry of an account home's log rows.
+//! capabilities, sign-in, MCP servers and starting level read on a service; the terminal-reach
+//! row; and the expiry of an account home's log rows.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -30,6 +30,7 @@ use crate::driver::codex::auth_status::{CODEX_AUTH_PROBE_TIMEOUT, read_codex_aut
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::capability_probe::probe_codex_service_capabilities;
 use crate::driver::codex::compaction::{CodexCompactionTarget, dispatch_codex_compaction};
+use crate::driver::codex::mcp::read_codex_mcp_servers;
 use crate::driver::codex::model_windows::join_codex_model_windows;
 use crate::driver::codex::service::registry::CodexHomeResolver;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -42,6 +43,7 @@ use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
     ListProviderCommandsParams, ProviderCommandsSubscription,
 };
+use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::read_current_account;
 use crate::driver::session_control::{
     AskSideQuestionParams, ClearSessionGoalParams, DriverAuthProbeResult, DriverAuthProbeStatus,
@@ -277,6 +279,18 @@ impl CodexDriver {
                 build_auth_probe_result(DriverAuthProbeStatus::Indeterminate, &error.to_string())
             }
         })
+    }
+
+    /// Codex's MCP servers for `request`, read on the service on the person's own Codex folder.
+    /// Fails as the config read or the probe fails.
+    pub(crate) async fn read_mcp_servers(
+        &self,
+        request: McpServersReadRequest,
+    ) -> Result<ProviderMcpServersReading, DriverError> {
+        Ok(
+            read_codex_mcp_servers(&self.registry, &self.project_rules.home_folder, &request)
+                .await?,
+        )
     }
 
     /// The level and mode a new session starts at, as the account's own Codex settings for the

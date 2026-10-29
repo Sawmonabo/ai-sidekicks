@@ -3,6 +3,9 @@
 //! item of the session's queue handed to the test, which handles it the way the session's task
 //! does.
 
+pub(crate) mod relaunches;
+pub(crate) mod status_sink;
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -81,12 +84,12 @@ use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::contract::error::DriverError;
-use crate::driver::ports::{DriverPorts, SessionRelaunchListener};
+use crate::driver::ports::DriverPorts;
 use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
 use crate::driver::schema::schema_parts;
-use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
+use crate::driver::session_control::CreateSessionParams;
 use crate::driver::test_registry::{RecordedQueue, new_session_id};
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, PROVIDERS, ProviderAccountFolders,
@@ -335,64 +338,6 @@ impl TestCodexSession {
     }
 }
 
-/// Which step of each relaunch the session directory's stand-in refuses.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RefusedRelaunchStep {
-    /// None: every relaunch's opening and record are taken.
-    Nothing,
-    /// Every relaunch's opening.
-    Opening,
-    /// Every relaunch's record.
-    Record,
-}
-
-/// The session directory's stand-in, telling `heard` of each relaunch's opening and record and
-/// refusing the step `refused` names.
-pub(crate) struct TakenRelaunches {
-    /// Told `opened <binding>` at an opening and `relaunched <binding, if resumed>` at a record.
-    pub(crate) heard: Box<dyn Fn(String) + Send + Sync>,
-    /// The step refused.
-    pub(crate) refused: RefusedRelaunchStep,
-}
-
-impl SessionRelaunchListener for TakenRelaunches {
-    fn open_relaunch_binding(
-        &self,
-        _session_id: SessionId,
-        binding_id: RuntimeBindingId,
-    ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
-        (self.heard)(format!("opened {binding_id:?}"));
-        let is_refused = self.refused == RefusedRelaunchStep::Opening;
-        async move {
-            if is_refused {
-                return Err("the test refuses the opening".into());
-            }
-            Ok(())
-        }
-        .boxed()
-    }
-
-    fn session_relaunched(
-        &self,
-        _session_id: SessionId,
-        result: DriverResumeResult,
-    ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
-        let binding_id = match result {
-            DriverResumeResult::Resumed { binding_id, .. } => Some(binding_id),
-            DriverResumeResult::Failed { .. } => None,
-        };
-        (self.heard)(format!("relaunched {binding_id:?}"));
-        let is_refused = self.refused == RefusedRelaunchStep::Record;
-        async move {
-            if is_refused {
-                return Err("the test refuses the record".into());
-            }
-            Ok(())
-        }
-        .boxed()
-    }
-}
-
 /// The spawn-context port with [`OneFolder`] over `folder` registered on it.
 pub(super) fn one_folder_spawn_contexts(
     folder: PathBuf,
@@ -624,6 +569,7 @@ pub(crate) async fn open_test_record(
         output_speed_request: None,
         declared_output_speed: None,
         reasoning_effort: None,
+        on_mcp_server_status: None,
     });
     routing
         .bind_session_thread(

@@ -29,9 +29,10 @@ use crate::driver::codex::session::side_questions::test_copies::{
 use crate::driver::codex::session::side_questions::wait_for_side_question_answer;
 use crate::driver::codex::session::slots::{CodexSessionSlots, closing_session_refusal};
 use crate::driver::codex::session::state::CodexTurnMessage;
-use crate::driver::codex::session::test_fixture::{
-    RefusedRelaunchStep, TEST_THREAD, TakenRelaunches, turn_completed, turn_reply,
+use crate::driver::codex::session::test_fixture::relaunches::{
+    RefusedRelaunchStep, TakenRelaunches,
 };
+use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed, turn_reply};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
