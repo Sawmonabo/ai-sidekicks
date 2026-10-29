@@ -102,7 +102,7 @@ pub(crate) enum WorkspaceServiceInvariantKind {
 /// borrowing a code would misreport the cause. It reaches the socket as an anonymous `-32603`.
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
-pub(crate) struct WorkspaceServiceInvariantError {
+pub struct WorkspaceServiceInvariantError {
     /// What broke, in words a person reads; it names no path.
     pub(crate) message: String,
     /// Which kind of failure it is.

@@ -54,7 +54,6 @@ pub(crate) struct AdmittedExecutionRoot {
 /// among them, and with the resolver's `rootResolutionFailed` refusal when git cannot answer or
 /// the folder's resolve or listing gets no answer within the bounded read's ceiling, which says
 /// nothing of where the folder lies.
-#[cfg_attr(not(test), expect(dead_code, reason = "a run starting in a workspace"))]
 pub(crate) async fn validate_execution_root(
     resolver: &RepoRootResolver,
     candidate: WorkspaceExecutionRootCandidate<'_>,

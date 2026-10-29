@@ -19,6 +19,7 @@ pub mod repo;
 pub mod row_guards;
 pub mod run_setup_gates;
 pub mod schema;
+pub mod service;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_rows;
 pub mod trust_envelope;
