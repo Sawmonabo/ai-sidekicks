@@ -545,22 +545,32 @@ pub(crate) struct SessionAttachments {
     auto_titling: SessionAutoTitling,
 }
 
+/// Attaches the binding cursors' follow of `followers`, which marks an ended run's cursors to drop
+/// at its session's next binding. Called before the start's recovery pass, whose resumes end runs
+/// on the bindings they open; the follow runs on the writer's pump.
+pub(crate) fn follow_binding_cursors(
+    services: &SessionServices,
+    followers: &Arc<SessionEventFollowers>,
+) -> FollowerAttachment {
+    let binding_cursors = Arc::clone(&services.binding_cursors);
+    followers.follow_all(move |event| binding_cursors.observe(event).map_err(Into::into))
+}
+
 /// Starts the idle sleep, which wakes each session its stored schedules name and checks every
-/// session from then on, then the session services' follows of `followers`: the binding cursors',
-/// the approval side's, the related sessions' rescoring and the self-naming. Called once the
-/// start's recovery pass has settled the runs and the driver ports are registered, since a wake
-/// due at once reads them, inside the daemon's runtime. Fails as the idle sleep's start fails,
-/// with no follow begun.
+/// session from then on, then the session services' other follows of `followers`: the approval
+/// side's, the related sessions' rescoring and the self-naming; holds them beside
+/// `binding_cursors`, the follow [`follow_binding_cursors`] attached. Called once the start's
+/// recovery pass has settled the runs and the driver ports are registered, since a wake due at
+/// once reads them, inside the daemon's runtime. Fails as the idle sleep's start fails, with no
+/// other follow begun and `binding_cursors` detached.
 pub(crate) async fn start_session_attachments(
     services: &SessionServices,
     followers: &Arc<SessionEventFollowers>,
+    binding_cursors: FollowerAttachment,
 ) -> Result<SessionAttachments, IdleSleepError> {
     services.idle_sleep.start().await?;
-    let binding_cursors = Arc::clone(&services.binding_cursors);
     Ok(SessionAttachments {
-        // Runs on the writer's pump.
-        binding_cursors: followers
-            .follow_all(move |event| binding_cursors.observe(event).map_err(Into::into)),
+        binding_cursors,
         approvals: start_approval_attachments(&services.approvals, followers),
         related_rescoring: services.related_ranking.start(followers),
         auto_titling: services.auto_title.start(followers),

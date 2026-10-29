@@ -97,7 +97,7 @@ use crate::daemon::process::repo_services::{
     RepoAttachments, RepoServiceStart, RepoServices, build_repo_services, start_repo_attachments,
 };
 use crate::daemon::process::session_services::{
-    SessionAttachments, SessionServices, start_session_attachments,
+    SessionAttachments, SessionServices, follow_binding_cursors, start_session_attachments,
 };
 use crate::daemon::process::start_error::{DaemonStartError, DaemonStartFailure};
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
@@ -617,13 +617,17 @@ impl DaemonProcess {
             .providers_registration
             .insert(register_providers(&providers, index_opened));
         self.providers = Some(providers);
-        // Settles what the last stop left before any follow of the log or any folder watch starts.
-        recovery.run(&self.work_stop).await;
         let session = self
             .session
             .as_ref()
             .expect("the session services are built before their follows begin");
-        self.session_attachments = Some(start_session_attachments(session, &followers).await?);
+        // Attached before the recovery pass, whose resumes end runs on the bindings they open.
+        let binding_cursors = follow_binding_cursors(session, &followers);
+        // Settles what the last stop left before any other follow of the log or any folder watch
+        // starts.
+        recovery.run(&self.work_stop).await;
+        self.session_attachments =
+            Some(start_session_attachments(session, &followers, binding_cursors).await?);
         let repo = self
             .repo
             .as_ref()

@@ -63,7 +63,8 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    SessionServiceStart, SessionServices, build_session_services, start_session_attachments,
+    SessionServiceStart, SessionServices, build_session_services, follow_binding_cursors,
+    start_session_attachments,
 };
 use crate::daemon::configuration::ConfigurationStore;
 use crate::daemon::process::repo_services::{RepoServiceStart, RepoServices, build_repo_services};
@@ -279,13 +280,14 @@ impl Fixture {
     }
 }
 
-// Killed by deleting the binding cursors' follow from the start's attachments: a live run's
-// cursor then outlives its session's close.
+// Killed by deleting the binding cursors' follow: a live run's cursor then outlives its session's
+// close.
 #[tokio::test]
 async fn the_started_follows_drop_a_closed_sessions_cursors() {
     let mut fixture = fixture().await;
     let followers = Arc::clone(&fixture.log.followers);
-    let attachments = start_session_attachments(&fixture.session, &followers)
+    let binding_cursors = follow_binding_cursors(&fixture.session, &followers);
+    let attachments = start_session_attachments(&fixture.session, &followers, binding_cursors)
         .await
         .expect("the attachments start");
     let session_id = test_session_id();
@@ -347,7 +349,8 @@ async fn the_stop_records_every_write_sent_before_it() {
     }
     drop(writes);
     let followers = Arc::clone(&fixture.log.followers);
-    let attachments = start_session_attachments(&fixture.session, &followers)
+    let binding_cursors = follow_binding_cursors(&fixture.session, &followers);
+    let attachments = start_session_attachments(&fixture.session, &followers, binding_cursors)
         .await
         .expect("the attachments start");
 
