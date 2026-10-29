@@ -53,6 +53,7 @@ CREATE TABLE provider_accounts (
                         CHECK(window_start_enabled IN (0, 1)),  -- per-account switch for the one smallest turn the daemon spends at each window reset so the new window's clock starts then (Spec-025 §Credential-home health observation; `windowStartEnabled` on the wire). Default-on, and it sits UNDER `probe_enabled` rather than beside it: switching this off leaves the limits read running on its cadence, and switching `probe_enabled` off leaves this inert, so an account silenced for the observer spends nothing at a reset.
   wake_for_window_start_enabled INTEGER NOT NULL DEFAULT 0
                         CHECK(wake_for_window_start_enabled IN (0, 1)),  -- wake the machine for a window that resets while it sleeps; does nothing while `window_start_enabled` is 0
+  window_start_sent_at  TEXT,  -- RFC 3339 UTC when the daemon last spent a turn that starts the account's closed windows (the window start, or a pasted Claude token's read by a turn); NULL before the first. A window whose reset lies before it was started by that turn, and a window with no reset counts as started for five hours after it, so a restart or a second trigger never spends a second turn on one reset
   memory_import_outcome TEXT
                         CHECK(memory_import_outcome IS NULL
                           OR memory_import_outcome IN ('imported', 'nothingToImport')),  -- the account's one memory import: NULL until it runs, then `imported` with its count and time, or `nothingToImport` with neither. The outcome is kept, so a repeat answers it again
