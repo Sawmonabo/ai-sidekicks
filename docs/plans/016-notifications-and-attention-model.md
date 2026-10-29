@@ -279,7 +279,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 - Which Windows process may remove a toast through the toast history is unmeasured: if the daemon's own process may not, the app's own windowless program is run again with a withdraw verb. A probe on a Windows machine settles it.
 - Banner mode and a click after the poster exits are accepted only on signed, packaged builds on macOS, Windows and Linux.
-- A mailbox that refuses password sending (a work Microsoft 365 mailbox once Microsoft turns SMTP basic authentication off) cannot send the digest through the person's own account; sending for it needs an OAuth client registration the project does not hold. This is a gap in the requirement, not a narrower requirement.
+- A mailbox that refuses password sending (a work Microsoft 365 mailbox once Microsoft turns SMTP basic authentication off) signs in with Microsoft and sends through Microsoft Graph's `sendMail` with the signed-in token; the registration that sign-in needs is the project's own (a public client with `Mail.Send` and `offline_access`), recorded in [the backlog](../backlog.md) until it exists.
 - Whether Slack and Discord accept the web-address body's fields beside `text` is unmeasured.
 - Aggregate session attention can drift if clients try to reconstruct it locally instead of consuming the canonical derived projection
 
