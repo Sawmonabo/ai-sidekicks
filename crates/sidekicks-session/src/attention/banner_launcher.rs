@@ -18,6 +18,11 @@ pub mod counting_starter;
 // does not keep every later start back.
 const UNWATCHED_START_HOLD: Duration = Duration::from_millis(630);
 
+// How long a start may take before it counts as failed and the hold starts: far past the slowest
+// windowless start measured on macOS (0.21 s), so only a start that is stuck reaches it. The
+// start's process ends when its wait is dropped.
+const START_BOUND: Duration = Duration::from_secs(10);
+
 /// What starts the app with no window: the daemon's spawner in the program, a recording starter in
 /// tests.
 pub trait WindowlessAppStarter: Send + Sync {
@@ -52,6 +57,8 @@ struct LaunchState {
     starts_made: u64,
     // Whether this run of the daemon logged that its system starts no app yet.
     has_logged_unsupported: bool,
+    // Whether a start failed since one last succeeded, which logs later failures at debug.
+    has_failed_since_success: bool,
 }
 
 impl BannerLauncher {
@@ -120,6 +127,15 @@ impl InFlightStart {
     fn is_first_unsupported(&self) -> bool {
         !std::mem::replace(&mut lock(&self.state).has_logged_unsupported, true)
     }
+
+    // Whether this is the first failed start since one succeeded, marking a failure seen.
+    fn is_first_failure(&self) -> bool {
+        !std::mem::replace(&mut lock(&self.state).has_failed_since_success, true)
+    }
+
+    fn mark_succeeded(&self) {
+        lock(&self.state).has_failed_since_success = false;
+    }
 }
 
 impl Drop for InFlightStart {
@@ -131,13 +147,31 @@ impl Drop for InFlightStart {
     }
 }
 
-// Waits for `launch`, then holds `in_flight` until the started process exits, or with no process
-// to watch for the fallback hold; a failed start lifts it at once, since nothing was started.
+// Waits for `launch` up to its bound, then holds `in_flight` until the started process exits, or
+// with no process to watch for the fallback hold; a failed start lifts it at once, since nothing
+// was started, and a start past its bound is dropped and holds as an unwatched one. The first
+// failure since a start succeeded is logged at warn, later ones at debug, so a system that keeps
+// refusing grows the log once.
 async fn launch_and_lift(
     launch: BoxFuture<'static, io::Result<WindowlessLaunch>>,
     in_flight: InFlightStart,
 ) {
-    match launch.await {
+    let Ok(launched) = tokio::time::timeout(START_BOUND, launch).await else {
+        log_failed_start(
+            &in_flight,
+            &io::Error::new(
+                ErrorKind::TimedOut,
+                "the start did not finish within its bound",
+            ),
+        );
+        tokio::time::sleep(UNWATCHED_START_HOLD).await;
+        drop(in_flight);
+        return;
+    };
+    if launched.is_ok() {
+        in_flight.mark_succeeded();
+    }
+    match launched {
         Ok(WindowlessLaunch::Unwatched) => tokio::time::sleep(UNWATCHED_START_HOLD).await,
         // Awaited to its end even after a subscription lifted the start, which reaps the process.
         Ok(WindowlessLaunch::Watched { exit }) => {
@@ -157,12 +191,26 @@ async fn launch_and_lift(
                 );
             }
         }
-        Err(error) => tracing::warn!(
-            error = &error as &(dyn Error + 'static),
-            "the app could not be started with no window, so its banner waits for the app"
-        ),
+        Err(error) => log_failed_start(&in_flight, &error),
     }
     drop(in_flight);
+}
+
+// Logs a start that failed or passed its bound: at warn the first since a start succeeded, at
+// debug after.
+fn log_failed_start(in_flight: &InFlightStart, error: &io::Error) {
+    let error = error as &(dyn Error + 'static);
+    if in_flight.is_first_failure() {
+        tracing::warn!(
+            error,
+            "the app could not be started with no window, so its banner waits for the app"
+        );
+    } else {
+        tracing::debug!(
+            error,
+            "the app still could not be started with no window, so its banner waits for the app"
+        );
+    }
 }
 
 #[cfg(test)]
