@@ -1,9 +1,11 @@
-//! A session's conversation resumed: the live runs it names to the provider, a run bound on it
-//! after the resume, and the idle sleep's wake of a session no process holds.
+//! A session's conversation resumed: the live runs it names to the provider, the provider's answer
+//! for them handed on before the binding is recorded, a run bound on it after the resume, and the
+//! idle sleep's wake of a session no process holds.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use rstest::rstest;
 use rusqlite::params;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::registry::SessionEventType;
@@ -17,7 +19,9 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::idle_sleep::{KeptSchedule, SessionSleepState};
-use sidekicks_provider::driver::session_control::{LiveRunResume, OpenTurnResume};
+use sidekicks_provider::driver::session_control::{
+    LiveRunResume, OpenTurnResume, ProviderTurnAnswer, ResumedRunAnswer,
+};
 use sidekicks_provider::driver::test_registry::new_run_id;
 use sidekicks_session::idle_sleep::openings::SessionProcessWaker;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
@@ -26,6 +30,7 @@ use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id
 use tokio::time::timeout;
 
 use super::{Opening, WAIT};
+use crate::provider_session::resumed_runs::ResumedRuns;
 
 /// The recurring job the wake's test stores for the session.
 const CRON: &str = "0 9 * * 1";
@@ -163,6 +168,50 @@ async fn a_resume_names_each_live_run_with_its_open_turns_and_helper_id() {
             open_turns: Vec::new(),
             subagent_id: Some(SubagentId::new(SUBAGENT_ID.to_owned()).expect("a helper id")),
         }
+    );
+}
+
+// The provider's answer for each run a resume named reaches the resumed runs' ingress before the
+// resumed binding is recorded, whether the driver answers on the binding the queue minted or a
+// process already up answers on its own. Killed by the ingress called after the binding's record
+// (the minted binding has its row as the ingress reads), and by the already-up branch skipping the
+// ingress (its runs never arrive).
+#[rstest]
+#[case::minted(false)]
+#[case::already_up(true)]
+#[tokio::test]
+async fn a_resumes_runs_reach_the_ingress_before_its_binding_is_recorded(
+    #[case] is_already_up: bool,
+) {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |_, _| {}).await;
+    if is_already_up {
+        *lock(&opening.came_up_on) = Some(opening.predecessor_id.clone());
+    }
+
+    timeout(
+        WAIT,
+        opening.sessions.open(opening.session_id, opening.run_id),
+    )
+    .await
+    .expect("the open takes its own lock once")
+    .expect("the conversation resumes");
+
+    let gone = |run_id| ResumedRunAnswer {
+        run_id,
+        turn: ProviderTurnAnswer::Gone,
+    };
+    assert_eq!(
+        opening.resumed_runs.taken(),
+        [ResumedRuns {
+            session_id: opening.session_id,
+            runs: vec![gone(opening.earlier_run_id), gone(opening.run_id)],
+        }],
+        "the ingress takes every run the resume named, once"
+    );
+    assert_eq!(
+        *lock(&opening.handed_rows_at_take),
+        [false],
+        "the binding the resume minted has no row as the ingress takes its runs"
     );
 }
 

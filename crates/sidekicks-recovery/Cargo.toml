@@ -25,6 +25,7 @@ sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-provider.workspace = true
+sidekicks-queue.workspace = true
 sidekicks-session.workspace = true
 sidekicks-std.workspace = true
 sidekicks-store.workspace = true

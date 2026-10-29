@@ -9,6 +9,7 @@ use std::sync::Arc;
 use jiff::Timestamp;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_std::mutex_lock::lock;
@@ -18,6 +19,7 @@ use super::{
     ClaudeSpawnRequest,
 };
 use crate::driver::claude::output_speed::resolve_claude_output_speed;
+use crate::driver::claude::run::routes::{ClaudeRunRoute, ClaudeRunRoutes};
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::conversation_file::read_turn_count;
 use crate::driver::claude::session::errors::{
@@ -30,7 +32,8 @@ use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::contract::{SpawnedVersionBindingCarriers, bound_failure_detail};
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{
-    DriverResumeResult, ResumeSessionParams, ResumedRunAnswer, answer_every_run_gone,
+    DriverResumeResult, LiveRunResume, ProviderTurnAnswer, ResumeSessionParams, ResumedRunAnswer,
+    answer_every_run_gone,
 };
 
 impl ClaudeSessionEstablishment {
@@ -65,7 +68,7 @@ impl ClaudeSessionEstablishment {
     ) -> Result<ClaudeResumeAnswer, ClaudeEstablishmentError> {
         let session_id = params.session_id;
         let binding_id = params.binding_id.clone();
-        // A resumed Claude Code process runs no turn.
+        // A process brought up fresh runs no turn.
         let runs = answer_every_run_gone(&params.live_runs);
         if params.larger_window.is_some() {
             return Err(claude_session_unavailable(
@@ -88,6 +91,7 @@ impl ClaudeSessionEstablishment {
                     .into());
                 }
                 ClaudeResumeSlot::CameUp(live) if runs_as_asked(&live, &params) => {
+                    let runs = answer_held_turns(&self.routes, session_id, &params.live_runs);
                     return Ok(ClaudeResumeAnswer {
                         result: answer_came_up(&live, binding_id, runs).await?,
                         has_started_process: false,
@@ -196,6 +200,36 @@ fn runs_as_asked(live: &LiveClaudeSession, params: &ResumeSessionParams) -> bool
                 .as_ref()
                 .map(|level| resolve_claude_output_speed(level.as_str()))
         && settings.ultracode_requested == requested_claude_ultracode(&params.options)
+}
+
+// What the session's live process holds of each run in `live_runs`: the run holding the session's
+// turn, and each helper's run started beneath it, still run there; every other run's turn is gone.
+fn answer_held_turns(
+    routes: &ClaudeRunRoutes,
+    session_id: SessionId,
+    live_runs: &[LiveRunResume],
+) -> Vec<ResumedRunAnswer> {
+    let held = routes.lead_run_on(session_id).map(|lead| lead.run_id);
+    live_runs
+        .iter()
+        .map(|run| {
+            let is_held = held.is_some_and(|held| {
+                run.run_id == held
+                    || matches!(
+                        routes.route_of(run.run_id),
+                        Some(ClaudeRunRoute::Child(child)) if child.parent_run_id == held
+                    )
+            });
+            ResumedRunAnswer {
+                run_id: run.run_id,
+                turn: if is_held {
+                    ProviderTurnAnswer::StillRunning
+                } else {
+                    ProviderTurnAnswer::Gone
+                },
+            }
+        })
+        .collect()
 }
 
 // The `Resumed` arm for the live process running the conversation asked for, on the binding its

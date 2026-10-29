@@ -28,6 +28,7 @@ use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_queue::changes::QueueChangeSignals;
 use sidekicks_queue::memory_gate::MemoryGate;
+use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::provider_session::{
     ProviderSessionOpeningComposer, ProviderSessions, ProviderSessionsDeps,
 };
@@ -174,6 +175,9 @@ pub(crate) struct SessionServices {
     pub(crate) queue: Arc<RunQueue>,
     /// Each session's provider process, which the session controls move.
     pub(crate) provider_sessions: Arc<ProviderSessions>,
+    /// Where a resume hands the runs it named, which recovery's finalize registers on before the
+    /// start serves anything.
+    pub(crate) resumed_runs: Arc<PortRegistration<Arc<dyn ResumedRunsIngress>>>,
     /// Appends to a session's log, which the shell table's changes of holder go through.
     pub(crate) appender: Arc<SessionEventAppender>,
     /// The queues' change signals.
@@ -385,6 +389,7 @@ pub(crate) fn build_session_services(
         running_commands: Arc::clone(&running_commands),
         scheduler,
     });
+    let resumed_runs = Arc::new(PortRegistration::new("resumed runs"));
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&reads),
         writer: Arc::clone(&writer),
@@ -393,6 +398,7 @@ pub(crate) fn build_session_services(
         compose_opening,
         transition_lock: Arc::clone(changes.transition_lock()),
         process_follower: Arc::clone(&idle_sleep) as Arc<dyn SessionProcessFollower>,
+        resumed_runs: Arc::clone(&resumed_runs),
     }));
     idle_sleep
         .set_process_waker(Arc::downgrade(&provider_sessions) as Weak<dyn SessionProcessWaker>)
@@ -456,6 +462,7 @@ pub(crate) fn build_session_services(
         chat_versions,
         queue,
         provider_sessions,
+        resumed_runs,
         signals,
         interventions,
         pauses,
