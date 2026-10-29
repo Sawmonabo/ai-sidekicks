@@ -47,7 +47,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use crate::console_state::advisor_model_change_statement;
 use crate::run::engine::turns::run_live_or_turn_open_statement;
-use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::engine::{RunEngine, RunEngineError, SubagentRunStart};
 use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs};
 use crate::run::inbound::absorb::absorb;
 use crate::run::provider_choice::ProviderChoiceResolver;
@@ -585,7 +585,12 @@ impl RunInboundDispatch {
                     .start_provider_subagent_run(parent_run_id)
                     .await?
                 {
-                    Some(run_id) => InboundOutcome::ChildRunStarted { run_id },
+                    Some(SubagentRunStart::Running(run_id)) => {
+                        InboundOutcome::ChildRunStarted { run_id }
+                    }
+                    Some(SubagentRunStart::Refused(run_id)) => {
+                        InboundOutcome::ChildRunRefused { run_id }
+                    }
                     None => run_ended(),
                 }
             }

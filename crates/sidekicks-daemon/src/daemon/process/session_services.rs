@@ -325,7 +325,7 @@ pub(crate) fn build_session_services(
             RunEngineDeps {
                 pool: Arc::clone(&reads),
                 event_log: Arc::clone(&event_log),
-                execution_postures,
+                execution_postures: Arc::clone(&execution_postures),
                 providers: Arc::clone(&providers),
                 plan_holds,
                 held_choice_answers: Arc::clone(&held_choice_answers),
@@ -393,6 +393,7 @@ pub(crate) fn build_session_services(
         compose_opening,
         transition_lock: Arc::clone(changes.transition_lock()),
         process_follower: Arc::clone(&idle_sleep) as Arc<dyn SessionProcessFollower>,
+        execution_postures,
     }));
     idle_sleep
         .set_process_waker(Arc::downgrade(&provider_sessions) as Weak<dyn SessionProcessWaker>)
@@ -421,6 +422,9 @@ pub(crate) fn build_session_services(
     engine
         .set_interrupt_queue(Arc::downgrade(&queue) as Weak<_>)
         .expect("a new engine holds no run queue yet");
+    engine
+        .set_session_postures(Arc::downgrade(&provider_sessions) as Weak<_>)
+        .expect("a new engine holds no posture source yet");
     let interventions = Arc::new(InterventionService::new(InterventionServiceDeps {
         pool: Arc::clone(&reads),
         event_log: Arc::clone(&event_log),

@@ -15,6 +15,7 @@ use rstest::rstest;
 use rusqlite::params;
 use serde_json::json;
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
@@ -30,6 +31,7 @@ use sidekicks_provider::driver::session_control::{
     DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
 };
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
+use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, RuntimeBindingStore};
 use sidekicks_provider::runtime_binding::test_store::{
@@ -57,7 +59,8 @@ use tokio::sync::Notify;
 use tokio::time::timeout;
 
 use super::test_opening::{
-    RecordedProcessFollowing, record_first_provider_capabilities, test_opening_composer,
+    RecordedProcessFollowing, record_first_provider_capabilities, test_execution_postures,
+    test_opening_composer,
 };
 use super::{
     ProviderSessionError, ProviderSessionOpeningComposer, ProviderSessions, ProviderSessionsDeps,
@@ -83,7 +86,8 @@ type ClosedAppendHook = Box<dyn Fn() + Send + Sync>;
 // or on `came_up_on` once a test sets it, checking that binding's cursor is open as it runs, and
 // closes at once, counting each close; each event changes the session's directory row, so a close
 // leaves the session reading closed. Once a test sets `is_row_taken`, a resume first records a row
-// under the binding it runs on, so the queue's own record of it fails.
+// under the binding it runs on, so the queue's own record of it fails; once it sets `git_folder`,
+// an opening names that git folder.
 struct Opening {
     database: TestDatabase,
     session_id: SessionId,
@@ -94,8 +98,10 @@ struct Opening {
     handed_ids: Arc<Mutex<Vec<RuntimeBindingId>>>,
     came_up_on: Arc<Mutex<Option<RuntimeBindingId>>>,
     is_row_taken: Arc<AtomicBool>,
+    git_folder: Arc<Mutex<Option<FilesystemPath>>>,
     closes: Arc<AtomicUsize>,
     sessions: Arc<ProviderSessions>,
+    execution_postures: Arc<ExecutionPostureService>,
     changes: Arc<SessionChanges>,
     following: Arc<RecordedProcessFollowing>,
 }
@@ -176,6 +182,8 @@ impl Opening {
         let came_up_on = Arc::new(Mutex::new(None::<RuntimeBindingId>));
         let is_row_taken = Arc::new(AtomicBool::new(false));
         let closes = Arc::new(AtomicUsize::new(0));
+        let git_folder = Arc::new(Mutex::new(None));
+        let execution_postures = test_execution_postures();
         let on_resume: Arc<dyn Fn(&ResumeSessionParams) + Send + Sync> = Arc::from(on_resume);
         // The resume and the restart answer alike.
         let answer_relaunch = || {
@@ -245,9 +253,10 @@ impl Opening {
             writer,
             binding_cursors,
             providers,
-            compose_opening: recording_composer(&handed_ids),
+            compose_opening: recording_composer(&handed_ids, &git_folder),
             transition_lock: Arc::clone(changes.transition_lock()),
             process_follower: Arc::clone(&following) as Arc<dyn SessionProcessFollower>,
+            execution_postures: Arc::clone(&execution_postures),
         }));
         Self {
             database,
@@ -259,8 +268,10 @@ impl Opening {
             handed_ids,
             came_up_on,
             is_row_taken,
+            git_folder,
             closes,
             sessions,
+            execution_postures,
             changes,
             following,
         }
@@ -310,16 +321,22 @@ struct OpeningWatch {
     store: Arc<RuntimeBindingStore>,
 }
 
-// The test composer's opening, its callbacks recording each binding they are bound to.
+// The test composer's opening, its callbacks recording each binding they are bound to, on
+// `git_folder` once one is set.
 fn recording_composer(
     handed_ids: &Arc<Mutex<Vec<RuntimeBindingId>>>,
+    git_folder: &Arc<Mutex<Option<FilesystemPath>>>,
 ) -> ProviderSessionOpeningComposer {
     let composer = test_opening_composer();
-    let handed_ids = Arc::clone(handed_ids);
+    let (handed_ids, git_folder) = (Arc::clone(handed_ids), Arc::clone(git_folder));
     Arc::new(move |session_id, provider_account_id| {
         let (composer, handed_ids) = (Arc::clone(&composer), Arc::clone(&handed_ids));
+        let git_folder = lock(&git_folder).clone();
         async move {
             let mut opening = composer(session_id, provider_account_id).await?;
+            if let Some(git_folder) = git_folder {
+                opening.git_folder = git_folder;
+            }
             opening.function_legs_for = Arc::new(move |binding_id| {
                 lock(&handed_ids).push(binding_id.clone());
                 ResumeFunctionLegs::default()

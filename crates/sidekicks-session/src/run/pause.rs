@@ -125,6 +125,7 @@ impl From<RunEngineError> for RunPauseError {
             other @ (RunEngineError::Change(_)
             | RunEngineError::Released(_)
             | RunEngineError::Gate { .. }
+            | RunEngineError::NoSessionPosture { .. }
             | RunEngineError::NoResolvedPosture { .. }
             | RunEngineError::Driver { .. }
             | RunEngineError::LimitInterrupterGone { .. }

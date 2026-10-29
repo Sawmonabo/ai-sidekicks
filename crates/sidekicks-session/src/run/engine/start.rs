@@ -1,12 +1,13 @@
 //! How a run reaches its provider: a send's run and a turn the daemon or its provider starts on a
 //! session pass `starting`, every setup gate and the driver's start before `running`; a provider's
-//! own subagent is queued beneath its parent and runs at once; an interrupted run is continued on
-//! its next turn, through the gates and the driver again or on the turn its provider started; a
-//! paused run is resumed, written `running` only once its driver took the resume.
+//! own subagent is queued beneath its parent and passes every setup gate at its session's posture
+//! before `running`; an interrupted run is continued on its next turn, through the gates and the
+//! driver again or on the turn its provider started; a paused run is resumed, written `running`
+//! only once its driver took the resume.
 
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Weak};
 
 use jiff::Timestamp;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -38,7 +39,7 @@ use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::session::appender::SessionEventDraft;
 use sidekicks_workspace::run_setup_gates::{
-    RunSetupContext, RunSetupGateError, RunTerminalContext,
+    RunSetupContext, RunSetupGateError, RunTerminalContext, RunTerminalReleaseError,
 };
 use tokio::sync::SetOnce;
 
@@ -47,7 +48,7 @@ use crate::run::agent::RunAgentReader;
 use crate::run::daemon_turn::queue_daemon_turn_run;
 use crate::run::engine::live::{ContinuingGuard, StartingGuard, StartingRun};
 use crate::run::engine::{
-    LiveAppend, RunEngine, RunEngineError, RunResumeError, with_cleanup_failures,
+    LiveAppend, RunEngine, RunEngineError, RunResumeError, SubagentRunStart, with_cleanup_failures,
 };
 use crate::run::projection::insert_queued_run_statement;
 use crate::run::read::{RunRead, RunStateReader, read_run_provider};
@@ -154,13 +155,27 @@ impl RunEngine {
         // An interrupt may have landed while a gate ran; a run no longer starting is not started.
         let after_gates = self.require_run(run_id).await?;
         if entry.is_interrupted.load(Ordering::Acquire) || after_gates.state != RunState::Starting {
-            return Err(RunRefusal::InvalidTransition {
+            let refusal: RunEngineError = RunRefusal::InvalidTransition {
                 run_id,
                 from_state: after_gates.state,
                 to_state: RunStateChangeState::Running,
                 source: None,
             }
-            .into());
+            .into();
+            // An end written while a gate ran let go only what the gates held by then; what a gate
+            // took after it is let go here. An end still to come lets go everything itself.
+            if !after_gates.state.is_terminal() {
+                return Err(refusal);
+            }
+            let released = self
+                .release_gates_after_end(run_id, &after_gates)
+                .await
+                .map_err(RunEngineError::from);
+            return Err(with_cleanup_failures(
+                refusal,
+                [released],
+                "starting a run that ended during its gates failed, and a terminal hook failed",
+            ));
         }
         // The driver runs at, and the run records, the posture the gate checked and resolved.
         let Some(resolved_posture) = self.execution_postures.resolved_posture_for(&run_id) else {
@@ -280,15 +295,19 @@ impl RunEngine {
     /// Starts the run of a subagent the provider started beneath `parent_run_id`, sharing its
     /// process and so its provider and account: `agent.run.queued` naming the parent, the parent's
     /// agent, which asked its provider for the subagent, and the account the parent was admitted
-    /// against, then `starting` and `running`, and returns the new run's id. Returns `None` with
-    /// nothing written when the parent has ended, and fails with [`RunRefusal::NotFound`] for a
-    /// parent the daemon has no run for.
+    /// against, then `starting`, every setup gate at the posture the session's open process runs
+    /// at now, and `running` stamped with the posture the gates resolved. A gate's refusal ends
+    /// the run `failed` with no posture stamped and answers [`SubagentRunStart::Refused`]. Returns
+    /// `None` with nothing written when the parent has ended; fails with [`RunRefusal::NotFound`]
+    /// for a parent the daemon has no run for, with [`RunEngineError::NoSessionPosture`], the run
+    /// ended `failed`, when no posture of the session's open process can be read, and when a
+    /// refused run's end is not written.
     pub(crate) async fn start_provider_subagent_run(
         &self,
         parent_run_id: RunId,
-    ) -> Result<Option<RunId>, RunEngineError> {
+    ) -> Result<Option<SubagentRunStart>, RunEngineError> {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        let (agent_id, admitted_provider_account_id) = self
+        let (session_id, agent_id, admitted_provider_account_id) = self
             .pool
             .read(ReadLength::Short, move |reader| {
                 let parent = RunStateReader::new(reader)
@@ -298,6 +317,7 @@ impl RunEngine {
                     }))?;
                 let agents = RunAgentReader::new(reader);
                 Ok::<_, RunEngineError>((
+                    parent.session_id,
                     agents.read_agent(&parent.session_id, &parent_run_id)?,
                     agents.read_admitted_account(&parent.session_id, &parent_run_id)?,
                 ))
@@ -340,13 +360,51 @@ impl RunEngine {
             None,
         )
         .await?;
+        // The subagent runs in its session's process, so it is gated at what that process runs at
+        // now, a level move since its parent's start included.
+        let Some(execution_posture) = self
+            .session_postures
+            .get()
+            .and_then(Weak::upgrade)
+            .and_then(|source| source.opened_execution_posture(&session_id))
+        else {
+            return Err(self
+                .fail_setup(run_id, RunEngineError::NoSessionPosture { run_id })
+                .await);
+        };
+        let gated = self
+            .gates
+            .assert_run_ready(&RunSetupContext {
+                run_id,
+                session_id,
+                queue_item: None,
+                workspace_id: None,
+                execution_posture,
+            })
+            .await;
+        if let Err(source) = gated {
+            let gate_error = RunEngineError::Gate { run_id, source };
+            return match self.end_setup_failed(run_id, &gate_error).await {
+                Ok(()) => Ok(Some(SubagentRunStart::Refused(run_id))),
+                Err(fail_error) => Err(with_cleanup_failures(
+                    gate_error,
+                    [Err(fail_error)],
+                    "a subagent's run was refused at its setup, and ending the run failed",
+                )),
+            };
+        }
+        let Some(resolved_posture) = self.execution_postures.resolved_posture_for(&run_id) else {
+            return Err(self
+                .fail_setup(run_id, RunEngineError::NoResolvedPosture { run_id })
+                .await);
+        };
         self.change(
             RunStateChange {
                 expected_state: Some(RunState::Starting),
                 ..RunStateChange::new(
                     run_id,
                     RunStateEntry::Running {
-                        execution_posture: None,
+                        execution_posture: Some(resolved_posture),
                     },
                 )
             },
@@ -354,7 +412,7 @@ impl RunEngine {
             None,
         )
         .await?;
-        Ok(Some(run_id))
+        Ok(Some(SubagentRunStart::Running(run_id)))
     }
 
     /// Continues the interrupted run `request.turn.run_id` on its next turn, admitted from
@@ -580,9 +638,26 @@ impl RunEngine {
         }
     }
 
-    // Ends a run whose setup failed `failed`, its cause the failure. A run an interrupt moved out
-    // of `starting` while a gate ran keeps that end. Returns what the start fails with.
+    // Ends a run whose setup failed `failed`, as `end_setup_failed` does. Returns what the start
+    // fails with.
     async fn fail_setup(&self, run_id: RunId, setup_error: RunEngineError) -> RunEngineError {
+        match self.end_setup_failed(run_id, &setup_error).await {
+            Ok(()) => setup_error,
+            Err(fail_error) => with_cleanup_failures(
+                setup_error,
+                [Err(fail_error)],
+                "a run's setup failed, and ending the run or a terminal hook after it failed",
+            ),
+        }
+    }
+
+    // Ends a run whose setup failed `failed`, its cause the failure. A run an interrupt moved out
+    // of `starting` while a gate ran keeps that end.
+    async fn end_setup_failed(
+        &self,
+        run_id: RunId,
+        setup_error: &RunEngineError,
+    ) -> Result<(), RunEngineError> {
         let failed = RunStateChange {
             expected_state: Some(RunState::Starting),
             failure_category: Some(RunFailureCategory::SetupFailure),
@@ -590,7 +665,7 @@ impl RunEngine {
                 run_id,
                 RunStateEntry::Failed {
                     intended_close: None,
-                    failure_cause: Some(setup_failed_cause(&setup_error)),
+                    failure_cause: Some(setup_failed_cause(setup_error)),
                     provider_failure_detail: None,
                     process_exit: None,
                 },
@@ -600,18 +675,13 @@ impl RunEngine {
             .change(failed, RunStateChangeCompanions::default(), None)
             .await
         {
-            Ok(_run) => setup_error,
-            Err(RunEngineError::Refused(RunRefusal::AlreadyEnded { .. })) => setup_error,
+            Ok(_) | Err(RunEngineError::Refused(RunRefusal::AlreadyEnded { .. })) => Ok(()),
             Err(RunEngineError::Refused(RunRefusal::InvalidTransition { from_state, .. }))
                 if from_state != RunState::Starting =>
             {
-                setup_error
+                Ok(())
             }
-            Err(fail_error) => with_cleanup_failures(
-                setup_error,
-                [Err(fail_error)],
-                "a run's setup failed, and ending the run or a terminal hook after it failed",
-            ),
+            Err(fail_error) => Err(fail_error),
         }
     }
 
@@ -687,6 +757,16 @@ impl RunEngine {
         else {
             return Ok(());
         };
+        self.release_gates_after_end(run_id, &run).await?;
+        Ok(())
+    }
+
+    // Runs every terminal hook of `run_id`, read at its end as `run`, for what a gate took since.
+    async fn release_gates_after_end(
+        &self,
+        run_id: RunId,
+        run: &RunRead,
+    ) -> Result<(), RunTerminalReleaseError> {
         self.gates
             .release_for_terminal(
                 &RunTerminalContext {
@@ -697,8 +777,7 @@ impl RunEngine {
                 },
                 None,
             )
-            .await?;
-        Ok(())
+            .await
     }
 }
 

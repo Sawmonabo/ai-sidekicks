@@ -37,6 +37,7 @@ use sidekicks_provider::driver::contract::{
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{CloseSessionParams, CreateSessionParams};
+use sidekicks_provider::run::posture::{ExecutionPostureRejection, ExecutionPostureService};
 use sidekicks_provider::runtime_binding::resume::{ResumeFunctionLegs, RuntimeBindingNotResumable};
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, RuntimeBindingStoreError,
@@ -48,6 +49,7 @@ use sidekicks_session::directory::lookups::SessionWriteError;
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_session::run::agent::{RunAgentReadError, RunAgentReader};
 use sidekicks_session::run::binding_cursors::{RunBindingCursorError, RunBindingCursors};
+use sidekicks_session::run::session_posture::SessionPostureSource;
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
@@ -114,6 +116,9 @@ pub struct ProviderSessionsDeps {
     pub transition_lock: Arc<KeyedLock<SessionId>>,
     /// The idle sleep, told of each session whose process opens or resumes and each close.
     pub process_follower: Arc<dyn SessionProcessFollower>,
+    /// The runs' resolved postures, which a level move carries to the session's moved posture and
+    /// a close forgets.
+    pub execution_postures: Arc<ExecutionPostureService>,
 }
 
 /// Why a session's provider session was not opened, a run's binding not recorded, or a level or
@@ -210,6 +215,16 @@ pub enum ProviderSessionError {
     /// The session's leg could not be read.
     #[error(transparent)]
     Store(#[from] RuntimeBindingStoreError),
+    /// The posture of the level the session was to move to did not resolve, so neither its process
+    /// nor its record moved.
+    #[error("the posture of the level session {session_id} was to move to was refused")]
+    PostureRefused {
+        /// The session.
+        session_id: SessionId,
+        /// Why the posture was refused.
+        #[source]
+        cause: ExecutionPostureRejection,
+    },
     /// The level the session moved to was not stored, and a process it runs moved back.
     #[error("the level session {session_id} moved to was not stored")]
     LevelNotStored {
@@ -298,6 +313,7 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::Cursor(_)
             | ProviderSessionError::UnrecordedNotClosed { .. }
             | ProviderSessionError::Store(_)
+            | ProviderSessionError::PostureRefused { .. }
             | ProviderSessionError::LevelNotStored {
                 cause: SessionWriteError::Write(_),
                 ..
@@ -454,10 +470,11 @@ impl ProviderSessions {
         }
     }
 
-    /// Forgets a closed session's provider session, whose process its close ended, and has the
-    /// idle sleep forget it too.
+    /// Forgets a closed session's provider session, whose process its close ended, with its moved
+    /// posture, and has the idle sleep forget it too.
     pub(crate) fn forget(&self, session_id: SessionId) {
         self.lock_opened().remove(&session_id);
+        self.deps.execution_postures.forget_session(&session_id);
         self.deps.process_follower.forget_closed(session_id);
     }
 
@@ -659,6 +676,14 @@ impl ProviderSessions {
     fn lock_opened(&self) -> MutexGuard<'_, HashMap<SessionId, OpenedSession>> {
         // No code panics while it holds the map, so a poisoned lock still holds a whole one.
         lock(&self.opened)
+    }
+}
+
+impl SessionPostureSource for ProviderSessions {
+    fn opened_execution_posture(&self, session_id: &SessionId) -> Option<ExecutionPosture> {
+        self.lock_opened()
+            .get(session_id)
+            .map(|opened| opened.execution_posture.clone())
     }
 }
 

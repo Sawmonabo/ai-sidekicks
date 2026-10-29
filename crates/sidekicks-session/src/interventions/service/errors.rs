@@ -69,6 +69,7 @@ impl From<RunEngineError> for DispatchError {
             error @ (RunEngineError::Change { .. }
             | RunEngineError::Released { .. }
             | RunEngineError::Gate { .. }
+            | RunEngineError::NoSessionPosture { .. }
             | RunEngineError::NoResolvedPosture { .. }
             | RunEngineError::Driver { .. }
             | RunEngineError::LimitInterrupterGone { .. }
@@ -189,6 +190,7 @@ impl From<InterventionError> for HandlerError {
                 RunEngineError::Change(_)
                 | RunEngineError::Released(_)
                 | RunEngineError::Gate { .. }
+                | RunEngineError::NoSessionPosture { .. }
                 | RunEngineError::NoResolvedPosture { .. }
                 | RunEngineError::Driver { .. }
                 | RunEngineError::LimitInterrupterGone { .. }

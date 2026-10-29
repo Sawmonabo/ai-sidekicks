@@ -132,6 +132,7 @@ impl From<RunEngineError> for ProviderChoiceError {
             other @ (RunEngineError::Change(_)
             | RunEngineError::Released(_)
             | RunEngineError::Gate { .. }
+            | RunEngineError::NoSessionPosture { .. }
             | RunEngineError::NoResolvedPosture { .. }
             | RunEngineError::Driver { .. }
             | RunEngineError::LimitInterrupterGone { .. }
