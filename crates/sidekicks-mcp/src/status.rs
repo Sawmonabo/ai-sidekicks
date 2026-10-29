@@ -3,6 +3,7 @@
 //! binding's first observation in this process, handed on to be recorded.
 
 mod legs;
+pub mod normalizer;
 pub mod notices;
 
 use std::sync::{Arc, Mutex};
@@ -60,10 +61,7 @@ pub struct McpServerStatusTracker {
 
 #[cfg_attr(
     not(test),
-    expect(
-        dead_code,
-        reason = "the producer wiring, each leg's end, the machine probe and the inventory call it"
-    )
+    expect(dead_code, reason = "the machine probe and the inventory call it")
 )]
 impl McpServerStatusTracker {
     /// A tracker with no leg, sending its status notices on `board` and the ref of each binding a
@@ -244,13 +242,6 @@ impl McpServerStatusTracker {
 /// What one leg's producer reports through. A retired leg is remembered while any of its sinks is
 /// open, so a late reading is ignored, and forgotten when its last sink drops, so memory stays
 /// bounded by the legs that can still report.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the producer each leg is spawned with reports through it"
-    )
-)]
 pub(crate) struct McpLegStatusSink {
     tracker: Arc<McpServerStatusTracker>,
     leg: LegId,
@@ -259,13 +250,6 @@ pub(crate) struct McpLegStatusSink {
 impl McpLegStatusSink {
     /// Applies a driver's emission for this leg, `binding` being the effective binding the leg
     /// serves the server from.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the producer each leg is spawned with reports through it"
-        )
-    )]
     pub(crate) fn observe(&self, binding: &McpServerBindingRef, emission: McpServerStatusEmission) {
         self.tracker.observe(
             binding,
@@ -278,6 +262,38 @@ impl Drop for McpLegStatusSink {
     fn drop(&mut self) {
         lock(&self.tracker.legs).close_sink(&self.leg);
     }
+}
+
+/// A tracker over a fresh board, with a feed reading the board's notices and the feed its first
+/// observations go to, which the caller keeps open so the tracker can hand bindings to it.
+#[cfg(any(test, feature = "test-support"))]
+pub async fn open_test_tracker() -> (
+    Arc<McpServerStatusTracker>,
+    impl sidekicks_ipc::stream::feed::Feed<Emission = McpSubscribeEmission>,
+    impl sidekicks_ipc::stream::feed::Feed<Emission = McpServerBindingRef>,
+) {
+    use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
+
+    let board = Arc::new(McpNoticeBoard::default());
+    let subscriber_board = Arc::clone(&board);
+    let subscriber = KeyedLatestValueFeed::open(move |outlet| {
+        let id = subscriber_board.attach(outlet);
+        std::future::ready(Ok(move || subscriber_board.detach(id)))
+    })
+    .await
+    .expect("the board's follow succeeds");
+    let mut first_observations = None;
+    let first_observation_feed = KeyedLatestValueFeed::open(|outlet| {
+        first_observations = Some(outlet);
+        std::future::ready(Ok(|| {}))
+    })
+    .await
+    .expect("the follow succeeds");
+    let tracker = Arc::new(McpServerStatusTracker::new(
+        board,
+        first_observations.expect("the follow kept the outlet"),
+    ));
+    (tracker, subscriber, first_observation_feed)
 }
 
 #[cfg(test)]
@@ -294,7 +310,6 @@ mod tests {
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_ipc::stream::feed::{CreditGate, Feed};
-    use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
     use sidekicks_provider::driver::mcp_server::status::McpServerReading;
 
     use super::*;
@@ -419,35 +434,6 @@ mod tests {
         }
     }
 
-    /// A tracker over a fresh board, with a feed reading the board's notices and the feed its
-    /// first observations go to, which is kept open so the tracker can hand bindings to it.
-    async fn tracker_and_subscriber() -> (
-        Arc<McpServerStatusTracker>,
-        impl Feed<Emission = McpSubscribeEmission>,
-        impl Feed<Emission = McpServerBindingRef>,
-    ) {
-        let board = Arc::new(McpNoticeBoard::default());
-        let subscriber_board = Arc::clone(&board);
-        let subscriber = KeyedLatestValueFeed::open(move |outlet| {
-            let id = subscriber_board.attach(outlet);
-            std::future::ready(Ok(move || subscriber_board.detach(id)))
-        })
-        .await
-        .expect("the board's follow succeeds");
-        let mut first_observations = None;
-        let first_observation_feed = KeyedLatestValueFeed::open(|outlet| {
-            first_observations = Some(outlet);
-            std::future::ready(Ok(|| {}))
-        })
-        .await
-        .expect("the follow succeeds");
-        let tracker = Arc::new(McpServerStatusTracker::new(
-            board,
-            first_observations.expect("the follow kept the outlet"),
-        ));
-        (tracker, subscriber, first_observation_feed)
-    }
-
     /// The status notices waiting on `subscriber`, in the order it reads them.
     fn waiting_notices(
         subscriber: &mut impl Feed<Emission = McpSubscribeEmission>,
@@ -474,7 +460,7 @@ mod tests {
     /// from the provider, scope and name alone.
     #[tokio::test]
     async fn a_notice_carries_the_id_of_its_own_binding() {
-        let (tracker, mut subscriber, _first_observation_feed) = tracker_and_subscriber().await;
+        let (tracker, mut subscriber, _first_observation_feed) = open_test_tracker().await;
         let bindings = ["/work/one", "/work/two"].map(|root| {
             serde_json::from_value::<McpServerBindingRef>(serde_json::json!({
                 "provider": "provider-a",
@@ -628,7 +614,7 @@ mod tests {
             provider,
             server_name: server_name.clone(),
         };
-        let (tracker, mut subscriber, _first_observation_feed) = tracker_and_subscriber().await;
+        let (tracker, mut subscriber, _first_observation_feed) = open_test_tracker().await;
 
         let mut sessions: HashMap<&str, SessionId> = HashMap::new();
         let mut sinks: HashMap<&str, Vec<McpLegStatusSink>> = HashMap::new();

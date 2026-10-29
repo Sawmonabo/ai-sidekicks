@@ -14,6 +14,7 @@ use crate::driver::codex::session::test_fixture::{
 };
 use crate::driver::session_control::DriverResumeResult;
 use crate::process_identity::ProviderProcessIds as _;
+use crate::runtime_binding::resume::ResumeFunctionLegs;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 
 // Killed by dropping the profile's read-back, and by dropping the let-go of the conversation a
@@ -95,6 +96,7 @@ async fn resume_on_second_service(
         &mut task,
         Arc::clone(&second.service),
         mint_runtime_binding_id(),
+        ResumeFunctionLegs::default(),
         || async { false },
     );
     let resumed = tokio::select! {

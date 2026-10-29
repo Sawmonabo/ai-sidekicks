@@ -140,7 +140,9 @@ mod tests {
 
     use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
     use crate::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
-    use crate::driver::claude::session::scripted::{ScriptedSession, settle};
+    use crate::driver::claude::session::scripted::{
+        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, hand_scripted_frame, settle,
+    };
     use crate::driver::mcp_server::status::{
         McpServerReading, McpServerStatusEmission, McpServerStatusSink,
     };
@@ -256,12 +258,19 @@ mod tests {
         assert_eq!(status_reads(&starting), 3);
     }
 
-    // A process's exit nothing asked for ends its producer's leg once. Killed by the call dropped,
-    // so a dead process's last reading pins the session's aggregate, and by a second end.
+    // A process's exit nothing asked for ends its producer's leg once, and the relaunch that
+    // follows reports its census on the sink the session directory answered for the relaunch's
+    // binding. Killed by the end call dropped, so a dead process's last reading pins the session's
+    // aggregate, by a second end, and by the relaunch reusing the ended leg's producer (the census
+    // reaches the old sink, the new one hears nothing).
     #[tokio::test(start_paused = true)]
-    async fn a_process_exit_ends_its_leg_once() {
+    async fn a_relaunch_after_an_exit_reports_on_its_own_leg_once_the_old_one_ended() {
         let fixture = ScriptedDriver::new();
-        let sink = Arc::new(RecordingSink::default());
+        let (ended_sink, relaunched_sink) = (
+            Arc::new(RecordingSink::default()),
+            Arc::new(RecordingSink::default()),
+        );
+        *lock(&fixture.relaunches.status_sink) = Some(Arc::clone(&relaunched_sink) as _);
         let session_id = new_session_id();
         fixture
             .starts
@@ -269,21 +278,51 @@ mod tests {
         fixture
             .driver
             .create_session(CreateSessionParams {
-                on_mcp_server_status: Some(Arc::clone(&sink) as _),
+                on_mcp_server_status: Some(Arc::clone(&ended_sink) as _),
                 ..create_params(session_id)
             })
             .await
             .expect("the session opens");
         let first = fixture.next_start().await;
-        assert_eq!(sink.ends.load(Ordering::SeqCst), 0);
+        assert_eq!(ended_sink.ends.load(Ordering::SeqCst), 0);
         fixture
             .starts
             .script_session(Arc::new(ScriptedChannel::default()));
 
         ScriptedDriver::exit(&first);
-        fixture.next_start().await;
+        let relaunched = fixture.next_start().await;
+        let routes = &fixture
+            .driver
+            .composed_parts()
+            .expect("composed")
+            .run_start
+            .routes;
+        hand_scripted_frame(
+            &*relaunched.listener,
+            routes,
+            session_id,
+            &json!({
+                "type": "system",
+                "subtype": "init",
+                "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+                "mcp_servers": [{ "name": "github", "status": "connected" }],
+            }),
+        );
         settle().await;
 
-        assert_eq!(sink.ends.load(Ordering::SeqCst), 1);
+        assert_eq!(ended_sink.ends.load(Ordering::SeqCst), 1);
+        assert!(lock(&ended_sink.reports).is_empty());
+        let relaunched_reports: Vec<_> = lock(&relaunched_sink.reports)
+            .iter()
+            .map(|emission| (emission.server_name.as_str().to_owned(), emission.reading))
+            .collect();
+        assert_eq!(
+            relaunched_reports,
+            [(
+                "github".to_owned(),
+                McpServerReading::Observed(McpServerStatus::Connected)
+            )]
+        );
+        assert_eq!(relaunched_sink.ends.load(Ordering::SeqCst), 0);
     }
 }

@@ -141,7 +141,6 @@ fn is_local_of(
 /// An attached project's root as a driver's read takes it: its path, and the WSL 2 distribution
 /// it is in, none on Windows itself or outside Windows. Fails with the path's [`TextError`] when
 /// the stored root is empty, holds a NUL or passes the path cap.
-#[expect(dead_code, reason = "the inventory service and the producer wiring")]
 pub(crate) fn attached_root_path(root: &AttachedProjectRoot) -> Result<PlacedPath, TextError> {
     Ok(PlacedPath {
         path: FilesystemPath::new(root.canonical_root.to_string_lossy().into_owned())?,

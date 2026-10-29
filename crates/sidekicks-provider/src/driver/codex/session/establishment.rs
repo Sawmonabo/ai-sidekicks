@@ -65,6 +65,7 @@ use crate::port::tool_server_route::ToolServerRoute;
 use crate::process_identity::ProviderProcessIds as _;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
+use crate::runtime_binding::resume::ResumeFunctionLegs;
 use crate::spawn_environment::ReservedEnvironmentNames;
 use crate::spawned_version::to_binding_version_carriers;
 use crate::usage_delta_accountant::{ThreadBaseEstablishment, UsageAxisCounts};
@@ -432,7 +433,8 @@ impl CodexSessionEstablishment {
     /// Resumes the session's conversation on `service` in place, on the session's task: after its
     /// service crashed or its connection came back, or once it left the old service for a new
     /// build. The resume carries the settings the record holds now, under `binding_id`, which the
-    /// caller minted and opened, and the conversation's turns come back with the result, so a
+    /// caller minted and opened, the resumed conversation reporting on `function_legs`' status
+    /// sink, and the conversation's turns come back with the result, so a
     /// caller can end the ones that ended unseen. A resume refused while another runtime still
     /// writes the conversation is tried again each time `writer_left` answers `true`. Every
     /// failure answers `Failed`, reported.
@@ -441,6 +443,7 @@ impl CodexSessionEstablishment {
         task: &mut CodexSessionTask<'_>,
         service: Arc<CodexService>,
         binding_id: RuntimeBindingId,
+        function_legs: ResumeFunctionLegs,
         mut writer_left: impl FnMut() -> WriterLeft,
     ) -> CodexInPlaceResume
     where
@@ -456,7 +459,13 @@ impl CodexSessionEstablishment {
             }
         };
         match self
-            .adopt_resumed_thread(task, Arc::clone(&service), binding_id, resumed)
+            .adopt_resumed_thread(
+                task,
+                Arc::clone(&service),
+                binding_id,
+                function_legs,
+                resumed,
+            )
             .await
         {
             Ok(resumed) => resumed,
@@ -480,9 +489,10 @@ impl CodexSessionEstablishment {
         }
     }
 
-    // Moves the record onto the resumed conversation: its service, binding, turns, tier and
-    // effort, its mode sent again, and its routing band rebound on the sum already metered; the
-    // binding it retires lets go of its held presses. The record changes only once every step that
+    // Moves the record onto the resumed conversation: its service, binding, status sink, turns,
+    // tier and effort, its mode sent again, and its routing band rebound on the sum already
+    // metered; the binding it retires lets go of its held presses and ends its leg's status, once,
+    // where its process's end has not. The record changes only once every step that
     // can fail is done; a failure releases the conversation's registration on `service` when the
     // resume made it.
     async fn adopt_resumed_thread(
@@ -490,6 +500,7 @@ impl CodexSessionEstablishment {
         task: &mut CodexSessionTask<'_>,
         service: Arc<CodexService>,
         binding_id: RuntimeBindingId,
+        function_legs: ResumeFunctionLegs,
         resumed: Result<CodexResumedThread, CodexError>,
     ) -> Result<CodexInPlaceResume, CodexError> {
         let resumed = resumed?;
@@ -506,6 +517,8 @@ impl CodexSessionEstablishment {
         let record = &mut *task.record;
         record.service = service;
         let retired = record.binding_id.replace(binding_id);
+        record.end_mcp_server_status_leg();
+        record.on_mcp_server_status = function_legs.on_mcp_server_status;
         // An `Allow once` held on the retired binding's blocks can be pressed again.
         if let (Some(retired), Some(denials)) = (retired, self.dependencies.reviewer_denials.port())
         {
