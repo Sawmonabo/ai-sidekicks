@@ -169,6 +169,12 @@ type McpServerConfigView =
       required?: boolean;
       startupTimeoutSec?: number;
       toolTimeoutSec?: number;
+    }
+  | {
+      transport: "ws"; // a Claude Code transport, listed but never probed, so its status reads unknown until a session reports it
+      url: string; // query-redacted, as above
+      urlQueryParamNames?: string[];
+      headerNames?: string[];
     };
 
 // Per-leg live status (Spec-024 §Unified Inventory): one config binding can back several concurrent

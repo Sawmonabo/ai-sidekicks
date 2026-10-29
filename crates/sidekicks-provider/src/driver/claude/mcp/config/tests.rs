@@ -112,8 +112,9 @@ async fn a_kept_out_name_reaches_only_the_roots_its_file_covers(
     assert_eq!(root_b.switched_off_server_names, [] as [McpServerName; 0]);
 }
 
-// Killed by keeping any value: a header, a bearer token, a query, userinfo or an environment
-// value in the declaration or in the reading's `Debug`, the transient address included.
+// A WebSocket server lists with its address and names too. Killed by keeping any value: a header,
+// a bearer token, a query, userinfo or an environment value in the declaration or in the
+// reading's `Debug`, the transient address included, and by a WebSocket server left out.
 #[tokio::test]
 async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
     let scratch = tempfile::tempdir().expect("a scratch folder");
@@ -133,6 +134,11 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
                 "command": "server",
                 "args": ["--port", "8080"],
                 "env": { "API_TOKEN": "env-secret-value" },
+            },
+            "socket": {
+                "type": "ws",
+                "url": "wss://socket.example.com/mcp?ticket=socket-secret-value",
+                "headers": { "X-Socket-Key": "socket-header-secret" },
             },
         } }),
     );
@@ -176,6 +182,11 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
                 startup_timeout_sec: None,
                 tool_timeout_sec: None,
             },
+            &McpServerConfigView::Ws {
+                url: "wss://socket.example.com/mcp".to_owned(),
+                url_query_param_names: Some(vec!["ticket".to_owned()]),
+                header_names: Some(vec!["X-Socket-Key".to_owned()]),
+            },
         ]
     );
     let printed = format!("{reading:?}");
@@ -186,6 +197,8 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
         "bearer-secret-token",
         "header-secret-value",
         "env-secret-value",
+        "socket-secret-value",
+        "socket-header-secret",
     ] {
         assert!(
             !printed.contains(secret),

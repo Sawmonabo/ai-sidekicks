@@ -270,7 +270,9 @@ mod tests {
 
     fn remote_url(config: &McpServerConfigView) -> &str {
         match config {
-            McpServerConfigView::Http { url, .. } | McpServerConfigView::Sse { url, .. } => url,
+            McpServerConfigView::Http { url, .. }
+            | McpServerConfigView::Sse { url, .. }
+            | McpServerConfigView::Ws { url, .. } => url,
             McpServerConfigView::Stdio { .. } => panic!("a remote server: {config:?}"),
         }
     }

@@ -279,7 +279,8 @@ async fn a_sent_entry_carries_its_variables_filled_and_no_credential_reaches_a_r
 }
 
 // An entry that fetches its headers from a program or signs in itself is not sent, since the set
-// cannot carry either, and reads `unknown`. Killed by either sent cut down.
+// cannot carry either, nor one over a WebSocket, which the set has no form for, and each reads
+// `unknown`. Killed by either sent cut down and by a WebSocket entry sent or read otherwise.
 #[tokio::test]
 async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
     let home = home_declaring(&json!({
@@ -293,6 +294,7 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
             "url": "https://signed.example.com/mcp",
             "oauth": { "clientId": "client" }
         },
+        "socket": { "type": "ws", "url": "wss://socket.example.com/mcp" },
         "plain": { "command": "plain-server" }
     }));
     let starts = ScriptedStarts::default();
@@ -311,6 +313,7 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
         &[
             user_target("helper"),
             user_target("signed"),
+            user_target("socket"),
             user_target("plain"),
         ],
     )
@@ -324,7 +327,7 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
         "{sent}"
     );
     assert!(sent.get("plain").is_some(), "{sent}");
-    for name in ["helper", "signed"] {
+    for name in ["helper", "signed", "socket"] {
         let reading = readings
             .iter()
             .find(|reading| reading.binding.server_name().as_str() == name)

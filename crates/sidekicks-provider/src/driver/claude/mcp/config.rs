@@ -514,13 +514,19 @@ fn read_server_entry(
             };
             Some((config, Some(endpoint)))
         }
-        Some(transport @ ("http" | "sse")) => {
+        Some(transport @ ("http" | "sse" | "ws")) => {
             let address = read_server_address(entry.url.as_deref()?);
             let url = address.stripped_url;
             let url_query_param_names =
                 (!address.query_param_names.is_empty()).then_some(address.query_param_names);
             let header_names = names(&entry.headers);
-            let config = if transport == "http" {
+            let config = if transport == "ws" {
+                McpServerConfigView::Ws {
+                    url,
+                    url_query_param_names,
+                    header_names,
+                }
+            } else if transport == "http" {
                 McpServerConfigView::Http {
                     url,
                     url_query_param_names,

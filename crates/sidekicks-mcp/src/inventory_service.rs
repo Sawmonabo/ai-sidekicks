@@ -593,10 +593,12 @@ fn read_failure_cause(error: &DriverError) -> FreeFormText<ERROR_MESSAGE_MAX_LEN
 }
 
 fn config_enabled(config: &McpServerConfigView) -> bool {
-    let (McpServerConfigView::Stdio { enabled, .. }
-    | McpServerConfigView::Http { enabled, .. }
-    | McpServerConfigView::Sse { enabled, .. }) = config;
-    enabled.unwrap_or(true)
+    match config {
+        McpServerConfigView::Stdio { enabled, .. }
+        | McpServerConfigView::Http { enabled, .. }
+        | McpServerConfigView::Sse { enabled, .. } => enabled.unwrap_or(true),
+        McpServerConfigView::Ws { .. } => true,
+    }
 }
 
 /// `places` without repeats, in their first order; absent where none is left.

@@ -118,12 +118,12 @@ pub(crate) fn resolve_binding_rows(
 // Whether a declaration's own `enabled` is off, as the user entry of an emulated `local` binding is
 // written.
 fn is_off_by_default(config: &McpServerConfigView) -> bool {
-    let enabled = match config {
+    match config {
         McpServerConfigView::Stdio { enabled, .. }
         | McpServerConfigView::Http { enabled, .. }
-        | McpServerConfigView::Sse { enabled, .. } => enabled,
-    };
-    *enabled == Some(false)
+        | McpServerConfigView::Sse { enabled, .. } => *enabled == Some(false),
+        McpServerConfigView::Ws { .. } => false,
+    }
 }
 
 fn is_local_of(

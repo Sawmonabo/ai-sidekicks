@@ -95,8 +95,8 @@ pub(crate) fn read_claude_organization_servers(
     ClaudeOrganizationServers { servers, entries }
 }
 
-/// The declaration of a remote server reached over `transport`, `http` or `sse`, at `url`, with
-/// the names of the query parameters stripped from it; `None` for any other transport.
+/// The declaration of a remote server reached over `transport`, `http`, `sse` or `ws`, at `url`,
+/// with the names of the query parameters stripped from it; `None` for any other transport.
 pub(crate) fn remote_server_view(
     transport: &str,
     url: String,
@@ -128,6 +128,11 @@ pub(crate) fn remote_server_view(
             required: None,
             startup_timeout_sec: None,
             tool_timeout_sec: None,
+        },
+        "ws" => McpServerConfigView::Ws {
+            url,
+            url_query_param_names,
+            header_names: None,
         },
         _ => return None,
     })
@@ -172,7 +177,7 @@ fn managed_server(
 ) -> Option<ClaudeMcpServer> {
     let server_name = McpServerName::new(name.to_owned()).ok()?;
     let (config, endpoint) = match (transport, address, program) {
-        (Some(transport @ ("http" | "sse")), Some(address), _) => (
+        (Some(transport @ ("http" | "sse" | "ws")), Some(address), _) => (
             remote_server_view(transport, address_host(&address.stripped_url), None)?,
             address.identity.map(ClaudeMcpEndpoint::Address),
         ),
