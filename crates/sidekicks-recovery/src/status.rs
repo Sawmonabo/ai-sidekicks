@@ -296,9 +296,9 @@ impl RecoveryStatusTracker {
 
     /// The `recovery` member of the status read: the overall state and, once each in id order,
     /// every damaged session and every session with a halted run. The sessions the pass has yet to
-    /// rebuild are left out; the daemon reads rebuilding while it runs. A halt whose run has ended
-    /// is forgotten first, through one short read on `reads` while any halt is marked; fails when
-    /// that read fails.
+    /// rebuild are left out; the daemon reads rebuilding while it runs. A halt on a diverged resume
+    /// whose run has ended is forgotten first, through one short read on `reads` while any such
+    /// halt is marked; fails when that read fails.
     pub async fn read(
         &self,
         reads: &DatabaseReadPool,
@@ -356,15 +356,7 @@ impl RecoveryStatusTracker {
             .await?;
         let mut state = self.lock();
         for (session_id, run_id) in ended {
-            // A failed resume marked on the run since the read keeps its mark.
-            let is_halt = state
-                .halted_runs
-                .get(&session_id)
-                .and_then(|runs| runs.get(&run_id))
-                .is_some_and(|run| run.failure_category.is_none());
-            if is_halt {
-                state.forget_halted_run(&session_id, &run_id);
-            }
+            state.forget_halted_run(&session_id, &run_id);
         }
         Ok(())
     }
