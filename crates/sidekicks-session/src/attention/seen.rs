@@ -5,12 +5,9 @@
 use std::sync::LazyLock;
 
 use rusqlite::types::Value;
-use serde_json::json;
 use sidekicks_contracts::attention::AttentionSeenSubject;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_ipc::workflow_run_not_found::workflow_run_not_found;
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::database::writer::DatabaseWriter;
 
@@ -94,18 +91,8 @@ pub async fn write_seen(
         Ok(_) => Ok(()),
         Err(error) => Err(match (error.refused_statement_index(), seen_run_id) {
             (Some(0), _) => session_not_found(&session_id).into(),
-            (Some(1), Some(workflow_run_id)) => workflow_run_not_found(workflow_run_id),
+            (Some(1), Some(workflow_run_id)) => workflow_run_not_found(&workflow_run_id).into(),
             (Some(_) | None, _) => error.into(),
         }),
     }
-}
-
-// The refusal of a workflow run the session does not hold, in the workflow runs' own words.
-fn workflow_run_not_found(workflow_run_id: WorkflowRunId) -> SessionWriteError {
-    DomainError::new(
-        format!("No workflow run answers to {workflow_run_id}."),
-        RefusalCode::WorkflowRunNotFound,
-    )
-    .with_detail(json!({ "workflowRunId": workflow_run_id }))
-    .into()
 }

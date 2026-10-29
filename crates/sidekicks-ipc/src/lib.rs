@@ -17,3 +17,4 @@ pub mod redaction;
 pub mod registry;
 pub mod session_not_found;
 pub mod stream;
+pub mod workflow_run_not_found;
