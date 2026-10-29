@@ -92,12 +92,15 @@ mod tests {
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::presence::PresenceRegister;
     use sidekicks_ipc::registry::{Dispatch as _, MethodRegistryBuilder, Reply};
+    use sidekicks_platforms::WallClockTimer;
     use sidekicks_session::attention::banner_launcher::counting_starter::CountingStarter;
     use sidekicks_session::attention::banner_launcher::{BannerLauncher, WindowlessAppStarter};
     use sidekicks_session::attention::service::{AttentionService, AttentionServiceDependencies};
     use sidekicks_session::attention::test_log::AttentionTestLog;
+    use sidekicks_std::scheduler::Scheduler;
     use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_workspace::machine_settings::MachineSettingsReader;
+    use tokio::sync::watch;
 
     use super::register_attention_subscribe;
 
@@ -149,6 +152,11 @@ mod tests {
             presence: Arc::new(PresenceRegister::default()),
             launcher: Arc::clone(&launcher),
             machine_device_id: device(MACHINE_DEVICE),
+            scheduler: Arc::new(Scheduler::start(
+                Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
+                None,
+                watch::channel(0).1,
+            )),
         }));
         let mut builder = MethodRegistryBuilder::new();
         register_attention_subscribe(&mut builder, attention)

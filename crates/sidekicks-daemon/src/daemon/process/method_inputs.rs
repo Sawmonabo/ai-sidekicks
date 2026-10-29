@@ -337,6 +337,7 @@ pub(crate) async fn register_method_inputs(
         presence: Arc::clone(&presence),
         launcher: Arc::new(BannerLauncher::new(Arc::new(spawner.clone()))),
         machine_device_id: machine_device_id.clone(),
+        scheduler: Arc::clone(&scheduler),
     }));
     // The daemon's `Tokens per run`, which run admission admits each new lead run with.
     let token_limits = PortRegistration::new("run token limits");

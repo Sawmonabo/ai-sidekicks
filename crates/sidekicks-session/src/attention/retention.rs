@@ -8,8 +8,9 @@
 //! the cut, each write that resolves entries, which a rebuild's fold replays, and the seen write.
 //! So the entries the live writes keep are the entries a rebuild of the same log keeps.
 //!
-//! A provider's build moved to leaves the list a day after it was recorded, by the same age, in the
-//! write that moves the cut; a build only available never leaves on a timer.
+//! A provider's build moved to leaves the list a day after it was recorded, by the same age, on its
+//! day through the wall clock's timer and in each write that moves the cut; a build only available
+//! never leaves on a timer.
 
 use std::sync::LazyLock;
 
@@ -19,7 +20,7 @@ use rusqlite::types::Value;
 use sidekicks_contracts::attention::{AttentionSeverity, AttentionWebAddressState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_provider::build_record::{is_retirement_due, retirement_statements};
+use sidekicks_provider::build_record::{is_retirement_due, listed_builds, retirement_statements};
 use sidekicks_store::database::statement::WriteStatement;
 
 use crate::attention::projection::{binding, session_binding, statement, version_bump_sql};
@@ -28,6 +29,10 @@ use crate::attention::provider_build::record_change_statements;
 /// How old a session's events are before the cut may pass them; an entry past the cut whose
 /// web-address message is still to send stays until the send is decided.
 const RETENTION_AGE: SignedDuration = SignedDuration::from_hours(24);
+
+// How far past its day a build's retirement is armed: one step of a stored instant, since a line
+// retires only once recorded strictly before the day's start.
+const RETIREMENT_STEP: SignedDuration = SignedDuration::from_millis(1);
 
 /// The sequence of the event that raised the `attention_entries` row a statement reads, as an SQL
 /// expression.
@@ -144,6 +149,24 @@ pub(crate) fn provider_build_retirement_statements(
     let mut statements = record_change_statements();
     statements.extend(retirement_statements(&before, &at));
     Ok(statements)
+}
+
+/// The first instant at which a listed provider build moved to is due to retire, read on `reader`:
+/// one millisecond past a day after the earliest was recorded; `None` while none is listed. Fails
+/// when the read fails.
+pub(crate) fn next_provider_build_retirement(
+    reader: &Connection,
+) -> rusqlite::Result<Option<Timestamp>> {
+    Ok(listed_builds(reader)?
+        .into_iter()
+        .filter(|build| build.from_version.is_some())
+        .filter_map(|build| build.recorded_at.timestamp())
+        .min()
+        .and_then(|recorded_at| {
+            recorded_at
+                .checked_add(RETENTION_AGE + RETIREMENT_STEP)
+                .ok()
+        }))
 }
 
 // A day before `now`, the age past which the cut and a moved-to build's line may go.

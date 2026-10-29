@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use jiff::Timestamp;
+use jiff::{SignedDuration, Timestamp};
 use rusqlite::OptionalExtension as _;
 use serde_json::{Value, json};
 use sidekicks_contracts::attention::{
@@ -13,15 +13,19 @@ use sidekicks_contracts::machine::settings::MachineSettings;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::presence::PresenceRegister;
+use sidekicks_platforms::WallClockTimer;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::writer::test_file::{test_run_id, test_session_id};
 use sidekicks_store::events::session::appender::SessionEventLinkage;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
+use tokio::sync::watch;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
@@ -75,6 +79,11 @@ impl Fixture {
                 Arc::clone(&starter) as Arc<dyn WindowlessAppStarter>
             )),
             machine_device_id: device(MACHINE_DEVICE),
+            scheduler: Arc::new(Scheduler::start(
+                Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
+                None,
+                watch::channel(0).1,
+            )),
         }));
         Self {
             log,
@@ -420,35 +429,90 @@ fn listed_builds(log: &AttentionTestLog) -> Vec<String> {
 async fn the_advance_retires_a_day_old_build_moved_to_and_keeps_an_available_one() {
     let fixture = Fixture::new().await;
     let log = &fixture.log;
-    log.database
-        .reader()
-        .execute_batch(
-            "INSERT INTO provider_builds (provider_name, version, from_version, recorded_at)
-             VALUES ('claude', '2.1.294', '2.1.293', '2026-10-27T12:00:00.000Z'),
-                    ('codex', '0.163.0', NULL, '2026-10-27T12:00:00.000Z');",
-        )
-        .expect("the test records two builds");
-    let advance = |at: &str| {
-        let now = at.parse::<Timestamp>().expect("a test instant");
+    // Recorded now, so the retirement the advance arms on the wall clock lies a day ahead.
+    let recorded_at = Timestamp::now();
+    for (provider, version, from_version) in [
+        ("claude", "2.1.294", Some("2.1.293")),
+        ("codex", "0.163.0", None),
+    ] {
+        insert_build(log, provider, version, from_version, recorded_at);
+    }
+    let advance = |hours: i64| {
+        let now = recorded_at + SignedDuration::from_hours(hours);
         fixture.service.advance_retention(Vec::new(), now)
     };
 
-    advance("2026-10-28T11:00:00Z")
-        .await
-        .expect("the advance within the day runs");
+    advance(23).await.expect("the advance within the day runs");
     assert_eq!(
         listed_builds(log),
         ["updated · 2.1.293 → 2.1.294", "0.163.0 available"]
     );
     assert_eq!(machine_version(log), None, "nothing retired wakes no one");
 
-    advance("2026-10-28T13:00:00Z")
-        .await
-        .expect("the advance past the day runs");
+    advance(25).await.expect("the advance past the day runs");
     assert_eq!(listed_builds(log), ["0.163.0 available"]);
     assert_eq!(
         machine_version(log),
         Some(1),
         "the retirement wakes the followers"
     );
+}
+
+/// Records `provider`'s build `version` at `recorded_at`, moved to from `from_version` when given,
+/// with no write that wakes anyone.
+fn insert_build(
+    log: &AttentionTestLog,
+    provider: &str,
+    version: &str,
+    from_version: Option<&str>,
+    recorded_at: Timestamp,
+) {
+    let recorded_at = WireInstant::from_timestamp(recorded_at).expect("a test instant");
+    log.database
+        .reader()
+        .execute(
+            "INSERT INTO provider_builds (provider_name, version, from_version, recorded_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![provider, version, from_version, recorded_at.as_str()],
+        )
+        .expect("the test records a build");
+}
+
+// A build moved to that was recorded a day ago leaves the list when the wall clock's timer fires
+// for it, with no decision batch and no start; one recorded within the day stays. The task's pass,
+// which a recorded build's bump wakes, arms the timer. Killed by the retirement never armed, and by
+// the pass arming nothing.
+#[tokio::test]
+async fn a_day_old_build_moved_to_retires_when_its_timer_fires_with_no_batch() {
+    let fixture = Fixture::new().await;
+    let log = &fixture.log;
+    let mut task = fixture.task();
+    Fixture::pass(&mut task).await;
+    let now = Timestamp::now();
+    insert_build(
+        log,
+        "claude",
+        "2.1.294",
+        Some("2.1.293"),
+        now - SignedDuration::from_hours(25),
+    );
+    insert_build(
+        log,
+        "codex",
+        "0.164.0",
+        Some("0.163.0"),
+        now - SignedDuration::from_hours(23),
+    );
+    let mut count = fixture.service.follow(None);
+
+    Fixture::pass(&mut task).await;
+    timeout(WAIT, async {
+        while machine_version(log).is_none() {
+            count.changed().await.expect("the counts stay followed");
+        }
+    })
+    .await
+    .expect("the timer retires the day-old build");
+
+    assert_eq!(listed_builds(log), ["updated · 0.163.0 → 0.164.0"]);
 }

@@ -10,11 +10,18 @@
 //! gate lets through, else the newest end, keeps its banner while the others it lets through merge
 //! into it. A Notify step's entry is the person's own instruction and is decided at once, never
 //! merged.
+//!
+//! A provider build's line moved to retires on its day: the service keeps the earliest due
+//! retirement armed on the wall clock's timer, which fires across sleep, and arms it again after
+//! each wake of the task, which a recorded build's bump causes, and after each advance.
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
-use std::time::Duration;
+use std::error::Error;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Duration, SystemTime};
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use jiff::Timestamp;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension as _, Row};
@@ -28,6 +35,8 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::{JobCondition, ScheduledJobHandle, Scheduler};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -53,7 +62,8 @@ use crate::attention::read::{
     ATTENTION_STATEMENT_CAPACITY, AttentionReadError, read_attention_projection,
 };
 use crate::attention::retention::{
-    ENTRY_SEQUENCE, advance_retention_statements, provider_build_retirement_statements,
+    ENTRY_SEQUENCE, advance_retention_statements, next_provider_build_retirement,
+    provider_build_retirement_statements,
 };
 use crate::attention::seen::write_seen;
 use crate::directory::lookups::SessionWriteError;
@@ -65,6 +75,8 @@ pub const ATTENTION_SERVICE_STATEMENT_CAPACITY: usize = 4 + ATTENTION_STATEMENT_
 
 /// How long a subject's first undecided entry waits for the entries that follow it.
 const MERGE_WINDOW: Duration = Duration::from_millis(500);
+
+const PROVIDER_BUILD_RETIREMENT_JOB: &str = "attention provider build retirement";
 
 // Every entry whose banner is undecided, with no delivery row or a banner handed back, with its
 // source event's sequence and its session's mute, read in one snapshot.
@@ -149,6 +161,8 @@ pub struct AttentionServiceDependencies {
     pub launcher: Arc<BannerLauncher>,
     /// This machine's device, the one whose main process settles its banners.
     pub machine_device_id: DeviceId,
+    /// The daemon's scheduler, whose wall-clock timer retires a provider build's line on its day.
+    pub scheduler: Arc<Scheduler>,
 }
 
 /// Decides, settles and marks seen the attention entries, and sweeps what a stop left behind.
@@ -160,6 +174,15 @@ pub struct AttentionService {
     presence: Arc<PresenceRegister>,
     launcher: Arc<BannerLauncher>,
     machine_device_id: DeviceId,
+    scheduler: Arc<Scheduler>,
+    // The retirement of the next provider build line, armed on the wall clock.
+    armed_retirement: Mutex<Option<ArmedRetirement>>,
+}
+
+// A provider build line's retirement the scheduler holds, and the instant it fires at.
+struct ArmedRetirement {
+    instant: SystemTime,
+    job: ScheduledJobHandle,
 }
 
 /// Why the attention service could not read or write its rows.
@@ -274,15 +297,17 @@ impl AttentionService {
             presence: dependencies.presence,
             launcher: dependencies.launcher,
             machine_device_id: dependencies.machine_device_id,
+            scheduler: dependencies.scheduler,
+            armed_retirement: Mutex::new(None),
         }
     }
 
     /// Run once after the recovery pass: withdraws a resolved entry's banner a stop left standing,
     /// withholds the banner of every entry a stop left undecided but an open wait, whose web
-    /// address is still decided unless it resolved, advances every session's retention cut and
-    /// retires the day-old provider builds, then starts the decision task, which the open waits go
-    /// through and which ends with `stop`. Fails when the sweep's reads or writes fail, before the
-    /// task starts.
+    /// address is still decided unless it resolved, advances every session's retention cut,
+    /// retires the day-old provider builds and arms the next one's retirement, then starts the
+    /// decision task, which the open waits go through and which ends with `stop`. Fails when the
+    /// sweep's reads or writes fail, before the task starts.
     pub async fn start(
         self: &Arc<Self>,
         stop: CancellationToken,
@@ -433,7 +458,7 @@ impl AttentionService {
     // write; then asks for the app's start when a banner went pending, and advances the decided
     // sessions' retention and the provider builds'.
     async fn decide_batch(
-        &self,
+        self: &Arc<Self>,
         notify: Vec<UndecidedEntry>,
         closed: Vec<Vec<UndecidedEntry>>,
     ) -> Result<(), AttentionServiceError> {
@@ -466,9 +491,10 @@ impl AttentionService {
     }
 
     // Moves each of `sessions`' retention cut and retires the provider builds moved to a day
-    // before `now`, in one write; writes nothing when neither has anything to do.
+    // before `now`, in one write, writing nothing when neither has anything to do; then arms the
+    // next build's retirement.
     async fn advance_retention(
-        &self,
+        self: &Arc<Self>,
         sessions: Vec<SessionId>,
         now: Timestamp,
     ) -> Result<(), AttentionServiceError> {
@@ -488,7 +514,63 @@ impl AttentionService {
         if !statements.is_empty() {
             self.writer.write(statements).await?;
         }
-        Ok(())
+        self.arm_provider_build_retirement().await
+    }
+
+    // Arms the retirement of the next provider build line due on the wall clock's timer, in place
+    // of the one armed; a fired retirement advances for its own instant and arms the next. A
+    // retirement the scheduler refuses is written to the log, and the line then leaves at the next
+    // advance. Boxed, since the fired retirement's advance awaits it in turn.
+    fn arm_provider_build_retirement(
+        self: &Arc<Self>,
+    ) -> BoxFuture<'_, Result<(), AttentionServiceError>> {
+        async move {
+            let next = self
+                .pool
+                .read(ReadLength::Short, |connection| {
+                    Ok::<_, AttentionServiceError>(next_provider_build_retirement(connection)?)
+                })
+                .await?
+                .map(SystemTime::from);
+            let mut armed = lock(&self.armed_retirement);
+            if armed.as_ref().map(|armed| armed.instant) == next {
+                return Ok(());
+            }
+            if let Some(previous) = armed.take() {
+                previous.job.cancel();
+            }
+            let Some(instant) = next else {
+                return Ok(());
+            };
+            let retiring = Arc::downgrade(self);
+            let scheduled = self.scheduler.schedule_at(
+                PROVIDER_BUILD_RETIREMENT_JOB,
+                JobCondition::Always,
+                instant,
+                move |_| {
+                    let retiring = retiring.clone();
+                    async move {
+                        let Some(service) = retiring.upgrade() else {
+                            return Ok(());
+                        };
+                        service
+                            .advance_retention(Vec::new(), Timestamp::try_from(instant)?)
+                            .await?;
+                        Ok(())
+                    }
+                    .boxed()
+                },
+            );
+            match scheduled {
+                Ok(job) => *armed = Some(ArmedRetirement { instant, job }),
+                Err(error) => tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "a provider build's retirement could not be armed"
+                ),
+            }
+            Ok(())
+        }
+        .boxed()
     }
 
     async fn read_undecided(&self) -> Result<Vec<UndecidedEntry>, AttentionServiceError> {
@@ -586,8 +668,10 @@ impl DecisionTask {
     }
 
     /// Reads the undecided entries, opens a window for each subject that has none, decides the
-    /// Notify entries and every subject whose window has closed, and answers when the next open
-    /// window closes. A failed decision keeps the closed windows, closing again a window later.
+    /// Notify entries and every subject whose window has closed, or with none to decide arms the
+    /// next provider build's retirement, since a recorded build wakes the task; and answers when
+    /// the next open window closes. A failed decision keeps the closed windows, closing again a
+    /// window later.
     async fn pass(&mut self) -> Result<Option<Instant>, AttentionServiceError> {
         let undecided = self.service.read_undecided().await?;
         let now = Instant::now();
@@ -621,6 +705,8 @@ impl DecisionTask {
             for subject in &closed_subjects {
                 self.windows.remove(subject);
             }
+        } else {
+            self.service.arm_provider_build_retirement().await?;
         }
         Ok(self.windows.values().min().copied())
     }
@@ -638,7 +724,7 @@ async fn run_decisions(
             Ok(next_close) => next_close,
             Err(error) => {
                 tracing::warn!(
-                    error = &error as &(dyn std::error::Error + 'static),
+                    error = &error as &(dyn Error + 'static),
                     "the attention entries were not decided; the next change or window reads them \
                      again"
                 );
