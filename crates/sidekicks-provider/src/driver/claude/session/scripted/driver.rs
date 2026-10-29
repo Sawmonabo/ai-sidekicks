@@ -47,8 +47,9 @@ use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
 use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
 use crate::driver::{
-    AccountFoldersError, CurrentProviderAccount, DriverServices, ProviderAccountFolders,
-    ProviderAccountReader, SessionSpawnContext, SessionSpawnContextResolver,
+    AccountFoldersError, CommandSandboxAvailability, CurrentProviderAccount, DriverServices,
+    MissingSandboxPrerequisite, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
+    SessionSpawnContextResolver,
 };
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
@@ -345,8 +346,14 @@ impl ScriptedDriver {
             .inbound_dispatch
             .register(Arc::clone(&dispatch))
             .expect("the inbound dispatch registers once");
-        let driver = ClaudeDriver::with_engine(&base, starts.clone(), &host, &dispatch)
-            .expect("the session pieces compose");
+        // The command sandbox reads as unable to start on every system, so a test's outcome is
+        // the same wherever it runs.
+        let driver = ClaudeDriver::with_engine(&base, starts.clone(), &host, &dispatch, |_, _| {
+            Ok(CommandSandboxAvailability::CannotRun(
+                MissingSandboxPrerequisite::NoSandbox,
+            ))
+        })
+        .expect("the session pieces compose");
         Self {
             driver: Arc::new(driver),
             starts,

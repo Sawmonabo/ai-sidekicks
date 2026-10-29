@@ -165,7 +165,7 @@ impl ClaudeDriver {
                 let legs = &live.spawn_bound_legs;
                 let (can_run_sandbox, session_rules) = tokio::join!(
                     read_claude_sandbox_support(
-                        &self.sources.spawner,
+                        &self.sources,
                         &legs.spawn_environment,
                         &legs.working_directory,
                         Some(params.session_id),
@@ -194,7 +194,7 @@ impl ClaudeDriver {
                 if !params.is_provider_reported {
                     let legs = &ended.spawn_bound_legs;
                     let can_run_sandbox = read_claude_sandbox_support(
-                        &self.sources.spawner,
+                        &self.sources,
                         &legs.spawn_environment,
                         &legs.working_directory,
                         Some(params.session_id),
@@ -361,7 +361,8 @@ impl ClaudeDriver {
     /// the levels that model runs on the named account, or the current account where none is
     /// named, and this system, in the session's own place where a session is named; with none,
     /// the levels this system runs. A live session's process already read its catalog, so only a
-    /// session with no process starts a control-only read. A catalog that cannot be read offers no
+    /// session with no process, or one listed on another account than its process runs on, starts
+    /// a control-only read. A catalog that cannot be read offers no
     /// Reviewed and is recorded; fails as the current account, the session's place or the
     /// account's environment cannot be read.
     pub(crate) async fn list_modes(
@@ -378,7 +379,7 @@ impl ClaudeDriver {
                 &[],
             )?;
             let can_run_sandbox = read_claude_sandbox_support(
-                &self.sources.spawner,
+                &self.sources,
                 &environment,
                 &self.sources.home_folder,
                 None,
@@ -388,16 +389,25 @@ impl ClaudeDriver {
                 is_offered_on_system(level, can_run_sandbox)
             }));
         };
-        let live = params.session_id.and_then(|session_id| {
-            self.composed_parts()
-                .and_then(|parts| parts.slots().live_session(session_id))
-        });
+        // A live process read only its own account's catalog.
+        let live = params
+            .session_id
+            .and_then(|session_id| {
+                self.composed_parts()
+                    .and_then(|parts| parts.slots().live_session(session_id))
+            })
+            .filter(|live| {
+                params
+                    .provider_account_id
+                    .as_ref()
+                    .is_none_or(|named| *named == live.admitted_provider_account_id)
+            });
         let offered = if let Some(live) = live {
             let legs = &live.spawn_bound_legs;
             ClaudeOfferedLevels {
                 auto_mode_models: live.initialize.auto_mode_models.clone(),
                 can_run_sandbox: read_claude_sandbox_support(
-                    &self.sources.spawner,
+                    &self.sources,
                     &legs.spawn_environment,
                     &legs.working_directory,
                     Some(live.session_id),
@@ -454,7 +464,7 @@ impl ClaudeDriver {
     ) -> ClaudeOfferedLevels {
         let (catalog, can_run_sandbox) = tokio::join!(
             self.starts.read_model_catalog(environment.to_vec()),
-            read_claude_sandbox_support(&self.sources.spawner, environment, working_folder, None),
+            read_claude_sandbox_support(&self.sources, environment, working_folder, None),
         );
         let auto_mode_models = match catalog {
             Ok(catalog) => {

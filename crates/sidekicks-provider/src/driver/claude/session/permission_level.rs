@@ -4,6 +4,7 @@
 //! all from the process's next request, with no relaunch.
 
 use std::collections::HashSet;
+use std::io;
 use std::path::Path;
 
 use serde_json::Value;
@@ -13,7 +14,7 @@ use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMo
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_platforms::{PathRules, Spawner};
+use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
@@ -22,6 +23,7 @@ use strum::VariantArray;
 use crate::driver::CommandSandboxAvailability;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::errors::{ClaudeSessionError, record_unheard_claude_failure};
+use crate::driver::claude::session::establishment::ClaudeSpawnSources;
 use crate::driver::claude::session::ignored_settings::{
     ClaudeSettingsReadError, find_claude_setting, read_claude_managed_setting,
 };
@@ -150,20 +152,35 @@ pub(crate) fn list_claude_modes(offers: impl Fn(PermissionLevel) -> bool) -> Vec
         .collect()
 }
 
+/// How the driver checks whether Claude Code's command sandbox runs where a process environment
+/// and a working folder name; production's is [`check_claude_command_sandbox`].
+pub(crate) type ClaudeCommandSandboxCheck =
+    fn(&[(String, String)], &Path) -> io::Result<CommandSandboxAvailability>;
+
+/// The descriptor's check of Claude Code's command sandbox, which the driver runs in production.
+pub(crate) fn check_claude_command_sandbox(
+    environment: &[(String, String)],
+    working_folder: &Path,
+) -> io::Result<CommandSandboxAvailability> {
+    DESCRIPTOR.can_run_command_sandbox(environment, working_folder, &[])
+}
+
 /// Whether Claude Code's command sandbox runs in the place `spawn_environment` and
-/// `working_folder` name, checked on the spawner thread, which the namespace check needs. A check
-/// that fails is recorded, against `session_id` where one is named, and answers no, so Sandboxed is
-/// never offered on a guess.
+/// `working_folder` name, by the check `sources` carry, run on their spawner thread, which the
+/// namespace check needs. A check that fails is recorded, against `session_id` where one is named,
+/// and answers no, so Sandboxed is never offered on a guess.
 pub(crate) async fn read_claude_sandbox_support(
-    spawner: &Spawner,
+    sources: &ClaudeSpawnSources,
     spawn_environment: &[(String, String)],
     working_folder: &Path,
     session_id: Option<SessionId>,
 ) -> bool {
     let environment = spawn_environment.to_vec();
     let folder = working_folder.to_path_buf();
-    let checked = spawner
-        .run(move || DESCRIPTOR.can_run_command_sandbox(&environment, &folder, &[]))
+    let check = sources.command_sandbox_check;
+    let checked = sources
+        .spawner
+        .run(move || check(&environment, &folder))
         .await
         .and_then(|answer| answer);
     match checked {

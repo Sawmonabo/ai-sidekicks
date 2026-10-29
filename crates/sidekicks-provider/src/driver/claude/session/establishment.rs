@@ -63,6 +63,7 @@ use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
 use crate::driver::claude::session::ignored_settings::find_ignored_setting_notice;
+use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
 use crate::driver::claude::session::permission_mode::{
     ClaudePermissionModeRecord, follow_claude_reported_levels,
 };
@@ -204,6 +205,8 @@ impl From<ClaudeEstablishmentError> for DriverError {
 pub(crate) struct ClaudeSpawnSources {
     /// The one thread every child is spawned from, which also checks the command sandbox.
     pub(crate) spawner: Spawner,
+    /// How the command sandbox is checked: the descriptor's check in production.
+    pub(crate) command_sandbox_check: ClaudeCommandSandboxCheck,
     /// Points the session's binding at the conversation it moved onto.
     pub(crate) runtime_bindings: Arc<dyn RuntimeBindingWriter>,
     /// The read pool, for the session's stored settings.
