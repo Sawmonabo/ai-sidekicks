@@ -47,8 +47,9 @@ async fn a_test_killed_while_its_service_runs() {
         .await
         .expect("the service starts");
     writeln!(std::io::stdout().lock(), "{SERVICE_STARTED}").expect("the start is told");
-    tokio::io::copy(&mut tokio::io::stdin(), &mut tokio::io::sink())
+    tokio::task::spawn_blocking(|| std::io::copy(&mut std::io::stdin(), &mut std::io::sink()))
         .await
+        .expect("the input's wait runs")
         .expect("the input reads");
 }
 
