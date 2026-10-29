@@ -13,8 +13,9 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use jiff::Timestamp;
-use rusqlite::types::ValueRef;
+use rusqlite::types::{Type, ValueRef};
 use rusqlite::{Connection, OptionalExtension as _, Row, named_params};
+use sidekicks_contracts::app_link::AppLinkTarget;
 use sidekicks_contracts::attention::{
     AttentionBannerState, AttentionId, AttentionItem, AttentionMomentItem, AttentionMomentTrigger,
     AttentionNotifyItem, AttentionProjection, AttentionSeverity, AttentionSubscribeRequest,
@@ -30,6 +31,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText, TextError};
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
@@ -55,8 +57,8 @@ const FAILED_WORD: &str = "Failed";
 const SESSION_NAME_SQL: &str = "SELECT name, shape FROM sessions WHERE id = @session_id";
 
 // Every entry the request narrows to, newest first, with its delivery, its seen fact and its
-// session's name. A NULL `@session_id` or `@run_id` narrows nothing; a run is an agent run or a
-// workflow run.
+// session's name. A NULL `@session_id`, `@run_id` or `@entry_id` narrows nothing; a run is an
+// agent run or a workflow run.
 static ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT entry.id, entry.moment_id, entry.session_id, entry.run_id,
@@ -71,10 +73,14 @@ static ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
   LEFT JOIN attention_deliveries AS delivery ON delivery.entry_id = entry.id
   WHERE (@session_id IS NULL OR entry.session_id = @session_id)
     AND (@run_id IS NULL OR entry.run_id = @run_id OR entry.workflow_run_id = @run_id)
+    AND (@entry_id IS NULL OR entry.id = @entry_id)
   ORDER BY entry.created_at DESC, entry.id DESC",
         seen = seen_entry_sql("entry", "source.sequence"),
     )
 });
+
+// The column of `ENTRIES_SQL` an entry's workflow run id is read from.
+const WORKFLOW_RUN_ID_COLUMN: usize = 4;
 
 // A workflow run's name, its pinned version's.
 const WORKFLOW_NAME_SQL: &str = "SELECT json_extract(version.definition_body, '$.name')
@@ -162,6 +168,7 @@ pub fn read_attention_projection(
         &snapshot,
         request.session_id.as_ref(),
         request.run_id.as_ref(),
+        None,
     )?;
     let mut items = Vec::new();
     if let Some((session_id, name)) = &session_name
@@ -185,6 +192,37 @@ pub fn read_attention_projection(
     }
     snapshot.commit()?;
     Ok(AttentionProjection { items })
+}
+
+/// The stored entry `entry_id` as its wire item, with the subject its link opens: its workflow run
+/// for a workflow's entry, its session for any other; `None` when no entry has that id. Fails with
+/// [`AttentionReadError`] when the read fails or a stored value does not read as its column's.
+pub(crate) fn read_attention_entry(
+    reader: &Connection,
+    entry_id: &str,
+) -> Result<Option<(AttentionItem, AppLinkTarget)>, AttentionReadError> {
+    let Some(entry) = read_entries(reader, None, None, Some(entry_id))?
+        .into_iter()
+        .next()
+    else {
+        return Ok(None);
+    };
+    let subject = match &entry.workflow_run_id {
+        Some(workflow_run_id) => AppLinkTarget::WorkflowRun {
+            workflow_run_id: WorkflowRunId::new(workflow_run_id.as_str()).map_err(|failure| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    WORKFLOW_RUN_ID_COLUMN,
+                    Type::Text,
+                    Box::new(failure),
+                )
+            })?,
+        },
+        None => AppLinkTarget::Session {
+            session_id: entry.session_id,
+        },
+    };
+    let item = item_of(reader, &mut HashMap::new(), entry)?;
+    Ok(Some((item, subject)))
 }
 
 /// The two columns a session's display name is composed from: its name and its shape.
@@ -248,7 +286,7 @@ impl StoredEntry {
             moment_id: text_column(row, 1, FreeFormText::new)?,
             session_id: text_column(row, 2, |text| SessionId::new(&text))?,
             run_id: optional_text_column(row, 3, FreeFormText::new)?,
-            workflow_run_id: optional_text_column(row, 4, FreeFormText::new)?,
+            workflow_run_id: optional_text_column(row, WORKFLOW_RUN_ID_COLUMN, FreeFormText::new)?,
             node_id: row.get(5)?,
             trigger: text_column(row, 6, closed_word)?,
             severity: text_column(row, 7, closed_word)?,
@@ -313,6 +351,7 @@ fn read_entries(
     reader: &Connection,
     session_id: Option<&SessionId>,
     run_id: Option<&AttentionId>,
+    entry_id: Option<&str>,
 ) -> rusqlite::Result<Vec<StoredEntry>> {
     let session_id = session_id.map(SessionId::text);
     reader
@@ -321,6 +360,7 @@ fn read_entries(
             named_params! {
                 "@session_id": session_id.as_ref().map(UuidText::as_str),
                 "@run_id": run_id.map(AttentionId::as_str),
+                "@entry_id": entry_id,
             },
             StoredEntry::of_row,
         )?
