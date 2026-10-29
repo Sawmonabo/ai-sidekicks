@@ -1,7 +1,8 @@
 //! Every process start answered by a script instead of a Claude Code program: a session's process
 //! is the next scripted channel, declaring the next scripted `initialize` reply; a one-turn process
 //! answers the next scripted reply; a catalog, figures or account read answers the next scripted
-//! reading.
+//! reading; an MCP sign-in's process is the next scripted channel, its credential folder given the
+//! next scripted saved sign-ins.
 //! Each start is recorded with what it asked for.
 
 use std::collections::{HashSet, VecDeque};
@@ -16,6 +17,7 @@ use super::channel::ScriptedChannel;
 use crate::driver::claude::mcp::connectors::{
     ClaudeAccountServerAnswers, ClaudeAccountServersReadRequest,
 };
+use crate::driver::claude::mcp::sign_in::{ClaudeMcpSignInChannel, ClaudeMcpSignInStart};
 use crate::driver::claude::session::answered_commands::ClaudeAttachedAdvisor;
 use crate::driver::claude::session::process::ClaudeProcessListener;
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
@@ -82,6 +84,8 @@ struct ScriptedStartTables {
     account_server_answers: VecDeque<(Value, Value)>,
     account_server_holds: VecDeque<oneshot::Receiver<()>>,
     account_server_reads: usize,
+    sign_ins: VecDeque<(Arc<ScriptedChannel>, Value)>,
+    sign_in_environments: Vec<Vec<(String, String)>>,
     started: Vec<ScriptedStartRecord>,
     next_process_id: u32,
 }
@@ -151,6 +155,17 @@ impl ScriptedStarts {
         let (release, held) = oneshot::channel();
         self.lock().account_server_holds.push_back(held);
         release
+    }
+
+    /// Scripts the next MCP sign-in's process to be `channel`, its credential folder holding
+    /// `credentials` as Claude Code's credentials file once it starts.
+    pub(crate) fn script_mcp_sign_in(&self, channel: Arc<ScriptedChannel>, credentials: Value) {
+        self.lock().sign_ins.push_back((channel, credentials));
+    }
+
+    /// Takes the environment of each MCP sign-in's process so far.
+    pub(crate) fn take_sign_in_environments(&self) -> Vec<Vec<(String, String)>> {
+        std::mem::take(&mut self.lock().sign_in_environments)
     }
 
     /// Takes the count of account reads so far, each one process.
@@ -365,10 +380,42 @@ impl ClaudeProcessStarts for ScriptedStarts {
         .boxed()
     }
 
+    fn start_mcp_sign_in(
+        &self,
+        start: ClaudeMcpSignInStart,
+    ) -> BoxFuture<'_, Result<ClaudeMcpSignInChannel, ClaudeLaunchError>> {
+        let scripted = {
+            let mut tables = self.lock();
+            tables.sign_in_environments.push(start.environment.clone());
+            tables.sign_ins.pop_front()
+        };
+        async move {
+            let (channel, credentials) =
+                scripted.ok_or_else(|| spawn_failure("no sign-in process scripted"))?;
+            let credential_folder = start
+                .environment
+                .iter()
+                .find(|(name, _value)| name == CREDENTIAL_FOLDER_VARIABLE)
+                .map(|(_name, value)| value.clone())
+                .ok_or_else(|| spawn_failure("no credential folder in the environment"))?;
+            tokio::fs::write(
+                std::path::Path::new(&credential_folder).join(".credentials.json"),
+                credentials.to_string(),
+            )
+            .await
+            .map_err(ClaudeLaunchError::Spawn)?;
+            Ok(channel as ClaudeMcpSignInChannel)
+        }
+        .boxed()
+    }
+
     fn stop_every_process(&self) -> BoxFuture<'_, ()> {
         async {}.boxed()
     }
 }
+
+/// The variable naming the folder Claude Code keeps its saved sign-ins in.
+const CREDENTIAL_FOLDER_VARIABLE: &str = "CLAUDE_SECURESTORAGE_CONFIG_DIR";
 
 // A start that fails as a spawn the system refused.
 fn spawn_failure(reason: &str) -> ClaudeLaunchError {

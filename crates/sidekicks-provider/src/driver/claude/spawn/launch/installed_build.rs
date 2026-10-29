@@ -20,6 +20,7 @@ use crate::driver::claude::capabilities::read_claude_capabilities;
 use crate::driver::claude::mcp::connectors::{
     ClaudeAccountServerAnswers, ClaudeAccountServersReadRequest, read_claude_account_answers,
 };
+use crate::driver::claude::mcp::sign_in::{ClaudeMcpSignInChannel, ClaudeMcpSignInStart};
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
@@ -32,7 +33,8 @@ use crate::driver::claude::spawn::launch::bring_up::{
     ClaudeBringUpRequest, ClaudeSettingsReadback, bring_up_claude_process,
 };
 use crate::driver::claude::spawn::launch::control_only::{
-    ClaudeShortProcess, probe_claude_sign_in, read_claude_model_catalog,
+    CLAUDE_CONTROL_ONLY_ARGUMENTS, ClaudeShortProcess, probe_claude_sign_in,
+    read_claude_model_catalog,
 };
 use crate::driver::claude::spawn::launch::figures::{
     read_claude_creation_figures, read_claude_reply_reserve,
@@ -116,6 +118,14 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
         &self,
         request: ClaudeAccountServersReadRequest,
     ) -> BoxFuture<'_, Result<ClaudeAccountServerAnswers, ClaudeLaunchError>>;
+
+    /// Brings up, initialized, the one process that keeps nothing of an MCP server's sign-in,
+    /// started as `start` names and loading only the server its file declares; the caller drives
+    /// it and closes it.
+    fn start_mcp_sign_in(
+        &self,
+        start: ClaudeMcpSignInStart,
+    ) -> BoxFuture<'_, Result<ClaudeMcpSignInChannel, ClaudeLaunchError>>;
 
     /// Stops every live process and starts none after.
     fn stop_every_process(&self) -> BoxFuture<'_, ()>;
@@ -340,6 +350,39 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                 request.working_folder,
             )
             .await
+        }
+        .boxed()
+    }
+
+    fn start_mcp_sign_in(
+        &self,
+        start: ClaudeMcpSignInStart,
+    ) -> BoxFuture<'_, Result<ClaudeMcpSignInChannel, ClaudeLaunchError>> {
+        async move {
+            let executable =
+                Self::resolve(&self.command_search, &self.home_folder, start.environment).await?;
+            let arguments = CLAUDE_CONTROL_ONLY_ARGUMENTS
+                .into_iter()
+                .map(str::to_owned)
+                .chain([
+                    "--strict-mcp-config".to_owned(),
+                    "--mcp-config".to_owned(),
+                    start.servers_file.to_string_lossy().into_owned(),
+                ])
+                .collect();
+            let short = ClaudeShortProcess::start(
+                &self.launcher,
+                &executable,
+                arguments,
+                start.folder,
+                Some(start.provider_account_id),
+            )
+            .await?;
+            if let Err(error) = short.initialize().await {
+                short.close().await;
+                return Err(error.into());
+            }
+            Ok(short.process as ClaudeMcpSignInChannel)
         }
         .boxed()
     }

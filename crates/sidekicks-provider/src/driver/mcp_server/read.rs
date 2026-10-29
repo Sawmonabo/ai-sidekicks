@@ -145,3 +145,15 @@ pub struct McpProbeReading {
     /// The names of the server's tools.
     pub tool_names: Vec<McpToolName>,
 }
+
+/// The name the provider's config declares `binding`'s server under.
+pub(crate) fn binding_server_name(binding: &McpServerBindingRef) -> &McpServerName {
+    match binding {
+        McpServerBindingRef::User { server_name, .. }
+        | McpServerBindingRef::Project { server_name, .. }
+        | McpServerBindingRef::Local { server_name, .. }
+        | McpServerBindingRef::Plugin { server_name, .. }
+        | McpServerBindingRef::Connector { server_name, .. }
+        | McpServerBindingRef::Managed { server_name, .. } => server_name,
+    }
+}

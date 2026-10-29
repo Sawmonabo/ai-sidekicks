@@ -1,7 +1,7 @@
 //! A Codex session's controls and the driver's reads: a level or mode move, a side question, a
 //! compaction, its goal, a revoked rule, its command list and declared speed; the models, modes,
-//! capabilities, sign-in and starting level read on a service; the terminal-reach row; and the
-//! expiry of an account home's log rows.
+//! capabilities, sign-in and starting level read on a service; an MCP server's sign-in through
+//! Codex's own client; the terminal-reach row; and the expiry of an account home's log rows.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -30,6 +30,7 @@ use crate::driver::codex::auth_status::{CODEX_AUTH_PROBE_TIMEOUT, read_codex_aut
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::capability_probe::probe_codex_service_capabilities;
 use crate::driver::codex::compaction::{CodexCompactionTarget, dispatch_codex_compaction};
+use crate::driver::codex::mcp::sign_in::sign_in_with_codex_client;
 use crate::driver::codex::model_windows::join_codex_model_windows;
 use crate::driver::codex::service::registry::CodexHomeResolver;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -37,6 +38,7 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::lifecycle_call::{CodexLifecycleCall, call_codex_lifecycle};
 use crate::driver::codex::session::side_questions::wait_for_side_question_answer;
 use crate::driver::codex::session::starting_level::read_codex_starting_level;
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
     ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription,
@@ -251,6 +253,16 @@ impl CodexDriver {
                 Err(error)
             }
         }
+    }
+
+    /// Signs in to `request`'s MCP server through Codex's own client on a throwaway service in a
+    /// folder of the daemon's own, deleted after; the server's entry is read from the person's
+    /// config. Fails as `sign_in_with_codex_client` does.
+    pub(crate) async fn sign_in_with_own_client(
+        &self,
+        request: ProviderSignInTakeoverRequest,
+    ) -> Result<ProviderSignInTakeover, DriverError> {
+        sign_in_with_codex_client(&self.registry, &self.project_rules.home_folder, request).await
     }
 
     /// How `provider_account_id`'s Codex is signed in, read on the account's own service without

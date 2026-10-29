@@ -38,7 +38,7 @@ use crate::driver::codex::tools::{
 };
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 use crate::driver::mcp_server::read::{
-    McpProbeReading, McpProbeStart, McpProbeTarget, McpServerPolicyEntry,
+    McpProbeReading, McpProbeStart, McpProbeTarget, McpServerPolicyEntry, binding_server_name,
 };
 use crate::driver::mcp_server::status::{
     McpServerReading, McpServerStatusEmission, McpServerStatusIngestResult,
@@ -456,16 +456,5 @@ fn is_kept_out(
             .is_some_and(|allowed| {
                 !allowed.contains(&McpServerPolicyEntry::ServerName(name.clone()))
             }),
-    }
-}
-
-fn binding_server_name(binding: &McpServerBindingRef) -> &McpServerName {
-    match binding {
-        McpServerBindingRef::User { server_name, .. }
-        | McpServerBindingRef::Project { server_name, .. }
-        | McpServerBindingRef::Local { server_name, .. }
-        | McpServerBindingRef::Plugin { server_name, .. }
-        | McpServerBindingRef::Connector { server_name, .. }
-        | McpServerBindingRef::Managed { server_name, .. } => server_name,
     }
 }

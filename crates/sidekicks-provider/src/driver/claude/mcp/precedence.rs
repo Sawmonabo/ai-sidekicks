@@ -7,7 +7,9 @@ use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
 use crate::driver::claude::mcp::config::{ClaudeMcpConfigReading, ClaudeMcpServer};
-use crate::driver::mcp_server::read::{McpAccountServers, McpRootReading, McpServerDeclaration};
+use crate::driver::mcp_server::read::{
+    McpAccountServers, McpRootReading, McpServerDeclaration, binding_server_name,
+};
 
 /// The servers one account brings: its organization's servers and its connectors.
 pub(crate) struct ClaudeMcpAccountServers {
@@ -256,17 +258,6 @@ fn is_switched_off(binding: &McpServerBindingRef, switched_off: &[McpServerName]
         | McpServerBindingRef::Managed { server_name, .. } => server_name.as_str(),
     };
     switched_off.iter().any(|off| off.as_str() == name)
-}
-
-fn binding_server_name(binding: &McpServerBindingRef) -> &McpServerName {
-    match binding {
-        McpServerBindingRef::User { server_name, .. }
-        | McpServerBindingRef::Project { server_name, .. }
-        | McpServerBindingRef::Local { server_name, .. }
-        | McpServerBindingRef::Plugin { server_name, .. }
-        | McpServerBindingRef::Connector { server_name, .. }
-        | McpServerBindingRef::Managed { server_name, .. } => server_name,
-    }
 }
 
 fn is_writable(binding: &McpServerBindingRef) -> bool {

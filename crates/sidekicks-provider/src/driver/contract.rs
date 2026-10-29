@@ -49,6 +49,7 @@ use sidekicks_std::text_cut::cut_to_code_points;
 
 use crate::capability::probe::CapabilityProbeError;
 use crate::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::{
     ExecutableUnresolvable, ModelCatalogUnreadable, ProviderAxisInvalid, RequestUnanswered,
@@ -77,6 +78,8 @@ use crate::port::permission_ask::{ProviderPermissionAnswer, ProviderRuleNotKeptE
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::runtime_binding::store::RuntimeBindingStoreError;
+
+pub mod sign_in;
 
 /// The fixed sentence every `provider.capability.unsupported` refusal carries.
 pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
@@ -616,6 +619,15 @@ pub trait ProviderDriver: Send + Sync {
     fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
         Ok(Vec::new())
     }
+
+    /// Signs in to an MCP server through the provider's own client, in a folder of the daemon's
+    /// own deleted after, and answers the credentials the provider saved there. Fails when the
+    /// provider's config declares no such server, the flow fails or ends unfinished, or no saved
+    /// sign-in reads back.
+    fn sign_in_with_own_client(
+        &self,
+        request: ProviderSignInTakeoverRequest,
+    ) -> BoxFuture<'_, Result<ProviderSignInTakeover, DriverError>>;
 }
 
 /// Where a session's provider process stands, as its driver holds it: the one predicate the

@@ -3,9 +3,10 @@
 //! service while terminal reach is on, which no session of the app runs on. A service listens on
 //! the home's own control socket, which a terminal's plain `codex` joins, except for a planned
 //! restart's second service, which takes a socket of its own beside it under a name no daemon
-//! start reuses, the home's socket then pointed at it. The capability read runs one short-lived
-//! service of its own on an empty folder, which the registry never holds, and a read on the
-//! person's own folder with no fitting service there runs one on a socket of its own beside it.
+//! start reuses, the home's socket then pointed at it. The capability read and each MCP sign-in
+//! run one short-lived service of their own on a folder of the daemon's own, which the registry
+//! never holds, and a read on the person's own folder with no fitting service there runs one on a
+//! socket of its own beside it.
 
 pub(crate) mod personal_folder_read;
 
@@ -45,6 +46,10 @@ const CODEX_HOME_SOCKET_NAME: &str = "app-server-control.sock";
 /// The folder under the daemon's data folder the capability read's service runs in as its home,
 /// made empty before each read and removed after it.
 pub(crate) const CODEX_CAPABILITY_READ_FOLDER: &str = "codex-capability-read";
+
+/// The folder under the daemon's data folder each MCP sign-in through Codex's own client makes
+/// its own folder in, removed after the sign-in.
+const CODEX_MCP_SIGN_IN_FOLDER: &str = "codex-sign-in";
 
 /// Resolves which Codex home a session's account runs in, and the one home terminal reach runs on.
 pub(crate) trait CodexHomeResolver: Send + Sync {
@@ -111,7 +116,9 @@ impl CodexServiceRegistry {
         let home_socket = home_socket_path(&home.codex_home);
         let kind = match home.kind {
             CodexHomeKind::PersonalFolder => CodexServiceKind::Terminal,
-            CodexHomeKind::Account(_) | CodexHomeKind::CapabilityRead => CodexServiceKind::Account,
+            CodexHomeKind::Account(_)
+            | CodexHomeKind::CapabilityRead
+            | CodexHomeKind::McpSignIn => CodexServiceKind::Account,
         };
         let mut services = self.lock();
         // Another caller may have made it while the home resolved.
@@ -144,30 +151,13 @@ impl CodexServiceRegistry {
         tokio::fs::create_dir_all(&codex_home)
             .await
             .map_err(|error| DriverError::Internal(Box::new(error)))?;
-        let home_socket = home_socket_path(&codex_home);
-        Ok(CodexService::new(
-            CodexServiceHome {
-                codex_home,
-                kind: CodexHomeKind::CapabilityRead,
-            },
-            CodexServiceSocket {
-                path: home_socket.clone(),
-                home_socket,
-            },
-            CodexServiceKind::Account,
-            Arc::clone(&self.dependencies),
-            Vec::new(),
-        ))
+        Ok(self.service_on_own_folder(codex_home, CodexHomeKind::CapabilityRead))
     }
 
     /// Removes the capability read's folder and everything its service wrote there; a folder
     /// already gone is removed. Fails as the removal fails.
     pub(crate) async fn remove_capability_read_home(&self) -> Result<(), DriverError> {
-        match tokio::fs::remove_dir_all(self.capability_read_home()).await {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(DriverError::Internal(Box::new(error))),
-        }
+        remove_own_folder(&self.capability_read_home()).await
     }
 
     // The capability read's home: its folder under the data folder.
@@ -175,6 +165,35 @@ impl CodexServiceRegistry {
         self.dependencies
             .data_folder
             .join(CODEX_CAPABILITY_READ_FOLDER)
+    }
+
+    /// A service of its own for one MCP server's sign-in, on `codex_home`, a folder of the
+    /// daemon's own the caller made and filled, signed in to no account and never one the
+    /// registry holds; made but not started. The caller stops it and removes the folder with
+    /// [`remove_own_folder`] whatever the sign-in's outcome.
+    pub(crate) fn mcp_sign_in_service(&self, codex_home: PathBuf) -> Arc<CodexService> {
+        self.service_on_own_folder(codex_home, CodexHomeKind::McpSignIn)
+    }
+
+    /// The folder under the data folder each MCP sign-in's own folder is made in.
+    pub(crate) fn mcp_sign_in_folder(&self) -> PathBuf {
+        self.dependencies.data_folder.join(CODEX_MCP_SIGN_IN_FOLDER)
+    }
+
+    // A service of the daemon's own kind on `codex_home`, one of the daemon's own folders of
+    // `kind`, listening on that folder's own socket.
+    fn service_on_own_folder(&self, codex_home: PathBuf, kind: CodexHomeKind) -> Arc<CodexService> {
+        let home_socket = home_socket_path(&codex_home);
+        CodexService::new(
+            CodexServiceHome { codex_home, kind },
+            CodexServiceSocket {
+                path: home_socket.clone(),
+                home_socket,
+            },
+            CodexServiceKind::Account,
+            Arc::clone(&self.dependencies),
+            Vec::new(),
+        )
     }
 
     /// Whether terminal reach is on, read from the service: the person's own folder's service is
@@ -477,12 +496,21 @@ impl CodexServiceRegistry {
         scripted: &ScriptedCodexService,
         homes: Arc<dyn CodexHomeResolver>,
     ) -> Arc<Self> {
-        let home = scripted.service.home().clone();
-        let registry = Arc::new(Self::new(homes, Arc::clone(&scripted.dependencies)));
+        Self::holding_service_on(&scripted.service, Arc::clone(&scripted.dependencies), homes)
+    }
+
+    /// A registry on `dependencies` holding `service` as its home's, each account's home resolved
+    /// by `homes`.
+    pub(crate) fn holding_service_on(
+        service: &Arc<CodexService>,
+        dependencies: Arc<CodexServiceDependencies>,
+        homes: Arc<dyn CodexHomeResolver>,
+    ) -> Arc<Self> {
+        let registry = Arc::new(Self::new(homes, dependencies));
         registry
             .lock()
             .by_home
-            .insert(home.codex_home, Arc::clone(&scripted.service));
+            .insert(service.home().codex_home.clone(), Arc::clone(service));
         registry
     }
 }
@@ -538,6 +566,16 @@ async fn retire_service(services: &Mutex<RegisteredServices>, service: &Arc<Code
 // Whether `home` is the person's own folder, which only the terminal service runs on.
 fn is_terminal_reach_home(home: &CodexServiceHome) -> bool {
     home.kind == CodexHomeKind::PersonalFolder
+}
+
+/// Removes `folder`, one of the daemon's own folders a short-lived service ran in, with everything
+/// its service wrote there; a folder already gone is removed. Fails as the removal fails.
+pub(crate) async fn remove_own_folder(folder: &Path) -> Result<(), DriverError> {
+    match tokio::fs::remove_dir_all(folder).await {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(DriverError::Internal(Box::new(error))),
+    }
 }
 
 /// The home's own control socket.

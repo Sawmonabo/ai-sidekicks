@@ -419,6 +419,19 @@ impl CodexServiceEvents for ExitsHeard {
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
 }
 
+/// A Codex stand-in: as the executor it answers the relay's `initialize` and waits on its input;
+/// as the service it waits, the test's listener answering in its place.
+pub(crate) const STAND_IN_CODEX: &str = r#"#!/bin/sh
+case " $* " in
+  *" exec-server "*)
+    IFS= read -r _initialize
+    printf '%s\n' '{"id":"sidekicks-relay-1","result":{}}'
+    exec cat >/dev/null
+    ;;
+esac
+exec sleep 30
+"#;
+
 /// The conversation a machine probe's ephemeral start opens on a test service.
 pub(crate) const PROBE_THREAD_ID: &str = "probe-thread";
 

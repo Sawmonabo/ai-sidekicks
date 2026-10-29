@@ -25,7 +25,7 @@ use crate::driver::codex::service::process::{
 };
 use crate::driver::codex::service::record::{LastingServiceRecord, LastingServiceRecordFile};
 use crate::driver::codex::service::supervisor::test_service::{
-    TestCodexProgram, UnheardEvents, answer_as_codex_service, bind_test_listener,
+    STAND_IN_CODEX, TestCodexProgram, UnheardEvents, answer_as_codex_service, bind_test_listener,
     next_socket_request, send_on_socket, test_codex_service_dependencies, write_failing_codex,
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
@@ -245,19 +245,6 @@ async fn a_start_on_a_free_listener_no_pid_file_names_joins_it() {
     };
     assert_eq!(started.kind, CodexServiceKind::Joined);
 }
-
-// A Codex stand-in: as the executor it answers the relay's `initialize` and waits on its input; as
-// the service it waits, the test's listener answering in its place.
-const STAND_IN_CODEX: &str = r#"#!/bin/sh
-case " $* " in
-  *" exec-server "*)
-    IFS= read -r _initialize
-    printf '%s\n' '{"id":"sidekicks-relay-1","result":{}}'
-    exec cat >/dev/null
-    ;;
-esac
-exec sleep 30
-"#;
 
 // Answers each connection on `listener` as a Codex service and hands every request on to
 // `requests`, in the order it came.

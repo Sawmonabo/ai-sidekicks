@@ -330,6 +330,8 @@ fn missing_capability(subtype: ClaudeControlSubtype) -> Option<DriverCapabilityF
         | ClaudeControlSubtype::BackgroundTasks
         | ClaudeControlSubtype::GenerateSessionTitle
         | ClaudeControlSubtype::RenameSession
+        | ClaudeControlSubtype::McpAuthenticate
+        | ClaudeControlSubtype::McpOauthCallbackUrl
         | ClaudeControlSubtype::NegativeControl => None,
     }
 }

@@ -1,7 +1,8 @@
 //! A session's controls and the reads of Claude Code itself: the starting level and a level move,
 //! a revoked rule, the models, modes, capabilities and sign-in, the Settings rows and the session
 //! options, the mode, the commands the daemon answers, a side question, a review, the command list
-//! a screen follows, and each session's inbox address.
+//! a screen follows, each session's inbox address, and the sign-in to an MCP server through
+//! Claude Code's own client.
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -30,6 +31,7 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
 use crate::driver::claude::inbox::address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
+use crate::driver::claude::mcp::sign_in::{ClaudeSignInPlaces, sign_in_with_claude_client};
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::controls::{
     ClaudeSideQuestionCopy, claude_full_model_id, one_turn_legs, without_credential_prompts,
@@ -63,6 +65,7 @@ use crate::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
 use crate::driver::contract::ProviderCommandsSubscription;
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::contract::{DriverError, GetCapabilitiesResult, ListModelsParams};
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::ports::SessionPlace;
@@ -639,6 +642,28 @@ impl ClaudeDriver {
 }
 
 impl ClaudeDriver {
+    /// Signs in to `request`'s server through Claude Code's own client, in a process whose config
+    /// and credential folders are one the daemon makes for the sign-in and deletes after. Fails as
+    /// the sign-in through Claude Code fails.
+    pub(crate) async fn sign_in_with_own_client(
+        &self,
+        request: ProviderSignInTakeoverRequest,
+    ) -> Result<ProviderSignInTakeover, DriverError> {
+        sign_in_with_claude_client(
+            &*self.starts,
+            ClaudeSignInPlaces {
+                home_folder: &self.sources.home_folder,
+                data_folder: &self.sources.data_folder,
+            },
+            |folder| {
+                self.sources
+                    .process_environment(ClaudeProcessHome::Throwaway { folder }, &[], &[])
+            },
+            request,
+        )
+        .await
+    }
+
     // The folder the capability read makes and removes, under the daemon's data folder.
     fn capability_read_folder(&self) -> PathBuf {
         self.sources.data_folder.join(CLAUDE_CAPABILITY_READ_FOLDER)

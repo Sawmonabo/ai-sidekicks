@@ -15,6 +15,7 @@ use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::mcp::connectors::{
     ClaudeAccountServerAnswers, ClaudeAccountServersReadRequest,
 };
+use crate::driver::claude::mcp::sign_in::{ClaudeMcpSignInChannel, ClaudeMcpSignInStart};
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeModelCatalogReading, ClaudeReplyReserveReads,
@@ -101,6 +102,13 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
         &self,
         _request: ClaudeAccountServersReadRequest,
     ) -> BoxFuture<'_, Result<ClaudeAccountServerAnswers, ClaudeLaunchError>> {
+        unreachable!("{ONLY_THE_ONE_TURN}")
+    }
+
+    fn start_mcp_sign_in(
+        &self,
+        _start: ClaudeMcpSignInStart,
+    ) -> BoxFuture<'_, Result<ClaudeMcpSignInChannel, ClaudeLaunchError>> {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }
 
