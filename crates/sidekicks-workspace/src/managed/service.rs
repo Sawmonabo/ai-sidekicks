@@ -208,18 +208,20 @@ impl ManagedWorkspaceService {
     /// only when the watch's or the recount's task panicked.
     pub async fn stop(&self) -> Result<(), JoinError> {
         let write_watch = lock(&self.write_watch).take();
-        if let Some(write_watch) = write_watch {
-            write_watch.watcher.stop().await?;
-        }
-        let counting = lock(&self.document_counting).take();
-        let Some(counting) = counting else {
-            return Ok(());
+        // The recount ends whatever the watch's end answered.
+        let watched = match write_watch {
+            Some(write_watch) => write_watch.watcher.stop().await,
+            None => Ok(()),
         };
-        counting.abort();
-        match counting.await {
-            Err(error) if error.is_panic() => Err(error),
-            Ok(()) | Err(_) => Ok(()),
+        let counting = lock(&self.document_counting).take();
+        if let Some(counting) = counting {
+            counting.abort();
+            match counting.await {
+                Err(error) if error.is_panic() => return Err(error),
+                Ok(()) | Err(_) => {}
+            }
         }
+        watched
     }
 
     /// The instant before which every write a chat made in its workspace has been sent on the
