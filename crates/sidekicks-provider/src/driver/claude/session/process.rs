@@ -574,21 +574,126 @@ async fn read_error_tail(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Weak};
+    use std::error::Error;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex, Weak};
     use std::time::Duration;
 
+    use futures::future::BoxFuture;
+    use sidekicks_platforms::{ProgramStart, Spawner};
     use tokio::io::AsyncWriteExt;
     use tokio::sync::watch;
 
     use super::{
-        ClaudeOutputReader, ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
-        wait_out_startup_deadline,
+        ClaudeCodeProcess, ClaudeOutputReader, ClaudeProcessEnd, ClaudeProcessLaunch,
+        ClaudeProcessListener, ClaudeStreamFrame, wait_out_startup_deadline,
     };
+    use crate::driver::child_records::{DaemonChildRecords, SPAWN_NONCE_ENVIRONMENT_NAME};
     use crate::driver::claude::session::control_requests::ClaudeControlRequests;
     use crate::driver::claude::session::transport::inbound::{
         ClaudeControlFrameReader, ClaudeInboundRequestEvent,
     };
     use crate::driver::diagnostics::OnceReportedDiagnostics;
+    use crate::process_registry::ProviderProcessRegistry;
+
+    /// The nonce the recording records hand every child.
+    const NONCE: &str = "claude-child-nonce";
+
+    /// One call the daemon's child records took, in order.
+    #[derive(Debug, PartialEq, Eq)]
+    enum ChildRecordCall {
+        Prepared,
+        Completed(String, u32),
+        Retired(String),
+    }
+
+    /// Child records that keep every call they take.
+    #[derive(Default)]
+    struct RecordingChildren(Mutex<Vec<ChildRecordCall>>);
+
+    impl RecordingChildren {
+        fn push(&self, call: ChildRecordCall) {
+            self.0.lock().expect("the calls are writable").push(call);
+        }
+    }
+
+    impl DaemonChildRecords for RecordingChildren {
+        fn prepare_spawn(&self) -> BoxFuture<'_, Result<String, Box<dyn Error + Send + Sync>>> {
+            self.push(ChildRecordCall::Prepared);
+            Box::pin(async { Ok(NONCE.to_owned()) })
+        }
+
+        fn complete_spawn<'call>(
+            &'call self,
+            nonce: &'call str,
+            process_id: u32,
+        ) -> BoxFuture<'call, Result<(), Box<dyn Error + Send + Sync>>> {
+            self.push(ChildRecordCall::Completed(nonce.to_owned(), process_id));
+            Box::pin(async { Ok(()) })
+        }
+
+        fn retire<'call>(&'call self, nonce: &'call str) -> BoxFuture<'call, ()> {
+            self.push(ChildRecordCall::Retired(nonce.to_owned()));
+            Box::pin(async {})
+        }
+    }
+
+    // Killed by a Claude Code process started with no record, which the next start's sweep would
+    // never end after a daemon crash, and by a record never retired at its reap.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_claude_code_process_is_recorded_from_its_start_to_its_reap() {
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let nonce_file = folder.path().join("nonce");
+        let records = Arc::new(RecordingChildren::default());
+        let child_records: Arc<dyn DaemonChildRecords> = records.clone();
+        let spawner =
+            Spawner::new(tokio::runtime::Handle::current()).expect("the spawner thread starts");
+        let launch = ClaudeProcessLaunch {
+            start: ProgramStart {
+                program: PathBuf::from("/bin/sh"),
+                leading_arguments: Vec::new(),
+            },
+            arguments: vec![
+                "-c".to_owned(),
+                format!(
+                    "printf '%s' \"${SPAWN_NONCE_ENVIRONMENT_NAME}\" > '{}'",
+                    nonce_file.display()
+                ),
+            ],
+            environment: Vec::new(),
+            working_folder: folder.path().to_owned(),
+            provider_session_id: "conversation".to_owned(),
+            provider_account_id: None,
+        };
+
+        let process = ClaudeCodeProcess::start(
+            &spawner,
+            &child_records,
+            &ProviderProcessRegistry::default(),
+            launch,
+            Arc::new(NoSession),
+            None,
+        )
+        .await
+        .expect("the process starts");
+        let ended = tokio::time::timeout(Duration::from_secs(10), process.exited())
+            .await
+            .expect("the process ends in time");
+
+        assert!(ended.is_ok(), "{ended:?}");
+        assert_eq!(
+            *records.0.lock().expect("the calls are readable"),
+            [
+                ChildRecordCall::Prepared,
+                ChildRecordCall::Completed(NONCE.to_owned(), process.identity().process_id),
+                ChildRecordCall::Retired(NONCE.to_owned()),
+            ]
+        );
+        assert_eq!(
+            std::fs::read_to_string(&nonce_file).expect("the child wrote its nonce"),
+            NONCE
+        );
+    }
 
     struct NoSession;
 
