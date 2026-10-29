@@ -2,12 +2,9 @@
 //! binding, a loaded conversation joined as it runs, and a resume Codex refused while closing the
 //! conversation sent again.
 
-use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use futures::FutureExt as _;
-use futures::future::BoxFuture;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -24,7 +21,6 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tempfile::TempDir;
-use tokio::sync::Notify;
 
 use super::super::CodexDriver;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
@@ -42,9 +38,7 @@ use crate::driver::session_control::{
 };
 use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
 use crate::port::context_reading_publisher::ContextReadingPublisher;
-use crate::port::permission_ask::{
-    PermissionAskPort, ProviderPermissionAsk, ProviderPermissionAskWithdrawal,
-};
+use crate::port::permission_ask::test_port::RecordedAsks;
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
 use crate::run::delivery::LateAppendableRow;
 use crate::run::posture::compose_execution_posture;
@@ -203,46 +197,6 @@ impl ResumeHarness {
     ) -> DriverResumeResult {
         let params = resume_params(self.session_id, &self.binding, live_runs);
         drive_resume(&self.driver, &mut self.scripted.script, params, answer).await
-    }
-}
-
-/// Every ask the driver hands the permission pipeline, in order.
-#[derive(Default)]
-struct RecordedAsks {
-    taken: Mutex<Vec<ProviderPermissionAsk>>,
-    changed: Notify,
-}
-
-impl RecordedAsks {
-    // The first ask taken, once one is.
-    async fn first(&self) -> ProviderPermissionAsk {
-        loop {
-            let changed = self.changed.notified();
-            tokio::pin!(changed);
-            changed.as_mut().enable();
-            if let Some(first) = lock(&self.taken).first().cloned() {
-                return first;
-            }
-            changed.await;
-        }
-    }
-}
-
-impl PermissionAskPort for RecordedAsks {
-    fn take_ask(
-        &self,
-        ask: ProviderPermissionAsk,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        lock(&self.taken).push(ask);
-        self.changed.notify_waiters();
-        async { Ok(()) }.boxed()
-    }
-
-    fn withdraw_ask(
-        &self,
-        _withdrawal: ProviderPermissionAskWithdrawal,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Ok(()) }.boxed()
     }
 }
 

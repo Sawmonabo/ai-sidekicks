@@ -445,7 +445,7 @@ fn read_hook_action(input: &CodexHookInput, command: Option<&str>) -> Option<Pro
 #[cfg(test)]
 mod tests {
     use std::error::Error;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use futures::FutureExt;
     use futures::future::BoxFuture;
@@ -456,7 +456,6 @@ mod tests {
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
     use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-    use tokio::sync::Notify;
     use tokio_util::sync::CancellationToken;
     use tokio_util::task::TaskTracker;
 
@@ -466,8 +465,9 @@ mod tests {
     use crate::driver::codex::hooks::server::{
         CodexHookAnswer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
     };
+    use crate::port::permission_ask::test_port::RecordedAsks;
     use crate::port::permission_ask::{
-        PermissionAskPort, ProviderAskAction, ProviderPermissionAnswer, ProviderPermissionAsk,
+        PermissionAskPort, ProviderAskAction, ProviderPermissionAnswer,
         ProviderPermissionAskWithdrawal,
     };
     use crate::port::session_rules::SessionRulePort;
@@ -522,37 +522,6 @@ mod tests {
         }
     }
 
-    /// Records the cards raised and taken back, telling a waiter at each.
-    #[derive(Default)]
-    struct RecordingAsks {
-        taken: Mutex<Vec<ProviderPermissionAsk>>,
-        withdrawn: Mutex<Vec<ProviderPermissionAskWithdrawal>>,
-        changed: Notify,
-    }
-
-    impl PermissionAskPort for RecordingAsks {
-        fn take_ask(&self, ask: ProviderPermissionAsk) -> BoxFuture<'_, Result<(), PortFailure>> {
-            self.taken
-                .lock()
-                .expect("the record is not poisoned")
-                .push(ask);
-            self.changed.notify_one();
-            async { Ok(()) }.boxed()
-        }
-
-        fn withdraw_ask(
-            &self,
-            withdrawal: ProviderPermissionAskWithdrawal,
-        ) -> BoxFuture<'_, Result<(), PortFailure>> {
-            self.withdrawn
-                .lock()
-                .expect("the record is not poisoned")
-                .push(withdrawal);
-            self.changed.notify_one();
-            async { Ok(()) }.boxed()
-        }
-    }
-
     fn shell_call(call_id: &str) -> CodexHookCall {
         let Value::Object(arguments) = json!({
             "hook_event_name": "PreToolUse",
@@ -577,7 +546,7 @@ mod tests {
         let session_id =
             SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        let asks = Arc::new(RecordingAsks::default());
+        let asks = Arc::new(RecordedAsks::default());
         let permission_asks = Arc::new(PortRegistration::new("permission ask"));
         let ask_port: Arc<dyn PermissionAskPort> = asks.clone();
         assert!(permission_asks.register(ask_port).is_ok());
@@ -603,8 +572,8 @@ mod tests {
         };
 
         let held = answer("call-1", CancellationToken::new());
-        asks.changed.notified().await;
-        let card = asks.taken.lock().expect("the record is not poisoned")[0].clone();
+        asks.changed().await;
+        let card = asks.taken()[0].clone();
         assert_eq!(card.request_id, "hook:call-1");
         assert_eq!(card.run_id, run_id);
         tokio::task::yield_now().await;
@@ -623,17 +592,12 @@ mod tests {
 
         let token = CancellationToken::new();
         let abandoned = answer("call-2", token.clone());
-        asks.changed.notified().await;
+        asks.changed().await;
         token.cancel();
         assert_eq!(abandoned.await.expect("the call's task ends"), None);
-        asks.changed.notified().await;
-        let withdrawn = asks
-            .withdrawn
-            .lock()
-            .expect("the record is not poisoned")
-            .clone();
+        asks.changed().await;
         assert_eq!(
-            withdrawn,
+            asks.withdrawn(),
             vec![ProviderPermissionAskWithdrawal {
                 session_id,
                 request_id: "hook:call-2".to_owned(),
