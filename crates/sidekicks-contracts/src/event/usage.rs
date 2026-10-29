@@ -55,8 +55,9 @@ pub enum UsageContainment {
 
 /// The `usage.tokenCount.recorded` payload: one turn's own token figures, never a running total, so
 /// a run's or a session's total is the sum of its rows. A count is absent when the provider
-/// reported none, never zero. The account is the one the turn was charged to, read from the run's
-/// admission, never from the provider.
+/// reported none, never zero. The account is the one the turn was charged to: the account its
+/// runtime binding names when the reading is recorded, never the provider's word, so a turn that
+/// spans an account switch records its readings on each side of the switch under each account.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -122,7 +123,7 @@ pub struct UsageTokenCountRecordedPayload {
     pub reasoning_tokens: Option<SafeInt<0>>,
     /// Whether `input_tokens` has the cache's read and written tokens taken out.
     pub containment: UsageContainment,
-    /// The account the turn was charged to.
+    /// The account the turn was charged to: its binding's account when the reading was recorded.
     pub provider_account_id: ProviderAccountId,
     /// The account's credential generation seen with the turn.
     pub credential_generation: CredentialGeneration,
