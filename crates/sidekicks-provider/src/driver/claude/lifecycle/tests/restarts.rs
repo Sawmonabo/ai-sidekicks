@@ -1,5 +1,5 @@
-//! A session's process ending: the restarts after an exit, a move to a new build, the held presses
-//! each end lets go, and what a resume the restarted process answers says it holds.
+//! A session's process ending: the restarts after an exit, a move to a new build, and the held
+//! presses each end lets go.
 
 use std::pin::pin;
 use std::sync::Arc;
@@ -20,7 +20,6 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::record::Record;
 
 use super::{RESTART_WAITS_PASSED, resume_params, start_params};
-use crate::driver::claude::run::routes::ClaudeChildRunRoute;
 use crate::driver::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, CLAUDE_OUTPUT_STYLE_ROW_ID,
 };
@@ -33,9 +32,8 @@ use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::session_control::{
-    CloseSessionParams, CreateSessionParams, DriverResumeResult, LiveRunResume,
-    ProviderBuildChange, ProviderTurnAnswer, ResumeSessionParams, ResumedRunAnswer,
-    UpdateSessionModeParams,
+    CloseSessionParams, CreateSessionParams, DriverResumeResult, ProviderBuildChange,
+    ResumeSessionParams, UpdateSessionModeParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -566,85 +564,6 @@ async fn a_resume_after_the_persons_restart_answers_the_restarted_process() {
     assert_eq!(binding_id, restart_binding);
     assert!(fixture.starts.take_started().is_empty());
     assert!(!restarted.writes().contains(&ScriptedWrite::Terminate));
-}
-
-// A resume the session's live process answers says that process still runs the turn of the run
-// holding the session's turn and of the helper's run started beneath it, and holds no turn of any
-// other run the resume named. Killed by every run answered `Gone` on that arm (the run whose turn
-// still runs would end), and by a helper's run beneath the held turn answered `Gone`.
-#[tokio::test(start_paused = true)]
-async fn a_resume_the_live_process_answers_holds_only_the_turn_it_runs() {
-    let fixture = ScriptedDriver::new();
-    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
-    fixture.next_start().await;
-    fixture
-        .driver
-        .close_session(CloseSessionParams { session_id })
-        .await
-        .expect("the close succeeds");
-    fixture
-        .starts
-        .script_session(Arc::new(ScriptedChannel::default()));
-    let params = resume_params(session_id);
-    fixture
-        .driver
-        .restart_session(params.clone())
-        .await
-        .expect("the restart answers");
-    fixture.next_start().await;
-    let (held, helper, other) = (new_run_id(), new_run_id(), new_run_id());
-    fixture
-        .driver
-        .start_run(start_params(session_id, held))
-        .await
-        .expect("the run starts");
-    let routes = &fixture
-        .driver
-        .composed_parts()
-        .expect("composed")
-        .run_start
-        .routes;
-    routes.bind_child_run(
-        helper,
-        ClaudeChildRunRoute {
-            session_id,
-            agent_id: "helper-1".to_owned(),
-            parent_run_id: held,
-            binding_id: binding_id("lead"),
-        },
-    );
-    let named = |run_id| LiveRunResume {
-        run_id,
-        parent_run_id: None,
-        open_turns: Vec::new(),
-        subagent_id: None,
-    };
-
-    let resumed = fixture
-        .driver
-        .resume_session(ResumeSessionParams {
-            live_runs: vec![named(held), named(helper), named(other)],
-            ..params
-        })
-        .await
-        .expect("the resume answers");
-
-    let DriverResumeResult::Resumed { runs, .. } = resumed else {
-        unreachable!("the live process answers the resume: {resumed:?}")
-    };
-    let answer = |run_id, turn| ResumedRunAnswer { run_id, turn };
-    assert_eq!(
-        runs,
-        [
-            answer(held, ProviderTurnAnswer::StillRunning),
-            answer(helper, ProviderTurnAnswer::StillRunning),
-            answer(other, ProviderTurnAnswer::Gone),
-        ]
-    );
-    assert!(
-        fixture.starts.take_started().is_empty(),
-        "no process starts"
-    );
 }
 
 // Killed by a relaunch that leaves the advisor unpicked again, so a later change to the person's

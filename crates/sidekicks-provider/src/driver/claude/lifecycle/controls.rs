@@ -693,6 +693,7 @@ async fn compose_resting_side_question_copy(
             provider_account_id: resume.provider_account_id.clone(),
             command_channel: None,
             context,
+            continues_interrupted_turn: false,
         },
         &ClaudeSpawnLegServices::of(&sources),
     )

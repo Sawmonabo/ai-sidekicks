@@ -39,6 +39,7 @@ use tokio::sync::SetOnce;
 
 use self::context::{ClaudeSpawnContextError, record_claude_resolved_advisor};
 use self::figures::ClaudeHeldFigures;
+use self::resume::ClaudeContinuedTurn;
 use crate::background_work::BackgroundWorkForms;
 use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::driver::claude::DESCRIPTOR;
@@ -73,6 +74,7 @@ use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
+use crate::driver::claude::spawn::environment::without_interrupted_turn_resume;
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::bring_up::{ClaudeBringUpRequest, ClaudeSessionSpawn};
 use crate::driver::claude::spawn::launch::installed_build::{
@@ -302,6 +304,8 @@ struct ClaudeSessionStart {
     // The binding a resume answers once the process is up; `None` for a create or a fork.
     resumed_binding_id: Option<RuntimeBindingId>,
     requested_spawn: ClaudeRequestedSpawn,
+    // The turn a resume's process continues; `None` for any other start.
+    continued_turn: Option<ClaudeContinuedTurn>,
 }
 
 /// A resume's result, and whether the resume brought the process it answers up itself.
@@ -339,6 +343,9 @@ pub(crate) struct ClaudeSpawnRequest {
     pub(crate) row_values: ProviderRowValues,
     /// The Ultracode value the agent asked for; `None` keeps Claude Code's own.
     pub(crate) ultracode: Option<bool>,
+    /// The turn of the run in progress a resume's process continues; `None` for a create and a
+    /// resume naming no run in progress.
+    pub(crate) continued_turn: Option<ClaudeContinuedTurn>,
 }
 
 impl ClaudeSessionEstablishment {
@@ -373,6 +380,7 @@ impl ClaudeSessionEstablishment {
             provider_account_id: params.provider_account_id,
             ultracode: requested_claude_ultracode(&params.options),
             row_values: params.row_values,
+            continued_turn: None,
         };
         let output_speed = params.output_speed.map(FreeFormText::into_string);
         let spawned_version = self
@@ -482,6 +490,7 @@ impl ClaudeSessionEstablishment {
                 provider_account_id: request.provider_account_id,
                 command_channel,
                 context,
+                continues_interrupted_turn: request.continued_turn.is_some(),
             },
             &ClaudeSpawnLegServices::of(sources),
         )
@@ -525,6 +534,7 @@ impl ClaudeSessionEstablishment {
             step_bound,
             resumed_binding_id: None,
             requested_spawn,
+            continued_turn: request.continued_turn,
         })
     }
 
@@ -565,6 +575,7 @@ impl ClaudeSessionEstablishment {
             step_bound,
             resumed_binding_id,
             requested_spawn,
+            continued_turn,
         } = start;
         let session_id = legs.session_id;
         let sources = &self.sources;
@@ -584,6 +595,10 @@ impl ClaudeSessionEstablishment {
             Arc::clone(&self.routes),
             Arc::clone(&self.prompts),
         ));
+        let is_continuing_turn = continued_turn.is_some();
+        if let Some(turn) = continued_turn {
+            stream.continue_turn(turn.run, turn.turn_number, turn.provider_turn_id);
+        }
         let mut band = ClaudeSessionRoutingBand::new();
         self.routing
             .bind_session_thread(&mut band, session_id, &provider_session_id, &establishment)
@@ -713,7 +728,15 @@ impl ClaudeSessionEstablishment {
             spawned_version: started.spawned_version.clone(),
             resumed_binding_id,
             requested_spawn,
-            spawn_bound_legs: legs,
+            // A later process started from these legs, a fork or a side question, continues no turn.
+            spawn_bound_legs: if is_continuing_turn {
+                ClaudeSpawnBoundLegs {
+                    spawn_environment: without_interrupted_turn_resume(legs.spawn_environment),
+                    ..legs
+                }
+            } else {
+                legs
+            },
         });
         if let Err(error) = before_install(&live).await {
             self.end_unadopted_live(&started, &live).await;
