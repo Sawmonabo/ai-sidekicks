@@ -232,6 +232,11 @@ interface SessionRecord {
   // it interrupts the turn (agent.turn.interrupted with cause "stepLimit", its partial result kept),
   // and the run rests as agent.run.interrupted with trigger "stepLimit" until a send continues it.
   maxStepsPerTurn?: number;
+  // The level the session runs at and whether its next turns plan or build, as the level and mode
+  // controls read them when the session is opened; a later move reaches an open client as the
+  // `session.notice.posted` kind `levelMoved`.
+  permissionLevel: PermissionLevel;
+  sessionMode: SessionMode;
   // The addresses another session writes to when it messages this one — what the session inspector
   // offers as `Copy address`, one row each. Each names an inbox the daemon holds for the session in
   // one place where Claude Code is installed — a socket in Claude Code's default socket folder of
