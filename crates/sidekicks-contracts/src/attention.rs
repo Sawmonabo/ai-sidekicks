@@ -84,9 +84,9 @@ pub enum AttentionSeverity {
     Informational,
 }
 
-/// What became of an entry's operating-system banner. The daemon writes `withheld` when a switch
-/// or a mute keeps the entry from raising one, and `pending` otherwise; main settles a `pending`
-/// entry once, so no banner is posted twice.
+/// What became of an entry's operating-system banner, absent until the daemon decides it. The
+/// daemon writes `withheld` when a switch or a mute keeps the entry from raising one, and `pending`
+/// otherwise; main posts only a `pending` entry and settles it once, so no banner is posted twice.
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
 )]
@@ -161,8 +161,11 @@ macro_rules! attention_item {
             /// The entry.
             pub id: AttentionId,
             /// The session or run and the state it is in, so a later state replaces the
-            /// operating-system banner in place; a Notify step's moment also names its node and
-            /// execution.
+            /// operating-system banner in place: `run:<runId>`, `workflowRun:<workflowRunId>`,
+            /// `plan:<planId>` or `session:<sessionId>`, and for a Notify step, which is also its
+            /// entry's id, `notify:` and 32 hex digits of the BLAKE3 hash of its run, node and
+            /// execution index. Each form fits the 64 bytes a banner's tag and a push's collapse id
+            /// hold.
             pub moment_id: AttentionId,
             /// The session.
             pub session_id: SessionId,
@@ -171,9 +174,6 @@ macro_rules! attention_item {
             pub display_name: NonEmptyText,
             /// What follows the name: `Waiting on you`, `Finished`, `Failed`, or a notice.
             pub state_word: NonEmptyText,
-            /// One line of prose the list draws; never a banner's body, which says only name and
-            /// state.
-            pub summary: String,
             /// The canonical event that triggered the entry.
             pub source_event_id: AttentionId,
             /// When the entry was made.
@@ -188,8 +188,15 @@ macro_rules! attention_item {
             #[schemars(with = "WireInstant")]
             #[garde(dive)]
             pub resolved_at: Option<WireInstant>,
-            /// What became of its banner.
-            pub banner_state: AttentionBannerState,
+            /// What became of its banner; absent until the daemon decides it, and main posts only
+            /// `pending`.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "AttentionBannerState")]
+            pub banner_state: Option<AttentionBannerState>,
             /// Where its message to the web address stands; present exactly when it is sent there.
             #[serde(
                 default,
@@ -288,7 +295,8 @@ pub enum AttentionSubscribeScope {
 
 /// `attention.subscribe`: with no session named, the whole projection across every session and
 /// workflow run; naming a session narrows it to that session's entries, or by `scope`. `runId`
-/// is present exactly when `scope` is `run`, so a run read never widens to every run.
+/// is present exactly when `scope` is `run`, so a run read never widens to every run, and a
+/// `scope` needs a session.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -296,6 +304,7 @@ pub enum AttentionSubscribeScope {
     "if" = { "properties": { "scope": { "const": "run" } }, "required": ["scope"] },
     "then" = { "properties": { "runId": true }, "required": ["runId"] },
     "else" = { "not": { "required": ["runId"] } },
+    "dependentRequired" = { "scope": ["sessionId"] },
 ))]
 pub struct AttentionSubscribeRequest {
     /// The session to narrow to.
@@ -306,13 +315,21 @@ pub struct AttentionSubscribeRequest {
     )]
     #[schemars(with = "SessionId")]
     pub session_id: Option<SessionId>,
-    /// How far to narrow; absent reads the run entries and the aggregate together.
+    /// How far to narrow, present only with `sessionId`; absent reads the run entries and the
+    /// aggregate together.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
     #[schemars(with = "AttentionSubscribeScope")]
+    #[garde(custom(|scope: &Option<AttentionSubscribeScope>, (): &()| {
+        if scope.is_none() || self.session_id.is_some() {
+            Ok(())
+        } else {
+            Err(garde::Error::new("a scope goes only with a session"))
+        }
+    }))]
     pub scope: Option<AttentionSubscribeScope>,
     /// The run, present exactly when `scope` is `run`.
     #[serde(
@@ -331,8 +348,9 @@ pub struct AttentionSubscribeRequest {
     pub run_id: Option<AttentionId>,
 }
 
-/// `attention.banner.settle`: main's record of what became of a `pending` entry's banner. Only main
-/// sends it, and the daemon ignores it once the entry has left `pending`.
+/// `attention.banner.settle`: main's record of what became of a `pending` entry's banner. Only this
+/// machine's main sends it: the daemon answers `{}` and changes nothing for a settle from another
+/// device or for an entry that has left `pending`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -343,15 +361,33 @@ pub struct AttentionBannerSettleRequest {
     pub state: AttentionBannerSettledState,
 }
 
-/// `attention.seen.update`: marks a session seen, so its finished and failed entries stop reading
-/// as unseen, in the notifications list and on the session's row alike. Opening the session sends
-/// it.
+/// `attention.seen.update`: marks a subject seen, so its finished and failed entries stop reading
+/// as unseen, in the notifications list and on the session's row alike. Opening the session, or a
+/// workflow run in it, sends it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AttentionSeenUpdateRequest {
+    /// What was seen.
+    #[garde(dive)]
+    pub subject: AttentionSeenSubject,
+}
+
+/// What `attention.seen.update` marks seen: a session, or one workflow run in it, which keeps its
+/// own seen fact.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
-pub struct AttentionSeenUpdateRequest {
+pub struct AttentionSeenSubject {
     /// The session.
     pub session_id: SessionId,
+    /// The workflow run in it, when the run was seen rather than the session.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "AttentionId")]
+    pub run_id: Option<AttentionId>,
 }
 
 /// The two ways a moment leaves the machine.
@@ -579,7 +615,7 @@ methods! {
             result: EmptyPayload,
             refusals: [],
         },
-        /// Marks a session seen.
+        /// Marks a session, or a workflow run in it, seen.
         AttentionSeenUpdate = mutation "attention.seen.update" {
             mutating: true,
             params: AttentionSeenUpdateRequest,
@@ -655,6 +691,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AttentionSubscribeScope>(),
         Definition::read::<AttentionSubscribeRequest>().checked(),
         Definition::read::<AttentionBannerSettleRequest>().checked(),
+        Definition::read::<AttentionSeenSubject>(),
         Definition::read::<AttentionSeenUpdateRequest>(),
         Definition::read::<AttentionDeliveryChannel>(),
         Definition::read::<AttentionDeliveryResult>(),
@@ -675,3 +712,46 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: TS_CONSTANTS,
     method_tables: &[&ATTENTION_METHOD_DESCRIPTORS],
 };
+
+#[cfg(test)]
+mod tests {
+    use garde::Validate as _;
+    use rstest::rstest;
+
+    use super::AttentionSubscribeRequest;
+    use crate::schema::closed_schema_for;
+
+    const SESSION: &str = "0190d2b4-7c3a-7e21-9a4b-5f6c7d8e9f01";
+
+    // The garde check and the schema both hold every narrowing rule, so the daemon and a client
+    // refuse the same request. Killed by dropping either garde check or the `dependentRequired`.
+    #[rstest]
+    #[case::whole_projection("{}", true)]
+    #[case::one_session(&format!(r#"{{"sessionId":"{SESSION}"}}"#), true)]
+    #[case::session_aggregate(&format!(r#"{{"sessionId":"{SESSION}","scope":"session"}}"#), true)]
+    #[case::one_run(
+        &format!(r#"{{"sessionId":"{SESSION}","scope":"run","runId":"run-1"}}"#),
+        true
+    )]
+    #[case::run_scope_without_run(&format!(r#"{{"sessionId":"{SESSION}","scope":"run"}}"#), false)]
+    #[case::run_with_session_scope(
+        &format!(r#"{{"sessionId":"{SESSION}","scope":"session","runId":"run-1"}}"#),
+        false
+    )]
+    #[case::run_without_scope(&format!(r#"{{"sessionId":"{SESSION}","runId":"run-1"}}"#), false)]
+    #[case::session_scope_without_session(r#"{"scope":"session"}"#, false)]
+    #[case::run_scope_without_session(r#"{"scope":"run","runId":"run-1"}"#, false)]
+    fn a_subscribe_request_narrows_only_as_its_session_and_scope_allow(
+        #[case] request: &str,
+        #[case] is_taken: bool,
+    ) {
+        let parsed: AttentionSubscribeRequest =
+            serde_json::from_str(request).expect("the case reads as a subscribe request");
+        assert_eq!(parsed.validate().is_ok(), is_taken, "garde: {request}");
+
+        let schema = closed_schema_for::<AttentionSubscribeRequest>().expect("the schema writes");
+        let check = jsonschema::validator_for(&schema).expect("the schema builds a check");
+        let json: serde_json::Value = serde_json::from_str(request).expect("the case is JSON");
+        assert_eq!(check.is_valid(&json), is_taken, "schema: {request}");
+    }
+}
