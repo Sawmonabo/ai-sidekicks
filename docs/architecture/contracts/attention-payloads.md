@@ -10,7 +10,8 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // icon's count and the operating-system notification are all read from it, and from nothing else.
 // With no session named, the whole projection across every session and workflow run, with each
 // provider's build entries. Naming a session narrows by D-016-4: scope "run" requires runId, and
-// runId is admissible only with scope "run".
+// runId is admissible only with scope "run". A scope goes only with a session: a request with a
+// scope and no sessionId is refused at parse.
 interface AttentionSubscribeRequest {
   sessionId?: SessionId;
   scope?: "run" | "session";
@@ -25,7 +26,10 @@ interface AttentionItem {
   id: string;
   // The MOMENT this entry speaks for — the session or run and the episode it is in, or on a
   // `providerBuild` entry the provider and its build, minted by the projection and never composed
-  // by a client. Every operating-system notification carries it, so a subject that moves from
+  // by a client: `run:<runId>`, `workflowRun:<workflowRunId>`, `plan:<planId>`,
+  // `session:<sessionId>`, and for a Notify step `notify:` and 32 hex digits of the BLAKE3 hash of
+  // its run, node and execution index, which is also that entry's `id`. Every form fits the 64
+  // bytes a banner's tag and a push's collapse id hold. Every operating-system notification carries it, so a subject that moves from
   // waiting to finished while nobody is looking REPLACES its banner in place instead of standing a
   // second one beside it: the waiting entry and the finished one that follows it share this id. It
   // is deliberately not `id` and deliberately not the state — an id per entry would post a second
@@ -33,16 +37,17 @@ interface AttentionItem {
   // exists to make possible. The notifications list groups by it too, one line per moment. The main
   // process posts from this projection and from nothing else: a `pending` entry only while no
   // console window is focused (a workflow's Notify step posts either way), and it withdraws the
-  // banner when the entry resolves or its session or run is deleted, a Notify step's never — so
-  // answering on another device clears it here. With the app not running, the daemon starts the
+  // banner when the entry resolves, when its session or run is deleted, or when the daemon stops
+  // keeping its entry (seen, more than a day old and with no web-address message waiting), a Notify
+  // step's never — so answering on another device clears it here. With the app not running, the daemon starts the
   // app's own program with no window to post the banner, and that process exits.
   momentId: string;
   sessionId?: SessionId; // absent exactly on a `providerBuild` entry, which belongs to no session
   runId?: RunId; // present on a run-scoped entry; absent on the session-scoped aggregate
-  // The name the entry is shown under — the session's name, or the run's name on a run's entry —
-  // and the word the line reads after it (`Waiting on you`, `Finished`, `Failed`, or a Notify
-  // step's own notice text). A banner says the name and the state; `summary` never becomes a
-  // notification's body.
+  // The name the entry is shown under — the session's name, or the run's name on a run's entry;
+  // an untitled session reads `New chat` for a chat and `New session` for a project session — and
+  // the word the line reads after it (`Waiting on you`, `Finished`, `Failed`, or a Notify step's
+  // own notice text). A banner says the name and the state and nothing else.
   displayName: string;
   stateWord: string;
   // The console draws four kinds from these: `Waiting on you` (`pendingApproval`, `pendingInput`;
@@ -69,15 +74,17 @@ interface AttentionItem {
   // updating itself, `Claude Code 2.1.294 available`.
   providerBuild?: { provider: ProviderId; fromVersion?: string; toVersion: string };
   severity: "actionable" | "informational";
-  summary: string; // one line a surface renders: prose, not an identifier
-  // What became of the entry's banner. The daemon writes `withheld` when it writes the entry for a
-  // kind this machine's settings switch off, for the master switch off, for a muted session's
-  // `Finished` or `Failed`, and for every `providerBuild` entry, and starts no windowless app for
-  // it, and `pending` otherwise; the main process settles a `pending` entry once through
-  // `attention.banner.settle`, so a banner is never posted twice. A posted banner is settled
-  // `withdrawn` when its moment resolves or its session or run is deleted; a Notify step's is never
-  // withdrawn.
-  bannerState: "pending" | "posted" | "withheld" | "withdrawn";
+  // What became of the entry's banner; absent until the daemon decides it, and the main process
+  // posts only a `pending` entry. The daemon writes `withheld` when it decides the entry for a kind
+  // this machine's settings switch off, for the master switch off, for a muted session's `Finished`
+  // or `Failed`, and for every `providerBuild` entry, and starts no windowless app for it, and
+  // `pending` otherwise; the main process settles a `pending` entry once through
+  // `attention.banner.settle`, so a banner is never posted twice. The daemon itself writes
+  // `withdrawn` over a `pending` or `posted` entry when its moment resolves, and over a `Finished`
+  // or `Failed` one on `session.muted`; when the entry is deleted with its session or run, or
+  // retired once seen and more than a day old, the main process withdraws its banner. A Notify
+  // step's is never withdrawn.
+  bannerState?: "pending" | "posted" | "withheld" | "withdrawn";
   // Where the entry's message to the person's web address stands, and how many sends it took; both
   // present exactly when the entry is sent to a web address.
   webAddressState?: "pending" | "delivered" | "undelivered";
@@ -88,22 +95,30 @@ interface AttentionItem {
   createdAt: string;
   // set once the state that produced the entry resolves; absent means outstanding
   resolvedAt?: string;
-  // The one seen-or-unseen fact the daemon keeps, which the session's row reads too; absent on an
-  // entry with no session.
+  // The entry's subject's seen fact: a session's entry reads its session's, a workflow-run entry
+  // its run's; absent on an entry with no session.
   seen?: boolean;
 }
 
-// `attention.banner.settle`: called by the main process alone: records what became of an entry's
-// banner. A no-op once the entry is past `pending`.
+// `attention.banner.settle`: called by this computer's main process alone: records what became of
+// an entry's banner. A no-op once the entry is past `pending`. A settle from another device for
+// this computer's entry is ignored: it answers `{}` and changes nothing, and only this computer's
+// own subscriptions count as a main process connected.
 interface AttentionBannerSettleRequest {
   entryId: string;
   state: "posted" | "withheld" | "withdrawn";
 }
 
-// `attention.seen.update`: marks a session seen: the one seen-or-unseen fact the sessions list's
-// done dot and the email digest read.
+// `attention.seen.update`: marks a subject seen: a session, or a workflow run in it, which keeps a
+// seen fact of its own. It is the one seen-or-unseen fact the sessions list's done dot, the bell's
+// `Earlier` group and the email digest read. A runId the session does not hold is refused with
+// `workflow.run.notFound`.
 interface AttentionSeenUpdateRequest {
+  subject: AttentionSeenSubject;
+}
+interface AttentionSeenSubject {
   sessionId: SessionId;
+  runId?: WorkflowRunId; // present when a workflow run was opened rather than the session
 }
 
 // Delivery beyond this machine's screen. The switches are the machine's settings file's; these
@@ -160,7 +175,7 @@ interface AttentionWebAddressSecretRotateResponse {
 // `attention.delivery.notConfigured` (`missing: address | password`).
 ```
 
-> **Scope and aggregate carrier (Plan-016 D-016-2).** `runId` is the scope discriminator: an item carrying it is run-scoped, an item omitting it is the session-scoped aggregate that [Spec-017 §Required Behavior](../../specs/017-notifications-and-attention-model.md#required-behavior) requires alongside run scope. There is no separate aggregate type and no aggregate-only field. On an aggregate, `severity` carries the aggregation — `actionable` while **any** unresolved contributor (a run-scoped item or a pending request) is actionable, `informational` only when every contributor is — per [Spec-017 §Default Behavior](../../specs/017-notifications-and-attention-model.md#default-behavior), while `trigger` and `sourceEventId` are taken from one deterministically selected representative contributor: highest severity first (`actionable` before `informational`), then earliest `createdAt`, then lexicographically smallest `id`. Because the representative is a real contributor rather than a synthesized placeholder, `sourceEventId` always resolves on an aggregate and stays non-optional. Aggregates are read-projection-only: `attention.subscribe` returns them and no delivery carries one — a banner, a web-address message or an email line speaks for the single canonical trigger that caused it, so no aggregate is ever delivered and no per-contributor fan-out is inferred from one. Canonical statement: [Plan-016 §API And Transport Changes](../../plans/016-notifications-and-attention-model.md#api-and-transport-changes) and [Plan-016](../../plans/016-notifications-and-attention-model.md) D-016-2.
+> **Scope and aggregate carrier (Plan-016 D-016-2).** `runId` is the scope discriminator: an item carrying it is run-scoped, an item omitting it is the session-scoped aggregate that [Spec-017 §Required Behavior](../../specs/017-notifications-and-attention-model.md#required-behavior) requires alongside run scope. There is no separate aggregate type and no aggregate-only field. On an aggregate, `severity` carries the aggregation over its contributors, the session's unresolved waiting entries and its informational entries not yet seen — `actionable` while **any** contributor is actionable, `informational` only when every contributor is — per [Spec-017 §Default Behavior](../../specs/017-notifications-and-attention-model.md#default-behavior), while `trigger` and `sourceEventId` are taken from one deterministically selected representative contributor: highest severity first (`actionable` before `informational`), then earliest `createdAt`, then lexicographically smallest `id`. Because the representative is a real contributor rather than a synthesized placeholder, `sourceEventId` always resolves on an aggregate and stays non-optional. Aggregates are read-projection-only: `attention.subscribe` returns them and no delivery carries one — a banner, a web-address message or an email line speaks for the single canonical trigger that caused it, so no aggregate is ever delivered and no per-contributor fan-out is inferred from one. Canonical statement: [Plan-016 §API And Transport Changes](../../plans/016-notifications-and-attention-model.md#api-and-transport-changes) and [Plan-016](../../plans/016-notifications-and-attention-model.md) D-016-2.
 
 ## Attention Method-Name Registry
 
