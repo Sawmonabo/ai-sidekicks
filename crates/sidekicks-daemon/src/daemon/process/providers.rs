@@ -30,6 +30,7 @@ use sidekicks_provider::driver::attachments::AttachmentResolver;
 use sidekicks_provider::driver::capabilities::writer::{
     CapabilityHydration, DriverCapabilitiesWriter,
 };
+use sidekicks_provider::driver::child_records::DaemonChildRecords;
 use sidekicks_provider::driver::contract::{ApplyRowValueParams, DriverError};
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::diagnostics::{
@@ -86,6 +87,8 @@ pub(crate) struct ProviderStart {
     pub(crate) base_environment: Arc<[(String, String)]>,
     /// The one bound on shell-line reads.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// The daemon's record of its own children, opened and swept before the providers are built.
+    pub(crate) child_records: Arc<dyn DaemonChildRecords>,
 }
 
 /// The providers the daemon runs: their registry, the ports their drivers read, the capability
@@ -161,6 +164,7 @@ pub(crate) fn build_providers(
         command_search: Arc::new(ProviderCommandSearch::new(start.spawner)),
         pending_compactions: PendingCompactionRegistry::default(),
         processes: Arc::clone(&processes),
+        child_records: start.child_records,
         provider_services: Arc::clone(&provider_services),
         runtime_bindings: Arc::clone(&runtime_bindings) as _,
         shell_lines: start.shell_lines,
@@ -577,6 +581,7 @@ mod tests {
     use sidekicks_provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
+    use sidekicks_provider::driver::child_records::UnrecordedChildren;
     use sidekicks_provider::driver::contract::{
         ApplyRowValueParams, DriverCliVersionReport, GetCapabilitiesResult, MockProviderDriver,
     };
@@ -646,6 +651,7 @@ mod tests {
                     ),
                     base_environment,
                     shell_lines: Arc::new(ShellLineReadingBound::new(SHELL_LINE_LIMIT)),
+                    child_records: Arc::new(UnrecordedChildren),
                 },
             )
         }

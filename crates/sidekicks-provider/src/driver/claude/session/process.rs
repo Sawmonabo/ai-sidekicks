@@ -24,7 +24,6 @@ use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{
     ChildEnd, ChildExit, ProgramStart, Spawner, ask_child_to_stop, read_child_exit,
-    wrap_child_command,
 };
 use sidekicks_std::output_tail::{OutputTail, read_output_chunks};
 use tokio::io::AsyncRead;
@@ -35,6 +34,9 @@ use tokio::time::Instant;
 use self::stdin::ClaudeInputWriter;
 pub(crate) use self::stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
 use self::stdout::ClaudeOutputReader;
+use crate::driver::child_records::{
+    ChildRecord, DaemonChildRecords, RecordedChild, spawn_recorded_child,
+};
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::control_requests::ClaudeControlRequests;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
@@ -143,11 +145,13 @@ pub(crate) struct ClaudeCodeProcess {
 }
 
 impl ClaudeCodeProcess {
-    /// Starts the process on `spawner`'s thread, its spawn counted in `registry`, with its reader
-    /// handing what it writes to `listener` and releasing `turn_holds`' turn at a turn-ending lead
-    /// `result`. Fails with the spawn's error, or the spawner's when its thread has ended.
+    /// Starts the process on `spawner`'s thread, recorded in `child_records` until its reap and
+    /// its spawn counted in `registry`, with its reader handing what it writes to `listener` and
+    /// releasing `turn_holds`' turn at a turn-ending lead `result`. Fails with the record's error,
+    /// the spawn's, or the spawner's when its thread has ended.
     pub(crate) async fn start(
         spawner: &Spawner,
+        child_records: &Arc<dyn DaemonChildRecords>,
         registry: &ProviderProcessRegistry,
         launch: ClaudeProcessLaunch,
         listener: Arc<dyn ClaudeProcessListener>,
@@ -163,11 +167,8 @@ impl ClaudeCodeProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let daemon_pid = std::process::id();
-        let mut child = spawner
-            .run(move || wrap_child_command(command, daemon_pid).spawn())
-            .await
-            .and_then(|spawned| spawned)?;
+        let RecordedChild { mut child, record } =
+            spawn_recorded_child(spawner, child_records, command).await?;
         let identity = ProviderProcessIdentity {
             process_id: child
                 .id()
@@ -212,6 +213,7 @@ impl ClaudeCodeProcess {
         let (end_sender, end) = watch::channel(None);
         tokio::spawn(own_child(
             child,
+            record,
             ends,
             standard_error,
             ProcessExitSettlement {
@@ -446,11 +448,12 @@ struct ProcessExitSettlement {
 }
 
 // Owns the child: ends it as asked, a stop followed by a kill once the grace passes and a dropped
-// handle as a kill; reads its exit once both its exit and its error output have ended; then, once
-// the reader has handed on every frame, closes the control table and the input, publishes the end
-// and hands it to the listener last.
+// handle as a kill; retires its record once its reap saw it end; reads its exit once both its exit
+// and its error output have ended; then, once the reader has handed on every frame, closes the
+// control table and the input, publishes the end and hands it to the listener last.
 async fn own_child(
     mut child: Box<dyn ChildWrapper>,
+    record: ChildRecord,
     mut ends: watch::Receiver<Option<ChildEnd>>,
     standard_error: impl AsyncRead + Unpin,
     settlement: ProcessExitSettlement,
@@ -461,7 +464,7 @@ async fn own_child(
         let kill_grace = tokio::time::sleep(CLAUDE_STOP_KILL_GRACE);
         tokio::pin!(kill_grace);
         let mut is_kill_armed = false;
-        loop {
+        let waited = loop {
             let end = tokio::select! {
                 biased;
                 status = child.wait() => break status.map(|status| (status, asked_end)),
@@ -502,7 +505,12 @@ async fn own_child(
                 is_kill_armed = true;
             }
             asked_end = Some(end);
+        };
+        // A wait that failed leaves the record for the next start's sweep.
+        if waited.is_ok() {
+            record.retire().await;
         }
+        waited
     };
     let (waited, tail) = tokio::join!(waiting, read_error_tail(standard_error));
     let exit = waited

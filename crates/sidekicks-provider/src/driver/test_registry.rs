@@ -39,8 +39,10 @@ use crate::background_work::BackgroundWorkForms;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
+use crate::driver::child_records::UnrecordedChildren;
 pub use crate::driver::codex::{
-    KeptTerminalService, ScriptedCodexService, keep_terminal_service, start_scripted_codex_service,
+    CodexServicesBeside, KeptTerminalService, ScriptedCodexService, keep_terminal_service,
+    serve_as_codex_stand_in, start_scripted_codex_service, write_codex_stand_in_script,
 };
 use crate::driver::contract::ProviderDriver;
 use crate::driver::ports::DriverPorts;
@@ -96,10 +98,10 @@ impl AttachmentResolver for NothingServed {
 }
 
 /// The shared services every driver's build takes, with every port unregistered, the spawn
-/// contexts among them, no attachment or binding rebind served, the read pool on a database no
-/// test opens, every folder under a relative one that no test makes, and a set of held provider
-/// services of its own, which a test reads through its field. Called on a tokio runtime, which
-/// the spawner thread starts on.
+/// contexts among them, no attachment or binding rebind served, no child recorded, the read pool
+/// on a database no test opens, every folder under a relative one that no test makes, and a set of
+/// held provider services of its own, which a test reads through its field. Called on a tokio
+/// runtime, which the spawner thread starts on.
 pub fn test_driver_services() -> DriverServices {
     let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
     let folder = PathBuf::from("driver-services");
@@ -131,6 +133,7 @@ pub fn test_driver_services() -> DriverServices {
         command_search: Arc::new(ProviderCommandSearch::new(spawner)),
         pending_compactions: PendingCompactionRegistry::default(),
         processes: Arc::new(ProviderProcessRegistry::default()),
+        child_records: Arc::new(UnrecordedChildren),
         provider_services: Arc::new(ProviderServiceProcesses::default()),
         runtime_bindings: Arc::new(NothingServed),
         shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),

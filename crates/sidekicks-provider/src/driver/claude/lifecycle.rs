@@ -110,6 +110,7 @@ impl ClaudeDriver {
     pub(crate) fn new(services: &DriverServices) -> Self {
         let launcher = Arc::new(ClaudeProcessLauncher::new(
             services.spawner.clone(),
+            Arc::clone(&services.child_records),
             Arc::clone(&services.processes),
             &services.data_folder,
         ));

@@ -178,9 +178,14 @@ async fn start_account_service(
         service.socket_path(),
     )
     .await?;
-    let managed = start_managed_codex_service(&service.dependencies().spawner, process_launch)
-        .await
-        .map_err(|error| start_failed("The Codex service could not be started.", error))?;
+    let dependencies = service.dependencies();
+    let managed = start_managed_codex_service(
+        &dependencies.spawner,
+        &dependencies.child_records,
+        process_launch,
+    )
+    .await
+    .map_err(|error| start_failed("The Codex service could not be started.", error))?;
     let opened = connect(
         service,
         service.socket_path(),

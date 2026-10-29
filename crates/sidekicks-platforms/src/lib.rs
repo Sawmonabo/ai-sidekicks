@@ -277,6 +277,7 @@ pub use posix::askpass::askpass_listener;
 pub use posix::child_command::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
     prepare_child_command, spawn_lasting_child, wrap_child_command, wrap_group_child_command,
+    wrap_leading_child_command,
 };
 #[cfg(unix)]
 pub use posix::command_wrapper::{
@@ -461,6 +462,7 @@ pub use windows::caller_process::{
 pub use windows::child_command::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
     prepare_child_command, wrap_child_command, wrap_group_child_command,
+    wrap_leading_child_command,
 };
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;

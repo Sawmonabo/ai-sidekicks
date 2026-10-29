@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::kept_records::retire_former_service;
 use super::{StartFailure, StartedService, start_codex_service};
+use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::process::{
     CodexProcessLaunch, repin_lasting_codex_service, start_lasting_codex_service,
@@ -93,6 +94,7 @@ async fn start_terminal_service_on(
             environment: Vec::new(),
         }),
         Arc::new(UnheardEvents),
+        Arc::new(UnrecordedChildren),
     );
     let deadline = dependencies.startup_timeout;
     let service = CodexService::new(

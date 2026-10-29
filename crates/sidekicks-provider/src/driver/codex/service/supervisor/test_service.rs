@@ -1,8 +1,11 @@
 //! What a test's Codex services run on: their shared dependencies, a program a test names, a
 //! listener's answers as a Codex service gives them, a service whose connection a test scripts, a
 //! service of the daemon's own kind published as up and holding a connection on a
-//! `ScriptedService`, its frames and asks routed as a dialed one's are, and a terminal service a
-//! former daemon kept on the person's own folder, which a daemon's start finds again.
+//! `ScriptedService`, its frames and asks routed as a dialed one's are, a terminal service a
+//! former daemon kept on the person's own folder, which a daemon's start finds again, and the
+//! stand-in Codex service a test program runs as itself.
+
+mod stand_in;
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -16,11 +19,9 @@ use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
-#[cfg(test)]
-use sidekicks_platforms::ProgramStart;
 use sidekicks_platforms::{
-    CAN_BIND_A_SOCKET_LISTENER, Spawner, StandInAnswer, StandInProgram, bind_socket_listener,
-    read_recorded_arguments, short_socket_folder, write_stand_in_program,
+    CAN_BIND_A_SOCKET_LISTENER, ProgramStart, Spawner, StandInAnswer, StandInProgram,
+    bind_socket_listener, read_recorded_arguments, short_socket_folder, write_stand_in_program,
 };
 use sidekicks_std::mutex_lock::lock;
 use tempfile::TempDir;
@@ -31,6 +32,12 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::{AbortOnDropHandle, TaskTracker};
 
+#[cfg(test)]
+pub(crate) use self::stand_in::{CODEX_HOME_NAME, HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE};
+pub use self::stand_in::{
+    CodexServicesBeside, serve_as_codex_stand_in, write_codex_stand_in_script,
+};
+use crate::driver::child_records::{DaemonChildRecords, UnrecordedChildren};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
 use crate::driver::codex::service::command_line::{
@@ -160,11 +167,13 @@ impl ScriptedCodexService {
 }
 
 /// The dependencies a test's services share: their data and logs under `folder`, the build
-/// `program` resolves, and `events` told what happens to them. Must be called within a runtime.
+/// `program` resolves, `events` told what happens to them and `child_records` recording the
+/// daemon's own children. Must be called within a runtime.
 pub(crate) fn test_codex_service_dependencies(
     folder: &Path,
     program: Arc<dyn CodexProgramResolver>,
     events: Arc<dyn CodexServiceEvents>,
+    child_records: Arc<dyn DaemonChildRecords>,
 ) -> Arc<CodexServiceDependencies> {
     // The daemon makes both before any service starts.
     for made in ["data", "logs"] {
@@ -174,6 +183,7 @@ pub(crate) fn test_codex_service_dependencies(
         spawner: Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts"),
         provider_services: Arc::new(ProviderServiceProcesses::default()),
         processes: Arc::new(ProviderProcessRegistry::default()),
+        child_records,
         program,
         data_folder: folder.join("data"),
         logs_folder: folder.join("logs"),
@@ -188,7 +198,6 @@ pub(crate) fn test_codex_service_dependencies(
 }
 
 /// The program a test names, run as the Codex build with `environment` its whole environment.
-#[cfg(test)]
 pub(crate) struct TestCodexProgram {
     /// The program.
     pub(crate) program: PathBuf,
@@ -196,7 +205,6 @@ pub(crate) struct TestCodexProgram {
     pub(crate) environment: Vec<(String, String)>,
 }
 
-#[cfg(test)]
 impl CodexProgramResolver for TestCodexProgram {
     fn resolve<'call>(
         &'call self,
@@ -258,8 +266,12 @@ fn start_scripted_codex_service_on(
     program: Arc<dyn CodexProgramResolver>,
 ) -> ScriptedCodexService {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let dependencies =
-        test_codex_service_dependencies(folder.path(), program, Arc::new(UnheardEvents));
+    let dependencies = test_codex_service_dependencies(
+        folder.path(),
+        program,
+        Arc::new(UnheardEvents),
+        Arc::new(UnrecordedChildren),
+    );
     let socket: PathBuf = folder.path().join("codex.sock");
     let (service, script) = script_codex_service(
         CodexServiceHome {
