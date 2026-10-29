@@ -23,6 +23,7 @@ use sidekicks_contracts::attention::{
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText, TextError};
@@ -326,12 +327,12 @@ fn read_entries(
     session_id: Option<&SessionId>,
     run_id: Option<&AttentionId>,
 ) -> rusqlite::Result<Vec<StoredEntry>> {
-    let session_id = session_id.map(|session_id| session_id.text());
+    let session_id = session_id.map(SessionId::text);
     reader
         .prepare_cached(&ENTRIES_SQL)?
         .query_map(
             named_params! {
-                "@session_id": session_id.as_ref().map(|text| text.as_str()),
+                "@session_id": session_id.as_ref().map(UuidText::as_str),
                 "@run_id": run_id.map(AttentionId::as_str),
             },
             StoredEntry::of_row,

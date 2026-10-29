@@ -11,10 +11,6 @@ use crate::attention::test_log::AttentionTestLog;
 const WORKFLOW_RUN: &str = "018f0000-0000-7000-8000-000000000004";
 const NODE: &str = "tell";
 
-fn posted() -> Option<String> {
-    Some("posted".to_owned())
-}
-
 /// Mutation: drop the trigger filter from the mute's statements.
 #[tokio::test]
 async fn muting_withdraws_raised_end_banners_and_keeps_waits_and_notices() {
@@ -75,8 +71,11 @@ async fn muting_withdraws_raised_end_banners_and_keeps_waits_and_notices() {
         harness.delivery(&finished),
         (Some("withdrawn".to_owned()), None)
     );
-    assert_eq!(harness.delivery(&waiting), (posted(), None));
-    assert_eq!(harness.delivery(&notice), (posted(), None));
+    assert_eq!(
+        harness.delivery(&waiting),
+        (Some("posted".to_owned()), None)
+    );
+    assert_eq!(harness.delivery(&notice), (Some("posted".to_owned()), None));
 }
 
 /// Mutations: drop the banner-state guard from the withdraw; drop the `merged_into` clause from

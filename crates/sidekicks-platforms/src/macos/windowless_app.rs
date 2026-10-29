@@ -1,4 +1,4 @@
-//! The app's windowless start on macOS, through LaunchServices' `open`.
+//! The app's windowless start on macOS, through `LaunchServices`' `open`.
 
 use std::io;
 use std::process::Stdio;
@@ -17,7 +17,7 @@ const OPEN_PROGRAM: &str = "/usr/bin/open";
 const BANNER_ARGUMENT: &str = "--banner";
 
 /// Starts the app with no window by its bundle identifier, kept from the front, through `open`
-/// started on `spawner`'s thread: LaunchServices starts it outside the daemon's tree, or hands
+/// started on `spawner`'s thread: `LaunchServices` starts it outside the daemon's tree, or hands
 /// nothing to one already running, so no process is handed back. Fails when `open` cannot start or
 /// exits with a failure, which it does when no app with that identifier is installed.
 pub async fn launch_app_windowless(spawner: &Spawner) -> io::Result<WindowlessLaunch> {

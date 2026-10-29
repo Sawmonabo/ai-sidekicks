@@ -134,10 +134,6 @@ fn device(id: &str) -> DeviceId {
     DeviceId::new(id.to_owned()).expect("a test device id")
 }
 
-fn word(state: &str) -> Option<String> {
-    Some(state.to_owned())
-}
-
 /// Steps the decision task's clock past one merge window; the store's writes run on threads of
 /// their own, so the clock is paused only for the step.
 async fn pass_the_window() {
@@ -188,12 +184,12 @@ async fn two_moments_of_one_session_raise_one_banner_and_two_sessions_raise_two(
     pass_the_window().await;
     Fixture::pass(&mut task).await;
 
-    assert_eq!(fixture.banner(&second), (word("pending"), None));
+    assert_eq!(fixture.banner(&second), (Some("pending".to_owned()), None));
     assert_eq!(
         fixture.banner(&first),
-        (word("withheld"), Some(second.clone()))
+        (Some("withheld".to_owned()), Some(second.clone()))
     );
-    assert_eq!(fixture.banner(&other), (word("pending"), None));
+    assert_eq!(fixture.banner(&other), (Some("pending".to_owned()), None));
 }
 
 // A wait outranks a newer end in its session; when the wait resolves, the wait merged into it is
@@ -218,11 +214,14 @@ async fn a_wait_wins_its_window_and_a_merged_wait_is_decided_again_when_it_resol
     Fixture::pass(&mut task).await;
     let [older_entry, picked_entry, finished_entry] =
         [older_wait, picked_wait, finished].map(|run_id| log.entry_of(run_id));
-    assert_eq!(fixture.banner(&picked_entry), (word("pending"), None));
+    assert_eq!(
+        fixture.banner(&picked_entry),
+        (Some("pending".to_owned()), None)
+    );
     for merged in [&older_entry, &finished_entry] {
         assert_eq!(
             fixture.banner(merged),
-            (word("withheld"), Some(picked_entry.clone()))
+            (Some("withheld".to_owned()), Some(picked_entry.clone()))
         );
     }
 
@@ -234,10 +233,13 @@ async fn a_wait_wins_its_window_and_a_merged_wait_is_decided_again_when_it_resol
     pass_the_window().await;
     Fixture::pass(&mut task).await;
 
-    assert_eq!(fixture.banner(&older_entry), (word("withheld"), None));
+    assert_eq!(
+        fixture.banner(&older_entry),
+        (Some("withheld".to_owned()), None)
+    );
     assert_eq!(
         fixture.banner(&finished_entry),
-        (word("withheld"), Some(picked_entry))
+        (Some("withheld".to_owned()), Some(picked_entry))
     );
 }
 
@@ -266,11 +268,11 @@ async fn a_settle_moves_only_this_machines_pending_banner() {
     };
 
     settle(AttentionBannerSettledState::Posted, "device-phone").await;
-    assert_eq!(fixture.banner(&entry), (word("pending"), None));
+    assert_eq!(fixture.banner(&entry), (Some("pending".to_owned()), None));
     settle(AttentionBannerSettledState::Posted, MACHINE_DEVICE).await;
-    assert_eq!(fixture.banner(&entry), (word("posted"), None));
+    assert_eq!(fixture.banner(&entry), (Some("posted".to_owned()), None));
     settle(AttentionBannerSettledState::Withheld, MACHINE_DEVICE).await;
-    assert_eq!(fixture.banner(&entry), (word("posted"), None));
+    assert_eq!(fixture.banner(&entry), (Some("posted".to_owned()), None));
 }
 
 // A Notify step's entry, written in its step's own prelude, wakes the running decision task,
@@ -333,7 +335,7 @@ async fn a_notify_steps_entry_is_decided_by_the_running_task() {
 
     assert_eq!(
         fixture.delivery(&notice),
-        Some((word("pending"), None, word("pending")))
+        Some((Some("pending".to_owned()), None, Some("pending".to_owned())))
     );
 }
 
@@ -370,10 +372,17 @@ async fn the_start_sweep_gates_an_open_wait_and_withholds_only_an_ends_banner() 
         .await
         .expect("the sweep runs");
 
-    assert_eq!(fixture.banner(&resolved), (word("withdrawn"), None));
+    assert_eq!(
+        fixture.banner(&resolved),
+        (Some("withdrawn".to_owned()), None)
+    );
     assert_eq!(
         fixture.delivery(&finished),
-        Some((word("withheld"), None, word("pending")))
+        Some((
+            Some("withheld".to_owned()),
+            None,
+            Some("pending".to_owned())
+        ))
     );
     assert_eq!(
         fixture.delivery(&waiting),
@@ -385,7 +394,7 @@ async fn the_start_sweep_gates_an_open_wait_and_withholds_only_an_ends_banner() 
     Fixture::pass(&mut task).await;
     pass_the_window().await;
     Fixture::pass(&mut task).await;
-    assert_eq!(fixture.banner(&waiting), (word("pending"), None));
+    assert_eq!(fixture.banner(&waiting), (Some("pending".to_owned()), None));
     assert_eq!(fixture.launches(), 1);
 }
 

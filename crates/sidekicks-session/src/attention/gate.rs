@@ -120,11 +120,11 @@ pub(crate) fn decide(
             AttentionTrigger::RunCompleted | AttentionTrigger::RunFailed
         );
     let is_banner_raised = settings.notify_outside_app
-        && is_kind_on(&settings.kinds, trigger)
+        && is_kind_on(settings.kinds, trigger)
         && !is_muted_end
         && !is_resolved;
     let is_web_address_sent = settings.web_address.enabled
-        && is_kind_on(&settings.web_address.kinds, trigger)
+        && is_kind_on(settings.web_address.kinds, trigger)
         && !is_muted_end
         && !is_resolved
         && (!is_app_in_front || trigger == AttentionTrigger::WorkflowNotify);
@@ -194,7 +194,7 @@ fn decision_statement(decided: &DeliveryDecision) -> WriteStatement {
 
 // Whether `kinds` lets `trigger`'s kind through. A provider's build is no notification kind, so
 // nothing lets it through.
-fn is_kind_on(kinds: &NotificationKindSwitches, trigger: AttentionTrigger) -> bool {
+fn is_kind_on(kinds: NotificationKindSwitches, trigger: AttentionTrigger) -> bool {
     match trigger {
         AttentionTrigger::PendingApproval | AttentionTrigger::PendingInput => kinds.waiting_on_you,
         AttentionTrigger::RunCompleted => kinds.finished,

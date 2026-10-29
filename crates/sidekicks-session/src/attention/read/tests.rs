@@ -5,6 +5,7 @@ use sidekicks_contracts::attention::{
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::events::session::appender::SessionEventLinkage;
 
@@ -28,15 +29,15 @@ async fn named_session_log() -> AttentionTestLog {
     log
 }
 
-fn read(log: &AttentionTestLog, request: AttentionSubscribeRequest) -> AttentionProjection {
-    read_attention_projection(&log.database.reader(), &request).expect("the projection reads")
+fn read(log: &AttentionTestLog, request: &AttentionSubscribeRequest) -> AttentionProjection {
+    read_attention_projection(&log.database.reader(), request).expect("the projection reads")
 }
 
 /// The session's aggregate as its severity and seen fact, `None` when nothing contributes.
 fn aggregate(log: &AttentionTestLog) -> Option<(AttentionSeverity, bool)> {
     let projection = read(
         log,
-        AttentionSubscribeRequest {
+        &AttentionSubscribeRequest {
             session_id: Some(log.session_id),
             scope: Some(AttentionSubscribeScope::Session),
             run_id: None,
@@ -121,7 +122,7 @@ async fn an_entry_carries_none_of_its_plan_text() {
 
     let projection = read(
         &log,
-        AttentionSubscribeRequest {
+        &AttentionSubscribeRequest {
             session_id: Some(log.session_id),
             scope: None,
             run_id: None,
@@ -158,7 +159,7 @@ async fn a_plan_entry_names_the_run_that_proposed_it() {
 
     let projection = read(
         &log,
-        AttentionSubscribeRequest {
+        &AttentionSubscribeRequest {
             session_id: None,
             scope: None,
             run_id: None,
@@ -201,7 +202,7 @@ async fn an_entry_committed_after_the_seen_mark_in_its_millisecond_reads_unseen(
 
     let projection = read(
         &log,
-        AttentionSubscribeRequest {
+        &AttentionSubscribeRequest {
             session_id: None,
             scope: None,
             run_id: None,
@@ -213,7 +214,7 @@ async fn an_entry_committed_after_the_seen_mark_in_its_millisecond_reads_unseen(
             .iter()
             .find_map(|item| match item {
                 AttentionItem::Moment(item)
-                    if item.run_id.as_ref().map(|id| id.as_str())
+                    if item.run_id.as_ref().map(FreeFormText::as_str)
                         == Some(run_id.to_string().as_str()) =>
                 {
                     Some(item.seen)

@@ -335,15 +335,15 @@ pub(crate) fn change_statements(
             let (sql, open_entries) = match entries {
                 AttentionOpenEntries::Run(run_id) => (
                     &*MOMENT_RESOLVE_SQL,
-                    moment_bindings(AttentionMoment::Run(*run_id)),
+                    moment_bindings(&AttentionMoment::Run(*run_id)),
                 ),
                 AttentionOpenEntries::Plan(plan_id) => (
                     &*MOMENT_RESOLVE_SQL,
-                    moment_bindings(AttentionMoment::Plan(*plan_id)),
+                    moment_bindings(&AttentionMoment::Plan(*plan_id)),
                 ),
                 AttentionOpenEntries::WorkflowRun(workflow_run_id) => (
                     &*MOMENT_RESOLVE_SQL,
-                    moment_bindings(AttentionMoment::WorkflowRun(*workflow_run_id)),
+                    moment_bindings(&AttentionMoment::WorkflowRun(*workflow_run_id)),
                 ),
                 AttentionOpenEntries::Step(step) => (&*STEP_RESOLVE_SQL, step_bindings(step)),
             };
@@ -452,7 +452,7 @@ pub(crate) fn raised_banner_states() -> String {
     )
 }
 
-fn moment_bindings(moment: AttentionMoment) -> Vec<(Cow<'static, str>, Value)> {
+fn moment_bindings(moment: &AttentionMoment) -> Vec<(Cow<'static, str>, Value)> {
     vec![binding(
         "@moment_id",
         Value::Text(moment.id().as_str().to_owned()),

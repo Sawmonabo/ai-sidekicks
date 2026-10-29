@@ -110,7 +110,7 @@ mod tests {
     const ADDRESS: &str = "https://code.claude.com/docs/en/changelog#2-1-294";
 
     /// A provider's build entry with `build` as its build and `extra` merged over it.
-    fn build_item(build: Value, extra: Value) -> Value {
+    fn build_item(build: &Value, extra: &Value) -> Value {
         let mut item = json!({
             "id": "providerBuild:0123456789abcdef0123456789abcdef",
             "momentId": "providerBuild:0123456789abcdef0123456789abcdef",
@@ -152,31 +152,31 @@ mod tests {
     // client refuse the same entry. Killed by dropping the garde check, the `dependentRequired` or
     // the new arm's `deny_unknown_fields`.
     #[rstest]
-    #[case::installed(build_item(installed(), json!({})), Some("providerBuild"))]
+    #[case::installed(build_item(&installed(), &json!({})), Some("providerBuild"))]
     #[case::available(
         build_item(
-            json!({ "provider": "codex", "toVersion": "0.163.0" }),
-            json!({ "stateWord": "0.163.0 available" }),
+            &json!({ "provider": "codex", "toVersion": "0.163.0" }),
+            &json!({ "stateWord": "0.163.0 available" }),
         ),
         Some("providerBuild")
     )]
     #[case::from_version_without_address(
         build_item(
-            json!({ "provider": "claude", "fromVersion": "2.1.293", "toVersion": "2.1.294" }),
-            json!({}),
+            &json!({ "provider": "claude", "fromVersion": "2.1.293", "toVersion": "2.1.294" }),
+            &json!({}),
         ),
         None
     )]
     #[case::address_without_from_version(
         build_item(
-            json!({ "provider": "claude", "toVersion": "2.1.294", "releaseNotesAddress": ADDRESS }),
-            json!({}),
+            &json!({ "provider": "claude", "toVersion": "2.1.294", "releaseNotesAddress": ADDRESS }),
+            &json!({}),
         ),
         None
     )]
-    #[case::with_a_session(build_item(installed(), json!({ "sessionId": SESSION })), None)]
-    #[case::with_a_seen_fact(build_item(installed(), json!({ "seen": false })), None)]
-    #[case::pending_banner(build_item(installed(), json!({ "bannerState": "pending" })), None)]
+    #[case::with_a_session(build_item(&installed(), &json!({ "sessionId": SESSION })), None)]
+    #[case::with_a_seen_fact(build_item(&installed(), &json!({ "seen": false })), None)]
+    #[case::pending_banner(build_item(&installed(), &json!({ "bannerState": "pending" })), None)]
     #[case::a_sessions_moment(
         json!({
             "id": "event-1",

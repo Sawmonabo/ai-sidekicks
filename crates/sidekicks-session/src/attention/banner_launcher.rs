@@ -285,7 +285,7 @@ mod tests {
         match lift {
             Lift::SubscriptionOpens => drop(launcher.hold_local_subscription()),
             Lift::FallbackPasses => {
-                sleep(UNWATCHED_START_HOLD - Duration::from_millis(2)).await;
+                sleep(UNWATCHED_START_HOLD.saturating_sub(Duration::from_millis(2))).await;
                 launcher.request_start();
                 assert_eq!(
                     starter.launches(),
