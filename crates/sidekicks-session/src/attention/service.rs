@@ -1,6 +1,7 @@
 //! The attention service: the task that decides each entry's banner and web-address message once,
-//! the settle that records what main did with a banner, the seen mark, and the sweep at start of
-//! what a stop left undecided or standing.
+//! the settle that records what main did with a banner, the seen mark, the projection's read and
+//! change count its subscribers follow, and the sweep at start of what a stop left undecided or
+//! standing.
 //!
 //! The decision task follows the machine's change count and reads the undecided entries. A
 //! subject's first undecided entry opens a fixed half-second window that later entries do not
@@ -18,14 +19,15 @@ use jiff::Timestamp;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension as _, Row};
 use sidekicks_contracts::attention::{
-    AttentionBannerSettledState, AttentionBannerState, AttentionId, AttentionSeenSubject,
-    AttentionSeverity, AttentionTrigger,
+    AttentionBannerSettledState, AttentionBannerState, AttentionId, AttentionProjection,
+    AttentionSeenSubject, AttentionSeverity, AttentionSubscribeRequest, AttentionTrigger,
 };
 use sidekicks_contracts::machine::settings::NotificationSettings;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::presence::PresenceRegister;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -33,11 +35,12 @@ use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::attention::banner_launcher::BannerLauncher;
+use crate::attention::banner_launcher::{BannerLauncher, LocalSubscriptionHold};
 use crate::attention::changes::AttentionChanges;
 use crate::attention::gate::{
     Decision, DeliveryDecision, decide, read_notification_settings, write_decisions,
@@ -46,6 +49,7 @@ use crate::attention::moment::AttentionSubject;
 use crate::attention::projection::{
     binding, raised_banner_states, session_binding, statement, version_bump_sql,
 };
+use crate::attention::read::{AttentionReadError, read_attention_projection};
 use crate::attention::retention::{ENTRY_SEQUENCE, advance_retention_statements};
 use crate::attention::seen::write_seen;
 use crate::directory::lookups::SessionWriteError;
@@ -166,6 +170,35 @@ pub enum AttentionServiceError {
     /// finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+    /// The projection's read was refused or failed.
+    #[error(transparent)]
+    Read(#[from] AttentionReadError),
+}
+
+impl AttentionServiceError {
+    /// Whether the read pool closed under the daemon's stop, which ends a follow finished.
+    pub fn is_pool_closed(&self) -> bool {
+        match self {
+            Self::Pool(DatabaseReadError::Closed)
+            | Self::Read(AttentionReadError::Pool(DatabaseReadError::Closed)) => true,
+            Self::Pool(DatabaseReadError::Open(_) | DatabaseReadError::Join(_))
+            | Self::Read(_)
+            | Self::Write(_)
+            | Self::Database(_) => false,
+        }
+    }
+}
+
+impl From<AttentionServiceError> for HandlerError {
+    /// A refused read answers by its code; a failed read or write is a fault in the daemon.
+    fn from(error: AttentionServiceError) -> Self {
+        match error {
+            AttentionServiceError::Read(read) => Self::from(read),
+            fault @ (AttentionServiceError::Write(_)
+            | AttentionServiceError::Database(_)
+            | AttentionServiceError::Pool(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 /// One undecided entry as the gate reads it.
@@ -274,7 +307,7 @@ impl AttentionService {
         state: AttentionBannerSettledState,
         device_id: Option<&DeviceId>,
     ) -> Result<(), AttentionServiceError> {
-        if device_id != Some(&self.machine_device_id) {
+        if !self.is_this_machine(device_id) {
             return Ok(());
         }
         let entry = entry_id.as_str().to_owned();
@@ -312,6 +345,38 @@ impl AttentionService {
             ])
             .await?;
         Ok(())
+    }
+
+    /// The count a follower of `session_id`'s projection, or the whole machine's for `None`, waits
+    /// on; taken before the first read, so a change during it costs one more read, never a miss.
+    pub fn follow(&self, session_id: Option<SessionId>) -> watch::Receiver<u64> {
+        self.changes.follow(session_id)
+    }
+
+    /// The projection `request` asks for, read in one snapshot. Fails with
+    /// [`AttentionServiceError::Read`] holding `session.notFound` for a named session with no row.
+    pub async fn read(
+        &self,
+        request: &AttentionSubscribeRequest,
+    ) -> Result<AttentionProjection, AttentionServiceError> {
+        let request = request.clone();
+        Ok(self
+            .pool
+            .read(ReadLength::Short, move |connection| {
+                read_attention_projection(connection, &request)
+            })
+            .await?)
+    }
+
+    /// Whether `device_id` is this machine's device, whose app posts its banners.
+    pub fn is_this_machine(&self, device_id: Option<&DeviceId>) -> bool {
+        device_id == Some(&self.machine_device_id)
+    }
+
+    /// Holds back the app's windowless start while this machine's own app follows every entry,
+    /// until the hold drops.
+    pub fn hold_local_subscription(&self) -> LocalSubscriptionHold {
+        self.launcher.hold_local_subscription()
     }
 
     /// Marks `subject` seen through its session's newest event; fails as [`write_seen`] does.
