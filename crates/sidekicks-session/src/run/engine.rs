@@ -70,6 +70,7 @@ use crate::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
 use crate::run::provider_choice::held::HeldChoiceAnswers;
 use crate::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::run::refusals::{RunRefusal, ended_run_refusal};
+use crate::run::session_posture::SessionPostureSource;
 use crate::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateChangeWriter,
     refused_statement_index,
@@ -92,6 +93,17 @@ const LIVE_APPEND_ATTEMPTS: usize = 3;
 
 // The guard on the version a live append was built from is the first statement of its write.
 const LIVE_APPEND_VERSION_GUARD_INDEX: usize = 0;
+
+/// How the start of a run its provider started beneath a live parent went: running at its
+/// session's posture, or refused at its setup and ended `failed`, the subagent left for its driver
+/// to stop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum SubagentRunStart {
+    /// The run is `running`, stamped with the posture its gates resolved.
+    Running(RunId),
+    /// A setup gate refused the run, which ended `failed` with no posture stamped.
+    Refused(RunId),
+}
 
 /// Where an interrupt of a run goes: claimed by the engine for a run no driver has, whose end is
 /// left to the interrupt's own outcome; to the driver, which has the run to stop; or nowhere, the
@@ -127,6 +139,13 @@ pub enum RunEngineError {
         /// The gate's failure.
         #[source]
         source: RunSetupGateError,
+    },
+    /// A run its provider started has no session posture to run at: no source was handed to
+    /// the engine, the source is gone, or the run's session has no open process.
+    #[error("run {run_id} has no posture of its session's open process to run at")]
+    NoSessionPosture {
+        /// The run.
+        run_id: RunId,
     },
     /// The run passed its gates with no posture resolved for it.
     #[error("run {run_id} passed its gates with no resolved posture")]
@@ -283,6 +302,9 @@ pub struct RunEngine {
     // The run queue, whose hold of a person's interrupt a run's end or a turn's end lets go once it
     // settles that interrupt; held weakly, as the queue holds the engine.
     interrupt_queue: SetOnce<Weak<dyn InterruptQueue>>,
+    // Where a run its provider started reads the posture its session's open process runs at; held
+    // weakly, as that source reaches the engine through the drivers' ports.
+    session_postures: SetOnce<Weak<dyn SessionPostureSource>>,
     live: Mutex<LiveRuns>,
     // Where a test holds a limit stop once its cut is in and before it reads whether its turn is
     // still open.
@@ -328,6 +350,7 @@ impl RunEngine {
             held_choice_answers,
             limit_interrupter: SetOnce::new(),
             interrupt_queue: SetOnce::new(),
+            session_postures: SetOnce::new(),
             live: Mutex::new(LiveRuns::default()),
             #[cfg(test)]
             cut_pause: PausePoint::default(),
@@ -372,6 +395,16 @@ impl RunEngine {
         limit_interrupter: Weak<dyn LimitInterrupter>,
     ) -> Result<(), SetOnceError<Weak<dyn LimitInterrupter>>> {
         self.limit_interrupter.set(limit_interrupter)
+    }
+
+    /// Hands the engine the source of each open session's posture, which a run its provider starts
+    /// is gated at, once, while the daemon wires its services and before any provider runs. Fails
+    /// with the handle when one was handed already.
+    pub fn set_session_postures(
+        &self,
+        session_postures: Weak<dyn SessionPostureSource>,
+    ) -> Result<(), SetOnceError<Weak<dyn SessionPostureSource>>> {
+        self.session_postures.set(session_postures)
     }
 
     /// Adds a setup gate after those already registered; its terminal hook runs before theirs.
