@@ -3,7 +3,9 @@
 //! table that says which binding a server name a session reports resolves to.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::fmt;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, Weak};
 
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
@@ -116,12 +118,12 @@ pub(crate) fn resolve_binding_rows(
 // Whether a declaration's own `enabled` is off, as the user entry of an emulated `local` binding is
 // written.
 fn is_off_by_default(config: &McpServerConfigView) -> bool {
-    let enabled = match config {
+    match config {
         McpServerConfigView::Stdio { enabled, .. }
         | McpServerConfigView::Http { enabled, .. }
-        | McpServerConfigView::Sse { enabled, .. } => enabled,
-    };
-    *enabled == Some(false)
+        | McpServerConfigView::Sse { enabled, .. } => *enabled == Some(false),
+        McpServerConfigView::Ws { .. } => false,
+    }
 }
 
 fn is_local_of(
@@ -160,12 +162,36 @@ const ROOT_FREE_SCOPES: [McpBindingScope; 4] = [
 
 /// Which binding each server name a session reports resolves to, per provider and project root:
 /// the set the daemon sent there, then what the provider loads there by its own config; and for
-/// a session in no root, the provider's root-free bindings. It sits
-/// behind a lock taken only for a lookup or a replacement, never across an await, so a status
-/// producer reads it without waiting.
+/// a session in no root, the provider's root-free bindings. It sits behind a lock taken only for
+/// a lookup or a replacement, never across an await, so a status producer reads it without
+/// waiting. Each read that replaces it is stamped before its driver read, so an older read that
+/// finishes later replaces nothing; a leg holding a report no name resolved waits on it and is
+/// handed each replacement.
 #[derive(Debug, Default)]
 pub struct McpAttributionTable {
     roots: Mutex<McpAttributionRoots>,
+    next_read_stamp: AtomicU64,
+    waiting_legs: McpWaitingLegs,
+}
+
+/// A leg holding reports whose names resolved to no binding, handed each replacement of the table
+/// to resolve them again.
+pub(crate) trait McpUnresolvedReports: Send + Sync {
+    /// Resolves the held reports against the table again, applying each that resolves now.
+    fn resolve_again(&self);
+}
+
+// The legs waiting on the table's next replacement, each held weakly so a retired leg goes.
+#[derive(Default)]
+struct McpWaitingLegs(Mutex<Vec<Weak<dyn McpUnresolvedReports>>>);
+
+impl fmt::Debug for McpWaitingLegs {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("McpWaitingLegs")
+            .field("count", &lock(&self.0).len())
+            .finish()
+    }
 }
 
 /// The table's bindings, per provider, root and server name.
@@ -179,19 +205,48 @@ struct McpAttributionRoots {
     /// The provider's bindings in no project root (managed, user, plugin and connector), as its
     /// last inventory read declared them, which a session in no root loads.
     root_free: HashMap<ProviderId, HashMap<McpServerName, McpServerBindingRef>>,
+    /// The bindings each provider's accounts declared at the last read that asked them.
+    account_declared: HashMap<ProviderId, Vec<McpServerBindingRef>>,
+    /// The stamp of the newest read that replaced each provider's bindings.
+    applied_stamps: HashMap<ProviderId, u64>,
+}
+
+/// Whether a reading asked the provider's accounts, which decides where the table takes the
+/// accounts' bindings from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum McpAccountsAsked {
+    /// The reading's own account servers replace the accounts' bindings.
+    Asked,
+    /// The reading asked no account, so the accounts' bindings the last asking read left stand.
+    NotAsked,
 }
 
 impl McpAttributionTable {
-    /// Replaces whole what `provider` loads by its own config with what its newest `reading` says:
-    /// at each root, where a root missing from the reading resolves no provider-loaded name
-    /// afterwards, and in no root, from the bindings it declares in a root-free scope. Where a
-    /// root's list names a server twice, its first binding stands; where two root-free scopes
-    /// declare one name, the scope first in [`ROOT_FREE_SCOPES`] stands.
+    /// The stamp of a read about to start, later than every stamp handed out before it.
+    pub(crate) fn stamp_read(&self) -> u64 {
+        self.next_read_stamp.fetch_add(1, Ordering::SeqCst)
+    }
+
+    /// Holds `leg` until the table's next replacement, which hands it the new bindings.
+    pub(crate) fn wait_for_replacement(&self, leg: Weak<dyn McpUnresolvedReports>) {
+        lock(&self.waiting_legs.0).push(leg);
+    }
+
+    /// Replaces whole what `provider` loads by its own config with what the read stamped `stamp`
+    /// says, unless a read stamped later already replaced it, and answers whether it did: at each
+    /// root, where a root missing from the reading resolves no provider-loaded name afterwards,
+    /// and in no root, from the bindings it declares in a root-free scope. Where a root's list
+    /// names a server twice, its first binding stands; where two root-free scopes declare one
+    /// name, the scope first in [`ROOT_FREE_SCOPES`] stands; the accounts' bindings come from the
+    /// reading where `accounts` says it asked them, else from the last read that did. Each leg
+    /// waiting on the table then resolves its held reports again.
     pub(crate) fn replace_provider_loaded(
         &self,
         provider: &ProviderId,
         reading: &ProviderMcpServersReading,
-    ) {
+        accounts: McpAccountsAsked,
+        stamp: u64,
+    ) -> bool {
         let loaded = reading
             .roots
             .iter()
@@ -205,31 +260,52 @@ impl McpAttributionTable {
                 (root.root.clone(), names)
             })
             .collect();
-        let declared: Vec<&McpServerBindingRef> = reading
-            .declarations
-            .iter()
-            .chain(
-                reading
+        {
+            let mut roots = lock(&self.roots);
+            if roots
+                .applied_stamps
+                .get(provider)
+                .is_some_and(|applied| *applied > stamp)
+            {
+                return false;
+            }
+            if accounts == McpAccountsAsked::Asked {
+                let account_declared = reading
                     .account_servers
                     .iter()
-                    .flat_map(|account| &account.declarations),
-            )
-            .map(|declaration| &declaration.binding)
-            .collect();
-        let mut root_free = HashMap::new();
-        for scope in ROOT_FREE_SCOPES {
-            for binding in &declared {
-                let key = McpBindingKey::of(binding);
-                if key.scope == scope {
-                    root_free
-                        .entry(key.server_name)
-                        .or_insert_with(|| (*binding).clone());
+                    .flat_map(|account| &account.declarations)
+                    .map(|declaration| declaration.binding.clone())
+                    .collect();
+                roots
+                    .account_declared
+                    .insert(provider.clone(), account_declared);
+            }
+            let declared: Vec<&McpServerBindingRef> = reading
+                .declarations
+                .iter()
+                .map(|declaration| &declaration.binding)
+                .chain(roots.account_declared.get(provider).into_iter().flatten())
+                .collect();
+            let mut root_free = HashMap::new();
+            for scope in ROOT_FREE_SCOPES {
+                for binding in &declared {
+                    let key = McpBindingKey::of(binding);
+                    if key.scope == scope {
+                        root_free
+                            .entry(key.server_name)
+                            .or_insert_with(|| (*binding).clone());
+                    }
                 }
             }
+            roots.applied_stamps.insert(provider.clone(), stamp);
+            roots.provider_loaded.insert(provider.clone(), loaded);
+            roots.root_free.insert(provider.clone(), root_free);
         }
-        let mut roots = lock(&self.roots);
-        roots.provider_loaded.insert(provider.clone(), loaded);
-        roots.root_free.insert(provider.clone(), root_free);
+        let waiting = std::mem::take(&mut *lock(&self.waiting_legs.0));
+        for leg in waiting.iter().filter_map(Weak::upgrade) {
+            leg.resolve_again();
+        }
+        true
     }
 
     /// The binding `server_name` resolves to in a session of `provider` at `root`: the daemon's
@@ -265,7 +341,7 @@ mod tests {
         ProviderMcpServersReading,
     };
 
-    use super::McpAttributionTable;
+    use super::{McpAccountsAsked, McpAttributionTable};
 
     fn root(path: &str) -> PlacedPath {
         PlacedPath {
@@ -348,6 +424,8 @@ mod tests {
         table.replace_provider_loaded(
             &provider,
             &reading(&provider, &[root_a.clone(), root_b.clone()], Vec::new()),
+            McpAccountsAsked::Asked,
+            table.stamp_read(),
         );
 
         assert_eq!(
@@ -401,6 +479,8 @@ mod tests {
                     project_binding(&provider, &root_a, "mail"),
                 ],
             ),
+            McpAccountsAsked::Asked,
+            table.stamp_read(),
         );
 
         assert_eq!(

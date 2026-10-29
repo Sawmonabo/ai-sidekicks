@@ -37,8 +37,8 @@ use crate::driver::claude::session::controls::{
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
-use crate::driver::claude::session::establishment::ClaudeSpawnSources;
 use crate::driver::claude::session::establishment::context::resolve_claude_spawn_context;
+use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::permission_level::{
     ClaudeStartingLevelSources, can_run_claude_level, list_claude_modes,
     move_claude_permission_level, read_claude_sandbox_support, read_claude_starting_level,

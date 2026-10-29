@@ -1,14 +1,16 @@
 //! The daemon's status producer of one session leg: each server name a driver reports is
 //! attributed, through the attribution table, to the binding a session at the session's project
 //! root serves it from, or a session in no root from the provider's root-free bindings, then
-//! applied to the leg's status; the leg's end retires that leg alone.
+//! applied to the leg's status; a report whose name resolves to none is held, the newest per name,
+//! and applied when a replacement of the table resolves it; the leg's end retires that leg alone.
 //! Beside it, the daemon's own MCP sign-in state, which reads a server whose sign-in the daemon
 //! holds and lacks as `needsAuth`.
 
-use std::sync::Arc;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, Weak};
 
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpServerStatus};
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -17,10 +19,11 @@ use sidekicks_contracts::wire::text::TextError;
 use sidekicks_provider::driver::mcp_server::status::{
     McpServerReading, McpServerStatusEmission, McpServerStatusProducer, McpServerStatusSink,
 };
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::project::records::AttachedProjectRoot;
 
 use super::{McpLegStatusSink, McpServerStatusTracker};
-use crate::binding::resolver::{McpAttributionTable, attached_root_path};
+use crate::binding::resolver::{McpAttributionTable, McpUnresolvedReports, attached_root_path};
 
 /// Where a session's reported server names are attributed: the attribution table, the provider
 /// the session runs on and its project's root, none for a session in no project with an attached
@@ -58,53 +61,107 @@ pub fn open_mcp_leg_status_producer(
     session_id: SessionId,
     binding_id: RuntimeBindingId,
 ) -> McpServerStatusProducer {
-    Arc::new(McpLegStatusProducer {
-        sink: tracker.open_leg(session_id, binding_id),
+    let sink = tracker.open_leg(session_id, binding_id);
+    Arc::new_cyclic(|this: &Weak<McpLegStatusProducer>| McpLegStatusProducer {
+        sink,
         attribution,
         is_ended: AtomicBool::new(false),
+        unresolved: Mutex::default(),
+        is_waiting: AtomicBool::new(false),
+        this: this.clone(),
     })
 }
 
-// One leg's producer: its sink on the tracker, where its names are attributed, and whether its
-// leg has ended.
+// One leg's producer: its sink on the tracker, where its names are attributed, whether its leg
+// has ended, the newest report of each name that resolved to no binding yet, whether it waits on
+// the table's next replacement, and itself, which it hands the table to wait on.
 struct McpLegStatusProducer {
     sink: McpLegStatusSink,
     attribution: McpSessionAttribution,
     is_ended: AtomicBool,
+    unresolved: Mutex<HashMap<McpServerName, McpServerStatusEmission>>,
+    is_waiting: AtomicBool,
+    this: Weak<McpLegStatusProducer>,
 }
 
 impl McpLegStatusProducer {
-    // Retires the leg the first time it is called, so an end and a later drop retire it once.
+    // Retires the leg the first time it is called, so an end and a later drop retire it once, and
+    // lets go of every report still unresolved.
     fn retire_once(&self) {
         if !self.is_ended.swap(true, Ordering::SeqCst) {
+            lock(&self.unresolved).clear();
             let leg = &self.sink.leg;
             self.sink
                 .tracker
                 .retire_leg(leg.session_id, leg.binding_id.clone());
         }
     }
-}
 
-impl McpServerStatusSink for McpLegStatusProducer {
-    /// Applies the reading to the binding its name resolves to at the session's root, or among the
-    /// provider's root-free bindings for a session in no root; a name that resolves to none is
-    /// logged and changes nothing.
-    fn report_status(&self, emission: McpServerStatusEmission) {
+    // The binding `server_name` resolves to at the session's root.
+    fn resolve(&self, server_name: &McpServerName) -> Option<McpServerBindingRef> {
         let McpSessionAttribution {
             table,
             provider,
             root,
         } = &self.attribution;
-        let Some(binding) = table.resolve(provider, root.as_ref(), emission.server_name()) else {
-            tracing::debug!(
-                session_id = %self.sink.leg.session_id,
-                binding_id = self.sink.leg.binding_id.as_str(),
-                server_name = emission.server_name().as_str(),
-                "an MCP server a session reported resolves to no binding"
-            );
-            return;
+        table.resolve(provider, root.as_ref(), server_name)
+    }
+
+    // Applies each held report whose name resolves now, keeps the rest, and has the table hand
+    // this leg its next replacement while any is kept.
+    fn apply_resolved(&self) {
+        let still_unresolved = {
+            let mut unresolved = lock(&self.unresolved);
+            if self.is_ended.load(Ordering::SeqCst) {
+                return;
+            }
+            let held = std::mem::take(&mut *unresolved);
+            for (server_name, emission) in held {
+                match self.resolve(&server_name) {
+                    Some(binding) => self.sink.observe(&binding, emission),
+                    None => {
+                        unresolved.insert(server_name, emission);
+                    }
+                }
+            }
+            !unresolved.is_empty()
         };
-        self.sink.observe(&binding, emission);
+        if still_unresolved && !self.is_waiting.swap(true, Ordering::SeqCst) {
+            let this: Weak<dyn McpUnresolvedReports> = self.this.clone();
+            self.attribution.table.wait_for_replacement(this);
+        }
+    }
+}
+
+impl McpUnresolvedReports for McpLegStatusProducer {
+    fn resolve_again(&self) {
+        self.is_waiting.store(false, Ordering::SeqCst);
+        self.apply_resolved();
+    }
+}
+
+impl McpServerStatusSink for McpLegStatusProducer {
+    /// Applies the reading to the binding its name resolves to at the session's root, or among the
+    /// provider's root-free bindings for a session in no root; a name that resolves to none is
+    /// held, its newest report replacing an older one, until a replacement of the table resolves
+    /// it.
+    fn report_status(&self, emission: McpServerStatusEmission) {
+        let server_name = emission.server_name().clone();
+        if let Some(binding) = self.resolve(&server_name) {
+            lock(&self.unresolved).remove(&server_name);
+            self.sink.observe(&binding, emission);
+            return;
+        }
+        tracing::debug!(
+            session_id = %self.sink.leg.session_id,
+            binding_id = self.sink.leg.binding_id.as_str(),
+            server_name = server_name.as_str(),
+            "an MCP server a session reported resolves to no binding yet; its report is held"
+        );
+        lock(&self.unresolved).insert(server_name, emission);
+        // Resolving again here, after the report is held, catches a replacement that landed
+        // between the first resolve and the hold.
+        self.apply_resolved();
     }
 
     /// Retires the producer's own leg, once however often it is called.
@@ -172,7 +229,7 @@ mod tests {
     use sidekicks_workspace::project::records::AttachedProjectRoot;
 
     use super::{McpSessionAttribution, open_mcp_leg_status_producer};
-    use crate::binding::resolver::McpAttributionTable;
+    use crate::binding::resolver::{McpAccountsAsked, McpAttributionTable};
     use crate::binding::store::McpBindingKey;
     use crate::status::open_test_tracker;
 
@@ -195,9 +252,8 @@ mod tests {
         }
     }
 
-    // A session at `ROOT`, whose provider loads `docs` there.
-    fn attribution() -> McpSessionAttribution {
-        let table = Arc::new(McpAttributionTable::default());
+    // Has `table` read that the provider loads each of `names` at `ROOT`.
+    fn load_at_root(table: &McpAttributionTable, names: &[&str]) {
         let root = PlacedPath {
             path: FilesystemPath::new(ROOT.to_owned()).expect("a path"),
             place: None,
@@ -209,14 +265,27 @@ mod tests {
                 roots: vec![McpRootReading {
                     root,
                     kept_out_server_names: Vec::new(),
-                    provider_loaded: vec![binding("docs")],
+                    provider_loaded: names.iter().map(|name| binding(name)).collect(),
                 }],
                 is_machine_managed: false,
                 server_policy: McpServerPolicy::default(),
                 account_servers: Vec::new(),
                 probe_readings: Vec::new(),
             },
+            McpAccountsAsked::Asked,
+            table.stamp_read(),
         );
+    }
+
+    // A session at `ROOT`, whose provider loads `docs` there.
+    fn attribution() -> McpSessionAttribution {
+        let table = Arc::new(McpAttributionTable::default());
+        load_at_root(&table, &["docs"]);
+        attribution_on(table)
+    }
+
+    // A session at `ROOT` attributed through `table`.
+    fn attribution_on(table: Arc<McpAttributionTable>) -> McpSessionAttribution {
         McpSessionAttribution::new(
             table,
             provider(),
@@ -265,18 +334,23 @@ mod tests {
     }
 
     // A name the table holds no binding for at the session's root adds no leg to any binding and
-    // hands no binding on to be recorded. Killed by a row made for the unknown name.
+    // hands no binding on, but its newest report is held, so once a read fills the table the
+    // binding reads the leg, as a list then shows it. Killed by a row made for the unknown name,
+    // by the report dropped, and by an older report applied over the newer one.
     #[tokio::test]
-    async fn a_name_with_no_binding_adds_no_leg_and_no_row() {
+    async fn a_report_no_name_resolves_is_applied_once_the_table_holds_its_binding() {
         let (tracker, _subscriber, mut first_observations) = open_test_tracker().await;
         let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
+        let leg = RuntimeBindingId::new("leg-a".to_owned()).expect("a binding id");
+        let table = Arc::new(McpAttributionTable::default());
         let producer = open_mcp_leg_status_producer(
             &tracker,
-            attribution(),
+            attribution_on(Arc::clone(&table)),
             session_id,
-            RuntimeBindingId::new("leg-a".to_owned()).expect("a binding id"),
+            leg.clone(),
         );
 
+        producer.report_status(report("mail", Failed));
         producer.report_status(report("mail", Connected));
 
         assert_eq!(
@@ -291,5 +365,13 @@ mod tests {
             ),
             "no binding is handed on to be recorded"
         );
+
+        load_at_root(&table, &["mail"]);
+
+        let reading = tracker.reading(&McpBindingKey::of(&binding("mail")));
+        let legs: Vec<_> = reading.legs.iter().map(|leg| &leg.binding_id).collect();
+        assert_eq!(legs, [&leg]);
+        assert_eq!(reading.status, Connected);
+        drop(producer);
     }
 }

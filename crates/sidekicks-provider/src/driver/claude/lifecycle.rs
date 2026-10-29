@@ -11,7 +11,6 @@ mod tests;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandBinding, ProviderCommandListResponse,
@@ -27,6 +26,7 @@ use self::controls::ClaudeRegisteredPlacesAddresser;
 use crate::command::askpass::command_askpass_program_path;
 use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::DriverServices;
 use crate::driver::attachments::AttachmentResolver;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account_credentials::ClaudeSignInReader;
@@ -64,28 +64,21 @@ use crate::driver::claude::session::account_servers::ClaudeAccountServerReads;
 use crate::driver::claude::session::arrivals::task::ClaudeSessionTaskServices;
 use crate::driver::claude::session::context_reading::ClaudeContextReadings;
 use crate::driver::claude::session::controls::{ClaudeCommandListReader, ClaudeSessionControls};
+use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
 use crate::driver::claude::session::establishment::figures::ClaudeHeldFigures;
-use crate::driver::claude::session::establishment::{
-    ClaudeSessionEstablishment, ClaudeSpawnSources,
-};
+use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
 use crate::driver::claude::session::restart::ClaudeSessionRestarts;
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
-use crate::driver::claude::spawn::environment::{
-    ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, ClaudeProcessHome,
-    compose_claude_process_environment,
-};
 use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeInstalledBuild, ClaudeProcessStarts,
 };
 use crate::driver::contract::error::DriverError;
-use crate::driver::{DriverServices, ProviderAccountFolders};
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::repository_reader::RepositoryReading;
 use crate::port::run_host::RunHost;
 use crate::port::session_inbox_address::SessionInboxAddresser;
-use crate::spawn_environment::SessionEnvironment;
 
 /// The Claude Code driver: what it stores when built, and the session pieces it composes once.
 pub(crate) struct ClaudeDriver {
@@ -471,75 +464,6 @@ impl ClaudeDriver {
             goals,
             reviewer,
         })
-    }
-}
-
-/// The environment every process the driver starts composes from the daemon's services.
-impl ClaudeSpawnSources {
-    /// The environment a process starts with on `home`, with a session's environment rows where
-    /// given. Fails as the environment cannot be composed.
-    pub(crate) fn process_environment(
-        &self,
-        home: ClaudeProcessHome<'_>,
-        every_project_rows: &[EnvironmentRow],
-        project_rows: &[EnvironmentRow],
-    ) -> Result<Vec<(String, String)>, DriverError> {
-        let sources = self;
-        let data_folder = sources.data_folder.to_string_lossy();
-        compose_claude_process_environment(
-            ClaudeProcessEnvironmentRequest {
-                session: SessionEnvironment {
-                    base: &sources.base_environment,
-                    every_project_rows,
-                    project_rows,
-                    reserved_names: &sources.reserved_names,
-                    rules: PathRules::NATIVE,
-                },
-                deny_env_vars: &[],
-                home,
-                data_folder: &data_folder,
-            },
-            &[],
-        )
-        .map_err(internal)
-    }
-
-    /// The environment a process on `provider_account_id`'s home starts with, its folders as
-    /// `folders` give them. Fails as the environment cannot be composed.
-    pub(crate) fn account_process_environment(
-        &self,
-        folders: &ProviderAccountFolders,
-        provider_account_id: &ProviderAccountId,
-        every_project_rows: &[EnvironmentRow],
-        project_rows: &[EnvironmentRow],
-    ) -> Result<Vec<(String, String)>, DriverError> {
-        let folders = ClaudeAccountFolders::from(folders);
-        self.process_environment(
-            ClaudeProcessHome::Account {
-                folders: &folders,
-                provider_account_id,
-            },
-            every_project_rows,
-            project_rows,
-        )
-    }
-
-    /// The environment a process that keeps nothing starts with on `provider_account_id`'s home,
-    /// its folders read with no session. Fails `provider.account.notFound` or
-    /// `provider.account.credentialHome.unavailable` as the account's folders answer, and as they
-    /// cannot be read or the environment cannot be composed.
-    pub(crate) async fn account_environment(
-        &self,
-        provider_account_id: &ProviderAccountId,
-    ) -> Result<Vec<(String, String)>, DriverError> {
-        let folders = self
-            .ports
-            .provider_accounts
-            .require_port()
-            .map_err(internal)?
-            .resolve_account_folders(provider_account_id.clone())
-            .await?;
-        self.account_process_environment(&folders, provider_account_id, &[], &[])
     }
 }
 

@@ -1,8 +1,8 @@
 //! A Claude Code process's MCP server readings, reported on the status sink its spawn was bound
 //! to. Claude Code pushes no status of its own, so they come from the `system/init` list and from
 //! `mcp_status`, asked at a turn's end while a server still starts or reads unknown (servers set
-//! up from `--mcp-config` may still be starting as the first turn runs), on a refresh and once the
-//! session's servers are set; never on a timer. The process's end ends its leg once.
+//! up from `--mcp-config` may still be starting as the first turn runs) and on a refresh; never on
+//! a timer. The process's end ends its leg once.
 
 use std::collections::HashMap;
 
@@ -83,9 +83,9 @@ impl LiveClaudeSession {
     }
 
     /// Reads the status of each MCP server the process holds with `mcp_status` and reports it on
-    /// the process's leg; the refresh of a live leg and the session's MCP server set call it too,
-    /// the set once its reply lands. A process whose spawn was bound to no sink, or whose leg
-    /// ended, is not asked; a refused or unanswered read is recorded and changes no reading.
+    /// the process's leg; the refresh of a live leg calls it too. A process whose spawn was bound
+    /// to no sink, or whose leg ended, is not asked; a refused or unanswered read is recorded and
+    /// changes no reading.
     pub(crate) async fn read_mcp_status(&self) {
         if self.spawn_bound_legs.on_mcp_server_status.is_none()
             || lock(&self.mcp_server_readings).is_ended

@@ -20,14 +20,14 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::driver::mcp_server::read::{
     McpProbeReading, McpProbeScope, McpServerDeclaration, McpServerPolicy, McpServerToolDefaults,
     McpServersReadRequest, ProviderMcpServersReading,
 };
 use sidekicks_provider::driver::mcp_server::status::{McpServerReading, McpServerStatusEmission};
-use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+use sidekicks_provider::driver::test_registry::registry_of_first_providers;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -44,6 +44,7 @@ use crate::binding::store::{McpBindingKey, McpBindingStore, open_first_observati
 use crate::schema::schema_parts;
 use crate::status::McpServerStatusTracker;
 use crate::status::machine_probe::McpMachineProbeGate;
+use crate::status::normalizer::{McpSessionAttribution, open_mcp_leg_status_producer};
 use crate::status::notices::McpNoticeBoard;
 
 /// The statements a read connection keeps prepared: the store's, the accounts' and the roots'.
@@ -81,12 +82,19 @@ struct TestInventory {
     provider: ProviderId,
     service: McpInventoryService,
     tracker: Arc<McpServerStatusTracker>,
+    attribution: Arc<McpAttributionTable>,
     gate: Arc<McpMachineProbeGate>,
     /// The probe scope of each read the driver was asked, in order.
     probes: Arc<Mutex<Vec<McpProbeScope>>>,
 }
 
-async fn open_inventory(mut answer: DriverAnswer) -> TestInventory {
+async fn open_inventory(answer: DriverAnswer) -> TestInventory {
+    open_inventory_over(vec![answer]).await
+}
+
+/// An inventory over the table's first providers, one answering through each of `answers`, the
+/// first provider's `docs` row stored.
+async fn open_inventory_over(answers: Vec<DriverAnswer>) -> TestInventory {
     let database = TestDatabase::new(schema_parts());
     let writer = Arc::new(
         DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -101,25 +109,38 @@ async fn open_inventory(mut answer: DriverAnswer) -> TestInventory {
     let (outlet, drain) = open_first_observation_drain(store.clone()).await;
     // The drain records each binding the tracker observes; it ends when the tracker drops.
     tokio::spawn(drain);
-    let provider_of_registry: Arc<OnceLock<ProviderId>> = Arc::new(OnceLock::new());
     let probes = Arc::new(Mutex::new(Vec::new()));
-    let mut driver = MockProviderDriver::new();
-    let provider_of_driver = Arc::clone(&provider_of_registry);
-    let driver_probes = Arc::clone(&probes);
-    driver.expect_read_mcp_servers().returning(move |request| {
-        let provider = provider_of_driver
-            .get()
-            .expect("the registry names the provider")
-            .clone();
-        lock(&driver_probes).push(request.probe.clone());
-        answer(provider, request)
-    });
-    let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
-    let (provider, _driver) = providers.drivers().next().expect("one provider");
+    let mut providers_of_registry = Vec::new();
+    let mut drivers: Vec<Arc<dyn ProviderDriver>> = Vec::new();
+    for mut answer in answers {
+        let provider_of_registry: Arc<OnceLock<ProviderId>> = Arc::new(OnceLock::new());
+        let mut driver = MockProviderDriver::new();
+        let provider_of_driver = Arc::clone(&provider_of_registry);
+        let driver_probes = Arc::clone(&probes);
+        driver.expect_read_mcp_servers().returning(move |request| {
+            let provider = provider_of_driver
+                .get()
+                .expect("the registry names the provider")
+                .clone();
+            lock(&driver_probes).push(request.probe.clone());
+            answer(provider, request)
+        });
+        driver
+            .expect_reread_live_mcp_statuses()
+            .returning(|| ready(()).boxed());
+        providers_of_registry.push(provider_of_registry);
+        drivers.push(Arc::new(driver));
+    }
+    let providers = Arc::new(registry_of_first_providers(drivers));
+    for ((provider, _driver), provider_of_registry) in
+        providers.drivers().zip(&providers_of_registry)
+    {
+        provider_of_registry
+            .set(provider.clone())
+            .expect("the provider is named once");
+    }
+    let (provider, _driver) = providers.drivers().next().expect("a provider");
     let provider = provider.clone();
-    provider_of_registry
-        .set(provider.clone())
-        .expect("the provider is named once");
     database
         .reader()
         .execute(
@@ -134,6 +155,7 @@ async fn open_inventory(mut answer: DriverAnswer) -> TestInventory {
         outlet,
     ));
     let gate = Arc::new(McpMachineProbeGate::default());
+    let attribution = Arc::new(McpAttributionTable::default());
     let service = McpInventoryService::new(McpInventorySources {
         providers,
         reads: Arc::clone(&reads),
@@ -141,7 +163,7 @@ async fn open_inventory(mut answer: DriverAnswer) -> TestInventory {
         projects: Arc::new(ProjectRecords::new(reads, Arc::new(NoProjectSessions))),
         store,
         tracker: Arc::clone(&tracker),
-        attribution: Arc::new(McpAttributionTable::default()),
+        attribution: Arc::clone(&attribution),
         probe_gate: Arc::clone(&gate),
     });
     TestInventory {
@@ -149,6 +171,7 @@ async fn open_inventory(mut answer: DriverAnswer) -> TestInventory {
         provider,
         service,
         tracker,
+        attribution,
         gate,
         probes,
     }
@@ -263,14 +286,16 @@ async fn a_refresh_records_the_probes_reading_and_a_plain_list_sends_no_probe() 
             .service
             .list(&PLAIN_LIST)
             .await
-            .expect("the inventory lists"),
+            .expect("the inventory lists")
+            .servers,
     );
     let (refreshed_status, refreshed_tools) = docs_entry(
         inventory
             .service
             .list(&REFRESH)
             .await
-            .expect("the inventory lists on a refresh"),
+            .expect("the inventory lists on a refresh")
+            .servers,
     );
 
     assert_eq!(
@@ -332,7 +357,8 @@ async fn two_refreshes_of_one_provider_start_one_probe_and_both_answer_its_readi
         [McpProbeScope::EveryBinding, McpProbeScope::None]
     );
     for entries in [first, second] {
-        let (status, tools) = docs_entry(entries.expect("the inventory lists on a refresh"));
+        let (status, tools) =
+            docs_entry(entries.expect("the inventory lists on a refresh").servers);
         assert_eq!(status, McpServerStatus::Connected);
         assert_eq!(tools, [server_tool("search"), server_tool("delete")]);
     }
@@ -377,7 +403,8 @@ async fn an_overrides_value_wins_and_keeps_the_servers_own_value(
                 .service
                 .list(&PLAIN_LIST)
                 .await
-                .expect("the inventory lists");
+                .expect("the inventory lists")
+                .servers;
             let [entry] = <[_; 1]>::try_from(entries).expect("one entry");
             entry
         }
@@ -449,14 +476,16 @@ async fn a_binding_gone_from_the_config_loses_its_probe_reading_and_a_live_leg_s
             .service
             .list(&REFRESH)
             .await
-            .expect("the inventory lists on a refresh"),
+            .expect("the inventory lists on a refresh")
+            .servers,
     );
 
     let entries = inventory
         .service
         .list(&PLAIN_LIST)
         .await
-        .expect("the inventory lists");
+        .expect("the inventory lists")
+        .servers;
 
     assert_eq!(
         refreshed,
@@ -528,7 +557,8 @@ async fn a_refresh_reads_an_emulated_local_rows_status_from_its_probe() {
         .service
         .list(&REFRESH)
         .await
-        .expect("the inventory lists on a refresh");
+        .expect("the inventory lists on a refresh")
+        .servers;
 
     let [entry] = <[_; 1]>::try_from(entries).expect("one entry");
     let McpServerInventoryEntry::Answered(McpAnsweredInventoryEntry::Local {
@@ -541,4 +571,96 @@ async fn a_refresh_reads_an_emulated_local_rows_status_from_its_probe() {
     };
     assert_eq!(scope_ref.as_str(), "/work/app");
     assert_eq!(status, McpServerStatus::Connected);
+}
+
+/// A session in no project reports `docs` before anything filled the attribution table; its report
+/// is held, and the fill the daemon's start runs, or else the first list, resolves it, so the list
+/// shows the leg's status. Killed by the held report dropped or not applied again when the table
+/// is replaced (the entry reads `unknown`), and by the fill reading nothing.
+#[rstest]
+#[case::by_the_first_list(false)]
+#[case::by_the_fill(true)]
+#[tokio::test]
+async fn a_report_before_any_read_shows_once_the_table_is_filled(#[case] is_filled: bool) {
+    let inventory = open_inventory(answering_at_once()).await;
+    let docs = McpBindingKey::of(&docs_binding(&inventory.provider));
+    let producer = open_mcp_leg_status_producer(
+        &inventory.tracker,
+        McpSessionAttribution::new(
+            Arc::clone(&inventory.attribution),
+            inventory.provider.clone(),
+            None,
+        )
+        .expect("a session in no root"),
+        SessionId::try_from(mint_uuid_v7()).expect("a session id"),
+        RuntimeBindingId::new("leg-a".to_owned()).expect("a binding id"),
+    );
+
+    producer.report_status(McpServerStatusEmission::new(
+        McpServerName::new("docs".to_owned()).expect("a server name"),
+        McpServerReading::Observed(McpServerStatus::Connected),
+        None,
+        None,
+    ));
+    assert_eq!(inventory.tracker.reading(&docs).legs.len(), 0);
+    if is_filled {
+        inventory.service.fill_attribution().await;
+        assert_eq!(inventory.tracker.reading(&docs).legs.len(), 1);
+    }
+    let entries = inventory
+        .service
+        .list(&PLAIN_LIST)
+        .await
+        .expect("the inventory lists")
+        .servers;
+
+    assert_eq!(
+        docs_entry(entries),
+        (McpServerStatus::Connected, Vec::new())
+    );
+    drop(producer);
+}
+
+/// One provider whose read fails takes only its own rows out of the list: the other provider's
+/// rows list, and the failed provider is named with its cause, which carries no credential, query
+/// or path the error held. Killed by the providers read as one (the list fails) and by the cause
+/// left unsanitized.
+#[tokio::test]
+async fn a_provider_whose_read_fails_is_named_beside_the_others_rows() {
+    let failing: DriverAnswer = Box::new(|_provider, _request| {
+        ready(Err(DriverError::Internal(
+            "the config at /Users/person/.codex/config.toml with token sk-ant-api03-\
+             abcdefghijklmnopqrstuvwxyz0123456789 and https://mcp.example.com/mcp?sig=abc123 \
+             could not be read"
+                .into(),
+        )))
+        .boxed()
+    });
+    let inventory = open_inventory_over(vec![answering_at_once(), failing]).await;
+    let (failed_provider, _driver) = inventory
+        .service
+        .sources
+        .providers
+        .drivers()
+        .nth(1)
+        .expect("a second provider");
+    let failed_provider = failed_provider.clone();
+
+    let listed = inventory
+        .service
+        .list(&PLAIN_LIST)
+        .await
+        .expect("the inventory lists");
+
+    assert_eq!(
+        docs_entry(listed.servers),
+        (McpServerStatus::Unknown, Vec::new())
+    );
+    let [failure] = <[_; 1]>::try_from(listed.failed_providers).expect("one failed provider");
+    assert_eq!(failure.provider, failed_provider);
+    let cause = failure.cause.as_str();
+    assert!(cause.contains("could not be read"), "{cause}");
+    for secret in ["/Users/person", "sk-ant-api03-abcdef", "sig=abc123"] {
+        assert!(!cause.contains(secret), "{cause}");
+    }
 }

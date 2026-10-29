@@ -1,7 +1,7 @@
 //! Every process start answered by a script instead of a Claude Code program: a session's process
 //! is the next scripted channel, declaring the next scripted `initialize` reply; a one-turn process
-//! answers the next scripted reply; a catalog, figures or account read answers the next scripted
-//! reading; the MCP server probe's process is the next scripted probe channel.
+//! answers the next scripted reply; a catalog or figures read answers the next scripted reading;
+//! an account read's process and the MCP server probe's process are the next scripted channels.
 //! Each start is recorded with what it asked for.
 
 use std::collections::{HashSet, VecDeque};
@@ -12,10 +12,8 @@ use futures::future::BoxFuture;
 use serde_json::Value;
 use tokio::sync::{Notify, oneshot};
 
-use super::channel::ScriptedChannel;
-use crate::driver::claude::mcp::connectors::{
-    ClaudeAccountServerAnswers, ClaudeAccountServersReadRequest,
-};
+use super::channel::{ScriptedAnswer, ScriptedChannel};
+use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
 use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
 use crate::driver::claude::session::answered_commands::ClaudeAttachedAdvisor;
 use crate::driver::claude::session::process::ClaudeProcessListener;
@@ -82,7 +80,7 @@ struct ScriptedStartTables {
     one_turn_replies: VecDeque<ClaudeOneTurnReply>,
     one_turns: Vec<ScriptedOneTurnRecord>,
     one_turn_environments: Vec<Vec<(String, String)>>,
-    account_server_answers: VecDeque<(Value, Value)>,
+    account_server_channels: VecDeque<Arc<ScriptedChannel>>,
     account_server_holds: VecDeque<oneshot::Receiver<()>>,
     account_server_reads: usize,
     mcp_probe_channels: VecDeque<Arc<ScriptedChannel>>,
@@ -146,9 +144,15 @@ impl ScriptedStarts {
     /// Scripts the next account read to answer `mcp_status` and `settings`, in place of answers
     /// that carry no list and no settings.
     pub(crate) fn script_account_servers(&self, mcp_status: Value, settings: Value) {
-        self.lock()
-            .account_server_answers
-            .push_back((mcp_status, settings));
+        let channel = Arc::new(ScriptedChannel::default());
+        channel.answer("mcp_status", ScriptedAnswer::Reply(mcp_status));
+        channel.answer("get_settings", ScriptedAnswer::Reply(settings));
+        self.script_account_servers_read(channel);
+    }
+
+    /// Scripts the next account read's process to be `channel`.
+    pub(crate) fn script_account_servers_read(&self, channel: Arc<ScriptedChannel>) {
+        self.lock().account_server_channels.push_back(channel);
     }
 
     /// Holds the next account read, once counted, until the returned sender fires or drops.
@@ -346,15 +350,18 @@ impl ClaudeProcessStarts for ScriptedStarts {
         async { Err(DriverError::Internal("no capabilities scripted".into())) }.boxed()
     }
 
-    fn read_account_servers(
+    fn start_account_servers_read(
         &self,
         _request: ClaudeAccountServersReadRequest,
-    ) -> BoxFuture<'_, Result<ClaudeAccountServerAnswers, ClaudeLaunchError>> {
-        let (answers, hold) = {
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
+        let (channel, hold) = {
             let mut tables = self.lock();
             tables.account_server_reads += 1;
             (
-                tables.account_server_answers.pop_front(),
+                tables
+                    .account_server_channels
+                    .pop_front()
+                    .unwrap_or_default(),
                 tables.account_server_holds.pop_front(),
             )
         };
@@ -363,21 +370,8 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 // A dropped sender releases the read too.
                 hold.await.unwrap_or(());
             }
-            let raw = |value: &Value| {
-                Some(serde_json::value::to_raw_value(value).expect("a scripted reply serializes"))
-            };
-            Ok(match answers {
-                Some((mcp_status, settings)) => ClaudeAccountServerAnswers {
-                    mcp_status: raw(&mcp_status),
-                    settings: raw(&settings),
-                    build_version: None,
-                },
-                None => ClaudeAccountServerAnswers {
-                    mcp_status: None,
-                    settings: None,
-                    build_version: None,
-                },
-            })
+            let channel: Arc<dyn ClaudeProcessChannel> = channel;
+            Ok(channel)
         }
         .boxed()
     }

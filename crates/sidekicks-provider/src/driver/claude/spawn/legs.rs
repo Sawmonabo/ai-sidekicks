@@ -26,7 +26,7 @@ use crate::callback_tools::spawn_binding::{
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
-use crate::driver::claude::session::establishment::ClaudeSpawnSources;
+use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::posture::{digest_output_schema, find_posture_divergence};
 use crate::driver::claude::session::settings_file::ClaudeSettingsFileError;
 use crate::driver::claude::session::state::{ClaudeSpawnBinding, LiveClaudeSession};

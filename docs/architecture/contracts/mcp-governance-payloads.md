@@ -169,6 +169,12 @@ type McpServerConfigView =
       required?: boolean;
       startupTimeoutSec?: number;
       toolTimeoutSec?: number;
+    }
+  | {
+      transport: "ws"; // a Claude Code transport, listed but never probed, so its status reads unknown until a session reports it
+      url: string; // query-redacted, as above
+      urlQueryParamNames?: string[];
+      headerNames?: string[];
     };
 
 // Per-leg live status (Spec-024 §Unified Inventory): one config binding can back several concurrent
@@ -280,8 +286,14 @@ interface McpLiveApplicationResult {
 }
 
 // ---- Operations (12; JSON-RPC per ADR-009) ---- Reads:
-//   mcp.server.list      {refresh?: boolean} → {servers: McpServerInventoryEntry[]}
-//   mcp.server.read       McpServerBindingRef → {server: McpServerInventoryEntry}
+//   mcp.server.list      {refresh?: boolean} → {servers: McpServerInventoryEntry[],
+// failedProviders: {provider: ProviderId, cause: string}[]} // each provider is read on its own:
+// one whose read fails is left out of `servers` and named in `failedProviders` with its cause,
+// sanitized (no credential, URL query or path outside a web address) and capped at the error
+// message's length; the other providers' rows still list
+//   mcp.server.read       McpServerBindingRef → {server: McpServerInventoryEntry} // a driver's
+// refusal answers by its code (`provider.unavailable`, `provider.timeout`); any other failure of
+// the provider's read is an internal error
 //   mcp.subscribe {} → AsyncIterable<EventEnvelope | McpServerBindingRef & {type:
 // "mcp.server.config.changed"} | McpServerStatusChangedNotice> // live-tail of every mcpGovernance
 // envelope as appended, a live notice after each edit to a binding (an add, a change, a switch, a

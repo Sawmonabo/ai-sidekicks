@@ -46,9 +46,9 @@ pub(crate) struct McpBindingStatusReading {
     pub(crate) tool_names: Vec<McpToolName>,
 }
 
-/// The one keeper of every binding's MCP status. Its state sits behind one lock that is never held
-/// across an await: each call applies its change and sends its notice synchronously, so a reader
-/// of the board sees changes in the order they were applied.
+/// The one keeper of every binding's MCP status. Its state sits behind two locks, `legs` then
+/// `first_observations`, neither held across an await: each call applies its change and sends its
+/// notice synchronously, so a reader of the board sees changes in the order they were applied.
 pub struct McpServerStatusTracker {
     legs: Mutex<McpLegs>,
     board: Arc<McpNoticeBoard>,

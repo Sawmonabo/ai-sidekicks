@@ -316,6 +316,13 @@ pub trait ProviderDriver: Send + Sync {
         request: McpServersReadRequest,
     ) -> BoxFuture<'_, Result<ProviderMcpServersReading, DriverError>>;
 
+    /// Asks each live session of the provider to report its MCP servers' status again, which the
+    /// inventory calls once a refresh's reading has replaced what reported names resolve to; a
+    /// provider whose sessions report again on their own asks nothing.
+    fn reread_live_mcp_statuses(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+
     /// Compacts the bound session's provider-side context on the person's request (gated on
     /// `contextCompaction`), settling on the provider's own compaction evidence, never on the
     /// request being accepted. The wait has no time limit of the driver's own: it settles on the

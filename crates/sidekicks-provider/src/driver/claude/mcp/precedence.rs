@@ -35,6 +35,9 @@ pub(crate) struct ClaudeMcpAccountServers {
     /// Each organization server as `mcp_set_servers` takes it, by its name, where the account's
     /// managed settings declare it whole.
     pub(crate) organization_entries: BTreeMap<McpServerName, ClaudeToolServerEntry>,
+    /// Whether the account's process still reported fewer connectors than its connector list
+    /// holds when the read stopped asking; such a read is never kept.
+    pub(crate) lacks_listed_connectors: bool,
 }
 
 /// The servers one root's sessions would see from each source, which Claude Code ranks in this
@@ -56,6 +59,8 @@ pub(crate) struct ClaudeMcpRootSources<'servers> {
     pub(crate) switched_off_server_names: &'servers [McpServerName],
     /// The names of `project` servers the root refuses.
     pub(crate) kept_out_server_names: &'servers [McpServerName],
+    /// The names of `project` servers the root never approved.
+    pub(crate) unapproved_server_names: &'servers [McpServerName],
 }
 
 /// The read's declarations, its roots and each account's servers, after Claude Code's precedence.
@@ -103,6 +108,7 @@ pub(crate) fn rank_claude_mcp_servers(
                 connector,
                 switched_off_server_names: &root.switched_off_server_names,
                 kept_out_server_names: &root.kept_out_server_names,
+                unapproved_server_names: &root.unapproved_server_names,
             };
             for server in find_superseded_claude_mcp_servers(&sources) {
                 let entry = (&server.binding, &root.root);
@@ -215,8 +221,9 @@ pub(crate) fn rank_claude_mcp_servers(
 
 /// The servers of `sources` that another takes the place of at one root, by Claude Code's order:
 /// the organization's servers, then `local`, `project` and `user`, each matched by name against
-/// those above it; then the plugins' servers and the connectors, each matched by endpoint against
-/// an enabled server above it.
+/// those above it, a `project` server the root keeps out or never approved taking no place; then
+/// the plugins' servers and the connectors, each matched by endpoint against an enabled server
+/// above it.
 pub(crate) fn find_superseded_claude_mcp_servers<'servers>(
     sources: &ClaudeMcpRootSources<'servers>,
 ) -> Vec<&'servers ClaudeMcpServer> {
@@ -229,6 +236,9 @@ pub(crate) fn find_superseded_claude_mcp_servers<'servers>(
         sources.user,
     ];
     for server in named.into_iter().flatten() {
+        if is_withheld_project_server(server, sources) {
+            continue;
+        }
         let name = server.binding.server_name();
         if kept.iter().any(|above| above.binding.server_name() == name) {
             superseded.push(server);
@@ -254,11 +264,20 @@ pub(crate) fn find_superseded_claude_mcp_servers<'servers>(
 // Whether a server ranked above another is on at the root, so it can take a plugin's or a
 // connector's place.
 fn is_enabled(server: &ClaudeMcpServer, sources: &ClaudeMcpRootSources<'_>) -> bool {
-    let is_kept_out = matches!(server.binding, McpServerBindingRef::Project { .. })
-        && sources
-            .kept_out_server_names
-            .contains(server.binding.server_name());
-    !is_kept_out && !is_switched_off(&server.binding, sources.switched_off_server_names)
+    !is_withheld_project_server(server, sources)
+        && !is_switched_off(&server.binding, sources.switched_off_server_names)
+}
+
+// Whether a `project` server is one the root keeps out or never approved, which Claude Code drops
+// before it ranks the rest.
+fn is_withheld_project_server(
+    server: &ClaudeMcpServer,
+    sources: &ClaudeMcpRootSources<'_>,
+) -> bool {
+    let name = server.binding.server_name();
+    matches!(server.binding, McpServerBindingRef::Project { .. })
+        && (sources.kept_out_server_names.contains(name)
+            || sources.unapproved_server_names.contains(name))
 }
 
 // Whether Claude Code's per-project switch turns the server off, which records it by the name
@@ -373,7 +392,8 @@ mod tests {
 
     // Killed by ranking a scope above the organization, by matching a connector on its stripped
     // address, which drops the query that keeps the second connector apart, by not folding the
-    // address's case, default port and trailing slash, by the person's servers left loadable
+    // address's case, default port and trailing slash, by a `project` server the root keeps out
+    // or never approved taking a `user` server's name, by the person's servers left loadable
     // under a managed file, and by a name the organization's server loads kept out.
     #[test]
     fn the_organization_outranks_every_scope_and_a_connector_yields_only_at_its_folded_address() {
@@ -397,18 +417,29 @@ mod tests {
             provider: provider.clone(),
             server_name: server_name("github"),
         };
+        let project = |name: &str| McpServerBindingRef::Project {
+            provider: provider.clone(),
+            scope_ref: root.path.clone(),
+            place: None,
+            server_name: server_name(name),
+        };
         let reading = ClaudeMcpConfigReading {
             user_servers: vec![
                 remote_server(user("github"), "https://github.example.com/mcp"),
                 remote_server(user("docs"), "https://Docs.Example.com:443/mcp"),
+                remote_server(user("notes"), "https://notes.example.com/mcp"),
             ],
             plugin_servers: Vec::new(),
             roots: vec![ClaudeMcpRootConfig {
                 root: root.clone(),
                 local_servers: Vec::new(),
-                project_servers: Vec::new(),
-                kept_out_server_names: Vec::new(),
+                project_servers: vec![
+                    remote_server(project("docs"), "https://kept-out.example.com/mcp"),
+                    remote_server(project("notes"), "https://unapproved.example.com/mcp"),
+                ],
+                kept_out_server_names: vec![server_name("docs")],
                 switched_off_server_names: Vec::new(),
+                unapproved_server_names: vec![server_name("notes")],
             }],
             server_policy: McpServerPolicy::default(),
         };
@@ -427,6 +458,7 @@ mod tests {
             ],
             connector_readings: Vec::new(),
             organization_entries: BTreeMap::new(),
+            lacks_listed_connectors: false,
         }];
 
         let ranking = rank_claude_mcp_servers(&reading, &accounts, true);
@@ -437,10 +469,13 @@ mod tests {
             superseded_in(declarations, &user("github")),
             std::slice::from_ref(&at_root)
         );
-        assert_eq!(
-            superseded_in(declarations, &user("docs")),
-            [] as [McpOverrideOrigin; 0]
-        );
+        for kept in ["docs", "notes"] {
+            assert_eq!(
+                superseded_in(declarations, &user(kept)),
+                [] as [McpOverrideOrigin; 0],
+                "{kept}"
+            );
+        }
         let account_declarations = &ranking.account_servers[0].declarations;
         assert_eq!(
             superseded_in(account_declarations, &organization),
@@ -459,12 +494,12 @@ mod tests {
         assert_eq!(ranking.roots[0].provider_loaded, [organization]);
         assert_eq!(
             ranking.roots[0].kept_out_server_names,
-            [server_name("docs")]
+            [server_name("docs"), server_name("notes")]
         );
         let unmanaged = rank_claude_mcp_servers(&reading, &accounts, false);
         assert_eq!(
             unmanaged.roots[0].kept_out_server_names,
-            [] as [McpServerName; 0]
+            [server_name("docs")]
         );
     }
 }

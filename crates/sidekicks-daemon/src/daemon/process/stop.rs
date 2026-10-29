@@ -146,6 +146,8 @@ pub(crate) async fn stop_work(
     {
         failures.push(failure.into());
     }
+    // Ends a fill under way, whose reads run on the drivers.
+    drop(process.mcp_attribution_fills.take());
     // Before the attachments and the drivers, so no run is admitted or delivered past here.
     if let Some(session) = &process.session {
         session.queue.stop().await;

@@ -204,8 +204,8 @@ pub enum McpServerPolicyEntry {
     ServerName(McpServerName),
     /// A server started by this command and these arguments.
     Command(Vec<String>),
-    /// A remote server whose address matches this pattern, its user name, password and query
-    /// stripped as an address's are.
+    /// A remote server whose address matches this pattern, kept as written with its credentials
+    /// scrubbed.
     AddressPattern(String),
 }
 
@@ -225,7 +225,7 @@ pub struct McpProbeReading {
     pub binding: McpServerBindingRef,
     /// What the provider reported.
     pub reading: McpServerReading,
-    /// The provider's error text for the server, its credentials scrubbed and cut to a bound.
+    /// The provider's error text for the server, sanitized and cut to a bound.
     pub failure_text: Option<String>,
     /// The names of the server's tools.
     pub tool_names: Vec<McpToolName>,

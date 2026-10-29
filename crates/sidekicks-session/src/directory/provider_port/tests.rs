@@ -111,8 +111,8 @@ async fn port_over_a_leg(database: &TestDatabase, session_id: SessionId) -> Port
         .create(session_id, leg)
         .await
         .expect("the leg is recorded");
-    // The session is in no project, so its relaunch opens no leg on the tracker.
-    let (mcp_status, _, _) = open_test_tracker().await;
+    // The session is in no project, so its relaunch's leg attributes at no root.
+    let (mcp_status, _subscriber, _first_observations) = open_test_tracker().await;
     let port = SessionDirectoryProviderPort::new(SessionDirectoryProviderPortDeps {
         pool: Arc::clone(&pool),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None),

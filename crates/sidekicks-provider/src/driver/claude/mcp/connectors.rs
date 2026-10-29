@@ -1,19 +1,24 @@
 //! The account read of Claude Code's claude.ai connectors and its organization's servers: one
 //! process that keeps nothing, started under the account without `--strict-mcp-config` in an
-//! empty folder under the account's home, so nothing of the person's loads, answers `mcp_status`
-//! and `get_settings`, and each `claudeai` row becomes a read-only connector of the account, with
-//! the status and tools the row reports, while the organization's rows and `managedMcpServers`
-//! become read-only managed servers, each connector marked as its organization's connector list
-//! reads it. Budget: one such process of about 140 to 150 MB per account at a time, run at the
-//! account's first session after the daemon starts and again only on a refresh, never on a poll.
+//! empty folder under the account's home, so nothing of the person's loads, answers
+//! `get_binary_version`, `mcp_status` and `get_settings`, and each `claudeai` row becomes a
+//! read-only connector of the account, with the status and tools the row reports, while the
+//! organization's rows and `managedMcpServers` become read-only managed servers, each connector
+//! marked as its organization's connector list reads it. Budget: one such process of about 140 to
+//! 150 MB per account at a time, run at the account's first session after the daemon starts and
+//! again only on a refresh, never on a poll; while it reports fewer connectors than the list
+//! holds, one `mcp_status` a second on that process, up to the machine probe's ceiling.
 
 pub(crate) mod organization_mark;
 
+use std::future::Future;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use serde_json::value::RawValue;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use tokio::time::Instant;
 
 use crate::driver::ReportedVersionReading;
 use crate::driver::claude::DESCRIPTOR;
@@ -31,13 +36,10 @@ use crate::driver::claude::session::transport::control::{
 use crate::driver::claude::session::transport::mcp_status::{
     ClaudeMcpServerStatusRow, ClaudeMcpStatusReply,
 };
-use crate::driver::claude::spawn::launch::control_only::ClaudeShortProcess;
-use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
 use crate::driver::claude::tools::normalize_claude_mcp_status_reply;
 use crate::driver::claude::version::read_reported_version;
 use crate::driver::mcp_server::read::McpProbeReading;
 use crate::driver::mcp_server::status::McpServerStatusEmission;
-use crate::spawned_version::ResolvedProviderExecutable;
 
 /// Where one account's read runs: the account's process environment, the account, and the empty
 /// folder under its home the process starts in.
@@ -50,63 +52,68 @@ pub(crate) struct ClaudeAccountServersReadRequest {
     pub(crate) working_folder: PathBuf,
 }
 
-/// What one account's process answered, unread: its `mcp_status` and `get_settings` replies,
-/// which can carry headers and whole addresses, so they live only until they are read, and the
-/// version of the build that answered.
+/// What one account's process answered: its `mcp_status` reply, read once, and its
+/// `get_settings` reply unread, which can carry headers and whole addresses, so it lives only
+/// until it is read.
 pub(crate) struct ClaudeAccountServerAnswers {
-    /// The `mcp_status` reply.
-    pub(crate) mcp_status: Option<Box<RawValue>>,
+    /// The `mcp_status` reply, read.
+    pub(crate) mcp_status: ClaudeMcpStatusReply,
     /// The `get_settings` reply.
     pub(crate) settings: Option<Box<RawValue>>,
-    /// The build's canonical version, as its `get_binary_version` reply reports it; `None` where
-    /// the reply carries none.
-    pub(crate) build_version: Option<String>,
+    /// Whether `mcp_status` still reported fewer connectors than the account's connector list
+    /// holds when the read stopped asking, so Claude Code had not loaded them all yet.
+    pub(crate) lacks_listed_connectors: bool,
 }
 
-/// Starts one process that keeps nothing on `executable` under `provider_account_id`'s account in
-/// `working_folder`, made where absent, and takes its `mcp_status`, `get_settings` and
-/// `get_binary_version` answers. Fails with `ControlOnlyFolder` when the folder cannot be made, and
-/// as the start or a request does, a refused request included; the process is closed either way.
-pub(crate) async fn read_claude_account_answers(
-    launcher: &ClaudeProcessLauncher,
-    executable: &ResolvedProviderExecutable,
-    provider_account_id: ProviderAccountId,
-    working_folder: PathBuf,
-) -> Result<ClaudeAccountServerAnswers, ClaudeLaunchError> {
-    tokio::fs::create_dir_all(&working_folder)
-        .await
-        .map_err(ClaudeLaunchError::ControlOnlyFolder)?;
-    let short = ClaudeShortProcess::start_control_only(
-        launcher,
-        executable,
-        Some(working_folder),
-        None,
-        Some(provider_account_id),
-    )
-    .await?;
-    let read = async {
-        short.initialize().await?;
-        let mcp_status = short
-            .process
+/// How long the account read waits before asking `mcp_status` again while it reports fewer
+/// connectors than the account's list holds.
+const CONNECTOR_STATUS_INTERVAL: Duration = Duration::from_secs(1);
+
+/// Reads one account's answers on `channel`, its process that keeps nothing already initialized:
+/// the build's version, then the connector list `read_connector_list` reads for that version,
+/// then `mcp_status`, asked again on the same process once a second until it reports as many
+/// connectors as the list holds or `ceiling` passes, then `get_settings`. Where the list is not
+/// read, `mcp_status` is asked once. Fails as a request does, a refused request included.
+pub(crate) async fn read_claude_account_answers<ListRead>(
+    channel: &dyn ClaudeProcessChannel,
+    read_connector_list: impl FnOnce(Option<String>) -> ListRead,
+    ceiling: Duration,
+) -> Result<(ClaudeAccountServerAnswers, Option<ClaudeConnectorMarks>), ClaudeSessionError>
+where
+    ListRead: Future<Output = Option<ClaudeConnectorMarks>>,
+{
+    let deadline = Instant::now() + ceiling;
+    let version = channel
+        .send_control_request(ClaudeControlRequest::GetBinaryVersion {})
+        .await?;
+    let build_version = read_build_version(version.response.as_deref());
+    let marks = read_connector_list(build_version).await;
+    let listed_rows = marks
+        .as_ref()
+        .map_or(0, ClaudeConnectorMarks::listed_row_count);
+    let (mcp_status, reported_rows) = loop {
+        let answer = channel
             .send_control_request(ClaudeControlRequest::McpStatus {})
             .await?;
-        let settings = short
-            .process
-            .send_control_request(ClaudeControlRequest::GetSettings {})
-            .await?;
-        let version = short
-            .process
-            .send_control_request(ClaudeControlRequest::GetBinaryVersion {})
-            .await?;
-        Ok::<_, ClaudeSessionError>(ClaudeAccountServerAnswers {
-            mcp_status: mcp_status.response,
+        let reply = ClaudeMcpStatusReply::read(answer.response.as_deref());
+        let reported_rows = count_connector_rows(&reply);
+        let now = Instant::now();
+        if reported_rows >= listed_rows || now >= deadline {
+            break (reply, reported_rows);
+        }
+        tokio::time::sleep_until((now + CONNECTOR_STATUS_INTERVAL).min(deadline)).await;
+    };
+    let settings = channel
+        .send_control_request(ClaudeControlRequest::GetSettings {})
+        .await?;
+    Ok((
+        ClaudeAccountServerAnswers {
+            mcp_status,
             settings: settings.response,
-            build_version: read_build_version(version.response.as_deref()),
-        })
-    }
-    .await;
-    short.close().await;
-    Ok(read?)
+            lacks_listed_connectors: reported_rows < listed_rows,
+        },
+        marks,
+    ))
 }
 
 /// The servers `provider_account_id` brings, read from its process's `answers`: each `claudeai`
@@ -118,13 +125,17 @@ pub(crate) fn read_claude_account_servers(
     answers: &ClaudeAccountServerAnswers,
     marks: Option<&ClaudeConnectorMarks>,
 ) -> ClaudeMcpAccountServers {
-    let reply = ClaudeMcpStatusReply::read(answers.mcp_status.as_deref());
-    let emissions = normalize_claude_mcp_status_reply(&reply)
+    let reply = &answers.mcp_status;
+    let emissions = normalize_claude_mcp_status_reply(reply)
         .map(|read| read.emissions)
         .unwrap_or_default();
-    let rows = reply.servers.map(|rows| rows.0).unwrap_or_default();
+    let rows = reply
+        .servers
+        .as_ref()
+        .map(|rows| rows.0.as_slice())
+        .unwrap_or_default();
     let settings = ClaudeSettingsReply::read(answers.settings.as_deref());
-    let organization = read_claude_organization_servers(&rows, settings.effective.as_ref());
+    let organization = read_claude_organization_servers(rows, settings.effective.as_ref());
     let (connectors, connector_readings) = rows
         .iter()
         .filter(|row| is_connector_row(row))
@@ -140,14 +151,15 @@ pub(crate) fn read_claude_account_servers(
         connectors,
         connector_readings,
         organization_entries: organization.entries,
+        lacks_listed_connectors: answers.lacks_listed_connectors,
     }
 }
 
-// Whether the account's process reports any connector, so its organization marks are worth a read.
-fn lists_connectors(answers: &ClaudeAccountServerAnswers) -> bool {
-    ClaudeMcpStatusReply::read(answers.mcp_status.as_deref())
-        .servers
-        .is_some_and(|rows| rows.0.iter().any(is_connector_row))
+// How many connectors an `mcp_status` reply reports.
+fn count_connector_rows(reply: &ClaudeMcpStatusReply) -> usize {
+    reply.servers.as_ref().map_or(0, |rows| {
+        rows.0.iter().filter(|row| is_connector_row(row)).count()
+    })
 }
 
 // Whether `row` is one of the account's claude.ai connectors.
@@ -216,6 +228,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use rstest::rstest;
     use serde_json::json;
     use serde_json::value::{RawValue, to_raw_value};
     use sidekicks_contracts::mcp::server::config::McpServerConfigView;
@@ -228,7 +241,9 @@ mod tests {
         ClaudeAccountServerAnswers, read_claude_account_answers, read_claude_account_servers,
     };
     use crate::driver::claude::mcp::config::ClaudeMcpConfigReading;
+    use crate::driver::claude::mcp::connectors::organization_mark::read_connector_list;
     use crate::driver::claude::mcp::precedence::rank_claude_mcp_servers;
+    use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
     use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
     use crate::driver::claude::session::transport::control::{
         ClaudeControlRequest, ClaudeSettingsReply, ClaudeToolServerEntry,
@@ -255,9 +270,76 @@ mod tests {
 
     fn remote_url(config: &McpServerConfigView) -> &str {
         match config {
-            McpServerConfigView::Http { url, .. } | McpServerConfigView::Sse { url, .. } => url,
+            McpServerConfigView::Http { url, .. }
+            | McpServerConfigView::Sse { url, .. }
+            | McpServerConfigView::Ws { url, .. } => url,
             McpServerConfigView::Stdio { .. } => panic!("a remote server: {config:?}"),
         }
+    }
+
+    // While the account's connector list holds a connector the first `mcp_status` reply lacks,
+    // `mcp_status` is asked again on the same process once a second, and the reply that lists it
+    // is the one kept; with no list read, one reply is taken as it is. Killed by the reply asked
+    // once with a list read, and by a short reply kept.
+    #[rstest]
+    #[case::list_read(true, 2)]
+    #[case::list_unread(false, 1)]
+    #[tokio::test(start_paused = true)]
+    async fn a_reply_short_of_the_connector_list_is_asked_again(
+        #[case] is_list_read: bool,
+        #[case] status_reads: usize,
+    ) {
+        let connector = json!({
+            "name": "claude.ai Notes",
+            "status": "connected",
+            "scope": "claudeai",
+            "source": "claudeai",
+            "config": { "type": "claudeai-proxy", "url": "https://notes.example.com/mcp" }
+        });
+        let channel = ScriptedChannel::default();
+        channel.answer(
+            "get_binary_version",
+            ScriptedAnswer::Reply(json!({ "version": "2.1.310" })),
+        );
+        channel.answer(
+            "mcp_status",
+            ScriptedAnswer::Reply(json!({ "mcpServers": [] })),
+        );
+        channel.answer(
+            "mcp_status",
+            ScriptedAnswer::Reply(json!({ "mcpServers": [connector] })),
+        );
+
+        let (answers, _marks) = read_claude_account_answers(
+            &channel,
+            async |build_version: Option<String>| {
+                assert_eq!(build_version.as_deref(), Some("2.1.310"));
+                is_list_read
+                    .then(|| {
+                        read_connector_list(
+                            br#"{"data":[{"id":"mcpsrv_notes","url":"https://notes.example.com/mcp"}]}"#,
+                        )
+                    })
+                    .flatten()
+            },
+            Duration::from_secs(35),
+        )
+        .await
+        .expect("the read answers");
+
+        let asked = channel
+            .control_requests()
+            .iter()
+            .filter(|request| request["subtype"] == "mcp_status")
+            .count();
+        assert_eq!(asked, status_reads);
+        let listed = answers
+            .mcp_status
+            .servers
+            .as_ref()
+            .map_or(0, |rows| rows.0.len());
+        assert_eq!(listed, usize::from(is_list_read));
+        assert!(!answers.lacks_listed_connectors);
     }
 
     // A `claudeai` row becomes a read-only connector of the account under its display name, read
@@ -271,7 +353,7 @@ mod tests {
     fn an_accounts_rows_become_read_only_connectors_and_host_only_organization_servers() {
         let account = test_provider_account_id();
         let answers = ClaudeAccountServerAnswers {
-            mcp_status: Some(raw(&json!({
+            mcp_status: ClaudeMcpStatusReply::read(Some(&raw(&json!({
                 "mcpServers": [
                     {
                         "name": "claude.ai Slack",
@@ -304,7 +386,7 @@ mod tests {
                         "config": { "type": "http", "url": "https://notes.example.com/mcp" }
                     }
                 ]
-            }))),
+            })))),
             settings: Some(raw(&json!({
                 "effective": {
                     "managedMcpServers": {
@@ -316,7 +398,7 @@ mod tests {
                     }
                 }
             }))),
-            build_version: None,
+            lacks_listed_connectors: false,
         };
 
         let servers = read_claude_account_servers(&account, &answers, None);
@@ -472,19 +554,41 @@ mod tests {
         let account = test_provider_account_id();
 
         // (3) The read's own process.
-        let answers = read_claude_account_answers(
+        let read_folder = folder.path().join("account-read");
+        tokio::fs::create_dir_all(&read_folder)
+            .await
+            .expect("the read's folder is made");
+        let reading = ClaudeShortProcess::start_control_only(
             &launcher,
             &executable,
-            account.clone(),
-            folder.path().join("account-read"),
+            Some(read_folder),
+            None,
+            Some(account.clone()),
+        )
+        .await
+        .expect("the read's process starts");
+        reading.initialize().await.expect("the read initializes");
+        let (answers, _marks) = read_claude_account_answers(
+            &*reading.process,
+            async |_build_version| None,
+            Duration::from_secs(35),
         )
         .await
         .expect("the account read answers");
-        let rows = ClaudeMcpStatusReply::read(answers.mcp_status.as_deref())
+        let status_answer = reading
+            .process
+            .send_control_request(ClaudeControlRequest::McpStatus {})
+            .await
+            .expect("mcp_status is answered");
+        reading.close().await;
+        let rows = answers
+            .mcp_status
             .servers
+            .as_ref()
             .expect("the read lists its servers")
-            .0;
-        for row in &rows {
+            .0
+            .as_slice();
+        for row in rows {
             let origin = row.source.as_deref().or(row.scope.as_deref());
             assert!(
                 matches!(origin, Some("claudeai" | "managed" | "enterprise")),
@@ -506,8 +610,8 @@ mod tests {
             );
         }
         let status: serde_json::Value = serde_json::from_str(
-            answers
-                .mcp_status
+            status_answer
+                .response
                 .as_deref()
                 .expect("the read answers mcp_status")
                 .get(),
