@@ -575,6 +575,7 @@ A per-place provider call's `place` is judged by its name on every Windows compu
 | `daemon.dataExport.destination.alreadyExists` | `daemon.dataExport.start` named a folder that already exists; an export writes only into a new folder | `alreadyExists` | 409 |
 | `daemon.dataExport.destination.notWritable` | `daemon.dataExport.start` named a folder that cannot be made: its parent is missing or not writable. `data.fields.path` names the folder | `permissionDenied` | 403 |
 | `daemon.dataExport.notFound` | `daemon.dataExport.subscribe` or `daemon.dataExport.cancel` named an export this service does not know: never started, or started before the service last restarted | `notFound` | 404 |
+| `daemon.dataFolder.held` | The daemon program's erase or restore mode found the data folder held, by a running service among others, so it changed nothing; the mode answers on its standard output, not the socket. `data.fields.processId` names the holder when the process id it recorded reads | `failedPrecondition` | 409 |
 
 ### Attention
 
