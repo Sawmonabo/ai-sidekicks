@@ -5,11 +5,16 @@
 //! from the store's own error. Linux offers systemd's credential service, which seals each secret
 //! to this computer (`seal`); the store itself stays on every system for the tests' stores.
 //!
+//! A store whose entries hold a capped number of bytes keeps a larger value as a head and numbered
+//! pieces under the same service (`pieces`); its listings and calls hide that from callers but for
+//! the erase, which lists the pieces too.
+//!
 //! Every call on a store blocks until the store answers, which on a locked store is when the person
 //! answers its unlock prompt, so a caller runs it on a blocking thread under its own time limit.
 
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod blocking;
+mod pieces;
 pub(crate) mod seal;
 
 use std::collections::HashMap;
@@ -19,7 +24,7 @@ use std::sync::Arc;
 
 use keyring_core::Entry;
 use keyring_core::error::PlatformError;
-use secrecy::zeroize::Zeroize;
+use secrecy::zeroize::{Zeroize, Zeroizing};
 use secrecy::{ExposeSecret, SecretString};
 
 use crate::credential_store::seal::CredentialSeal;
@@ -87,6 +92,8 @@ pub struct CredentialStore {
     modifiers: &'static [(&'static str, &'static str)],
     // The search that finds the items filed under a service, before the exact filter.
     search_spec: fn(&str) -> Vec<(&'static str, String)>,
+    // The most bytes one entry holds, none when the store sets no cap.
+    entry_capacity: Option<usize>,
 }
 
 impl CredentialStore {
@@ -99,17 +106,19 @@ impl CredentialStore {
             store,
             modifiers: native::ENTRY_MODIFIERS,
             search_spec: native::search_spec,
+            entry_capacity: native::ENTRY_CAPACITY,
         })
     }
 
     /// A credential store over `store`, which a test supplies in place of the system's, its entries
-    /// built with no settings and its search naming the service.
+    /// built with no settings and no cap and its search naming the service.
     #[cfg(any(test, feature = "test-support"))]
     pub fn from_store(store: Arc<keyring_core::CredentialStore>) -> Self {
         Self {
             store,
             modifiers: &[],
             search_spec: service_search_spec,
+            entry_capacity: None,
         }
     }
 
@@ -138,48 +147,96 @@ impl CredentialStore {
             )));
     }
 
-    /// Writes `value` under `service` and `account`, replacing any value held there. Fails with
-    /// [`CredentialStoreError`] when the store is locked or cannot be used.
+    /// Writes `value` under `service` and `account`, replacing any value held there, as its UTF-8
+    /// bytes. A value larger than one entry is written as pieces under a fresh generation first and
+    /// its head last, so a write cut short leaves the old value whole; then every other
+    /// generation's pieces of the item are removed. Fails with [`CredentialStoreError`] when the
+    /// store is locked or cannot be used, the value possibly landed when the removal is what fails.
     pub fn write(
         &self,
         service: &str,
         account: &str,
         value: &SecretString,
     ) -> Result<(), CredentialStoreError> {
+        let value = value.expose_secret().as_bytes();
+        if !pieces::is_pieced(value, self.entry_capacity) {
+            self.entry(service, account)?
+                .set_secret(value)
+                .map_err(CredentialStoreError::from_store_error)?;
+            return self.remove_pieces(service, account, None);
+        }
+        let generation = pieces::fresh_generation().map_err(CredentialStoreError::no_generation)?;
+        let (head, item_pieces) = pieces::lay_out(value, self.entry_capacity, generation);
+        for (number, piece) in (1..).zip(item_pieces) {
+            let piece_account = pieces::piece_account(account, &generation, number);
+            self.entry(service, &piece_account)?
+                .set_secret(piece)
+                .map_err(CredentialStoreError::from_store_error)?;
+        }
         self.entry(service, account)?
-            .set_password(value.expose_secret())
-            .map_err(CredentialStoreError::from_store_error)
+            .set_secret(&head)
+            .map_err(CredentialStoreError::from_store_error)?;
+        self.remove_pieces(service, account, Some(&generation))
     }
 
-    /// The value held under `service` and `account`, or `None` when none is. Fails with
-    /// [`CredentialStoreError`] when the store is locked or cannot be used.
+    /// The value held under `service` and `account`, or `None` when none is: a head's pieces read
+    /// and joined. Fails with [`CredentialStoreError`] when the store is locked or cannot be used,
+    /// and when a head's pieces are missing or do not match its digest, never answering part of
+    /// the value.
     pub fn read(
         &self,
         service: &str,
         account: &str,
     ) -> Result<Option<SecretString>, CredentialStoreError> {
-        match self.entry(service, account)?.get_password() {
-            Ok(mut value) => {
-                // Built from the text, so the store's own copy is wiped here, not left behind.
-                let secret = SecretString::from(value.as_str());
-                value.zeroize();
-                Ok(Some(secret))
+        let Some(stored) = self.stored_bytes(service, account)? else {
+            return Ok(None);
+        };
+        let value = if pieces::is_head(&stored) {
+            let head = pieces::Head::read(&stored)
+                .ok_or_else(|| CredentialStoreError::torn(service, account))?;
+            let mut item_pieces = Vec::new();
+            for piece_account in head.piece_accounts(account) {
+                item_pieces.push(
+                    self.stored_bytes(service, &piece_account)?
+                        .ok_or_else(|| CredentialStoreError::torn(service, account))?,
+                );
             }
-            Err(keyring_core::Error::NoEntry) => Ok(None),
-            Err(failure) => Err(CredentialStoreError::from_store_error(failure)),
+            head.join(&item_pieces)
+                .ok_or_else(|| CredentialStoreError::torn(service, account))?
+        } else {
+            stored
+        };
+        match std::str::from_utf8(&value) {
+            Ok(text) => Ok(Some(SecretString::from(text))),
+            Err(_) => Err(CredentialStoreError::from_store_error(
+                keyring_core::Error::BadEncoding(value.to_vec()),
+            )),
         }
     }
 
-    /// Removes the value under `service` and `account`; `false` when none was held. Fails with
-    /// [`CredentialStoreError`] when the store is locked or cannot be used.
+    /// Removes the value under `service` and `account`, its head and every piece; `false` when
+    /// none was held. Fails with [`CredentialStoreError`] when the store is locked or cannot be
+    /// used.
     pub fn remove(&self, service: &str, account: &str) -> Result<bool, CredentialStoreError> {
-        remove_entry(&self.entry(service, account)?)
+        let is_removed = remove_entry(&self.entry(service, account)?)?;
+        self.remove_pieces(service, account, None)?;
+        Ok(is_removed)
     }
 
-    /// Every item filed under exactly `service`, each with the handle that removes it: the
-    /// platform's search, which may match more than the service, kept to the items whose service is
-    /// `service`. Fails with [`CredentialStoreError`] when the store is locked or cannot be used.
+    /// Every item filed under exactly `service`, each with the handle that removes it, the pieces
+    /// of a value larger than one entry left out. Fails with [`CredentialStoreError`] when the
+    /// store is locked or cannot be used.
     pub fn accounts(&self, service: &str) -> Result<Vec<StoreAccount>, CredentialStoreError> {
+        let mut items = self.entries(service)?;
+        items.retain(|item| pieces::piece_of(&item.account).is_none());
+        Ok(items)
+    }
+
+    /// Every entry filed under exactly `service`, the pieces of a value larger than one entry
+    /// included, each with the handle that removes it: the platform's search, which may match more
+    /// than the service, kept to the entries whose service is `service`. Fails with
+    /// [`CredentialStoreError`] when the store is locked or cannot be used.
+    pub fn entries(&self, service: &str) -> Result<Vec<StoreAccount>, CredentialStoreError> {
         let spec = (self.search_spec)(service);
         let spec: HashMap<&str, &str> = spec
             .iter()
@@ -198,6 +255,42 @@ impl CredentialStore {
                 (entry_service == service).then_some(StoreAccount { account, entry })
             })
             .collect())
+    }
+
+    // The bytes the entry under `service` and `account` holds, or `None` when it holds none.
+    fn stored_bytes(
+        &self,
+        service: &str,
+        account: &str,
+    ) -> Result<Option<Zeroizing<Vec<u8>>>, CredentialStoreError> {
+        match self.entry(service, account)?.get_secret() {
+            Ok(stored) => Ok(Some(Zeroizing::new(stored))),
+            Err(keyring_core::Error::NoEntry) => Ok(None),
+            Err(failure) => Err(CredentialStoreError::from_store_error(failure)),
+        }
+    }
+
+    // Removes every piece of the item under `account` but those of `kept`. The service is listed
+    // rather than the old head read, so pieces a write cut short left behind go too. A store with
+    // no cap never holds a piece, so it is not listed.
+    fn remove_pieces(
+        &self,
+        service: &str,
+        account: &str,
+        kept: Option<&pieces::Generation>,
+    ) -> Result<(), CredentialStoreError> {
+        if self.entry_capacity.is_none() {
+            return Ok(());
+        }
+        for item in self.entries(service)? {
+            if let Some((item_account, generation)) = pieces::piece_of(&item.account)
+                && item_account == account
+                && kept != Some(&generation)
+            {
+                item.remove()?;
+            }
+        }
+        Ok(())
     }
 
     /// The entry for `service` and `account`, built through this store with its settings, never
@@ -272,6 +365,30 @@ impl CredentialStoreError {
             is_locked: false,
             failure: StoreFailure::Refused {
                 message: reason.to_owned(),
+            },
+        }
+    }
+
+    // The refusal of the item under `service` and `account` whose head's pieces are missing or do
+    // not match its digest: a write was cut short.
+    fn torn(service: &str, account: &str) -> Self {
+        Self {
+            is_locked: false,
+            failure: StoreFailure::Refused {
+                message: format!(
+                    "the item under {service} and {account} does not match its head: \
+                     a write was cut short"
+                ),
+            },
+        }
+    }
+
+    // The refusal of a write that found no randomness to name its pieces.
+    fn no_generation(error: getrandom::Error) -> Self {
+        Self {
+            is_locked: false,
+            failure: StoreFailure::Refused {
+                message: format!("no randomness to name the item's pieces: {error}"),
             },
         }
     }
