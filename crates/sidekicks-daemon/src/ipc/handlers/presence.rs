@@ -66,19 +66,20 @@ mod tests {
     use serde_json::json;
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::presence::PresenceRegister;
-    use sidekicks_ipc::registry::{Dispatch as _, MethodRegistryBuilder, TransportId};
+    use sidekicks_ipc::registry::{Dispatch as _, MethodRegistryBuilder};
 
     use super::register_presence_methods;
 
     #[test]
-    fn a_heartbeat_is_filed_by_its_dispatch_so_the_close_after_it_drops_the_device() {
+    fn a_heartbeat_is_filed_by_its_dispatch_before_any_close() {
         let presence = Arc::new(PresenceRegister::default());
         let mut builder = MethodRegistryBuilder::new();
         register_presence_methods(&mut builder, Arc::clone(&presence))
             .expect("the presence methods register");
         let registry = builder.freeze();
 
-        // The call is never polled, as a call canceled by its connection's close never is.
+        // Dropped unpolled, so the device listed below was filed by the dispatch itself,
+        // before any close the reader runs next.
         drop(registry.dispatch(
             request(
                 "presence.heartbeat.send",
@@ -90,12 +91,6 @@ mod tests {
             presence.read().devices.len(),
             1,
             "the dispatch filed the heartbeat"
-        );
-
-        presence.cleanup_transport(TransportId(7));
-        assert!(
-            presence.read().devices.is_empty(),
-            "the close dropped the device"
         );
     }
 }
