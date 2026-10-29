@@ -773,11 +773,17 @@ impl RunEngine {
     }
 
     /// Whether `run_id` ended `failed` at its setup, before its provider started it, as a helper
-    /// the daemon refused after its provider started it does. Fails as the read does.
+    /// the daemon refused after its provider started it does; `false` for a run with no row. Its
+    /// session is read from the run's row, so the event read stays on that session's index. Fails
+    /// as the read does.
     pub(crate) async fn is_failed_at_setup(&self, run_id: RunId) -> Result<bool, RunEngineError> {
         self.pool
             .read(ReadLength::Short, move |reader| {
-                Ok::<_, RunEngineError>(RunStateReader::new(reader).is_failed_at_setup(&run_id)?)
+                let runs = RunStateReader::new(reader);
+                let Some(run) = runs.read_run(&run_id)? else {
+                    return Ok(false);
+                };
+                Ok::<_, RunEngineError>(runs.is_failed_at_setup(&run.session_id, &run_id)?)
             })
             .await
     }
