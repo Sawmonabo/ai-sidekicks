@@ -84,9 +84,11 @@ use crate::run::refusals::RunRefusal;
 use crate::run::state_change::{RunStateChangeCompanions, refused_statement_index};
 use crate::run::transitions::states_that_may_enter;
 
-/// The statements the service's reads prepare on its pooled connection: the run's row, its
-/// provider, and an intervention's row by its id and under a reused key.
-pub const INTERVENTION_SERVICE_STATEMENT_CAPACITY: usize = 4;
+/// The statements the service's reads prepare on its pooled connection that no other reading
+/// service's set holds: an intervention's row by its id and under a reused key, and a send-now
+/// request by its run and key. Its other reads (the run's row and its provider, in the run pause's
+/// set; a queue item by its id, in the run queue's) are counted there.
+pub const INTERVENTION_SERVICE_STATEMENT_CAPACITY: usize = 3;
 
 // The insert of a request is the first statement of its write.
 const INSERT_STATEMENT_INDEX: usize = 0;
