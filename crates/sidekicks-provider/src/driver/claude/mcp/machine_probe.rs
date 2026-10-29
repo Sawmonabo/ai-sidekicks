@@ -2,19 +2,23 @@
 //! that keeps nothing per attached root in turn, under `--strict-mcp-config` unless an
 //! administrator's MCP file is deployed, sent the probed servers with `mcp_set_servers`, each
 //! declaration re-read from the person's config, its variables filled as Claude Code fills them on
-//! load, and dropped once sent, then asked `mcp_status`
-//! until every server is past `pending` or the ceiling passes, and closed. No turn is sent.
+//! load, and dropped once sent, then asked `mcp_status` until every server is past `pending` or
+//! the ceiling passes, and closed. No turn is sent. An entry the set cannot carry whole, one that
+//! fetches its headers or signs in itself, or one over a transport the set has no form for, is not
+//! sent and reads `unknown`.
 //! Budget: one such process of about 140 to 150 MB at a time, run only when a refresh asks for a
 //! probe, each closed once its servers settle or its ceiling passes; nothing polls between probes.
 
+mod variables;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
 use std::time::Duration;
 
-use regex::{Captures, Regex};
 use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::Value;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::{
     McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
 };
@@ -22,7 +26,10 @@ use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio::time::Instant;
 
-use crate::driver::claude::mcp::config::read_claude_mcp_server_entry;
+use self::variables::{ClaudePluginPlaceholders, expand_entry_variables};
+use crate::driver::claude::mcp::config::{
+    ClaudeDeclaredEntry, ClaudeMcpRootConfig, ClaudePersonConfigFiles, ClaudeServerEntryReader,
+};
 use crate::driver::claude::mcp::precedence::claude_reported_server_name;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -71,8 +78,8 @@ pub(crate) struct ClaudeMcpProbeSources<'sources> {
     /// Whether an administrator's MCP file is deployed, under which `--strict-mcp-config` makes
     /// Claude Code exit at start.
     pub(crate) has_managed_mcp_file: bool,
-    /// The person's own home folder, holding `.claude.json`.
-    pub(crate) home: &'sources Path,
+    /// The person's own config files.
+    pub(crate) person: &'sources ClaudePersonConfigFiles,
     /// The daemon's plugin home for Claude Code.
     pub(crate) plugin_home: &'sources Path,
     /// The attached project roots, in the order the probe goes through them.
@@ -97,62 +104,125 @@ struct ProbeStatus {
     is_failed_by_set: bool,
 }
 
-/// The probe target of `binding`, sent with its declaration, since the probe's process loads none
-/// of the person's files; `None` for a connector, which its account's own process reports.
-pub(crate) fn claude_probe_target(binding: &McpServerBindingRef) -> Option<McpProbeTarget> {
-    match binding {
-        McpServerBindingRef::Connector { .. } => None,
-        McpServerBindingRef::User { .. }
-        | McpServerBindingRef::Project { .. }
-        | McpServerBindingRef::Local { .. }
-        | McpServerBindingRef::Plugin { .. }
-        | McpServerBindingRef::Managed { .. } => Some(McpProbeTarget {
+/// What the probe does with one binding: starts it, or reads it with no process.
+pub(crate) enum ClaudeProbePlan {
+    /// The binding is sent with its declaration, since the probe's process loads none of the
+    /// person's files.
+    Probe(McpProbeTarget),
+    /// The binding's reading without a process.
+    Withheld(McpProbeReading),
+}
+
+/// What the probe does with `binding` at the roots `roots` reads: a `project` binding its root
+/// keeps out, or a `project` or `local` binding switched off there, reads switched off, and a
+/// `project` binding never approved there reads `unknown`, neither run; every other binding is
+/// probed. `None` for a connector, which its account's own process reports.
+pub(crate) fn plan_claude_probe(
+    binding: &McpServerBindingRef,
+    roots: &[ClaudeMcpRootConfig],
+) -> Option<ClaudeProbePlan> {
+    let at_root =
+        |scope_ref: &FilesystemPath| roots.iter().find(|root| root.root.path == *scope_ref);
+    let withheld = |reading| {
+        Some(ClaudeProbePlan::Withheld(McpProbeReading {
             binding: binding.clone(),
-            start: McpProbeStart::DeclarationSent,
-        }),
+            reading,
+            failure_text: None,
+            tool_names: Vec::new(),
+        }))
+    };
+    match binding {
+        McpServerBindingRef::Connector { .. } => return None,
+        McpServerBindingRef::Project {
+            scope_ref,
+            server_name,
+            ..
+        } => {
+            if let Some(root) = at_root(scope_ref) {
+                if root.kept_out_server_names.contains(server_name)
+                    || root.switched_off_server_names.contains(server_name)
+                {
+                    return withheld(McpServerReading::SwitchedOff);
+                }
+                if root.unapproved_server_names.contains(server_name) {
+                    return withheld(McpServerReading::Observed(McpServerStatus::Unknown));
+                }
+            }
+        }
+        McpServerBindingRef::Local {
+            scope_ref,
+            server_name,
+            ..
+        } => {
+            if at_root(scope_ref)
+                .is_some_and(|root| root.switched_off_server_names.contains(server_name))
+            {
+                return withheld(McpServerReading::SwitchedOff);
+            }
+        }
+        McpServerBindingRef::User { .. }
+        | McpServerBindingRef::Plugin { .. }
+        | McpServerBindingRef::Managed { .. } => {}
     }
+    Some(ClaudeProbePlan::Probe(McpProbeTarget {
+        binding: binding.clone(),
+        start: McpProbeStart::DeclarationSent,
+    }))
 }
 
 /// Probes `targets` through `sources`, one process per attached root in turn: a `project` or
 /// `local` binding at its own root, every other binding at the first attached root. An
 /// organization's server is sent as its managed settings declare it, and every other declaration
-/// is re-read from the person's config. A target sent with its declaration whose entry is gone, or
-/// that nothing declares in a form the set takes, gets no reading; one the status never names
-/// reads `starting` with no tools. Fails as the config read, a start or a request does, the
-/// process then closed.
+/// is re-read from the person's config, each file once. A target sent with its declaration whose
+/// entry is gone gets no reading; one whose entry the set cannot carry whole reads `unknown`
+/// unsent; one the status never names reads `starting` with no tools. Fails as the config read, a
+/// start or a request does, the process then closed.
 pub(crate) async fn probe_claude_mcp_servers(
     sources: &ClaudeMcpProbeSources<'_>,
     targets: &[McpProbeTarget],
 ) -> Result<Vec<McpProbeReading>, DriverError> {
     let ceiling = probe_ceiling(&sources.environment);
+    let mut entries = ClaudeServerEntryReader::new(sources.person, sources.plugin_home);
     let mut readings = Vec::with_capacity(targets.len());
     for batch in batch_targets(sources.attached_roots, targets) {
         let mut servers = BTreeMap::new();
         let mut asked: Vec<(&McpProbeTarget, String)> = Vec::new();
         for (target, name) in batch.targets {
             if target.start != McpProbeStart::LoadedByProvider {
-                let entry = match &target.binding {
-                    McpServerBindingRef::Managed { server_name, .. } => {
-                        sources.organization_entries.get(server_name).cloned()
-                    }
+                let sent = match &target.binding {
+                    McpServerBindingRef::Managed { server_name, .. } => sources
+                        .organization_entries
+                        .get(server_name)
+                        .cloned()
+                        .map(|entry| expand_entry_variables(entry, &sources.environment, None))
+                        .map(SentEntry::Sent),
                     binding @ (McpServerBindingRef::User { .. }
                     | McpServerBindingRef::Project { .. }
                     | McpServerBindingRef::Local { .. }
                     | McpServerBindingRef::Plugin { .. }
-                    | McpServerBindingRef::Connector { .. }) => {
-                        read_claude_mcp_server_entry(sources.home, sources.plugin_home, binding)
-                            .await
-                            .map_err(|error| DriverError::Internal(Box::new(error)))?
-                            .and_then(compose_tool_server_entry)
+                    | McpServerBindingRef::Connector { .. }) => entries
+                        .read(binding)
+                        .await
+                        .map_err(|error| DriverError::Internal(Box::new(error)))?
+                        .map(|declared| {
+                            compose_sent_entry(declared, &sources.environment, batch.root.as_ref())
+                        }),
+                };
+                match sent {
+                    None => continue,
+                    Some(SentEntry::Unsendable) => {
+                        readings.push(McpProbeReading {
+                            binding: target.binding.clone(),
+                            reading: McpServerReading::Observed(McpServerStatus::Unknown),
+                            failure_text: None,
+                            tool_names: Vec::new(),
+                        });
+                        continue;
                     }
-                };
-                let Some(entry) = entry else {
-                    continue;
-                };
-                servers.insert(
-                    name.clone(),
-                    expand_entry_variables(entry, &sources.environment),
-                );
+                    Some(SentEntry::Sent(entry)) => {
+                        servers.insert(name.clone(), entry);
+                    }
+                }
             }
             asked.push((target, name));
         }
@@ -254,9 +324,18 @@ fn target_root(binding: &McpServerBindingRef) -> Option<PlacedPath> {
     }
 }
 
-// One server's entry as the person wrote it, values included. It derives no `Debug`, so nothing
-// prints a value.
+// What the probe does with one declared entry: sends it, its variables filled, or reads it
+// `unknown` unsent.
+enum SentEntry {
+    Sent(ClaudeToolServerEntry),
+    Unsendable,
+}
+
+// One server's entry as the person wrote it, values included, with whether it fetches its headers
+// from a program or signs in itself, which the set cannot carry. It derives no `Debug`, so
+// nothing prints a value.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ClaudeDeclaredServer {
     #[serde(rename = "type", default)]
     transport: Option<String>,
@@ -270,12 +349,43 @@ struct ClaudeDeclaredServer {
     url: Option<String>,
     #[serde(default)]
     headers: BTreeMap<String, String>,
+    #[serde(default)]
+    headers_helper: Option<IgnoredAny>,
+    #[serde(default)]
+    oauth: Option<IgnoredAny>,
 }
 
-// A declared entry as `mcp_set_servers` takes it; `None` for an entry of another shape or a
-// transport the set has no form for.
+// A declared entry as the probe sends it, a plugin's placeholders and every variable filled, or
+// unsendable where the set cannot carry it whole.
+fn compose_sent_entry(
+    declared: ClaudeDeclaredEntry,
+    environment: &[(String, String)],
+    root: Option<&PlacedPath>,
+) -> SentEntry {
+    let placeholders = declared
+        .plugin_folders
+        .map(|folders| ClaudePluginPlaceholders {
+            root: folders.root.to_string_lossy().into_owned(),
+            data: folders.data.to_string_lossy().into_owned(),
+            project: root.map(|root| root.path.as_str().to_owned()),
+        });
+    match compose_tool_server_entry(declared.entry) {
+        Some(entry) => SentEntry::Sent(expand_entry_variables(
+            entry,
+            environment,
+            placeholders.as_ref(),
+        )),
+        None => SentEntry::Unsendable,
+    }
+}
+
+// A declared entry as `mcp_set_servers` takes it; `None` for an entry of another shape, a
+// transport the set has no form for, or one that fetches its headers or signs in itself.
 fn compose_tool_server_entry(entry: Value) -> Option<ClaudeToolServerEntry> {
     let declared: ClaudeDeclaredServer = serde_json::from_value(entry).ok()?;
+    if declared.headers_helper.is_some() || declared.oauth.is_some() {
+        return None;
+    }
     match declared.transport.as_deref() {
         None | Some("stdio") => Some(ClaudeToolServerEntry::Stdio {
             command: declared.command?,
@@ -292,62 +402,6 @@ fn compose_tool_server_entry(entry: Value) -> Option<ClaudeToolServerEntry> {
         }),
         Some(_) => None,
     }
-}
-
-// `entry` with each `${VAR}` and `${VAR:-default}` in its program, arguments, environment, address
-// and headers filled from `environment`, as Claude Code fills a server's entry when it loads it;
-// a variable with no value and no default is left as written.
-fn expand_entry_variables(
-    entry: ClaudeToolServerEntry,
-    environment: &[(String, String)],
-) -> ClaudeToolServerEntry {
-    let expand = |value: String| expand_variables(&value, environment);
-    let expand_values = |values: BTreeMap<String, String>| {
-        values
-            .into_iter()
-            .map(|(name, value)| (name, expand(value)))
-            .collect()
-    };
-    match entry {
-        ClaudeToolServerEntry::Stdio { command, args, env } => ClaudeToolServerEntry::Stdio {
-            command: expand(command),
-            args: args.into_iter().map(expand).collect(),
-            env: expand_values(env),
-        },
-        ClaudeToolServerEntry::Http { url, headers } => ClaudeToolServerEntry::Http {
-            url: expand(url),
-            headers: expand_values(headers),
-        },
-        ClaudeToolServerEntry::Sse { url, headers } => ClaudeToolServerEntry::Sse {
-            url: expand(url),
-            headers: expand_values(headers),
-        },
-        sdk @ ClaudeToolServerEntry::Sdk { .. } => sdk,
-    }
-}
-
-// `value` with each `${VAR}` filled from `environment`'s last setting of `VAR`, and each
-// `${VAR:-default}` with `default` where `VAR` is unset or empty.
-fn expand_variables(value: &str, environment: &[(String, String)]) -> String {
-    static VARIABLE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
-            .expect("the variable pattern compiles")
-    });
-    VARIABLE
-        .replace_all(value, |captures: &Captures<'_>| {
-            let set = environment
-                .iter()
-                .rev()
-                .find(|(name, _value)| *name == captures[1])
-                .map(|(_name, value)| value.as_str())
-                .filter(|value| !value.is_empty());
-            match (set, captures.get(2)) {
-                (Some(set), _default) => set.to_owned(),
-                (None, Some(default)) => default.as_str().to_owned(),
-                (None, None) => captures[0].to_owned(),
-            }
-        })
-        .into_owned()
 }
 
 // Sends `servers` on `channel` and reads what becomes of each of `names`: a server the set's reply
@@ -450,388 +504,4 @@ fn record_status_reply(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
-    use std::time::Duration;
-
-    use rstest::rstest;
-    use serde_json::{Value, json};
-    use sidekicks_contracts::mcp::server::{
-        McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
-    };
-    use sidekicks_platforms::Spawner;
-    use tempfile::TempDir;
-    use tokio::runtime::Handle;
-    use tokio::time::Instant;
-
-    use super::{ClaudeMcpProbeSources, claude_probe_target, probe_claude_mcp_servers};
-    use crate::command_search::ProviderCommandSearch;
-    use crate::driver::claude::DESCRIPTOR;
-    use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
-    use crate::driver::claude::session::scripted::starts::ScriptedStarts;
-    use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
-    use crate::driver::claude::spawn::launch::installed_build::{
-        ClaudeInstalledBuild, ClaudeProcessStarts,
-    };
-    use crate::driver::contract::error::DriverError;
-    use crate::driver::mcp_server::read::{McpProbeReading, McpProbeTarget};
-    use crate::driver::mcp_server::status::McpServerReading;
-    use crate::process_registry::ProviderProcessRegistry;
-    use crate::runtime_binding::test_store::test_provider_account_id;
-
-    // A home whose `.claude.json` declares each of `servers` as a `user` server.
-    fn home_declaring(servers: &Value) -> TempDir {
-        let home = tempfile::tempdir().expect("a test home");
-        std::fs::write(
-            home.path().join(".claude.json"),
-            json!({ "mcpServers": servers }).to_string(),
-        )
-        .expect("the config is written");
-        home
-    }
-
-    // The `user` server `name`, as the composition targets it.
-    fn user_target(name: &str) -> McpProbeTarget {
-        claude_probe_target(&McpServerBindingRef::User {
-            provider: DESCRIPTOR.provider_id(),
-            server_name: McpServerName::new(name.to_owned()).expect("a server name"),
-        })
-        .expect("a user binding is probed")
-    }
-
-    // Probes `targets` declared in `home` with no root attached, through `starts`.
-    async fn probe(
-        starts: &dyn ClaudeProcessStarts,
-        home: &Path,
-        environment: Vec<(String, String)>,
-        has_managed_mcp_file: bool,
-        targets: &[McpProbeTarget],
-    ) -> Result<Vec<McpProbeReading>, DriverError> {
-        probe_claude_mcp_servers(
-            &ClaudeMcpProbeSources {
-                starts,
-                environment,
-                provider_account_id: test_provider_account_id(),
-                has_managed_mcp_file,
-                home,
-                plugin_home: &home.join("plugin-home"),
-                attached_roots: &[],
-                organization_entries: &BTreeMap::new(),
-            },
-            targets,
-        )
-        .await
-    }
-
-    // The probe's process loads none of the person's files through `--strict-mcp-config`, except
-    // where an administrator's MCP file is deployed, under which that flag makes Claude Code exit
-    // at start. Killed by the flag passed under a managed file, and by the flag dropped elsewhere.
-    #[rstest]
-    #[case::managed_file(true, false)]
-    #[case::no_managed_file(false, true)]
-    #[tokio::test]
-    async fn the_probe_is_strict_only_where_no_managed_mcp_file_is_deployed(
-        #[case] has_managed_mcp_file: bool,
-        #[case] is_strict: bool,
-    ) {
-        let home = home_declaring(&json!({ "notes": { "command": "notes-server" } }));
-        let starts = ScriptedStarts::default();
-        let channel = Arc::new(ScriptedChannel::default());
-        channel.answer(
-            "mcp_status",
-            ScriptedAnswer::Reply(
-                json!({ "mcpServers": [{ "name": "notes", "status": "connected" }] }),
-            ),
-        );
-        starts.script_mcp_probe(Arc::clone(&channel));
-
-        let readings = probe(
-            &starts,
-            home.path(),
-            Vec::new(),
-            has_managed_mcp_file,
-            &[user_target("notes")],
-        )
-        .await
-        .expect("the probe reads");
-
-        let [start] = starts
-            .take_mcp_probe_starts()
-            .try_into()
-            .unwrap_or_else(|starts: Vec<_>| panic!("one probe process, not {}", starts.len()));
-        assert_eq!(
-            start
-                .arguments
-                .iter()
-                .any(|argument| argument == "--strict-mcp-config"),
-            is_strict
-        );
-        assert_eq!(
-            readings[0].reading,
-            McpServerReading::Observed(McpServerStatus::Connected)
-        );
-    }
-
-    // A server the set's reply names in its errors reads `failed` with the error text, its
-    // credentials scrubbed, while the declaration went out whole so the server could start.
-    // Killed by the errors leg dropped (the server reads `starting`) and by the raw text kept.
-    #[tokio::test]
-    async fn a_set_error_reads_failed_with_its_credentials_scrubbed() {
-        let home = home_declaring(&json!({
-            "tracker": {
-                "type": "http",
-                "url": "https://mcp.example.com/mcp",
-                "headers": { "Authorization": "Bearer config-header-secret" }
-            }
-        }));
-        let starts = ScriptedStarts::default();
-        let channel = Arc::new(ScriptedChannel::default());
-        channel.answer(
-            "mcp_set_servers",
-            ScriptedAnswer::Reply(json!({
-                "added": [],
-                "removed": [],
-                "errors": {
-                    "tracker": "SSE error: Authorization: Bearer error-bearer-secret at \
-                                https://alice:hunter2-userinfo@mcp.example.com/sse"
-                }
-            })),
-        );
-        starts.script_mcp_probe(Arc::clone(&channel));
-
-        let readings = probe(
-            &starts,
-            home.path(),
-            Vec::new(),
-            false,
-            &[user_target("tracker")],
-        )
-        .await
-        .expect("the probe reads");
-
-        let requests = channel.control_requests();
-        assert_eq!(requests[0]["subtype"], "mcp_set_servers");
-        assert_eq!(
-            requests[0]["servers"]["tracker"],
-            json!({
-                "type": "http",
-                "url": "https://mcp.example.com/mcp",
-                "headers": { "Authorization": "Bearer config-header-secret" }
-            })
-        );
-        let [reading] = readings.as_slice() else {
-            panic!("one reading: {readings:?}");
-        };
-        assert_eq!(
-            reading.reading,
-            McpServerReading::Observed(McpServerStatus::Failed)
-        );
-        let text = reading
-            .failure_text
-            .as_deref()
-            .expect("the error text is kept");
-        assert!(text.contains("Authorization: ***"), "{text}");
-        for secret in [
-            "error-bearer-secret",
-            "hunter2-userinfo",
-            "config-header-secret",
-        ] {
-            assert!(
-                !format!("{readings:?}").contains(secret),
-                "{secret} is kept"
-            );
-        }
-    }
-
-    // The sent entry carries each `${VAR}` filled from the probe's environment and each
-    // `${VAR:-default}` filled with its default where the variable is unset or empty, and leaves
-    // a variable with neither as written. Killed by the entry sent unexpanded, by a default taken
-    // over a set value, and by an unset variable sent empty.
-    #[tokio::test]
-    async fn a_sent_entry_carries_its_variables_filled() {
-        let home = home_declaring(&json!({
-            "tracker": {
-                "type": "http",
-                "url": "https://${TRACKER_HOST}/mcp",
-                "headers": {
-                    "Authorization": "Bearer ${TRACKER_TOKEN}",
-                    "X-Region": "${TRACKER_REGION:-eu}",
-                    "X-Team": "${TRACKER_TEAM:-core}",
-                    "X-Unset": "${TRACKER_UNSET}"
-                }
-            }
-        }));
-        let starts = ScriptedStarts::default();
-        let channel = Arc::new(ScriptedChannel::default());
-        channel.answer(
-            "mcp_set_servers",
-            ScriptedAnswer::Reply(json!({"added": ["tracker"], "removed": [], "errors": {}})),
-        );
-        channel.answer(
-            "mcp_status",
-            ScriptedAnswer::Reply(
-                json!({"mcpServers": [{"name": "tracker", "status": "connected"}]}),
-            ),
-        );
-        starts.script_mcp_probe(Arc::clone(&channel));
-        let environment = [
-            ("TRACKER_HOST", "mcp.example.com"),
-            ("TRACKER_TOKEN", "variable-token"),
-            ("TRACKER_TEAM", "platform"),
-            ("TRACKER_REGION", ""),
-        ]
-        .map(|(name, value)| (name.to_owned(), value.to_owned()))
-        .to_vec();
-
-        probe(
-            &starts,
-            home.path(),
-            environment,
-            false,
-            &[user_target("tracker")],
-        )
-        .await
-        .expect("the probe reads");
-
-        assert_eq!(
-            channel.control_requests()[0]["servers"]["tracker"],
-            json!({
-                "type": "http",
-                "url": "https://mcp.example.com/mcp",
-                "headers": {
-                    "Authorization": "Bearer variable-token",
-                    "X-Region": "eu",
-                    "X-Team": "platform",
-                    "X-Unset": "${TRACKER_UNSET}"
-                }
-            })
-        );
-    }
-
-    // A server still `pending` when the ceiling passes reads `starting`, the ceiling being Claude
-    // Code's startup timeout (`MCP_TIMEOUT`, 30 s unset) plus 5 s, with `mcp_status` asked once a
-    // second until then. Killed by waiting past the ceiling and by a fixed ceiling.
-    #[rstest]
-    #[case::unset(None, 35)]
-    #[case::two_seconds(Some("2000"), 7)]
-    #[tokio::test(start_paused = true)]
-    async fn a_server_pending_at_the_ceiling_reads_starting(
-        #[case] mcp_timeout: Option<&str>,
-        #[case] ceiling_seconds: u64,
-    ) {
-        let home = home_declaring(&json!({ "notes": { "command": "notes-server" } }));
-        let starts = ScriptedStarts::default();
-        let channel = Arc::new(ScriptedChannel::default());
-        channel.answer(
-            "mcp_status",
-            ScriptedAnswer::Reply(
-                json!({ "mcpServers": [{ "name": "notes", "status": "pending" }] }),
-            ),
-        );
-        starts.script_mcp_probe(Arc::clone(&channel));
-        let environment = mcp_timeout
-            .map(|timeout| vec![("MCP_TIMEOUT".to_owned(), timeout.to_owned())])
-            .unwrap_or_default();
-
-        let started = Instant::now();
-        let readings = probe(
-            &starts,
-            home.path(),
-            environment,
-            false,
-            &[user_target("notes")],
-        )
-        .await
-        .expect("the probe reads");
-
-        assert_eq!(started.elapsed(), Duration::from_secs(ceiling_seconds));
-        let status_reads = channel
-            .control_requests()
-            .iter()
-            .filter(|request| request["subtype"] == "mcp_status")
-            .count();
-        assert_eq!(
-            u64::try_from(status_reads).expect("a small count"),
-            ceiling_seconds + 1
-        );
-        assert_eq!(
-            readings[0].reading,
-            McpServerReading::Observed(McpServerStatus::Starting)
-        );
-        assert_eq!(readings[0].tool_names, [] as [McpToolName; 0]);
-    }
-
-    // A real Claude Code, its home signed in, probed for a reachable MCP server and one nothing
-    // listens at, each declared as a `user` server in a scratch config, the reachable one with
-    // headers naming a set variable and a defaulted one: the reachable one reads connected with
-    // its tools, the other failed, both before the ceiling.
-    #[tokio::test]
-    #[ignore = "needs an installed Claude Code, a signed-in home and a reachable MCP server"]
-    async fn a_real_claude_code_probe_reads_a_sent_server_connected_with_its_tools() {
-        let program = PathBuf::from(
-            std::env::var_os("SIDEKICKS_TEST_CLAUDE_PROGRAM")
-                .expect("SIDEKICKS_TEST_CLAUDE_PROGRAM names the installed Claude Code program"),
-        );
-        let claude_home = std::env::var("SIDEKICKS_TEST_CLAUDE_HOME")
-            .expect("SIDEKICKS_TEST_CLAUDE_HOME names a signed-in Claude Code home");
-        let server_url = std::env::var("SIDEKICKS_TEST_CLAUDE_ORGANIZATION_SERVER")
-            .expect("SIDEKICKS_TEST_CLAUDE_ORGANIZATION_SERVER names a reachable MCP server");
-        // Headers naming variables, which the sent entry carries filled.
-        let home = home_declaring(&json!({
-            "reachable": {
-                "type": "http",
-                "url": server_url,
-                "headers": {
-                    "X-Probe-Run": "${SIDEKICKS_PROBE_RUN}",
-                    "X-Probe-Region": "${SIDEKICKS_PROBE_REGION:-eu}"
-                }
-            },
-            "unreachable": { "type": "http", "url": "http://127.0.0.1:9/mcp" }
-        }));
-        let spawner = Spawner::new(Handle::current()).expect("a spawner");
-        let starts = ClaudeInstalledBuild::new(
-            Arc::new(ClaudeProcessLauncher::new(
-                spawner.clone(),
-                Arc::new(ProviderProcessRegistry::default()),
-                home.path(),
-            )),
-            Arc::new(ProviderCommandSearch::new(spawner)),
-            home.path().to_path_buf(),
-        );
-        let program_folder = program.parent().expect("the program sits in a folder");
-        let mut environment: Vec<(String, String)> = std::env::vars()
-            .filter(|(name, _value)| name != "CLAUDE_CONFIG_DIR" && name != "PATH")
-            .collect();
-        environment.push(("CLAUDE_CONFIG_DIR".to_owned(), claude_home));
-        environment.push(("SIDEKICKS_PROBE_RUN".to_owned(), "real-process".to_owned()));
-        environment.push((
-            "PATH".to_owned(),
-            program_folder.to_string_lossy().into_owned(),
-        ));
-
-        let readings = probe(
-            &starts,
-            home.path(),
-            environment,
-            false,
-            &[user_target("reachable"), user_target("unreachable")],
-        )
-        .await
-        .expect("the probe reads");
-
-        let [reachable, unreachable] = readings.as_slice() else {
-            panic!("two readings: {readings:?}");
-        };
-        assert_eq!(
-            reachable.reading,
-            McpServerReading::Observed(McpServerStatus::Connected)
-        );
-        assert_ne!(reachable.tool_names, [] as [McpToolName; 0]);
-        assert_eq!(
-            unreachable.reading,
-            McpServerReading::Observed(McpServerStatus::Failed)
-        );
-    }
-}
+mod tests;

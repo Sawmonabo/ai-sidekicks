@@ -14,8 +14,12 @@ use futures::future::join_all;
 use sidekicks_contracts::mcp::server::McpServerStatus;
 use sidekicks_store::data_folder::plugin_home;
 
-use self::config::{ClaudeMcpConfigSources, ClaudeMcpRoot, read_claude_mcp_config};
-use self::machine_probe::{ClaudeMcpProbeSources, claude_probe_target, probe_claude_mcp_servers};
+use self::config::{
+    ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles, read_claude_mcp_config,
+};
+use self::machine_probe::{
+    ClaudeMcpProbeSources, ClaudeProbePlan, plan_claude_probe, probe_claude_mcp_servers,
+};
 use self::organization::has_readable_managed_mcp_file;
 use self::precedence::{ClaudeMcpAccountServers, rank_claude_mcp_servers};
 use crate::driver::claude::DESCRIPTOR;
@@ -51,8 +55,9 @@ pub(crate) async fn read_claude_mcp_servers(
             folder: PathBuf::from(root.path.as_str()),
         })
         .collect();
+    let person = ClaudePersonConfigFiles::resolve(&sources.base_environment, &sources.home_folder);
     let config_sources = ClaudeMcpConfigSources {
-        home: &sources.home_folder,
+        person: &person,
         managed_settings_folder: managed_settings_folder.as_deref(),
         plugin_home: &plugin_home,
         roots: &roots,
@@ -92,7 +97,8 @@ pub(crate) async fn read_claude_mcp_servers(
     } else {
         Vec::new()
     };
-    let probe_targets: Vec<McpProbeTarget> = ranking
+    let mut probe_targets: Vec<McpProbeTarget> = Vec::new();
+    let probed = ranking
         .declarations
         .iter()
         .chain(
@@ -102,8 +108,13 @@ pub(crate) async fn read_claude_mcp_servers(
                 .flat_map(|account| &account.declarations),
         )
         .filter(|declaration| request.probe.contains(&declaration.binding))
-        .filter_map(|declaration| claude_probe_target(&declaration.binding))
-        .collect();
+        .filter_map(|declaration| plan_claude_probe(&declaration.binding, &reading.roots));
+    for plan in probed {
+        match plan {
+            ClaudeProbePlan::Probe(target) => probe_targets.push(target),
+            ClaudeProbePlan::Withheld(reading) => probe_readings.push(reading),
+        }
+    }
     if !probe_targets.is_empty() {
         match accounts.first() {
             None => {
@@ -122,7 +133,7 @@ pub(crate) async fn read_claude_mcp_servers(
                         .await?,
                     provider_account_id: account.provider_account_id.clone(),
                     has_managed_mcp_file,
-                    home: &sources.home_folder,
+                    person: &person,
                     plugin_home: &plugin_home,
                     attached_roots: &request.attached_roots,
                     organization_entries: &account.organization_entries,

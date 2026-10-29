@@ -204,8 +204,8 @@ pub enum McpServerPolicyEntry {
     ServerName(McpServerName),
     /// A server started by this command and these arguments.
     Command(Vec<String>),
-    /// A remote server whose address matches this pattern, its user name, password and query
-    /// stripped as an address's are.
+    /// A remote server whose address matches this pattern, kept as written with its credentials
+    /// scrubbed.
     AddressPattern(String),
 }
 
