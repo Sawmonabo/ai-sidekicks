@@ -11,6 +11,7 @@ use futures::future::BoxFuture;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionTargetRequest;
@@ -207,7 +208,8 @@ impl DamagedHistory {
 
     /// `Continue from here`: under one hold of the session's appends, skips its damaged events
     /// through its head, rebuilds it past them and ends its live runs and pending retries; then
-    /// settles what its ended runs left, and it takes work again. Refuses a session not held
+    /// settles what its ended runs left, and it takes work again, the halts of the runs it ended
+    /// forgotten. Refuses a session not held
     /// [`RecoveryActionError::NotFound`], and one not damaged or with no readable event
     /// [`RecoveryActionError::Refused`]; a failure after the skip leaves the session at its point
     /// and keeps the skip, so the next start rebuilds past it.
@@ -256,16 +258,20 @@ impl DamagedHistory {
         let continued = self.continue_held(session_id, &hold).await;
         drop(hold);
         let continued = match continued {
-            Ok(()) => self
+            Ok(ended_run_ids) => self
                 .deps
                 .restart_settle
                 .settle_ended(session_id, None)
                 .await
+                .map(|()| ended_run_ids)
                 .map_err(RecoveryActionError::from),
             Err(failure) => Err(failure),
         };
         match continued {
-            Ok(()) => {
+            Ok(ended_run_ids) => {
+                for run_id in &ended_run_ids {
+                    status.mark_run_settled(&session_id, run_id);
+                }
                 status.mark_session_healthy(&session_id);
                 Ok(())
             }
@@ -296,12 +302,13 @@ impl DamagedHistory {
             .map_err(RecoveryActionError::Purge)
     }
 
-    // The rebuild past the skip and the settle of the live runs, under the continue's hold.
+    // The rebuild past the skip and the settle of the live runs, under the continue's hold;
+    // answers the runs the settle ended.
     async fn continue_held(
         &self,
         session_id: SessionId,
         hold: &SessionAppendHold,
-    ) -> Result<(), RecoveryActionError> {
+    ) -> Result<Vec<RunId>, RecoveryActionError> {
         self.deps
             .projection_rebuild
             .rebuild(
@@ -314,11 +321,12 @@ impl DamagedHistory {
                 Some(hold),
             )
             .await?;
-        self.deps
+        let (_tally, ended_run_ids) = self
+            .deps
             .restart_settle
             .settle_live(session_id, Some(hold), None)
             .await?;
-        Ok(())
+        Ok(ended_run_ids)
     }
 
     // Puts a session whose continue failed after its skip back at `point`, its cursor marked stale

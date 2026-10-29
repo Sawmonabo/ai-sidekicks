@@ -112,13 +112,14 @@ impl RestartSettle {
     /// Settles `session_id`'s pending faster-model retries, then ends each run of it still live as
     /// [`RunEngine::settle_run_after_restart`] decides, writing under `hold` where the caller holds
     /// the session's appends and reading `stop`, where the caller has one, before each step;
-    /// answers the runs it ended. Fails at the first read or write that fails, or with `Stopped`.
+    /// answers the tally of the runs it ended and their ids. Fails at the first read or write that
+    /// fails, or with `Stopped`.
     pub(crate) async fn settle_live(
         &self,
         session_id: SessionId,
         hold: Option<&SessionAppendHold>,
         stop: Option<&CancellationToken>,
-    ) -> Result<RestartTally, RestartSettleError> {
+    ) -> Result<(RestartTally, Vec<RunId>), RestartSettleError> {
         check_stop(stop)?;
         self.settle_pending_retries(session_id, hold).await?;
         check_stop(stop)?;
@@ -126,6 +127,7 @@ impl RestartSettle {
             .read(move |reader| RunStateReader::new(reader).list_live_runs(Some(&session_id)))
             .await?;
         let mut tally = RestartTally::default();
+        let mut ended_run_ids = Vec::new();
         for live_run in &live_runs {
             check_stop(stop)?;
             let settled = self
@@ -145,10 +147,11 @@ impl RestartSettle {
                 | RunState::WaitingForInput
                 | RunState::Pausing
                 | RunState::Paused
-                | RunState::Completed => {}
+                | RunState::Completed => continue,
             }
+            ended_run_ids.push(live_run.run_id);
         }
-        Ok(tally)
+        Ok((tally, ended_run_ids))
     }
 
     /// Settles what `session_id`'s runs that had ended left open: their open turns, then their

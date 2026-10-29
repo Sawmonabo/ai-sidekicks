@@ -5,7 +5,8 @@
 //! every call that names it until it is rebuilt and its runs settled, and every event until the
 //! pass comes to settle those runs. A damaged session, open at its last good point or unreadable,
 //! refuses its writes. A run halted after the restart on a question for the person lists its
-//! session `blocked`, or under its damage, and refuses nothing.
+//! session `blocked`, or under its damage, and refuses nothing; the read forgets a halt once its
+//! run has ended.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Mutex, MutexGuard};
@@ -23,7 +24,25 @@ use sidekicks_contracts::session::recovery::{
 };
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_session::run::read::RunStateReader;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+
+/// The statements the status read runs: the read of a halted run's stored state.
+pub const RECOVERY_STATUS_STATEMENT_CAPACITY: usize = 1;
+
+/// Why the status read could not check its halted runs against their stored states.
+#[derive(Debug, thiserror::Error)]
+pub enum RecoveryStatusReadError {
+    /// A read of a halted run's stored state failed.
+    #[error("the halted runs' stored states could not be read")]
+    Read(#[from] rusqlite::Error),
+    /// The read pool failed the read.
+    #[error("the halted runs' stored states could not be read")]
+    Pool(#[from] DatabaseReadError),
+}
 
 /// A session's last good point: the last event it opens at, and the first one that is damaged.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -154,19 +173,28 @@ impl RecoveryStatusTracker {
             .insert(*session_id, ListedSessionStage::Settling);
     }
 
-    /// Marks a session's projections current, or the session deleted, so it is no longer listed,
-    /// its halted runs with it.
+    /// Marks a session's projections current, so it is no longer rebuilding or damaged; its
+    /// halted runs stay, since a halt needs the person whatever the projections.
     pub fn mark_session_healthy(&self, session_id: &SessionId) {
         let mut state = self.lock();
         state.rebuilding_sessions.remove(session_id);
         state.sessions.remove(session_id);
-        state.halted_runs.remove(session_id);
+    }
+
+    /// Marks a session deleted, so it is no longer listed, its halted runs with it.
+    pub fn mark_session_deleted(&self, session_id: &SessionId) {
+        self.mark_session_healthy(session_id);
+        self.lock().halted_runs.remove(session_id);
     }
 
     /// Marks a run of the session that needs the person: a halt on a diverged resume, which
     /// carries no `failure_category`, or a failed resume, which carries one. A run marked again
     /// takes its newest mark.
-    pub fn mark_run_halted(&self, session_id: &SessionId, run: DaemonRecoveryHaltedRun) {
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the restart pass marks a refused resume")
+    )]
+    pub(crate) fn mark_run_halted(&self, session_id: &SessionId, run: DaemonRecoveryHaltedRun) {
         self.lock()
             .halted_runs
             .entry(*session_id)
@@ -177,13 +205,7 @@ impl RecoveryStatusTracker {
     /// Marks a run of the session as no longer needing the person; the session leaves the status
     /// read with its last such run, unless its history is damaged.
     pub fn mark_run_settled(&self, session_id: &SessionId, run_id: &RunId) {
-        let mut state = self.lock();
-        if let Some(runs) = state.halted_runs.get_mut(session_id) {
-            runs.remove(run_id);
-            if runs.is_empty() {
-                state.halted_runs.remove(session_id);
-            }
-        }
+        self.lock().forget_halted_run(session_id, run_id);
     }
 
     /// Marks a session whose history is damaged after `point`, which it opens at read-only.
@@ -274,8 +296,14 @@ impl RecoveryStatusTracker {
 
     /// The `recovery` member of the status read: the overall state and, once each in id order,
     /// every damaged session and every session with a halted run. The sessions the pass has yet to
-    /// rebuild are left out; the daemon reads rebuilding while it runs.
-    pub fn read(&self) -> DaemonRecoveryStatus {
+    /// rebuild are left out; the daemon reads rebuilding while it runs. A halt whose run has ended
+    /// is forgotten first, through one short read on `reads` while any halt is marked; fails when
+    /// that read fails.
+    pub async fn read(
+        &self,
+        reads: &DatabaseReadPool,
+    ) -> Result<DaemonRecoveryStatus, RecoveryStatusReadError> {
+        self.forget_ended_halts(reads).await?;
         let state = self.lock();
         let session_ids: BTreeSet<SessionId> = state
             .sessions
@@ -283,13 +311,62 @@ impl RecoveryStatusTracker {
             .chain(state.halted_runs.keys())
             .copied()
             .collect();
-        DaemonRecoveryStatus {
+        Ok(DaemonRecoveryStatus {
             overall: state.overall(),
             sessions: session_ids
                 .into_iter()
                 .map(|session_id| state.describe_session(session_id))
                 .collect(),
+        })
+    }
+
+    // Forgets each halt on a diverged resume whose run has ended since, which no answer reaches.
+    // A failed resume's mark names a run already ended and stays until the session's next run.
+    async fn forget_ended_halts(
+        &self,
+        reads: &DatabaseReadPool,
+    ) -> Result<(), RecoveryStatusReadError> {
+        let halts: Vec<(SessionId, RunId)> = self
+            .lock()
+            .halted_runs
+            .iter()
+            .flat_map(|(session_id, runs)| {
+                runs.values()
+                    .filter(|run| run.failure_category.is_none())
+                    .map(|run| (*session_id, run.run_id))
+            })
+            .collect();
+        if halts.is_empty() {
+            return Ok(());
         }
+        let ended = reads
+            .read(ReadLength::Short, move |reader| {
+                let runs = RunStateReader::new(reader);
+                let mut ended = Vec::new();
+                for (session_id, run_id) in halts {
+                    if runs
+                        .read_run(&run_id)?
+                        .is_some_and(|run| run.state.is_terminal())
+                    {
+                        ended.push((session_id, run_id));
+                    }
+                }
+                Ok::<_, RecoveryStatusReadError>(ended)
+            })
+            .await?;
+        let mut state = self.lock();
+        for (session_id, run_id) in ended {
+            // A failed resume marked on the run since the read keeps its mark.
+            let is_halt = state
+                .halted_runs
+                .get(&session_id)
+                .and_then(|runs| runs.get(&run_id))
+                .is_some_and(|run| run.failure_category.is_none());
+            if is_halt {
+                state.forget_halted_run(&session_id, &run_id);
+            }
+        }
+        Ok(())
     }
 
     fn mark_session_damaged(&self, session_id: &SessionId, recovery: SessionRecovery) {
@@ -306,6 +383,16 @@ impl RecoveryStatusTracker {
 }
 
 impl TrackerState {
+    // The session leaves the halted runs with its last one.
+    fn forget_halted_run(&mut self, session_id: &SessionId, run_id: &RunId) {
+        if let Some(runs) = self.halted_runs.get_mut(session_id) {
+            runs.remove(run_id);
+            if runs.is_empty() {
+                self.halted_runs.remove(session_id);
+            }
+        }
+    }
+
     fn history_damaged(&self, session_id: &SessionId) -> Option<SessionWriteRefusal> {
         let session = self.sessions.get(session_id)?;
         Some(SessionWriteRefusal::HistoryDamaged(

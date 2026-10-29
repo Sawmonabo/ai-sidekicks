@@ -27,7 +27,7 @@ use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::registry::{ProviderRegistry, test_provider};
 use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_provider::driver::{PROVIDERS, ProviderRegistration};
-use sidekicks_recovery::status::RecoveryStatusTracker;
+use sidekicks_recovery::status::{RECOVERY_STATUS_STATEMENT_CAPACITY, RecoveryStatusTracker};
 use sidekicks_session::conversation_purge::{
     CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge, ConversationPurgeError,
 };
@@ -609,7 +609,14 @@ async fn a_purge_marks_a_session_only_from_its_callers_states(
         );
         assert_eq!(state_of(&reader, session_id), None);
         assert_eq!(event_count(&reader, session_id), 0);
-        assert_eq!(fixture.recovery.read().sessions, Vec::new());
+        let reads =
+            DatabaseReadPool::new(fixture.database.path(), RECOVERY_STATUS_STATEMENT_CAPACITY);
+        let recovery = fixture
+            .recovery
+            .read(&reads)
+            .await
+            .expect("the status reads");
+        assert_eq!(recovery.sessions, Vec::new());
     } else {
         let SessionPurgeOutcome::Refused(SessionPurgeError::NotMarkable { state: refused }) =
             outcome

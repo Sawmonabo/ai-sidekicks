@@ -370,7 +370,7 @@ impl StartupRecovery {
         }
         let status = &self.deps.status;
         status.mark_session_settling(&session_id);
-        let settled = self
+        let (settled, _ended_run_ids) = self
             .deps
             .restart_settle
             .settle_live(session_id, None, Some(stop))
