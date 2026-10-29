@@ -78,7 +78,10 @@ interface ProviderDriver {
   // The provider's catalog for a session's model control, read against the account the params
   // name, or the provider's default account where they name none.
   listModels(params: ListModelsParams): Promise<ProviderModel[]>;
-  listModes(): Promise<ProviderMode[]>;
+  // The levels the provider runs for a session's level control, read against the model the params
+  // name on their account, or the provider's current account where they name none; with no
+  // model, the levels this system runs.
+  listModes(params: ListModesParams): Promise<ProviderMode[]>;
   getCapabilities(): Promise<GetCapabilitiesResult>;
   probeAuth(): Promise<DriverAuthProbeResult>;
   // Compose the hand-over brief a session on a DIFFERENT provider is started from, on a throwaway
@@ -232,6 +235,16 @@ interface ListModelsParams {
   providerAccountId: ProviderAccountId | null;
 }
 
+// The DRIVER-FACING params of `listModes`. For the session's own provider the daemon names the
+// session, its own bound account (`null` for the provider's current account) and the model the
+// session's lead runs on now; for every other provider it names none of them, and that provider
+// lists the levels this system runs.
+interface ListModesParams {
+  sessionId: SessionId | null;
+  providerAccountId: ProviderAccountId | null;
+  model: string | null;
+}
+
 // Why one provider's models or modes could not be read. `code` is the refusal the read answered
 // (`provider.timeout`, `provider.unavailable`, `provider.commandPath.notRunnable` for a command
 // path the person typed with nothing runnable at it, ...); `providerFailureDetail` is the
@@ -254,8 +267,10 @@ interface ProviderModelListResponse {
   providers: ProviderModelReport[];
 }
 
-// `provider.mode.list` answers the same way: one outcome per installed provider in the provider
-// table's order, its modes or the failure their read answered, a provider not installed left out.
+// `provider.mode.list {sessionId}` answers the same way, refused `session.notFound` for a session
+// the daemon does not hold: one outcome per installed provider, the session's own provider first
+// and then the provider table's order, its modes or the failure their read answered, a provider not
+// installed left out.
 type ProviderModeReport =
   | { providerName: ProviderId; modes: ProviderMode[] }
   | { providerName: ProviderId; failure: ProviderReadFailure };
