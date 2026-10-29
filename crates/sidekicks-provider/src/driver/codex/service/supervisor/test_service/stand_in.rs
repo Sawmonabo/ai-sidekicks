@@ -315,26 +315,31 @@ impl StandInLaunches {
     /// Every launch, in order; none while no service was launched. Fails where the record cannot
     /// be read or a line does not read as a launch.
     pub(crate) fn read(&self) -> io::Result<Vec<StandInLaunch>> {
-        let lines = match std::fs::read_to_string(&self.file) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            read => read?,
-        };
-        lines
+        self.text()?
             .lines()
             .map(|line| serde_json::from_str(line).map_err(io::Error::other))
             .collect()
     }
 
-    // Ends every launch still running, each tried whatever the others met; fails with every
-    // error met, once all are tried.
+    // The launches file's text, empty while no service was launched. Fails where it cannot be
+    // read.
+    fn text(&self) -> io::Result<String> {
+        match std::fs::read_to_string(&self.file) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(String::new()),
+            read => read,
+        }
+    }
+
+    // Ends every launch still running, each line tried whatever the others met, one that does
+    // not read as a launch among them; fails with every error met, once all are tried.
     fn end_running(&self) -> io::Result<()> {
         let errors: Vec<String> = self
-            .read()?
-            .into_iter()
-            .filter_map(|launch| {
-                let ended = launch
-                    .process
-                    .pin()
+            .text()?
+            .lines()
+            .filter_map(|line| {
+                let ended = serde_json::from_str::<StandInLaunch>(line)
+                    .map_err(io::Error::other)
+                    .and_then(|launch| launch.process.pin())
                     .and_then(|process| process.map_or(Ok(false), |process| process.kill()));
                 ended.err().map(|error| error.to_string())
             })
