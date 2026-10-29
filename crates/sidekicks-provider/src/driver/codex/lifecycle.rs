@@ -331,6 +331,7 @@ impl CodexDriver {
                 helper_roles_folder: self.helper_roles_folder.clone(),
                 tool_server_route: Arc::clone(&ports.tool_server_route),
                 delivery: Arc::clone(&delivery),
+                run_routes: Arc::clone(&self.run_routes),
                 pending_compactions: self.pending_compactions.clone(),
                 provider_commands: Arc::clone(&self.provider_commands),
                 processes: Arc::clone(&self.processes),

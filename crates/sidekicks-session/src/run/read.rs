@@ -22,6 +22,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::session_control::{LiveRunResume, OpenTurnResume};
 use sidekicks_provider::runtime_binding::store::StoredBindingIdInvalid;
 use sidekicks_store::database::connection::read_pool::{
@@ -130,12 +131,13 @@ static SELECT_LIVE_RUNS_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
     })
 });
 
-// A session's live runs in the order they were written, each with the provider's id of the helper
-// it is, from the newest helper start naming it as the helper's own run.
+// A session's live runs in the order they were written, each with the run it was started beneath
+// and the provider's id of the helper it is, from the newest helper start naming it as the
+// helper's own run.
 static SELECT_LIVE_RUN_SUBAGENTS_SQL: LazyLock<String> = LazyLock::new(|| {
     let started = SessionEventType::AgentSubagentStarted;
     format!(
-        "SELECT runs.run_id,
+        "SELECT runs.run_id, runs.parent_run_id,
     (SELECT json_extract(started.payload, '$.subagentId')
        FROM session_events AS started
       WHERE started.session_id = runs.session_id
@@ -155,11 +157,11 @@ static SELECT_LIVE_RUN_SUBAGENTS_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // Every started turn with no end of a session's live runs, under the provider's own turn id where
-// its start names one, in turn order within each run.
+// its start names one, with the id of its start, in turn order within each run.
 static SELECT_LIVE_RUN_OPEN_TURNS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT started.run_id, started.turn_number,
-    json_extract(started.payload, '$.providerTurnId')
+    json_extract(started.payload, '$.providerTurnId'), started.id
   FROM runs JOIN session_events AS started ON started.run_id = runs.run_id
   WHERE runs.session_id = @session_id
     AND runs.state NOT IN ({terminal_states})
@@ -282,8 +284,9 @@ impl<'connection> RunStateReader<'connection> {
     }
 
     /// Every run of `session_id` that has not ended, queued runs included, in the order they were
-    /// written, as a resume names them to the provider: each with its turns started with no end,
-    /// under the provider's own turn ids, and the provider's id of the helper it is.
+    /// written, as a resume names them to the provider: each with the run it was started beneath,
+    /// its turns started with no end, under the provider's own turn ids and with their starts'
+    /// ids, and the provider's id of the helper it is.
     pub fn list_live_run_resumes(
         &self,
         session_id: &SessionId,
@@ -296,8 +299,9 @@ impl<'connection> RunStateReader<'connection> {
             .query_map(session, |row| {
                 Ok(LiveRunResume {
                     run_id: text_column(row, 0, |text| RunId::new(&text))?,
+                    parent_run_id: optional_text_column(row, 1, |text| RunId::new(&text))?,
                     open_turns: Vec::new(),
-                    subagent_id: optional_text_column(row, 1, SubagentId::new)?,
+                    subagent_id: optional_text_column(row, 2, SubagentId::new)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -315,6 +319,7 @@ impl<'connection> RunStateReader<'connection> {
                 OpenTurnResume {
                     turn_number: safe_int_column(row, 1)?,
                     provider_turn_id: optional_text_column(row, 2, ProviderTurnId::new)?,
+                    started_event_id: text_column(row, 3, FreeFormText::new)?,
                 },
             ))
         })?;
