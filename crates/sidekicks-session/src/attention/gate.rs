@@ -192,13 +192,15 @@ fn decision_statement(decided: &DeliveryDecision) -> WriteStatement {
     )
 }
 
-// Whether `kinds` lets `trigger`'s kind through.
+// Whether `kinds` lets `trigger`'s kind through. A provider's build is no notification kind, so
+// nothing lets it through.
 fn is_kind_on(kinds: &NotificationKindSwitches, trigger: AttentionTrigger) -> bool {
     match trigger {
         AttentionTrigger::PendingApproval | AttentionTrigger::PendingInput => kinds.waiting_on_you,
         AttentionTrigger::RunCompleted => kinds.finished,
         AttentionTrigger::RunFailed => kinds.failed,
         AttentionTrigger::WorkflowNotify => kinds.notify_step,
+        AttentionTrigger::ProviderBuild => false,
     }
 }
 

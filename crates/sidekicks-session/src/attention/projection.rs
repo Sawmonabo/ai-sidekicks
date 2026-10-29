@@ -7,6 +7,9 @@
 //! resolves entries ends with the retention rule. An entry's sequence is read from its source
 //! event's row by id, never stored: the projection statements run before the event rows are
 //! written, so the sequence does not exist yet when an entry is raised.
+//!
+//! A provider's new build is no entry: the read lists it from the record of each provider's builds,
+//! whose own write bumps the machine's count alone.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -415,6 +418,9 @@ fn raise_statement(raise: &AttentionRaise, source: &EventSource<'_>) -> WriteSta
     statement(sql, EntryRow::raised(raise, source).into_bindings())
 }
 
+// A count's first row, or one more on the row it has.
+const VERSION_BUMP_CONFLICT: &str = "ON CONFLICT (scope_key) DO UPDATE SET version = version + 1";
+
 /// The bump of the machine's count, keyed `''`, and the session's, when `guard` holds before the
 /// set's other statements run.
 pub(crate) fn version_bump_sql(guard: &str) -> String {
@@ -422,9 +428,17 @@ pub(crate) fn version_bump_sql(guard: &str) -> String {
         "INSERT INTO attention_versions (scope_key, version)
   SELECT scope_key, 1 FROM (SELECT '' AS scope_key UNION ALL SELECT @session_id)
    WHERE {guard}
-  ON CONFLICT (scope_key) DO UPDATE SET version = version + 1"
+  {VERSION_BUMP_CONFLICT}"
     )
 }
+
+/// The bump of the machine's count alone, for a change no session's projection holds.
+pub(crate) static MACHINE_VERSION_BUMP_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "INSERT INTO attention_versions (scope_key, version) VALUES ('', 1)
+  {VERSION_BUMP_CONFLICT}"
+    )
+});
 
 /// The banner states a withdrawal takes down, as an SQL list: `pending` and `posted`.
 pub(crate) fn raised_banner_states() -> String {

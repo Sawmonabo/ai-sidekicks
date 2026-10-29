@@ -62,8 +62,7 @@ impl AttentionMoment {
                     node_id.as_str(),
                     execution_index.get()
                 );
-                let hash = blake3::hash(key.as_bytes()).to_hex();
-                format!("notify:{}", &hash[..32])
+                return hashed_moment_id("notify", &key);
             }
         };
         FreeFormText::new(id).expect("every moment id is far below the attention id bound")
@@ -83,6 +82,14 @@ impl AttentionMoment {
             } => AttentionSubject::WorkflowRun(*workflow_run_id),
         }
     }
+}
+
+/// The moment id `<prefix>:` and 32 hex digits of the BLAKE3 hash of `key`: a fixed length within
+/// the 64 bytes a banner's tag holds, however long the key.
+pub(crate) fn hashed_moment_id(prefix: &str, key: &str) -> AttentionId {
+    let hash = blake3::hash(key.as_bytes()).to_hex();
+    FreeFormText::new(format!("{prefix}:{}", &hash[..32]))
+        .expect("a hashed moment id is far below the attention id bound")
 }
 
 /// Whose entries merge into one banner and share one seen mark.

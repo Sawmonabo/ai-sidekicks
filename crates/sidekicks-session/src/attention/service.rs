@@ -50,13 +50,15 @@ use crate::attention::projection::{
     binding, raised_banner_states, session_binding, statement, version_bump_sql,
 };
 use crate::attention::read::{AttentionReadError, read_attention_projection};
-use crate::attention::retention::{ENTRY_SEQUENCE, advance_retention_statements};
+use crate::attention::retention::{
+    ENTRY_SEQUENCE, advance_retention_statements, provider_build_retirement_statements,
+};
 use crate::attention::seen::write_seen;
 use crate::directory::lookups::SessionWriteError;
 
 /// The statements the service prepares on a read connection: the undecided entries, the sessions
-/// with entries and an entry's session.
-pub const ATTENTION_SERVICE_STATEMENT_CAPACITY: usize = 3;
+/// with entries, an entry's session and whether a provider build is due to retire.
+pub const ATTENTION_SERVICE_STATEMENT_CAPACITY: usize = 4;
 
 /// How long a subject's first undecided entry waits for the entries that follow it.
 const MERGE_WINDOW: Duration = Duration::from_millis(500);
@@ -274,23 +276,17 @@ impl AttentionService {
 
     /// Run once after the recovery pass: withdraws a resolved entry's banner a stop left standing,
     /// withholds the banner of every entry a stop left undecided but an open wait, whose web
-    /// address is still decided unless it resolved, advances every session's retention cut, then
-    /// starts the decision task, which the open waits go through and which ends with `stop`. Fails
-    /// when the sweep's reads or writes fail, before the task starts.
+    /// address is still decided unless it resolved, advances every session's retention cut and
+    /// retires the day-old provider builds, then starts the decision task, which the open waits go
+    /// through and which ends with `stop`. Fails when the sweep's reads or writes fail, before the
+    /// task starts.
     pub async fn start(
         self: &Arc<Self>,
         stop: CancellationToken,
     ) -> Result<JoinHandle<()>, AttentionServiceError> {
         let sessions = self.read_sessions_with_entries().await?;
         self.sweep_after_stop(&sessions).await?;
-        let now = Timestamp::now();
-        let retention = sessions
-            .iter()
-            .flat_map(|session_id| advance_retention_statements(*session_id, now))
-            .collect::<Vec<_>>();
-        if !retention.is_empty() {
-            self.writer.write(retention).await?;
-        }
+        self.advance_retention(sessions, Timestamp::now()).await?;
         let count = self.changes.follow(None);
         Ok(tokio::spawn(run_decisions(
             DecisionTask::new(Arc::clone(self)),
@@ -432,7 +428,7 @@ impl AttentionService {
 
     // Decides `notify` each on its own and every entry of each closed window as one merge, in one
     // write; then asks for the app's start when a banner went pending, and advances the decided
-    // sessions' retention.
+    // sessions' retention and the provider builds'.
     async fn decide_batch(
         &self,
         notify: Vec<UndecidedEntry>,
@@ -462,15 +458,33 @@ impl AttentionService {
                 sessions.push(decided.session_id);
             }
         }
-        let now = Timestamp::now();
-        self.writer
-            .write(
-                sessions
-                    .into_iter()
-                    .flat_map(|session_id| advance_retention_statements(session_id, now))
-                    .collect(),
-            )
+        self.advance_retention(sessions, Timestamp::now()).await?;
+        Ok(())
+    }
+
+    // Moves each of `sessions`' retention cut and retires the provider builds moved to a day
+    // before `now`, in one write; writes nothing when neither has anything to do.
+    async fn advance_retention(
+        &self,
+        sessions: Vec<SessionId>,
+        now: Timestamp,
+    ) -> Result<(), AttentionServiceError> {
+        let mut statements = self
+            .pool
+            .read(ReadLength::Short, move |connection| {
+                Ok::<_, AttentionServiceError>(provider_build_retirement_statements(
+                    connection, now,
+                )?)
+            })
             .await?;
+        statements.extend(
+            sessions
+                .into_iter()
+                .flat_map(|session_id| advance_retention_statements(session_id, now)),
+        );
+        if !statements.is_empty() {
+            self.writer.write(statements).await?;
+        }
         Ok(())
     }
 

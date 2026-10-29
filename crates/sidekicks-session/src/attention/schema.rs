@@ -5,23 +5,34 @@
 //! The entries are a projection of the session events, written in each event's own write and
 //! rebuilt from the log; the deliveries, the seen marks and the counts are the daemon's own
 //! writes, which a rebuild leaves alone. No table refers to another, so a purge deletes them in any
-//! order.
+//! order. A provider's new build is never an entry row: the projection lists it from the provider
+//! drivers' record of each provider's builds, which this part's list therefore holds.
 
 use sidekicks_contracts::attention::{
     AttentionBannerState, AttentionSeverity, AttentionTrigger, AttentionWebAddressState,
 };
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
-use sidekicks_store::database::sql_list::sql_list_of_every;
+use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
+use strum::VariantArray as _;
 
-/// The runs' list, which a run's end reads to raise an entry only for a lead run, and the attention
+/// The runs' list, which a run's end reads to raise an entry only for a lead run, the provider
+/// drivers' list, whose record of each provider's builds the projection lists, and the attention
 /// tables' own part.
 pub fn schema_parts() -> SchemaParts {
     crate::run::schema::schema_parts()
+        .with_parts(sidekicks_provider::driver::schema::schema_parts())
         .with_part(SchemaPart::new("attention", attention_schema_sql()))
 }
 
 fn attention_schema_sql() -> String {
-    let triggers = sql_list_of_every::<AttentionTrigger>();
+    // A provider's build is read from its record, never stored as an entry.
+    let triggers = sql_list_of(
+        AttentionTrigger::VARIANTS
+            .iter()
+            .copied()
+            .filter(|trigger| *trigger != AttentionTrigger::ProviderBuild)
+            .map(<&'static str>::from),
+    );
     let severities = sql_list_of_every::<AttentionSeverity>();
     let banner_states = sql_list_of_every::<AttentionBannerState>();
     let web_address_states = sql_list_of_every::<AttentionWebAddressState>();

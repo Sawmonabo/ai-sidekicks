@@ -1,6 +1,6 @@
 //! The event log a test of the attention entries appends to: every append carries the attention
 //! statements in its write, and every commit raises the attention change counts, as the daemon's
-//! do, over a fresh database holding the runs' and the attention tables.
+//! do, over a fresh database holding the runs', the provider drivers' and the attention tables.
 
 use std::sync::Arc;
 

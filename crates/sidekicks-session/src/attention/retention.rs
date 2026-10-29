@@ -7,17 +7,23 @@
 //! The rule is one statement set, run wherever an entry can come to meet it: the write that moves
 //! the cut, each write that resolves entries, which a rebuild's fold replays, and the seen write.
 //! So the entries the live writes keep are the entries a rebuild of the same log keeps.
+//!
+//! A provider's build moved to leaves the list a day after it was recorded, by the same age, in the
+//! write that moves the cut; a build only available never leaves on a timer.
 
 use std::sync::LazyLock;
 
 use jiff::{SignedDuration, Timestamp};
+use rusqlite::Connection;
 use rusqlite::types::Value;
 use sidekicks_contracts::attention::{AttentionSeverity, AttentionWebAddressState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_provider::build_record::{is_retirement_due, retirement_statements};
 use sidekicks_store::database::statement::WriteStatement;
 
 use crate::attention::projection::{binding, session_binding, statement, version_bump_sql};
+use crate::attention::provider_build::record_change_statements;
 
 /// How old a session's events are before the cut may pass them; an entry past the cut whose
 /// web-address message is still to send stays until the send is decided.
@@ -108,11 +114,7 @@ pub(crate) fn retention_statements(session_id: SessionId) -> Vec<WriteStatement>
 /// The write that moves the session's cut up to its last event a day older than `now`, then
 /// applies the rule under the new cut. `now` is the caller's clock: nothing here reads one.
 pub fn advance_retention_statements(session_id: SessionId, now: Timestamp) -> Vec<WriteStatement> {
-    let retained_before = now
-        .checked_sub(RETENTION_AGE)
-        .ok()
-        .and_then(WireInstant::from_timestamp)
-        .expect("a day before the clock's instant is after year 0000");
+    let retained_before = retained_before(now);
     let mut statements = vec![statement(
         ADVANCE_CUT_SQL,
         vec![
@@ -125,4 +127,29 @@ pub fn advance_retention_statements(session_id: SessionId, now: Timestamp) -> Ve
     )];
     statements.extend(retention_statements(session_id));
     statements
+}
+
+/// The write that retires every provider build moved to that was recorded more than a day before
+/// `now`, read on `reader`, with the bump of the machine's count; empty when none is due, so a pass
+/// that retires nothing wakes no follower. `now` is the caller's clock. Fails when the read fails.
+pub(crate) fn provider_build_retirement_statements(
+    reader: &Connection,
+    now: Timestamp,
+) -> rusqlite::Result<Vec<WriteStatement>> {
+    let before = retained_before(now);
+    if !is_retirement_due(reader, &before)? {
+        return Ok(Vec::new());
+    }
+    let at = WireInstant::from_timestamp(now).expect("the clock's instant is after year 0000");
+    let mut statements = record_change_statements();
+    statements.extend(retirement_statements(&before, &at));
+    Ok(statements)
+}
+
+// A day before `now`, the age past which the cut and a moved-to build's line may go.
+fn retained_before(now: Timestamp) -> WireInstant {
+    now.checked_sub(RETENTION_AGE)
+        .ok()
+        .and_then(WireInstant::from_timestamp)
+        .expect("a day before the clock's instant is after year 0000")
 }

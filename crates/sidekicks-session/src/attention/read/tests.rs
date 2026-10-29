@@ -218,7 +218,9 @@ async fn an_entry_committed_after_the_seen_mark_in_its_millisecond_reads_unseen(
                 {
                     Some(item.seen)
                 }
-                AttentionItem::Moment(_) | AttentionItem::Notify(_) => None,
+                AttentionItem::Moment(_)
+                | AttentionItem::Notify(_)
+                | AttentionItem::ProviderBuild(_) => None,
             })
             .expect("the run's Finished entry reads")
     };

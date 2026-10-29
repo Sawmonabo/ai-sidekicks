@@ -49,6 +49,7 @@ use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_queue::admission::QueueAdmission;
 use sidekicks_queue::delivery::QueueDelivery;
 use sidekicks_session::addresses::{ForeignPlaceError, SessionInboxAddresses};
+use sidekicks_session::attention::provider_build::record_change_statements;
 use sidekicks_session::console_state::ConsoleStateAdvisors;
 use sidekicks_session::idle_sleep::SessionIdleSleep;
 use sidekicks_session::questions::service::QuestionsService;
@@ -183,12 +184,11 @@ pub(crate) fn build_providers(
         ports: Arc::clone(&ports),
     };
     let registry = Arc::new(ProviderRegistry::register_from(registrations, &services));
-    // Nothing that reads the record of builds keeps a version to bump, so a recorded build's write
-    // carries no statement of its own.
+    // A recorded build's write wakes the attention projection's followers, which list it.
     let capabilities = Arc::new(DriverCapabilitiesWriter::new(
         start.reads,
         start.writer,
-        Arc::new(Vec::new),
+        Arc::new(record_change_statements),
     ));
     let (refresher, refreshing) =
         CapabilityRefresher::start(Arc::clone(&registry), Arc::clone(&capabilities));

@@ -4,9 +4,12 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use jiff::Timestamp;
 use rusqlite::OptionalExtension as _;
 use serde_json::{Value, json};
-use sidekicks_contracts::attention::{AttentionBannerSettledState, AttentionId};
+use sidekicks_contracts::attention::{
+    AttentionBannerSettledState, AttentionId, AttentionItem, AttentionSubscribeRequest,
+};
 use sidekicks_contracts::machine::settings::MachineSettings;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -27,6 +30,7 @@ use tokio_util::sync::CancellationToken;
 use super::{AttentionService, AttentionServiceDependencies, DecisionTask, MERGE_WINDOW};
 use crate::attention::banner_launcher::{BannerLauncher, WindowlessAppStarter};
 use crate::attention::projection::notify_entry_statements;
+use crate::attention::read::read_attention_projection;
 use crate::attention::test_log::AttentionTestLog;
 use crate::run::engine::test_fixture::insert_running_run;
 
@@ -386,4 +390,77 @@ async fn the_start_sweep_gates_an_open_wait_and_withholds_only_an_ends_banner() 
     Fixture::pass(&mut task).await;
     assert_eq!(fixture.banner(&waiting), (word("pending"), None));
     assert_eq!(fixture.launches(), 1);
+}
+
+/// The machine's change count, `None` before its first bump.
+fn machine_version(log: &AttentionTestLog) -> Option<i64> {
+    log.database
+        .reader()
+        .query_row(
+            "SELECT version FROM attention_versions WHERE scope_key = ''",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .expect("the count read runs")
+}
+
+/// The provider builds the whole projection lists, as their state words.
+fn listed_builds(log: &AttentionTestLog) -> Vec<String> {
+    read_attention_projection(
+        &log.database.reader(),
+        &AttentionSubscribeRequest {
+            session_id: None,
+            scope: None,
+            run_id: None,
+        },
+    )
+    .expect("the whole projection reads")
+    .items
+    .into_iter()
+    .filter_map(|item| match item {
+        AttentionItem::ProviderBuild(build) => Some(build.state_word.as_str().to_owned()),
+        AttentionItem::Moment(_) | AttentionItem::Notify(_) => None,
+    })
+    .collect()
+}
+
+// A build moved to stays listed for a day after it was recorded and then leaves at the advance,
+// waking the followers, while a build only available stays. Killed by the retirement missing from
+// the advance, by the moved-to filter dropped, and by the bump dropped.
+#[tokio::test]
+async fn the_advance_retires_a_day_old_build_moved_to_and_keeps_an_available_one() {
+    let fixture = Fixture::new().await;
+    let log = &fixture.log;
+    log.database
+        .reader()
+        .execute_batch(
+            "INSERT INTO provider_builds (provider_name, version, from_version, recorded_at)
+             VALUES ('claude', '2.1.294', '2.1.293', '2026-10-27T12:00:00.000Z'),
+                    ('codex', '0.163.0', NULL, '2026-10-27T12:00:00.000Z');",
+        )
+        .expect("the test records two builds");
+    let advance = |at: &str| {
+        let now = at.parse::<Timestamp>().expect("a test instant");
+        fixture.service.advance_retention(Vec::new(), now)
+    };
+
+    advance("2026-10-28T11:00:00Z")
+        .await
+        .expect("the advance within the day runs");
+    assert_eq!(
+        listed_builds(log),
+        ["updated · 2.1.293 → 2.1.294", "0.163.0 available"]
+    );
+    assert_eq!(machine_version(log), None, "nothing retired wakes no one");
+
+    advance("2026-10-28T13:00:00Z")
+        .await
+        .expect("the advance past the day runs");
+    assert_eq!(listed_builds(log), ["0.163.0 available"]);
+    assert_eq!(
+        machine_version(log),
+        Some(1),
+        "the retirement wakes the followers"
+    );
 }

@@ -1,8 +1,9 @@
 //! The attention projection as `attention.subscribe` serves it: the stored entries, narrowed as the
-//! request asks, each with its name, state word, delivery and seen fact composed when it is read,
-//! and a named session's aggregate, derived from the session's open waits and unseen informational
-//! entries and never stored. Nothing here reads an event's payload, so no entry carries a word of
-//! what was said in a session; a Notify step's own notice is the one stored text served.
+//! request asks, each with its name, state word, delivery and seen fact composed when it is read;
+//! a named session's aggregate, derived from the session's open waits and unseen informational
+//! entries and never stored; and for the whole projection, each provider's build the record of
+//! builds lists. Nothing here reads an event's payload, so no entry carries a word of what was said
+//! in a session; a Notify step's own notice is the one stored text served.
 //!
 //! An entry is seen when its source event's sequence is at or under its subject's seen mark: the
 //! session's for an agent run's or a plan's entry, the workflow run's for a workflow's.
@@ -24,7 +25,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText, TextError};
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
@@ -36,11 +37,12 @@ use sidekicks_store::database::stored_column::{
 
 use crate::attention::aggregate::{AttentionContributor, derive_session_aggregate};
 use crate::attention::moment::AttentionMoment;
+use crate::attention::provider_build::provider_build_items;
 use crate::attention::retention::seen_entry_sql;
 
-/// The statements the projection read prepares: a session's name, the entries and a workflow
-/// run's name.
-pub const ATTENTION_STATEMENT_CAPACITY: usize = 3;
+/// The statements the projection read prepares: a session's name, the entries, a workflow run's
+/// name and the provider builds the record lists.
+pub const ATTENTION_STATEMENT_CAPACITY: usize = 4;
 
 /// An untitled chat's name, as the sessions list draws it.
 const UNTITLED_CHAT: &str = "New chat";
@@ -110,6 +112,23 @@ pub enum AttentionReadError {
         /// The run.
         workflow_run_id: String,
     },
+    /// The record of each provider's builds lists a build of a provider no driver describes.
+    #[error("the record lists a build of {provider}, which no driver describes")]
+    UndescribedProvider {
+        /// The provider.
+        provider: String,
+    },
+    /// A version the record lists for a provider is one the wire cannot carry.
+    #[error("the recorded {member} of {provider} cannot be sent")]
+    UnreadableProviderBuild {
+        /// The provider.
+        provider: String,
+        /// Which version: the build or the earlier build.
+        member: &'static str,
+        /// Why the text was refused.
+        #[source]
+        source: TextError,
+    },
 }
 
 impl From<AttentionReadError> for HandlerError {
@@ -121,13 +140,17 @@ impl From<AttentionReadError> for HandlerError {
             fault @ (AttentionReadError::Database(_)
             | AttentionReadError::Pool(_)
             | AttentionReadError::IncompleteNotifyEntry { .. }
-            | AttentionReadError::UnnamedWorkflowRun { .. }) => Self::Internal(Box::new(fault)),
+            | AttentionReadError::UnnamedWorkflowRun { .. }
+            | AttentionReadError::UndescribedProvider { .. }
+            | AttentionReadError::UnreadableProviderBuild { .. }) => {
+                Self::Internal(Box::new(fault))
+            }
         }
     }
 }
 
 /// The projection `request` asks for, read on `reader` in one snapshot: with no session, every
-/// stored entry; a session alone, its entries and its aggregate; a session's `session` scope, the
+/// stored entry and then every provider build the record lists; a session alone, its entries and its aggregate; a session's `session` scope, the
 /// aggregate alone; its `run` scope, that run's entries. Fails with
 /// [`AttentionReadError::Refused`] (`session.notFound`) for a named session this daemon holds
 /// no row for.
@@ -161,6 +184,14 @@ pub fn read_attention_projection(
         for entry in entries {
             items.push(item_of(&snapshot, &mut workflow_names, entry)?);
         }
+    }
+    // A provider's build belongs to no session, so only the whole projection lists it.
+    if request.session_id.is_none() {
+        items.extend(
+            provider_build_items(&snapshot)?
+                .into_iter()
+                .map(AttentionItem::ProviderBuild),
+        );
     }
     snapshot.commit()?;
     Ok(AttentionProjection { items })
@@ -252,14 +283,15 @@ impl StoredEntry {
         })
     }
 
-    /// The trigger of a run's or a session's own moment, `None` for a Notify step's.
+    /// The trigger of a run's or a session's own moment, `None` for a Notify step's, the one
+    /// other trigger an entry row holds: its table refuses a provider's build.
     fn moment_trigger(&self) -> Option<AttentionMomentTrigger> {
         match self.trigger {
             AttentionTrigger::PendingApproval => Some(AttentionMomentTrigger::PendingApproval),
             AttentionTrigger::PendingInput => Some(AttentionMomentTrigger::PendingInput),
             AttentionTrigger::RunCompleted => Some(AttentionMomentTrigger::RunCompleted),
             AttentionTrigger::RunFailed => Some(AttentionMomentTrigger::RunFailed),
-            AttentionTrigger::WorkflowNotify => None,
+            AttentionTrigger::WorkflowNotify | AttentionTrigger::ProviderBuild => None,
         }
     }
 }

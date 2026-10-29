@@ -51,7 +51,8 @@ impl Harness {
             AttentionTrigger::PendingApproval | AttentionTrigger::PendingInput => "actionable",
             AttentionTrigger::RunCompleted
             | AttentionTrigger::RunFailed
-            | AttentionTrigger::WorkflowNotify => "informational",
+            | AttentionTrigger::WorkflowNotify
+            | AttentionTrigger::ProviderBuild => "informational",
         };
         self.database
             .reader()
