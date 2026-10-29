@@ -192,6 +192,7 @@ mod tests {
     #[case::eval_string("eval claude daemon", true)]
     #[case::nested_string(r#"sh -c "bash -c 'claude agents'""#, true)]
     #[case::through_a_wrapper("env FOO=1 claude --bg x", true)]
+    #[case::split_string_inside_the_word("env -S'claude --bg x'", true)]
     #[case::prompt_naming_a_subcommand(r#"claude "list the agents""#, false)]
     #[case::subcommand_after_the_prompt(r#"claude "explain" agents"#, false)]
     #[case::session_listing("claude attach 7c5dcf5d", false)]

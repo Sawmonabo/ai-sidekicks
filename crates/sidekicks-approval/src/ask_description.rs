@@ -278,6 +278,12 @@ mod tests {
         ApprovalCategory::ToolExecution
     )]
     #[case::lookup_through_a_wrapper("command -v node", None, ApprovalCategory::ToolExecution)]
+    #[case::shell_through_a_wrapper("sudo -s", None, ApprovalCategory::ToolExecution)]
+    #[case::force_push_in_a_split_string(
+        "env -S'git push --force'",
+        None,
+        ApprovalCategory::DestructiveGit
+    )]
     #[case::force_push_in_a_shell_string(
         "bash -c 'git push --force origin main'",
         None,

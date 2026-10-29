@@ -80,8 +80,9 @@ impl ShellLineReading {
 
     /// Whether the line read can set a shell variable or run text as code: an assignment, alone,
     /// before a command or in a declaration, a loop's variable, a `${…}` expansion that is not a
-    /// plain read, an array subscript, zsh's `$name[…]`, a `{name}` word, which names a redirect's
-    /// descriptor, a `[[ … ]]` test that compares numbers or asks `-v`, or any other arithmetic.
+    /// plain read, an array subscript, zsh's `$name[…]` or `$#name[…]`, a `{name}` or `{name[…]}`
+    /// word, which names a redirect's descriptor, a `[[ … ]]` test that compares numbers or asks
+    /// `-v`, or any other arithmetic.
     pub(crate) fn can_set_variable(&self) -> bool {
         self.effects.can_set_variable
     }
@@ -157,7 +158,8 @@ impl<'r> ShellCommand<'r> {
     }
 
     /// Whether the program is a wrapper's name, as it is when the wrapper's options only describe
-    /// the command after it, as `command -v` does, rather than run it.
+    /// the command after it, as `command -v` does, or leave no command after them, as `sudo -s`
+    /// does, which runs a shell.
     pub fn is_program_a_wrapper(self) -> bool {
         command_wrapper(self.program()).is_some()
     }
@@ -402,10 +404,13 @@ fn note_line_effects(node: Node<'_>, builder: &mut WordBuilder<'_>, effects: &mu
             effects.can_set_variable |= is_arithmetic_test(node, line);
         }
         "expansion" => effects.can_set_variable |= !is_reading_expansion(node, line),
-        // zsh reads `[…]` right after `$name` as its subscript.
+        // zsh reads `[…]` right after `$name` as its subscript, and `$#name[…]` as the length of
+        // a subscripted name, which the parser reads as `$#` and then a separate name.
         "simple_expansion" => {
+            let is_length = node_text(node, line) == "$#";
             effects.can_set_variable |= node.next_sibling().is_some_and(|next| {
-                next.start_byte() == node.end_byte() && node_text(next, line).starts_with('[')
+                next.start_byte() == node.end_byte()
+                    && (node_text(next, line).starts_with('[') || (is_length && next.is_named()))
             });
         }
         "concatenation" | "word" => effects.can_set_variable |= is_descriptor_name(node, line),
@@ -555,15 +560,17 @@ fn is_reading_expansion(expansion: Node<'_>, line: &str) -> bool {
     }
 }
 
-// Whether a word is `{name}`, which before a redirect assigns the descriptor it opens to `name`.
+// Whether a word is `{name}` or `{name[…]}`, which before a redirect assigns the descriptor it
+// opens to `name` or to an array element, whose subscript bash evaluates as arithmetic.
 fn is_descriptor_name(word: Node<'_>, line: &str) -> bool {
     node_text(word, line)
         .strip_prefix('{')
         .and_then(|rest| rest.strip_suffix('}'))
         .is_some_and(|name| {
-            let mut characters = name.chars();
-            characters.next().is_some_and(starts_variable_name)
-                && characters.all(continues_variable_name)
+            let subscript = name.trim_start_matches(continues_variable_name);
+            name.chars().next().is_some_and(starts_variable_name)
+                && (subscript.is_empty()
+                    || (subscript.starts_with('[') && subscript.ends_with(']')))
         })
 }
 
@@ -735,8 +742,8 @@ fn is_test_word(node: Node<'_>) -> bool {
 
 // The command `pending` runs, its words moved to `words`: the program is the first word that is
 // neither an assignment nor a wrapper that runs the command after its own options and operands;
-// a wrapper that only describes the command is the program; a command of assignments alone runs
-// none.
+// a wrapper that only describes the command, or whose own words leave none after them, is the
+// program; a command of assignments alone runs none.
 fn resolve_command(
     builder: &mut WordBuilder<'_>,
     pending: &mut VecDeque<Word>,
@@ -753,7 +760,15 @@ fn resolve_command(
             pending.pop_front();
         }
         let Some(name) = pending.pop_front() else {
-            words.truncate(first_word);
+            // A wrapper whose own words use up the command is its program, as `sudo -s` is.
+            if words.len() > first_word {
+                return Some(CommandEntry {
+                    first: offset(first_word),
+                    program: offset(words.len() - 1),
+                    end: offset(words.len()),
+                    is_named_by_path,
+                });
+            }
             builder.truncate(piece_mark);
             return None;
         };

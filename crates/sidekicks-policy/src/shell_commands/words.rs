@@ -436,6 +436,28 @@ impl<'s> WordBuilder<'s> {
         Some(word_from(&self.pieces, first_piece))
     }
 
+    /// The word's text past its first `bytes` bytes, as an option's value attached to it is;
+    /// `None` when nothing is left.
+    pub(super) fn word_after(&mut self, word: Word, bytes: usize) -> Option<Word> {
+        let mut skipped = 0;
+        let index = word.pieces().find(|&index| {
+            let piece = self.pieces[index];
+            skipped += (piece.end - piece.start) as usize;
+            skipped > bytes
+        })?;
+        let first_piece = self.pieces.len();
+        let piece = self.pieces[index];
+        push_piece(
+            &mut self.pieces,
+            piece.end - offset(skipped - bytes),
+            piece.end,
+            piece.kind,
+        );
+        self.pieces
+            .extend_from_within(index + 1..word.end_piece as usize);
+        Some(word_from(&self.pieces, first_piece))
+    }
+
     /// The words `env -S` splits `word` into: split on whitespace only inside its literal and
     /// decoded pieces, so an expansion or substitution stays inside one word.
     pub(super) fn split_on_whitespace(&mut self, word: Word) -> Vec<Word> {

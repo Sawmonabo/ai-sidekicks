@@ -19,6 +19,9 @@ const LIMIT: usize = 64 * 1024;
 #[case::rg_value_of_dashes("rg -e -- --pre=sh x", false)]
 #[case::diff_value_of_dashes("diff -x -- --paginate a b", false)]
 #[case::rg_long_value_of_dashes("rg --regexp -- --pre=sh x", false)]
+// A value inside the option's own word leaves the next word an option.
+#[case::rg_long_value_inside_the_word("rg --regexp=foo --pre=sh x", false)]
+#[case::rg_value_inside_the_cluster("rg -efoo --pre=sh x", false)]
 #[case::rg_pattern_like_an_option("rg -e -z src", true)]
 // Git's `-U` takes only the value inside its word, so the next word is git's own option.
 #[case::git_diff_attached_value("git diff -U --output=f", false)]
@@ -34,6 +37,10 @@ const LIMIT: usize = 64 * 1024;
 #[case::program_in_another_folder("/tmp/x/git status", false)]
 // `time` with an option of the `time` program's own is that program, which is never listed.
 #[case::time_program_option("time -o f ls", false)]
+// A wrapper's value splits into the command it runs, and a wrapper whose own words use up the
+// command is its program, as `sudo -s` runs a shell that reads the pipe.
+#[case::split_string_inside_the_word("env -S'touch f'", false)]
+#[case::shell_through_a_wrapper("echo x | sudo -s", false)]
 // Bash evaluates a number comparison's operands and an array subscript as arithmetic, which runs
 // a `$(…)` even inside quotes and can set a variable.
 #[case::arithmetic_test_operand("[[ 'a[$(touch f)]' -eq 0 ]]", false)]
@@ -47,14 +54,21 @@ const LIMIT: usize = 64 * 1024;
 #[case::indirect_expansion("echo 'a[$(touch f)]'; echo ${!_}", false)]
 #[case::prompt_transform("echo '$(touch f)'; echo ${_@P}", false)]
 #[case::substitution_in_a_pattern("echo ${HOME#$(touch f)}", false)]
+#[case::backquote_in_a_word("echo ${x:-`touch f`}", false)]
+// Only the listed parts make a reading `${…}`; a translated string is none of them.
+#[case::unlisted_expansion_part("echo ${x:-$\"a\"}", false)]
 #[case::reading_expansions("echo ${HOME:0:2} ${HOME:-a} ${HOME##*/} ${HOME/a/b} ${#HOME}", true)]
 // zsh evaluates `[…]` right after `$name` as a subscript, in a word, a string or a here-document.
 #[case::zsh_subscript_assignment("echo $a[PATH=0]; ls", false)]
 #[case::zsh_subscript_substitution("echo $a['$(touch f)']", false)]
 #[case::zsh_subscript_in_a_string("echo \"$a[PATH=0]\"; ls", false)]
 #[case::zsh_subscript_in_a_here_document("cat <<EOF\n$a[PATH=0]\nEOF\nls", false)]
+// zsh's `$#name[…]` is the length of a subscripted name, its subscript evaluated too.
+#[case::zsh_length_of_a_subscript("echo $#a[PATH=0]; ls", false)]
+#[case::zsh_length_of_a_subscript_in_a_string("echo \"$#a[PATH=0]\"; ls", false)]
 // `{name}` before a redirect assigns the descriptor it opens to `name`.
 #[case::descriptor_name("echo hi {PATH}>/dev/null; ls", false)]
+#[case::descriptor_element("echo hi {a[PATH=0]}>/dev/null; ls", false)]
 #[case::ls_long("ls -la", true)]
 #[case::rg_search("rg foo src", true)]
 #[case::git_status("git status", true)]

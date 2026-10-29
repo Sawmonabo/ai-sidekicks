@@ -217,6 +217,15 @@ mod tests {
     #[case::push_cluster("git push -qf", true)]
     // A letter an expansion makes is no `command -v`, so `command` runs the push.
     #[case::undecided_lookup_option("command -$v git push --force", true)]
+    // A wrapper's split string is the command it runs, its value attached or in a cluster.
+    #[case::split_string_inside_the_word("env -S'git push --force'", true)]
+    #[case::split_string_in_a_cluster("env -vS'git push --force'", true)]
+    // A wrapper's option value is never the program, whichever system's option it is.
+    #[case::search_path_value("env -P /usr/bin git push --force", true)]
+    #[case::replacement_value("xargs -J % git push --force", true)]
+    #[case::value_letter_ending_a_cluster("sudo -Eu root git push --force", true)]
+    // GNU xargs's `-i` takes its value inside its own word, so the next word is the program.
+    #[case::attached_optional_value("xargs -iI git push --force", true)]
     #[case::dry_run("git push --dry-run origin main", false)]
     #[case::branch_long_option_with_d("git branch --edit-description", false)]
     fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool) {
