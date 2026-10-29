@@ -27,7 +27,6 @@ use sidekicks_session::permission_level::{
 use sidekicks_session::run::state_change::refused_statement_index;
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_store::database::connection::read_pool::ReadLength;
-use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::log_service::EventAppendError;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventDraft, SessionEventEmitError, SessionEventLinkage,
@@ -91,7 +90,7 @@ impl ProviderSessions {
                 ..
             })
             | None) => {
-                self.record_level(session_id, level, session_mode)
+                self.record_move(session_id, level, session_mode, MovedControls::Level)
                     .await
                     .map_err(|cause| ProviderSessionError::LevelNotStored { session_id, cause })?;
                 // A process gone but kept opened brings its runs back at the stored level.
@@ -121,7 +120,10 @@ impl ProviderSessions {
             .deps
             .execution_postures
             .move_session(&session_id, resolved);
-        let Err(stored_error) = self.record_level(session_id, level, session_mode).await else {
+        let Err(stored_error) = self
+            .record_move(session_id, level, session_mode, MovedControls::Level)
+            .await
+        else {
             return Ok(());
         };
         let back = UpdatePermissionLevelParams {
@@ -178,7 +180,7 @@ impl ProviderSessions {
             })
             | None => {
                 return self
-                    .record_mode(session_id, level, mode)
+                    .record_move(session_id, level, mode, MovedControls::Mode)
                     .await
                     .map_err(|cause| ProviderSessionError::ModeNotStored { session_id, cause });
             }
@@ -190,7 +192,10 @@ impl ProviderSessions {
                 is_provider_reported: false,
             })
             .await?;
-        let Err(stored_error) = self.record_mode(session_id, level, mode).await else {
+        let Err(stored_error) = self
+            .record_move(session_id, level, mode, MovedControls::Mode)
+            .await
+        else {
             return Ok(());
         };
         let back = UpdateSessionModeParams {
@@ -215,8 +220,9 @@ impl ProviderSessions {
     /// from its driver's newest report under the session's transition lock, so a report that lands
     /// during another move is read once that move is stored. A reported level moves the process's
     /// posture, its live runs and the stored level as [`ProviderSessions::change_level`] does, the
-    /// driver told the move is the provider's own; a reported planning mode moves the stored mode
-    /// the same way. Each is stored with the `LevelMoved` notice. A report the store already
+    /// driver told the move is the provider's own; a reported mode moves the stored mode the same
+    /// way, with the level or alone. A report is followed whole: what it moves is stored in one
+    /// write with the `LevelMoved` notice of the level and mode it names. A report the store already
     /// matches, none, or a process no longer live moves nothing: a process gone takes the stored
     /// level when it opens again. Fails as [`ProviderSessions::change_level`] fails before its
     /// driver moves, as the driver's move fails, and with [`ProviderSessionError::LevelNotStored`]
@@ -240,8 +246,9 @@ impl ProviderSessions {
             return Ok(());
         };
         let (stored_level, stored_mode) = self.read_controls(session_id).await?;
-        let Some(level) = reported.level else {
-            if reported.session_mode == stored_mode {
+        let is_mode_moved = reported.session_mode != stored_mode;
+        let Some(level) = reported.level.filter(|level| *level != stored_level) else {
+            if !is_mode_moved {
                 return Ok(());
             }
             driver
@@ -252,13 +259,15 @@ impl ProviderSessions {
                 })
                 .await?;
             return self
-                .record_mode(session_id, stored_level, reported.session_mode)
+                .record_move(
+                    session_id,
+                    stored_level,
+                    reported.session_mode,
+                    MovedControls::Mode,
+                )
                 .await
                 .map_err(|cause| ProviderSessionError::ModeNotStored { session_id, cause });
         };
-        if level == stored_level {
-            return Ok(());
-        }
         let posture = compose_execution_posture(level, opened.git_folder);
         let resolved = resolve_posture(&posture)
             .await
@@ -275,7 +284,20 @@ impl ProviderSessions {
         self.deps
             .execution_postures
             .move_session(&session_id, resolved);
-        self.record_level(session_id, level, stored_mode)
+        // The report is followed whole, so the mode it names moves with the level.
+        let moved = if is_mode_moved {
+            driver
+                .update_session_mode(UpdateSessionModeParams {
+                    session_id,
+                    mode: reported.session_mode,
+                    is_provider_reported: true,
+                })
+                .await?;
+            MovedControls::Both
+        } else {
+            MovedControls::Level
+        };
+        self.record_move(session_id, level, reported.session_mode, moved)
             .await
             .map_err(|cause| ProviderSessionError::LevelNotStored { session_id, cause })
     }
@@ -318,41 +340,30 @@ impl ProviderSessions {
             .await
     }
 
-    // Stores `level`, the session's mode standing at `session_mode`.
-    async fn record_level(
-        &self,
-        session_id: SessionId,
-        level: PermissionLevel,
-        session_mode: SessionMode,
-    ) -> Result<(), MoveRecordError> {
-        let change = permission_level_change_statement(&session_id, level);
-        self.record_move(session_id, change, level, session_mode, None)
-            .await
-    }
-
-    // Stores `session_mode`, the session's level standing at `level`.
-    async fn record_mode(
-        &self,
-        session_id: SessionId,
-        level: PermissionLevel,
-        session_mode: SessionMode,
-    ) -> Result<(), MoveRecordError> {
-        let moved_at = WireInstant::now();
-        let change = session_mode_change_statement(&session_id, session_mode, moved_at.as_str());
-        self.record_move(session_id, change, level, session_mode, Some(moved_at))
-            .await
-    }
-
-    // Writes `change` with the `LevelMoved` notice of the session at `level` and `session_mode`,
-    // in one write kept only while the session has a directory row.
+    // Writes the controls `moved` names, the session standing at `level` and `session_mode`, with
+    // the `LevelMoved` notice, in one write kept only while the session has a directory row.
     async fn record_move(
         &self,
         session_id: SessionId,
-        change: WriteStatement,
         level: PermissionLevel,
         session_mode: SessionMode,
-        occurred_at: Option<WireInstant>,
+        moved: MovedControls,
     ) -> Result<(), MoveRecordError> {
+        // The existence check first, so its refusal reads as the session gone.
+        let mut transactional_prelude = vec![session_exists_statement(&session_id)];
+        if matches!(moved, MovedControls::Level | MovedControls::Both) {
+            transactional_prelude.push(permission_level_change_statement(&session_id, level));
+        }
+        let mut occurred_at = None;
+        if matches!(moved, MovedControls::Mode | MovedControls::Both) {
+            let moved_at = WireInstant::now();
+            transactional_prelude.push(session_mode_change_statement(
+                &session_id,
+                session_mode,
+                moved_at.as_str(),
+            ));
+            occurred_at = Some(moved_at);
+        }
         let notice = SessionNotice::LevelMoved {
             session_id,
             level,
@@ -365,8 +376,7 @@ impl ProviderSessions {
         .map_err(SessionEventEmitError::from)?;
         let linkage = SessionEventLinkage {
             occurred_at,
-            // The existence check first, so its refusal reads as the session gone.
-            transactional_prelude: vec![session_exists_statement(&session_id), change],
+            transactional_prelude,
             ..SessionEventLinkage::default()
         };
         match self.deps.appender.append(draft, linkage).await {
@@ -380,4 +390,12 @@ impl ProviderSessions {
             Err(failure) => Err(SessionEventEmitError::from(failure).into()),
         }
     }
+}
+
+// Which of a session's controls a stored move changes.
+#[derive(Clone, Copy)]
+enum MovedControls {
+    Level,
+    Mode,
+    Both,
 }

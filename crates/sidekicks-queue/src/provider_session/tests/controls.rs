@@ -233,8 +233,9 @@ async fn a_side_question_forks_the_newest_conversation_whatever_the_process() {
 }
 
 // A level Claude Code reports running on a live session moves the process's posture, the session's
-// live run, the stored level and every client, told once. Killed by `move_session` skipped, by the
-// notice dropped, and by a driver move not marked as the provider's own.
+// live run, the stored level and every client, told once; the report is followed whole, so a
+// session stored in Plan moves to the report's Build with it. Killed by `move_session` skipped, by
+// the notice dropped, by a driver move not marked as the provider's own, and by the mode left Plan.
 #[tokio::test]
 async fn a_followed_level_moves_a_live_session() {
     let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, _| {
@@ -252,9 +253,23 @@ async fn a_followed_level_moves_a_live_session() {
             .withf(|params| params.is_provider_reported)
             .times(1)
             .returning(|_params| async { Ok(()) }.boxed());
+        driver
+            .expect_update_session_mode()
+            .withf(|params| params.is_provider_reported && params.mode == SessionMode::Build)
+            .times(1)
+            .returning(|_params| async { Ok(()) }.boxed());
     })
     .await;
     store_level(&opening, PermissionLevel::Readonly);
+    opening
+        .database
+        .reader()
+        .execute(
+            "INSERT INTO session_console_state (session_id, session_mode, updated_at)
+              VALUES (?1, 'plan', '2026-01-01T00:00:00.000Z')",
+            params![opening.session_id.text().as_str()],
+        )
+        .expect("the test stores the mode");
     opening
         .sessions
         .open(opening.session_id, opening.run_id)
@@ -282,6 +297,9 @@ async fn a_followed_level_moves_a_live_session() {
     let stored = read_session_permission_level(&opening.database.reader(), &opening.session_id)
         .expect("the stored level reads");
     assert_eq!(stored, PermissionLevel::Ask);
+    let stored_mode = read_session_mode(&opening.database.reader(), &opening.session_id)
+        .expect("the stored mode reads");
+    assert_eq!(stored_mode, SessionMode::Build);
     assert_eq!(
         opening
             .execution_postures
