@@ -194,11 +194,7 @@ impl OsCredentialStore {
                 };
                 Err(KeychainRefusal::new(cause, refused.to_string()).with_failure(refused))
             }
-            Ok(Ok(Err(interrupted))) => Err(KeychainRefusal::new(
-                KeychainRefusalCause::Unavailable,
-                "the credential store call ended without an answer",
-            )
-            .with_failure(interrupted)),
+            Ok(Ok(Err(interrupted))) => Err(HeldWorkEnd::Interrupted(interrupted).into()),
             Ok(Err(end @ HeldWorkEnd::Interrupted(_))) => Err(end.into()),
             // The task skips the store only once this caller stopped waiting, so this arm is the
             // same answer the timeout gives.
