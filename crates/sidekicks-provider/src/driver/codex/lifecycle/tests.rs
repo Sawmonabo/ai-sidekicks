@@ -239,7 +239,7 @@ pub(super) fn driver_on_codex_folder(folder: &Path) -> (CodexDriver, DriverServi
         std::fs::create_dir_all(made).expect("a test folder is made");
     }
     // Found first on the search path as Codex's command.
-    write_failing_codex(&programs);
+    write_failing_codex(&programs, None);
     let mut services = test_driver_services();
     services.data_folder = folder.join("data");
     services.home_folder = folder.join("home");
@@ -262,7 +262,7 @@ pub(super) fn listen_on_codex_folder(folder: &Path) {
     let listener = bind_socket_listener(&socket).expect("the test service listens");
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
-            tokio::spawn(answer_as_codex_service(stream));
+            tokio::spawn(answer_as_codex_service(stream, |_method| {}));
         }
     });
 }

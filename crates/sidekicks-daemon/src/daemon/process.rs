@@ -89,8 +89,8 @@ use crate::daemon::process::method_inputs::{
 };
 use crate::daemon::process::method_tables::gate_chain;
 use crate::daemon::process::providers::{
-    ProviderStart, Providers, ProvidersRegistration, build_providers, hydrate_capabilities,
-    register_providers, sweep_left_staged_worktrees,
+    ProviderStart, Providers, ProvidersRegistration, apply_stored_rows, build_providers,
+    hydrate_capabilities, register_providers, sweep_left_staged_worktrees,
 };
 use crate::daemon::process::repo_services::{
     RepoAttachments, RepoServiceStart, RepoServices, build_repo_services, start_repo_attachments,
@@ -172,7 +172,7 @@ pub(crate) struct DaemonProcess {
     pub(crate) in_flight: Option<Arc<InFlightMutations>>,
     /// The providers, whose drivers the stop shuts down last.
     pub(crate) providers: Option<Providers>,
-    /// The providers' first reads and row values, ended by the stop before the drivers.
+    /// The providers' first capability reads, ended by the stop before the drivers.
     pub(crate) providers_registration: Option<ProvidersRegistration>,
     /// The repository services, whose watch, fetches and askpass broker the stop ends.
     pub(crate) repo: Option<RepoServices>,
@@ -491,6 +491,10 @@ impl DaemonProcess {
         });
         hydrate_capabilities(&providers).await;
         sweep_left_staged_worktrees(&providers).await;
+        // Before the socket, any session's recovery and the capability reads, so a lasting provider
+        // service is joined, or started on the same socket, before anything reaches for it.
+        apply_stored_rows(&providers.registry, &settings, &self.work_stop).await;
+        self.check_stop("applying the providers' stored settings")?;
         let drivers = Arc::clone(&providers.registry);
         let in_flight: Arc<OnceLock<Arc<InFlightMutations>>> = Arc::default();
         let inputs = register_method_inputs(
@@ -598,11 +602,9 @@ impl DaemonProcess {
                 }
             }
         };
-        let registration = self.providers_registration.insert(register_providers(
-            &providers,
-            index_opened,
-            Arc::clone(&settings),
-        ));
+        let registration = self
+            .providers_registration
+            .insert(register_providers(&providers, index_opened));
         self.providers = Some(providers);
         // Settles what the last stop left before any follow of the log or any folder watch starts.
         recovery.run(&self.work_stop).await;

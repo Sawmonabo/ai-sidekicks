@@ -29,7 +29,7 @@ use sidekicks_platforms::{
 use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::test_registry::test_driver_services;
+use sidekicks_provider::driver::test_registry::{keep_terminal_service, test_driver_services};
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::TestStoreAccess;
 use sidekicks_store::data_folder::data_folder;
@@ -80,11 +80,13 @@ fn crash_monitor_stand_in() {
 }
 
 // A temporary home the daemon starts on, its run folder at `run_folder_path`, beside the data
-// folder as a runtime folder sits, and the script that runs the stand-in monitor.
+// folder as a runtime folder sits, the script that runs the stand-in monitor, and the environment
+// its providers start in.
 struct TestHome {
     home: TempDir,
     run_folder: DaemonRunFolder,
     daemon_program: PathBuf,
+    provider_environment: Arc<[(String, String)]>,
 }
 
 impl TestHome {
@@ -123,6 +125,15 @@ impl TestHome {
                 folder_path: run_folder_path,
             },
             daemon_program,
+            provider_environment: Arc::from([]),
+        }
+    }
+
+    // This home with its providers started in `environment` in place of none.
+    fn with_provider_environment(self, environment: Vec<(String, String)>) -> Self {
+        Self {
+            provider_environment: environment.into(),
+            ..self
         }
     }
 
@@ -134,7 +145,8 @@ impl TestHome {
         crash_monitor_socket_path(&self.run_folder.folder_path, std::process::id())
     }
 
-    // Starts the daemon on this home with no providers' environment, its stop `stop`.
+    // Starts the daemon on this home, its providers in its providers' environment, its stop
+    // `stop`.
     async fn start(&self, stop: CancellationToken) -> Result<DaemonProcess, DaemonStartFailure> {
         let data_folder = self.data_folder();
         create_missing_private_folders(&data_folder).expect("the data folder is made");
@@ -151,7 +163,9 @@ impl TestHome {
                 ProcessTableReader::for_this_program().expect("the caller reader is built"),
             ),
             stop,
-            base_environment: ProviderBaseEnvironment::Given(Arc::from([])),
+            base_environment: ProviderBaseEnvironment::Given(Arc::clone(
+                &self.provider_environment,
+            )),
             credential_store: TestStoreAccess::new(CredentialStore::in_memory()) as _,
             service_log_files: open_service_log(&data_folder, io::sink()).files(),
             provider_registrations: PROVIDER_REGISTRATIONS,
@@ -501,4 +515,34 @@ async fn a_store_of_another_build_fails_the_start_and_is_left_as_it_was() {
         before,
         "the store is as it was"
     );
+}
+
+// A start with terminal reach on, its Settings row's default, over a terminal service a former
+// daemon kept on the person's own Codex folder joins that service before anything else reaches for
+// the folder: no service of the daemon's own is launched, and the capability refresh reads from the
+// kept one, on a connection of its own after the join's. Killed by the refresh run before the
+// stored rows, which launches a service of the daemon's own on the folder first and probes it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_joins_the_kept_terminal_service_before_its_capability_refresh() {
+    let Some(kept) = keep_terminal_service() else {
+        return;
+    };
+    let home = TestHome::new().with_provider_environment(kept.provider_environment());
+
+    let process = home
+        .start(CancellationToken::new())
+        .await
+        .expect("the daemon starts");
+    let connections = kept.connections();
+    process
+        .stop(DaemonStopIntent::Stop)
+        .await
+        .expect("the stop fails nothing");
+
+    assert_eq!(kept.launch_arguments(), Vec::<String>::new());
+    let is_probed_after_the_join = connections
+        .iter()
+        .skip(1)
+        .any(|methods| methods.iter().any(|method| method != "initialize"));
+    assert!(is_probed_after_the_join, "{connections:?}");
 }

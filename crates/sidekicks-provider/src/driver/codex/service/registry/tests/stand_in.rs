@@ -71,7 +71,7 @@ async fn an_app_server_stand_in() {
     let listener = bind_socket_listener(&real_socket).expect("the real socket listens");
     replace_socket_link(&link, &real_socket).expect("the link names the real socket");
     while let Ok(stream) = listener.accept().await {
-        tokio::spawn(answer_as_codex_service(stream));
+        tokio::spawn(answer_as_codex_service(stream, |_method| {}));
     }
 }
 

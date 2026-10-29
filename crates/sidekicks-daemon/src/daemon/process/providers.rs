@@ -58,6 +58,7 @@ use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::git::worktree::naming::worktrees_folder;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio::task::JoinError;
+use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::daemon::machine_settings::file::MachineSettingsFile;
@@ -362,8 +363,8 @@ pub(crate) async fn sweep_left_staged_worktrees(providers: &Providers) {
     }
 }
 
-/// The providers' registration running on its own task, which the start waits for before the run
-/// queue's recovery and the stop ends before the drivers.
+/// The providers' first capability reads running on their own task, which the start waits for
+/// before the run queue's recovery and the stop ends before the drivers.
 pub(crate) struct ProvidersRegistration {
     /// The task, until it is seen to end; dropped, it ends the task.
     task: Option<AbortOnDropHandle<()>>,
@@ -381,8 +382,8 @@ pub(crate) enum ProvidersRegistrationStopFailure {
 }
 
 impl ProvidersRegistration {
-    /// Waits until every driver's first read landed, failed or missed its deadline and every row
-    /// value was applied; at once when it ended already. Fails when its task panicked.
+    /// Waits until every driver's first read landed, failed or missed its deadline; at once when it
+    /// ended already. Fails when its task panicked.
     pub(crate) async fn finished(&mut self) -> Result<(), JoinError> {
         let Some(task) = self.task.as_mut() else {
             return Ok(());
@@ -415,36 +416,45 @@ impl ProvidersRegistration {
     }
 }
 
-/// Starts the providers' registration on its own task, not awaited: once `index_opened` settles,
-/// every driver's capabilities are read, declared and recorded at once, a provider with a lasting
-/// service connecting to it in its read, then each driver's Settings rows take their values, each
-/// one `settings_file` stores over the driver's default. It ends once every read landed, failed or
-/// missed its deadline and every value was applied, or, applying none, once the refresh stopped
-/// before the reads; a failure is logged, never returned. Dropping the handle ends it. A value
-/// changed later is applied by the provider settings' update, through the same driver call.
-pub(crate) fn register_providers(
-    providers: &Providers,
-    index_opened: impl Future<Output = ()> + Send + 'static,
-    settings_file: Arc<MachineSettingsFile>,
-) -> ProvidersRegistration {
-    let refresher = Arc::clone(&providers.refresher);
-    let registry = Arc::clone(&providers.registry);
-    let task = tokio::spawn(async move {
-        index_opened.await;
-        if !refresher.refresh_now().await {
-            tracing::warn!(
-                "the capability refresh ended before the providers' first reads, so no row value \
-                 is applied"
-            );
-            return;
-        }
+/// Applies to every driver its Settings rows' values, all drivers at once, each one
+/// `settings_file` stores over the driver's default, before anything provider-facing runs: a
+/// provider with a lasting service joins it here, or starts it on the same socket, before any
+/// session's recovery or capability read reaches for it. Each driver's own start bound is the only
+/// bound, and `stop` ends the wait where it stands. A row that fails to apply, or a settings file
+/// that cannot be read, is logged and the start goes on. A value changed later is applied by the
+/// provider settings' update, through the same driver call.
+pub(crate) async fn apply_stored_rows(
+    registry: &ProviderRegistry,
+    settings_file: &MachineSettingsFile,
+    stop: &CancellationToken,
+) {
+    let applying = async {
         match settings_file.read().await {
-            Ok(reading) => apply_row_values(&registry, &reading.settings.provider_settings).await,
+            Ok(reading) => apply_row_values(registry, &reading.settings.provider_settings).await,
             Err(error) => tracing::error!(
                 error = &error as &(dyn std::error::Error + 'static),
                 "the providers' stored settings could not be read, so none was applied"
             ),
         }
+    };
+    tokio::select! {
+        () = applying => {}
+        () = stop.cancelled() => {}
+    }
+}
+
+/// Starts the providers' first capability reads on their own task, not awaited: once
+/// `index_opened` settles, every driver's capabilities are read, declared and recorded at once. It
+/// ends once every read landed, failed or missed its deadline, or once the refresh stopped before
+/// the reads; a failure is logged, never returned. Dropping the handle ends it.
+pub(crate) fn register_providers(
+    providers: &Providers,
+    index_opened: impl Future<Output = ()> + Send + 'static,
+) -> ProvidersRegistration {
+    let refresher = Arc::clone(&providers.refresher);
+    let task = tokio::spawn(async move {
+        index_opened.await;
+        refresher.refresh_now().await;
     });
     ProvidersRegistration {
         task: Some(AbortOnDropHandle::new(task)),
@@ -568,8 +578,7 @@ mod tests {
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
     use sidekicks_provider::driver::contract::{
-        ApplyRowValueParams, DriverCliVersionReport, DriverError, GetCapabilitiesResult,
-        MockProviderDriver,
+        ApplyRowValueParams, DriverCliVersionReport, GetCapabilitiesResult, MockProviderDriver,
     };
     use sidekicks_provider::driver::test_registry::{
         NothingServed, registrations_of_first_providers,
@@ -582,9 +591,10 @@ mod tests {
     use sidekicks_workspace::git::process::{GitLimits, GitRunner};
     use tempfile::TempDir;
     use tokio::runtime::Handle;
+    use tokio_util::sync::CancellationToken;
 
     use super::{
-        ProviderStart, Providers, build_providers, hydrate_capabilities, register_providers,
+        ProviderStart, Providers, apply_stored_rows, build_providers, hydrate_capabilities,
     };
     use crate::daemon::machine_settings::file::MachineSettingsFile;
     use crate::daemon::schema::schema_parts;
@@ -715,17 +725,14 @@ mod tests {
         .expect("no test row is the prototype key")
     }
 
-    // The registration applies each row's value once the first reads ran: the driver's default
-    // where the app stored none, the stored value over it where it did. Killed by leaving the
-    // replay out, which applies nothing, or by applying the defaults alone.
+    // The stored rows' application applies each row's value: the driver's default where the app
+    // stored none, the stored value over it where it did. Killed by leaving the replay out, which
+    // applies nothing, or by applying the defaults alone.
     #[tokio::test]
-    async fn the_registration_applies_each_rows_stored_value_over_the_drivers_default() {
+    async fn the_stored_rows_apply_each_rows_stored_value_over_the_drivers_default() {
         let start = TestStart::new();
         let applied = Arc::new(Mutex::new(Vec::new()));
         let mut driver = MockProviderDriver::new();
-        driver.expect_get_capabilities().returning(|| {
-            async { Err(DriverError::Internal("no read in the test".into())) }.boxed()
-        });
         driver.expect_row_defaults().returning(|| {
             rows(vec![
                 ("reach", switch_row(true)),
@@ -762,14 +769,12 @@ mod tests {
         )
         .expect("the test stores the settings");
 
-        register_providers(
-            &providers,
-            async {},
-            Arc::new(MachineSettingsFile::new(settings_path)),
+        apply_stored_rows(
+            &providers.registry,
+            &MachineSettingsFile::new(settings_path),
+            &CancellationToken::new(),
         )
-        .finished()
-        .await
-        .expect("the registration ends");
+        .await;
 
         assert_eq!(
             *lock(&applied),
