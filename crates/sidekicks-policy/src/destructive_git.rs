@@ -172,9 +172,9 @@ fn take_git_subcommand<W: WordText>(
     }
 }
 
-// Whether `word` is `option`, alone or with `=<value>`; every option here is ASCII, so its byte
-// length counts its characters.
-fn is_option(word: impl WordText, option: &str) -> bool {
+/// Whether `word` is `option`, alone or with `=<value>`; `option` is ASCII, so its byte length
+/// counts its characters.
+pub(crate) fn is_option(word: impl WordText, option: &str) -> bool {
     word.starts_with(option) && matches!(word.chars().nth(option.len()), None | Some('='))
 }
 

@@ -507,6 +507,7 @@ pub(crate) async fn register_method_inputs(
                 process_identity,
                 read_process_state: Arc::new(move || process_state.read()),
                 recovery: Arc::clone(&database.status),
+                reads: Arc::clone(&reads),
                 version,
                 transport_endpoint: BoundedText::new(
                     run_folder.socket_path.to_string_lossy().into_owned(),

@@ -657,9 +657,8 @@ interface ApplyInterventionResponse {
 // rollback: undo cuts the conversation IN PLACE through `rewindConversation`.
 interface MoveSessionToForkParams {
   sessionId: SessionId;
-  // the normalized session position of the message the fork carries history up to and including
-  // (the vocabulary `DriverResumeResult.sessionPosition` reports); the driver maps it to its
-  // provider's own anchor
+  // the normalized session position of the message the fork carries history up to and including;
+  // the driver maps it to its provider's own anchor
   position: number;
   // the session's leg — the run's live runtime binding, daemon-resolved at dispatch (run→bindings
   // is 1:many, so `sessionId` alone cannot name it); no client payload carries it
@@ -722,14 +721,15 @@ type DriverGoalResult =
 // silent-replacement structurally inexpressible: the failure variant has no `bindingId`, so a
 // successful resume cannot be conflated with a failed one. Spec-004 §Fallback Behavior requires
 // that resume failure "surface `providerFailure` detail and a visible `recoveryNeeded` condition;
-// it must not silently create a replacement provider session under the same canonical run." The
-// `resumed` variant's REQUIRED `sessionPosition` is the driver's normalized monotonic position —
-// turn/event ordinal, the same number-cursor convention as `lastAppliedSequence`/`afterSequence` in
-// persistence-payloads.md — which the daemon compares against its recorded position; divergence
-// reconciliation (halt-for-human, rollback markers as the position floor) is Spec-013's, per
-// ADR-016's rule that the local log is authoritative. The compare also catches a provider silently
-// returning a fresh session on resume (e.g. Claude on a working-directory mismatch): a fresh
-// session's position cannot match the recorded one. Timestamps for the resumed case live on
+// it must not silently create a replacement provider session under the same canonical run." After a
+// `resumed` result the daemon compares the provider's record with its own by provider id at the
+// grain of each step; divergence reconciliation (halt-for-human, rollback markers as the floor) is
+// Spec-013's, per ADR-016's rule that the local log is authoritative. The driver reports `resumed`
+// only for the provider session its handle names, so a provider silently returning a fresh session
+// on resume (e.g. Claude on a working-directory mismatch) is caught: Codex refuses a
+// `thread/resume` reply naming another thread, and Claude Code's first `system/init` after a resume
+// naming another session fails the run with `providerFailure` and `recoveryNeeded` before any row
+// of that turn is written. Timestamps for the resumed case live on
 // `runtime_bindings.updated_at` (Plan-003 T2.1); the result shape carries only the
 // discriminated-union semantic payload.
 type DriverResumeResult =
@@ -741,7 +741,6 @@ type DriverResumeResult =
   | {
       status: "resumed";
       bindingId: string;
-      sessionPosition: number;
       // The conversation the session runs on now, which the daemon records on the binding: the
       // handle it was given, or a new one where the provider continues the conversation in a new
       // thread, as Codex does, reopening a conversation by forking it with the session's whole

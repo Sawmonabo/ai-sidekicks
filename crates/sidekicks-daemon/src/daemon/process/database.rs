@@ -47,7 +47,7 @@ use sidekicks_recovery::projection_rebuild::PROJECTION_REBUILD_STATEMENT_CAPACIT
 use sidekicks_recovery::restart_settle::RESTART_SETTLE_STATEMENT_CAPACITY;
 use sidekicks_recovery::session_write_refusal::refuse_session_event;
 use sidekicks_recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
-use sidekicks_recovery::status::RecoveryStatusTracker;
+use sidekicks_recovery::status::{RECOVERY_STATUS_STATEMENT_CAPACITY, RecoveryStatusTracker};
 use sidekicks_session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
 use sidekicks_session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
 use sidekicks_session::conversation_purge::CONVERSATION_PURGE_STATEMENT_CAPACITY;
@@ -169,6 +169,7 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + PROVIDER_SESSIONS_STATEMENT_CAPACITY
     + QUESTION_STATEMENT_CAPACITY
     + READINGS_STATEMENT_CAPACITY
+    + RECOVERY_STATUS_STATEMENT_CAPACITY
     + RELATED_RANKING_STATEMENT_CAPACITY
     + REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY
     + REPO_MOUNT_SERVICE_STATEMENT_CAPACITY
