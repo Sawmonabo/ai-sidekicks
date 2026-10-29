@@ -26,9 +26,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use notify::{RecommendedWatcher, Watcher};
 use rusqlite::{Connection, OptionalExtension, named_params};
-use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::folders::RepoMountRootResolutionReason;
 use sidekicks_contracts::repo::mount::{RepoMountId, WorkspaceId, WorkspaceState};
 use sidekicks_contracts::session::directory::{
@@ -66,12 +64,16 @@ use sidekicks_workspace::run_setup_gates::execution_root::SessionFolderMoves;
 use sidekicks_workspace::schema::MountOrigin;
 
 use crate::directory::lookups::{SessionWriteError, write_while_session_exists};
+use crate::refusals::working_folder_missing;
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// The statements the working folders' reads keep prepared on each read connection: a session's
 /// pending move, every pending move, a session's workspace, a mount's workspaces, a mount's root,
 /// a session's live run, its bound run and the removed tree it works in.
 pub const SESSION_WORKING_FOLDERS_STATEMENT_CAPACITY: usize = 8;
+
+// Why a session with no working folder cannot move.
+const CANNOT_MOVE: &str = "The session works in no folder any more, so it cannot move.";
 
 const SELECT_PENDING_SQL: &str =
     "SELECT pending_working_folder FROM sessions WHERE id = @session_id";
@@ -483,7 +485,7 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
             })
             .await?;
         let Some((workspace, repo_mount_id, is_project)) = read else {
-            return Err(working_folder_missing(&session_id).into());
+            return Err(working_folder_missing(&session_id, CANNOT_MOVE).into());
         };
         if !is_project {
             return Err(DomainError::from(RepoRefusal::MountManaged { repo_mount_id }).into());
@@ -779,14 +781,4 @@ fn clear_pending_statement(session_id: SessionId, path: &str) -> WriteStatement 
         ]),
         expected_row_count: None,
     }
-}
-
-/// `session.workingFolder.missing`: the session works in no folder any more, so it cannot move.
-/// The session's id goes out as the refusal's detail.
-fn working_folder_missing(session_id: &SessionId) -> DomainError {
-    DomainError::new(
-        "The session works in no folder any more, so it cannot move.",
-        RefusalCode::SessionWorkingFolderMissing,
-    )
-    .with_detail(json!({ "sessionId": session_id }))
 }

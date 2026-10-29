@@ -28,6 +28,7 @@ pub mod questions;
 pub mod queue_store;
 pub mod readings;
 pub(crate) mod records;
+pub(crate) mod refusals;
 pub mod related;
 pub mod review_note;
 pub mod run;
