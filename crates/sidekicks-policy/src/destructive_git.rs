@@ -8,7 +8,7 @@ use std::sync::Arc;
 use sidekicks_contracts::approval::RememberedRuleSense;
 
 use crate::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-use crate::shell_commands::{ShellCommand, ShellLineReader, ShellLineReading, WordText};
+use crate::shell_commands::{ShellCommand, ShellLineReader, ShellLineReading, WordText, is_option};
 
 /// The subcommand a git command runs, and whether its options change what git itself runs. The
 /// subcommand's `Display` writes its text.
@@ -170,12 +170,6 @@ fn take_git_subcommand<W: WordText>(
         subcommand: None,
         changes_what_runs,
     }
-}
-
-/// Whether `word` is `option`, alone or with `=<value>`; `option` is ASCII, so its byte length
-/// counts its characters.
-pub(crate) fn is_option(word: impl WordText, option: &str) -> bool {
-    word.starts_with(option) && matches!(word.chars().nth(option.len()), None | Some('='))
 }
 
 // Whether `word` is a `-` and then only ASCII letters, at least one of them among `letters`.

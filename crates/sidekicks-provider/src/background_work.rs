@@ -6,7 +6,9 @@
 
 use std::sync::Arc;
 
-use sidekicks_policy::shell_commands::{ShellCommand, ShellLineReader, ShellLineReading, WordText};
+use sidekicks_policy::shell_commands::{
+    ShellCommand, ShellLineReader, ShellLineReading, WordText, is_option,
+};
 
 use crate::driver::{BackgroundWork, ProviderDescriptor};
 
@@ -151,12 +153,6 @@ fn names_background_subcommand(work: &BackgroundWork, command: ShellCommand<'_>)
         }
     }
     false
-}
-
-// Whether `word` is `option`, alone or with `=<value>`; every option here is ASCII, so its byte
-// length counts its characters.
-fn is_option(word: impl WordText, option: &str) -> bool {
-    word.starts_with(option) && matches!(word.chars().nth(option.len()), None | Some('='))
 }
 
 #[cfg(test)]

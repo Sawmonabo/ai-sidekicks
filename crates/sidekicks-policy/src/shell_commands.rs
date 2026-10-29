@@ -21,7 +21,7 @@ use tree_sitter::{Node, Parser};
 use self::words::{
     BytePositions, JoinedWords, Piece, PieceTexts, ShellText, Word, WordBuilder, node_text, offset,
 };
-pub use self::words::{PositionedByte, ShellWord, WordText};
+pub use self::words::{PositionedByte, ShellWord, WordText, is_option};
 use self::wrappers::{command_wrapper, take_wrapper_words};
 
 /// The simple commands of one line, nested ones included, in the order they appear, outer ones

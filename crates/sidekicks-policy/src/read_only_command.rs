@@ -3,9 +3,9 @@
 //! closed list of reading programs and every option it gives one is on that program's own closed
 //! set, none of which writes a file or runs another program.
 
-use crate::destructive_git::{is_option, read_git_subcommand};
+use crate::destructive_git::read_git_subcommand;
 use crate::shell_commands::{
-    ShellCommand, ShellLineReader, ShellWord, WordText, unwrap_shell_command_line,
+    ShellCommand, ShellLineReader, ShellWord, WordText, is_option, unwrap_shell_command_line,
 };
 
 /// Whether `line`, a provider's command line, only reads: it reads whole on `reader` after any

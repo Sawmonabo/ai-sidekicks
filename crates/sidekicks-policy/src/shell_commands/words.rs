@@ -164,6 +164,12 @@ pub trait WordText: Copy {
     fn contains(self, byte: PositionedByte) -> bool;
 }
 
+/// Whether `word` is `option`, alone or with `=<value>`; `option` is ASCII, so its byte length
+/// counts its characters.
+pub fn is_option(word: impl WordText, option: &str) -> bool {
+    word.starts_with(option) && matches!(word.chars().nth(option.len()), None | Some('='))
+}
+
 impl WordText for &str {
     fn is(self, text: &str) -> bool {
         self == text

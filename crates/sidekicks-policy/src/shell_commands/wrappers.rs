@@ -3,8 +3,7 @@
 
 use std::collections::VecDeque;
 
-use super::words::{ShellWord, Word, WordBuilder, WordText};
-use crate::destructive_git::is_option;
+use super::words::{ShellWord, Word, WordBuilder, WordText, is_option};
 
 /// How a program that runs the command after it reads its own words first: its options that take
 /// a value, the rest of a short option's cluster, after a long one's `=` or the next word; those
