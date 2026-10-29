@@ -10,7 +10,7 @@ use sidekicks_platforms::{
 
 use super::stand_in::{
     CRASH_WAIT, FirstResolveOnly, another_daemon, is_running, send_signal, stand_in_services,
-    this_daemon,
+    this_daemon, wait_until_gone,
 };
 use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::registry::OneHome;
@@ -211,8 +211,8 @@ async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_pro
     let recovery_heard = tokio::time::timeout(CRASH_WAIT, services.recoveries.recv()).await;
     let recovered_process = home_service.process_id();
     let is_second_running = is_running(second_process);
-    // The stop ends the second too, a service a record keeps that this daemon never joined.
     daemon.shutdown(DaemonStopIntent::Stop).await;
+    let is_second_stopped = wait_until_gone(second_process).await;
 
     assert!(is_home_killed);
     assert!(
@@ -223,6 +223,10 @@ async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_pro
     assert!(
         is_second_running,
         "the crash restart stopped another service's process as its own"
+    );
+    assert!(
+        is_second_stopped,
+        "the stop left running a service a record keeps that this daemon never joined"
     );
 }
 
