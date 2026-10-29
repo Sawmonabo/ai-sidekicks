@@ -8,6 +8,14 @@
         reason = "the driver hands its account legs to the account plane once it is wired"
     )
 )]
+mod auth_file;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the driver hands its account legs to the account plane once it is wired"
+    )
+)]
 mod limits;
 #[cfg_attr(
     not(test),
@@ -18,8 +26,9 @@ mod limits;
 )]
 mod sign_out;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -51,8 +60,8 @@ use crate::driver::contract::error::DriverError;
 const CODEX_FILE_CREDENTIAL_STORE: &str = "cli_auth_credentials_store=\"file\"";
 
 /// What Codex's account legs reach a home's Codex through: the driver's services, one per home,
-/// what a short-lived service started for one act runs on, the driver's filing of rate limits and
-/// the account registry.
+/// what a short-lived service started for one act runs on, the driver's filing of rate limits, the
+/// account registry, and each account's dead renewals in a row.
 #[cfg_attr(
     not(test),
     expect(
@@ -65,6 +74,9 @@ pub(crate) struct CodexAccountLegs {
     dependencies: Arc<CodexServiceDependencies>,
     rate_limits: CodexRateLimitFiling,
     accounts: Arc<ProviderAccountRegistry>,
+    // Each account's limits reads in a row whose needed renewal left its `auth.json` unchanged,
+    // kept in memory as the observer's own misses are.
+    dead_renewals: Mutex<HashMap<ProviderAccountId, u8>>,
 }
 
 impl CodexAccountLegs {
@@ -89,6 +101,7 @@ impl CodexAccountLegs {
             dependencies,
             rate_limits,
             accounts,
+            dead_renewals: Mutex::default(),
         }
     }
 

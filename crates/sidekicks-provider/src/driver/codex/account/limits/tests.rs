@@ -2,6 +2,8 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rstest::rstest;
@@ -35,6 +37,22 @@ use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// How long the test watches for a request that must not come.
 const QUIET_WAIT: Duration = Duration::from_millis(200);
+
+/// Codex's refusal of a limits read.
+fn refused_limits_read() -> (&'static str, Value) {
+    (
+        "account/rateLimits/read",
+        json!({"error": {"code": -32603, "message": "the usage read was refused"}}),
+    )
+}
+
+/// The home's account read finding an account signed in.
+fn signed_in_account_read() -> (&'static str, Value) {
+    (
+        "account/read",
+        json!({"result": {"account": {"type": "chatgpt"}}}),
+    )
+}
 
 /// Each set of quota windows the usage record took, with the account it was filed under.
 #[derive(Default)]
@@ -139,12 +157,23 @@ impl Fixture {
     }
 
     // One limits read of the account's home, the home's service answering each request in turn
-    // with the frame members `answers` gives beside its method.
-    async fn observe(&mut self, answers: &[(&str, Value)]) -> ProviderObservation {
+    // with the frame members `answers` gives beside its method, and, given `renewed_at`, rewriting
+    // the home's `auth.json` with that renewal time once the first request arrives.
+    async fn observe(
+        &mut self,
+        answers: &[(&str, Value)],
+        renewed_at: Option<(&str, i64)>,
+    ) -> ProviderObservation {
         let script = &mut self.scripted.script;
+        let codex_home = &self.folders.configuration_folder;
         let answered = async {
-            for (method, answer) in answers {
+            for (index, (method, answer)) in answers.iter().enumerate() {
                 let request = script.next_sent().await;
+                if index == 0
+                    && let Some((last_refresh, expiry)) = renewed_at
+                {
+                    write_auth_file(codex_home, last_refresh, expiry);
+                }
                 assert_eq!(request["method"], *method, "{request}");
                 if *method == "account/rateLimits/read" {
                     assert_eq!(
@@ -193,20 +222,26 @@ async fn a_snapshot_becomes_windows_under_the_home_s_account_and_its_credits_lan
     });
 
     let with_credits = fixture
-        .observe(&[(
-            "account/rateLimits/read",
-            json!({"result": {
-                "rateLimits": snapshot,
-                "rateLimitResetCredits": {"availableCount": 3, "credits": null},
-            }}),
-        )])
+        .observe(
+            &[(
+                "account/rateLimits/read",
+                json!({"result": {
+                    "rateLimits": snapshot,
+                    "rateLimitResetCredits": {"availableCount": 3, "credits": null},
+                }}),
+            )],
+            None,
+        )
         .await;
     let credits_after_first = fixture.reset_credits();
     let without_credits = fixture
-        .observe(&[(
-            "account/rateLimits/read",
-            json!({"result": {"rateLimits": snapshot}}),
-        )])
+        .observe(
+            &[(
+                "account/rateLimits/read",
+                json!({"result": {"rateLimits": snapshot}}),
+            )],
+            None,
+        )
         .await;
 
     assert_eq!(with_credits, ProviderObservation::Figures);
@@ -231,7 +266,7 @@ async fn a_snapshot_becomes_windows_under_the_home_s_account_and_its_credits_lan
 async fn an_api_key_account_is_not_read() {
     let mut fixture = Fixture::new(ProviderAuthMode::ApiKey).await;
 
-    let observed = fixture.observe(&[]).await;
+    let observed = fixture.observe(&[], None).await;
 
     assert_eq!(observed, ProviderObservation::OutOfScope);
     assert!(
@@ -243,8 +278,29 @@ async fn an_api_key_account_is_not_read() {
     assert_eq!(fixture.reset_credits(), None);
 }
 
+// `auth.json` written into `codex_home` as Codex's `file` store writes it, its access token a
+// made-up JWT whose payload claims only `exp`.
+fn write_auth_file(codex_home: &std::path::Path, last_refresh: &str, access_token_expiry: i64) {
+    let payload = URL_SAFE_NO_PAD.encode(json!({"exp": access_token_expiry}).to_string());
+    let auth_file = json!({
+        "auth_mode": "chatgpt",
+        "OPENAI_API_KEY": null,
+        "tokens": {
+            "id_token": "e30.e30.c2ln",
+            "access_token": format!("e30.{payload}.c2ln"),
+            "refresh_token": "made-up",
+            "account_id": "made-up",
+        },
+        "last_refresh": last_refresh,
+    });
+    std::fs::create_dir_all(codex_home).expect("the home is made");
+    std::fs::write(codex_home.join("auth.json"), auth_file.to_string())
+        .expect("the auth file is written");
+}
+
 // Killed by a refused read read as figures, by a lost sign-in read as a throttle or the reverse,
-// and by an unreadable account read taken as a verdict on the sign-in.
+// by an unreadable account read taken as a verdict on the sign-in, and by a home with no
+// `auth.json` counting a dead renewal (the second refusal would read as a lost sign-in).
 #[rstest]
 #[case::no_sign_in(json!({"result": {"account": null}}), ProviderObservation::SignInGone)]
 #[case::a_throttle(
@@ -258,17 +314,49 @@ async fn a_refused_read_is_judged_by_the_home_s_sign_in(
     #[case] observation: ProviderObservation,
 ) {
     let mut fixture = Fixture::new(ProviderAuthMode::OauthSubscription).await;
+    let answers = [refused_limits_read(), ("account/read", account_read)];
 
-    let observed = fixture
-        .observe(&[
-            (
-                "account/rateLimits/read",
-                json!({"error": {"code": -32603, "message": "the usage read was refused"}}),
-            ),
-            ("account/read", account_read),
-        ])
-        .await;
+    let first = fixture.observe(&answers, None).await;
+    let second = fixture.observe(&answers, None).await;
 
-    assert_eq!(observed, observation);
+    assert_eq!((first, second), (observation, observation));
     assert!(lock(&fixture.recorded.0).is_empty());
+}
+
+/// An access token expiry long past.
+const EXPIRED: i64 = 1_700_000_000;
+/// An access token expiry long ahead.
+const UNEXPIRED: i64 = 4_000_000_000;
+
+// Killed by the count never reaching two, by an unexpired token counting, by the before-and-after
+// comparison skipped, and by a file rewritten during the read not clearing the count.
+#[rstest]
+#[case::a_dead_renewal_twice(EXPIRED, None, ProviderObservation::SignInGone)]
+#[case::a_renewal_written(
+    EXPIRED,
+    Some(("2026-10-29T19:00:00.5Z", EXPIRED)),
+    ProviderObservation::RefusedInBand
+)]
+#[case::no_renewal_needed(UNEXPIRED, None, ProviderObservation::RefusedInBand)]
+#[tokio::test]
+async fn a_renewal_that_leaves_auth_json_unchanged_twice_reads_as_a_lost_sign_in(
+    #[case] access_token_expiry: i64,
+    #[case] second_read_renews: Option<(&str, i64)>,
+    #[case] second: ProviderObservation,
+) {
+    let mut fixture = Fixture::new(ProviderAuthMode::OauthSubscription).await;
+    write_auth_file(
+        &fixture.folders.configuration_folder,
+        "2026-10-29T18:00:00.123456Z",
+        access_token_expiry,
+    );
+    let answers = [refused_limits_read(), signed_in_account_read()];
+
+    let first = fixture.observe(&answers, None).await;
+    let observed_second = fixture.observe(&answers, second_read_renews).await;
+
+    assert_eq!(
+        (first, observed_second),
+        (ProviderObservation::RefusedInBand, second)
+    );
 }
