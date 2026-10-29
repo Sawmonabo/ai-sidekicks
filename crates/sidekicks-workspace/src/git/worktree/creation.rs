@@ -900,4 +900,6 @@ fn branch_ref_name(name: &WorktreeName) -> GitRefName {
 }
 
 #[cfg(test)]
+pub(crate) mod test_sources;
+#[cfg(test)]
 mod tests;

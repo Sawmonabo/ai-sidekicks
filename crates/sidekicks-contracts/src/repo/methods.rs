@@ -249,8 +249,11 @@ methods! {
             refusals: [
                 WorkspaceNotFound,
                 WorkspaceBranchNameRequired,
+                WorkspaceModeUnsupported,
                 WorkspaceRootUnavailable,
                 WorkspacePreparationFailed,
+                RepoMountNotFound,
+                RepoMountRootResolutionFailed,
                 WorktreeBranchCollision,
                 WorktreeCreateFailed,
             ],

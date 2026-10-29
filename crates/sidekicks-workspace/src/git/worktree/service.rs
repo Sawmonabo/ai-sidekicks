@@ -389,10 +389,6 @@ impl WorktreeService {
     /// read still retires the tree, recording nothing, so its branch is freed and the sweep keeps
     /// the folder aside, and the read's failure is then returned, beside the retirement's if that
     /// failed too.
-    #[expect(
-        dead_code,
-        reason = "worktree creation and the workspace's execution-root prepare"
-    )]
     pub(crate) async fn retire_unadopted(
         &self,
         worktree_id: &WorktreeId,

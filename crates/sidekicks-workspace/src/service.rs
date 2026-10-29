@@ -372,7 +372,6 @@ impl WorkspaceService {
     /// `workspace.rootUnavailable` when the mount's folder is out of reach,
     /// `repoMount.rootResolutionFailed` when it holds another repository, and
     /// `repoMount.outsideTrustEnvelope` for a folder outside the mount's trees.
-    #[expect(dead_code, reason = "a session's working-folder move")]
     pub(crate) async fn admit_folder(
         &self,
         workspace_id: WorkspaceId,
@@ -388,7 +387,6 @@ impl WorkspaceService {
     /// whose mount folder is out of reach (`workspace.rootUnavailable`), or whose mount folder
     /// holds another repository than the one attached there (`repoMount.rootResolutionFailed`,
     /// `rootMismatch`); `workspace.notFound` for no such workspace.
-    #[expect(dead_code, reason = "the execution roots' preparation")]
     pub(crate) async fn assert_mount_healthy(
         &self,
         workspace_id: WorkspaceId,

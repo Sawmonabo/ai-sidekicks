@@ -566,7 +566,6 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
 
     /// Forgets the card of every tree whose retirement is recorded; every path that retires a tree
     /// calls it once the retirement is written. A failed read of the rows is logged.
-    #[expect(dead_code, reason = "the paths that retire a tree")]
     pub(crate) async fn forget_retired(&self) {
         let worktree_ids: Vec<WorktreeId> = self.shared.lock().cards.keys().copied().collect();
         if worktree_ids.is_empty() {

@@ -7,6 +7,7 @@ pub mod askpass_prompt;
 pub mod clone;
 pub(crate) mod errors;
 pub mod event_emitter;
+pub mod execution_root;
 pub(crate) mod file_watch;
 pub mod folder;
 pub mod git;

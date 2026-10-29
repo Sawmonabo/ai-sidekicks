@@ -71,13 +71,6 @@ impl WorkspaceService {
     /// write. Refuses `workspace.notFound`, `workspace.rootUnavailable`, `repoMount.notFound` and
     /// `repoMount.rootResolutionFailed` when git cannot answer; fails with an illegal-transition
     /// invariant for a `preparing` or archived workspace. Holds nothing.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the run setup gate and the execution roots' preparation"
-        )
-    )]
     pub(crate) async fn assert_writable(
         &self,
         workspace_id: WorkspaceId,

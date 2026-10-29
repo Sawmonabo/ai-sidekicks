@@ -96,6 +96,11 @@ pub(crate) enum WorkspaceServiceInvariantKind {
     NonAbsoluteExecutionRoot,
     /// A run's root has no branch recorded, so its run context cannot be written.
     BranchContextMissing,
+    /// Git could not name the branch or the working tree of the folder a `boundRoot` workspace
+    /// binds.
+    BoundRootUnreadable,
+    /// A branch context's write kept a row whose id cannot be read back.
+    BranchContextUnreadable,
 }
 
 /// A failure inside the workspace service that has no wire code, so it is no [`DomainError`]:

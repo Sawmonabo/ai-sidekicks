@@ -89,10 +89,6 @@ pub(crate) struct CompletedRootPreparation {
     pub(crate) bound_root: Option<PathBuf>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the execution roots' preparation")
-)]
 impl WorkspaceService {
     /// Enters the preparation, `ready` or `rootLost` to `preparing`, in `target_mode`, with
     /// `workspace.preparing`. Refuses `workspace.notFound`, `repoMount.notFound` for a mount no
