@@ -286,9 +286,10 @@ impl McpInventoryService {
     }
 
     /// Reads `provider`'s bindings through `driver`, asking it to probe the bindings `probe`
-    /// names and, on `is_refresh`, to read again what it keeps; this is the one read a probe
-    /// trigger calls. Each row is keyed by its binding. The attribution table takes the provider's
-    /// roots, and each probe reading the driver answers lands in [`Self::keep_probe_readings`].
+    /// names, the store's `local` bindings among them, and, on `is_refresh`, to read again what it
+    /// keeps; this is the one read a probe trigger calls. Each row is keyed by its binding. The
+    /// attribution table takes the provider's roots, and each probe reading the driver answers
+    /// lands in [`Self::keep_probe_readings`].
     /// Fails as the driver's read fails; a store that does not answer gives each row the
     /// store-unavailable arm.
     async fn read_provider_rows(
@@ -308,25 +309,12 @@ impl McpInventoryService {
                     .ok_or(McpInventoryError::AccountId)
             })
             .collect::<Result<_, _>>()?;
-        let request = McpServersReadRequest {
-            attached_roots: context.attached_roots.clone(),
-            provider_account_ids,
-            is_refresh,
-            probe,
-        };
-        let (reading, stored) = tokio::join!(
-            driver.read_mcp_servers(request),
-            self.sources.store.read_provider_bindings(provider)
-        );
-        let reading = reading.map_err(|source| McpInventoryError::Driver {
-            provider: provider.clone(),
-            source,
-        })?;
-        self.sources
-            .attribution
-            .replace_provider_loaded(provider, &reading.roots);
-        self.keep_probe_readings(&reading.probe_readings);
-        let stored = stored
+        // The store is read first, since the driver probes the `local` bindings it keeps.
+        let stored = self
+            .sources
+            .store
+            .read_provider_bindings(provider)
+            .await
             .inspect_err(|error| {
                 tracing::warn!(
                     error = error as &(dyn std::error::Error + 'static),
@@ -336,6 +324,28 @@ impl McpInventoryService {
                 );
             })
             .ok();
+        let request = McpServersReadRequest {
+            attached_roots: context.attached_roots.clone(),
+            provider_account_ids,
+            is_refresh,
+            probe,
+            emulated_local_bindings: stored
+                .as_ref()
+                .map(|stored| stored.local_bindings.clone())
+                .unwrap_or_default(),
+        };
+        let reading =
+            driver
+                .read_mcp_servers(request)
+                .await
+                .map_err(|source| McpInventoryError::Driver {
+                    provider: provider.clone(),
+                    source,
+                })?;
+        self.sources
+            .attribution
+            .replace_provider_loaded(provider, &reading.roots);
+        self.keep_probe_readings(&reading.probe_readings);
         Ok(resolve_binding_rows(&reading, stored.as_ref())
             .into_iter()
             .map(|row| {

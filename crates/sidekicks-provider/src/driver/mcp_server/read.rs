@@ -25,6 +25,10 @@ pub struct McpServersReadRequest {
     pub is_refresh: bool,
     /// The bindings the driver starts in a process of its own and reads once.
     pub probe: McpProbeScope,
+    /// The `local` bindings the daemon's store keeps that the provider's config cannot declare,
+    /// each served from the person's entry of the same name that is off by default, which a
+    /// driver probes at the binding's root in place of that entry.
+    pub emulated_local_bindings: Vec<McpServerBindingRef>,
 }
 
 /// Which of its bindings a driver's read probes; the driver builds each probe's start from its own

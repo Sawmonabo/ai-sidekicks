@@ -39,6 +39,7 @@ use crate::driver::codex::tools::{
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 use crate::driver::mcp_server::read::{
     McpProbeReading, McpProbeStart, McpProbeTarget, McpServerDeclaration, McpServerPolicyEntry,
+    McpServersReadRequest,
 };
 use crate::driver::mcp_server::status::{
     McpServerReading, McpServerStatusEmission, McpServerStatusIngestResult,
@@ -102,7 +103,7 @@ pub(crate) enum CodexProbedServerStart {
 /// The probe target of `declaration`: a plugin's server sent whole, since only the daemon's plugin
 /// home declares it; an entry its own config switches off switched on by name; every other loaded
 /// by Codex's own config. `None` for a connector, which Codex does not declare.
-pub(crate) fn codex_probe_target(declaration: &McpServerDeclaration) -> Option<McpProbeTarget> {
+fn codex_probe_target(declaration: &McpServerDeclaration) -> Option<McpProbeTarget> {
     let start = match &declaration.binding {
         McpServerBindingRef::Connector { .. } => return None,
         McpServerBindingRef::Plugin { .. } => McpProbeStart::DeclarationSent,
@@ -124,6 +125,68 @@ pub(crate) fn codex_probe_target(declaration: &McpServerDeclaration) -> Option<M
         binding: declaration.binding.clone(),
         start,
     })
+}
+
+/// The targets the probe of `request` starts among `declarations`: each declaration the scope
+/// names, and each emulated `local` binding it names, switched on by name at its root from the
+/// person's entry of the same name that is off by default, in place of that entry, which the
+/// inventory then lists only as those bindings. A stored `local` binding with no such entry, or
+/// one the config declares itself, is no emulated one.
+pub(crate) fn codex_probe_targets(
+    declarations: &[McpServerDeclaration],
+    request: &McpServersReadRequest,
+) -> Vec<McpProbeTarget> {
+    let emulated_locals: Vec<&McpServerBindingRef> = request
+        .emulated_local_bindings
+        .iter()
+        .filter(|local| {
+            !declarations
+                .iter()
+                .any(|declaration| declaration.binding == **local)
+        })
+        .collect();
+    let mut targets = Vec::new();
+    for declaration in declarations {
+        let Some(target) = codex_probe_target(declaration) else {
+            continue;
+        };
+        let locals: Vec<&McpServerBindingRef> = match &target.binding {
+            McpServerBindingRef::User {
+                provider,
+                server_name,
+            } if target.start == McpProbeStart::SwitchedOnByName => emulated_locals
+                .iter()
+                .copied()
+                .filter(|local| {
+                    matches!(
+                        local,
+                        McpServerBindingRef::Local {
+                            provider: local_provider,
+                            server_name: local_name,
+                            ..
+                        } if local_provider == provider && local_name == server_name
+                    )
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        if locals.is_empty() {
+            if request.probe.contains(&target.binding) {
+                targets.push(target);
+            }
+            continue;
+        }
+        targets.extend(
+            locals
+                .into_iter()
+                .filter(|local| request.probe.contains(local))
+                .map(|local| McpProbeTarget {
+                    binding: local.clone(),
+                    start: McpProbeStart::SwitchedOnByName,
+                }),
+        );
+    }
+    targets
 }
 
 /// The conversations the probe of `targets` starts: one per attached root holding a target, or

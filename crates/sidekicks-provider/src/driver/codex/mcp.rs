@@ -16,20 +16,19 @@ use crate::driver::codex::mcp::config::{
     CodexMcpConfigSources, CodexMcpRoot, read_codex_mcp_config,
 };
 use crate::driver::codex::mcp::machine_probe::{
-    codex_probe_target, plan_codex_mcp_probe, probe_codex_mcp_servers,
+    codex_probe_targets, plan_codex_mcp_probe, probe_codex_mcp_servers,
 };
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::mcp_server::read::{
-    McpProbeTarget, McpServersReadRequest, ProviderMcpServersReading,
-};
+use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 
 /// What Codex's MCP servers are on this computer for `request`: the declarations, roots and allow
 /// list the config read finds on `registry`'s service on the person's own Codex folder, `home`
-/// being the person's home folder, and what the machine probe read of each declared binding the
-/// request's probe scope names, which runs only when it names one. Codex brings no account's servers and keeps nothing
-/// between reads, so a refresh reads as any read does. Fails as the config read fails, or as the
-/// probe's service cannot be started or a probe request fails.
+/// being the person's home folder, and what the machine probe read of each binding the request's
+/// probe scope names, its emulated `local` bindings among them, which runs only when it names
+/// one. Codex brings no account's servers and keeps nothing between reads, so a refresh reads as
+/// any read does. Fails as the config read fails, or as the probe's service cannot be started or
+/// a probe request fails.
 pub(crate) async fn read_codex_mcp_servers(
     registry: &CodexServiceRegistry,
     home: &Path,
@@ -53,12 +52,7 @@ pub(crate) async fn read_codex_mcp_servers(
         managed_settings_folder: managed_settings_folder.as_deref(),
     };
     let reading = read_codex_mcp_config(&sources).await?;
-    let probe_targets: Vec<McpProbeTarget> = reading
-        .declarations
-        .iter()
-        .filter(|declaration| request.probe.contains(&declaration.binding))
-        .filter_map(codex_probe_target)
-        .collect();
+    let probe_targets = codex_probe_targets(&reading.declarations, request);
     let probe_readings = if probe_targets.is_empty() {
         Vec::new()
     } else {

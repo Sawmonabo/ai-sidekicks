@@ -5,6 +5,7 @@ use futures::FutureExt;
 use futures::future::{BoxFuture, ready};
 use rstest::rstest;
 use rusqlite::{Connection, params};
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::inventory::{
     McpAnsweredInventoryEntry, McpServerIdempotencyClass, McpServerInventoryEntry, McpToolReading,
@@ -397,4 +398,68 @@ async fn an_overrides_value_wins_and_keeps_the_servers_own_value(
             },
         ]
     );
+}
+
+/// A `local` row the store keeps for the person's `docs` entry, which is off by default, reaches
+/// the driver's read as an emulated binding, and a refresh's probe reading of that binding is
+/// what the `local` row the inventory lists in the entry's place reads. Killed by the request
+/// leaving the store's `local` bindings out, which leaves the row `unknown`.
+#[tokio::test]
+async fn a_refresh_reads_an_emulated_local_rows_status_from_its_probe() {
+    let docs_local = |provider: &ProviderId| McpServerBindingRef::Local {
+        provider: provider.clone(),
+        scope_ref: FilesystemPath::new("/work/app".to_owned()).expect("a path"),
+        place: None,
+        server_name: McpServerName::new("docs".to_owned()).expect("a server name"),
+    };
+    let inventory = open_inventory(Box::new(move |provider, request| {
+        let local = docs_local(&provider);
+        let mut reading = reading_of(&provider, &request);
+        let McpServerConfigView::Stdio { enabled, .. } = &mut reading.declarations[0].config else {
+            panic!("the test's entry runs a program");
+        };
+        *enabled = Some(false);
+        reading.probe_readings = if request.probe == McpProbeScope::EveryBinding
+            && request.emulated_local_bindings.contains(&local)
+        {
+            vec![McpProbeReading {
+                binding: local,
+                reading: McpServerReading::Observed(McpServerStatus::Connected),
+                failure_text: None,
+                tool_names: Vec::new(),
+            }]
+        } else {
+            Vec::new()
+        };
+        ready(Ok(reading)).boxed()
+    }))
+    .await;
+    inventory
+        .database
+        .reader()
+        .execute(
+            "INSERT INTO mcp_server_bindings
+               (provider, scope, scope_ref, server_name, first_observed_at, updated_at)
+             VALUES (?1, 'local', '/work/app', 'docs', 't', 't')",
+            params![inventory.provider.as_str()],
+        )
+        .expect("the local binding's row is stored");
+
+    let entries = inventory
+        .service
+        .list(&REFRESH)
+        .await
+        .expect("the inventory lists on a refresh");
+
+    let [entry] = <[_; 1]>::try_from(entries).expect("one entry");
+    let McpServerInventoryEntry::Answered(McpAnsweredInventoryEntry::Local {
+        scope_ref,
+        status,
+        ..
+    }) = entry
+    else {
+        panic!("the local binding's answered entry: {entry:?}");
+    };
+    assert_eq!(scope_ref.as_str(), "/work/app");
+    assert_eq!(status, McpServerStatus::Connected);
 }
