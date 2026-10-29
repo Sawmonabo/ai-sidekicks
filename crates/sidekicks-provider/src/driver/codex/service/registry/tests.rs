@@ -225,4 +225,3 @@ mod former_services;
 mod hooks;
 mod socket_link;
 mod stand_in;
-mod stand_in_end;

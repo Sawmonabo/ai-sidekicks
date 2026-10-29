@@ -7,15 +7,10 @@ use futures::future::join_all;
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, short_socket_folder};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 
-use super::stand_in::{CRASH_WAIT, stand_in_services, this_daemon};
+use super::{CRASH_WAIT, stand_in_services, this_daemon};
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
 use crate::driver::codex::service::supervisor::test_service::StandInLaunches;
 use crate::runtime_binding::test_store::test_provider_account_id;
-
-/// The test the killed test program runs: it launches a lasting stand-in and waits for its input
-/// to end.
-const LAUNCHING_TEST: &str =
-    "driver::codex::service::registry::tests::stand_in_end::a_test_killed_while_its_service_runs";
 
 /// The folder the launching test runs its services under; only the test that kills it sets it.
 const LAUNCH_FOLDER_NAME: &str = "SIDEKICKS_TEST_LAUNCH_FOLDER";
@@ -55,6 +50,14 @@ async fn a_stand_in_ends_once_the_test_that_launched_it_is_killed() {
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
+    // The test the killed test program runs, by its path in the test program.
+    let launching_test = format!(
+        "{}::a_test_killed_while_its_service_runs",
+        module_path!()
+            .split_once("::")
+            .map(|(_crate, path)| path)
+            .expect("the module path names its crate")
+    );
     let folder = short_socket_folder().expect("a scratch folder is made");
     // Ends a stand-in this test leaves running, whatever the assertions find.
     let launches = StandInLaunches::in_folder(folder.path());
@@ -63,7 +66,7 @@ async fn a_stand_in_ends_once_the_test_that_launched_it_is_killed() {
     )
     .args([
         "--exact",
-        LAUNCHING_TEST,
+        launching_test.as_str(),
         "--include-ignored",
         "--nocapture",
     ])

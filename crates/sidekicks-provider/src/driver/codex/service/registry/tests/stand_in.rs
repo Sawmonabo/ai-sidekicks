@@ -1,6 +1,7 @@
 //! What the registry's tests on real processes run as Codex: this test program as a stand-in
 //! service that listens as Codex does, the folders and dependencies each test's services share,
-//! and the former daemon's planned restart a later daemon meets.
+//! the former daemon's planned restart a later daemon meets, and the stand-in's end with the test
+//! program that launched it.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -27,6 +28,8 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
+
+mod end;
 
 /// The stand-in Codex service: this test program, run by the script the registry's services
 /// start as Codex.
