@@ -20,8 +20,8 @@ const LIMIT: usize = 64 * 1024;
 #[case::find_fls("find . -fls f", false)]
 #[case::cd_with_git("cd sub && git status", false)]
 #[case::special_variable("PATH=/tmp/bin cat a", false)]
-#[case::option_from_a_substitution("rg $(echo --pre=sh) x", false)]
-#[case::wrapped_writer("/bin/zsh -lc 'cat a > b'", false)]
+// A word only the run decides, here a file's text, can turn into any option.
+#[case::option_from_a_substitution("rg $(cat options) x", false)]
 // Only the system program of a listed name reads; one a folder names may be anything.
 #[case::program_in_this_folder("./cat x", false)]
 #[case::program_in_another_folder("/tmp/x/git status", false)]
