@@ -1,6 +1,7 @@
 //! The recovery pass's test fixture: a test database whose event log refuses writes as the
-//! pass's recovery state says, with a projection that folds `session.pinned` and writes nothing,
-//! so a stale session's runs stand as the test wrote them and one broken row damages its history.
+//! pass's recovery state says, with a projection that folds `session.pinned` and writes nothing and
+//! one that folds a skipped range through the runs projection's fold and clears no row, so a stale
+//! session's runs stand as the test wrote them and one broken row damages its history.
 
 use std::error::Error;
 use std::fs;
@@ -31,6 +32,7 @@ use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::test_fixture::{insert_running_run, test_engine_with};
 use sidekicks_session::run::live_count::count_live_runs_after_commits;
+use sidekicks_session::run::projection::RunsProjection;
 use sidekicks_session::service::SessionService;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::damage::DatabaseDamageWatch;
@@ -48,6 +50,7 @@ use sidekicks_store::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 use sidekicks_store::events::session::followers::SessionEventFollowers;
+use sidekicks_store::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 use sidekicks_workspace::run_setup_gates::RunSetupGate;
 use tempfile::TempDir;
 use tokio::runtime::Handle;
@@ -113,6 +116,29 @@ impl SessionProjectionFold for PinnedEvents {
         _statements: &mut Vec<WriteStatement>,
     ) -> Result<(), ProjectionContradiction> {
         Ok(())
+    }
+}
+
+// Folds a skipped range through the runs projection's own fold and clears no row, so a skip moves
+// the test's live runs past the run versions it skipped while runs written without a queued event
+// stand.
+struct SkippedRunVersions;
+
+impl SessionProjection for SkippedRunVersions {
+    fn name(&self) -> &'static str {
+        "skipped run versions"
+    }
+
+    fn event_types(&self) -> &[SessionEventType] {
+        &[DAMAGED_EVENTS_SKIPPED_TYPE]
+    }
+
+    fn clear_statements(&self, _session_id: &SessionId) -> Vec<WriteStatement> {
+        Vec::new()
+    }
+
+    fn fold(&self, session_id: &SessionId) -> Box<dyn SessionProjectionFold> {
+        RunsProjection.fold(session_id)
     }
 }
 
@@ -295,7 +321,7 @@ impl PassFixture {
             Arc::clone(&store.writer),
             Arc::clone(&session_events),
             Arc::clone(&damage),
-            vec![Box::new(PinnedEvents)],
+            vec![Box::new(PinnedEvents), Box::new(SkippedRunVersions)],
         ));
         let (approvals, _run_holds) = test_approval_service(
             &store.database,
