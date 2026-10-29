@@ -78,7 +78,8 @@ async fn a_stand_in_ends_once_the_test_that_launched_it_is_killed() {
     let mut lines = BufReader::new(launching.stdout.take().expect("its output is piped")).lines();
     let is_started = tokio::time::timeout(CODEX_SERVICE_STARTUP_TIMEOUT, async {
         while let Some(line) = lines.next_line().await.expect("its output reads") {
-            if line == SERVICE_STARTED {
+            // libtest may write its `test <name> ... ` before the line, on the same line.
+            if line.ends_with(SERVICE_STARTED) {
                 return true;
             }
         }
