@@ -13,6 +13,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_provider::driver::contract::{
     DriverError, MockProviderDriver, ProviderRequestAnswer,
 };
@@ -48,16 +49,21 @@ pub(crate) struct AsksFixture {
 impl AsksFixture {
     /// The fixture, its driver taking every hand.
     pub(crate) async fn new() -> Self {
-        Self::build(None).await
+        Self::build(CheckFixture::new().await, None)
     }
 
     /// The fixture, its driver failing its first hand with `failure`.
     async fn failing_first_hand(failure: fn() -> DriverError) -> Self {
-        Self::build(Some(failure)).await
+        Self::build(CheckFixture::new().await, Some(failure))
     }
 
-    async fn build(first_hand_failure: Option<fn() -> DriverError>) -> Self {
-        let check = CheckFixture::new().await;
+    /// The fixture, its driver taking every hand, its check deciding workflow starts by
+    /// `authorizer`.
+    pub(crate) async fn deciding_by(authorizer: Authorizer) -> Self {
+        Self::build(CheckFixture::deciding_by(Some(authorizer)).await, None)
+    }
+
+    fn build(check: CheckFixture, first_hand_failure: Option<fn() -> DriverError>) -> Self {
         bind_run_to_first_provider(&check.approvals.database, check.approvals.run_id);
         let handed = Arc::new(Mutex::new(Vec::new()));
         let recorded = Arc::clone(&handed);

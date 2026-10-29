@@ -14,6 +14,7 @@ use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
+use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_provider::callback_tools::host::test_host::TestCallbackToolHost;
 use sidekicks_provider::callback_tools::host::{
     CallbackToolApprovalBasis, CallbackToolApprovalOutcome, CallbackToolApprovalSeam,
@@ -36,7 +37,7 @@ use super::{
     CallbackToolApprovalError, CallbackToolApprovals, CallbackToolGate, UNGATED_TOOL_REFUSAL,
 };
 use crate::permission_asks::tests::{AsksFixture, device};
-use crate::permission_check::NO_LEVEL_REFUSAL;
+use crate::permission_check::{NO_LEVEL_REFUSAL, WORKFLOW_START_REFUSAL};
 use crate::service::test_fixture::SETTLE_WAIT;
 use crate::service::tests::from_json;
 
@@ -68,7 +69,15 @@ struct SeamFixture {
 
 impl SeamFixture {
     async fn new() -> Self {
-        let asks = AsksFixture::new().await;
+        Self::over(AsksFixture::new().await)
+    }
+
+    /// The seam over a check deciding workflow starts by `authorizer`.
+    async fn deciding_by(authorizer: Authorizer) -> Self {
+        Self::over(AsksFixture::deciding_by(authorizer).await)
+    }
+
+    fn over(asks: AsksFixture) -> Self {
         let providers = Arc::new(registry_of_first_providers(
             PROVIDERS
                 .iter()
@@ -130,11 +139,7 @@ impl SeamFixture {
     /// Resolves the run's posture, so its calls are its running run's.
     async fn resolve_posture(&self) {
         let check = &self.asks.check;
-        let posture: ExecutionPosture = from_json(json!({
-            "mode": "sandboxed",
-            "credentialPolicyRef": CURATED_CREDENTIAL_POLICY_REF,
-            "writableRoots": [],
-        }));
+        let posture = posture_at("sandboxed");
         check
             .postures
             .assert_run_ready(&RunSetupContext {
@@ -223,6 +228,15 @@ impl SeamFixture {
             .approvals
             .execute(&format!("UPDATE sessions SET permission_level = '{level}'"));
     }
+}
+
+// The posture at the level whose wire word is `mode`, writing nowhere.
+fn posture_at(mode: &str) -> ExecutionPosture {
+    from_json(json!({
+        "mode": mode,
+        "credentialPolicyRef": CURATED_CREDENTIAL_POLICY_REF,
+        "writableRoots": [],
+    }))
 }
 
 async fn settled<T>(call: JoinHandle<T>) -> T {
@@ -434,4 +448,37 @@ async fn the_host_refuses_a_workflow_start_from_a_run_with_no_posture() {
         }
     );
     assert_eq!(host.executed_count(), 0);
+}
+
+// Through the host, a workflow start rule that reads the asking run's posture reads the posture
+// the run's session moved to since the run's gate: a rule that permits a start only at YOLO
+// refuses the run at Sandboxed, and allows it once its session moved to YOLO. Killed by a move
+// that leaves the session's live runs at the postures their gates resolved.
+#[tokio::test]
+async fn the_host_decides_a_workflow_start_by_the_posture_its_session_moved_to() {
+    let authorizer = Authorizer::load_test_rules(
+        r#"permit (principal is User, action == Action::"workflow::start", resource)
+        when { context has posture && context.posture.mode == "yolo" };"#,
+    )
+    .expect("the test rules load");
+    let fixture = SeamFixture::deciding_by(authorizer).await;
+    fixture.resolve_posture().await;
+    let host = fixture.host(&fixture.asking);
+    let start = || tokio::time::timeout(SETTLE_WAIT, host.call(fixture.invocation(START_TOOL)));
+
+    assert_eq!(
+        start().await.expect("the start settles with no card"),
+        CallbackToolResult::Denied {
+            error: Some(WORKFLOW_START_REFUSAL.to_owned()),
+        }
+    );
+    let check = &fixture.asks.check;
+    check
+        .postures
+        .move_session(&check.approvals.session_id, posture_at("yolo"));
+    assert!(matches!(
+        start().await.expect("the start settles with no card"),
+        CallbackToolResult::Completed { .. }
+    ));
+    assert_eq!(host.executed_count(), 1);
 }

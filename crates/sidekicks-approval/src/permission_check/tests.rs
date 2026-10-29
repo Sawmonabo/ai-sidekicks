@@ -16,6 +16,7 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::callback_tools::host::CallbackToolApprovalOutcome;
 use sidekicks_provider::driver::PROVIDERS;
@@ -59,6 +60,11 @@ pub(crate) struct CheckFixture {
 impl CheckFixture {
     /// The fixture, its run's holds reaching no engine.
     pub(crate) async fn new() -> Self {
+        Self::deciding_by(None).await
+    }
+
+    /// The fixture deciding workflow starts by `authorizer`, the built-in rules where `None`.
+    pub(crate) async fn deciding_by(authorizer: Option<Authorizer>) -> Self {
         let approvals = ApprovalFixture::without_holds().await;
         let home = tempfile::tempdir().expect("a home folder");
         let TestPermissionCheck {
@@ -73,6 +79,7 @@ impl CheckFixture {
             &approvals.writer,
             &approvals.service,
             home.path(),
+            authorizer,
         );
         Self {
             approvals,
