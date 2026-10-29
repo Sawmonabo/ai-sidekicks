@@ -187,7 +187,11 @@ impl Fixture {
         match queued {
             AgentQueueItemCreateResponse::Queued { queue_item_id, .. }
             | AgentQueueItemCreateResponse::Admitted { queue_item_id, .. } => queue_item_id,
-            other => panic!("the review waits or is admitted: {other:?}"),
+            other @ (AgentQueueItemCreateResponse::Superseded { .. }
+            | AgentQueueItemCreateResponse::Canceled { .. }
+            | AgentQueueItemCreateResponse::NotDelivered { .. }) => {
+                panic!("the review waits or is admitted: {other:?}")
+            }
         }
     }
 
