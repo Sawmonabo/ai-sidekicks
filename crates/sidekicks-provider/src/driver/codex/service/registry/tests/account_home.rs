@@ -1,4 +1,4 @@
-use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, short_socket_folder};
+use sidekicks_platforms::CAN_BIND_A_SOCKET_LISTENER;
 
 use super::stand_in::{
     account_stand_in_services, another_daemon, is_running, this_daemon,
@@ -15,8 +15,7 @@ async fn a_restart_keeps_an_account_homes_service_and_the_next_stop_ends_it() {
     if !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let services = account_stand_in_services(folder.path());
+    let services = account_stand_in_services();
     let startup_timeout = services.dependencies.startup_timeout;
 
     let first = this_daemon(&services);

@@ -7,13 +7,17 @@ use futures::future::join_all;
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, short_socket_folder};
 use tokio::io::{AsyncBufReadExt as _, BufReader};
 
-use super::{CRASH_WAIT, stand_in_services, this_daemon};
+use super::{CRASH_WAIT, services_on, terminal_home, this_daemon};
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
 use crate::driver::codex::service::supervisor::test_service::StandInLaunches;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The folder the launching test runs its services under; only the test that kills it sets it.
 const LAUNCH_FOLDER_NAME: &str = "SIDEKICKS_TEST_LAUNCH_FOLDER";
+
+/// The folder the launching test's services own inside the folder its killer names, so the killer
+/// reads their launches and removes what they leave once killed.
+const SERVICES_FOLDER: &str = "services";
 
 /// The line the launching test writes once its service started.
 const SERVICE_STARTED: &str = "the stand-in service started";
@@ -27,7 +31,13 @@ async fn a_test_killed_while_its_service_runs() {
     let Some(folder) = std::env::var_os(LAUNCH_FOLDER_NAME).map(PathBuf::from) else {
         return;
     };
-    let services = stand_in_services(&folder, |program| Arc::new(program));
+    let services_folder = tempfile::Builder::new()
+        .prefix(SERVICES_FOLDER)
+        .rand_bytes(0)
+        .tempdir_in(folder)
+        .expect("the services' folder is made");
+    let home = terminal_home(services_folder.path());
+    let services = services_on(home, services_folder, |program| Arc::new(program));
     let daemon = this_daemon(&services);
     daemon
         .service_for(&test_provider_account_id())
@@ -60,7 +70,7 @@ async fn a_stand_in_ends_once_the_test_that_launched_it_is_killed() {
     );
     let folder = short_socket_folder().expect("a scratch folder is made");
     // Ends a stand-in this test leaves running, whatever the assertions find.
-    let launches = StandInLaunches::in_folder(folder.path());
+    let launches = StandInLaunches::in_folder(&folder.path().join(SERVICES_FOLDER));
     let mut launching = tokio::process::Command::new(
         std::env::current_exe().expect("the test program names itself"),
     )

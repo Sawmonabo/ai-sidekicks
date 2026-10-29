@@ -10,7 +10,8 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::run::control::ProcessExit;
-use sidekicks_platforms::pin_running_process;
+use sidekicks_platforms::{pin_running_process, short_socket_folder};
+use tempfile::TempDir;
 use tokio::sync::mpsc;
 
 use crate::driver::child_records::UnrecordedChildren;
@@ -60,8 +61,6 @@ fn terminal_home(folder: &Path) -> CodexServiceHome {
 /// one is given, its exits and recoveries told on the two receivers; every stand-in the test
 /// launched that still runs is ended when it drops.
 pub(super) struct StandInServices {
-    /// The folder the data, logs and home sit in.
-    pub(super) folder: PathBuf,
     /// The Codex home the services run on: the person's own folder, or an account's home.
     pub(super) home: CodexServiceHome,
     /// What the test's daemon runs its services on.
@@ -72,20 +71,26 @@ pub(super) struct StandInServices {
     pub(super) recoveries: mpsc::UnboundedReceiver<()>,
     // The script the stand-in starts through, which ends its launches when it drops.
     _script: CodexServiceScript,
+    /// The folder the data, logs and home sit in; declared after the script, so its launches are
+    /// read before the folder is removed.
+    pub(super) folder: TempDir,
 }
 
-/// The services of one test on the person's own Codex folder under `folder`, the stand-in
-/// resolved through what `program` makes of it.
+/// The services of one test on the person's own Codex folder in a scratch folder of their own
+/// whose socket paths fit the system's bound on them, the stand-in resolved through what
+/// `program` makes of it.
 pub(super) fn stand_in_services(
-    folder: &Path,
     program: impl FnOnce(TestCodexProgram) -> Arc<dyn CodexProgramResolver>,
 ) -> StandInServices {
-    services_on(terminal_home(folder), folder, program)
+    let folder = short_socket_folder().expect("a scratch folder is made");
+    services_on(terminal_home(folder.path()), folder, program)
 }
 
-/// The services of one test on an account's home under `folder`, the stand-in resolved as it is.
-pub(super) fn account_stand_in_services(folder: &Path) -> StandInServices {
-    let codex_home = folder.join("account");
+/// The services of one test on an account's home in a scratch folder of their own whose socket
+/// paths fit the system's bound on them, the stand-in resolved as it is.
+pub(super) fn account_stand_in_services() -> StandInServices {
+    let folder = short_socket_folder().expect("a scratch folder is made");
+    let codex_home = folder.path().join("account");
     std::fs::create_dir_all(&codex_home).expect("the home is made");
     let home = CodexServiceHome {
         codex_home,
@@ -94,17 +99,17 @@ pub(super) fn account_stand_in_services(folder: &Path) -> StandInServices {
     services_on(home, folder, |program| Arc::new(program))
 }
 
-// The services of one test on `home` under `folder`, the stand-in resolved through what `program`
-// makes of it.
+// The services of one test on `home` in `folder`, which they own, the stand-in resolved through
+// what `program` makes of it.
 fn services_on(
     home: CodexServiceHome,
-    folder: &Path,
+    folder: TempDir,
     program: impl FnOnce(TestCodexProgram) -> Arc<dyn CodexProgramResolver>,
 ) -> StandInServices {
     let (heard, exits, recoveries) = ExitsHeard::new();
-    let script = write_codex_service_script(folder, APP_SERVER_STAND_IN, None);
+    let script = write_codex_service_script(folder.path(), APP_SERVER_STAND_IN, None);
     let dependencies = test_codex_service_dependencies(
-        folder,
+        folder.path(),
         program(TestCodexProgram {
             program: script.path().to_owned(),
             environment: vec![(
@@ -116,12 +121,12 @@ fn services_on(
         Arc::new(UnrecordedChildren),
     );
     StandInServices {
-        folder: folder.to_owned(),
         home,
         dependencies,
         exits,
         recoveries,
         _script: script,
+        folder,
     }
 }
 
@@ -131,7 +136,7 @@ pub(super) fn another_daemon(services: &StandInServices) -> CodexServiceRegistry
     CodexServiceRegistry::new(
         Arc::new(OneHome(services.home.clone())),
         test_codex_service_dependencies(
-            &services.folder,
+            services.folder.path(),
             Arc::clone(&services.dependencies.program),
             Arc::new(UnheardEvents),
             Arc::new(UnrecordedChildren),
@@ -149,7 +154,7 @@ pub(super) fn this_daemon(services: &StandInServices) -> CodexServiceRegistry {
 
 /// The arguments the stand-in's last launch under `services` ran with.
 pub(super) fn last_launch_arguments(services: &StandInServices) -> Vec<String> {
-    std::fs::read_to_string(services.folder.join(LAUNCH_ARGUMENTS_FILE))
+    std::fs::read_to_string(services.folder.path().join(LAUNCH_ARGUMENTS_FILE))
         .expect("the launch's arguments were kept")
         .lines()
         .map(str::to_owned)
