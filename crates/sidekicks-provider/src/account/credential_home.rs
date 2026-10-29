@@ -23,6 +23,7 @@ use sidekicks_platforms::{
 use sidekicks_store::data_folder::agent_memory_folder;
 
 use crate::account::errors::ProviderAccountRegistryError;
+use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::ProviderAccountRegistry;
 use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
@@ -149,18 +150,21 @@ pub enum CredentialHomeResetError {
     Registry(#[from] ProviderAccountRegistryError),
 }
 
-/// Resets `account_id`'s home: the provider's own sign-out through `legs`, run in `folders`, then
-/// every entry of the home removed and its memory link made again, the folder itself kept, then
-/// the reset stored as the account's next generation with the sign-in gone. A missing home is made
-/// first, so the reset also brings back a home that went missing; a link or file standing in its
-/// place is refused, never emptied through. Answers the generation after it. Fails as
-/// [`CredentialHomeResetError`] says; a failed sign-out empties nothing.
+/// Resets `account_id`'s home under its hold on `home_lock`, so no other act runs there meanwhile:
+/// the provider's own sign-out through `legs`, run in `folders`, then every entry of the home
+/// removed and its memory link made again, the folder itself kept, then the reset stored as the
+/// account's next generation with the sign-in gone. A missing home is made first, so the reset
+/// also brings back a home that went missing; a link or file standing in its place is refused,
+/// never emptied through. Answers the generation after it. Fails as [`CredentialHomeResetError`]
+/// says; a failed sign-out empties nothing.
 pub async fn reset_credential_home(
     registry: &ProviderAccountRegistry,
+    home_lock: &AccountHomeLock,
     legs: &dyn ProviderAccountLegs,
     account_id: ProviderAccountId,
     folders: ProviderAccountFolders,
 ) -> Result<CredentialGeneration, CredentialHomeResetError> {
+    let _hold = home_lock.hold(account_id.clone()).await;
     let account = registry.read(account_id.clone()).await?;
     let data_folder = registry.data_folder().to_path_buf();
     let home = account.credential_home;
