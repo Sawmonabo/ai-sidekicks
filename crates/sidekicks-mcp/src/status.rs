@@ -54,8 +54,8 @@ pub struct McpServerStatusTracker {
     board: Arc<McpNoticeBoard>,
     /// Each binding a leg reports or the probe reads, for the drain to record; the drain keeps
     /// which bindings it has recorded, so one whose write failed is tried again at its next
-    /// reading.
-    first_observations: KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,
+    /// reading. `None` once the daemon's stop ended the drain. Locked after `legs`, never before.
+    first_observations: Mutex<Option<KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>>>,
 }
 
 impl McpServerStatusTracker {
@@ -68,8 +68,15 @@ impl McpServerStatusTracker {
         Self {
             legs: Mutex::new(McpLegs::new()),
             board,
-            first_observations,
+            first_observations: Mutex::new(Some(first_observations)),
         }
+    }
+
+    /// Ends the first-observation drain once it has read what was sent before, whoever still
+    /// holds the tracker; a binding first observed later is not recorded. The daemon's stop calls
+    /// it before it waits for the drain.
+    pub fn end_first_observations(&self) {
+        lock(&self.first_observations).take();
     }
 
     /// Opens a sink for the leg `binding_id` of `session_id`, the one its producer reports
@@ -151,9 +158,10 @@ impl McpServerStatusTracker {
     /// Hands the reading's binding to the drain and sends its changes; called under the state
     /// lock, so notices leave in the order their changes were applied.
     fn apply(&self, outcome: ObservationOutcome) {
-        if let Some(binding) = outcome.observed_binding {
-            self.first_observations
-                .send(McpBindingKey::of(&binding), binding);
+        if let Some(binding) = outcome.observed_binding
+            && let Some(first_observations) = lock(&self.first_observations).as_ref()
+        {
+            first_observations.send(McpBindingKey::of(&binding), binding);
         }
         for change in outcome.changes {
             self.send(change);

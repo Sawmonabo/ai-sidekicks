@@ -237,8 +237,8 @@ pub(crate) async fn stop_work(
 }
 
 /// Closes everything that holds a file in the data folder: lets the session and repository
-/// services go, then, within what is left of the drain bound, waits for the MCP first-observation
-/// drain their going ends, ending it where it stands past the bound, and closes the database file,
+/// services go, then, within what is left of the drain bound, ends the MCP first-observation drain
+/// and waits for it, ending it where it stands past the bound, and closes the database file,
 /// ends the crash monitor, waiting for its exit, and removes its socket from the run folder, then
 /// lets the data folder's lock go last. Answers each step's failure, every step having run.
 pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<DaemonStopFailure> {
@@ -251,11 +251,12 @@ pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<Daemon
         )
     };
     let mut session = process.session.take();
-    let mcp_first_observations = session
-        .as_mut()
-        .and_then(|session| session.mcp_first_observations.take());
-    // Their pools and writer handles go before the file closes; the MCP status tracker's going
-    // ends its drain.
+    let mcp_first_observations = session.as_mut().and_then(|session| {
+        // Ended here, since the tracker outlives the session services: the provider port holds it.
+        session.mcp_status.end_first_observations();
+        session.mcp_first_observations.take()
+    });
+    // Their pools and writer handles go before the file closes.
     drop(session);
     drop(process.repo.take());
     // Before the file closes, since the drain writes through its writer.

@@ -222,7 +222,7 @@ mod tests {
             provider(),
             Some(&AttachedProjectRoot {
                 project_id: ProjectId::new(&mint_uuid_v7().to_string()).expect("a project id"),
-                repo_mount_id: RepoMountId::new("mount").expect("a mount id"),
+                repo_mount_id: RepoMountId::new(&mint_uuid_v7().to_string()).expect("a mount id"),
                 canonical_root: ROOT.into(),
                 place: None,
             }),
