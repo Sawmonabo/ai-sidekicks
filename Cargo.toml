@@ -168,7 +168,7 @@ percent-encoding = "2.3.2"
 psl = "2.1.241"
 reqwest = { version = "0.13.5", features = ["json", "stream"] }
 rmcp = {
-  version = "3.7.0",
+  version = "3.8.0",
   features = [
     "auth",
     "client",
