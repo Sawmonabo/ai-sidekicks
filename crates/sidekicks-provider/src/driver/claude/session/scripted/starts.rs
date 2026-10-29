@@ -49,6 +49,8 @@ pub(crate) struct ScriptedStartRecord {
     pub(crate) step_bound: Option<u32>,
     /// The mode it starts in in place of its level's own.
     pub(crate) permission_mode: Option<ClaudePermissionMode>,
+    /// The environment it starts with.
+    pub(crate) environment: Vec<(String, String)>,
 }
 
 /// One one-turn process the driver asked for.
@@ -193,6 +195,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                     advisor: request.spawn.legs.advisor.clone(),
                     step_bound: request.spawn.step_bound,
                     permission_mode: request.permission_mode,
+                    environment: request.spawn.legs.spawn_environment.clone(),
                 });
                 (
                     channel,

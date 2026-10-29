@@ -8,15 +8,16 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
 use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
-use crate::driver::claude::delivery::run_readings::ClaudeStreamSession;
+use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStreamSession};
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
-use crate::driver::claude::run::routes::ClaudeRunRoutes;
+use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAtRead};
 use crate::driver::diagnostics::OnceReportedDiagnostics;
 
@@ -61,6 +62,24 @@ impl ClaudeSessionStream {
             unlisted_result_reports: Mutex::default(),
             unnumbered_turns: AtomicU64::new(0),
         }
+    }
+
+    /// Opens the stream on `run`'s turn `turn_number` as it was before the process came up, which a
+    /// resumed process continues: its frames go to that turn and its end is that turn's, with no
+    /// other turn started. `provider_turn_id` is the id the turn's start recorded.
+    pub(crate) fn continue_turn(
+        &self,
+        run: ClaudeBoundRun,
+        turn_number: SafeInt<1>,
+        provider_turn_id: Option<ProviderTurnId>,
+    ) {
+        let mut readings = self.lock();
+        readings.turn_readings.open(run.run_id, provider_turn_id);
+        readings.turn = Some(ClaudeOpenTurn {
+            run_id: run.run_id,
+            binding_id: run.binding_id,
+            turn_number: Some(turn_number),
+        });
     }
 
     // A terminal gate version for one more turn the run engine could not number, past every

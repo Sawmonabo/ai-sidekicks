@@ -20,6 +20,7 @@ use crate::runtime_binding::test_store::test_provider_account_id;
 mod bring_up;
 mod naming;
 mod restarts;
+mod resumed_runs;
 mod session_controls;
 mod settings_reads;
 
