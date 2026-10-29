@@ -74,7 +74,8 @@ CREATE INDEX idx_attention_entries_open_moment ON attention_entries(moment_id)
 CREATE TABLE attention_deliveries (
   entry_id                   TEXT PRIMARY KEY,
   banner_state               TEXT CHECK(banner_state IS NULL OR banner_state IN ({banner_states})),
-  -- The entry whose banner this one merged into; it is decided when that entry resolves.
+  -- The entry whose banner this one merged into; an open wait is decided again when that entry
+  -- resolves.
   merged_into                TEXT,
   web_address_state          TEXT
                              CHECK(web_address_state IS NULL

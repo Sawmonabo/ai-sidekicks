@@ -882,13 +882,14 @@ CREATE INDEX idx_attention_entries_open_moment ON attention_entries(moment_id)
   WHERE resolved_at IS NULL;
 
 -- Owner: Plan-016 (T2.3)
--- What became of an entry's banner and web-address message; no row is an undecided entry.
+-- What became of an entry's banner and web-address message; no row, or a NULL banner_state, is an
+-- undecided banner.
 CREATE TABLE attention_deliveries (
   entry_id                   TEXT PRIMARY KEY,
   banner_state               TEXT
                              CHECK(banner_state IS NULL
                                    OR banner_state IN ('pending', 'posted', 'withheld', 'withdrawn')),
-  merged_into                TEXT,             -- the entry whose banner this one merged into; decided when that entry resolves
+  merged_into                TEXT,             -- the entry whose banner this one merged into; an open wait is decided again when that entry resolves
   web_address_state          TEXT
                              CHECK(web_address_state IS NULL
                                    OR web_address_state IN ('pending', 'delivered', 'undelivered')),
@@ -920,12 +921,13 @@ CREATE TABLE attention_versions (
 ) STRICT;
 
 -- Owner: Plan-023 (T4.9)
--- One row per provider and build; versions as the provider's command printed them, at most 128
--- code points with no NUL.
+-- One row per provider and build; versions as the provider's command printed them.
 CREATE TABLE provider_builds (
   provider_name  TEXT NOT NULL,
-  version        TEXT NOT NULL,                -- the build
-  from_version   TEXT,                         -- the build the command moved from; NULL on a build only available
+  version        TEXT NOT NULL                 -- the build
+                 CHECK (length(version) > 0 AND length(version) <= 128 AND instr(version, char(0)) = 0),
+  from_version   TEXT                          -- the build the command moved from; NULL on a build only available
+                 CHECK (from_version IS NULL OR (length(from_version) > 0 AND length(from_version) <= 128 AND instr(from_version, char(0)) = 0)),
   recorded_at    TEXT NOT NULL,
   retired_at     TEXT,                         -- set once the line leaves the list; NULL while listed
   PRIMARY KEY (provider_name, version)
