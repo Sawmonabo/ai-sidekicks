@@ -140,10 +140,6 @@ pub(crate) struct RepoServices {
     pub(crate) occupancy: MountOccupancyReader,
     /// The daemon's worktrees folder, its links resolved.
     pub(crate) worktrees_folder: PathBuf,
-    /// The one keeper of the instant the chats' write watch walks from at the next start, through
-    /// which the recording of the chats' writes stores each instant once every write reported
-    /// before it is recorded, the clean stop's instant included.
-    pub(crate) managed_writes_watermark: Arc<dyn ManagedWritesWatermark>,
 }
 
 /// Why the repository services could not be built.
@@ -184,10 +180,6 @@ pub(crate) fn build_repo_services(
         machine_id,
     ));
     let (writes, workspace_writes) = mpsc::channel(MANAGED_WORKSPACE_WRITE_CAPACITY);
-    let managed_writes_watermark: Arc<dyn ManagedWritesWatermark> =
-        Arc::new(ManagedWritesWatermarkFile {
-            path: managed_writes_watermark_path(&home_folder),
-        });
     let workspaces = Arc::new(ManagedWorkspaceService::new(
         &home_folder,
         // A folder in WSL or on Windows itself is the Windows build's to place.
@@ -263,7 +255,6 @@ pub(crate) fn build_repo_services(
         workspace_events,
         occupancy,
         worktrees_folder,
-        managed_writes_watermark,
     })
 }
 
@@ -312,8 +303,9 @@ pub(crate) async fn read_managed_writes_watermark(path: &Path) -> SystemTime {
 
 /// The record at `path`, [`managed_writes_watermark_path`] under the daemon's home, that keeps the
 /// instant the next start's walk of the chats' writes begins at.
-struct ManagedWritesWatermarkFile {
-    path: PathBuf,
+pub(crate) struct ManagedWritesWatermarkFile {
+    /// The record's path.
+    pub(crate) path: PathBuf,
 }
 
 impl ManagedWritesWatermark for ManagedWritesWatermarkFile {

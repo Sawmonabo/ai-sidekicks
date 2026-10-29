@@ -74,7 +74,9 @@ use crate::daemon::process::method_tables::{MethodTableServices, register_method
 use crate::daemon::process::projections::rebuild_projections;
 use crate::daemon::process::provider_port::{ProviderPortStart, build_provider_port};
 use crate::daemon::process::providers::Providers;
-use crate::daemon::process::repo_services::RepoServices;
+use crate::daemon::process::repo_services::{
+    ManagedWritesWatermarkFile, RepoServices, managed_writes_watermark_path,
+};
 use crate::daemon::process::session_services::{
     SessionServiceStart, SessionServiceStartError, SessionServices, build_session_services,
 };
@@ -386,7 +388,10 @@ pub(crate) async fn register_method_inputs(
             .workspace_writes
             .take()
             .expect("the start takes the chats' writes once"),
-        managed_writes_watermark: Arc::clone(&repo.managed_writes_watermark),
+        // The one keeper of the instant the chats' write watch walks from at the next start.
+        managed_writes_watermark: Arc::new(ManagedWritesWatermarkFile {
+            path: managed_writes_watermark_path(home_folder),
+        }),
         clock,
         spawner,
         daemon_program: daemon_program.to_path_buf(),
