@@ -66,8 +66,8 @@ async fn a_probing_read_runs_on_one_service_and_reads_each_server_once() {
     let record = folder.path().join("requests");
     let root = folder.path().join("app");
     std::fs::create_dir_all(&root).expect("the root is made");
-    let local_entry = json!({"command": "docs-mcp", "enabled": false});
-    let project_entry = json!({"command": "tracker-mcp"});
+    let local_entry = json!({"command": "docs-mcp", "enabled": false, "startup_timeout_sec": 1});
+    let project_entry = json!({"command": "tracker-mcp", "startup_timeout_sec": 1});
     let project_folder = format!("{}/.codex", root.display());
     let user_file = folder.path().join("home/config.toml");
     let config_read_reply = json!({

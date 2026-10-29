@@ -213,13 +213,13 @@ pub(crate) fn plan_codex_mcp_probe(
         let root = places[place_index].1;
         let start = match target.start {
             McpProbeStart::LoadedByProvider | McpProbeStart::SwitchedOnByName => {
-                match find_loaded_switch(reading, root, &target.binding) {
-                    Some(true) => CodexProbedServerStart::LoadedByProvider,
-                    Some(false) => CodexProbedServerStart::SwitchedOnByName,
-                    None if target.start == McpProbeStart::SwitchedOnByName => {
-                        CodexProbedServerStart::SwitchedOnByName
-                    }
-                    None => CodexProbedServerStart::LoadedByProvider,
+                // A place whose read did not find it loaded starts it as its declaration says.
+                let is_switched_on = find_loaded_switch(reading, root, &target.binding)
+                    .unwrap_or(target.start == McpProbeStart::LoadedByProvider);
+                if is_switched_on {
+                    CodexProbedServerStart::LoadedByProvider
+                } else {
+                    CodexProbedServerStart::SwitchedOnByName
                 }
             }
             McpProbeStart::DeclarationSent => {
@@ -285,11 +285,11 @@ pub(crate) fn plan_codex_mcp_probe(
 
 // The index in `places` of the place `target` is probed at, the person's home folder added where
 // it is the one place left; `None`, logged, where no place loads it.
-fn find_probe_place<'roots>(
+fn find_probe_place(
     target: &McpProbeTarget,
     reading: &CodexMcpConfigReading,
     home: &Path,
-    places: &mut Vec<(PathBuf, Option<&'roots CodexMcpRoot>)>,
+    places: &mut Vec<(PathBuf, Option<&CodexMcpRoot>)>,
 ) -> Option<usize> {
     let binding = &target.binding;
     let found = match binding {

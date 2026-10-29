@@ -267,7 +267,7 @@ url = "https://other.example.com/"
     let mut reading = reading_of(
         vec![
             (plugin("tools", "search"), search.clone()),
-            (plugin("helpers", "search"), search.clone()),
+            (plugin("helpers", "search"), search),
             (
                 plugin("helpers", "lookup"),
                 reached("https://lookup.example.com/"),
