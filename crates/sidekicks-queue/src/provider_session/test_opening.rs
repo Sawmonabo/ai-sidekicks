@@ -1,12 +1,14 @@
 //! The opening tests open a session's provider session with: the table's first provider at a
-//! read-only posture over the root, and an idle sleep standing in that records each opening;
-//! the queue's own tests also record that provider's contract version.
+//! read-only posture over the root, an idle sleep standing in that records each opening, and a
+//! resumed runs' ingress standing in that records each resume's runs; the queue's own tests also
+//! record that provider's contract version.
 
-#[cfg(test)]
+use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use serde_json::Map;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
@@ -26,13 +28,13 @@ use sidekicks_provider::driver::capabilities::{
 #[cfg(test)]
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::CreateSessionParams;
-#[cfg(test)]
-use sidekicks_provider::run::posture::ExecutionPostureService;
-use sidekicks_provider::run::posture::compose_execution_posture;
+use sidekicks_provider::run::posture::{ExecutionPostureService, compose_execution_posture};
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 
+use crate::provider_session::resumed_runs::{ResumedRuns, ResumedRunsIngress};
 use crate::provider_session::{
     ProviderSessionGitFolderReader, ProviderSessionOpening, ProviderSessionOpeningComposer,
 };
@@ -111,12 +113,61 @@ impl SessionProcessFollower for RecordedProcessFollowing {
 }
 
 /// A posture service for the provider sessions' tests, whose credential list no test resolves.
-#[cfg(test)]
-pub(crate) fn test_execution_postures() -> Arc<ExecutionPostureService> {
+pub fn test_execution_postures() -> Arc<ExecutionPostureService> {
     Arc::new(ExecutionPostureService::new(
         Path::new("/home"),
         PathBuf::from("/home/daemon.token"),
     ))
+}
+
+/// What a resumed runs' stand-in runs as each resume's runs are handed to it.
+pub type ResumedRunsHook = Box<dyn Fn(&ResumedRuns) + Send + Sync>;
+
+/// A resumed runs' ingress standing in for the provider sessions' tests, settling nothing and
+/// recording each resume's runs it was handed, after running its hook on them.
+pub struct RecordedResumedRuns {
+    taken: Mutex<Vec<ResumedRuns>>,
+    on_take: ResumedRunsHook,
+}
+
+impl RecordedResumedRuns {
+    /// A stand-in that runs `on_take` as each resume's runs are handed to it.
+    pub fn new(on_take: ResumedRunsHook) -> Self {
+        Self {
+            taken: Mutex::new(Vec::new()),
+            on_take,
+        }
+    }
+
+    /// Each resume's runs it was handed, in order.
+    pub fn taken(&self) -> Vec<ResumedRuns> {
+        lock(&self.taken).clone()
+    }
+
+    /// The resumed runs' port with this stand-in registered on it.
+    pub fn registered(self: &Arc<Self>) -> Arc<PortRegistration<Arc<dyn ResumedRunsIngress>>> {
+        let port = PortRegistration::new("resumed runs");
+        port.register(Arc::clone(self) as Arc<dyn ResumedRunsIngress>)
+            .expect("a new port holds no ingress yet");
+        Arc::new(port)
+    }
+}
+
+impl Default for RecordedResumedRuns {
+    fn default() -> Self {
+        Self::new(Box::new(|_| {}))
+    }
+}
+
+impl ResumedRunsIngress for RecordedResumedRuns {
+    fn take_resumed_runs(
+        &self,
+        resumed: ResumedRuns,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        (self.on_take)(&resumed);
+        lock(&self.taken).push(resumed);
+        async { Ok(()) }.boxed()
+    }
 }
 
 /// Records the first provider's capabilities in `providers`, so its contract version reads and,

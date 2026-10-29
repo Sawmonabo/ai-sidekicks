@@ -38,6 +38,7 @@ use crate::command::channel::test_support::{
 use crate::command::running_set::RunningCommandSets;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::command::waiting_checks::SystemInputWaitReader;
+use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
@@ -784,6 +785,7 @@ async fn run_parity_turn(
             environment,
         }),
         Arc::new(UnheardEvents),
+        Arc::new(UnrecordedChildren),
     );
     let socket = folder.path().join("codex.sock");
     let service = CodexService::new(

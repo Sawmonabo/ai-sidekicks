@@ -92,15 +92,15 @@ use crate::daemon::process::method_inputs::{
 };
 use crate::daemon::process::method_tables::gate_chain;
 use crate::daemon::process::providers::{
-    ProviderStart, Providers, ProvidersRegistration, build_providers, hydrate_capabilities,
-    register_providers, sweep_left_staged_worktrees,
+    ProviderStart, Providers, ProvidersRegistration, apply_stored_rows, build_providers,
+    hydrate_capabilities, register_providers, sweep_left_staged_worktrees,
 };
 use crate::daemon::process::repo_services::{
     RepoAttachments, RepoServiceStart, RepoServices, build_repo_services, make_worktrees_folder,
     managed_writes_watermark_path, read_managed_writes_watermark, start_repo_attachments,
 };
 use crate::daemon::process::session_services::{
-    SessionAttachments, SessionServices, start_session_attachments,
+    SessionAttachments, SessionServices, follow_binding_cursors, start_session_attachments,
 };
 use crate::daemon::process::start_error::{DaemonStartError, DaemonStartFailure};
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
@@ -153,7 +153,7 @@ pub(crate) struct DaemonProcess {
     pub(crate) git: Option<GitRunner>,
     /// The serving socket, while it serves.
     pub(crate) gateway: Option<LocalGateway>,
-    /// The record of every terminal child, closed once the terminals have drained.
+    /// The record of every child of the daemon, closed once the terminals have drained.
     pub(crate) orphan_guard: Option<Arc<OrphanGuard>>,
     /// The crash monitor, ended before the data folder's lock goes.
     pub(crate) crash_monitor: Option<CrashMonitor>,
@@ -177,7 +177,7 @@ pub(crate) struct DaemonProcess {
     pub(crate) in_flight: Option<Arc<InFlightMutations>>,
     /// The providers, whose drivers the stop shuts down last.
     pub(crate) providers: Option<Providers>,
-    /// The providers' first reads and row values, ended by the stop before the drivers.
+    /// The providers' first capability reads, ended by the stop before the drivers.
     pub(crate) providers_registration: Option<ProvidersRegistration>,
     /// The repository services, whose watch, fetches and askpass broker the stop ends.
     pub(crate) repo: Option<RepoServices>,
@@ -496,6 +496,7 @@ impl DaemonProcess {
                 shell_lines: Arc::clone(&shell_lines),
                 caller_processes: Arc::clone(&caller_process_reader),
                 build_record_readers: Arc::new(attention_changes),
+                child_records: Arc::clone(&orphan_guard) as _,
             },
         );
         let backups = Backups::new(BackupDeps {
@@ -522,6 +523,10 @@ impl DaemonProcess {
                 "a command channel folder a previous run left was not removed"
             );
         }
+        // Before the socket, any session's recovery and the capability reads, so a lasting provider
+        // service is joined, or started on the same socket, before anything reaches for it.
+        apply_stored_rows(&providers.registry, &settings, &self.work_stop).await;
+        self.check_stop("applying the providers' stored settings")?;
         let drivers = Arc::clone(&providers.registry);
         let in_flight: Arc<OnceLock<Arc<InFlightMutations>>> = Arc::default();
         let inputs = register_method_inputs(
@@ -633,13 +638,18 @@ impl DaemonProcess {
                 }
             }
         };
-        let registration = self.providers_registration.insert(register_providers(
-            &providers,
-            index_opened,
-            Arc::clone(&settings),
-        ));
+        let registration = self
+            .providers_registration
+            .insert(register_providers(&providers, index_opened));
         self.providers = Some(providers);
-        // Settles what the last stop left before any follow of the log or any folder watch starts.
+        let session = self
+            .session
+            .as_ref()
+            .expect("the session services are built before their follows begin");
+        // Attached before the recovery pass, whose resumes end runs on the bindings they open.
+        let binding_cursors = follow_binding_cursors(session, &followers);
+        // Settles what the last stop left before any other follow of the log or any folder watch
+        // starts.
         recovery.run(&self.work_stop).await;
         // Right after the recovery pass, so the sweep reads what the last stop left before the
         // session services' follows begin.
@@ -648,11 +658,8 @@ impl DaemonProcess {
             .as_mut()
             .expect("the workspace services are built before their work begins")
             .start();
-        let session = self
-            .session
-            .as_ref()
-            .expect("the session services are built before their follows begin");
-        self.session_attachments = Some(start_session_attachments(session, &followers).await?);
+        self.session_attachments =
+            Some(start_session_attachments(session, &followers, binding_cursors).await?);
         let repo = self
             .repo
             .as_ref()

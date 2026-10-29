@@ -1,9 +1,9 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build
 //! takes, the table's first providers answered by stand-in drivers, a run bound to the first one,
 //! the session inbox addresser the table's own drivers answer, an accounts reader answering one
-//! current account, and the table with Codex's driver over a scripted service; the run, session
-//! and message ids the drivers' tests mint, and the run
-//! queue's intake as a driver tells it.
+//! current account, the table with Codex's driver over a scripted service, and the stand-in Codex
+//! service a test program runs as itself; the run, session and message ids the drivers' tests
+//! mint, and the run queue's intake as a driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -46,7 +46,12 @@ use crate::command::waiting_checks::SystemInputWaitReader;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
-pub use crate::driver::codex::{ScriptedCodexService, start_scripted_codex_service};
+use crate::driver::child_records::UnrecordedChildren;
+pub use crate::driver::codex::{
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, ScriptedCodexService,
+    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
+    write_codex_service_script,
+};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::ports::DriverPorts;
 #[cfg(test)]
@@ -148,10 +153,10 @@ pub fn registered_test_accounts(
 }
 
 /// The shared services every driver's build takes, with every port unregistered, the spawn
-/// contexts among them, no attachment or binding rebind served, the read pool on a database no
-/// test opens, every folder under a relative one that no test makes, and a set of held provider
-/// services of its own, which a test reads through its field. Called on a tokio runtime, which
-/// the spawner thread starts on.
+/// contexts among them, no attachment or binding rebind served, no child recorded, the read pool
+/// on a database no test opens, every folder under a relative one that no test makes, and a set of
+/// held provider services of its own, which a test reads through its field. Called on a tokio
+/// runtime, which the spawner thread starts on.
 pub fn test_driver_services() -> DriverServices {
     let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
     let folder = PathBuf::from("driver-services");
@@ -183,6 +188,7 @@ pub fn test_driver_services() -> DriverServices {
         command_search: Arc::new(ProviderCommandSearch::new(spawner.clone())),
         pending_compactions: PendingCompactionRegistry::default(),
         processes: Arc::new(ProviderProcessRegistry::default()),
+        child_records: Arc::new(UnrecordedChildren),
         provider_services: Arc::new(ProviderServiceProcesses::default()),
         runtime_bindings: Arc::new(NothingServed),
         shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),

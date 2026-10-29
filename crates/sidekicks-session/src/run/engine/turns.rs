@@ -132,11 +132,22 @@ pub(super) struct StepCount {
 impl StepCount {
     /// The count of `turn_number` at its start, bounded at `bound` steps.
     pub(super) fn new(turn_number: SafeInt<1>, bound: SafeInt<1>) -> Self {
+        Self::counted(turn_number, bound, 0, false)
+    }
+
+    /// The count of `turn_number` as its log shows it after a restart: `steps` taken against
+    /// `bound`, and whether the turn's step limit was reached.
+    pub(super) fn counted(
+        turn_number: SafeInt<1>,
+        bound: SafeInt<1>,
+        steps: u64,
+        is_reached: bool,
+    ) -> Self {
         Self {
             turn_number,
             bound,
-            steps: 0,
-            is_reached: false,
+            steps,
+            is_reached,
         }
     }
 }

@@ -269,3 +269,49 @@ async fn typed_text_on_an_agents_choice_reaches_the_driver() {
     let handed = fixture.handed.lock().expect("never poisoned")[0].clone();
     assert!(matches!(&handed.1[0], QuestionAnswer::Typed { text } if text.as_str() == "Gamma"));
 }
+
+// A question open from before the daemon's restart, its held request lost with the restart, that
+// its provider asks again under the same request returns to its record: no second record and no
+// second `question.asked`, the run still `waitingForInput`, and the answer goes back under the
+// request sent again. Killed by dropping the match, which records the question again and fails
+// to move a run already waiting, and by leaving the request unheld, which refuses the answer.
+#[tokio::test]
+async fn a_question_asked_again_after_a_restart_returns_to_its_open_record() {
+    let fixture = Fixture::new().await;
+    let question_id = fixture.ask("request-1", json!([choice_page()]), true).await;
+    fixture.questions.forget_held_request(&question_id);
+
+    let asked_again = fixture
+        .questions
+        .take_question(
+            fixture.question("request-1", json!([choice_page()]), true),
+            HeldRequestAnswerer::Driver,
+        )
+        .await
+        .expect("the question asked again is taken");
+
+    assert_eq!(asked_again, question_id);
+    assert_eq!(fixture.payloads("question.asked").len(), 1);
+    assert_eq!(fixture.run_state(), "waitingForInput");
+    let open: i64 = fixture
+        .database
+        .reader()
+        .query_row(
+            "SELECT COUNT(*) FROM questions WHERE state = 'open'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the open questions count");
+    assert_eq!(open, 1);
+    fixture
+        .answer(
+            question_id,
+            json!([{ "kind": "picked", "labels": ["Alpha"] }]),
+        )
+        .await
+        .expect("the answer lands");
+    let handed = fixture.handed.lock().expect("never poisoned").clone();
+    assert_eq!(handed.len(), 1);
+    assert_eq!(handed[0].0, "request-1");
+    assert_eq!(fixture.state(question_id), "answered");
+}

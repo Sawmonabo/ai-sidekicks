@@ -1,11 +1,11 @@
-//! Where a daemon keeps the record of each lasting Codex service on a Codex folder, so a later
-//! daemon finds the same processes again: one JSON file per service, named for the socket it
-//! listens on, holding its process, where its socket really is and whether it was asked to drain,
-//! in a folder per Codex folder under the daemon's data folder, never in the Codex folder itself;
-//! each is replaced whole through a temporary file and read or written only under the one lock of
-//! its Codex folder's records, so two daemons never start two services on one socket. The lock's
-//! file is never removed: a lock follows the open file, so removing a file someone waits on would
-//! hand the next taker a lock on another file.
+//! Where a daemon keeps the record of each lasting Codex service on a Codex folder, the person's
+//! own or an account's home, so a later daemon finds the same processes again: one JSON file per
+//! service, named for the socket it listens on, holding its process, where its socket really is
+//! and whether it was asked to drain, in a folder per Codex folder under the daemon's data folder,
+//! never in the Codex folder itself; each is replaced whole through a temporary file and read or
+//! written only under the one lock of its Codex folder's records, so two daemons never start two
+//! services on one socket. The lock's file is never removed: a lock follows the open file, so
+//! removing a file someone waits on would hand the next taker a lock on another file.
 
 use std::fs::{File, OpenOptions};
 use std::io;
@@ -142,29 +142,50 @@ fn home_record_folder(data_folder: &Path, codex_home: &Path) -> io::Result<PathB
 /// lasting service a daemon started may still run on it; none when no record was ever kept.
 /// Blocking. Fails with a folder's read error.
 pub(crate) fn recorded_home_keys(data_folder: &Path) -> io::Result<Vec<String>> {
+    let mut keys: Vec<String> = recorded_files(data_folder)?
+        .iter()
+        .filter_map(|file| Some(file.record.parent()?.file_name()?.to_str()?.to_owned()))
+        .collect();
+    // A folder's records are listed together.
+    keys.dedup();
+    Ok(keys)
+}
+
+/// One record file of each Codex folder that keeps a record under `data_folder`, whose lock and
+/// [`LockedServiceRecord::others`] reach the folder's every record; none when no record was ever
+/// kept. Blocking. Fails with a folder's read error.
+pub(crate) fn one_recorded_file_per_folder(
+    data_folder: &Path,
+) -> io::Result<Vec<LastingServiceRecordFile>> {
+    let mut files = recorded_files(data_folder)?;
+    // A folder's records are listed together, and share the folder's one lock.
+    files.dedup_by(|file, kept| file.lock == kept.lock);
+    Ok(files)
+}
+
+// Every record file kept under `data_folder`, of every Codex folder, a folder's records listed
+// together; none when no record was ever kept. Blocking. Fails with a folder's read error.
+fn recorded_files(data_folder: &Path) -> io::Result<Vec<LastingServiceRecordFile>> {
     let folders = match std::fs::read_dir(data_folder.join(RECORD_FOLDER_NAME)) {
         Ok(folders) => folders,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(error),
     };
-    let mut keys = Vec::new();
+    let mut files = Vec::new();
     for folder in folders {
         let folder = folder?;
         // A name that is not UTF-8 is no key the daemon wrote.
-        let (true, Ok(key)) = (
-            folder.file_type()?.is_dir(),
-            folder.file_name().into_string(),
-        ) else {
+        if !folder.file_type()?.is_dir() || folder.file_name().to_str().is_none() {
             continue;
-        };
+        }
         for entry in std::fs::read_dir(folder.path())? {
-            if is_record_file(&entry?.path()) {
-                keys.push(key);
-                break;
+            let path = entry?.path();
+            if is_record_file(&path) {
+                files.push(LastingServiceRecordFile::at(path));
             }
         }
     }
-    Ok(keys)
+    Ok(files)
 }
 
 // Whether `path` names a record file.

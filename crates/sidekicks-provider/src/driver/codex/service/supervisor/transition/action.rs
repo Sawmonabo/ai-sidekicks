@@ -7,7 +7,7 @@ use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause
 use crate::driver::codex::service::supervisor::transition::CodexServiceAvailability;
 use crate::driver::codex::session::errors::CodexError;
 
-/// What a stop does with the lasting process of a terminal service, which outlives the daemon.
+/// What a stop does with a lasting service's process, which outlives the daemon.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LastingServiceEnd {
     /// It is only disconnected and keeps running in its record, as under a daemon restart.

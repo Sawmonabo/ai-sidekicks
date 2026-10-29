@@ -1,10 +1,14 @@
 //! The recovery pass's test fixture: a test database whose event log refuses writes as the
-//! pass's recovery state says, with a projection that folds `session.pinned` and writes nothing,
-//! so a stale session's runs stand as the test wrote them and one broken row damages its history.
+//! pass's recovery state says, with a projection that folds `session.pinned` and writes nothing and
+//! one that folds a skipped range through the runs projection's fold and clears no row, so a stale
+//! session's runs stand as the test wrote them and one broken row damages its history, and provider
+//! sessions that resume a session's conversation through the drivers a test gives, each resume's
+//! runs settled through recovery's own finalize.
 
 use std::error::Error;
 use std::fs;
-use std::sync::{Arc, Mutex, Weak};
+use std::num::NonZeroUsize;
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -21,17 +25,38 @@ use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::machine::id::MachineId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{Spawner, harness_test_name, pass_through_start};
+use sidekicks_provider::driver::PROVIDERS;
+use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::test_registry::test_driver_services;
+use sidekicks_provider::driver::test_registry::{
+    registry_of_first_providers, test_driver_services,
+};
+use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, RuntimeBindingStore};
+use sidekicks_provider::runtime_binding::test_store::{
+    binding_input, spawn_config_on, spawned_build, test_provider_account_id,
+};
+use sidekicks_queue::delivery::test_fixture::test_delivery;
+use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
+use sidekicks_queue::provider_session::test_opening::{
+    RecordedProcessFollowing, test_execution_postures, test_git_folder_reader,
+    test_opening_composer,
+};
+use sidekicks_queue::provider_session::{ProviderSessions, ProviderSessionsDeps};
+use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::test_fixture::{insert_running_run, test_engine_with};
+use sidekicks_session::run::epochs::ExecutionEpochs;
 use sidekicks_session::run::live_count::count_live_runs_after_commits;
+use sidekicks_session::run::projection::RunsProjection;
 use sidekicks_session::service::SessionService;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::damage::DatabaseDamageWatch;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -48,6 +73,7 @@ use sidekicks_store::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 use sidekicks_store::events::session::followers::SessionEventFollowers;
+use sidekicks_store::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 use sidekicks_workspace::run_setup_gates::RunSetupGate;
 use tempfile::TempDir;
 use tokio::runtime::Handle;
@@ -57,12 +83,16 @@ use crate::damaged_history::{DamagedHistory, DamagedHistoryDeps, DamagedSessionP
 use crate::database_file::copy::{DATABASE_COPY_MODE, DatabaseFileCopier};
 use crate::projection_rebuild::{ProjectionRebuildService, mark_stale_statement};
 use crate::restart_settle::{RestartSettle, RestartSettleDeps};
+use crate::resumed_runs::{ResumedRunsFinalize, ResumedRunsFinalizeDeps};
 use crate::session_write_refusal::refuse_session_event;
 use crate::startup::{StartupRecovery, StartupRecoveryDeps};
 use crate::status::RecoveryStatusTracker;
 
 // Statements every pool of the pass caches; a cache size, not a bound on what runs.
 const TEST_STATEMENT_CAPACITY: usize = 64;
+
+// The most epochs one binding's cursor keeps.
+const TEST_EPOCHS_PER_BINDING: NonZeroUsize = NonZeroUsize::new(8).expect("eight is not zero");
 
 /// The test the pass's database copy runs as.
 const COPY_STAND_IN: &str = "a_database_copy_stand_in_copies_its_file";
@@ -116,6 +146,40 @@ impl SessionProjectionFold for PinnedEvents {
     }
 }
 
+// Folds a skipped range through the runs projection's own fold and clears no row, so a skip moves
+// the test's live runs past the run versions it skipped while runs written without a queued event
+// stand.
+struct SkippedRunVersions;
+
+// The skip's type as the runs projection subscribes to it, so the fixture folds a skip only while
+// the runs projection does.
+static SKIPPED_RUN_VERSION_TYPES: LazyLock<Vec<SessionEventType>> = LazyLock::new(|| {
+    RunsProjection
+        .event_types()
+        .iter()
+        .copied()
+        .filter(|event_type| *event_type == DAMAGED_EVENTS_SKIPPED_TYPE)
+        .collect()
+});
+
+impl SessionProjection for SkippedRunVersions {
+    fn name(&self) -> &'static str {
+        "skipped run versions"
+    }
+
+    fn event_types(&self) -> &[SessionEventType] {
+        &SKIPPED_RUN_VERSION_TYPES
+    }
+
+    fn clear_statements(&self, _session_id: &SessionId) -> Vec<WriteStatement> {
+        Vec::new()
+    }
+
+    fn fold(&self, session_id: &SessionId) -> Box<dyn SessionProjectionFold> {
+        RunsProjection.fold(session_id)
+    }
+}
+
 /// A purge that removes nothing and keeps each session it was asked to purge, in order.
 #[derive(Default)]
 pub(crate) struct RecordedPurges {
@@ -151,12 +215,24 @@ pub(crate) struct PassFixture {
     pub(crate) data_folder: TempDir,
     /// The purges damaged history asked for.
     pub(crate) purges: Arc<RecordedPurges>,
+    /// The followers each committed write is published to.
+    pub(crate) followers: Arc<SessionEventFollowers>,
+    /// The resume of each session's conversation through the fixture's drivers.
+    provider_sessions: Arc<ProviderSessions>,
+    /// The runtime bindings a test records a session's conversation in.
+    bindings: Arc<RuntimeBindingStore>,
     _home: TempDir,
 }
 
 impl PassFixture {
-    /// The fixture over a fresh database.
+    /// The fixture over a fresh database, with no provider to resume a conversation on.
     pub(crate) async fn new() -> Self {
+        Self::over_drivers(Vec::new()).await
+    }
+
+    /// The fixture over a fresh database, a session's conversation resumed on the table's first
+    /// providers in its order, each answered by one of `drivers`.
+    pub(crate) async fn over_drivers(drivers: Vec<Arc<dyn ProviderDriver>>) -> Self {
         let database = TestDatabase::new(
             sidekicks_approval::schema::schema_parts()
                 .with_parts(sidekicks_artifact::plans::schema::schema_parts())
@@ -195,7 +271,7 @@ impl PassFixture {
         }));
         let log = TestLog {
             writer,
-            followers,
+            followers: Arc::clone(&followers),
             service,
         };
         let store = ArtifactTestStore::open_on(database, log);
@@ -237,6 +313,16 @@ impl PassFixture {
             ],
         );
         let data_folder = tempfile::tempdir().expect("the test makes a data folder");
+        let bindings = Arc::new(RuntimeBindingStore::new(
+            Arc::clone(&store.reads),
+            Arc::clone(&store.writer),
+        ));
+        let provider_sessions = resuming_provider_sessions(
+            &store,
+            &engine,
+            &Arc::new(registry_of_first_providers(drivers)),
+            &bindings,
+        );
         Self {
             store,
             engine,
@@ -244,6 +330,9 @@ impl PassFixture {
             live_runs,
             data_folder,
             purges: Arc::new(RecordedPurges::default()),
+            followers,
+            provider_sessions,
+            bindings,
             _home: home,
         }
     }
@@ -260,6 +349,7 @@ impl PassFixture {
             projection_rebuild: services.projection_rebuild,
             damaged_history: services.damaged_history,
             restart_settle: services.restart_settle,
+            provider_sessions: Arc::clone(&self.provider_sessions),
             status,
             damage: services.damage,
             database_path: store.database.path(),
@@ -296,7 +386,7 @@ impl PassFixture {
             Arc::clone(&store.writer),
             Arc::clone(&session_events),
             Arc::clone(&damage),
-            vec![Box::new(PinnedEvents)],
+            vec![Box::new(PinnedEvents), Box::new(SkippedRunVersions)],
         ));
         let (approvals, _run_holds) = test_approval_service(
             &store.database,
@@ -495,12 +585,89 @@ impl PassFixture {
         id
     }
 
+    /// Records `run_id`'s binding on the table's provider at `provider_index`, holding the
+    /// conversation a resume brings back, and answers its id.
+    pub(crate) async fn bind_resumable(
+        &self,
+        run_id: RunId,
+        provider_index: usize,
+    ) -> RuntimeBindingId {
+        self.bindings
+            .create(CreateRuntimeBindingInput {
+                run_id,
+                provider_name: ProviderId::new(PROVIDERS[provider_index].id.to_owned())
+                    .expect("a table id is a provider id"),
+                ..binding_input(
+                    spawn_config_on(test_provider_account_id()),
+                    spawned_build("1.0.0", "/opt/provider/bin"),
+                )
+            })
+            .await
+            .expect("the run's binding is recorded")
+            .id
+    }
+
     /// Appends `event`, a session event's `type` and `payload` as JSON, through the engine.
     pub(crate) async fn append(&self, session_id: SessionId, event: Value) {
         let event: SessionEvent = serde_json::from_value(event).expect("the test's event reads");
         sidekicks_session::run::engine::test_fixture::append(&self.engine, session_id, &event)
             .await;
     }
+}
+
+/// Writes one run of `session` per entry of `runs` into `database`, each left in its state's
+/// stored word.
+pub(crate) fn insert_runs(database: &TestDatabase, session: SessionId, runs: &[(RunId, &str)]) {
+    for &(run_id, run_state) in runs {
+        insert_running_run(database, session, run_id);
+        database
+            .reader()
+            .execute(
+                "UPDATE runs SET state = ?1 WHERE run_id = ?2",
+                params![run_state, run_id.text().as_str()],
+            )
+            .expect("the test sets the run's state");
+    }
+}
+
+// The provider sessions over `store`'s database, resuming on `providers` and recording bindings in
+// `bindings`, each resume's runs settled through recovery's finalize over `engine`.
+fn resuming_provider_sessions(
+    store: &ArtifactTestStore,
+    engine: &Arc<RunEngine>,
+    providers: &Arc<ProviderRegistry>,
+    bindings: &Arc<RuntimeBindingStore>,
+) -> Arc<ProviderSessions> {
+    let resumed_runs = PortRegistration::new("resumed runs");
+    resumed_runs
+        .register(Arc::new(ResumedRunsFinalize::new(ResumedRunsFinalizeDeps {
+            reads: Arc::clone(&store.reads),
+            run_engine: Arc::clone(engine),
+            delivery: test_delivery(
+                Arc::clone(&store.reads),
+                Arc::clone(&store.event_log),
+                Arc::clone(&store.writer),
+                Arc::clone(providers),
+            ),
+            providers: Arc::clone(providers),
+        })) as Arc<dyn ResumedRunsIngress>)
+        .expect("a new port holds no ingress yet");
+    Arc::new(ProviderSessions::new(ProviderSessionsDeps {
+        pool: Arc::clone(&store.reads),
+        appender: Arc::clone(&store.appender),
+        binding_cursors: Arc::new(RunBindingCursors::new(
+            Arc::clone(&store.reads),
+            Arc::clone(bindings),
+            Arc::new(Mutex::new(ExecutionEpochs::new(TEST_EPOCHS_PER_BINDING))),
+        )),
+        providers: Arc::clone(providers),
+        compose_opening: test_opening_composer(),
+        read_git_folder: test_git_folder_reader(),
+        transition_lock: Arc::new(KeyedLock::new()),
+        process_follower: Arc::new(RecordedProcessFollowing::default()),
+        execution_postures: test_execution_postures(),
+        resumed_runs: Arc::new(resumed_runs),
+    }))
 }
 
 // The services the pass and damaged history share.

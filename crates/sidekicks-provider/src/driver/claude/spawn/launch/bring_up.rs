@@ -281,6 +281,7 @@ mod tests {
     use crate::command::running_set::unbound_running_command_sets;
     use crate::command::waiting_checks::SystemInputWaitReader;
     use crate::driver::PROVIDERS;
+    use crate::driver::child_records::UnrecordedChildren;
     use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeCommandPrograms};
     use crate::driver::claude::session::process::{
         ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
@@ -410,6 +411,7 @@ mod tests {
         };
         let launcher = ClaudeProcessLauncher::new(
             spawner,
+            Arc::new(UnrecordedChildren),
             Arc::new(ProviderProcessRegistry::default()),
             folder.path(),
         );

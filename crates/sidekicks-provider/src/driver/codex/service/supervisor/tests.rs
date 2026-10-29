@@ -21,6 +21,7 @@ use super::test_service::{
 use super::{
     CodexService, CodexServiceSocket, CodexWindowsSandboxReadiness, read_windows_sandbox_readiness,
 };
+use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::daemon_stop::DaemonStopIntent;
@@ -151,6 +152,7 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
             environment: Vec::new(),
         }),
         Arc::new(UnheardEvents),
+        Arc::new(UnrecordedChildren),
     );
     let startup_timeout = dependencies.startup_timeout;
     let service = CodexService::new(

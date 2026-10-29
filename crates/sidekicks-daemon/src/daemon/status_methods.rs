@@ -24,6 +24,7 @@ use sidekicks_ipc::registry::{
 };
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_store::credential_store::items::SecretItems;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::machine::identity_key::MachineIdentity;
 
 use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
@@ -36,6 +37,8 @@ pub(crate) struct StatusMethodsDeps {
     pub(crate) read_process_state: Arc<dyn Fn() -> DaemonProcessState + Send + Sync>,
     /// Where the daemon stands in its recovery from the last restart.
     pub(crate) recovery: Arc<RecoveryStatusTracker>,
+    /// The reads the recovery state checks its halted runs through.
+    pub(crate) reads: Arc<DatabaseReadPool>,
     /// The service's own release version.
     pub(crate) version: ReleaseVersion,
     /// The socket the daemon listens on.
@@ -104,6 +107,7 @@ async fn read_status(deps: &StatusMethodsDeps) -> Result<DaemonStatusReadRespons
         ),
         None => (None, None),
     };
+    let recovery = deps.recovery.read(&deps.reads).await;
     let secrets_file = deps
         .secret_items
         .secrets_file()
@@ -122,7 +126,7 @@ async fn read_status(deps: &StatusMethodsDeps) -> Result<DaemonStatusReadRespons
         data_directory: deps.data_directory.clone(),
         processor,
         memory,
-        recovery: deps.recovery.read(),
+        recovery,
         relay: None,
         wsl: None,
         secrets_file,
@@ -188,10 +192,11 @@ mod tests {
             call_timeout: Duration::from_secs(5),
         })
         .expect("the system gives random bytes");
+        let reads = Arc::new(DatabaseReadPool::new(database.path(), 1));
         let machine_identity = MachineIdentity::new(
             &machine,
             &secret_items,
-            Arc::new(DatabaseReadPool::new(database.path(), 1)),
+            Arc::clone(&reads),
             Arc::clone(&log.writer),
         );
         let mut builder = MethodRegistryBuilder::new();
@@ -206,6 +211,7 @@ mod tests {
                 .expect("an identity reads"),
                 read_process_state: Arc::new(move || *lock(&read_state)),
                 recovery: Arc::new(RecoveryStatusTracker::new()),
+                reads,
                 version: serde_json::from_value(json!("0.1.0")).expect("a version reads"),
                 transport_endpoint: serde_json::from_value(json!("/run/daemon.sock"))
                     .expect("an endpoint reads"),

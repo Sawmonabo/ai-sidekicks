@@ -5,12 +5,12 @@ use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::json;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, bind_socket_listener, read_socket_link,
-    replace_socket_link, short_socket_folder,
+    replace_socket_link,
 };
 
 use super::stand_in::{
     CRASH_WAIT, FirstResolveOnly, another_daemon, is_running, send_signal, stand_in_services,
-    this_daemon,
+    this_daemon, wait_until_gone,
 };
 use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::registry::OneHome;
@@ -31,8 +31,7 @@ async fn the_home_socket_follows_the_service_that_holds_it() {
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let mut services = stand_in_services(folder.path(), |program| Arc::new(program));
+    let mut services = stand_in_services(|program| Arc::new(program));
     let startup_timeout = services.dependencies.startup_timeout;
     let home_socket = home_socket_path(&services.home.codex_home);
     let registry = this_daemon(&services);
@@ -90,8 +89,7 @@ async fn a_second_service_that_fails_to_start_leaves_the_first_the_home_s() {
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let services = stand_in_services(folder.path(), |program| {
+    let services = stand_in_services(|program| {
         Arc::new(FirstResolveOnly {
             program,
             calls: AtomicUsize::new(0),
@@ -128,8 +126,7 @@ async fn a_redial_reaches_the_service_s_own_socket_whatever_the_link_names() {
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let services = stand_in_services(folder.path(), |program| Arc::new(program));
+    let services = stand_in_services(|program| Arc::new(program));
     let startup_timeout = services.dependencies.startup_timeout;
     let home_socket = home_socket_path(&services.home.codex_home);
     let registry = this_daemon(&services);
@@ -177,8 +174,7 @@ async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_pro
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let mut services = stand_in_services(folder.path(), |program| Arc::new(program));
+    let mut services = stand_in_services(|program| Arc::new(program));
     let startup_timeout = services.dependencies.startup_timeout;
     let daemon = this_daemon(&services);
     let home_service = daemon
@@ -210,9 +206,9 @@ async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_pro
     let is_home_killed = send_signal(home_process, "-KILL");
     let recovery_heard = tokio::time::timeout(CRASH_WAIT, services.recoveries.recv()).await;
     let recovered_process = home_service.process_id();
-    daemon.shutdown(DaemonStopIntent::Stop).await;
     let is_second_running = is_running(second_process);
-    send_signal(second_process, "-KILL");
+    daemon.shutdown(DaemonStopIntent::Stop).await;
+    let is_second_stopped = wait_until_gone(second_process).await;
 
     assert!(is_home_killed);
     assert!(
@@ -224,6 +220,10 @@ async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_pro
         is_second_running,
         "the crash restart stopped another service's process as its own"
     );
+    assert!(
+        is_second_stopped,
+        "the stop left running a service another daemon's record keeps"
+    );
 }
 
 // Fails when a planned restart's swap takes the folder from a service the switch-off is stopping,
@@ -234,8 +234,7 @@ async fn a_planned_restart_during_the_switch_off_leaves_the_socket_link_and_fail
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let services = stand_in_services(folder.path(), |program| Arc::new(program));
+    let services = stand_in_services(|program| Arc::new(program));
     let home_socket = home_socket_path(&services.home.codex_home);
     std::fs::create_dir_all(home_socket.parent().expect("the link has a folder"))
         .expect("the link's folder is made");

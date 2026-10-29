@@ -53,6 +53,8 @@ pub(crate) struct RecordedDelivery {
     pub(crate) change: Option<RunStateReport>,
     /// The turn's end a run lifecycle delivery carries.
     pub(crate) turn_end: Option<TurnOutcome>,
+    /// The number of the turn a run lifecycle delivery ends.
+    pub(crate) ended_turn_number: Option<SafeInt<1>>,
     /// Whether it is the end of the daemon's own interrupt.
     pub(crate) is_daemon_interrupt_end: bool,
     /// The run a child run delivery starts beneath.
@@ -405,6 +407,7 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         binding_id: None,
         change: None,
         turn_end: None,
+        ended_turn_number: None,
         is_daemon_interrupt_end: false,
         parent_run_id: None,
         row: None,
@@ -426,6 +429,7 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
             recorded.binding_id = Some(binding.binding_id.clone());
             recorded.change = Some(change.clone());
             recorded.turn_end = turn_end.map(|turn_end| turn_end.outcome);
+            recorded.ended_turn_number = turn_end.map(|turn_end| turn_end.turn_number);
             recorded.is_daemon_interrupt_end = *is_daemon_interrupt_end;
         }
         InboundDelivery::RunContinued { binding, .. } => {

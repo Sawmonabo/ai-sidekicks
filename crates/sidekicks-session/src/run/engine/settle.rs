@@ -1,11 +1,11 @@
 //! How a run ends outside its provider's own report: for an interrupt accepted earlier, when the
 //! provider process under it exits on its own, and when a restart left it live and recovery could
-//! not resume it; and how a restart ends the open turns of a run that had already ended. Each run's
-//! end carries the end of its open turn in the same write; a process's exit and a restart's settle
-//! end every older open turn on its own first, oldest first. A turn a limit cut ends with that
-//! limit, read from the engine's own cut first, then from the limit's intervention row, the cut's
-//! one mark in the log, so the live path and a restart give a turn one cause, except where the
-//! turn's end races its stop's row.
+//! not resume it or resumed it with its turn gone; and how a restart ends the open turns of a run
+//! that had already ended. Each run's end carries the end of its open turn in the same write; a
+//! process's exit and a restart's settle end every older open turn on its own first, oldest first.
+//! A turn a limit cut ends with that limit, read from the engine's own cut first, then from the
+//! limit's intervention row, the cut's one mark in the log, so the live path and a restart give a
+//! turn one cause, except where the turn's end races its stop's row.
 
 use std::borrow::Cow;
 use std::iter;
@@ -37,9 +37,10 @@ use crate::run::engine::{RunEngine, RunEngineError, settled};
 use crate::run::read::{LiveRun, RunRead, RunStateReader};
 use crate::run::refusals::RunRefusal;
 use crate::run::restart::{
-    RestartFacts, RestartSettlement, RestartTurnEnd, applied_pending_interrupts_of,
-    decide_restart_settlement, limit_turn_cause, no_pending_interrupt_statement,
-    no_waiting_item_statement, read_restart_facts, read_run_stops, settlement_by_stops,
+    RestartDecision, RestartFacts, RestartSettlement, RestartTurnEnd,
+    applied_pending_interrupts_of, decide_restart_settlement, limit_turn_cause,
+    no_pending_interrupt_statement, no_waiting_item_statement, read_restart_facts, read_run_stops,
+    settlement_by_stops,
 };
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeError};
 use crate::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
@@ -322,16 +323,30 @@ impl RunEngine {
     }
 
     /// Settles a run a restart left live that recovery could not resume, without a driver, as
-    /// `decide_restart_settlement` decides, a run it leaves returned as it is: its end, every
-    /// pending interrupt applied, and its open turns' ends, each a limit's row names with that
-    /// limit and every other with `daemonRestart`, guarded on no interrupt appearing since, a
-    /// `failed` end carrying `failure_detail`. An interrupt that moved or appeared since the facts
-    /// were read refuses the write, and the run and its facts are read again once. Every write goes
-    /// under `hold` where the caller holds the run's session. Fails as [`RunEngine::transition`]
-    /// does, the second refusal returned.
+    /// `decide_restart_settlement` decides, a run it leaves returned as it is: its end or a lead's
+    /// pause reached, every pending interrupt applied, and its open turns' ends, each a limit's
+    /// row names with that limit and every other with `daemonRestart`, guarded on no interrupt
+    /// appearing since, a `failed` end carrying `failure_detail`. An interrupt that moved or
+    /// appeared since the facts were read refuses the write, and the run and its facts are read
+    /// again once. Every write goes under `hold` where the caller holds the run's session. Fails as
+    /// [`RunEngine::transition`] does, the second refusal returned.
     pub async fn settle_run_after_restart(
         &self,
         run: &LiveRun,
+        failure_detail: &str,
+        hold: Option<&SessionAppendHold>,
+    ) -> Result<RunRead, RunEngineError> {
+        self.settle_after_restart(run, decide_restart_settlement, failure_detail, hold)
+            .await
+    }
+
+    /// Settles `run`, a run a restart left live, as `decide` decides from its facts, as
+    /// [`RunEngine::settle_run_after_restart`] settles it, a `failed` end carrying
+    /// `failure_detail`. Fails as [`RunEngine::transition`] does, the second refusal returned.
+    pub(super) async fn settle_after_restart(
+        &self,
+        run: &LiveRun,
+        decide: fn(&LiveRun, &RestartFacts) -> Option<RestartDecision>,
         failure_detail: &str,
         hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunEngineError> {
@@ -348,7 +363,7 @@ impl RunEngine {
             #[cfg(any(test, feature = "test-support"))]
             self.restart_facts_pause.pass().await;
             match self
-                .settle_run_from_facts(&read, &facts, failure_detail, hold)
+                .settle_run_from_facts(&read, &facts, decide(&read, &facts), failure_detail, hold)
                 .await
             {
                 Err(RunEngineError::Change(RunStateChangeError::CompanionRefused { .. }))
@@ -366,16 +381,17 @@ impl RunEngine {
         }
     }
 
-    // The settle of `run` as `facts`, read before its write, decide it, written from the state
-    // `run` read: a run that moved since is left as it now is.
+    // The settle of `run` as `decision`, decided from `facts` read before its write, written from
+    // the state `run` read: a run that moved since is left as it now is.
     async fn settle_run_from_facts(
         &self,
         run: &LiveRun,
         facts: &RestartFacts,
+        decision: Option<RestartDecision>,
         failure_detail: &str,
         hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunEngineError> {
-        let Some(decision) = decide_restart_settlement(run, facts) else {
+        let Some(decision) = decision else {
             return Ok(run.run.clone());
         };
         let run_id = run.run_id;
@@ -504,9 +520,9 @@ enum RunProcessEnd<'exit> {
     Closed,
 }
 
-// The change that ends `run_id` as `settlement` decides, an interrupted or stopped end carrying
-// `intended_close`; `None` or a `failed` settlement takes `fallback_change`: the exit's failure,
-// or the close's interruption.
+// The change that settles `run_id` as `settlement` decides, an interrupted or stopped end carrying
+// `intended_close`, a reached pause moving it to `paused`; `None` or a `failed` settlement takes
+// `fallback_change`: the exit's failure, or the close's interruption.
 fn settlement_change(
     run_id: RunId,
     settlement: Option<RestartSettlement>,
@@ -528,12 +544,13 @@ fn settlement_change(
                 trigger: Some(trigger),
             },
         ),
+        Some(RestartSettlement::Paused) => RunStateChange::new(run_id, RunStateEntry::Paused),
         Some(RestartSettlement::Failed) | None => fallback_change(),
     }
 }
 
-// How a restart ends an open turn no limit cut: as `uncut_end` with `daemonRestart`.
-fn daemon_restart_outcome(uncut_end: RestartTurnEnd) -> TurnOutcome {
+/// How a restart ends an open turn no limit cut: as `uncut_end` with `daemonRestart`.
+pub(super) fn daemon_restart_outcome(uncut_end: RestartTurnEnd) -> TurnOutcome {
     let cause = Some(TurnEndCause::DaemonRestart);
     match uncut_end {
         RestartTurnEnd::Interrupted => TurnOutcome::Interrupted(cause),

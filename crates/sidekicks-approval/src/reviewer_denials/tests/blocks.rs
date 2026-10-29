@@ -32,6 +32,7 @@ impl Fixture {
                 "editable": true,
             })),
             ask_id: None,
+            tool_call_id: None,
             created_at: WireInstant::now(),
         };
         self.log

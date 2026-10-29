@@ -31,7 +31,7 @@ use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::SessionProcessState;
 use sidekicks_provider::driver::session_control::{
-    DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
+    DriverResumeResult, ProviderSessionHandle, ResumeSessionParams, answer_every_run_gone,
 };
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use sidekicks_provider::run::posture::ExecutionPostureService;
@@ -63,8 +63,8 @@ use tokio::sync::Notify;
 use tokio::time::timeout;
 
 use super::test_opening::{
-    RecordedProcessFollowing, record_first_provider_capabilities, test_execution_postures,
-    test_opening_composer,
+    RecordedProcessFollowing, RecordedResumedRuns, record_first_provider_capabilities,
+    test_execution_postures, test_opening_composer,
 };
 use super::{
     GitFolderReadError, ProviderSessionError, ProviderSessionGitFolderReader,
@@ -92,7 +92,8 @@ type ClosedAppendHook = Box<dyn Fn() + Send + Sync>;
 // closes at once, counting each close; each event changes the session's directory row, so a close
 // leaves the session reading closed. Once a test sets `is_row_taken`, a resume first records a row
 // under the binding it runs on, so the queue's own record of it fails; once it sets `git_folder`,
-// an opening names that git folder.
+// an opening names that git folder. The resumed runs' stand-in records each resume's runs, and
+// whether the binding last handed out had a row as they reached it.
 struct Opening {
     database: TestDatabase,
     session_id: SessionId,
@@ -109,6 +110,8 @@ struct Opening {
     execution_postures: Arc<ExecutionPostureService>,
     changes: Arc<SessionChanges>,
     following: Arc<RecordedProcessFollowing>,
+    resumed_runs: Arc<RecordedResumedRuns>,
+    handed_rows_at_take: Arc<Mutex<Vec<bool>>>,
 }
 
 impl Opening {
@@ -209,6 +212,7 @@ impl Opening {
                     .load(Ordering::SeqCst)
                     .then(|| params.binding_id.clone());
                 let store = Arc::clone(&store);
+                let runs = answer_every_run_gone(&params.live_runs);
                 async move {
                     if let Some(taken) = taken {
                         take_row(&store, taken, earlier_run_id).await;
@@ -219,6 +223,7 @@ impl Opening {
                         resume_handle: NonEmptyText::new("conversation-1".to_owned())
                             .expect("a resume handle"),
                         spawned_version: spawned_build("1.0.1", "/opt/provider/bin"),
+                        runs,
                     })
                 }
                 .boxed()
@@ -253,6 +258,26 @@ impl Opening {
             Arc::clone(&providers),
         ));
         let following = Arc::new(RecordedProcessFollowing::default());
+        let handed_rows_at_take = Arc::new(Mutex::new(Vec::new()));
+        let resumed_runs = Arc::new(RecordedResumedRuns::new(Box::new({
+            let (path, handed_ids) = (database.path(), Arc::clone(&handed_ids));
+            let handed_rows_at_take = Arc::clone(&handed_rows_at_take);
+            move |_resumed| {
+                let handed_id = lock(&handed_ids)
+                    .last()
+                    .cloned()
+                    .expect("a resume handed its process a binding");
+                let has_row: bool = rusqlite::Connection::open(&path)
+                    .expect("the stand-in opens the test database")
+                    .query_row(
+                        "SELECT EXISTS (SELECT 1 FROM runtime_bindings WHERE id = ?1)",
+                        [handed_id.as_str()],
+                        |row| row.get(0),
+                    )
+                    .expect("the stand-in reads the bindings");
+                lock(&handed_rows_at_take).push(has_row);
+            }
+        })));
         let sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
             pool,
             appender: Arc::new(SessionEventAppender::new(
@@ -266,6 +291,7 @@ impl Opening {
             transition_lock: Arc::clone(changes.transition_lock()),
             process_follower: Arc::clone(&following) as Arc<dyn SessionProcessFollower>,
             execution_postures: Arc::clone(&execution_postures),
+            resumed_runs: resumed_runs.registered(),
         }));
         execution_postures
             .set_stored_postures(Arc::downgrade(&sessions) as Weak<_>)
@@ -286,6 +312,8 @@ impl Opening {
             execution_postures,
             changes,
             following,
+            resumed_runs,
+            handed_rows_at_take,
         }
     }
 

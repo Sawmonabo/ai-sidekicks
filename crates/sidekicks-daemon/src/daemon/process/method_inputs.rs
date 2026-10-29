@@ -29,10 +29,12 @@ use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_queue::memory_gate::{
     INGEST_WORKER_BYTES, MemoryGate, MemoryGateFigures, QUICK_THREAD_BYTES,
 };
+use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::{RestartSettle, RestartSettleDeps};
+use sidekicks_recovery::resumed_runs::{ResumedRunsFinalize, ResumedRunsFinalizeDeps};
 use sidekicks_recovery::startup::{StartupRecovery, StartupRecoveryDeps};
 use sidekicks_session::attention::banner_launcher::BannerLauncher;
 use sidekicks_session::attention::service::{AttentionService, AttentionServiceDependencies};
@@ -151,7 +153,7 @@ pub(crate) struct MethodInputsStart<'start> {
     pub(crate) list_feed: Arc<SessionListFeed>,
     /// The plan store's holds, the same the session list reads.
     pub(crate) plan_holds: Arc<dyn PlanHolds>,
-    /// The record of every terminal child, opened by the start.
+    /// The record of every child of the daemon, opened by the start.
     pub(crate) orphan_guard: Arc<OrphanGuard>,
     /// The copy the recovery pass copies the store's files aside with.
     pub(crate) copier: Arc<DatabaseFileCopier>,
@@ -520,6 +522,16 @@ pub(crate) async fn register_method_inputs(
         approvals: Arc::clone(&session.approvals.service),
         plans: Arc::clone(&session.plans),
     }));
+    // A resume settles the runs it named through recovery's finalize, registered before the start
+    // serves anything, so no resume finds the port empty.
+    session
+        .resumed_runs
+        .register(Arc::new(ResumedRunsFinalize::new(ResumedRunsFinalizeDeps {
+            reads: Arc::clone(&reads),
+            run_engine: Arc::clone(&session.engine),
+            delivery: session.queue.delivery(),
+            providers: Arc::clone(&registry),
+        })) as Arc<dyn ResumedRunsIngress>)?;
     let stored = build_stored_data_methods(StoredDataMethodsStart {
         database,
         repo,
@@ -546,6 +558,7 @@ pub(crate) async fn register_method_inputs(
         projection_rebuild,
         damaged_history: Arc::clone(&stored.damaged_history),
         restart_settle,
+        provider_sessions: Arc::clone(&session.provider_sessions),
         status: Arc::clone(&database.status),
         damage: Arc::clone(&database.damage),
         database_path: database.database_path.clone(),
@@ -564,6 +577,7 @@ pub(crate) async fn register_method_inputs(
                 process_identity,
                 read_process_state: Arc::new(move || process_state.read()),
                 recovery: Arc::clone(&database.status),
+                reads: Arc::clone(&reads),
                 version,
                 transport_endpoint: BoundedText::new(
                     run_folder.socket_path.to_string_lossy().into_owned(),

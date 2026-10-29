@@ -25,6 +25,7 @@ sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-provider.workspace = true
+sidekicks-queue.workspace = true
 sidekicks-session.workspace = true
 sidekicks-std.workspace = true
 sidekicks-store.workspace = true
@@ -46,6 +47,8 @@ sidekicks-ipc = { workspace = true, features = ["test-support"] }
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
 # The test driver services the tests build on.
 sidekicks-provider = { workspace = true, features = ["test-support"] }
+# The delivery over the test store the resumed runs' tests hand through.
+sidekicks-queue = { workspace = true, features = ["test-support"] }
 # The run engine and the questions fixtures the tests build on.
 sidekicks-session = { workspace = true, features = ["test-support"] }
 # The lock queue counts and waits the tests read.

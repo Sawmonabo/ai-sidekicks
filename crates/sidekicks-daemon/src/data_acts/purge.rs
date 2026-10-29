@@ -328,7 +328,7 @@ impl SessionPurge {
         let linked_session_ids = self
             .delete_rows(session_id, &targets.workflow_run_ids, operation_id)
             .await?;
-        deps.recovery.mark_session_healthy(&session_id);
+        deps.recovery.mark_session_deleted(&session_id);
         deps.sessions.forget_session_block_cuts(&session_id);
         deps.context_readings.forget_purged_session(session_id);
         deps.turn_readings.forget_purged_session(session_id);

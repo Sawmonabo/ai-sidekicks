@@ -202,6 +202,7 @@ impl CodexDriver {
                 spawner: services.spawner.clone(),
                 provider_services: Arc::clone(&services.provider_services),
                 processes: Arc::clone(&services.processes),
+                child_records: Arc::clone(&services.child_records),
                 program: Arc::new(CodexInstalledProgram::new(
                     Arc::clone(&services.command_search),
                     services.home_folder.clone(),
@@ -331,6 +332,7 @@ impl CodexDriver {
                 helper_roles_folder: self.helper_roles_folder.clone(),
                 tool_server_route: Arc::clone(&ports.tool_server_route),
                 delivery: Arc::clone(&delivery),
+                run_routes: Arc::clone(&self.run_routes),
                 pending_compactions: self.pending_compactions.clone(),
                 provider_commands: Arc::clone(&self.provider_commands),
                 processes: Arc::clone(&self.processes),

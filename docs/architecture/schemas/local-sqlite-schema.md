@@ -627,6 +627,9 @@ CREATE TABLE approval_requests (
                                               -- minted by the CP-009-5 permission-ask normalizer; rebuilt from
                                               -- approval.requested.askId on rebuild (D-009-6/D-009-7) so outcome routing to the native
                                               -- ask survives restart with several in-flight asks on one run
+  tool_call_id          TEXT,                 -- the provider's id of the tool call the ask holds, from
+                                              -- approval.requested.toolCallId; NULL where the provider sent none
+                                              -- and on a card the daemon raised itself
   state                 TEXT NOT NULL DEFAULT 'pending'
                         CHECK(state IN ('pending', 'approved', 'rejected', 'canceled')),
                                               -- No 'expired' state and no deadline column: a request waits until it is
@@ -645,8 +648,9 @@ CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = 'pending';
 CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_id) WHERE ask_id IS NOT NULL;
 -- UNIQUE (run_id, ask_id): one approval row per ask id. The daemon mints the id once for each
--- provider ask it takes, and a provider ask delivered again while it is held is matched to the held
--- one in memory, so no second row is minted for it (Spec-010 one ask↔one approval)
+-- provider ask it takes; a provider ask delivered again while it is held is matched to the held
+-- one in memory, and one resent with none held (after a restart) is matched to its pending row by
+-- tool_call_id and action, so no second row is minted for it (Spec-010 one ask↔one approval)
 
 -- Owner: Plan-009
 CREATE TABLE approval_resolutions (
@@ -742,6 +746,8 @@ CREATE TABLE questions (
   session_id        TEXT NOT NULL,
   run_id            TEXT,              -- the run that holds it, or
   wait_id           TEXT,              -- the workflow wait that holds it
+  provider_request_id TEXT,            -- the provider's request a run's question came on, from question.asked.providerRequestId,
+                                       -- so a request sent again after a restart finds its open record; NULL on a wait's question
   is_agent_waiting  INTEGER NOT NULL CHECK(is_agent_waiting IN (0, 1)), -- 0: a queued message answers it
   state             TEXT NOT NULL DEFAULT 'open' CHECK(state IN ('waitingForRun', 'open', 'answered', 'canceled')),
   CHECK((run_id IS NULL) <> (wait_id IS NULL))

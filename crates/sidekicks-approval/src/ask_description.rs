@@ -169,7 +169,11 @@ fn may_allow_stand_on(
 }
 
 fn command_subject_of(reader: &mut ShellLineReader, command: ShellCommand<'_>) -> Option<String> {
-    if command.wrappers().next().is_some() || reader.read_command_string(command).is_some() {
+    // A wrapper's name, even one that only describes the command, makes a rule on every program.
+    if command.wrappers().next().is_some()
+        || command.is_program_a_wrapper()
+        || reader.read_command_string(command).is_some()
+    {
         return None;
     }
     let program = command.program();
@@ -274,6 +278,7 @@ mod tests {
         Some("git push"),
         ApprovalCategory::ToolExecution
     )]
+    #[case::lookup_through_a_wrapper("command -v node", None, ApprovalCategory::ToolExecution)]
     #[case::force_push_in_a_shell_string(
         "bash -c 'git push --force origin main'",
         None,

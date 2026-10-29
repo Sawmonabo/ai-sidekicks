@@ -30,6 +30,7 @@ use sidekicks_contracts::approval::{
     ApprovalScope, ApprovalState, RememberedRuleSense, RememberedScope, RememberedScopeKind,
 };
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -288,7 +289,7 @@ impl ApprovalService {
             requested_by: requested_by.clone(),
             resource_descriptor: resource_descriptor.to_record(),
             ask_id: origin.ask_id.clone(),
-            tool_call_id: origin.tool_call_id,
+            tool_call_id: origin.tool_call_id.clone(),
         };
         let inserted = InsertedApprovalRequest {
             approval_request_id,
@@ -299,6 +300,7 @@ impl ApprovalService {
             scope,
             resource_descriptor,
             ask_id: origin.ask_id,
+            tool_call_id: origin.tool_call_id,
             created_at: created_at.clone(),
         };
         let draft = SessionEventDraft::new(payload, SessionEvent::ApprovalRequested)?;
@@ -538,6 +540,21 @@ impl ApprovalService {
     ) -> Result<Option<StoredApprovalRequest>, ApprovalServiceError> {
         self.read(move |reader| reader.read_ask_request(&run_id, &ask_id))
             .await
+    }
+
+    /// The run's pending ask that holds `tool_call_id`, oldest first where several do, or `None`
+    /// when none does. Fails as the read fails.
+    pub(crate) async fn read_pending_tool_call_request(
+        &self,
+        run_id: RunId,
+        tool_call_id: ToolCallId,
+    ) -> Result<Option<StoredApprovalRequest>, ApprovalServiceError> {
+        let pending = self
+            .read(move |reader| reader.list_pending_for_run(&run_id))
+            .await?;
+        Ok(pending
+            .into_iter()
+            .find(|stored| stored.tool_call_id.as_ref() == Some(&tool_call_id)))
     }
 
     /// Cancels every ask the run still holds pending, one `approval.canceled` each and no

@@ -28,6 +28,7 @@ use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_queue::changes::QueueChangeSignals;
 use sidekicks_queue::memory_gate::MemoryGate;
+use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::provider_session::{
     ProviderSessionGitFolderReader, ProviderSessionOpeningComposer, ProviderSessions,
     ProviderSessionsDeps,
@@ -183,6 +184,9 @@ pub(crate) struct SessionServices {
     pub(crate) queue: Arc<RunQueue>,
     /// Each session's provider process, which the session controls move.
     pub(crate) provider_sessions: Arc<ProviderSessions>,
+    /// Where a resume hands the runs it named, which recovery's finalize registers on before the
+    /// start serves anything.
+    pub(crate) resumed_runs: Arc<PortRegistration<Arc<dyn ResumedRunsIngress>>>,
     /// Appends to a session's log, which the shell table's changes of holder go through.
     pub(crate) appender: Arc<SessionEventAppender>,
     /// The queues' change signals.
@@ -400,6 +404,7 @@ pub(crate) fn build_session_services(
         running_commands: Arc::clone(&running_commands),
         scheduler,
     });
+    let resumed_runs = Arc::new(PortRegistration::new("resumed runs"));
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&reads),
         appender: Arc::clone(&appender),
@@ -410,6 +415,7 @@ pub(crate) fn build_session_services(
         transition_lock: Arc::clone(changes.transition_lock()),
         process_follower: Arc::clone(&idle_sleep) as Arc<dyn SessionProcessFollower>,
         execution_postures: Arc::clone(&execution_postures),
+        resumed_runs: Arc::clone(&resumed_runs),
     }));
     execution_postures
         .set_stored_postures(Arc::downgrade(&provider_sessions) as Weak<_>)
@@ -480,6 +486,7 @@ pub(crate) fn build_session_services(
         chat_versions,
         queue,
         provider_sessions,
+        resumed_runs,
         signals,
         interventions,
         pauses,
@@ -562,22 +569,32 @@ pub(crate) struct SessionAttachments {
     auto_titling: SessionAutoTitling,
 }
 
+/// Attaches the binding cursors' follow of `followers`, which marks an ended run's cursors to drop
+/// at its session's next binding. Called before the start's recovery pass, whose resumes end runs
+/// on the bindings they open; the follow runs on the writer's pump.
+pub(crate) fn follow_binding_cursors(
+    services: &SessionServices,
+    followers: &Arc<SessionEventFollowers>,
+) -> FollowerAttachment {
+    let binding_cursors = Arc::clone(&services.binding_cursors);
+    followers.follow_all(move |event| binding_cursors.observe(event).map_err(Into::into))
+}
+
 /// Starts the idle sleep, which wakes each session its stored schedules name and checks every
-/// session from then on, then the session services' follows of `followers`: the binding cursors',
-/// the approval side's, the related sessions' rescoring and the self-naming. Called once the
-/// start's recovery pass has settled the runs and the driver ports are registered, since a wake
-/// due at once reads them, inside the daemon's runtime. Fails as the idle sleep's start fails,
-/// with no follow begun.
+/// session from then on, then the session services' other follows of `followers`: the approval
+/// side's, the related sessions' rescoring and the self-naming; holds them beside
+/// `binding_cursors`, the follow [`follow_binding_cursors`] attached. Called once the start's
+/// recovery pass has settled the runs and the driver ports are registered, since a wake due at
+/// once reads them, inside the daemon's runtime. Fails as the idle sleep's start fails, with no
+/// other follow begun and `binding_cursors` detached.
 pub(crate) async fn start_session_attachments(
     services: &SessionServices,
     followers: &Arc<SessionEventFollowers>,
+    binding_cursors: FollowerAttachment,
 ) -> Result<SessionAttachments, IdleSleepError> {
     services.idle_sleep.start().await?;
-    let binding_cursors = Arc::clone(&services.binding_cursors);
     Ok(SessionAttachments {
-        // Runs on the writer's pump.
-        binding_cursors: followers
-            .follow_all(move |event| binding_cursors.observe(event).map_err(Into::into)),
+        binding_cursors,
         approvals: start_approval_attachments(&services.approvals, followers),
         related_rescoring: services.related_ranking.start(followers),
         auto_titling: services.auto_title.start(followers),

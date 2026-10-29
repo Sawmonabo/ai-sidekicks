@@ -677,6 +677,7 @@ async fn the_conversations_fixed_start_is_kept_on_its_binding_for_a_resume() {
         ProviderRowValues::default(),
         ResumeFunctionLegs::default(),
         Vec::new(),
+        Vec::new(),
     )
     .expect("the binding resumes");
     assert_eq!(

@@ -430,14 +430,16 @@ async fn a_session_whose_fires_were_not_stored_stays_awake_until_they_are() {
 }
 
 // At the daemon's start a session found asleep stays asleep, one whose kept fire already passed
-// among them, and one with a job ahead is woken on its schedule only. Killed by waking every
-// stored session at the start.
+// among them, and one with a job ahead is woken on its schedule only, while a session the
+// recovery pass's resume already opened awake arms no wake. Killed by waking every stored session
+// at the start, and by arming a wake over every entry, the awake one's included.
 #[tokio::test(start_paused = true)]
 async fn the_start_wakes_only_a_session_with_a_job_ahead_on_its_schedule() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(counting_driver(IdleSleepHolds::default(), &calls)).await;
     let past_fire = fixture.add_session();
     let with_job = fixture.add_session();
+    let resumed = fixture.add_session();
     // Whole milliseconds, as a stored instant keeps it.
     let next_run = Timestamp::from_millisecond(
         (Timestamp::now() + SignedDuration::from_hours(3)).as_millisecond(),
@@ -472,6 +474,9 @@ async fn the_start_wakes_only_a_session_with_a_job_ahead_on_its_schedule() {
         None,
     );
     stored(with_job, None, Some(next_run));
+    stored(resumed, None, Some(next_run));
+    // The pass's resume opens the session before the idle sleep starts.
+    fixture.idle_sleep.follow_awake(resumed);
 
     fixture
         .idle_sleep
@@ -482,6 +487,7 @@ async fn the_start_wakes_only_a_session_with_a_job_ahead_on_its_schedule() {
 
     assert_eq!(calls.wakes.load(Ordering::SeqCst), 0);
     assert_eq!(fixture.idle_sleep.armed_wake_at(past_fire), None);
+    assert_eq!(fixture.idle_sleep.armed_wake_at(resumed), None);
     assert_eq!(
         fixture.idle_sleep.armed_wake_at(with_job),
         Some(next_run - SignedDuration::from_mins(2))
