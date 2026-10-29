@@ -48,6 +48,7 @@ use sidekicks_session::directory::lookups::SessionWriteError;
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_session::run::agent::{RunAgentReadError, RunAgentReader};
 use sidekicks_session::run::binding_cursors::{RunBindingCursorError, RunBindingCursors};
+use sidekicks_session::run::session_posture::SessionPostureSource;
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
@@ -659,6 +660,14 @@ impl ProviderSessions {
     fn lock_opened(&self) -> MutexGuard<'_, HashMap<SessionId, OpenedSession>> {
         // No code panics while it holds the map, so a poisoned lock still holds a whole one.
         lock(&self.opened)
+    }
+}
+
+impl SessionPostureSource for ProviderSessions {
+    fn opened_execution_posture(&self, session_id: &SessionId) -> Option<ExecutionPosture> {
+        self.lock_opened()
+            .get(session_id)
+            .map(|opened| opened.execution_posture.clone())
     }
 }
 
