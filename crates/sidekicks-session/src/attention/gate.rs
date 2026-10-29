@@ -13,13 +13,17 @@ use sidekicks_contracts::attention::{
 };
 use sidekicks_contracts::machine::settings::{NotificationKindSwitches, NotificationSettings};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_store::database::statement::{
-    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
-};
+use sidekicks_store::database::statement::{WriteStatement, nullable_text_binding, text_binding};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 
-use crate::attention::projection::BUMP_ALWAYS_SQL;
+use crate::attention::projection::{session_binding, statement, version_bump_sql};
+
+// The bump of a decided session's counts, while it still has entries: a session purged since its
+// entries were read gets no decision row, and no count row either.
+static BUMP_IF_SESSION_HAS_ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
+    version_bump_sql("EXISTS (SELECT 1 FROM attention_entries WHERE session_id = @session_id)")
+});
 
 // Inserts an entry's decision, or decides again a banner handed back undecided, which touches only
 // the banner and its merge so the web address stays decided once. An entry deleted since it was
@@ -138,21 +142,16 @@ pub(crate) fn decide(
     }
 }
 
-/// Records `decisions` in one write, raising the machine's change count and each decided session's.
+/// Records `decisions` in one write, raising the machine's change count and each decided session's
+/// that still has entries.
 pub(crate) async fn write_decisions(
     writer: &DatabaseWriter,
     decisions: &[DeliveryDecision],
 ) -> Result<(), WriteError> {
-    let mut sessions: Vec<SessionId> = Vec::new();
-    for decided in decisions {
-        if !sessions.contains(&decided.session_id) {
-            sessions.push(decided.session_id);
-        }
-    }
-    let bumps = sessions.iter().map(|session_id| {
+    let bumps = decided_sessions(decisions).into_iter().map(|session_id| {
         statement(
-            &BUMP_ALWAYS_SQL,
-            vec![text_binding("@session_id", &session_id.to_string())],
+            &BUMP_IF_SESSION_HAS_ENTRIES_SQL,
+            vec![session_binding(session_id)],
         )
     });
     let statements = decisions
@@ -162,6 +161,17 @@ pub(crate) async fn write_decisions(
         .collect();
     writer.write(statements).await?;
     Ok(())
+}
+
+/// The sessions `decisions` decide entries of, each once, in the order they first appear.
+pub(crate) fn decided_sessions(decisions: &[DeliveryDecision]) -> Vec<SessionId> {
+    let mut sessions: Vec<SessionId> = Vec::new();
+    for decided in decisions {
+        if !sessions.contains(&decided.session_id) {
+            sessions.push(decided.session_id);
+        }
+    }
+    sessions
 }
 
 fn decision_statement(decided: &DeliveryDecision) -> WriteStatement {
@@ -201,17 +211,6 @@ fn is_kind_on(kinds: NotificationKindSwitches, trigger: AttentionTrigger) -> boo
         AttentionTrigger::RunFailed => kinds.failed,
         AttentionTrigger::WorkflowNotify => kinds.notify_step,
         AttentionTrigger::ProviderBuild => false,
-    }
-}
-
-fn statement(
-    sql: &'static str,
-    bindings: Vec<(std::borrow::Cow<'static, str>, Value)>,
-) -> WriteStatement {
-    WriteStatement {
-        sql: sql.into(),
-        bindings: StatementBindings::Named(bindings),
-        expected_row_count: None,
     }
 }
 
