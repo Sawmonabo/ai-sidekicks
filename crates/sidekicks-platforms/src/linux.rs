@@ -6,8 +6,10 @@
 //! descriptor's path, the wakes of a folder's and a file's watch, whether a terminal's program
 //! waits for input, the daemon's process containment and its shell start's writer check, a session
 //! child's start, whether the machine runs on AC power, the machine's wakes from sleep, a
-//! wall-clock timer and the shells the live test opens on a folder.
+//! wall-clock timer, an address's opening in the application registered for it and the shells
+//! the live test opens on a folder.
 
+pub(crate) mod address_opening;
 pub(crate) mod caller_process;
 pub(crate) mod descriptor_path;
 pub(crate) mod input_wait;

@@ -22,7 +22,9 @@
               the user-namespace check's and the scratch volume's `unshare` and map writes, the \
               scratch volume's `mount`, the boot id's `sysctl`, the \
               Windows host-name, free-room, volume-root (`GetVolumePathNameW`, `GetDriveTypeW`) \
-              and file-information calls, the Windows replacing rename's `MoveFileExW`, the caller \
+              and file-information calls, the Windows replacing rename's `MoveFileExW`, the opening of an address (macOS's \
+              `LSOpenCFURLRef`, Windows' `CoInitializeEx`, `ShellExecuteExW` and \
+              `CoUninitialize`), the caller \
               reads (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, \
               checked process reads and responsible-process reads), macOS's code-signature checks, \
               the start as its own responsible process (its thread count, its program's path, its \
@@ -59,6 +61,7 @@
               (`confstr`) are C interfaces too"
 )]
 
+mod address_opening;
 mod atomic_write;
 mod base_environment;
 mod bash_start;
@@ -173,6 +176,8 @@ pub use keep_awake::{KeepAwakeHold, KeepAwakePurpose, KeepAwakeRefused};
 pub use lasting_child::{LastingChild, LastingCommand};
 #[cfg(all(target_os = "linux", any(test, feature = "test-support")))]
 pub use linux::SHELL_FOLDER_PROBES;
+#[cfg(target_os = "linux")]
+pub use linux::address_opening::open_address;
 // The daemon's own socket on macOS and Linux is AF_UNIX too, so one peer read serves both.
 #[cfg(target_os = "linux")]
 pub use linux::caller_process::{
@@ -216,6 +221,8 @@ pub use linux::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use machine_name::MachineNameError;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::SHELL_FOLDER_PROBES;
+#[cfg(target_os = "macos")]
+pub use macos::address_opening::open_address;
 #[cfg(target_os = "macos")]
 pub use macos::caller_process::{
     read_parent_process, read_peer_process, read_peer_process as unix_domain_peer_process,
@@ -457,6 +464,8 @@ pub use user_namespace::can_create_user_namespace;
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
 pub use watch::{FileAppendWatch, FolderArrivalWait, FolderArrivalWatch};
+#[cfg(target_os = "windows")]
+pub use windows::address_opening::open_address;
 #[cfg(target_os = "windows")]
 pub use windows::allocator::{
     GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
