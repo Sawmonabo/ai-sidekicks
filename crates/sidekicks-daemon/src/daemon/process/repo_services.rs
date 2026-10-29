@@ -317,7 +317,6 @@ struct ManagedWritesWatermarkFile {
 }
 
 impl ManagedWritesWatermark for ManagedWritesWatermarkFile {
-    // A failure is logged, and the next start walks from the instant stored before.
     fn store(&self, instant: SystemTime) -> BoxFuture<'_, ()> {
         async move {
             // An instant before the epoch is stored as the epoch.

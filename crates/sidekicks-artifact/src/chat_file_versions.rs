@@ -130,8 +130,6 @@ pub struct ChatFileVersions {
     /// Held per path while its next version is written, so its numbers follow its writes.
     path_lock: KeyedLock<WorkspacePath>,
     watermark: Arc<dyn ManagedWritesWatermark>,
-    /// The newest instant stored through `watermark`, held while storing so no store goes back.
-    newest_stored: tokio::sync::Mutex<Option<SystemTime>>,
 }
 
 impl ChatFileVersions {
@@ -157,7 +155,6 @@ impl ChatFileVersions {
             held_writes: Mutex::default(),
             path_lock: KeyedLock::new(),
             watermark,
-            newest_stored: tokio::sync::Mutex::default(),
         }
     }
 
@@ -198,7 +195,7 @@ impl ChatFileVersions {
             }
         };
         if is_due_now {
-            self.store_caught_up(instant).await;
+            self.watermark.store(instant).await;
         }
     }
 
@@ -320,18 +317,8 @@ impl ChatFileVersions {
             }
         };
         if let Some(instant) = caught_up {
-            self.store_caught_up(instant).await;
+            self.watermark.store(instant).await;
         }
-    }
-
-    // Stores `instant` unless a store as new or newer landed first.
-    async fn store_caught_up(&self, instant: SystemTime) {
-        let mut newest_stored = self.newest_stored.lock().await;
-        if newest_stored.is_some_and(|newest| newest >= instant) {
-            return;
-        }
-        self.watermark.store(instant).await;
-        *newest_stored = Some(instant);
     }
 
     // Writes `write` as `key`'s next version, unless its bytes equal the newest one's, it is a
