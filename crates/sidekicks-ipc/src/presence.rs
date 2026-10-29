@@ -159,6 +159,13 @@ mod tests {
         let laptop = DeviceId::new("laptop".to_owned()).expect("the id is well formed");
         register.record_heartbeat(TransportId(1), laptop.clone(), heartbeat(false));
         register.record_heartbeat(TransportId(2), laptop.clone(), heartbeat(true));
+        let devices = register.read().devices;
+        assert_eq!(
+            devices.len(),
+            1,
+            "two connections of one device list it once"
+        );
+        assert!(devices[0].app_visible, "it shows its newest heartbeat");
 
         register.cleanup_transport(TransportId(2));
         let devices = register.read().devices;
