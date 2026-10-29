@@ -169,8 +169,8 @@ impl CodexServiceRegistry {
 
     /// A service of its own for one MCP server's sign-in, on `codex_home`, a folder of the
     /// daemon's own the caller made and filled, signed in to no account and never one the
-    /// registry holds; made but not started. The caller stops it and removes the folder with
-    /// [`remove_own_folder`] whatever the sign-in's outcome.
+    /// registry holds; made but not started. The caller stops it and removes the folder whatever
+    /// the sign-in's outcome.
     pub(crate) fn mcp_sign_in_service(&self, codex_home: PathBuf) -> Arc<CodexService> {
         self.service_on_own_folder(codex_home, CodexHomeKind::McpSignIn)
     }
@@ -570,7 +570,7 @@ fn is_terminal_reach_home(home: &CodexServiceHome) -> bool {
 
 /// Removes `folder`, one of the daemon's own folders a short-lived service ran in, with everything
 /// its service wrote there; a folder already gone is removed. Fails as the removal fails.
-pub(crate) async fn remove_own_folder(folder: &Path) -> Result<(), DriverError> {
+async fn remove_own_folder(folder: &Path) -> Result<(), DriverError> {
     match tokio::fs::remove_dir_all(folder).await {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),

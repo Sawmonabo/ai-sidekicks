@@ -353,8 +353,14 @@ impl ScriptedDriver {
             .inbound_dispatch
             .register(Arc::clone(&dispatch))
             .expect("the inbound dispatch registers once");
-        let driver = ClaudeDriver::with_engine(&base, starts.clone(), &host, &dispatch)
-            .expect("the session pieces compose");
+        let driver = ClaudeDriver::with_engine(
+            &base,
+            starts.clone(),
+            starts.keychain.clone(),
+            &host,
+            &dispatch,
+        )
+        .expect("the session pieces compose");
         Self {
             driver: Arc::new(driver),
             starts,

@@ -215,6 +215,7 @@ fn provider_outcome<Read, Report>(
             | DriverError::CapabilityProbe(_)
             | DriverError::RuleNotKept(_)
             | DriverError::SkillNotListed(_)
+            | DriverError::NoPersonServerEntry(_)
             | DriverError::Internal(_)),
         ) => {
             let failure = read_failure(&provider_name, failure);

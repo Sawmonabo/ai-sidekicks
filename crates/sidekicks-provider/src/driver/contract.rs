@@ -49,7 +49,9 @@ use sidekicks_std::text_cut::cut_to_code_points;
 
 use crate::capability::probe::CapabilityProbeError;
 use crate::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
-use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
+use crate::driver::contract::sign_in::{
+    NoPersonServerEntry, ProviderSignInTakeover, ProviderSignInTakeoverRequest,
+};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::{
     ExecutableUnresolvable, ModelCatalogUnreadable, ProviderAxisInvalid, RequestUnanswered,
@@ -123,6 +125,10 @@ pub enum DriverError {
     /// the send for it.
     #[error("the provider does not list skill {} in {}", .0.name.as_str(), .0.folder_path.as_str())]
     SkillNotListed(QueuedSkillPick),
+    /// An MCP sign-in through the provider's own client was asked for a binding with no entry of
+    /// the person's.
+    #[error(transparent)]
+    NoPersonServerEntry(NoPersonServerEntry),
     /// The driver or its provider failed.
     #[error("the provider driver failed")]
     Internal(#[source] Box<dyn Error + Send + Sync>),
@@ -142,8 +148,9 @@ impl From<DriverError> for HandlerError {
     /// command that names no runnable build as `ExecutableUnresolvable::into_refusal` says; a
     /// provider axis the provider does not offer answers `agent.providerAxisInvalid` naming the
     /// agent, the axis and the value; a steer whose turn ended, a refused run start, a rule the
-    /// provider could not keep or a skill pick it does not list, reaching a handler, is a fault in
-    /// the daemon, as is the driver's own failure.
+    /// provider could not keep, a skill pick it does not list or an MCP sign-in binding with no
+    /// entry of the person's, reaching a handler, is a fault in the daemon, as is the driver's own
+    /// failure.
     fn from(error: DriverError) -> Self {
         match error {
             DriverError::Refused(refusal)
@@ -185,6 +192,7 @@ impl From<DriverError> for HandlerError {
             DriverError::RuleNotKept(not_kept) => Self::Internal(Box::new(not_kept)),
             DriverError::RunRefused(refusal) => Self::Internal(Box::new(refusal)),
             error @ DriverError::SkillNotListed(_) => Self::Internal(Box::new(error)),
+            DriverError::NoPersonServerEntry(no_entry) => Self::Internal(Box::new(no_entry)),
             DriverError::Internal(fault) => Self::Internal(fault),
         }
     }
@@ -630,13 +638,16 @@ pub trait ProviderDriver: Send + Sync {
     }
 
     /// Signs in to an MCP server through the provider's own client, in a folder of the daemon's
-    /// own deleted after, and answers the credentials the provider saved there. Fails when the
-    /// provider's config declares no such server, the flow fails or ends unfinished, or no saved
-    /// sign-in reads back.
+    /// own deleted after, and answers the credentials the provider saved there. Fails with
+    /// [`DriverError::NoPersonServerEntry`] for a binding with no entry of the person's, and when
+    /// the entry is gone, the flow fails or ends unfinished, or no saved sign-in reads back.
     fn sign_in_with_own_client(
         &self,
         request: ProviderSignInTakeoverRequest,
     ) -> BoxFuture<'_, Result<ProviderSignInTakeover, DriverError>>;
+
+    /// Removes the folders of MCP sign-ins a stopped daemon left. Fails as a removal fails.
+    fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>>;
 }
 
 /// Where a session's provider process stands, as its driver holds it: the one predicate the

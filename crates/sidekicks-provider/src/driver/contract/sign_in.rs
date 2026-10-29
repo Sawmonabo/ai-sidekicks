@@ -64,6 +64,8 @@ pub struct ProviderSignInTakeover {
     pub token_type: String,
     /// The client id the provider registered or used.
     pub client_id: String,
+    /// The secret of a confidential client the provider registered, where it kept one.
+    pub client_secret: Option<String>,
     /// The authorization server that issued the tokens, where the provider kept it.
     pub issuer: Option<String>,
 }
@@ -73,10 +75,20 @@ impl fmt::Debug for ProviderSignInTakeover {
         formatter
             .debug_struct("ProviderSignInTakeover")
             .field("has_refresh_token", &self.refresh_token.is_some())
+            .field("has_client_secret", &self.client_secret.is_some())
             .field("expires_at", &self.expires_at)
             .field("scopes", &self.scopes)
             .field("token_type", &self.token_type)
             .field("issuer", &self.issuer)
             .finish_non_exhaustive()
     }
+}
+
+/// A takeover asked for a binding that has no entry of the person's to copy: a connector, whose
+/// sign-in is the account's own, so no provider flow can sign in to it.
+#[derive(Debug, thiserror::Error)]
+#[error("the MCP server's binding has no entry of the person's to sign in through")]
+pub struct NoPersonServerEntry {
+    /// The binding asked for.
+    pub binding: McpServerBindingRef,
 }

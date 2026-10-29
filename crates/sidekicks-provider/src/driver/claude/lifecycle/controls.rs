@@ -25,13 +25,16 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_store::data_folder::plugin_home;
 
 use super::{ClaudeDriver, internal};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
 use crate::driver::claude::inbox::address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
-use crate::driver::claude::mcp::sign_in::{ClaudeSignInPlaces, sign_in_with_claude_client};
+use crate::driver::claude::mcp::sign_in::{
+    ClaudeSignInSources, remove_left_claude_sign_ins, sign_in_with_claude_client,
+};
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::controls::{
     ClaudeSideQuestionCopy, claude_full_model_id, one_turn_legs, without_credential_prompts,
@@ -649,11 +652,17 @@ impl ClaudeDriver {
         &self,
         request: ProviderSignInTakeoverRequest,
     ) -> Result<ProviderSignInTakeover, DriverError> {
+        let plugin_home = plugin_home(&self.sources.home_folder, &DESCRIPTOR.provider_id());
+        let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
         sign_in_with_claude_client(
             &*self.starts,
-            ClaudeSignInPlaces {
+            ClaudeSignInSources {
                 home_folder: &self.sources.home_folder,
+                plugin_home: &plugin_home,
+                managed_settings_folder: managed_settings_folder.as_deref(),
                 data_folder: &self.sources.data_folder,
+                account_servers: &self.account_servers,
+                credentials: &self.credentials,
             },
             |folder| {
                 self.sources
@@ -662,6 +671,12 @@ impl ClaudeDriver {
             request,
         )
         .await
+    }
+
+    /// Removes the folders, and their keychain items, of MCP sign-ins a stopped daemon left.
+    /// Fails as the folders' removal fails.
+    pub(crate) async fn remove_left_sign_in_folders(&self) -> Result<(), DriverError> {
+        remove_left_claude_sign_ins(&self.credentials, &self.sources.data_folder).await
     }
 
     // The folder the capability read makes and removes, under the daemon's data folder.

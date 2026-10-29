@@ -1,44 +1,48 @@
-//! The sign-in to one MCP server through Codex's own client. The server's entry is copied from the
-//! person's config into a folder of the daemon's own, made for this sign-in alone, beside a setting
-//! that keeps Codex's saved sign-ins in a file there; a throwaway Codex service runs on that folder
-//! as its home, starts the login, and the caller opens its authorization address. Once Codex
-//! reports the login done, the saved sign-in is read back from the folder's file; the service is
-//! stopped and the folder deleted whatever the outcome. The person's own Codex home is only read,
-//! for the entry, through Codex's config read; no sign-in of theirs is read or written.
+//! The sign-in to one MCP server through Codex's own client. The server's entry, the person's as
+//! Codex's config read merges it or a plugin's as its file declares it, is copied into a folder of
+//! the daemon's own, made for this sign-in alone, beside a setting that keeps Codex's saved
+//! sign-ins in a file there; a throwaway Codex service runs on that folder as its home, starts the
+//! login, and the caller opens its authorization address. Once Codex reports the login done, the
+//! saved sign-in is read back from the folder's file; the service is stopped and the folder
+//! removed whatever the outcome, a dropped sign-in's included. The person's own Codex home is only
+//! read, for the entry, through Codex's config read; no sign-in of theirs is read or written.
 
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::io::{self, ErrorKind};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
-use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
-use sidekicks_platforms::{LeftoverSweep, create_private_folder, replace_file_atomically};
-use sidekicks_std::random_hex::random_hex;
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
+use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::mpsc;
 use url::Url;
 
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::McpServerOauthLoginParams;
 use crate::driver::codex::config_read::read_codex_config;
 use crate::driver::codex::lifecycle::naming::lockdown::MCP_SERVERS_KEY;
+use crate::driver::codex::mcp::config::plugins::read_plugin_server_entries;
 use crate::driver::codex::mcp::config::server_entry::ENABLED_MEMBER;
+use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
-use crate::driver::codex::service::registry::{CodexServiceRegistry, remove_own_folder};
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::transport::connection::{
     CodexConnectionEvents, CodexForgottenRequest, read_codex_object,
 };
 use crate::driver::contract::DriverError;
 use crate::driver::contract::sign_in::{
-    BEARER_TOKEN_TYPE, ProviderSignInBrowser, ProviderSignInTakeover, ProviderSignInTakeoverRequest,
+    BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInBrowser, ProviderSignInTakeover,
+    ProviderSignInTakeoverRequest,
 };
 use crate::driver::mcp_server::address::read_server_address;
 use crate::driver::mcp_server::read::binding_server_name;
+use crate::driver::mcp_server::sign_in_folder::SignInFolder;
 
 /// The request that starts a login to one of the home's MCP servers.
 const OAUTH_LOGIN_METHOD: &str = "mcpServer/oauth/login";
@@ -71,13 +75,18 @@ const COMPLETION_MARGIN: Duration = Duration::from_secs(10);
 /// The notices one login's wait reads, a few at most.
 const LOGIN_NOTICE_CAPACITY: usize = 8;
 
+/// The member of a server entry holding its sign-in client, and that client's secret.
+const OAUTH_MEMBER: &str = "oauth";
+const OAUTH_CLIENT_SECRET_MEMBER: &str = "client_secret";
+
 /// Why a sign-in through Codex's own client did not answer credentials. No case carries a
 /// credential value.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CodexSignInError {
-    /// The person's Codex config declares no server under the binding's name where it was read.
-    #[error("the person's Codex config declares no MCP server named {name}")]
-    NoServerEntry {
+    /// Neither the person's Codex config where it was read nor an installed plugin declares the
+    /// binding's server any more.
+    #[error("no Codex config declares the MCP server named {name} any more")]
+    ServerEntryGone {
         /// The server's name.
         name: String,
     },
@@ -122,32 +131,55 @@ impl From<CodexSignInError> for DriverError {
 
 /// Signs in to `request`'s server through Codex's own client on a throwaway service of
 /// `registry`'s, the server's entry read from the person's config at the binding's root, else at
-/// `home_folder`. Fails as the entry's read, the service's start or a request fails, and with
-/// [`CodexSignInError`] for every other failure; the service is stopped and its folder deleted
-/// either way.
+/// `home_folder`, or from the plugin that carries it. Fails with
+/// [`DriverError::NoPersonServerEntry`] for a connector, as the entry's read, the service's start
+/// or a request fails, and with [`CodexSignInError`] for every other failure; the service is
+/// stopped and its folder removed either way.
 pub(crate) async fn sign_in_with_codex_client(
     registry: &CodexServiceRegistry,
     home_folder: &Path,
     request: ProviderSignInTakeoverRequest,
 ) -> Result<ProviderSignInTakeover, DriverError> {
     let name = binding_server_name(&request.binding).clone();
-    let cwd = request
-        .root_folder
-        .clone()
-        .unwrap_or_else(|| home_folder.to_path_buf());
-    let entry = read_person_server_entry(registry, &cwd, &name).await?;
-    let folder = make_sign_in_folder(&registry.mcp_sign_in_folder(), &name, entry).await?;
-    let service = registry.mcp_sign_in_service(folder.clone());
+    let entry = read_sign_in_entry(
+        registry,
+        home_folder,
+        &request.binding,
+        request.root_folder.as_deref(),
+    )
+    .await?;
+    // Codex keeps no client secret in its saved sign-in, so the one its entry configures is kept.
+    let configured_client_secret = entry
+        .get(OAUTH_MEMBER)
+        .and_then(|oauth| oauth.get(OAUTH_CLIENT_SECRET_MEMBER))
+        .and_then(Value::as_str)
+        .filter(|secret| !secret.is_empty())
+        .map(str::to_owned);
+    let settings = compose_sign_in_settings(&name, entry)
+        .map_err(|error| CodexSignInError::FolderUnmade(Box::new(error)))?;
+    let folder = SignInFolder::make(
+        &registry.mcp_sign_in_folder(),
+        SIGN_IN_FOLDER_NAME_BYTES,
+        CODEX_CONFIG_FILE,
+        settings,
+    )
+    .await
+    .map_err(CodexSignInError::FolderUnmade)?;
+    let service = registry.mcp_sign_in_service(folder.path().to_owned());
     let signed_in = run_login(&service, &name, request.lifetime, request.browser).await;
     service.stop().await;
     let read = match signed_in {
-        Ok(()) => read_saved_sign_in(&folder, &name, &request.server_address).await,
+        Ok(()) => read_saved_sign_in(folder.path(), &name, &request.server_address)
+            .await
+            .map(|takeover| ProviderSignInTakeover {
+                client_secret: configured_client_secret,
+                ..takeover
+            }),
         Err(error) => Err(error),
     };
-    let removed = remove_own_folder(&folder).await;
-    match (read, removed) {
-        (Ok(takeover), removed) => removed.map(|()| takeover),
-        (Err(error), Ok(())) => Err(error),
+    match (read, folder.remove().await) {
+        (read, Ok(())) => read,
+        (Ok(_takeover), Err(removal)) => Err(DriverError::Internal(Box::new(removal))),
         (Err(error), Err(removal)) => {
             // The sign-in's own failure is the one the caller acts on.
             tracing::warn!(
@@ -159,58 +191,63 @@ pub(crate) async fn sign_in_with_codex_client(
     }
 }
 
-// The person's own entry for `name`, as Codex's config read at `cwd` merges it, switched on.
+// The entry of `binding`'s server, switched on: a plugin's as its file declares it, as Codex reads
+// its own plugins' entries, and any other's as Codex's config read at the binding's root, else at
+// `home_folder`, merges it. Fails with `NoPersonServerEntry` for a connector, whose sign-in is the
+// account's own, and with `ServerEntryGone` where no entry is found.
+async fn read_sign_in_entry(
+    registry: &CodexServiceRegistry,
+    home_folder: &Path,
+    binding: &McpServerBindingRef,
+    root_folder: Option<&Path>,
+) -> Result<Map<String, Value>, DriverError> {
+    let name = binding_server_name(binding);
+    let entry = match binding {
+        McpServerBindingRef::Connector { .. } => {
+            return Err(DriverError::NoPersonServerEntry(NoPersonServerEntry {
+                binding: binding.clone(),
+            }));
+        }
+        McpServerBindingRef::Plugin { .. } => {
+            read_plugin_server_entries(&plugin_home(home_folder, &DESCRIPTOR.provider_id()))
+                .await
+                .into_iter()
+                .find(|server| server.declaration.binding == *binding)
+                .map(|server| server.compose_codex_entry())
+        }
+        McpServerBindingRef::User { .. }
+        | McpServerBindingRef::Project { .. }
+        | McpServerBindingRef::Local { .. }
+        | McpServerBindingRef::Managed { .. } => {
+            read_person_server_entry(registry, root_folder.unwrap_or(home_folder), name).await?
+        }
+    };
+    let mut entry = entry.ok_or_else(|| CodexSignInError::ServerEntryGone {
+        name: name.as_str().to_owned(),
+    })?;
+    entry.remove(ENABLED_MEMBER);
+    Ok(entry)
+}
+
+// The person's own entry for `name`, as Codex's config read at `cwd` merges it; `None` where it
+// declares none.
 async fn read_person_server_entry(
     registry: &CodexServiceRegistry,
     cwd: &Path,
     name: &McpServerName,
-) -> Result<Map<String, Value>, DriverError> {
+) -> Result<Option<Map<String, Value>>, DriverError> {
     let read = registry
         .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
             let connection = service.connection()?;
             read_codex_config::<Map<String, Value>>(&connection, cwd, false).await
         })
         .await?;
-    let mut entry = read
+    Ok(read
         .config
         .get(MCP_SERVERS_KEY)
         .and_then(|servers| servers.get(name.as_str()))
         .and_then(Value::as_object)
-        .cloned()
-        .ok_or_else(|| CodexSignInError::NoServerEntry {
-            name: name.as_str().to_owned(),
-        })?;
-    entry.remove(ENABLED_MEMBER);
-    Ok(entry)
-}
-
-// Makes the sign-in's own folder under `sign_in_folder`, readable by the person alone, and writes
-// its settings: Codex's sign-ins kept in a file there, and `entry` as the one server `name`.
-async fn make_sign_in_folder(
-    sign_in_folder: &Path,
-    name: &McpServerName,
-    entry: Map<String, Value>,
-) -> Result<PathBuf, CodexSignInError> {
-    let unmade = |error: Box<dyn Error + Send + Sync>| CodexSignInError::FolderUnmade(error);
-    let folder_name =
-        random_hex(SIGN_IN_FOLDER_NAME_BYTES).map_err(|error| unmade(error.into()))?;
-    let folder = sign_in_folder.join(folder_name);
-    let settings = compose_sign_in_settings(name, entry).map_err(|error| unmade(error.into()))?;
-    let made = folder.clone();
-    tokio::task::spawn_blocking(move || {
-        create_private_folder(&made).map_err(|error| unmade(error.into()))?;
-        // The entry can hold header values, so the file is the person's alone.
-        replace_file_atomically(
-            &made.join(CODEX_CONFIG_FILE),
-            settings.as_bytes(),
-            0o600,
-            LeftoverSweep::Unswept,
-        )
-        .map_err(|error| unmade(error.into()))
-    })
-    .await
-    .map_err(|error| unmade(error.into()))??;
-    Ok(folder)
+        .cloned())
 }
 
 /// The settings of a sign-in's own Codex home: sign-ins kept in a file, and `entry` as the one
@@ -464,6 +501,7 @@ fn read_codex_saved_sign_in(
         scopes: sign_in.scopes,
         token_type: BEARER_TOKEN_TYPE.to_owned(),
         client_id: sign_in.client_id,
+        client_secret: None,
         issuer: sign_in.issuer,
     })
 }
