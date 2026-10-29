@@ -17,6 +17,7 @@ blake3.workspace = true
 bytes.workspace = true
 futures.workspace = true
 getrandom.workspace = true
+http.workspace = true
 jwt-simple.workspace = true
 p256.workspace = true
 process-wrap.workspace = true

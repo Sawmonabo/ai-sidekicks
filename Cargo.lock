@@ -8637,6 +8637,7 @@ dependencies = [
  "bytes",
  "futures",
  "getrandom 0.4.3",
+ "http",
  "jwt-simple",
  "p256 0.14.0",
  "process-wrap",
