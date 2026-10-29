@@ -162,7 +162,10 @@ async fn the_level_list_offers_reviewed_only_on_a_model_the_account_runs_auto_mo
         .into_iter()
         .filter(|id| is_reviewed_offered || id != reviewed)
         .collect();
-    assert!(expected.iter().any(|id| id == reviewed) == is_reviewed_offered);
+    assert_eq!(
+        expected.iter().any(|id| id == reviewed),
+        is_reviewed_offered
+    );
     assert_eq!(mode_ids(listed), expected);
 }
 

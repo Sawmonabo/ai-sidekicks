@@ -745,12 +745,11 @@ impl StoredSessionPosture for ProviderSessions {
                 .lock_opened()
                 .get(&session_id)
                 .map(|opened| opened.git_folder.clone());
-            let git_folder = match opened_folder {
-                Some(git_folder) => git_folder,
-                None => {
-                    let account = self.read_admitted_account(session_id, run_id).await?;
-                    self.compose(session_id, account).await?.git_folder
-                }
+            let git_folder = if let Some(git_folder) = opened_folder {
+                git_folder
+            } else {
+                let account = self.read_admitted_account(session_id, run_id).await?;
+                self.compose(session_id, account).await?.git_folder
             };
             Ok(Some(compose_execution_posture(level, git_folder)))
         }
