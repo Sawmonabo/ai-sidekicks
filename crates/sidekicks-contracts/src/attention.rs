@@ -2,10 +2,13 @@
 //! methods: banner settling, seen marking, and delivery by web address or email digest, whose
 //! secrets the daemon seals and never sends back.
 
+pub mod provider_build;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::{IntoStaticStr, VariantArray};
 
+use crate::attention::provider_build::{AttentionProviderBuild, AttentionProviderBuildItem};
 use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::keychain::KeychainRefusalCause;
 use crate::method::methods;
@@ -39,8 +42,8 @@ ts_constants! {
 /// An id an attention entry carries, minted by the daemon.
 pub type AttentionId = FreeFormText<ATTENTION_ID_MAX_LEN>;
 
-/// Every attention trigger: pending approval or user input, run completion, run failure, and a
-/// workflow's Notify step. The set is closed.
+/// Every attention trigger: pending approval or user input, run completion, run failure, a
+/// workflow's Notify step, and a provider's new build. The set is closed.
 #[derive(
     Clone,
     Copy,
@@ -67,6 +70,8 @@ pub enum AttentionTrigger {
     RunFailed,
     /// A workflow's Notify step.
     WorkflowNotify,
+    /// A provider's new build.
+    ProviderBuild,
 }
 
 /// The triggers of a run's or session's own moment: every trigger but a Notify step's.
@@ -212,8 +217,9 @@ macro_rules! attention_item {
             /// operating-system banner in place: `run:<runId>`, `workflowRun:<workflowRunId>`,
             /// `plan:<planId>` or `session:<sessionId>`, and for a Notify step, which is also its
             /// entry's id, `notify:` and 32 hex digits of the BLAKE3 hash of its run, node and
-            /// execution index. The daemon mints each form within the 64 bytes a banner's tag and a
-            /// push's collapse id hold.
+            /// execution index. A provider's build, also its entry's id, is `providerBuild:` and 32
+            /// hex digits of the BLAKE3 hash of the provider and the build. The daemon mints each
+            /// form within the 64 bytes a banner's tag and a push's collapse id hold.
             pub moment_id: AttentionId,
             /// The session.
             pub session_id: SessionId,
@@ -320,6 +326,9 @@ pub enum AttentionItem {
     Moment(#[garde(dive)] AttentionMomentItem),
     /// A workflow's Notify step.
     Notify(#[garde(dive)] AttentionNotifyItem),
+    /// A provider's new build, which belongs to no session; last, so a session's entry never
+    /// reads as it.
+    ProviderBuild(#[garde(dive)] AttentionProviderBuildItem),
 }
 
 /// The whole projection, as every emission of `attention.subscribe` carries it.
@@ -734,6 +743,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AttentionBannerSettledState>(),
         Definition::read::<AttentionBannerState>(),
         Definition::read::<AttentionWebAddressState>(),
+        Definition::read::<AttentionProviderBuild>(),
         Definition::read::<AttentionItem>().checked(),
         Definition::read::<AttentionProjection>().checked(),
         Definition::read::<AttentionSubscribeScope>(),
