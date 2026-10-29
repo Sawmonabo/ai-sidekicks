@@ -3,10 +3,6 @@
 //! per key from the status tracker's notice board, the stream's place in the board taken before
 //! the acknowledgment goes out, so a notice sent after it is read and none falls between the call
 //! and a first `mcp.server.list`.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start registers the MCP methods")
-)]
 
 use std::collections::VecDeque;
 use std::sync::{Arc, LazyLock};

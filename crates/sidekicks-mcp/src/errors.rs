@@ -13,7 +13,7 @@ use sidekicks_contracts::mcp::governance::McpServerConfigWriteConflictReason;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 
-use crate::binding_store::McpBindingKey;
+use crate::binding::store::McpBindingKey;
 
 /// Why a write to a provider's own config lost to a concurrent edit, with what each reason
 /// carries; its reason is the detail's `reason`.

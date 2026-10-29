@@ -2,7 +2,8 @@
 //! the session's task so no frame routes to an unmetered conversation. The session's conversation
 //! is bound at each establishment; each notification is then routed, its usage metered, its
 //! context window read, a compaction wait settled on its boundary, a helper's child run started
-//! and ended, and every frame the router keeps handed to the frame delivery.
+//! and ended, a tool server's startup on the session's own conversation reported to its status
+//! sink, and every frame the router keeps handed to the frame delivery.
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -16,14 +17,16 @@ use crate::driver::codex::compaction::read_codex_compaction_boundary_position;
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
 use crate::driver::codex::delivery::frames::{CodexFrameDelivery, CodexFrameDispatch};
 use crate::driver::codex::event_normalizer::{
-    CODEX_THREAD_COMPACTED_METHOD, CODEX_THREAD_STARTED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD,
-    CODEX_TURN_COMPLETED_METHOD, classify_codex_frame_family_for_routing,
+    CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD, CODEX_THREAD_COMPACTED_METHOD,
+    CODEX_THREAD_STARTED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
+    classify_codex_frame_family_for_routing,
 };
 use crate::driver::codex::service::supervisor::routing::{
     read_codex_child_thread_announcement, read_codex_frame_thread_id,
 };
 use crate::driver::codex::session::state::{CODEX_THREAD_FRAME_ROUTER_CONFIG, CodexSessionRecord};
 use crate::driver::codex::token_usage::read_codex_token_usage;
+use crate::driver::codex::tools::normalize_codex_mcp_server_status_notification;
 use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::diagnostics::{
@@ -271,6 +274,7 @@ impl CodexSessionRouting {
             }
         }
         let frame = CodexRoutableFrame::read(method, params);
+        report_mcp_server_startup(record, &frame);
         self.route_frame(delivery, record, &frame, &mut routed)
             .await;
         routed
@@ -443,6 +447,35 @@ impl CodexSessionRouting {
     }
 }
 
+// Hands a tool server's startup on the session's own conversation to the status sink of the leg
+// it runs on, a row that breaks the reader's bound reported. A helper's conversation has no sink
+// of its own and one the session moved off is no longer its leg's, so their startups go nowhere.
+fn report_mcp_server_startup(record: &CodexSessionRecord, frame: &CodexRoutableFrame) {
+    if frame.method != CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD
+        || frame.thread_id.as_deref() != Some(record.thread_id.as_str())
+    {
+        return;
+    }
+    let Some(producer) = &record.on_mcp_server_status else {
+        return;
+    };
+    // Params that are not JSON read as none, which the reader refuses as not an object.
+    let notification: Value = serde_json::from_str(frame.params.get()).unwrap_or_default();
+    let read = normalize_codex_mcp_server_status_notification(&notification);
+    for emission in read.emissions {
+        producer.report_status(emission);
+    }
+    for rejection in read.rejections {
+        report(
+            record,
+            DriverDiagnosticKind::McpServerStatusRejected,
+            Some(CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD),
+            &rejection.reason,
+            [],
+        );
+    }
+}
+
 /// The members of a usage frame the window reading takes.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -526,4 +559,50 @@ fn report<const FIELDS: usize>(
         disposition_reason: disposition_reason.to_owned(),
         details,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use serde_json::value::RawValue;
+
+    use crate::driver::codex::event_normalizer::CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD;
+    use crate::driver::codex::session::inbound::CodexSessionInbound;
+    use crate::driver::codex::session::test_fixture::status_sink::CountingStatusSink;
+    use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
+
+    // A tool server's startup on `thread_id`, as the service sends it.
+    fn startup(thread_id: &str, server_name: &str) -> CodexSessionInbound {
+        let params = json!({"threadId": thread_id, "name": server_name, "status": "ready"});
+        CodexSessionInbound::Frame {
+            method: CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD.to_owned(),
+            params: RawValue::from_string(params.to_string()).expect("the params are JSON"),
+        }
+    }
+
+    // The other conversation is one the session moved off while a command of it runs, which the
+    // router still routes as the session's own. Killed by reporting a startup by its method alone,
+    // or by its route alone: the left conversation's server would reach the sink.
+    #[tokio::test(start_paused = true)]
+    async fn only_a_startup_on_the_sessions_own_conversation_reaches_its_status_sink() {
+        let mut session = TestCodexSession::start().await;
+        let sink = Arc::new(CountingStatusSink::default());
+        session.task.record.on_mcp_server_status = Some(Arc::clone(&sink) as _);
+        session
+            .task
+            .routing
+            .hold_thread("thread-left".to_owned(), true);
+
+        session.task.handle(startup("thread-left", "left")).await;
+        session.task.handle(startup(TEST_THREAD, "github")).await;
+
+        let reported = sink.reported();
+        let names: Vec<&str> = reported
+            .iter()
+            .map(|emission| emission.server_name.as_str())
+            .collect();
+        assert_eq!(names, ["github"]);
+    }
 }

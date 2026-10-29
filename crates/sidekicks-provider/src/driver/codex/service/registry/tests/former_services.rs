@@ -111,7 +111,7 @@ async fn a_restart_joins_an_unrecorded_service_on_the_link_and_drains_the_record
         bind_socket_listener(&unrecorded_socket).expect("the unrecorded listener listens");
     let answering = tokio::spawn(async move {
         while let Ok(stream) = unrecorded.accept().await {
-            tokio::spawn(answer_as_codex_service(stream));
+            tokio::spawn(answer_as_codex_service(stream, None));
         }
     });
     replace_socket_link(&home_socket, &unrecorded_socket).expect("the link names the listener");

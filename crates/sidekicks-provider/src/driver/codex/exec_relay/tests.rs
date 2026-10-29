@@ -797,6 +797,7 @@ async fn run_parity_turn(
         },
         CodexServiceKind::Account,
         dependencies,
+        Vec::new(),
     );
     let (events, mut frames) = CodexDetachedFrames::new();
     let connection = service

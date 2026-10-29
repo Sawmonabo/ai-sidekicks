@@ -168,7 +168,8 @@ pub(crate) enum CodexSessionCall {
         reply: oneshot::Sender<bool>,
     },
     /// Drops every turn the session held on a service whose process ended, with what waits on
-    /// them, and answers the runs they belonged to and the binding they ran under.
+    /// them, ends the status sink's leg that ran there, and answers the runs they belonged to and
+    /// the binding they ran under.
     DropTurns {
         /// Where the dropped runs and the binding go.
         reply: oneshot::Sender<CodexDroppedTurns>,
