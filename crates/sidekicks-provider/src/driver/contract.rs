@@ -54,6 +54,7 @@ use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
+pub mod account;
 pub mod error;
 pub mod params_and_results;
 
