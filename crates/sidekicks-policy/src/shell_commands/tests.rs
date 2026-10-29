@@ -111,6 +111,23 @@ fn assert_unread(reading: &ShellLineReading) {
     vec![command("FOO-BAR=1", &["x"], &["env"])],
     true
 )]
+// A word only the run decides where a wrapper reads an option that may take a value, or env a
+// string it refuses, leaves the wrapper the program.
+#[case::undecided_option_of_a_wrapper(
+    "sudo -$o root git push --force",
+    vec![command("sudo", &["-$o", "root", "git", "push", "--force"], &[])],
+    true
+)]
+#[case::undecided_program_of_a_split_string(
+    "env -S'${P} push -f'",
+    vec![command("env", &["${P}", "push", "-f"], &[])],
+    true
+)]
+#[case::split_string_env_refuses(
+    "env -S'$P push' git push -f",
+    vec![command("env", &["git", "push", "-f"], &[])],
+    true
+)]
 #[case::assignments_only("FOO=1 BAR=2", vec![], true)]
 #[case::shell_command_string(
     "bash -lc 'git status'",
@@ -354,10 +371,48 @@ fn unwraps_only_a_shell_handed_its_whole_line(#[case] line: &str, #[case] expect
 
 // Words the parser or the reader reads as more than a program's name.
 const RESERVED_NAMES: &[&str] = &[
-    "if", "then", "else", "elif", "fi", "case", "esac", "for", "select", "in", "while", "until",
-    "do", "done", "function", "declare", "typeset", "export", "readonly", "local", "unset",
-    "unsetenv", "time", "coproc", "env", "exec", "command", "nohup", "timeout", "nice", "sudo",
+    "if",
+    "then",
+    "else",
+    "elif",
+    "fi",
+    "case",
+    "esac",
+    "for",
+    "select",
+    "in",
+    "while",
+    "until",
+    "do",
+    "done",
+    "function",
+    "declare",
+    "typeset",
+    "export",
+    "readonly",
+    "local",
+    "unset",
+    "unsetenv",
+    "time",
+    "coproc",
+    "env",
+    "exec",
+    "command",
+    "nohup",
+    "timeout",
+    "gtimeout",
+    "nice",
+    "gnice",
+    "sudo",
+    "doas",
     "xargs",
+    "stdbuf",
+    "setsid",
+    "ionice",
+    "chrt",
+    "taskset",
+    "caffeinate",
+    "arch",
 ];
 
 proptest! {

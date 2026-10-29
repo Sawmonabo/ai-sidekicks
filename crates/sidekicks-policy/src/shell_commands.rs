@@ -8,21 +8,23 @@
 //! syntax error; nothing here guesses at what it could not read. A reading owns its line once and
 //! holds its words as pieces of it, so its memory and each query's time grow with the line alone.
 
+mod command_string;
 pub mod reading_bound;
 mod words;
 mod wrappers;
 
-use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use tree_sitter::{Node, Parser};
 
+pub use self::command_string::unwrap_shell_command_line;
+use self::command_string::{CommandStringWords, command_string_words};
 use self::words::{
     BytePositions, JoinedWords, Piece, PieceTexts, ShellText, Word, WordBuilder, node_text, offset,
 };
 pub use self::words::{PositionedByte, ShellWord, WordText, is_option};
-use self::wrappers::{command_wrapper, take_wrapper_words};
+use self::wrappers::{WrapperRead, command_wrapper, take_wrapper_words};
 
 /// The simple commands of one line, nested ones included, in the order they appear, outer ones
 /// before those nested in them; `is_whole` is false when the parser could not read some of the
@@ -157,9 +159,9 @@ impl<'r> ShellCommand<'r> {
         (self.entry.first..self.entry.program).map(move |index| self.reading.word(index))
     }
 
-    /// Whether the program is a wrapper's name, as it is when the wrapper's options only describe
-    /// the command after it, as `command -v` does, or leave no command after them, as `sudo -s`
-    /// does, which runs a shell.
+    /// Whether the program is a wrapper's name, as it is when one of the wrapper's options runs no
+    /// command, as `command -v` does, when its own words leave no command after them, as `sudo -s`
+    /// does, which runs a shell, or when a word only the run decides stops the read of its words.
     pub fn is_program_a_wrapper(self) -> bool {
         command_wrapper(self.program()).is_some()
     }
@@ -170,16 +172,25 @@ impl<'r> ShellCommand<'r> {
         self.entry.is_named_by_path
     }
 
-    // The words this command hands a shell as its line: an `eval`'s words, or the string a shell
-    // runs with `-c`.
+    // The words this command hands a shell as its line: an `eval`'s words, the string a shell
+    // runs with `-c`, or the command `su` hands one.
     fn command_string(self) -> Option<JoinedWords<'r>> {
         let reading = self.reading;
         let arguments = &reading.words[self.entry.program as usize + 1..self.entry.end as usize];
-        let words = match command_string_words(self.program(), self.argument_words())? {
-            CommandStringWords::Every => arguments,
-            CommandStringWords::One(index) => &arguments[index..=index],
-        };
-        Some(JoinedWords::new(reading.texts(), &reading.pieces, words))
+        let (words, skipped_bytes) =
+            match command_string_words(self.program(), self.argument_words())? {
+                CommandStringWords::Every => (arguments, 0),
+                CommandStringWords::One {
+                    index,
+                    skipped_bytes,
+                } => (&arguments[index..=index], skipped_bytes),
+            };
+        Some(JoinedWords::new(
+            reading.texts(),
+            &reading.pieces,
+            words,
+            skipped_bytes,
+        ))
     }
 }
 
@@ -221,8 +232,9 @@ impl ShellLineReader {
         self.read_text(line)
     }
 
-    /// Reads the line `command` hands a shell, an `eval`'s words joined by spaces or the string a
-    /// shell runs with `-c`, as `read` reads a line; `None` when the command hands a shell none.
+    /// Reads the line `command` hands a shell, an `eval`'s words joined by spaces, the string a
+    /// shell runs with `-c` or the command `su -c` hands one, as `read` reads a line; `None` when
+    /// the command hands a shell none.
     pub fn read_command_string(
         &mut self,
         command: ShellCommand<'_>,
@@ -251,100 +263,6 @@ impl ShellLineReader {
             .push(Arc::clone(&reading));
         reading
     }
-}
-
-/// The command line `line` runs when it is a provider's argv joined by `shlex`, one `sh`, `bash`,
-/// `zsh` or `eval` handing a shell its whole line, as a provider wraps a command in
-/// `/bin/zsh -lc '…'`; any other line, one with an operator outside the quotes among them, is
-/// returned as it is. No tree is built for the outer line, so no cap applies to it.
-pub fn unwrap_shell_command_line(line: &str) -> Cow<'_, str> {
-    let Some(words) = shlex::split(line) else {
-        return Cow::Borrowed(line);
-    };
-    // Only a line `shlex` gives back exactly is one argv, so no operator in it is cut at.
-    if shlex::try_join(words.iter().map(String::as_str))
-        .ok()
-        .as_deref()
-        != Some(line)
-    {
-        return Cow::Borrowed(line);
-    }
-    let Some((first, rest)) = words.split_first() else {
-        return Cow::Borrowed(line);
-    };
-    let program = first
-        .rsplit_once('/')
-        .map_or(first.as_str(), |(_, name)| name);
-    match command_string_words(program, rest.iter().map(String::as_str)) {
-        Some(CommandStringWords::Every) => Cow::Owned(rest.join(" ")),
-        Some(CommandStringWords::One(index)) => Cow::Owned(rest[index].clone()),
-        None => Cow::Borrowed(line),
-    }
-}
-
-// Shells whose `-c`, alone or in a cluster such as `-lc`, runs the first word after the options as
-// a command line, and the options of theirs that take the next word as their value.
-const COMMAND_STRING_SHELLS: &[&str] = &["sh", "bash", "zsh"];
-const SHELL_OPTIONS_WITH_VALUE: &[&str] = &["-o", "+o", "-O", "+O", "--rcfile", "--init-file"];
-
-// Which of a command's argument words make the line it hands a shell.
-enum CommandStringWords {
-    // An `eval`'s words, joined by spaces.
-    Every,
-    // A shell's `-c` string, at this index.
-    One(usize),
-}
-
-fn command_string_words<W: WordText>(
-    program: W,
-    argument_words: impl Iterator<Item = W>,
-) -> Option<CommandStringWords> {
-    if program.is("eval") {
-        return Some(CommandStringWords::Every);
-    }
-    if COMMAND_STRING_SHELLS.iter().any(|shell| program.is(shell)) {
-        return shell_command_string_index(argument_words).map(CommandStringWords::One);
-    }
-    None
-}
-
-// The command line a shell runs: with `-c` among its short options, the first word after the
-// options; the words after it are the line's own `$0` and arguments.
-fn shell_command_string_index<W: WordText>(
-    argument_words: impl Iterator<Item = W>,
-) -> Option<usize> {
-    let mut reads_command_string = false;
-    let mut words = argument_words.enumerate();
-    while let Some((index, word)) = words.next() {
-        if word.is("--") || word.is("-") {
-            return words
-                .next()
-                .filter(|_| reads_command_string)
-                .map(|(index, _)| index);
-        }
-        if SHELL_OPTIONS_WITH_VALUE
-            .iter()
-            .any(|option| word.is(option))
-        {
-            words.next();
-        } else if is_shell_option(word) {
-            reads_command_string |= !word.starts_with("--")
-                && word.starts_with("-")
-                && word.contains(PositionedByte::LetterC);
-        } else {
-            return reads_command_string.then_some(index);
-        }
-    }
-    None
-}
-
-// A `-` or `+` followed by any character but a line break, as a shell option is spelled.
-fn is_shell_option(word: impl WordText) -> bool {
-    let mut characters = word.chars();
-    matches!(characters.next(), Some('-' | '+'))
-        && characters
-            .next()
-            .is_some_and(|character| !matches!(character, '\n' | '\r' | '\u{2028}' | '\u{2029}'))
 }
 
 // Every simple command in the tree, nested ones included: those in a pipeline, a chain, a subshell
@@ -742,8 +660,8 @@ fn is_test_word(node: Node<'_>) -> bool {
 
 // The command `pending` runs, its words moved to `words`: the program is the first word that is
 // neither an assignment nor a wrapper that runs the command after its own options and operands;
-// a wrapper that only describes the command, or whose own words leave none after them, is the
-// program; a command of assignments alone runs none.
+// a wrapper whose read of its own words leaves it the program, or leaves no command after them, is
+// the program; a command of assignments alone runs none.
 fn resolve_command(
     builder: &mut WordBuilder<'_>,
     pending: &mut VecDeque<Word>,
@@ -775,10 +693,16 @@ fn resolve_command(
         let without_folder = builder.basename(name);
         is_named_by_path |= without_folder.is_some();
         let program = without_folder.unwrap_or(name);
-        let wrapper = command_wrapper(builder.view(program))
-            .filter(|wrapper| !wrapper.only_describes(builder, pending));
+        let wrapper = command_wrapper(builder.view(program));
         words.push(program);
-        let Some(wrapper) = wrapper else {
+        let is_program = match wrapper {
+            Some(wrapper) => matches!(
+                take_wrapper_words(builder, wrapper, pending),
+                WrapperRead::WrapperIsProgram
+            ),
+            None => true,
+        };
+        if is_program {
             let program = offset(words.len() - 1);
             words.extend(pending.drain(..));
             return Some(CommandEntry {
@@ -787,8 +711,7 @@ fn resolve_command(
                 end: offset(words.len()),
                 is_named_by_path,
             });
-        };
-        take_wrapper_words(builder, wrapper, pending);
+        }
     }
 }
 

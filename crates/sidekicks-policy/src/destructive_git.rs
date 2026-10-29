@@ -221,6 +221,30 @@ mod tests {
     #[case::value_letter_ending_a_cluster("sudo -Eu root git push --force", true)]
     // GNU xargs's `-i` takes its value inside its own word, so the next word is the program.
     #[case::attached_optional_value("xargs -iI git push --force", true)]
+    // A value attached to its option is no word of its own, so the next word is the program.
+    #[case::value_inside_the_cluster("sudo -uroot git push --force", true)]
+    #[case::value_after_the_long_option("sudo --user=root git push --force", true)]
+    // A prefix of one long option names that option, its value after `=` or in the next word.
+    #[case::prefix_of_a_value_option("env --chd /tmp git push --force", true)]
+    #[case::prefix_of_a_sudo_option("sudo --us root git push --force", true)]
+    #[case::prefix_of_the_split_option("env --sp='git push --force'", true)]
+    // env reads a split string's words as its own arguments, its quotes and escapes as env does,
+    // and a `${name}` it expands leaves the program read.
+    #[case::option_inside_a_split_string("env -S'-i git push --force'", true)]
+    #[case::quotes_inside_a_split_string(r#"env -S'git "push" --force'"#, true)]
+    #[case::separator_escape_inside_a_split_string(r"env -S'git\_push\_--force'", true)]
+    #[case::expansion_after_the_program("env -S'git push --force ${X}'", true)]
+    // `-` alone is env's own option, emptying the environment.
+    #[case::lone_dash_of_env("env - git push --force", true)]
+    #[case::buffering_wrapper("stdbuf -oL git push --force", true)]
+    #[case::affinity_mask_before_the_command("taskset 0x1 git push --force", true)]
+    // `chrt`'s priority is optional, so a word that is no number is the command.
+    #[case::policy_with_no_priority("chrt -o git push --force", true)]
+    // `arch` reads each option whole: `-arm64e` names an architecture, no cluster.
+    #[case::architecture_option("arch -arm64e git push --force", true)]
+    #[case::su_command_string("su -c 'git push --force'", true)]
+    #[case::su_command_after_the_long_option("su --command='git push --force'", true)]
+    #[case::ksh_value_before_the_command_string("ksh -R f -c 'git push --force'", true)]
     #[case::dry_run("git push --dry-run origin main", false)]
     #[case::branch_long_option_with_d("git branch --edit-description", false)]
     fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool) {

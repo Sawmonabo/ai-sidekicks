@@ -4,11 +4,12 @@
 //! or alternatives kept as its source text in the line. A word is never copied out of its pieces,
 //! and each query on it costs the pieces it reads.
 
+mod split_string;
+
 use std::fmt;
 use std::sync::{Arc, OnceLock};
 
 use memchr::{memchr, memchr_iter, memrchr};
-use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use tree_sitter::Node;
 
 /// `count` as a reading's offset or count: its line is within the reader's limit, a system's
@@ -34,6 +35,20 @@ enum PieceKind {
     Expansion,
     /// Text an escape or an ANSI-C string decoded, in the decoded buffer.
     Decoded,
+    /// A `${…}` that `env -S` expands inside decoded text, kept as that text in the decoded buffer.
+    DecodedExpansion,
+}
+
+impl PieceKind {
+    // Whether the piece's text is only the run's to decide.
+    fn is_expansion(self) -> bool {
+        matches!(self, Self::Expansion | Self::DecodedExpansion)
+    }
+
+    // Whether the piece indexes the decoded buffer rather than the line.
+    fn is_in_decoded(self) -> bool {
+        matches!(self, Self::Decoded | Self::DecodedExpansion)
+    }
 }
 
 /// A byte range of the line, or of the decoded buffer for a decoded piece.
@@ -115,40 +130,37 @@ impl<'r> PieceTexts<'r> {
     }
 
     fn text(self, piece: Piece) -> &'r str {
-        let source = match piece.kind {
-            PieceKind::Literal | PieceKind::Expansion => self.line,
-            PieceKind::Decoded => self.decoded,
+        let source = if piece.kind.is_in_decoded() {
+            self.decoded
+        } else {
+            self.line
         };
         &source[piece.start as usize..piece.end as usize]
     }
 
     // The position of the last `byte` in `piece`, in the text the piece indexes.
     fn last_position(self, piece: Piece, byte: PositionedByte) -> Option<u32> {
-        match piece.kind {
-            PieceKind::Literal | PieceKind::Expansion => {
-                let positions = self.positions.of(self.line, byte);
-                let after = positions.partition_point(|&position| position < piece.end);
-                after
-                    .checked_sub(1)
-                    .map(|index| positions[index])
-                    .filter(|&position| position >= piece.start)
-            }
-            PieceKind::Decoded => memrchr(byte.byte(), self.text(piece).as_bytes())
-                .map(|position| piece.start + offset(position)),
+        if piece.kind.is_in_decoded() {
+            return memrchr(byte.byte(), self.text(piece).as_bytes())
+                .map(|position| piece.start + offset(position));
         }
+        let positions = self.positions.of(self.line, byte);
+        let after = positions.partition_point(|&position| position < piece.end);
+        after
+            .checked_sub(1)
+            .map(|index| positions[index])
+            .filter(|&position| position >= piece.start)
     }
 
     fn contains(self, piece: Piece, byte: PositionedByte) -> bool {
-        match piece.kind {
-            PieceKind::Literal | PieceKind::Expansion => {
-                let positions = self.positions.of(self.line, byte);
-                let first = positions.partition_point(|&position| position < piece.start);
-                positions
-                    .get(first)
-                    .is_some_and(|&position| position < piece.end)
-            }
-            PieceKind::Decoded => memchr(byte.byte(), self.text(piece).as_bytes()).is_some(),
+        if piece.kind.is_in_decoded() {
+            return memchr(byte.byte(), self.text(piece).as_bytes()).is_some();
         }
+        let positions = self.positions.of(self.line, byte);
+        let first = positions.partition_point(|&position| position < piece.start);
+        positions
+            .get(first)
+            .is_some_and(|&position| position < piece.end)
     }
 }
 
@@ -168,6 +180,73 @@ pub trait WordText: Copy {
 /// counts its characters.
 pub fn is_option(word: impl WordText, option: &str) -> bool {
     word.starts_with(option) && matches!(word.chars().nth(option.len()), None | Some('='))
+}
+
+/// The option of `options` the long option word `word` names, as `getopt_long` reads it: the one
+/// it names whole, or else the one its name, up to any `=`, is a prefix of when that prefix fits
+/// no other; with the byte offset of a value attached after `=`.
+pub(super) fn long_option_named<'o, T>(
+    word: impl WordText,
+    options: impl Iterator<Item = (&'o str, T)>,
+) -> Option<(T, Option<usize>)> {
+    let mut prefixed = None;
+    let mut prefix_count = 0;
+    let mut named = None;
+    for (option, value) in options {
+        let mut option_characters = option.chars();
+        let is_prefix = word
+            .chars()
+            .take_while(|&character| character != '=')
+            .all(|character| option_characters.next() == Some(character));
+        if !is_prefix {
+            continue;
+        }
+        if option_characters.next().is_none() {
+            named = Some(value);
+            break;
+        }
+        prefix_count += 1;
+        prefixed = Some(value);
+    }
+    let value = named.or(prefixed.filter(|_| prefix_count == 1))?;
+    let mut name_length = 0;
+    let mut characters = word.chars();
+    let has_value = loop {
+        match characters.next() {
+            Some('=') => break true,
+            Some(character) => name_length += character.len_utf8(),
+            None => break false,
+        }
+    };
+    Some((value, has_value.then_some(name_length + 1)))
+}
+
+/// The option of `options` the short cluster `word` names first, as getopt reads a cluster, with
+/// the byte offset of its value when the rest of the cluster holds it; `None` when no letter is
+/// listed before one of `letters_with_attached_value`, whose optional value is the cluster's rest.
+pub(super) fn short_option_named<'o, T>(
+    word: impl WordText,
+    options: &(impl Iterator<Item = (&'o str, T)> + Clone),
+    letters_with_attached_value: &str,
+) -> Option<(T, Option<usize>)> {
+    let mut position = 1;
+    let mut letters = word.chars().skip(1).peekable();
+    while let Some(letter) = letters.next() {
+        position += letter.len_utf8();
+        if letters_with_attached_value.contains(letter) {
+            return None;
+        }
+        let named = options.clone().find(|&(option, _)| {
+            let mut characters = option.chars();
+            characters.next() == Some('-')
+                && characters.next() == Some(letter)
+                && characters.next().is_none()
+        });
+        if let Some((_, value)) = named {
+            return Some((value, letters.peek().is_some().then_some(position)));
+        }
+    }
+    None
 }
 
 impl WordText for &str {
@@ -221,9 +300,7 @@ impl<'r> ShellWord<'r> {
     /// a leading pattern makes its text, which only the line's run decides and which can split it
     /// into several words, any of them an option.
     pub(crate) fn is_decided(self) -> bool {
-        self.pieces
-            .iter()
-            .all(|piece| piece.kind != PieceKind::Expansion)
+        self.pieces.iter().all(|piece| !piece.kind.is_expansion())
     }
 }
 
@@ -270,26 +347,36 @@ fn chunks_start_with<'a>(chunks: impl Iterator<Item = &'a str>, prefix: &str) ->
     rest.is_empty()
 }
 
-/// Words of a reading joined by single spaces, as `eval` joins its words; one word alone is the
-/// string a shell's `-c` runs.
+/// Words of a reading joined by single spaces, as `eval` joins its words, past their first
+/// `skipped_bytes` bytes; one word alone is the string a shell's `-c` runs, and one past an
+/// option's name the value `su --command=…` hands a shell.
 #[derive(Clone, Copy)]
 pub(super) struct JoinedWords<'r> {
     texts: PieceTexts<'r>,
     pieces: &'r [Piece],
     words: &'r [Word],
+    skipped_bytes: usize,
 }
 
 impl<'r> JoinedWords<'r> {
-    /// The words `words` of a reading with these texts and pieces.
-    pub(super) fn new(texts: PieceTexts<'r>, pieces: &'r [Piece], words: &'r [Word]) -> Self {
+    /// The words `words` of a reading with these texts and pieces, past their first
+    /// `skipped_bytes` bytes, which end on a character's boundary.
+    pub(super) fn new(
+        texts: PieceTexts<'r>,
+        pieces: &'r [Piece],
+        words: &'r [Word],
+        skipped_bytes: usize,
+    ) -> Self {
         Self {
             texts,
             pieces,
             words,
+            skipped_bytes,
         }
     }
 
     fn chunks(self) -> impl Iterator<Item = &'r str> {
+        let mut bytes_to_skip = self.skipped_bytes;
         self.words
             .iter()
             .enumerate()
@@ -298,6 +385,12 @@ impl<'r> JoinedWords<'r> {
                 separator
                     .into_iter()
                     .chain(ShellWord::new(self.texts, self.pieces, word).chunks())
+            })
+            .filter_map(move |chunk| {
+                let skipped = bytes_to_skip.min(chunk.len());
+                bytes_to_skip -= skipped;
+                let rest = &chunk[skipped..];
+                (!rest.is_empty()).then_some(rest)
             })
     }
 }
@@ -332,7 +425,7 @@ impl ShellText for JoinedWords<'_> {
             .words
             .iter()
             .map(|&word| ShellWord::new(self.texts, self.pieces, word).len());
-        words.sum::<usize>() + self.words.len().saturating_sub(1)
+        words.sum::<usize>() + self.words.len().saturating_sub(1) - self.skipped_bytes
     }
 
     fn is(self, line: &str) -> bool {
@@ -434,12 +527,7 @@ impl<'s> WordBuilder<'s> {
                 .last_position(self.pieces[index], PositionedByte::Slash)
                 .map(|slash| (index, slash))
         })?;
-        let first_piece = self.pieces.len();
-        let piece = self.pieces[index];
-        push_piece(&mut self.pieces, slash + 1, piece.end, piece.kind);
-        self.pieces
-            .extend_from_within(index + 1..word.end_piece as usize);
-        Some(word_from(&self.pieces, first_piece))
+        Some(self.word_from_inside(word, index, slash + 1))
     }
 
     /// The word's text past its first `bytes` bytes, as an option's value attached to it is;
@@ -451,59 +539,18 @@ impl<'s> WordBuilder<'s> {
             skipped += (piece.end - piece.start) as usize;
             skipped > bytes
         })?;
-        let first_piece = self.pieces.len();
-        let piece = self.pieces[index];
-        push_piece(
-            &mut self.pieces,
-            piece.end - offset(skipped - bytes),
-            piece.end,
-            piece.kind,
-        );
-        self.pieces
-            .extend_from_within(index + 1..word.end_piece as usize);
-        Some(word_from(&self.pieces, first_piece))
+        let start = self.pieces[index].end - offset(skipped - bytes);
+        Some(self.word_from_inside(word, index, start))
     }
 
-    /// The words `env -S` splits `word` into: split on whitespace only inside its literal and
-    /// decoded pieces, so an expansion or substitution stays inside one word.
-    pub(super) fn split_on_whitespace(&mut self, word: Word) -> Vec<Word> {
-        let Self {
-            line,
-            decoded,
-            pieces,
-            ..
-        } = self;
-        let mut words = Vec::new();
-        let mut first_piece = pieces.len();
-        for index in word.pieces() {
-            let piece = pieces[index];
-            let text = match piece.kind {
-                PieceKind::Expansion => {
-                    pieces.push(piece);
-                    continue;
-                }
-                PieceKind::Literal => &line[piece.start as usize..piece.end as usize],
-                PieceKind::Decoded => &decoded[piece.start as usize..piece.end as usize],
-            };
-            let mut run_start = piece.start;
-            for (position, character) in text.char_indices() {
-                if !is_ecmascript_whitespace(character) {
-                    continue;
-                }
-                let position = piece.start + offset(position);
-                push_piece(pieces, run_start, position, piece.kind);
-                if pieces.len() > first_piece {
-                    words.push(word_from(pieces, first_piece));
-                    first_piece = pieces.len();
-                }
-                run_start = position + offset(character.len_utf8());
-            }
-            push_piece(pieces, run_start, piece.end, piece.kind);
-        }
-        if pieces.len() > first_piece {
-            words.push(word_from(pieces, first_piece));
-        }
-        words
+    // The rest of `word` from `start` inside its piece at `index`, as a word of its own.
+    fn word_from_inside(&mut self, word: Word, index: usize, start: u32) -> Word {
+        let first_piece = self.pieces.len();
+        let piece = self.pieces[index];
+        push_piece(&mut self.pieces, start, piece.end, piece.kind);
+        self.pieces
+            .extend_from_within(index + 1..word.end_piece as usize);
+        word_from(&self.pieces, first_piece)
     }
 
     fn push_line(&mut self, range: std::ops::Range<usize>, kind: PieceKind) {

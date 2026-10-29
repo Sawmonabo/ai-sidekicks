@@ -285,6 +285,11 @@ mod tests {
         None,
         ApprovalCategory::DestructiveGit
     )]
+    #[case::force_push_through_a_wrapper(
+        "stdbuf -oL git push --force",
+        None,
+        ApprovalCategory::DestructiveGit
+    )]
     #[case::force_push_in_a_shell_string(
         "bash -c 'git push --force origin main'",
         None,

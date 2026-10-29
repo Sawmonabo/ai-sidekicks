@@ -3,26 +3,64 @@
 
 use std::collections::VecDeque;
 
-use super::words::{ShellWord, Word, WordBuilder, WordText, is_option};
+use super::words::{ShellWord, Word, WordBuilder, WordText, long_option_named, short_option_named};
 
 /// How a program that runs the command after it reads its own words first: its options that take
-/// a value, the rest of a short option's cluster, after a long one's `=` or the next word; those
-/// that split their value into the command's words; the letters whose optional value is only the
-/// rest of their cluster; the plain words it takes before the command; and the option letters
-/// with which it only describes the command, running nothing.
+/// a value (the rest of the short option's cluster, after a long option's `=`, or the next word);
+/// those that split their value into the command's words; those with which it runs no command; the
+/// letters whose optional value is only the rest of their cluster; whether it reads its short
+/// options in clusters and `-` alone as an option; and the operand it takes before the command.
 #[derive(Clone, Copy)]
 pub(super) struct CommandWrapper {
     options_with_value: &'static [&'static str],
     split_string_options: &'static [&'static str],
+    options_running_nothing: &'static [&'static str],
     letters_with_attached_value: &'static str,
-    leading_operands: usize,
-    describing_letters: &'static str,
+    reads_clusters: bool,
+    is_lone_dash_an_option: bool,
+    leading_operand: LeadingOperand,
 }
 
-// Where an option word's value is: its byte offset in the word, or the next word.
-struct OptionValue {
-    splits: bool,
-    attached_from: Option<usize>,
+// The operand a wrapper takes after its options and before the command.
+#[derive(Clone, Copy)]
+enum LeadingOperand {
+    Absent,
+    AnyWord,
+    // A word of digits alone; any other word is the command, as `chrt`'s optional priority is.
+    Digits,
+}
+
+// What a listed option does with the words after it.
+#[derive(Clone, Copy)]
+enum OptionKind {
+    TakesValue,
+    SplitsValue,
+    RunsNothing,
+}
+
+// What an option word holds, as getopt reads it.
+enum OptionWord {
+    // Options that take no value, or one only the rest of their cluster holds.
+    Flags,
+    // An option whose value starts at this byte offset in the word, or is the next word when
+    // `None`, and whether the value splits into the command's words.
+    Value {
+        splits: bool,
+        attached_from: Option<usize>,
+    },
+    // An option with which the wrapper runs no command.
+    RunsNothing,
+}
+
+/// Where a wrapper's own words leave the command it runs.
+pub(super) enum WrapperRead {
+    /// The command's program is the next word left, if any.
+    CommandFollows,
+    /// The wrapper itself is the program and the words left are its arguments: one of its
+    /// options runs no command, env refuses its split string, or a word only the run decides
+    /// stands where the wrapper reads an option that may take a value, or where a split string's
+    /// word is read.
+    WrapperIsProgram,
 }
 
 impl CommandWrapper {
@@ -30,86 +68,88 @@ impl CommandWrapper {
         Self {
             options_with_value,
             split_string_options: &[],
+            options_running_nothing: &[],
             letters_with_attached_value: "",
-            leading_operands: 0,
-            describing_letters: "",
+            reads_clusters: true,
+            is_lone_dash_an_option: false,
+            leading_operand: LeadingOperand::Absent,
         }
     }
 
-    /// Whether the options at the front of `pending` hold a letter with which the wrapper only
-    /// describes the command, as `command -v` does, so it runs nothing.
-    pub(super) fn only_describes(
-        self,
-        builder: &WordBuilder<'_>,
-        pending: &VecDeque<Word>,
-    ) -> bool {
-        if self.describing_letters.is_empty() {
-            return false;
+    fn options(self) -> impl Iterator<Item = (&'static str, OptionKind)> + Clone {
+        let with_kind = |options: &'static [&'static str], kind| {
+            options.iter().map(move |&option| (option, kind))
+        };
+        with_kind(self.split_string_options, OptionKind::SplitsValue)
+            .chain(with_kind(self.options_with_value, OptionKind::TakesValue))
+            .chain(with_kind(
+                self.options_running_nothing,
+                OptionKind::RunsNothing,
+            ))
+    }
+
+    // Whether an option word only the run decides can hide an option that takes a value, so the
+    // word after it need not be the command.
+    fn takes_values(self) -> bool {
+        !self.options_with_value.is_empty() || !self.split_string_options.is_empty()
+    }
+
+    // What the option word `word` holds, as getopt reads it: a long option by its whole name or by
+    // a prefix of exactly one listed long option, and a short cluster up to the first letter that
+    // takes a value or runs nothing; a wrapper that reads no clusters lists its options whole.
+    fn option_word(self, word: ShellWord<'_>) -> OptionWord {
+        if !self.reads_clusters {
+            return self
+                .options()
+                .find(|&(option, _)| word.is(option))
+                .map_or(OptionWord::Flags, |(_, kind)| kind.option_word(None));
         }
-        pending
-            .iter()
-            .map(|&word| builder.view(word))
-            .take_while(|word| word.starts_with("-") && !word.is("-") && !word.is("--"))
-            .any(|word| {
-                // A letter an expansion makes is only the run's to decide.
-                word.is_decided()
-                    && word
-                        .chars()
-                        .skip(1)
-                        .any(|letter| self.describing_letters.contains(letter))
+        if word.starts_with("--") {
+            return long_option_named(word, self.options())
+                .map_or(OptionWord::Flags, |(kind, attached_from)| {
+                    kind.option_word(attached_from)
+                });
+        }
+        short_option_named(word, &self.options(), self.letters_with_attached_value)
+            .map_or(OptionWord::Flags, |(kind, attached_from)| {
+                kind.option_word(attached_from)
             })
     }
+}
 
-    // Where the value of the option `word` holds is, as getopt reads it: a long option's after its
-    // `=` or in the next word, and a short cluster's past the first letter that takes one, or in
-    // the next word when that letter ends it; `None` when the word holds no option with a value.
-    fn option_value(self, word: ShellWord<'_>) -> Option<OptionValue> {
-        let options = || {
-            let splitting = self
-                .split_string_options
-                .iter()
-                .map(|option| (option, true));
-            let valued = self.options_with_value.iter().map(|option| (option, false));
-            splitting.chain(valued)
-        };
-        if word.starts_with("--") {
-            return options()
-                .find(|(option, _)| option.starts_with("--") && is_option(word, option))
-                .map(|(option, splits)| OptionValue {
-                    splits,
-                    attached_from: (!word.is(option)).then_some(option.len() + 1),
-                });
+impl OptionKind {
+    fn option_word(self, attached_from: Option<usize>) -> OptionWord {
+        match self {
+            Self::TakesValue => OptionWord::Value {
+                splits: false,
+                attached_from,
+            },
+            Self::SplitsValue => OptionWord::Value {
+                splits: true,
+                attached_from,
+            },
+            Self::RunsNothing => OptionWord::RunsNothing,
         }
-        let mut position = 1;
-        for letter in word.chars().skip(1) {
-            position += letter.len_utf8();
-            if self.letters_with_attached_value.contains(letter) {
-                return None;
-            }
-            let is_letter = |option: &str| {
-                let mut characters = option.chars();
-                characters.next() == Some('-')
-                    && characters.next() == Some(letter)
-                    && characters.next().is_none()
-            };
-            if let Some((_, splits)) = options().find(|(option, _)| is_letter(option)) {
-                return Some(OptionValue {
-                    splits,
-                    attached_from: (position < word.len()).then_some(position),
-                });
-            }
-        }
-        None
     }
 }
+
+// The duration comes before the command.
+const TIMEOUT: CommandWrapper = CommandWrapper {
+    leading_operand: LeadingOperand::AnyWord,
+    ..CommandWrapper::new(&["-s", "--signal", "-k", "--kill-after"])
+};
+
+const NICE: CommandWrapper = CommandWrapper::new(&["-n", "--adjustment"]);
 
 // The programs that run the command after them, so the program is the word past their own.
 const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
     (
         "env",
         CommandWrapper {
-            // `env -S` splits its value into the words the command starts with.
+            // `env -S` splits its value into words env reads as its own arguments, and `-` alone
+            // empties the environment.
             split_string_options: &["-S", "--split-string"],
+            is_lone_dash_an_option: true,
             ..CommandWrapper::new(&[
                 "-u",
                 "--unset",
@@ -127,7 +167,7 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
         "command",
         CommandWrapper {
             // `command -v` and `-V` print how the shell finds the command.
-            describing_letters: "vV",
+            options_running_nothing: &["-v", "-V"],
             ..CommandWrapper::new(&[])
         },
     ),
@@ -136,15 +176,10 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
         "time",
         CommandWrapper::new(&["-o", "--output", "-f", "--format"]),
     ),
-    (
-        "timeout",
-        CommandWrapper {
-            // The duration comes before the command.
-            leading_operands: 1,
-            ..CommandWrapper::new(&["-s", "--signal", "-k", "--kill-after"])
-        },
-    ),
-    ("nice", CommandWrapper::new(&["-n", "--adjustment"])),
+    ("timeout", TIMEOUT),
+    ("gtimeout", TIMEOUT),
+    ("nice", NICE),
+    ("gnice", NICE),
     (
         "sudo",
         CommandWrapper::new(&[
@@ -172,6 +207,7 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
             "--chroot",
         ]),
     ),
+    ("doas", CommandWrapper::new(&["-a", "-C", "-u"])),
     (
         "xargs",
         CommandWrapper {
@@ -197,6 +233,64 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
             ])
         },
     ),
+    (
+        "stdbuf",
+        CommandWrapper::new(&["-i", "--input", "-o", "--output", "-e", "--error"]),
+    ),
+    ("setsid", CommandWrapper::new(&[])),
+    (
+        "ionice",
+        CommandWrapper::new(&[
+            "-c",
+            "--class",
+            "-n",
+            "--classdata",
+            "-p",
+            "--pid",
+            "-P",
+            "--pgid",
+            "-u",
+            "--uid",
+        ]),
+    ),
+    (
+        "chrt",
+        CommandWrapper {
+            // `chrt -p` sets an existing process's policy; a priority may come before the command.
+            options_running_nothing: &["-p", "--pid"],
+            leading_operand: LeadingOperand::Digits,
+            ..CommandWrapper::new(&[
+                "-T",
+                "--sched-runtime",
+                "-P",
+                "--sched-period",
+                "-D",
+                "--sched-deadline",
+                "-U",
+                "--clamp-min",
+                "-X",
+                "--clamp-max",
+            ])
+        },
+    ),
+    (
+        "taskset",
+        CommandWrapper {
+            // `taskset -p` sets an existing process's affinity; the mask comes before the command.
+            options_running_nothing: &["-p", "--pid"],
+            leading_operand: LeadingOperand::AnyWord,
+            ..CommandWrapper::new(&[])
+        },
+    ),
+    ("caffeinate", CommandWrapper::new(&["-t", "-w"])),
+    (
+        "arch",
+        CommandWrapper {
+            // Each option is its own word, `-arm64` an architecture's name, never a cluster.
+            reads_clusters: false,
+            ..CommandWrapper::new(&["-arch", "-d", "-e"])
+        },
+    ),
 ];
 
 /// The wrapper `program` names, if it is one.
@@ -208,45 +302,111 @@ pub(super) fn command_wrapper(program: ShellWord<'_>) -> Option<CommandWrapper> 
 }
 
 /// Takes a wrapper's own words off the front of `pending`: its options, an option's value and its
-/// leading operands; `env -S` puts the words its value splits into in their place, whether the
-/// value is the next word or attached, as in `-S'…'`, `-vS'…'` or `--split-string=…`.
+/// leading operand. `env -S` puts the words its value splits into in their place, whether the value
+/// is the next word or attached, as in `-S'…'`, `-vS'…'` or `--split-string=…`, and reads them
+/// again as its own arguments.
 pub(super) fn take_wrapper_words(
     builder: &mut WordBuilder<'_>,
     wrapper: CommandWrapper,
     pending: &mut VecDeque<Word>,
-) {
-    while let Some(&word) = pending.front() {
+) -> WrapperRead {
+    let mut words = WrapperWords {
+        pending,
+        split_words: 0,
+    };
+    let mut have_options_ended = false;
+    while let Some(word) = words.front() {
         let view = builder.view(word);
+        let is_option = !have_options_ended
+            && view.starts_with("-")
+            && (!view.is("-") || wrapper.is_lone_dash_an_option);
+        if !view.is_decided() {
+            if words.is_front_split() || (is_option && wrapper.takes_values()) {
+                return WrapperRead::WrapperIsProgram;
+            }
+            if !is_option {
+                break;
+            }
+            // A letter an expansion makes is no option of the wrapper's this read can name.
+            words.pop_front();
+            continue;
+        }
+        if !is_option {
+            break;
+        }
         if view.is("--") {
-            pending.pop_front();
-            break;
+            words.pop_front();
+            have_options_ended = true;
+            continue;
         }
-        if !view.starts_with("-") || view.is("-") {
-            break;
+        let (splits, attached_from) = match wrapper.option_word(view) {
+            OptionWord::RunsNothing => return WrapperRead::WrapperIsProgram,
+            OptionWord::Flags => {
+                words.pop_front();
+                continue;
+            }
+            OptionWord::Value {
+                splits,
+                attached_from,
+            } => (splits, attached_from),
+        };
+        words.pop_front();
+        if !splits {
+            if attached_from.is_none() {
+                words.pop_front();
+            }
+            continue;
         }
-        let value = wrapper.option_value(view);
-        pending.pop_front();
+        let value = match attached_from {
+            Some(bytes) => builder.word_after(word, bytes),
+            None => words.pop_front(),
+        };
         let Some(value) = value else {
             continue;
         };
-        if !value.splits {
-            if value.attached_from.is_none() {
-                pending.pop_front();
-            }
-            continue;
-        }
-        let split_value = match value.attached_from {
-            Some(bytes) => builder.word_after(word, bytes),
-            None => pending.pop_front(),
+        let Some(split_words) = builder.split_string(value) else {
+            return WrapperRead::WrapperIsProgram;
         };
-        if let Some(split_value) = split_value {
-            for split_word in builder.split_on_whitespace(split_value).into_iter().rev() {
-                pending.push_front(split_word);
-            }
-        }
-        return;
+        words.push_split(split_words);
     }
-    for _ in 0..wrapper.leading_operands {
-        pending.pop_front();
+    let takes_operand = match wrapper.leading_operand {
+        LeadingOperand::Absent => false,
+        LeadingOperand::AnyWord => true,
+        LeadingOperand::Digits => words.front().is_some_and(|word| {
+            let view = builder.view(word);
+            view.is_decided() && view.len() > 0 && view.chars().all(|digit| digit.is_ascii_digit())
+        }),
+    };
+    if takes_operand {
+        words.pop_front();
+    }
+    WrapperRead::CommandFollows
+}
+
+// The words left of a command, and how many at their front a split string made.
+struct WrapperWords<'p> {
+    pending: &'p mut VecDeque<Word>,
+    split_words: usize,
+}
+
+impl WrapperWords<'_> {
+    fn front(&self) -> Option<Word> {
+        self.pending.front().copied()
+    }
+
+    fn pop_front(&mut self) -> Option<Word> {
+        self.split_words = self.split_words.saturating_sub(1);
+        self.pending.pop_front()
+    }
+
+    fn push_split(&mut self, split_words: Vec<Word>) {
+        self.split_words += split_words.len();
+        for word in split_words.into_iter().rev() {
+            self.pending.push_front(word);
+        }
+    }
+
+    fn is_front_split(&self) -> bool {
+        self.split_words > 0
     }
 }
