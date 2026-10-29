@@ -15,13 +15,16 @@ use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
 use strum::VariantArray as _;
 
+use crate::attention::delivery::outcome::delivery_outcome_schema_part;
+
 /// The runs' list, which a run's end reads to raise an entry only for a lead run, the provider
-/// drivers' list, whose record of each provider's builds the projection lists, and the attention
-/// tables' own part.
+/// drivers' list, whose record of each provider's builds the projection lists, the attention
+/// tables' own part and the delivery channels' outcome table.
 pub fn schema_parts() -> SchemaParts {
     crate::run::schema::schema_parts()
         .with_parts(sidekicks_provider::driver::schema::schema_parts())
         .with_part(SchemaPart::new("attention", attention_schema_sql()))
+        .with_part(delivery_outcome_schema_part())
 }
 
 fn attention_schema_sql() -> String {

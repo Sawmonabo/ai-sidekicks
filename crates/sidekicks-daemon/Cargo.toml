@@ -16,9 +16,6 @@ ignored = [
   # The channel to each WSL 2 distribution's WSL server, the daemon the client and the WSL server
   # the server.
   "h2",
-  # The Standard Webhooks signature on a run's web address calls.
-  "hmac",
-  "standardwebhooks",
   # Sealing a push notice to a linked device's push key.
   "web-push-native",
   "x-wing",
@@ -60,7 +57,6 @@ futures.workspace = true
 getrandom.workspace = true
 h2.workspace = true
 hkdf.workspace = true
-hmac.workspace = true
 hyper-util.workspace = true
 instant-acme.workspace = true
 interprocess.workspace = true
@@ -154,7 +150,6 @@ sidekicks-store = { workspace = true, features = ["test-support"] }
 sidekicks-workflow = { workspace = true, features = ["test-support"] }
 # The git runner the tests script.
 sidekicks-workspace = { workspace = true, features = ["test-support"] }
-standardwebhooks.workspace = true
 # The paused clock the local gateway's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 x-wing.workspace = true

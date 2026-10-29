@@ -21,22 +21,32 @@ croner.workspace = true
 diffy.workspace = true
 futures.workspace = true
 garde.workspace = true
+# The web address's signature: HMAC-SHA256 under a key minted from the system's random source.
+getrandom.workspace = true
+hmac.workspace = true
 ignore.workspace = true
 jiff.workspace = true
 lru.workspace = true
 notify.workspace = true
+# The user info a web address carries, decoded into its `Basic` header.
+percent-encoding.workspace = true
 regex.workspace = true
+# The web address's posts.
+reqwest.workspace = true
 rusqlite.workspace = true
 satteri-pulldown-cmark.workspace = true
+# The web address and its signing secret, redacted and wiped.
+secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
 sidekicks-mcp.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-provider.workspace = true
 sidekicks-search = { workspace = true, features = ["index"] }
-sidekicks-std.workspace = true
+sidekicks-std = { workspace = true, features = ["outbound-http"] }
 sidekicks-store.workspace = true
 sidekicks-workspace.workspace = true
 strum.workspace = true
@@ -48,6 +58,8 @@ tokio-util.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+# The web address's double on a loopback port.
+axum = { workspace = true, features = ["http1", "tokio"] }
 bytes.workspace = true
 mockall.workspace = true
 rstest.workspace = true
@@ -66,6 +78,8 @@ sidekicks-std = { workspace = true, features = ["test-support"] }
 sidekicks-store = { workspace = true, features = ["test-support"] }
 # The workspace rows the tests build on.
 sidekicks-workspace = { workspace = true, features = ["test-support"] }
+# The web address's signatures checked the Standard Webhooks way.
+standardwebhooks.workspace = true
 tempfile.workspace = true
 # The paused clock the live index's and the list feed's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
