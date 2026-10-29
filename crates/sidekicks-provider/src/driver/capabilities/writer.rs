@@ -13,6 +13,7 @@
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
+use std::error::Error;
 use std::sync::Arc;
 
 use rusqlite::types::Value;
@@ -170,7 +171,8 @@ pub enum DriverCapabilitiesWriterError {
     /// The write was not kept.
     #[error("storing the capabilities failed")]
     Write(#[from] WriteError),
-    /// The declare's task ended without an answer: it panicked or its runtime stopped.
+    /// The declare's task ended without an answer: it panicked or its runtime stopped (`Some`), or
+    /// it skipped its work once its caller stopped waiting (`None`).
     #[error("the capability declare ended without an answer")]
     Unanswered(#[source] Option<JoinError>),
 }
@@ -224,8 +226,8 @@ impl DriverCapabilitiesWriter {
     /// as installed, is recorded in the same write, moved from the stored one. Fails with
     /// [`DriverCapabilitiesWriterError::InvalidOutput`] for a contract version that is no
     /// canonical semantic version or a tool name declared twice, before anything is read or
-    /// written, and otherwise when the read or the write fails. A declare that took its turn runs to
-    /// its commit before the next one reads, even after its caller stops waiting.
+    /// written, and otherwise when the read or the write fails. A declare that took its turn runs
+    /// to its commit before the next one reads, even after its caller stops waiting.
     pub async fn declare(
         &self,
         provider: &ProviderId,
@@ -266,12 +268,16 @@ impl DriverCapabilitiesWriter {
                     declared,
                     result.cli_version.clone(),
                 ),
-                move |answer| {
-                    tracing::debug!(
+                move |answer| match answer {
+                    Ok(_) => tracing::debug!(
                         provider = logged_provider.as_str(),
-                        is_stored = answer.is_ok(),
-                        "a capability declare landed after its caller stopped waiting"
-                    );
+                        "a capability declare was stored after its caller stopped waiting"
+                    ),
+                    Err(error) => tracing::warn!(
+                        provider = logged_provider.as_str(),
+                        error = error as &(dyn Error + 'static),
+                        "a capability declare failed after its caller stopped waiting"
+                    ),
                 },
             )
             .await;
