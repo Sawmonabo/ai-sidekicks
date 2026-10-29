@@ -16,13 +16,11 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::events::WorkflowPhaseSuspendedPayload;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
-/// The longest moment id: a banner's tag and a push's collapse id hold at most 64 bytes.
-pub const MOMENT_ID_MAX_BYTES: usize = 64;
-
 /// What one entry speaks for. Its id is the banner's tag and the push's collapse id, so a later
 /// state of the same moment replaces what was posted for it.
+#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AttentionMoment {
+pub(crate) enum AttentionMoment {
     /// An agent run: its waits and its end share one moment.
     Run(RunId),
     /// A plan waiting on its card, apart from its run so the run's end never replaces it.
@@ -43,9 +41,11 @@ pub enum AttentionMoment {
 }
 
 impl AttentionMoment {
-    /// The moment's id, at most [`MOMENT_ID_MAX_BYTES`]: a Notify step's is a fixed-length hash of
-    /// its run, node and execution, since a node id has no bound.
-    pub fn id(&self) -> AttentionId {
+    /// The moment's id, at most 64 bytes, the bound of a banner's tag and a push's collapse id: a
+    /// Notify step's is a fixed-length hash of its run, node and execution, since a node id has no
+    /// bound.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
+    pub(crate) fn id(&self) -> AttentionId {
         let id = match self {
             Self::Run(run_id) => format!("run:{run_id}"),
             Self::Plan(plan_id) => format!("plan:{plan_id}"),
@@ -56,8 +56,8 @@ impl AttentionMoment {
                 node_id,
                 execution_index,
             } => {
-                // A run id is a UUID and the index a number, so neither holds the separator and
-                // the node between them is read back unambiguously.
+                // A run id is a UUID and the index a number, so neither holds the separator and no
+                // two (run, node, execution) triples give the same text.
                 let key = format!(
                     "{workflow_run_id}|{}|{}",
                     node_id.as_str(),
@@ -71,12 +71,13 @@ impl AttentionMoment {
     }
 
     /// The subject whose entries merge into one banner and share one seen mark: the session for
-    /// an agent run, a plan or the session itself, the workflow run for a workflow's entries.
-    pub fn subject(&self, session_id: SessionId) -> AttentionSubject {
+    /// an agent run or a plan of `session_id`, or for the session itself, and the workflow run for
+    /// a workflow's entries.
+    #[expect(dead_code, reason = "the attention projection")]
+    pub(crate) fn subject(&self, session_id: SessionId) -> AttentionSubject {
         match self {
-            Self::Run(_) | Self::Plan(_) | Self::Session(_) => {
-                AttentionSubject::Session(session_id)
-            }
+            Self::Run(_) | Self::Plan(_) => AttentionSubject::Session(session_id),
+            Self::Session(own_session_id) => AttentionSubject::Session(*own_session_id),
             Self::WorkflowRun(workflow_run_id)
             | Self::Notify {
                 workflow_run_id, ..
@@ -86,42 +87,80 @@ impl AttentionMoment {
 }
 
 /// Whose entries merge into one banner and share one seen mark.
+#[expect(dead_code, reason = "the attention projection")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum AttentionSubject {
+pub(crate) enum AttentionSubject {
     /// A session, for its agent runs' and plans' entries.
     Session(SessionId),
     /// A workflow run, for its own and its Notify steps' entries.
     WorkflowRun(WorkflowRunId),
 }
 
-/// A wait on the person that an entry stays open for until a later event resolves it.
+/// A wait on the person that an event opens and a later event resolves.
+#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AttentionWait {
+pub(crate) enum AttentionWait {
     /// An agent run waiting on an approval or an answer.
     Run(RunId),
     /// A plan waiting on its card.
     Plan(PlanId),
-    /// Every waiting step of a workflow run; it is only ever resolved, never raised.
-    WorkflowRun(WorkflowRunId),
     /// One workflow step waiting on the person.
     Step(WorkflowStepKey),
 }
 
 impl AttentionWait {
     /// The moment an entry for this wait speaks for: a step's is its workflow run's.
-    pub fn moment(&self) -> AttentionMoment {
+    #[expect(dead_code, reason = "the attention projection")]
+    pub(crate) fn moment(&self) -> AttentionMoment {
         match self {
             Self::Run(run_id) => AttentionMoment::Run(*run_id),
             Self::Plan(plan_id) => AttentionMoment::Plan(*plan_id),
-            Self::WorkflowRun(workflow_run_id) => AttentionMoment::WorkflowRun(*workflow_run_id),
             Self::Step(step) => AttentionMoment::WorkflowRun(step.workflow_run_id),
         }
     }
 }
 
-/// A new entry an event raises.
+/// The open entries an event resolves.
+#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AttentionRaise {
+pub(crate) enum AttentionOpenEntries {
+    /// Every open entry of an agent run's moment: its wait, and the failed end a limit raised,
+    /// since an interrupted run can run again.
+    Run(RunId),
+    /// A plan's wait on its card.
+    Plan(PlanId),
+    /// Every waiting step of a workflow run.
+    WorkflowRun(WorkflowRunId),
+    /// One workflow step's wait.
+    Step(WorkflowStepKey),
+}
+
+/// A run's end that raises an entry.
+#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AttentionEnd {
+    /// An agent run's end, raised only for a lead run, which the statement writing it checks,
+    /// since the event does not say whether the run has a parent.
+    Run(RunId),
+    /// A workflow run's end.
+    WorkflowRun(WorkflowRunId),
+}
+
+impl AttentionEnd {
+    /// The moment the end speaks for: its run's.
+    #[expect(dead_code, reason = "the attention projection")]
+    pub(crate) fn moment(self) -> AttentionMoment {
+        match self {
+            Self::Run(run_id) => AttentionMoment::Run(run_id),
+            Self::WorkflowRun(workflow_run_id) => AttentionMoment::WorkflowRun(workflow_run_id),
+        }
+    }
+}
+
+/// A new entry an event raises.
+#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum AttentionRaise {
     /// A wait on the person opens; a later event resolves it.
     Wait {
         /// What waits.
@@ -129,27 +168,27 @@ pub enum AttentionRaise {
         /// `pendingApproval` or `pendingInput`.
         trigger: AttentionMomentTrigger,
     },
-    /// A run or a workflow run ended. An agent run's end is raised only for a lead run, which the
-    /// statement writing it checks, since the event does not say whether the run has a parent.
+    /// A run or a workflow run ended.
     End {
-        /// The run or workflow run.
-        moment: AttentionMoment,
+        /// Which run ended.
+        end: AttentionEnd,
         /// `runCompleted` or `runFailed`.
         trigger: AttentionMomentTrigger,
     },
 }
 
+#[expect(dead_code, reason = "the attention projection")]
 impl AttentionRaise {
     /// The moment the entry speaks for.
-    pub fn moment(&self) -> AttentionMoment {
+    pub(crate) fn moment(&self) -> AttentionMoment {
         match self {
             Self::Wait { wait, .. } => wait.moment(),
-            Self::End { moment, .. } => moment.clone(),
+            Self::End { end, .. } => end.moment(),
         }
     }
 
     /// What raised the entry.
-    pub fn trigger(&self) -> AttentionMomentTrigger {
+    pub(crate) fn trigger(&self) -> AttentionMomentTrigger {
         match self {
             Self::Wait { trigger, .. } | Self::End { trigger, .. } => *trigger,
         }
@@ -157,7 +196,7 @@ impl AttentionRaise {
 
     /// Whether the entry blocks on the person: a wait does, an end does not, since its remedy is a
     /// new run.
-    pub fn severity(&self) -> AttentionSeverity {
+    pub(crate) fn severity(&self) -> AttentionSeverity {
         match self {
             Self::Wait { .. } => AttentionSeverity::Actionable,
             Self::End { .. } => AttentionSeverity::Informational,
@@ -166,15 +205,17 @@ impl AttentionRaise {
 }
 
 /// What one event does to the attention entries.
+#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AttentionChange {
+pub(crate) enum AttentionChange {
     /// A new entry.
     Raise(AttentionRaise),
-    /// The open entries of a wait resolve, then an end may raise a new entry.
+    /// Open entries resolve, then the same event may raise a new one: a run's next wait or its
+    /// end. A run's resolve covers every open entry of its moment, a limit's failed end included.
     Resolve {
-        /// The wait whose open entries resolve.
-        wait: AttentionWait,
-        /// The end the same event raises.
+        /// The open entries that resolve.
+        entries: AttentionOpenEntries,
+        /// The entry the same event raises after them.
         then: Option<AttentionRaise>,
     },
     /// A deleted workflow run takes its entries, its Notify steps' included.
@@ -188,39 +229,47 @@ pub enum AttentionChange {
 }
 
 /// What `event` does to the attention entries, read from the event alone.
-pub fn entry_change_of(event: &SessionEvent) -> AttentionChange {
+#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
+pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
+    // A run moving into a wait resolves whatever its moment still has open, the other wait
+    // included, so one run holds one open wait.
+    let wait_run = |run_id, trigger| AttentionChange::Resolve {
+        entries: AttentionOpenEntries::Run(run_id),
+        then: Some(AttentionRaise::Wait {
+            wait: AttentionWait::Run(run_id),
+            trigger,
+        }),
+    };
     let raise_wait = |wait, trigger| AttentionChange::Raise(AttentionRaise::Wait { wait, trigger });
+    let resolve = |entries| AttentionChange::Resolve {
+        entries,
+        then: None,
+    };
     let resolve_run = |run_id: RunId, then| AttentionChange::Resolve {
-        wait: AttentionWait::Run(run_id),
+        entries: AttentionOpenEntries::Run(run_id),
         then,
     };
-    // A run's end raises an entry only when `is_raised`.
     let run_end = |is_raised: bool, run_id, trigger| {
         is_raised.then_some(AttentionRaise::End {
-            moment: AttentionMoment::Run(run_id),
+            end: AttentionEnd::Run(run_id),
             trigger,
         })
     };
-    let resolve_step = |step| AttentionChange::Resolve {
-        wait: AttentionWait::Step(step),
-        then: None,
-    };
+    let resolve_step = |step| resolve(AttentionOpenEntries::Step(step));
     let workflow_run_end = |workflow_run_id, trigger| AttentionChange::Resolve {
-        wait: AttentionWait::WorkflowRun(workflow_run_id),
+        entries: AttentionOpenEntries::WorkflowRun(workflow_run_id),
         then: Some(AttentionRaise::End {
-            moment: AttentionMoment::WorkflowRun(workflow_run_id),
+            end: AttentionEnd::WorkflowRun(workflow_run_id),
             trigger,
         }),
     };
     match event {
-        SessionEvent::AgentRunWaitingForApproval(payload) => raise_wait(
-            AttentionWait::Run(payload.run_id),
-            AttentionMomentTrigger::PendingApproval,
-        ),
-        SessionEvent::AgentRunWaitingForInput(payload) => raise_wait(
-            AttentionWait::Run(payload.run_id),
-            AttentionMomentTrigger::PendingInput,
-        ),
+        SessionEvent::AgentRunWaitingForApproval(payload) => {
+            wait_run(payload.run_id, AttentionMomentTrigger::PendingApproval)
+        }
+        SessionEvent::AgentRunWaitingForInput(payload) => {
+            wait_run(payload.run_id, AttentionMomentTrigger::PendingInput)
+        }
         SessionEvent::AgentRunQueued(queued) => {
             let run_id = match queued {
                 AgentRunQueuedPayload::SessionAgent(payload) => payload.run_id,
@@ -292,18 +341,11 @@ pub fn entry_change_of(event: &SessionEvent) -> AttentionChange {
                 )
             }
         }
-        SessionEvent::PlanAccepted(payload) => AttentionChange::Resolve {
-            wait: AttentionWait::Plan(payload.plan_id),
-            then: None,
-        },
-        SessionEvent::PlanKept(payload) => AttentionChange::Resolve {
-            wait: AttentionWait::Plan(payload.plan_id),
-            then: None,
-        },
-        SessionEvent::PlanHandedOff(payload) => AttentionChange::Resolve {
-            wait: AttentionWait::Plan(payload.plan_id),
-            then: None,
-        },
+        SessionEvent::PlanAccepted(payload) => resolve(AttentionOpenEntries::Plan(payload.plan_id)),
+        SessionEvent::PlanKept(payload) => resolve(AttentionOpenEntries::Plan(payload.plan_id)),
+        SessionEvent::PlanHandedOff(payload) => {
+            resolve(AttentionOpenEntries::Plan(payload.plan_id))
+        }
         // Only a wait a person can answer is raised; a spent account's is nobody's to answer.
         SessionEvent::WorkflowPhaseSuspended(suspended) => match suspended {
             WorkflowPhaseSuspendedPayload::Account { .. } => AttentionChange::Nothing,
@@ -368,14 +410,12 @@ pub fn entry_change_of(event: &SessionEvent) -> AttentionChange {
             attempt: payload.attempt,
             execution_index: payload.execution_index,
         }),
-        SessionEvent::WorkflowRunResumed(payload) => AttentionChange::Resolve {
-            wait: AttentionWait::WorkflowRun(payload.workflow_run_id),
-            then: None,
-        },
-        SessionEvent::WorkflowRunCanceled(payload) => AttentionChange::Resolve {
-            wait: AttentionWait::WorkflowRun(payload.workflow_run_id),
-            then: None,
-        },
+        SessionEvent::WorkflowRunResumed(payload) => {
+            resolve(AttentionOpenEntries::WorkflowRun(payload.workflow_run_id))
+        }
+        SessionEvent::WorkflowRunCanceled(payload) => {
+            resolve(AttentionOpenEntries::WorkflowRun(payload.workflow_run_id))
+        }
         SessionEvent::WorkflowRunCompleted(payload) => workflow_run_end(
             payload.workflow_run_id,
             AttentionMomentTrigger::RunCompleted,

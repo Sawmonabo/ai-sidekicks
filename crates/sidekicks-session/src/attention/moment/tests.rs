@@ -13,8 +13,8 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
 use super::{
-    AttentionChange, AttentionMoment, AttentionRaise, AttentionWait, MOMENT_ID_MAX_BYTES,
-    entry_change_of,
+    AttentionChange, AttentionEnd, AttentionMoment, AttentionOpenEntries, AttentionRaise,
+    AttentionWait, entry_change_of,
 };
 
 const SESSION: &str = "018f0000-0000-7000-8000-000000000001";
@@ -24,6 +24,12 @@ const WORKFLOW_RUN: &str = "018f0000-0000-7000-8000-000000000004";
 const DEFINITION: &str = "018f0000-0000-7000-8000-000000000005";
 const VERSION: &str = "018f0000-0000-7000-8000-000000000006";
 const DEVICE: &str = "018f0000-0000-7000-8000-000000000007";
+const ARTIFACT: &str = "018f0000-0000-7000-8000-000000000008";
+const QUEUE_ITEM: &str = "018f0000-0000-7000-8000-000000000009";
+const QUESTION: &str = "018f0000-0000-7000-8000-00000000000a";
+const APPROVAL_REQUEST: &str = "018f0000-0000-7000-8000-00000000000b";
+const ACCOUNT: &str = "018f0000-0000-7000-8000-00000000000c";
+const AGENT: &str = "018f0000-0000-7000-8000-00000000000d";
 const NODE: &str = "ask";
 
 fn session_id() -> SessionId {
@@ -86,7 +92,7 @@ fn workflow_run_event(event_type: &str) -> Value {
 fn plan_proposed(holds_request: bool) -> Value {
     json!({"type": "plan.proposed", "payload": {
         "planId": PLAN, "sessionId": SESSION, "runId": RUN, "title": "Plan", "text": "Do it",
-        "stepCount": 1, "fileCount": 0, "artifactId": DEVICE, "holdsRequest": holds_request,
+        "stepCount": 1, "fileCount": 0, "artifactId": ARTIFACT, "holdsRequest": holds_request,
     }})
 }
 
@@ -94,25 +100,39 @@ fn raise_wait(wait: AttentionWait, trigger: AttentionMomentTrigger) -> Attention
     AttentionChange::Raise(AttentionRaise::Wait { wait, trigger })
 }
 
-fn resolve(wait: AttentionWait) -> AttentionChange {
-    AttentionChange::Resolve { wait, then: None }
+fn resolve(entries: AttentionOpenEntries) -> AttentionChange {
+    AttentionChange::Resolve {
+        entries,
+        then: None,
+    }
 }
 
-fn resolve_run_then(trigger: AttentionMomentTrigger) -> AttentionChange {
+fn resolve_run_then(then: AttentionRaise) -> AttentionChange {
     AttentionChange::Resolve {
-        wait: AttentionWait::Run(run_id()),
-        then: Some(AttentionRaise::End {
-            moment: AttentionMoment::Run(run_id()),
-            trigger,
-        }),
+        entries: AttentionOpenEntries::Run(run_id()),
+        then: Some(then),
     }
+}
+
+fn run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
+    resolve_run_then(AttentionRaise::End {
+        end: AttentionEnd::Run(run_id()),
+        trigger,
+    })
+}
+
+fn run_wait(trigger: AttentionMomentTrigger) -> AttentionChange {
+    resolve_run_then(AttentionRaise::Wait {
+        wait: AttentionWait::Run(run_id()),
+        trigger,
+    })
 }
 
 fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     AttentionChange::Resolve {
-        wait: AttentionWait::WorkflowRun(workflow_run_id()),
+        entries: AttentionOpenEntries::WorkflowRun(workflow_run_id()),
         then: Some(AttentionRaise::End {
-            moment: AttentionMoment::WorkflowRun(workflow_run_id()),
+            end: AttentionEnd::WorkflowRun(workflow_run_id()),
             trigger,
         }),
     }
@@ -121,54 +141,75 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
 #[rstest]
 #[case::waiting_for_approval(
     run_state("waitingForApproval", json!({})),
-    raise_wait(AttentionWait::Run(run_id()), PendingApproval)
+    run_wait(PendingApproval)
 )]
 #[case::waiting_for_input(
     run_state("waitingForInput", json!({})),
-    raise_wait(AttentionWait::Run(run_id()), PendingInput)
+    run_wait(PendingInput)
 )]
-#[case::running_resolves(run_state("running", json!({})), resolve(AttentionWait::Run(run_id())))]
-#[case::completed(run_state("completed", json!({})), resolve_run_then(RunCompleted))]
+#[case::running_resolves(
+    run_state("running", json!({})),
+    resolve(AttentionOpenEntries::Run(run_id()))
+)]
+#[case::queued_resolves(
+    json!({"type": "agent.run.queued", "payload": {
+        "sessionId": SESSION, "runId": RUN, "runVersion": 0, "newState": "queued", "agentId": AGENT,
+    }}),
+    resolve(AttentionOpenEntries::Run(run_id()))
+)]
+#[case::starting_resolves(
+    run_state("starting", json!({})),
+    resolve(AttentionOpenEntries::Run(run_id()))
+)]
+#[case::pausing_resolves(
+    run_state("pausing", json!({})),
+    resolve(AttentionOpenEntries::Run(run_id()))
+)]
+#[case::paused_resolves(
+    run_state("paused", json!({})),
+    resolve(AttentionOpenEntries::Run(run_id()))
+)]
+#[case::completed(run_state("completed", json!({})), run_end(RunCompleted))]
 #[case::completed_closed_by_the_daemon(
     run_state("completed", json!({"intendedClose": true})),
-    resolve(AttentionWait::Run(run_id()))
+    resolve(AttentionOpenEntries::Run(run_id()))
 )]
-#[case::failed(run_state("failed", json!({})), resolve_run_then(RunFailed))]
+#[case::failed(run_state("failed", json!({})), run_end(RunFailed))]
 #[case::failed_closed_by_the_daemon(
     run_state("failed", json!({"intendedClose": true})),
-    resolve(AttentionWait::Run(run_id()))
+    resolve(AttentionOpenEntries::Run(run_id()))
 )]
 #[case::interrupted_by_the_person(
     run_state("interrupted", json!({})),
-    resolve(AttentionWait::Run(run_id()))
+    resolve(AttentionOpenEntries::Run(run_id()))
 )]
 #[case::interrupted_at_the_step_limit(
     run_state("interrupted", json!({"trigger": "stepLimit"})),
-    resolve_run_then(RunFailed)
+    run_end(RunFailed)
 )]
 #[case::interrupted_at_the_spend_limit(
     run_state("interrupted", json!({"trigger": "spendLimit"})),
-    resolve_run_then(RunFailed)
+    run_end(RunFailed)
 )]
 #[case::interrupted_by_a_canceled_phase(
     run_state("interrupted", json!({"trigger": "workflowPhaseCanceled"})),
-    resolve(AttentionWait::Run(run_id()))
+    resolve(AttentionOpenEntries::Run(run_id()))
 )]
 #[case::interrupted_by_a_restart(
-    run_state("interrupted", json!({"trigger": "daemonRestart", "intendedClose": true})),
-    resolve(AttentionWait::Run(run_id()))
+    run_state("interrupted", json!({"trigger": "daemonRestart"})),
+    resolve(AttentionOpenEntries::Run(run_id()))
 )]
 #[case::limit_closed_by_the_daemon(
     run_state("interrupted", json!({"trigger": "stepLimit", "intendedClose": true})),
-    resolve(AttentionWait::Run(run_id()))
+    resolve(AttentionOpenEntries::Run(run_id()))
 )]
 #[case::stopped_at_the_token_limit(
     run_state("stopped", json!({"trigger": "tokenLimit"})),
-    resolve_run_then(RunFailed)
+    run_end(RunFailed)
 )]
-#[case::stopped_with_its_siblings(
+#[case::stopped_by_the_person(
     run_state("stopped", json!({})),
-    resolve(AttentionWait::Run(run_id()))
+    resolve(AttentionOpenEntries::Run(run_id()))
 )]
 #[case::turn_started(
     json!({"type": "agent.turn.started", "payload": {
@@ -200,19 +241,19 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
 )]
 #[case::queue_item_canceled(
     json!({"type": "agent.queueItem.canceled", "payload": {
-        "sessionId": SESSION, "queueItemId": DEVICE, "state": "canceled",
+        "sessionId": SESSION, "queueItemId": QUEUE_ITEM, "state": "canceled",
     }}),
     AttentionChange::Nothing
 )]
 #[case::question_canceled(
     json!({"type": "question.canceled", "payload": {
-        "sessionId": SESSION, "questionId": DEVICE, "reason": "withdrawn",
+        "sessionId": SESSION, "questionId": QUESTION, "reason": "withdrawn",
     }}),
     AttentionChange::Nothing
 )]
 #[case::approval_canceled(
     json!({"type": "approval.canceled", "payload": {
-        "sessionId": SESSION, "runId": RUN, "approvalRequestId": DEVICE,
+        "sessionId": SESSION, "runId": RUN, "approvalRequestId": APPROVAL_REQUEST,
         "category": "toolExecution", "scope": "once",
     }}),
     AttentionChange::Nothing
@@ -225,7 +266,7 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
 )]
 #[case::request_retried(
     json!({"type": "usage.apiRequest.retried", "payload": {
-        "sessionId": SESSION, "provider": "claude-code", "errorKind": "rateLimit",
+        "sessionId": SESSION, "provider": "provider-a", "errorKind": "rateLimit",
     }}),
     AttentionChange::Nothing
 )]
@@ -250,7 +291,19 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     json!({"type": "plan.accepted", "payload": {
         "planId": PLAN, "sessionId": SESSION, "deviceId": DEVICE,
     }}),
-    resolve(AttentionWait::Plan(plan_id()))
+    resolve(AttentionOpenEntries::Plan(plan_id()))
+)]
+#[case::plan_kept(
+    json!({"type": "plan.kept", "payload": {
+        "planId": PLAN, "sessionId": SESSION, "deviceId": DEVICE,
+    }}),
+    resolve(AttentionOpenEntries::Plan(plan_id()))
+)]
+#[case::plan_handed_off(
+    json!({"type": "plan.handedOff", "payload": {
+        "planId": PLAN, "sessionId": SESSION, "freshSessionId": DEFINITION, "deviceId": DEVICE,
+    }}),
+    resolve(AttentionOpenEntries::Plan(plan_id()))
 )]
 #[case::plan_hold_ended(
     json!({"type": "plan.hold.ended", "payload": {
@@ -307,24 +360,40 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
 #[case::step_waits_on_a_spent_account(
     step_event(
         "workflow.phase.suspended",
-        json!({"waitCause": "account", "providerAccountId": DEVICE}),
+        json!({"waitCause": "account", "providerAccountId": ACCOUNT}),
     ),
     AttentionChange::Nothing
 )]
 #[case::step_resumed(
     step_event("workflow.phase.resumed", json!({})),
-    resolve(AttentionWait::Step(step_key()))
+    resolve(AttentionOpenEntries::Step(step_key()))
 )]
 #[case::step_completed(
     step_event("workflow.step.completed", json!({
         "outputRef": {"kind": "inline", "items": []},
         "logRef": {"kind": "inline", "items": []},
     })),
-    resolve(AttentionWait::Step(step_key()))
+    resolve(AttentionOpenEntries::Step(step_key()))
+)]
+#[case::step_failed(
+    step_event("workflow.step.failed", json!({"error": {"message": "It broke"}})),
+    resolve(AttentionOpenEntries::Step(step_key()))
+)]
+#[case::step_canceled(
+    step_event("workflow.step.canceled", json!({})),
+    resolve(AttentionOpenEntries::Step(step_key()))
+)]
+#[case::workflow_run_resumed(
+    json!({"type": "workflow.run.resumed", "payload": {
+        "sessionId": SESSION, "workflowRunId": WORKFLOW_RUN, "definitionId": DEFINITION,
+        "workflowVersionId": VERSION,
+        "resumptionPoint": {"activeSteps": [], "pendingGates": []},
+    }}),
+    resolve(AttentionOpenEntries::WorkflowRun(workflow_run_id()))
 )]
 #[case::workflow_run_canceled(
     workflow_run_event("workflow.run.canceled"),
-    resolve(AttentionWait::WorkflowRun(workflow_run_id()))
+    resolve(AttentionOpenEntries::WorkflowRun(workflow_run_id()))
 )]
 #[case::workflow_run_completed(
     workflow_run_event("workflow.run.completed"),
@@ -364,10 +433,15 @@ fn every_moment_id_fits_a_banner_tag_and_a_notify_id_hides_its_node() {
     ];
 
     for moment in &moments {
-        assert!(
-            moment.id().as_str().len() <= MOMENT_ID_MAX_BYTES,
-            "{moment:?}"
-        );
+        assert!(moment.id().as_str().len() <= 64, "{moment:?}");
     }
     assert_eq!(moments[4].id().as_str().len(), 39);
+
+    let notify = |node: &str, execution_index| AttentionMoment::Notify {
+        workflow_run_id: workflow_run_id(),
+        node_id: WorkflowNodeId::new(node.to_owned()).expect("a test node id"),
+        execution_index: SafeInt::new(execution_index).expect("a test execution index"),
+    };
+    assert_ne!(notify(NODE, 0).id(), notify(NODE, 1).id());
+    assert_ne!(notify(NODE, 0).id(), notify("tell", 0).id());
 }

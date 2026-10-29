@@ -5,4 +5,4 @@
 //! chosen from the run-level items under it.
 
 pub(crate) mod aggregate;
-pub mod moment;
+pub(crate) mod moment;
