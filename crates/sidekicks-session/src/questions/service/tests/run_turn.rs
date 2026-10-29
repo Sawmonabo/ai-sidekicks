@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::json;
-use sidekicks_contracts::question::QuestionId;
+use sidekicks_contracts::question::{QuestionAskedState, QuestionId};
 use sidekicks_provider::port::question::{
     ProviderQuestionWithdrawal, QuestionLinePlace, QuestionTurnEnd, ToolServerQuestionAnswer,
     take_question_in_turn,
@@ -38,9 +38,9 @@ fn sequence_of(fixture: &Fixture, event_type: &str) -> i64 {
         .expect("the event's sequence reads")
 }
 
-/// Polls `take` until the log records `count` questions and the request `request_id` is held, so
-/// a withdrawal of it finds it; fails the test should the take end first, as a question taken
-/// while its run waited, or 60 s pass.
+/// Drives `take` until the log records `count` questions and the request `request_id` is held, so
+/// a withdrawal of it finds it, woken by each hold and each record that lands; fails the test
+/// should the take end first, as a question taken while its run waited, or 60 s pass.
 async fn drive_until_asked(
     fixture: &Fixture,
     count: usize,
@@ -48,15 +48,22 @@ async fn drive_until_asked(
     mut take: Pin<&mut impl Future>,
 ) {
     let asked = async {
-        while fixture.payloads("question.asked").len() < count
-            || fixture
-                .questions
-                .held_question_of(fixture.session_id, request_id)
-                .is_none()
-        {
+        loop {
+            let held_or_recorded = fixture.questions.held_or_recorded.notified();
+            let mut held_or_recorded = std::pin::pin!(held_or_recorded);
+            // Registered before the reads, so a hold or a record after them still wakes it.
+            held_or_recorded.as_mut().enable();
+            if fixture.payloads("question.asked").len() >= count
+                && fixture
+                    .questions
+                    .held_question_of(fixture.session_id, request_id)
+                    .is_some()
+            {
+                return;
+            }
             tokio::select! {
                 _ = &mut take => panic!("the question was taken while its run waited"),
-                () = tokio::time::sleep(Duration::from_millis(10)) => {}
+                () = held_or_recorded => {}
             }
         }
     };
@@ -325,6 +332,54 @@ async fn a_withdrawal_during_its_questions_record_ends_the_question() {
     assert_eq!(canceled.len(), 1);
     assert_eq!(canceled[0]["reason"], "withdrawn");
     assert_eq!(fixture.run_state(), "running");
+    assert!(
+        fixture
+            .questions
+            .held_question_of(fixture.session_id, "request-1")
+            .is_none()
+    );
+}
+
+// A withdrawal that lands while a question asked in its turn is recorded, its open refused because
+// its run waits on another question, finds the request held throughout and cancels the question
+// once it is recorded waiting for its run: the open and the waiting record share one question id
+// and lock. Killed by a waiting record under a new id, which the withdrawal, waiting on the first
+// id's lock, finds unheld and lets go.
+#[tokio::test]
+async fn a_withdrawal_during_a_records_fall_back_to_waiting_ends_the_question() {
+    let fixture = Fixture::new().await;
+    fixture.ask("request-0", json!([choice_page()]), true).await;
+    let record = fixture.questions.record_question_in_turn(
+        fixture.question("request-1", json!([choice_page()]), true),
+        HeldRequestAnswerer::Driver,
+        true,
+    );
+    tokio::pin!(record);
+    drive_until_asked(&fixture, 1, "request-1", record.as_mut()).await;
+    let withdrawal = fixture
+        .questions
+        .withdraw_question(ProviderQuestionWithdrawal {
+            session_id: fixture.session_id,
+            request_id: "request-1".to_owned(),
+        });
+    tokio::pin!(withdrawal);
+    assert!(
+        futures::poll!(withdrawal.as_mut()).is_pending(),
+        "the withdrawal waits for the question's record"
+    );
+
+    let (recorded, withdrawn) = bounded(async { tokio::join!(record, withdrawal) }).await;
+
+    assert_eq!(
+        recorded.expect("the question is recorded"),
+        QuestionAskedState::WaitingForRun
+    );
+    withdrawn.expect("the withdrawal is taken");
+    assert_eq!(fixture.state(asked_id(&fixture, 1)), "canceled");
+    let canceled = fixture.payloads("question.canceled");
+    assert_eq!(canceled.len(), 1);
+    assert_eq!(canceled[0]["reason"], "withdrawn");
+    assert_eq!(fixture.run_state(), "waitingForInput");
     assert!(
         fixture
             .questions

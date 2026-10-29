@@ -170,6 +170,22 @@ pub struct QuestionsService {
     pub(super) question_lock: KeyedLock<QuestionId>,
     // Each open held question's provider request; never locked across an await.
     held_requests: Mutex<HashMap<QuestionId, HeldRequest>>,
+    // Told each time a request is held or a question's record lands, so a test awaits either
+    // instead of polling.
+    #[cfg(test)]
+    pub(super) held_or_recorded: tokio::sync::Notify,
+}
+
+/// How a question's record is written: open, waiting for its run, or open where its run reads
+/// running and else waiting for it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum QuestionRecording {
+    /// Open.
+    Open,
+    /// Waiting for its run.
+    WaitingForRun,
+    /// Open, else, where the run does not read running, waiting for it.
+    OpenElseWaitingForRun,
 }
 
 impl QuestionsService {
@@ -189,6 +205,8 @@ impl QuestionsService {
             waits: PortRegistration::new("question waits"),
             question_lock: KeyedLock::new(),
             held_requests: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            held_or_recorded: tokio::sync::Notify::new(),
         }
     }
 
@@ -220,6 +238,26 @@ impl QuestionsService {
         answered_by: HeldRequestAnswerer,
         state: QuestionAskedState,
     ) -> Result<QuestionId, QuestionError> {
+        let recording = match state {
+            QuestionAskedState::Open => QuestionRecording::Open,
+            QuestionAskedState::WaitingForRun => QuestionRecording::WaitingForRun,
+        };
+        let (question_id, _state) = self.record(question, answered_by, recording).await?;
+        Ok(question_id)
+    }
+
+    /// Records `question` under a minted id as `recording` names, holding its request, where its
+    /// agent waits or it waits for its run, from before its record's write: a withdrawal that
+    /// lands meanwhile finds the hold, waits on this question's lock for the record, and settles
+    /// it. A refused open falls back to the waiting record under the same id and lock, its hold
+    /// kept. Answers the id and the state recorded; fails as the draft, the move or the write
+    /// fails, the hold let go.
+    pub(super) async fn record(
+        &self,
+        question: ProviderQuestion,
+        answered_by: HeldRequestAnswerer,
+        recording: QuestionRecording,
+    ) -> Result<(QuestionId, QuestionAskedState), QuestionError> {
         let ProviderQuestion {
             session_id,
             run_id,
@@ -232,48 +270,80 @@ impl QuestionsService {
         })?;
         let question_id =
             QuestionId::try_from(mint_uuid_v7()).expect("a minted UUID is in a question id's form");
-        let asked = QuestionAskedPayload::Run(RunQuestionAskedPayload {
-            question_id,
+        let asked = |state| {
+            QuestionAskedPayload::Run(RunQuestionAskedPayload {
+                question_id,
+                session_id,
+                run_id,
+                state,
+                wait_id: None,
+                is_agent_waiting,
+                questions: questions.clone(),
+            })
+        };
+        let is_run_moved = |state| is_agent_waiting && state == QuestionAskedState::Open;
+        let held = HeldRequest {
             session_id,
             run_id,
-            state,
-            wait_id: None,
-            is_agent_waiting,
-            questions,
-        });
+            request_id,
+            answered_by,
+            is_recorded: false,
+        };
+        let _question_hold = self.question_lock.acquire(question_id).await;
+        let mut state = match recording {
+            QuestionRecording::Open | QuestionRecording::OpenElseWaitingForRun => {
+                QuestionAskedState::Open
+            }
+            QuestionRecording::WaitingForRun => QuestionAskedState::WaitingForRun,
+        };
+        // Taken before the read of settled holds, which keeps a hold whose record is unwritten.
+        if is_agent_waiting || state == QuestionAskedState::WaitingForRun {
+            self.hold_request(question_id, held.clone());
+        }
+        let mut recorded = match self.forget_settled_requests().await {
+            Ok(()) => {
+                self.write_record(asked(state), session_id, run_id, is_run_moved(state))
+                    .await
+            }
+            Err(failure) => Err(failure),
+        };
+        if recording == QuestionRecording::OpenElseWaitingForRun
+            && matches!(
+                recorded,
+                Err(QuestionError::Engine(RunEngineError::Refused(_)))
+            )
+        {
+            // The run does not read running, so the question waits for it.
+            state = QuestionAskedState::WaitingForRun;
+            self.hold_request(question_id, held);
+            recorded = self
+                .write_record(asked(state), session_id, run_id, is_run_moved(state))
+                .await;
+        }
+        if let Err(failure) = recorded {
+            self.forget_held_request(&question_id);
+            return Err(failure);
+        }
+        if let Some(held) = lock(&self.held_requests).get_mut(&question_id) {
+            held.is_recorded = true;
+        }
+        #[cfg(test)]
+        self.held_or_recorded.notify_waiters();
+        Ok((question_id, state))
+    }
+
+    // Writes `asked`'s record, in session `session_id`: where `is_run_moved`, in the write that
+    // moves run `run_id` from `running` to `waitingForInput`; else in a write of its own.
+    async fn write_record(
+        &self,
+        asked: QuestionAskedPayload,
+        session_id: SessionId,
+        run_id: RunId,
+        is_run_moved: bool,
+    ) -> Result<(), QuestionError> {
         let insert = insert_question_statement(&asked);
         let event = SessionEventDraft::of_session(session_id, &SessionEvent::QuestionAsked(asked))?;
-        let _question_hold = self.question_lock.acquire(question_id).await;
-        self.forget_settled_requests().await?;
-        let is_waiting_for_run = state == QuestionAskedState::WaitingForRun;
-        let is_held = is_agent_waiting || is_waiting_for_run;
-        // Held before its record's write, so a withdrawal that lands meanwhile finds it, waits on
-        // this question's lock for the record, and settles it.
-        if is_held {
-            self.hold_request(
-                question_id,
-                HeldRequest {
-                    session_id,
-                    run_id,
-                    request_id,
-                    answered_by,
-                    is_recorded: false,
-                },
-            );
-        }
-        let recorded: Result<(), QuestionError> = if !is_agent_waiting || is_waiting_for_run {
-            self.appender
-                .append(
-                    event,
-                    SessionEventLinkage {
-                        transactional_prelude: vec![insert],
-                        ..SessionEventLinkage::default()
-                    },
-                )
-                .await
-                .map(drop)
-                .map_err(Into::into)
-        } else {
+        if is_run_moved {
             self.engine
                 .transition(
                     RunStateChange {
@@ -289,15 +359,19 @@ impl QuestionsService {
                 .await
                 .map(drop)
                 .map_err(Into::into)
-        };
-        if let Err(failure) = recorded {
-            self.forget_held_request(&question_id);
-            return Err(failure);
+        } else {
+            self.appender
+                .append(
+                    event,
+                    SessionEventLinkage {
+                        transactional_prelude: vec![insert],
+                        ..SessionEventLinkage::default()
+                    },
+                )
+                .await
+                .map(drop)
+                .map_err(Into::into)
         }
-        if let Some(held) = lock(&self.held_requests).get_mut(&question_id) {
-            held.is_recorded = true;
-        }
-        Ok(question_id)
     }
 
     /// Cancels the open question the provider asked under `withdrawal`'s request, in the write
@@ -430,6 +504,8 @@ impl QuestionsService {
     /// Keeps `held`, the request `question_id`'s answer goes back under, until it settles.
     fn hold_request(&self, question_id: QuestionId, held: HeldRequest) {
         lock(&self.held_requests).insert(question_id, held);
+        #[cfg(test)]
+        self.held_or_recorded.notify_waiters();
     }
 
     /// The request `question_id`'s answer goes back under, while it is held.
