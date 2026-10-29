@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use jiff::Timestamp;
+use sidekicks_std::failure_episode::FailureEpisode;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::{JobCondition, ScheduleError, ScheduledJobHandle};
 use sidekicks_store::database::connection::read_pool::ReadLength;
@@ -35,8 +36,8 @@ pub(super) struct RetirementSlot {
     arms_made: u64,
     // At most one; a later failure replaces it and a successful arm cancels it.
     retry: Option<ScheduledJobHandle>,
-    // Whether the slot's failure was logged at warn since it was last armed.
-    has_failed_since_armed: bool,
+    // Whether the slot failed since it was last armed, which logs later failures at debug.
+    failures: FailureEpisode,
 }
 
 // A provider build line's retirement the scheduler holds, its arm's number and the instant it
@@ -69,19 +70,20 @@ impl AttentionService {
                 })
                 .await
             {
-                Ok(next) => next.map(SystemTime::from),
+                Ok(next) => next,
                 Err(error) => {
                     self.retry_empty_retirement_slot(&error);
                     return;
                 }
             };
             let mut slot = lock(&self.retirement);
-            if slot.armed.as_ref().map(|armed| armed.instant) != next {
+            if slot.armed.as_ref().map(|armed| armed.instant) != next.map(SystemTime::from) {
                 if let Some(previous) = slot.armed.take() {
                     previous.job.cancel();
                 }
-                if let Some(instant) = next
-                    && let Err(error) = self.schedule_provider_build_retirement(&mut slot, instant)
+                if let Some(retires_at) = next
+                    && let Err(error) =
+                        self.schedule_provider_build_retirement(&mut slot, retires_at)
                 {
                     self.schedule_retirement_retry(&mut slot, &error);
                     return;
@@ -90,18 +92,20 @@ impl AttentionService {
             if let Some(retry) = slot.retry.take() {
                 retry.cancel();
             }
-            slot.has_failed_since_armed = false;
+            slot.failures.mark_succeeded();
         }
         .boxed()
     }
 
-    // Schedules the retirement at `instant` into the empty `slot`, under the next arm's number, and
-    // watches for the scheduler's later refusal of its instant, which empties the slot and retries.
+    // Schedules the retirement at `retires_at` into the empty `slot`, under the next arm's number,
+    // and watches for the scheduler's later refusal of its instant, which empties the slot and
+    // retries.
     fn schedule_provider_build_retirement(
         self: &Arc<Self>,
         slot: &mut RetirementSlot,
-        instant: SystemTime,
+        retires_at: Timestamp,
     ) -> Result<(), ScheduleError> {
+        let instant = SystemTime::from(retires_at);
         slot.arms_made += 1;
         let arm = slot.arms_made;
         let retiring = Arc::downgrade(self);
@@ -116,10 +120,7 @@ impl AttentionService {
                         return Ok(());
                     };
                     service.disarm_provider_build_retirement(arm);
-                    if let Err(error) = service
-                        .advance_retention(Vec::new(), Timestamp::try_from(instant)?)
-                        .await
-                    {
+                    if let Err(error) = service.advance_retention(Vec::new(), retires_at).await {
                         service.retry_empty_retirement_slot(&error);
                     }
                     Ok(())
@@ -150,15 +151,21 @@ impl AttentionService {
         }
     }
 
-    // Schedules the retry after `error` while the slot is empty; an armed slot needs none.
+    // Schedules the retry after `error` while the slot is empty; an armed slot needs none. The
+    // first failure since the slot was last armed is logged at warn, later ones at debug.
     fn retry_empty_retirement_slot(self: &Arc<Self>, error: &(dyn Error + 'static)) {
         let mut slot = lock(&self.retirement);
         if slot.armed.is_none() {
             self.schedule_retirement_retry(&mut slot, error);
-        } else {
+        } else if slot.failures.is_first_failure() {
             tracing::warn!(
                 error,
                 "a provider build's retirement could not be armed; the one armed stays"
+            );
+        } else {
+            tracing::debug!(
+                error,
+                "a provider build's retirement still could not be armed; the one armed stays"
             );
         }
     }
@@ -170,16 +177,16 @@ impl AttentionService {
         slot: &mut RetirementSlot,
         error: &(dyn Error + 'static),
     ) {
-        if std::mem::replace(&mut slot.has_failed_since_armed, true) {
+        if slot.failures.is_first_failure() {
+            tracing::warn!(
+                error,
+                "a provider build's retirement could not be armed; it is tried again in a minute"
+            );
+        } else {
             tracing::debug!(
                 error,
                 "a provider build's retirement still could not be armed; it is tried again in a \
                  minute"
-            );
-        } else {
-            tracing::warn!(
-                error,
-                "a provider build's retirement could not be armed; it is tried again in a minute"
             );
         }
         if let Some(previous) = slot.retry.take() {

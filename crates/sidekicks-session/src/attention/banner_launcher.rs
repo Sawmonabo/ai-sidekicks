@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use sidekicks_platforms::{Spawner, WindowlessLaunch, launch_app_windowless};
+use sidekicks_std::failure_episode::FailureEpisode;
 use sidekicks_std::mutex_lock::lock;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -58,7 +59,7 @@ struct LaunchState {
     // Whether this run of the daemon logged that its system starts no app yet.
     has_logged_unsupported: bool,
     // Whether a start failed since one last succeeded, which logs later failures at debug.
-    has_failed_since_success: bool,
+    start_failures: FailureEpisode,
 }
 
 impl BannerLauncher {
@@ -127,15 +128,6 @@ impl InFlightStart {
     fn is_first_unsupported(&self) -> bool {
         !std::mem::replace(&mut lock(&self.state).has_logged_unsupported, true)
     }
-
-    // Whether this is the first failed start since one succeeded, marking a failure seen.
-    fn is_first_failure(&self) -> bool {
-        !std::mem::replace(&mut lock(&self.state).has_failed_since_success, true)
-    }
-
-    fn mark_succeeded(&self) {
-        lock(&self.state).has_failed_since_success = false;
-    }
 }
 
 impl Drop for InFlightStart {
@@ -169,7 +161,7 @@ async fn launch_and_lift(
         return;
     };
     if launched.is_ok() {
-        in_flight.mark_succeeded();
+        lock(&in_flight.state).start_failures.mark_succeeded();
     }
     match launched {
         Ok(WindowlessLaunch::Unwatched) => tokio::time::sleep(UNWATCHED_START_HOLD).await,
@@ -200,7 +192,7 @@ async fn launch_and_lift(
 // debug after.
 fn log_failed_start(in_flight: &InFlightStart, error: &io::Error) {
     let error = error as &(dyn Error + 'static);
-    if in_flight.is_first_failure() {
+    if lock(&in_flight.state).start_failures.is_first_failure() {
         tracing::warn!(
             error,
             "the app could not be started with no window, so its banner waits for the app"

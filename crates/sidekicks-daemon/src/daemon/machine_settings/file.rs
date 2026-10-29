@@ -12,7 +12,6 @@
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use futures::FutureExt as _;
@@ -25,6 +24,7 @@ use sidekicks_contracts::machine::settings::{
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
 use sidekicks_platforms::create_private_folder;
+use sidekicks_std::failure_episode::FailureEpisode;
 use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
@@ -59,7 +59,7 @@ pub(crate) struct MachineSettingsFile {
     /// Every listener's outlet and in-process reader's channel.
     listeners: Mutex<Listeners>,
     /// Whether a rewrite of the defaults failed with no write succeeding since.
-    has_unwritten_defaults: AtomicBool,
+    defaults_write_failures: FailureEpisode,
 }
 
 #[derive(Default)]
@@ -85,7 +85,7 @@ impl MachineSettingsFile {
             file_path,
             repair: tokio::sync::Mutex::new(None),
             listeners: Mutex::default(),
-            has_unwritten_defaults: AtomicBool::new(false),
+            defaults_write_failures: FailureEpisode::default(),
         }
     }
 
@@ -198,7 +198,7 @@ impl MachineSettingsFile {
         let Err(error) = self.write(defaults).await else {
             return DefaultsWrite::Written;
         };
-        let is_first = !self.has_unwritten_defaults.swap(true, Ordering::Relaxed);
+        let is_first = self.defaults_write_failures.is_first_failure();
         let error = &error as &(dyn Error + 'static);
         if is_first {
             tracing::warn!(
@@ -240,7 +240,7 @@ impl MachineSettingsFile {
             serde_json::to_vec_pretty(settings).expect("the settings serialize as JSON");
         contents.push(b'\n');
         write_file_atomically(&self.file_path, contents, SETTINGS_FILE_MODE).await?;
-        self.has_unwritten_defaults.store(false, Ordering::Relaxed);
+        self.defaults_write_failures.mark_succeeded();
         Ok(())
     }
 
