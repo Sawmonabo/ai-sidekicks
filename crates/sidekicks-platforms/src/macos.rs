@@ -6,7 +6,8 @@
 //! processes and the arguments and environment a process started with, an open descriptor's path,
 //! the wakes of a folder's and a file's watch, whether a terminal's program waits for input, the
 //! machine's wakes from sleep, whether it runs on AC power, a wall-clock timer, the login keychain,
-//! the Region setting's locale and hour cycle and the shells the live test opens on a folder.
+//! the Region setting's locale and hour cycle, the app's start with no window and the shells the
+//! live test opens on a folder.
 
 pub(crate) mod bash_start;
 pub(crate) mod caller_process;
@@ -30,6 +31,7 @@ pub(crate) mod system_locale;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 pub(crate) mod watch;
+pub(crate) mod windowless_app;
 
 use std::io;
 use std::path::PathBuf;
