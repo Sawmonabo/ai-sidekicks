@@ -10,6 +10,7 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::app_identity::DAEMON_LAUNCHD_LABEL;
 use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_DRAIN_BOUND_MS;
@@ -29,6 +30,11 @@ const BUSY_RETRY_DELAY: Duration = Duration::from_secs(1);
 // The time past the stop's drain that launchd leaves the service to close and exit before it
 // kills it.
 const EXIT_MARGIN_SECONDS: u64 = 2;
+
+/// How long launchd leaves the service to exit after asking it to stop before it kills it: the
+/// stop's whole drain, in whole seconds, and the margin past it.
+pub(crate) const EXIT_TIME_OUT_SECONDS: u64 =
+    DAEMON_STOP_DRAIN_BOUND_MS.div_ceil(1_000) + EXIT_MARGIN_SECONDS;
 
 /// The service's login agent on this Mac, for the user running this process.
 #[derive(Clone, Copy, Debug)]
@@ -60,7 +66,7 @@ impl AgentList {
             label: DAEMON_LAUNCHD_LABEL.to_owned(),
             program_arguments: vec![daemon_program.to_owned()],
             run_at_load: true,
-            exit_time_out: DAEMON_STOP_DRAIN_BOUND_MS.div_ceil(1_000) + EXIT_MARGIN_SECONDS,
+            exit_time_out: EXIT_TIME_OUT_SECONDS,
         }
     }
 }
@@ -96,7 +102,7 @@ impl ServiceRegistration {
     ) -> Result<ServiceInstall, ServiceRegistrationError> {
         let path = agent_list_path()?;
         let list = AgentList::naming(daemon_program);
-        let written = read_agent_list(&path)?;
+        let written: Option<AgentList> = read_launchd_list(&path)?;
         let is_current = written.as_ref() == Some(&list);
         if is_current && self.is_loaded()? {
             return Ok(ServiceInstall::Unchanged);
@@ -233,8 +239,11 @@ fn agent_list_path() -> Result<PathBuf, ServiceRegistrationError> {
         .join(format!("{DAEMON_LAUNCHD_LABEL}.plist")))
 }
 
-// The list at `path`, or `None` when no file is there.
-fn read_agent_list(path: &Path) -> Result<Option<AgentList>, ServiceRegistrationError> {
+/// The launchd property list at `path`, or `None` when no file is there. Fails when the file
+/// cannot be read or is not such a list.
+pub(crate) fn read_launchd_list<T: DeserializeOwned>(
+    path: &Path,
+) -> Result<Option<T>, ServiceRegistrationError> {
     let read_failure = |source: io::Error| ServiceRegistrationError::Read {
         path: path.to_owned(),
         source,
@@ -256,13 +265,19 @@ fn write_agent_list(path: &Path, list: &AgentList) -> Result<(), ServiceRegistra
         path: path.to_owned(),
         source,
     };
-    let mut contents = Vec::new();
-    plist::to_writer_xml(&mut contents, list)
-        .map_err(|source| write_failure(io::Error::new(io::ErrorKind::InvalidInput, source)))?;
+    let contents = launchd_list_bytes(list).map_err(write_failure)?;
     let folder = path
         .parent()
         .expect("the agent's list path ends in a file name");
     fs::create_dir_all(folder).map_err(write_failure)?;
     replace_file_atomically(path, &contents, AGENT_LIST_MODE, LeftoverSweep::Unswept)
         .map_err(|source| write_failure(io::Error::other(source)))
+}
+
+/// `list` as the XML property list launchd reads. Fails when a value has no property-list form.
+pub(crate) fn launchd_list_bytes(list: &impl Serialize) -> io::Result<Vec<u8>> {
+    let mut contents = Vec::new();
+    plist::to_writer_xml(&mut contents, list)
+        .map_err(|source| io::Error::new(io::ErrorKind::InvalidInput, source))?;
+    Ok(contents)
 }

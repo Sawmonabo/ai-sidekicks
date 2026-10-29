@@ -1,5 +1,6 @@
 //! The service's registration to start at login: which registration owns it, its install, its
-//! start, its removal, and whether a person is logged in at the screen. A system that registers
+//! start, its removal, and whether a person is logged in at the screen; and the system service
+//! that runs it while its account is logged out, behind an administrator's password. A system that registers
 //! the service supplies the registration in its own module; on any other system the registration
 //! type has no value, so [`service_registration`] answers `None` there and nothing else is called.
 
@@ -17,6 +18,21 @@ pub enum ServiceOwner {
     App,
     /// No registration: nothing starts the service at login.
     None,
+}
+
+/// The daemon program's first argument when it runs as the system service, so it runs while its
+/// account is logged out; the daemon program's dispatch reads it.
+pub const SYSTEM_SERVICE_MODE: &str = "system-service";
+
+/// Which account, if any, has the system service installed on this computer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemServiceOwner {
+    /// No system service is installed.
+    NotInstalled,
+    /// The installed system service runs as this account.
+    ThisAccount,
+    /// The installed system service runs as another account, or names none.
+    OtherAccount,
 }
 
 /// What an install did, which decides what the person is told.
@@ -56,6 +72,32 @@ pub enum ServiceRegistrationError {
         /// The service manager's exit status.
         status: ExitStatus,
         /// What it wrote on its error stream, trimmed.
+        message: String,
+    },
+    /// The account this run acts for could not be read from the user database.
+    #[error("this account's entry in the user database could not be read")]
+    Account {
+        /// Why it could not be read.
+        #[source]
+        source: io::Error,
+    },
+    /// The run has root's rights but names no other account it acts for: `sudo` was not used, it
+    /// was used from root, or the account it names has no entry.
+    #[error("running as root, but no account other than root ran sudo")]
+    NoInvokingAccount,
+    /// The person canceled the administrator password prompt.
+    #[error("the administrator password was not given")]
+    Canceled,
+    /// The step run behind the administrator password prompt failed: the error number and message
+    /// macOS answered, which for a failed command are its exit status and what it wrote on its
+    /// error stream.
+    #[error("the administrator step to {step} failed ({number}): {message}")]
+    AdministratorRefused {
+        /// The refused step, such as `install the system service`.
+        step: &'static str,
+        /// The error number macOS answered.
+        number: i64,
+        /// The message macOS answered, trimmed.
         message: String,
     },
     /// The registration's file could not be read or understood.
@@ -120,6 +162,30 @@ impl ServiceRegistration {
 
     /// Whether a person is logged in at the screen; never called, since no value exists.
     pub fn has_screen_session(&self) -> Result<bool, ServiceRegistrationError> {
+        match *self {}
+    }
+
+    /// Whether this run has root's rights; never called, since no value exists.
+    pub fn runs_as_root(&self) -> bool {
+        match *self {}
+    }
+
+    /// Which account has the system service installed; never called, since no value exists.
+    pub fn system_service_owner(&self) -> Result<SystemServiceOwner, ServiceRegistrationError> {
+        match *self {}
+    }
+
+    /// Installs the system service; never called, since no value exists.
+    pub fn install_system_service(
+        &self,
+        _daemon_program: &std::path::Path,
+        _is_app_installed: bool,
+    ) -> Result<(), ServiceRegistrationError> {
+        match *self {}
+    }
+
+    /// Removes the system service; never called, since no value exists.
+    pub fn uninstall_system_service(&self) -> Result<(), ServiceRegistrationError> {
         match *self {}
     }
 }
