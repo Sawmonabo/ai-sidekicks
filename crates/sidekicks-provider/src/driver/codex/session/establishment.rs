@@ -252,6 +252,7 @@ impl CodexSessionEstablishment {
                 .map(|level| level.as_str().to_owned()),
             declared_output_speed: read_codex_declared_tier(params.session_id, &reply),
             reasoning_effort: read_thread_reasoning_effort(&reply),
+            on_mcp_server_status: params.on_mcp_server_status.clone(),
         });
         // `id` is the resume key; `sessionId` groups a thread tree, so the two differ.
         let handle = ProviderSessionHandle {
@@ -351,6 +352,8 @@ impl CodexSessionEstablishment {
             output_speed_request,
             declared_output_speed: read_codex_declared_tier(params.session_id, &forked.reply),
             reasoning_effort: read_thread_reasoning_effort(&forked.reply),
+            // The resume's own sink, bound to the binding it runs under.
+            on_mcp_server_status: params.on_mcp_server_status.clone(),
         });
         Ok((
             result,

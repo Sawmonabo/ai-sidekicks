@@ -11,6 +11,7 @@ mod resume;
 mod rule_revoke;
 mod sessions;
 mod skill_picks;
+mod status_legs;
 mod terminal_reach;
 mod usage;
 

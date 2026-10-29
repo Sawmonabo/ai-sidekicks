@@ -186,14 +186,6 @@ pub(crate) fn normalize_codex_mcp_server_status_list(
 /// Reads one `mcpServer/startupStatus/updated` notification into a bounded reading with its
 /// `error` text; a `failed` startup for `reauthenticationRequired` reads `NeedsAuth`, the one
 /// state a person can fix.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex driver's MCP server status reads call it, the one map of Codex's \
-                  startup updates"
-    )
-)]
 pub(crate) fn normalize_codex_mcp_server_status_notification(
     raw_notification: &Value,
 ) -> McpServerStatusIngestResult {
