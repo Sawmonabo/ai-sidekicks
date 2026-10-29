@@ -315,7 +315,9 @@ macro_rules! inventory_entry {
                 /// The project roots, each with its distribution, where the server is switched off,
                 /// by the provider's own per-project list or, on a connector or an organization's
                 /// server, by the daemon's per-project switch; it stays out of those projects'
-                /// sessions. Absent where no project switched it off.
+                /// sessions. Absent where no project switched it off, and on a connector or an
+                /// organization's server while the binding store, which keeps its switch, is
+                /// unavailable.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",

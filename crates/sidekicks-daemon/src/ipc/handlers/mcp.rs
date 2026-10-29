@@ -1,8 +1,8 @@
-//! `mcp.subscribe`, the MCP governance stream: the stored governance events of the daemon-scope
-//! sentinel session's log, followed from its head when the call is taken, and the newest notice
-//! per key from the status tracker's notice board, the stream's place in the board taken before
-//! the acknowledgment goes out, so a notice sent after it is read and none falls between the call
-//! and a first `mcp.server.list`.
+//! The `mcp.*` methods: the server inventory's reads, and `mcp.subscribe`, the MCP governance
+//! stream: the stored governance events of the daemon-scope sentinel session's log, followed from
+//! its head when the call is taken, and the newest notice per key from the status tracker's notice
+//! board, the stream's place in the board taken before the acknowledgment goes out, so a notice
+//! sent after it is read and none falls between the call and a first `mcp.server.list`.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, LazyLock};
@@ -23,6 +23,7 @@ use sidekicks_ipc::registry::{
 use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage, RecordPageRead, SendGate};
 use sidekicks_ipc::stream::frame_batcher::{ChangeFeed, FrameChanges};
 use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
+use sidekicks_mcp::inventory_service::McpInventoryService;
 use sidekicks_mcp::status::notices::{McpNoticeBoard, McpNoticeKey};
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::log_service::{
@@ -30,6 +31,9 @@ use sidekicks_store::events::log_service::{
 };
 use tokio::sync::watch;
 
+use self::inventory::register_inventory_methods;
+
+mod inventory;
 #[cfg(test)]
 mod tests;
 
@@ -41,14 +45,30 @@ static MCP_GOVERNANCE_EVENT_TYPE_NAMES: LazyLock<Vec<&'static str>> = LazyLock::
         .collect()
 });
 
-/// Registers `mcp.subscribe` over the event `log` and the status tracker's notice `board`. A first
-/// read of the log that fails refuses the call with nothing open. Fails the start when the method
+/// What the `mcp.*` methods read: the event log and the status tracker's notice board the
+/// subscription follows, and the server inventory.
+pub(crate) struct McpMethodSources {
+    /// The event log, whose sentinel session holds the governance events.
+    pub(crate) log: Arc<EventLogService>,
+    /// The status tracker's notice board.
+    pub(crate) board: Arc<McpNoticeBoard>,
+    /// The server inventory `mcp.server.list` and `mcp.server.read` answer from.
+    pub(crate) inventory: Arc<McpInventoryService>,
+}
+
+/// Registers `mcp.server.list`, `mcp.server.read` and `mcp.subscribe` over `sources`. A first read
+/// of the log that fails refuses the subscription with nothing open. Fails the start when a method
 /// is already registered.
 pub(crate) fn register_mcp_methods(
     registry: &mut MethodRegistryBuilder,
-    log: Arc<EventLogService>,
-    board: Arc<McpNoticeBoard>,
+    sources: McpMethodSources,
 ) -> Result<(), RegistrationError> {
+    let McpMethodSources {
+        log,
+        board,
+        inventory,
+    } = sources;
+    register_inventory_methods(registry, &inventory)?;
     registry.register_subscription::<McpSubscribe, _>(
         move |_request: EmptyPayload, _context: HandlerContext, subscription_id: SubscriptionId| {
             let log = Arc::clone(&log);
