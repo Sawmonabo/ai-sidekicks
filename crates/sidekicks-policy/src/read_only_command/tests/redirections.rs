@@ -55,6 +55,8 @@ use super::reads_only;
 #[case::cat_lt_lt_upper_eof_newline_dollar_brace("cat <<EOF\n${HOME}\nEOF", true)]
 #[case::cat_lt_lt_upper_eof_newline_backquote_touch("cat <<EOF\n`touch f`\nEOF", false)]
 #[case::cat_lt_lt_upper_e_squote_upper_of_squote("cat <<E'OF'\n$(touch f)\nEOF", true)]
+#[case::partly_quoted_delimiter_then_a_read("cat <<E'OF'\n$(touch f)\nEOF\nls", true)]
+#[case::partly_quoted_delimiter_then_a_write("cat <<E'OF'\nx\nEOF\nrm a", false)]
 #[case::cat_lt_lt_upper_eof_pipe_sh_newline_x("cat <<EOF | sh\nx\nEOF", false)]
 #[case::cat_lt_lt_upper_eof_amp_amp_rm_a_newline_x("cat <<EOF && rm a\nx\nEOF", false)]
 #[case::cat_lt_lt_lt_hi("cat <<<hi", true)]

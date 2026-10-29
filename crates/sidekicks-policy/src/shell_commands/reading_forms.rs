@@ -15,6 +15,10 @@ pub(super) struct ReadingForms {
     command_redirects: Vec<usize>,
     // The here-document bodies the shell passes as text, whose parts run nothing.
     literal_bodies: Vec<usize>,
+    // The first quoted here-document start whose delimiter the parser reads otherwise than the
+    // shell: its byte range and the shell's delimiter in single quotes, which the shell reads
+    // the same way and the parser reads as the shell does.
+    delimiter_requote: Option<(usize, usize, String)>,
 }
 
 impl ReadingForms {
@@ -24,12 +28,25 @@ impl ReadingForms {
             is_reading: true,
             command_redirects: Vec::new(),
             literal_bodies: Vec::new(),
+            delimiter_requote: None,
         }
     }
 
     /// Whether every node noted is a form a reading line may hold.
     pub(super) fn is_reading(&self) -> bool {
         self.is_reading
+    }
+
+    /// `line` with its first here-document start the parser misreads put in single quotes, the
+    /// start the shell reads the same way and the parser reads as the shell does; `None` when no
+    /// start needs it.
+    pub(super) fn requote_delimiter(&self, line: &str) -> Option<Box<str>> {
+        let (start, end, quoted) = self.delimiter_requote.as_ref()?;
+        Some(
+            [&line[..*start], quoted, &line[*end..]]
+                .concat()
+                .into_boxed_str(),
+        )
     }
 
     /// Notes `node`, and answers whether the walk reads the nodes inside it: false only for a
@@ -149,21 +166,20 @@ impl ReadingForms {
 
     // A here-document whose delimiter the parser read as the shell reads it. A quoted delimiter
     // makes the body text; an unquoted one expands it, so the body holds no backquote, backslash
-    // or arithmetic, which the parser does not read in a body.
+    // or arithmetic, which the parser does not read in a body. A quoted start the parser reads
+    // otherwise is noted for a second read with the start requoted.
     fn note_here_document(&mut self, redirect: Node<'_>, line: &str) -> bool {
         let mut start = None;
         let mut body = None;
-        let mut strips_tabs = false;
         let mut cursor = redirect.walk();
         for child in redirect.children(&mut cursor) {
             match child.kind() {
                 "heredoc_start" => start = Some(child),
                 "heredoc_body" => body = Some(child),
-                "<<-" => strips_tabs = true,
                 _ => {}
             }
         }
-        let (Some(start), Some(body)) = (start, body) else {
+        let Some(start) = start else {
             return false;
         };
         let start_text = node_text(start, line);
@@ -172,16 +188,28 @@ impl ReadingForms {
             return false;
         }
         if !start_text.contains(['\'', '"', '\\']) {
-            let text = node_text(body, line);
-            return !(text.contains(['`', '\\']) || text.contains("$((") || text.contains("$["));
+            return body.is_some_and(|body| {
+                let text = node_text(body, line);
+                !(text.contains(['`', '\\']) || text.contains("$((") || text.contains("$["))
+            });
         }
         let delimiter = shell_delimiter(start_text);
-        let is_read_as_the_shell_reads = delimiter == parser_delimiter(start_text)
-            || ends_on_the_last_line(line, body, redirect, &delimiter, strips_tabs);
-        if is_read_as_the_shell_reads {
-            self.literal_bodies.push(body.id());
+        if delimiter != parser_delimiter(start_text) {
+            // A delimiter holding a quote or a newline has no single-quoted form.
+            if self.delimiter_requote.is_none() && !delimiter.contains(['\'', '\n']) {
+                self.delimiter_requote = Some((
+                    start.start_byte(),
+                    start.end_byte(),
+                    format!("'{delimiter}'"),
+                ));
+            }
+            return false;
         }
-        is_read_as_the_shell_reads
+        let Some(body) = body else {
+            return false;
+        };
+        self.literal_bodies.push(body.id());
+        true
     }
 }
 
@@ -254,33 +282,6 @@ fn parser_delimiter(word: &str) -> String {
         }
     }
     delimiter
-}
-
-// Whether the shell's delimiter ends the here-document on the line's last line, which the
-// parser's body runs to: the parser, reading its own delimiter, found no end, so nothing past the
-// body was read as text.
-fn ends_on_the_last_line(
-    line: &str,
-    body: Node<'_>,
-    redirect: Node<'_>,
-    delimiter: &str,
-    strips_tabs: bool,
-) -> bool {
-    let body_line_start = line[..body.start_byte()].rfind('\n').map_or(0, |at| at + 1);
-    let mut position = body_line_start;
-    for body_line in line[body_line_start..].split('\n') {
-        let end = position + body_line.len();
-        let text = if strips_tabs {
-            body_line.trim_start_matches('\t')
-        } else {
-            body_line
-        };
-        if text == delimiter {
-            return matches!(&line[end..], "" | "\n") && redirect.end_byte() >= end;
-        }
-        position = end + 1;
-    }
-    false
 }
 
 // The operators a `[[ … ]]` test compares strings or files with, beside its test operators.

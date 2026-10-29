@@ -24,7 +24,15 @@ pub fn is_read_only_command(reader: &mut ShellLineReader, line: &str) -> bool {
     let Some(line) = line_as_the_shell_reads(&unwrapped) else {
         return false;
     };
-    let reading = reader.read(&line);
+    let mut reading = reader.read(&line);
+    // Each pass requotes one here-document start further on, so a line holds at most one per
+    // `<<`.
+    for _ in 0..line.matches("<<").count() {
+        let Some(requoted) = reading.requoted_line().map(str::to_owned) else {
+            break;
+        };
+        reading = reader.read(&requoted);
+    }
     if !reading.is_whole() || !reading.holds_only_reading_forms() {
         return false;
     }

@@ -42,6 +42,7 @@ pub struct ShellLineReading {
     words: Box<[Word]>,
     commands: Box<[CommandEntry]>,
     holds_only_reading_forms: bool,
+    requoted_line: Option<Box<str>>,
     is_whole: bool,
 }
 
@@ -78,6 +79,13 @@ impl ShellLineReading {
         self.holds_only_reading_forms
     }
 
+    /// The line with its first here-document start the parser misreads put in single quotes,
+    /// which the shell reads the same way, so the line's forms are judged on that line's reading;
+    /// `None` when no start needs it.
+    pub(crate) fn requoted_line(&self) -> Option<&str> {
+        self.requoted_line.as_deref()
+    }
+
     fn unread() -> Self {
         Self {
             line: Arc::from(""),
@@ -87,6 +95,7 @@ impl ShellLineReading {
             words: Box::default(),
             commands: Box::default(),
             holds_only_reading_forms: false,
+            requoted_line: None,
             is_whole: false,
         }
     }
@@ -98,10 +107,11 @@ impl ShellLineReading {
         let root = tree.root_node();
         let is_whole = !root.has_error();
         let mut builder = WordBuilder::new(&line);
-        let (words, commands, holds_only_reading_forms) = commands_in(root, &mut builder);
+        let (words, commands, forms) = commands_in(root, &mut builder);
         // The tree goes before the arrays shrink to their length, so the two never meet.
         drop(tree);
         let (decoded, pieces, positions) = builder.finish();
+        let requoted_line = forms.requote_delimiter(&line);
         Self {
             line,
             decoded,
@@ -109,7 +119,8 @@ impl ShellLineReading {
             pieces,
             words: words.into_boxed_slice(),
             commands: commands.into_boxed_slice(),
-            holds_only_reading_forms,
+            holds_only_reading_forms: forms.is_reading(),
+            requoted_line,
             is_whole,
         }
     }
@@ -260,12 +271,12 @@ impl ShellLineReader {
 // Every simple command in the tree, nested ones included: those in a pipeline, a chain, a subshell
 // or a loop, those a substitution runs, inside double quotes, an assignment or a here-document
 // too, and those the parser read before a syntax error; and whether every form of the line is one
-// a reading line may hold. A here-document body the shell passes as text is not read. The cursor
+// a reading line may hold, as the forms noted. A here-document body the shell passes as text is not read. The cursor
 // keeps its own stack, so no nesting depth reaches this thread's.
 fn commands_in(
     root: Node<'_>,
     builder: &mut WordBuilder<'_>,
-) -> (Vec<Word>, Vec<CommandEntry>, bool) {
+) -> (Vec<Word>, Vec<CommandEntry>, ReadingForms) {
     let mut words = Vec::new();
     let mut commands = Vec::new();
     let mut forms = ReadingForms::new();
@@ -285,7 +296,7 @@ fn commands_in(
         }
         while !cursor.goto_next_sibling() {
             if !cursor.goto_parent() {
-                return (words, commands, forms.is_reading());
+                return (words, commands, forms);
             }
         }
     }
