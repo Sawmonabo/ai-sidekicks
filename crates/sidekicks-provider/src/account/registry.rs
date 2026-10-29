@@ -547,4 +547,4 @@ fn credential_generation(index: usize, stored: i64) -> rusqlite::Result<Credenti
 struct StoredValueRefused(&'static str);
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
