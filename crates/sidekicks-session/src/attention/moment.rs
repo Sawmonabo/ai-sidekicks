@@ -67,21 +67,6 @@ impl AttentionMoment {
         };
         FreeFormText::new(id).expect("every moment id is far below the attention id bound")
     }
-
-    /// The subject whose entries merge into one banner and share one seen mark: the session for
-    /// an agent run or a plan of `session_id`, or for the session itself, and the workflow run for
-    /// a workflow's entries.
-    #[expect(dead_code, reason = "the attention projection")]
-    pub(crate) fn subject(&self, session_id: SessionId) -> AttentionSubject {
-        match self {
-            Self::Run(_) | Self::Plan(_) => AttentionSubject::Session(session_id),
-            Self::Session(own_session_id) => AttentionSubject::Session(*own_session_id),
-            Self::WorkflowRun(workflow_run_id)
-            | Self::Notify {
-                workflow_run_id, ..
-            } => AttentionSubject::WorkflowRun(*workflow_run_id),
-        }
-    }
 }
 
 /// The moment id `<prefix>:` and 32 hex digits of the BLAKE3 hash of `key`: a fixed length within
