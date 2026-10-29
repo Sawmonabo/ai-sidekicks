@@ -144,6 +144,10 @@ pub struct ProviderDescriptor {
     /// and their files in, which hold no credential; a backup keeps them in each account home the
     /// app manages.
     pub(crate) account_home_conversation_folders: &'static [&'static [&'static str]],
+    /// The folder, as components under an account home, the provider keeps its agents' memory in
+    /// across every project, which each home the app manages links to the daemon's own
+    /// agent-memory folder; `None` where the provider keeps no such folder in its home.
+    pub(crate) account_home_memory_folder: Option<&'static [&'static str]>,
     /// How the provider runs every shell command through the command wrapper's link, as one line
     /// handed over as the link's one argument; `None` where the provider starts its commands
     /// through the daemon's relay instead.

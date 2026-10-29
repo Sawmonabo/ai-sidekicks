@@ -325,11 +325,12 @@ pub use posix::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::file_system::{
     CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, UnwritableEntry,
-    is_superuser, make_folder_link, make_unreadable, make_unwritable,
+    is_superuser, make_unreadable, make_unwritable,
 };
 #[cfg(unix)]
 pub use posix::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, make_folder_link, remove_tree,
+    rename_replacing,
 };
 #[cfg(unix)]
 pub use posix::login_shell::{login_shell, name_as_login_shell};
@@ -517,11 +518,12 @@ pub use windows::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::file_system::{
     CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, UnwritableEntry,
-    is_superuser, make_folder_link, make_unreadable, make_unwritable,
+    is_superuser, make_unreadable, make_unwritable,
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, make_folder_link, remove_tree,
+    rename_replacing,
 };
 #[cfg(target_os = "windows")]
 pub use windows::input_wait::{may_wait_for_input, read_input_wait};

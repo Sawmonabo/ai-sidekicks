@@ -9,10 +9,10 @@
 //!   reader sees two current accounts or none.
 //! - The generation rises when a probe sees the account cross into or out of being signed in, in
 //!   the same statement that stores the reading; the background observer stores its reading and
-//!   never moves the generation.
+//!   never moves the generation. A home reset always raises it, with the sign-in stored as gone.
 
 use std::borrow::Cow;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 use rusqlite::types::{Type, Value};
@@ -99,6 +99,19 @@ static RECORD_HEALTH_SQL: LazyLock<String> = LazyLock::new(|| {
      SET credential_generation = credential_generation
            + (@bumps_generation
               AND ((health_state IS @authenticated) != (@health_state IS @authenticated))),
+         health_state = @health_state,
+         health_observed_at = @health_observed_at,
+         updated_at = {DATABASE_NOW_SQL}
+   WHERE account_id = @account_id AND removal_intent = 0
+  RETURNING credential_generation"
+    )
+});
+
+// A reset raises the generation whatever the stored state, so a reading from before it is stale.
+static RECORD_HOME_RESET_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE provider_accounts
+     SET credential_generation = credential_generation + 1,
          health_state = @health_state,
          health_observed_at = @health_observed_at,
          updated_at = {DATABASE_NOW_SQL}
@@ -262,7 +275,7 @@ impl ProviderAccountRegistry {
             random_hex(ACCOUNT_ID_BYTES).map_err(ProviderAccountRegistryError::Mint)?,
         )
         .expect("a hexadecimal id of a fixed length is an account id");
-        let home = create_credential_home(&self.data_folder, &account_id)
+        let home = create_credential_home(&self.data_folder, &provider, &account_id)
             .map_err(ProviderAccountRegistryError::CredentialHome)?;
         Ok(MintedAccount {
             account_id,
@@ -294,6 +307,11 @@ impl ProviderAccountRegistry {
         }])
         .await?;
         self.read(minted.account_id.clone()).await
+    }
+
+    /// The daemon's data folder, which holds every home and the agents' shared memory.
+    pub(super) fn data_folder(&self) -> &Path {
+        &self.data_folder
     }
 
     /// Removes the home of `minted`, an account no sign-in admitted. Fails when the home cannot
@@ -388,19 +406,33 @@ impl ProviderAccountRegistry {
                 expected_row_count: Some(1),
             }])
             .await?;
-        let generation = results
-            .first()
-            .and_then(|result| result.rows.first())
-            .and_then(|row| row.first());
-        match generation {
-            Some(Value::Integer(generation)) => credential_generation(0, *generation),
-            other => Err(rusqlite::Error::FromSqlConversionFailure(
-                0,
-                other.map_or(Type::Null, Value::data_type),
-                "the stored generation is no integer".into(),
-            )),
-        }
-        .map_err(ProviderAccountRegistryError::Query)
+        returned_generation(&results)
+    }
+
+    /// Stores a reset of `account_id`'s home: its generation raised by one and its sign-in stored
+    /// as gone, observed at `observed_at`, in one statement, answering the generation after it.
+    /// Fails with [`ProviderAccountRegistryError::NotFound`] for an account not registered or
+    /// being removed.
+    pub(super) async fn record_home_reset(
+        &self,
+        account_id: &ProviderAccountId,
+        observed_at: &WireInstant,
+    ) -> Result<CredentialGeneration, ProviderAccountRegistryError> {
+        let results = self
+            .write(vec![WriteStatement {
+                sql: Cow::Borrowed(RECORD_HOME_RESET_SQL.as_str()),
+                bindings: StatementBindings::Named(vec![
+                    text_binding("@account_id", account_id.as_str()),
+                    text_binding(
+                        "@health_state",
+                        ProviderAccountHealthState::ReauthRequired.into(),
+                    ),
+                    text_binding("@health_observed_at", observed_at.as_str()),
+                ]),
+                expected_row_count: Some(1),
+            }])
+            .await?;
+        returned_generation(&results)
     }
 
     /// Marks `account_id` for removal, the first write of its removal: refused while a workflow
@@ -482,6 +514,25 @@ fn refusal_or_failure(error: WriteError) -> ProviderAccountRegistryError {
     } else {
         ProviderAccountRegistryError::Write(error)
     }
+}
+
+// The generation the write's one statement returned.
+fn returned_generation(
+    results: &[StatementResult],
+) -> Result<CredentialGeneration, ProviderAccountRegistryError> {
+    let generation = results
+        .first()
+        .and_then(|result| result.rows.first())
+        .and_then(|row| row.first());
+    match generation {
+        Some(Value::Integer(generation)) => credential_generation(0, *generation),
+        other => Err(rusqlite::Error::FromSqlConversionFailure(
+            0,
+            other.map_or(Type::Null, Value::data_type),
+            "the stored generation is no integer".into(),
+        )),
+    }
+    .map_err(ProviderAccountRegistryError::Query)
 }
 
 fn switch_binding(name: &'static str, switch: Option<bool>) -> (Cow<'static, str>, Value) {

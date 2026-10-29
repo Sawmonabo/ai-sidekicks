@@ -235,6 +235,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     account_home_diagnostic_folders: &[&["log"]],
     // Each thread's rollout, a spawned child thread's under its own id.
     account_home_conversation_folders: &[&["sessions"]],
+    // Its memories stay each home's own, read in by the memory import.
+    account_home_memory_folder: None,
     shell_prefix_command: None,
 };
 
