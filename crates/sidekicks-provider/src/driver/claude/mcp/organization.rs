@@ -197,6 +197,7 @@ fn managed_server(
         },
         config,
         endpoint,
+        organization_managed: None,
     })
 }
 

@@ -86,12 +86,14 @@ pub(crate) struct ClaudeMcpServerTool {
     pub(crate) name: Option<String>,
 }
 
-/// A row's `config` as read: its transport word, a remote server's address stripped and folded, and
-/// a program's command and arguments. A connector's id and every header are left unread, the
+/// A row's `config` as read: its transport word, a connector's id, a remote server's address
+/// stripped and folded, and a program's command and arguments. Every header is left unread, the
 /// whole address is dropped once folded, and its `Debug` prints the transport alone.
 pub(crate) struct ClaudeMcpServerStatusConfig {
     /// The `type` as sent (`stdio`, `http`, `sse`, `claudeai-proxy`, …); absent for a program.
     pub(crate) transport: Option<String>,
+    /// A connector's id, which its organization's connector list names it by.
+    pub(crate) connector_id: Option<String>,
     /// A remote server's address, stripped, with its folded whole form held only in memory.
     pub(crate) address: Option<ServerAddressReading>,
     /// A program's command.
@@ -114,6 +116,7 @@ impl Lenient for ClaudeMcpServerStatusConfig {
         Ok(
             ClaudeMcpServerStatusConfigMembers::read(deserializer)?.map(|members| Self {
                 transport: members.transport,
+                connector_id: members.id,
                 address: members.url.as_deref().map(read_server_address),
                 command: members.command,
                 args: members.args.map(|args| args.0),
@@ -127,6 +130,8 @@ impl Lenient for ClaudeMcpServerStatusConfig {
 struct ClaudeMcpServerStatusConfigMembers {
     #[serde(rename = "type", default, deserialize_with = "read_lenient")]
     transport: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     url: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]

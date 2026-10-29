@@ -60,6 +60,7 @@ use crate::driver::{
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
+mod account_credentials;
 mod attachments;
 mod capabilities;
 mod capability_probe;

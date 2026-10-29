@@ -132,6 +132,7 @@ pub(crate) fn rank_claude_mcp_servers(
         sign_in_client: None,
         is_switch_kept_by_daemon: true,
         tool_defaults: McpServerToolDefaults::with_approval_mode(CLAUDE_TOOL_APPROVAL_MODE),
+        organization_managed: server.organization_managed,
     };
 
     let declarations = reading
@@ -344,6 +345,7 @@ mod tests {
                 tool_timeout_sec: None,
             },
             endpoint: address.identity.map(ClaudeMcpEndpoint::Address),
+            organization_managed: None,
         }
     }
 

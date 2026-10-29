@@ -1,7 +1,7 @@
 //! When each account's connectors and organization servers are read, and what is kept between
 //! reads: an account is read at its first session after the daemon starts and again on a refresh,
 //! one read per account at a time, a second ask while one runs joining it, and the result kept for
-//! the account until a refresh. Budget: one Claude Code process of about 140 to 150 MB per
+//! the account until a refresh, each connector marked from its organization's connector list. Budget: one Claude Code process of about 140 to 150 MB per
 //! account at a time, and none once the account's result is kept; a failed read is kept only
 //! until the account's next session or refresh asks again.
 
@@ -14,6 +14,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
 
+use crate::driver::claude::mcp::connectors::organization_mark::ClaudeOrganizationMarks;
 use crate::driver::claude::mcp::connectors::{
     ClaudeAccountServersReadRequest, read_claude_account_servers,
 };
@@ -36,19 +37,22 @@ pub(crate) type ClaudeAccountServersRead =
 pub(crate) struct ClaudeAccountServerReads {
     starts: Arc<dyn ClaudeProcessStarts>,
     sources: Arc<ClaudeSpawnSources>,
+    marks: Arc<ClaudeOrganizationMarks>,
     reads: Mutex<HashMap<ProviderAccountId, ClaudeAccountServersRead>>,
 }
 
 impl ClaudeAccountServerReads {
     /// The reads, each starting its process through `starts` on the account's home `sources`
-    /// resolve.
+    /// resolve, and marking its connectors through `marks`.
     pub(crate) fn new(
         starts: Arc<dyn ClaudeProcessStarts>,
         sources: Arc<ClaudeSpawnSources>,
+        marks: ClaudeOrganizationMarks,
     ) -> Self {
         Self {
             starts,
             sources,
+            marks: Arc::new(marks),
             reads: Mutex::default(),
         }
     }
@@ -81,6 +85,7 @@ impl ClaudeAccountServerReads {
         let task = tokio::spawn(read_account(
             Arc::clone(&self.starts),
             Arc::clone(&self.sources),
+            Arc::clone(&self.marks),
             provider_account_id.clone(),
         ));
         let read = async move {
@@ -96,11 +101,13 @@ impl ClaudeAccountServerReads {
     }
 }
 
-// One read: the account's environment, its process in the empty folder under its home, and the
-// answers read. A failure is recorded here, since a read a session started has no one to tell.
+// One read: the account's environment, its process in the empty folder under its home, the
+// answers read, and, once the process answered, its connectors' organization marks. A failure is
+// recorded here, since a read a session started has no one to tell.
 async fn read_account(
     starts: Arc<dyn ClaudeProcessStarts>,
     sources: Arc<ClaudeSpawnSources>,
+    marks: Arc<ClaudeOrganizationMarks>,
     provider_account_id: ProviderAccountId,
 ) -> Result<ClaudeMcpAccountServers, DriverError> {
     let read = async {
@@ -111,12 +118,17 @@ async fn read_account(
             })?;
         let answers = starts
             .read_account_servers(ClaudeAccountServersReadRequest {
-                environment,
+                environment: environment.clone(),
                 provider_account_id: provider_account_id.clone(),
                 working_folder: account_home.join(CLAUDE_ACCOUNT_SERVERS_READ_FOLDER),
             })
             .await?;
-        Ok(read_claude_account_servers(&provider_account_id, &answers))
+        let marks = marks.read(&environment, &answers).await;
+        Ok(read_claude_account_servers(
+            &provider_account_id,
+            &answers,
+            marks.as_ref(),
+        ))
     }
     .await;
     if let Err(error) = &read {
@@ -137,7 +149,11 @@ mod tests {
     use serde_json::json;
     use sidekicks_contracts::mcp::server::McpServerBindingRef;
 
+    use sidekicks_platforms::CredentialStore;
+
     use super::ClaudeAccountServerReads;
+    use crate::driver::claude::account_credentials::ClaudeSignInReader;
+    use crate::driver::claude::mcp::connectors::organization_mark::ClaudeOrganizationMarks;
     use crate::driver::claude::session::scripted::driver::ScriptedDriver;
     use crate::runtime_binding::test_store::test_provider_account_id;
 
@@ -158,6 +174,9 @@ mod tests {
         let reads = ClaudeAccountServerReads::new(
             fixture.starts.clone(),
             Arc::clone(&fixture.driver.sources),
+            ClaudeOrganizationMarks::new(ClaudeSignInReader::with_keychain(
+                CredentialStore::in_memory(),
+            )),
         );
         let account = test_provider_account_id();
 
