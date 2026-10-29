@@ -225,7 +225,7 @@ pub struct McpProbeReading {
     pub binding: McpServerBindingRef,
     /// What the provider reported.
     pub reading: McpServerReading,
-    /// The provider's error text for the server, its credentials scrubbed and cut to a bound.
+    /// The provider's error text for the server, sanitized and cut to a bound.
     pub failure_text: Option<String>,
     /// The names of the server's tools.
     pub tool_names: Vec<McpToolName>,
