@@ -1,10 +1,12 @@
 //! Reads Codex's account rate-limit readings into a usage-limit signal with the reset boundary the
-//! provider reported.
+//! provider reported, filed under the account and credential generation of the conversation that
+//! met the limit.
 
 use std::collections::BTreeMap;
 
 use jiff::Timestamp;
 use serde_json::{Map, Value};
+use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::usage_limit::{
     ProviderUsageLimitCause, ProviderUsageLimitResetBoundary, ProviderUsageLimitSignal,
 };
@@ -165,9 +167,13 @@ pub(crate) fn observe_codex_rate_limit_update(
 /// Classifies the account's rate-limit readings as a spent usage allowance, or `None`, which means
 /// "not known to be limited". Only the `rateLimitReachedType` arm recognizes one, never prose,
 /// `usedPercent` alone, or a turn error's own info, which carries no reset boundary; the boundary
-/// is read from the limit the mark names alone.
+/// is read from the limit the mark names alone. The signal is filed under `provider_account_id`
+/// at `credential_generation`, the conversation's, never the account the service carries now: a
+/// push from one account's last turn can be read after the service moved to another.
 pub(crate) fn classify_codex_usage_limit_signal(
     observation: &CodexRateLimitObservation,
+    provider_account_id: ProviderAccountId,
+    credential_generation: CredentialGeneration,
 ) -> Option<ProviderUsageLimitSignal> {
     let reached = observation.reached.as_ref()?;
     // An arm the person can remedy, an unrecognized arm and an absent one all give nothing rather
@@ -185,6 +191,8 @@ pub(crate) fn classify_codex_usage_limit_signal(
         .reduce(f64::max);
     Some(ProviderUsageLimitSignal {
         cause: ProviderUsageLimitCause::PlanAllowanceExhausted,
+        provider_account_id,
+        credential_generation,
         reset_boundary: latest_spent_reset
             .and_then(codex_epoch_seconds_to_wire_instant)
             .map(|resets_at| ProviderUsageLimitResetBoundary { resets_at }),
@@ -195,6 +203,8 @@ pub(crate) fn classify_codex_usage_limit_signal(
 mod tests {
     use rstest::rstest;
     use serde_json::{Value, json};
+
+    use crate::runtime_binding::test_store::test_provider_account_id;
 
     use super::{
         classify_codex_usage_limit_signal, observe_codex_rate_limit_read,
@@ -252,7 +262,12 @@ mod tests {
             observe_codex_rate_limit_read(&read),
             observe_codex_rate_limit_update,
         );
-        let signal = classify_codex_usage_limit_signal(&observation).unwrap();
+        let signal = classify_codex_usage_limit_signal(
+            &observation,
+            test_provider_account_id(),
+            serde_json::from_value(json!(1)).unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(
             signal

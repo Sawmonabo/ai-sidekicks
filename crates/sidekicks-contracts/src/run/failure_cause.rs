@@ -5,6 +5,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::driver::usage_limit::ProviderUsageLimitResetBoundary;
@@ -76,12 +77,16 @@ pub enum RunFailureCause {
         safety_category: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
     },
     /// The subscription's allowance for a rolling window is spent, the provider's usage limit
-    /// (`ProviderUsageLimitCause::PlanAllowanceExhausted`), with the reset boundary its driver
-    /// held when the turn failed, so `Limit reached · resets at <time>` is redrawn from this
-    /// record alone.
+    /// (`ProviderUsageLimitCause::PlanAllowanceExhausted`), on the account and credential
+    /// generation the run's conversation ran on, with the reset boundary its driver held when the
+    /// turn failed, so `Limit reached · resets at <time>` is redrawn from this record alone.
     PlanAllowanceExhausted {
         /// Always `provider`.
         origin: ProviderFailureOrigin,
+        /// The account whose allowance is spent.
+        provider_account_id: ProviderAccountId,
+        /// The account's credential generation when the limit was met.
+        credential_generation: CredentialGeneration,
         /// When the spent window resets; absent when no reset instant was known.
         #[serde(
             default,
