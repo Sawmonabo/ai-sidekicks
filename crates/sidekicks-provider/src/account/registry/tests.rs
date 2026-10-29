@@ -1,7 +1,5 @@
 use std::borrow::Cow;
 use std::error::Error;
-use std::path::Path;
-use std::sync::Arc;
 
 use sidekicks_contracts::provider::account::record::{
     BillingMode, CredentialGeneration, ProviderAccountHealthState, ProviderAccountId,
@@ -9,36 +7,15 @@ use sidekicks_contracts::provider::account::record::{
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
 use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 use super::{
-    AccountAdmission, HealthObservation, HealthObserver,
-    PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY, ProviderAccountRegistry, RegisteredAccount,
+    AccountAdmission, HealthObservation, HealthObserver, ProviderAccountRegistry,
+    RegisteredAccount, open_test_registry,
 };
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::driver::schema::schema_parts;
-
-/// A registry over `database` with homes minted under `data_folder`, and the writer it shares.
-pub(crate) async fn open_registry(
-    database: &TestDatabase,
-    data_folder: &Path,
-) -> (ProviderAccountRegistry, Arc<DatabaseWriter>) {
-    let writer = Arc::new(
-        DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-            .await
-            .expect("the writer opens its database"),
-    );
-    let reads = DatabaseReadPool::new(
-        database.path(),
-        PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY,
-    );
-    let registry =
-        ProviderAccountRegistry::new(Arc::new(reads), Arc::clone(&writer), data_folder.to_owned());
-    (registry, writer)
-}
 
 fn provider(id: &str) -> ProviderId {
     ProviderId::new(id.to_owned()).expect("a test provider id")
@@ -63,8 +40,10 @@ pub(crate) async fn register(
         .admit(
             &minted,
             &AccountAdmission {
+                display_label: None,
                 billing_mode: BillingMode::Subscription,
                 health: observation(ProviderAccountHealthState::Authenticated),
+                observed_auth_mode: None,
             },
         )
         .await
@@ -83,7 +62,7 @@ fn generation(value: u64) -> CredentialGeneration {
 async fn only_a_probe_crossing_moves_the_generation_and_a_failed_write_keeps_nothing() {
     let database = TestDatabase::new(schema_parts());
     let data_folder = tempfile::tempdir().expect("a data folder");
-    let (registry, writer) = open_registry(&database, data_folder.path()).await;
+    let (registry, writer) = open_test_registry(&database, data_folder.path()).await;
     let account = register(&registry, "claude").await;
     let id = &account.account_id;
     assert_eq!(account.credential_generation, generation(1));
@@ -172,7 +151,7 @@ fn statement(sql: &'static str) -> WriteStatement {
 async fn concurrent_handovers_leave_one_current_account() {
     let database = TestDatabase::new(schema_parts());
     let data_folder = tempfile::tempdir().expect("a data folder");
-    let (registry, _writer) = open_registry(&database, data_folder.path()).await;
+    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
     let first = register(&registry, "claude").await;
     let second = register(&registry, "claude").await;
     let third = register(&registry, "claude").await;
@@ -211,7 +190,7 @@ async fn concurrent_handovers_leave_one_current_account() {
 async fn every_registered_home_is_the_one_minted_under_the_data_folder() {
     let database = TestDatabase::new(schema_parts());
     let data_folder = tempfile::tempdir().expect("a data folder");
-    let (registry, _writer) = open_registry(&database, data_folder.path()).await;
+    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
     register(&registry, "claude").await;
     register(&registry, "codex").await;
 
@@ -235,7 +214,7 @@ async fn every_registered_home_is_the_one_minted_under_the_data_folder() {
 async fn no_refusal_or_printed_account_carries_a_home_path() {
     let database = TestDatabase::new(schema_parts());
     let data_folder = tempfile::tempdir().expect("a data folder");
-    let (registry, _writer) = open_registry(&database, data_folder.path()).await;
+    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
     let account = register(&registry, "claude").await;
     let home = account
         .credential_home
@@ -254,7 +233,7 @@ async fn no_refusal_or_printed_account_carries_a_home_path() {
         .expect_err("an unknown account is refused");
     let full_folder = tempfile::tempdir().expect("a data folder whose homes folder is a file");
     std::fs::write(full_folder.path().join("accounts"), b"").expect("the file is made");
-    let (blocked, _blocked_writer) = open_registry(&database, full_folder.path()).await;
+    let (blocked, _blocked_writer) = open_test_registry(&database, full_folder.path()).await;
     let unmade = blocked
         .mint(provider("claude"))
         .expect_err("a home under a file cannot be made");

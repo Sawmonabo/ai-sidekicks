@@ -114,6 +114,12 @@ impl KeychainRefusal {
         }
     }
 
+    /// The refusal for `cause` a test's keychain answers, as a locked or missing keychain would.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn of_test_keychain(cause: KeychainRefusalCause) -> Self {
+        Self::new(cause, "the test's keychain refuses the call")
+    }
+
     /// An `unavailable` refusal because the sealed secrets file cannot be opened, with `reason` in
     /// words a person reads, which must hold no secret value.
     pub(crate) fn of_unopened_secrets_file(reason: impl Into<Cow<'static, str>>) -> Self {

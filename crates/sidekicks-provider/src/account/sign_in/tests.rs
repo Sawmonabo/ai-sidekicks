@@ -29,8 +29,8 @@ use super::{
     AttemptId, ProviderAccountNotificationPublisher, ProviderSignInBroker, ProviderSignInError,
 };
 use crate::account::credential_home::CredentialHome;
-use crate::account::registry::tests::{open_registry, register};
-use crate::account::registry::{HealthObservation, ProviderAccountRegistry};
+use crate::account::registry::tests::register;
+use crate::account::registry::{HealthObservation, ProviderAccountRegistry, open_test_registry};
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs,
     ProviderSignInObservation, SignInOrigin,
@@ -260,7 +260,7 @@ async fn one_sign_in_attempt_settles_as_the_table_says(
 ) {
     let database = TestDatabase::new(schema_parts());
     let data_folder = tempfile::tempdir().expect("a data folder");
-    let (registry, _writer) = open_registry(&database, data_folder.path()).await;
+    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
     let registry = Arc::new(registry);
     let existing = if is_registered {
         Some(register(&registry, "claude").await)

@@ -4,7 +4,8 @@
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use secrecy::SecretString;
+use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, PROVIDER_SIGN_IN_USER_CODE_MAX_LEN,
     PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN,
@@ -123,4 +124,19 @@ pub struct ProviderSignInObservation {
     pub health: HealthObservation,
     /// Whether the provider reported who signed in.
     pub is_account_named: bool,
+}
+
+/// A provider's status read of a pasted token or API key: the registration-time invocation that
+/// observes whether the provider accepts it, run once per registration and once per re-supply.
+pub trait ProviderTokenStatusLegs: Send + Sync {
+    /// The signed-in mode the provider's own status read reports for `token` on
+    /// `provider_account_id`'s account, run in `folders` with the token handed to that one child on
+    /// the provider's documented channel; `None` when it reports no signed-in mode. Has no bound of
+    /// its own, the caller bounds it. Fails with the driver's error when the read could not run.
+    fn read_token_status<'call>(
+        &'call self,
+        provider_account_id: &'call ProviderAccountId,
+        folders: &'call ProviderAccountFolders,
+        token: &'call SecretString,
+    ) -> BoxFuture<'call, Result<Option<ProviderAuthMode>, DriverError>>;
 }
