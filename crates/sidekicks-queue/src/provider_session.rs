@@ -18,8 +18,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use serde_json::Map;
+use serde_json::{Map, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
@@ -39,7 +40,10 @@ use sidekicks_provider::driver::contract::{
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{CloseSessionParams, CreateSessionParams};
 use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
-use sidekicks_provider::run::posture::{ExecutionPostureRejection, ExecutionPostureService};
+use sidekicks_provider::run::posture::{
+    ExecutionPostureRejection, ExecutionPostureService, StoredSessionPosture,
+    compose_execution_posture,
+};
 use sidekicks_provider::runtime_binding::resume::{ResumeFunctionLegs, RuntimeBindingNotResumable};
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, RuntimeBindingStoreError,
@@ -289,7 +293,8 @@ impl From<ProviderSessionError> for HandlerError {
     /// No driver for the session's provider answers its refusal, a driver's failure answers as the
     /// driver's own, a closed or purging session answers `session.alreadyClosed` or
     /// `session.changeRefused`, and a level or mode store refused for a session gone meanwhile
-    /// answers `session.notFound`, or by its history's own code while that is rebuilt or damaged;
+    /// answers `session.notFound`, or by its history's own code while that is rebuilt or damaged,
+    /// a level whose posture's folder does not resolve answers `workspace.rootUnavailable`;
     /// anything else, a resume refused among them, is a fault.
     fn from(error: ProviderSessionError) -> Self {
         match error {
@@ -309,6 +314,9 @@ impl From<ProviderSessionError> for HandlerError {
             ProviderSessionError::BeingDeleted { session_id } => Self::Refused(
                 unchangeable_session_refusal(&session_id, SessionState::PurgeRequested),
             ),
+            ProviderSessionError::PostureRefused { session_id, cause } => {
+                Self::Refused(posture_refusal(&session_id, cause))
+            }
             fault @ (ProviderSessionError::Compose { .. }
             | ProviderSessionError::AdmittedAccount(_)
             | ProviderSessionError::NoPosture { .. }
@@ -320,7 +328,6 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::Cursor(_)
             | ProviderSessionError::UnrecordedNotClosed { .. }
             | ProviderSessionError::Store(_)
-            | ProviderSessionError::PostureRefused { .. }
             | ProviderSessionError::LevelNotStored {
                 cause: MoveRecordError::Emit(_),
                 ..
@@ -361,6 +368,17 @@ async fn close_unrecorded(
 fn unchangeable_session_refusal(session_id: &SessionId, state: SessionState) -> DomainError {
     refuse_unchangeable_session(session_id, state)
         .expect_err("a closed or purging session takes no change")
+}
+
+// The refusal a level move answers whose posture's folder no longer resolves, keeping the
+// rejection as its cause; its message names no path, since a refusal can reach a remote caller.
+fn posture_refusal(session_id: &SessionId, cause: ExecutionPostureRejection) -> DomainError {
+    DomainError::new(
+        "The folder this level lets the session write to is unreachable, so the level did not move.",
+        RefusalCode::WorkspaceRootUnavailable,
+    )
+    .with_detail(json!({ "sessionId": session_id }))
+    .with_source(cause)
 }
 
 // A session this daemon opened, where its process stands as the driver answers, and that driver.
@@ -506,6 +524,7 @@ impl ProviderSessions {
             // The session is not closed, so the idle sleep keeps its stored timed fires.
             Some(SessionProcessState::Down) => {
                 self.lock_opened().remove(&session_id);
+                self.deps.execution_postures.forget_session(&session_id);
             }
             Some(SessionProcessState::Live | SessionProcessState::Restarting) | None => {}
         }
@@ -564,15 +583,7 @@ impl ProviderSessions {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<OpenedSession, ProviderSessionError> {
-        let provider_account_id = self
-            .deps
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, ProviderSessionError>(
-                    RunAgentReader::new(reader).read_admitted_account(&session_id, &run_id)?,
-                )
-            })
-            .await?;
+        let provider_account_id = self.read_admitted_account(session_id, run_id).await?;
         let opening = self.compose(session_id, provider_account_id).await?;
         let execution_posture = posture_of(session_id, &opening)?;
         let ProviderSessionOpening {
@@ -637,6 +648,22 @@ impl ProviderSessions {
         })
     }
 
+    // The account `run_id` was admitted against.
+    async fn read_admitted_account(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+    ) -> Result<ProviderAccountId, ProviderSessionError> {
+        self.deps
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, ProviderSessionError>(
+                    RunAgentReader::new(reader).read_admitted_account(&session_id, &run_id)?,
+                )
+            })
+            .await
+    }
+
     async fn compose(
         &self,
         session_id: SessionId,
@@ -696,6 +723,40 @@ impl SessionLevelFollower for ProviderSessions {
                 .await
                 .map_err(|failure| Box::new(failure) as Box<dyn Error + Send + Sync>)
         }
+        .boxed()
+    }
+}
+
+impl StoredSessionPosture for ProviderSessions {
+    /// The stored level's posture over the opened process's git folder, or over the folder the
+    /// session's next opening composes for the account `run_id` was admitted against.
+    fn stored_posture<'a>(
+        &'a self,
+        session_id: SessionId,
+        run_id: RunId,
+        requested: &'a ExecutionPosture,
+    ) -> BoxFuture<'a, Result<Option<ExecutionPosture>, Box<dyn Error + Send + Sync>>> {
+        async move {
+            let (level, _mode) = self.read_controls(session_id).await?;
+            if level == requested.permission_level() {
+                return Ok(None);
+            }
+            let opened_folder = self
+                .lock_opened()
+                .get(&session_id)
+                .map(|opened| opened.git_folder.clone());
+            let git_folder = match opened_folder {
+                Some(git_folder) => git_folder,
+                None => {
+                    let account = self.read_admitted_account(session_id, run_id).await?;
+                    self.compose(session_id, account).await?.git_folder
+                }
+            };
+            Ok(Some(compose_execution_posture(level, git_folder)))
+        }
+        .map(|read: Result<_, ProviderSessionError>| {
+            read.map_err(|failure| Box::new(failure) as Box<dyn Error + Send + Sync>)
+        })
         .boxed()
     }
 }

@@ -2,6 +2,7 @@
 //! of a level its provider reported and a side question's fork.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -10,15 +11,18 @@ use rusqlite::params;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::contract::{
     DriverError, ProviderReportedLevel, SessionProcessState,
 };
 use sidekicks_provider::run::posture::compose_execution_posture;
 use sidekicks_session::console_state::read_session_mode;
 use sidekicks_session::permission_level::read_session_permission_level;
+use sidekicks_session::run::session_posture::SessionPostureSource as _;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::test_session_id;
@@ -28,10 +32,12 @@ use tokio::sync::Notify;
 use super::Opening;
 use crate::provider_session::ProviderSessionError;
 use crate::provider_session::controls::SideQuestionSource;
+use sidekicks_provider::driver::test_registry::new_run_id;
 
 // A move to Sandboxed in a repository whose git folder is gone since the process opened is refused
-// before the driver hears of it, the stored level left as it was. Killed by resolving the posture
-// after the driver's move.
+// before the driver hears of it as `workspace.rootUnavailable`, the stored level left as it was.
+// Killed by resolving the posture after the driver's move, and by answering the refusal as a
+// fault.
 #[tokio::test]
 async fn a_level_move_whose_root_is_gone_is_refused_before_the_driver_moves() {
     let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, _| {
@@ -65,6 +71,12 @@ async fn a_level_move_whose_root_is_gone_is_refused_before_the_driver_moves() {
         matches!(moved, Err(ProviderSessionError::PostureRefused { .. })),
         "{moved:?}"
     );
+    let answered = HandlerError::from(moved.expect_err("the move is refused"));
+    assert!(
+        matches!(&answered, HandlerError::Refused(refusal)
+            if refusal.code == RefusalCode::WorkspaceRootUnavailable),
+        "{answered:?}"
+    );
     let stored = read_session_permission_level(&opening.database.reader(), &opening.session_id)
         .expect("the stored level reads");
     assert_eq!(stored, stored_before);
@@ -89,6 +101,7 @@ async fn a_level_move_re_postures_a_live_run() {
         .open(opening.session_id, opening.run_id)
         .await
         .expect("the conversation resumes");
+    store_level(&opening, PermissionLevel::Readonly);
     let root = FilesystemPath::new("/".to_owned()).expect("the root is a path");
     opening
         .execution_postures
@@ -442,4 +455,218 @@ fn level_moved(opening: &Opening, level: PermissionLevel) -> SessionNoticePosted
         level,
         session_mode: SessionMode::Build,
     })
+}
+
+// The run gate's context for `run_id` of the opening's session, requested at `level` over `/`.
+fn gated_at(opening: &Opening, run_id: RunId, level: PermissionLevel) -> RunSetupContext {
+    RunSetupContext {
+        run_id,
+        session_id: opening.session_id,
+        queue_item: None,
+        workspace_id: None,
+        execution_posture: compose_execution_posture(level, slash()),
+    }
+}
+
+fn slash() -> FilesystemPath {
+    FilesystemPath::new("/".to_owned()).expect("the root is a path")
+}
+
+// A level move whose store fails moves the driver back and puts the session's live runs back at
+// the postures the move replaced, holding no moved posture after, without resolving the old level
+// again. Killed by a move back that leaves the runs at the new level, and by one that keeps the
+// new level as the session's moved posture.
+#[tokio::test]
+async fn a_level_move_whose_store_fails_puts_the_runs_back() {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, _| {
+        driver
+            .expect_session_process_state()
+            .return_const(SessionProcessState::Live);
+        driver
+            .expect_update_permission_level()
+            .times(2)
+            .returning(|_params| async { Ok(()) }.boxed());
+    })
+    .await;
+    opening
+        .sessions
+        .open(opening.session_id, opening.run_id)
+        .await
+        .expect("the conversation resumes");
+    store_level(&opening, PermissionLevel::Readonly);
+    opening
+        .execution_postures
+        .assert_run_ready(&gated_at(
+            &opening,
+            opening.run_id,
+            PermissionLevel::Readonly,
+        ))
+        .await
+        .expect("the run's posture resolves");
+    store_level(&opening, PermissionLevel::Readonly);
+    opening
+        .database
+        .reader()
+        .execute_batch(
+            "CREATE TRIGGER refuse_level BEFORE UPDATE OF permission_level ON sessions
+             BEGIN SELECT RAISE(ABORT, 'the test refuses the level'); END;",
+        )
+        .expect("the test refuses every stored level");
+
+    let moved = opening
+        .sessions
+        .change_level(opening.session_id, PermissionLevel::Yolo)
+        .await;
+
+    assert!(
+        matches!(moved, Err(ProviderSessionError::LevelNotStored { .. })),
+        "{moved:?}"
+    );
+    let readonly = compose_execution_posture(PermissionLevel::Readonly, slash());
+    assert_eq!(
+        opening
+            .execution_postures
+            .resolved_posture_for(&opening.run_id),
+        Some(readonly.clone())
+    );
+    let next = new_run_id();
+    opening
+        .execution_postures
+        .assert_run_ready(&gated_at(&opening, next, PermissionLevel::Readonly))
+        .await
+        .expect("the next run's posture resolves");
+    assert_eq!(
+        opening.execution_postures.resolved_posture_for(&next),
+        Some(readonly)
+    );
+}
+
+// A level stored while no process of the session runs is the one a run admitted before the store
+// gates at, though its admission read the earlier level. Killed by a gate that runs a session with
+// no moved posture at the posture its run was requested at.
+#[tokio::test]
+async fn a_level_stored_with_no_process_is_the_one_a_run_gates_at() {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |_driver, _| {}).await;
+    store_level(&opening, PermissionLevel::Readonly);
+
+    opening
+        .sessions
+        .change_level(opening.session_id, PermissionLevel::Yolo)
+        .await
+        .expect("the level is stored");
+    opening
+        .execution_postures
+        .assert_run_ready(&gated_at(
+            &opening,
+            opening.run_id,
+            PermissionLevel::Readonly,
+        ))
+        .await
+        .expect("the run's posture resolves");
+
+    assert_eq!(
+        opening
+            .execution_postures
+            .resolved_posture_for(&opening.run_id),
+        Some(compose_execution_posture(PermissionLevel::Yolo, slash()))
+    );
+}
+
+// A session whose process is gone keeps no moved posture: a move to Sandboxed over a git folder
+// removed since is let go, so the next run gates at the stored level over the folder the next
+// opening names. Killed by keeping the moved posture past the process.
+#[tokio::test]
+async fn a_gone_process_keeps_no_moved_posture() {
+    let is_down = Arc::new(AtomicBool::new(false));
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), {
+        let is_down = Arc::clone(&is_down);
+        move |driver, _| {
+            driver.expect_session_process_state().returning(move |_| {
+                if is_down.load(Ordering::SeqCst) {
+                    SessionProcessState::Down
+                } else {
+                    SessionProcessState::Live
+                }
+            });
+            driver
+                .expect_update_permission_level()
+                .returning(|_params| async { Ok(()) }.boxed());
+        }
+    })
+    .await;
+    let moved_folder = tempfile::tempdir().expect("a scratch git folder");
+    *lock(&opening.git_folder) = Some(path_of(moved_folder.path()));
+    opening
+        .sessions
+        .open(opening.session_id, opening.run_id)
+        .await
+        .expect("the conversation resumes");
+    opening
+        .sessions
+        .change_level(opening.session_id, PermissionLevel::Sandboxed)
+        .await
+        .expect("the level moves");
+
+    is_down.store(true, Ordering::SeqCst);
+    opening
+        .sessions
+        .forget_gone_process(opening.session_id)
+        .await
+        .expect("the gone process is forgotten");
+    moved_folder
+        .close()
+        .expect("the moved git folder is removed");
+    let next_folder = tempfile::tempdir().expect("the next opening's git folder");
+    *lock(&opening.git_folder) = Some(path_of(next_folder.path()));
+
+    opening
+        .execution_postures
+        .assert_run_ready(&gated_at(
+            &opening,
+            opening.run_id,
+            PermissionLevel::Readonly,
+        ))
+        .await
+        .expect("the run gates at the stored level over the next opening's folder");
+    let resolved = opening
+        .execution_postures
+        .resolved_posture_for(&opening.run_id)
+        .expect("the run holds a posture");
+    assert_eq!(resolved.permission_level(), PermissionLevel::Sandboxed);
+}
+
+// A level stored while the session's process is down, the driver to bring it back, is the posture
+// that process's runs are requested at. Killed by leaving a down process's opened posture at its
+// earlier level.
+#[tokio::test]
+async fn a_down_process_takes_the_level_stored_meanwhile() {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, _| {
+        driver
+            .expect_session_process_state()
+            .return_const(SessionProcessState::Down);
+        driver.expect_update_permission_level().never();
+    })
+    .await;
+    opening
+        .sessions
+        .open(opening.session_id, opening.run_id)
+        .await
+        .expect("the conversation resumes");
+    store_level(&opening, PermissionLevel::Readonly);
+
+    opening
+        .sessions
+        .change_level(opening.session_id, PermissionLevel::Yolo)
+        .await
+        .expect("the level is stored");
+
+    let opened = opening
+        .sessions
+        .opened_execution_posture(&opening.session_id)
+        .expect("the down process stays opened");
+    assert_eq!(opened.permission_level(), PermissionLevel::Yolo);
+}
+
+fn path_of(folder: &std::path::Path) -> FilesystemPath {
+    FilesystemPath::new(folder.to_string_lossy().into_owned()).expect("a scratch folder is a path")
 }

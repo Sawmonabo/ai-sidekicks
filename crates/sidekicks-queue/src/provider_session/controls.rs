@@ -62,8 +62,8 @@ impl ProviderSessions {
     /// Moves the session to `level` and stores it with the `LevelMoved` notice, unless it stands
     /// there already. A process that runs, or that its driver brings back, is moved first, so the
     /// record never names a level the provider refused, and its live runs move with it; a store
-    /// that fails then moves both back and fails. A session with no process stores the level,
-    /// which its next process opens at.
+    /// that fails then moves both back, to the postures the move replaced, and fails. A session
+    /// with no process stores the level, which its next process opens at and its runs gate at.
     /// Fails with [`ProviderSessionError::PostureRefused`] for a level whose posture does not
     /// resolve and as the driver's move fails, both with nothing changed, with
     /// [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for a closed
@@ -86,16 +86,23 @@ impl ProviderSessions {
                 opened,
                 driver,
             }) => (opened, driver),
-            Some(OpenedProcess {
+            down @ (Some(OpenedProcess {
                 state: SessionProcessState::Down,
                 ..
             })
-            | None => {
+            | None) => {
                 self.record_level(session_id, level, session_mode)
                     .await
                     .map_err(|cause| ProviderSessionError::LevelNotStored { session_id, cause })?;
-                // Its next process opens at the stored level, which its runs are requested at.
-                self.deps.execution_postures.forget_session(&session_id);
+                // A process gone but kept opened brings its runs back at the stored level.
+                if let Some(OpenedProcess { opened, .. }) = down {
+                    self.set_posture(
+                        session_id,
+                        compose_execution_posture(level, opened.git_folder),
+                    );
+                }
+                // Its next process opens at the stored level, which its runs gate at.
+                self.deps.execution_postures.note_level_stored(&session_id);
                 return Ok(());
             }
         };
@@ -110,7 +117,8 @@ impl ProviderSessions {
         };
         driver.update_permission_level(moved).await?;
         self.set_posture(session_id, posture);
-        self.deps
+        let replaced = self
+            .deps
             .execution_postures
             .move_session(&session_id, resolved);
         let Err(stored_error) = self.record_level(session_id, level, session_mode).await else {
@@ -123,15 +131,9 @@ impl ProviderSessions {
         };
         match driver.update_permission_level(back).await {
             Ok(()) => {
-                match resolve_posture(&opened.execution_posture).await {
-                    Ok(resolved_back) => self
-                        .deps
-                        .execution_postures
-                        .move_session(&session_id, resolved_back),
-                    // The old level's root is gone too: no posture to carry the runs back to, so
-                    // each later run's gate resolves the one it was requested at.
-                    Err(_unresolved) => self.deps.execution_postures.forget_session(&session_id),
-                }
+                self.deps
+                    .execution_postures
+                    .move_back(&session_id, replaced);
                 self.set_posture(session_id, opened.execution_posture);
                 Err(ProviderSessionError::LevelNotStored {
                     session_id,
@@ -269,6 +271,7 @@ impl ProviderSessions {
             })
             .await?;
         self.set_posture(session_id, posture);
+        // Never moved back: the provider runs where it reported moving.
         self.deps
             .execution_postures
             .move_session(&session_id, resolved);
@@ -300,7 +303,7 @@ impl ProviderSessions {
     }
 
     // The level and the mode the session stands at, as stored.
-    async fn read_controls(
+    pub(super) async fn read_controls(
         &self,
         session_id: SessionId,
     ) -> Result<(PermissionLevel, SessionMode), ProviderSessionError> {

@@ -7,7 +7,7 @@ mod resume;
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -262,6 +262,9 @@ impl Opening {
             process_follower: Arc::clone(&following) as Arc<dyn SessionProcessFollower>,
             execution_postures: Arc::clone(&execution_postures),
         }));
+        execution_postures
+            .set_stored_postures(Arc::downgrade(&sessions) as Weak<_>)
+            .expect("a new posture service reads no stored level yet");
         Self {
             database,
             session_id,

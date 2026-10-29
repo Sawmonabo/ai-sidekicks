@@ -3,12 +3,14 @@
 //! posture is checked and its writable roots resolved before the provider starts the run; a posture
 //! that fails a check refuses the run and is never rewritten into one that passes. A session whose
 //! level moves carries its live runs, and every run of it whose gate passes after the move, to the
-//! moved posture.
+//! moved posture, and a run of a session whose level was stored while no process of it ran gates
+//! at the stored level.
 
 use std::collections::HashMap;
+use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard, Weak};
 
 use futures::future::{BoxFuture, try_join_all};
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -23,6 +25,7 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_workspace::run_setup_gates::{
     RunSetupContext, RunSetupGate, RunSetupGateError, RunTerminalContext,
 };
+use tokio::sync::{SetOnce, SetOnceError};
 
 /// The reference every run's posture carries; it names the daemon's one curated credential list.
 pub const CURATED_CREDENTIAL_POLICY_REF: &str = "curated-credentials";
@@ -151,6 +154,8 @@ pub struct ExecutionPostureService {
     // The runs' and the moved sessions' postures, under one lock so a move and a gate's insert
     // never interleave.
     postures: Mutex<ResolvedPostures>,
+    // Where a session's stored level is read; held weakly, since its owner holds this service.
+    stored_postures: SetOnce<Weak<dyn StoredSessionPosture>>,
 }
 
 // Whole entries only, so a panic elsewhere leaves nothing half written.
@@ -160,6 +165,31 @@ struct ResolvedPostures {
     by_run: HashMap<RunId, LiveRunPosture>,
     // One entry per session whose level moved while it was open, until the session is forgotten.
     moved_by_session: HashMap<SessionId, ExecutionPosture>,
+    // How many times each session's level was stored while no process of it ran, so a gate that
+    // read the stored level before such a store reads it again.
+    stores_by_session: HashMap<SessionId, u64>,
+}
+
+/// What a session's stored level runs at, which the run gate reads for a session holding no moved
+/// posture, so a level stored while no process of the session ran is the one its runs gate at.
+pub trait StoredSessionPosture: Send + Sync {
+    /// The posture the session's stored level runs at for its run `run_id`, `None` where the
+    /// stored level is `requested`'s. Fails as the level's read or its posture's composition fails.
+    fn stored_posture<'a>(
+        &'a self,
+        session_id: SessionId,
+        run_id: RunId,
+        requested: &'a ExecutionPosture,
+    ) -> BoxFuture<'a, Result<Option<ExecutionPosture>, Box<dyn Error + Send + Sync>>>;
+}
+
+/// What a session's level move replaced: the session's moved posture before it, and the posture
+/// each of its live runs ran at; handed back to [`ExecutionPostureService::move_back`] when the
+/// move is undone.
+#[derive(Debug)]
+pub struct ReplacedPostures {
+    moved: Option<ExecutionPosture>,
+    runs: Vec<(RunId, ExecutionPosture)>,
 }
 
 struct LiveRunPosture {
@@ -188,7 +218,16 @@ impl ExecutionPostureService {
                 },
             ],
             postures: Mutex::default(),
+            stored_postures: SetOnce::new(),
         }
+    }
+
+    /// Hands the service where a session's stored level is read. Fails once a source is set.
+    pub fn set_stored_postures(
+        &self,
+        source: Weak<dyn StoredSessionPosture>,
+    ) -> Result<(), SetOnceError<Weak<dyn StoredSessionPosture>>> {
+        self.stored_postures.set(source)
     }
 
     /// The curated list `credential_policy_ref` names, resolved now so a moved symlink is followed.
@@ -221,21 +260,81 @@ impl ExecutionPostureService {
     /// Moves `session_id` to `resolved`, a posture [`resolve_posture`] already resolved: every live
     /// run of the session runs at it from now, and every run of the session whose gate passes
     /// before [`Self::forget_session`] runs at it as that gate resolves it again, whatever posture
-    /// the run was requested at.
-    pub fn move_session(&self, session_id: &SessionId, resolved: ExecutionPosture) {
+    /// the run was requested at. Answers what the move replaced, which [`Self::move_back`] puts
+    /// back.
+    pub fn move_session(
+        &self,
+        session_id: &SessionId,
+        resolved: ExecutionPosture,
+    ) -> ReplacedPostures {
         let mut postures = self.postures();
-        for live in postures.by_run.values_mut() {
+        let mut runs = Vec::new();
+        for (run_id, live) in &mut postures.by_run {
             if live.session_id == *session_id {
-                live.posture = resolved.clone();
+                runs.push((
+                    *run_id,
+                    std::mem::replace(&mut live.posture, resolved.clone()),
+                ));
             }
         }
-        postures.moved_by_session.insert(*session_id, resolved);
+        let moved = postures.moved_by_session.insert(*session_id, resolved);
+        ReplacedPostures { moved, runs }
+    }
+
+    /// Undoes a move of `session_id` that answered `replaced`: each run it moved that is still
+    /// live runs at its posture again, a run gated since at the session's earlier moved posture
+    /// where it held one, and the session holds its earlier moved posture, or none.
+    pub fn move_back(&self, session_id: &SessionId, replaced: ReplacedPostures) {
+        let mut postures = self.postures();
+        let ReplacedPostures { moved, runs } = replaced;
+        let earlier: HashMap<RunId, ExecutionPosture> = runs.into_iter().collect();
+        for (run_id, live) in &mut postures.by_run {
+            if live.session_id != *session_id {
+                continue;
+            }
+            if let Some(posture) = earlier.get(run_id).or(moved.as_ref()) {
+                live.posture = posture.clone();
+            }
+        }
+        match moved {
+            Some(moved) => postures.moved_by_session.insert(*session_id, moved),
+            None => postures.moved_by_session.remove(session_id),
+        };
+    }
+
+    /// Notes that the session's level was stored while no process of it ran: its moved posture is
+    /// dropped, and a gate of its that read the stored level before this store reads it again.
+    pub fn note_level_stored(&self, session_id: &SessionId) {
+        let mut postures = self.postures();
+        postures.moved_by_session.remove(session_id);
+        *postures.stores_by_session.entry(*session_id).or_default() += 1;
     }
 
     /// Drops the session's moved posture once the session is no longer open, or its next process
     /// opens at the stored level; its later runs run at the posture they were requested at.
     pub fn forget_session(&self, session_id: &SessionId) {
-        self.postures().moved_by_session.remove(session_id);
+        let mut postures = self.postures();
+        postures.moved_by_session.remove(session_id);
+        postures.stores_by_session.remove(session_id);
+    }
+
+    // The posture the session's stored level runs at for `context`'s run where it is not the one
+    // the run was requested at; `None` where no source is set or it is gone.
+    async fn stored_posture(
+        &self,
+        context: &RunSetupContext,
+    ) -> Result<Option<ExecutionPosture>, RunSetupGateError> {
+        let Some(source) = self.stored_postures.get().and_then(Weak::upgrade) else {
+            return Ok(None);
+        };
+        source
+            .stored_posture(
+                context.session_id,
+                context.run_id,
+                &context.execution_posture,
+            )
+            .await
+            .map_err(RunSetupGateError::Failed)
     }
 
     fn postures(&self) -> MutexGuard<'_, ResolvedPostures> {
@@ -244,30 +343,41 @@ impl ExecutionPostureService {
 }
 
 impl RunSetupGate for ExecutionPostureService {
-    /// Resolves the session's moved posture where the session's level moved, else the posture the
-    /// run was requested with, and keeps it for `resolved_posture_for`; a rejection fails the gate,
-    /// which ends the run `failed` before its provider starts it.
+    /// Resolves the session's moved posture where the session's level moved, else the posture its
+    /// stored level runs at, which is the one the run was requested with unless the level was
+    /// stored since, and keeps it for `resolved_posture_for`; a rejection fails the gate, which
+    /// ends the run `failed` before its provider starts it, and so does a failed read of the
+    /// stored level.
     fn assert_run_ready<'a>(
         &'a self,
         context: &'a RunSetupContext,
     ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
         Box::pin(async move {
-            let mut moved = self
-                .postures()
-                .moved_by_session
-                .get(&context.session_id)
-                .cloned();
             loop {
-                let resolved =
-                    resolve_posture(moved.as_ref().unwrap_or(&context.execution_posture))
-                        .await
-                        .map_err(|rejection| RunSetupGateError::Failed(Box::new(rejection)))?;
-                // Read again under the insert's lock: a move or a forget that landed while the
-                // roots resolved is resolved in its turn.
+                let (moved, stores) = {
+                    let postures = self.postures();
+                    (
+                        postures.moved_by_session.get(&context.session_id).cloned(),
+                        postures.stores_by_session.get(&context.session_id).copied(),
+                    )
+                };
+                let stored = match moved {
+                    Some(_) => None,
+                    None => self.stored_posture(context).await?,
+                };
+                let target = moved
+                    .as_ref()
+                    .or(stored.as_ref())
+                    .unwrap_or(&context.execution_posture);
+                let resolved = resolve_posture(target)
+                    .await
+                    .map_err(|rejection| RunSetupGateError::Failed(Box::new(rejection)))?;
+                // Read again under the insert's lock: a move, a forget or a stored level that
+                // landed while the roots resolved is resolved in its turn.
                 let mut postures = self.postures();
-                let moved_now = postures.moved_by_session.get(&context.session_id);
-                if moved_now != moved.as_ref() {
-                    moved = moved_now.cloned();
+                if postures.moved_by_session.get(&context.session_id) != moved.as_ref()
+                    || postures.stores_by_session.get(&context.session_id).copied() != stores
+                {
                     continue;
                 }
                 postures.by_run.insert(
@@ -652,5 +762,53 @@ mod tests {
         for run in [&live, &after] {
             assert_eq!(service.resolved_posture_for(&run.run_id), Some(readonly()));
         }
+    }
+
+    // The stored level a test sets, each read answering it where it differs from the request.
+    #[derive(Default)]
+    struct StoredLevel(Mutex<Option<ExecutionPosture>>);
+
+    impl StoredSessionPosture for StoredLevel {
+        fn stored_posture<'a>(
+            &'a self,
+            _session_id: SessionId,
+            _run_id: RunId,
+            _requested: &'a ExecutionPosture,
+        ) -> BoxFuture<'a, Result<Option<ExecutionPosture>, Box<dyn Error + Send + Sync>>> {
+            Box::pin(std::future::ready(Ok(lock(&self.0).clone())))
+        }
+    }
+
+    // A level stored with no process while a gate resolves the earlier stored level is read again
+    // by that gate before it keeps a posture. Killed by an insert that does not compare the
+    // session's stores.
+    #[tokio::test]
+    async fn a_gate_reads_a_level_stored_while_it_resolved() {
+        let home = tempfile::tempdir().expect("a scratch home");
+        let git_folder = home.path().join("repo.git");
+        std::fs::create_dir(&git_folder).expect("the git folder is made");
+        let service = ExecutionPostureService::new(home.path(), home.path().join("daemon.token"));
+        let stored = std::sync::Arc::new(StoredLevel::default());
+        service
+            .set_stored_postures(std::sync::Arc::downgrade(&stored) as Weak<_>)
+            .expect("a new service reads no stored level yet");
+        let session = session_id();
+        let sandboxed =
+            compose_execution_posture(PermissionLevel::Sandboxed, filesystem_path(&git_folder));
+        let yolo = compose_execution_posture(PermissionLevel::Yolo, filesystem_path(&git_folder));
+
+        let run = run_context(session, sandboxed.clone());
+        let held = hold_reads_of(&git_folder);
+        let mut gate = pin!(service.assert_run_ready(&run));
+        assert!(
+            futures::poll!(gate.as_mut()).is_pending(),
+            "the gate waits on the requested root's held read"
+        );
+        *lock(&stored.0) = Some(yolo.clone());
+        service.note_level_stored(&session);
+        drop(held);
+        gate.await.expect("the run's posture resolves");
+
+        assert_eq!(service.resolved_posture_for(&run.run_id), Some(yolo));
     }
 }
