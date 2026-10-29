@@ -127,7 +127,9 @@ mod tests {
     use std::io;
     use std::path::Path;
 
-    use super::{ProgramLinkError, fall_back_from_hard_link, link_program};
+    #[cfg(unix)]
+    use super::ProgramLinkError;
+    use super::{fall_back_from_hard_link, link_program};
     use crate::open_file_identity;
 
     fn opens_program(link: &Path, program: &Path) -> bool {
