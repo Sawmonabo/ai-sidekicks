@@ -130,10 +130,10 @@ pub(crate) struct OpenedTerminal {
 /// Opens a PTY at `size`, both ends closed on exec and its follower in no session, its line
 /// discipline reading input as UTF-8 so an erase takes a whole character, its master not blocking.
 /// Fails with the system's error.
-pub(crate) fn open_terminal(size: &Winsize) -> io::Result<OpenedTerminal> {
+pub(crate) fn open_terminal(size: Winsize) -> io::Result<OpenedTerminal> {
     // Both close-on-exec from the open (atomically on Linux), so a child another thread starts
     // meanwhile inherits neither and cannot hold the terminal open past its program's end.
-    let rustix_openpty::Pty { controller, user } = openpty(None, Some(size))?;
+    let rustix_openpty::Pty { controller, user } = openpty(None, Some(&size))?;
     let mut settings = tcgetattr(&controller).map_err(io::Error::from)?;
     settings.input_flags.insert(InputFlags::IUTF8);
     tcsetattr(&controller, SetArg::TCSANOW, &settings).map_err(io::Error::from)?;
@@ -209,7 +209,7 @@ pub(crate) fn spawn_in_terminal(
 /// cannot be opened, and as the spawn fails, the error naming the program, a folder that cannot be
 /// entered among them.
 pub fn start_terminal(start: &TerminalStart<'_>) -> io::Result<Pty> {
-    let terminal = open_terminal(&Winsize {
+    let terminal = open_terminal(Winsize {
         ws_row: start.rows,
         ws_col: start.columns,
         ws_xpixel: 0,

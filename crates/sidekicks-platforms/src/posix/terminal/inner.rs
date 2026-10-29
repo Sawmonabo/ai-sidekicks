@@ -29,7 +29,7 @@ pub fn start_inner_terminal(
     arguments: &[String],
     window_size: WindowSize,
 ) -> io::Result<InnerTerminal> {
-    let terminal = open_terminal(&Winsize {
+    let terminal = open_terminal(Winsize {
         ws_row: window_size.num_lines,
         ws_col: window_size.num_cols,
         ws_xpixel: window_size.num_cols.saturating_mul(window_size.cell_width),
