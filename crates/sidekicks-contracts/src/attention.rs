@@ -4,7 +4,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::VariantArray;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::keychain::KeychainRefusalCause;
@@ -41,9 +41,20 @@ pub type AttentionId = FreeFormText<ATTENTION_ID_MAX_LEN>;
 /// Every attention trigger: pending approval or user input, run completion, run failure, and a
 /// workflow's Notify step. The set is closed.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
 )]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum AttentionTrigger {
     /// A pending approval.
     PendingApproval,
@@ -58,8 +69,11 @@ pub enum AttentionTrigger {
 }
 
 /// The triggers of a run's or session's own moment: every trigger but a Notify step's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, IntoStaticStr,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum AttentionMomentTrigger {
     /// A pending approval.
     PendingApproval,
@@ -74,9 +88,20 @@ pub enum AttentionMomentTrigger {
 /// The two severities: `actionable` attention blocks on the person, `informational` does not. A
 /// client renders the two differently.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
 )]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum AttentionSeverity {
     /// Blocks on the person.
     Actionable,
@@ -88,9 +113,20 @@ pub enum AttentionSeverity {
 /// or a mute keeps the entry from raising one, and `pending` otherwise; main settles a `pending`
 /// entry once, so no banner is posted twice.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
 )]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum AttentionBannerState {
     /// Not yet settled by main.
     Pending,
@@ -116,9 +152,20 @@ pub enum AttentionBannerSettledState {
 
 /// Where an entry's message to the person's web address stands.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
 )]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum AttentionWebAddressState {
     /// Not yet sent, or being retried.
     Pending,
