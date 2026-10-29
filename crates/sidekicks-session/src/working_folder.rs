@@ -41,6 +41,8 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_platforms::PathRules;
+#[cfg(test)]
+use sidekicks_std::pause_point::PausePoint;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -174,6 +176,9 @@ pub struct SessionWorkingFolders<W = RecommendedWatcher> {
     writer: Arc<DatabaseWriter>,
     execution_roots: Arc<ExecutionRootService<W>>,
     worktree_events: Arc<WorktreeEventEmitter>,
+    /// Where a test holds a take of the pending move between its read and its clear.
+    #[cfg(test)]
+    pub(crate) pending_take_pause: PausePoint,
 }
 
 /// Why a working-folder move or sweep failed.
@@ -283,6 +288,8 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
             writer: deps.writer,
             execution_roots: deps.execution_roots,
             worktree_events: deps.worktree_events,
+            #[cfg(test)]
+            pending_take_pause: PausePoint::default(),
         }
     }
 
@@ -318,26 +325,28 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
             self.write_pending(session_id, None).await?;
             return Ok(response(SessionWorkingFolderDisposition::Applied));
         }
-        if self.is_run_live(session_id).await? {
+        // Read under the hold, which a run's gate holds while it binds the run, so no run is bound
+        // between the read and the move.
+        let hold = self.execution_roots.hold_preparation(workspace.id).await;
+        if !self.is_run_live(session_id).await? {
             self.execution_roots
-                .require_listed_tree(workspace.id, folder)
+                .move_to_folder_held(&hold, folder, None)
                 .await?;
-            self.write_pending(session_id, Some(request.path.as_str()))
-                .await?;
-            // A run that ended while the tree was checked found no move to apply, so it is made
-            // now.
-            if self.is_run_live(session_id).await? {
-                return Ok(response(SessionWorkingFolderDisposition::Pending));
-            }
-            self.apply_pending_unheld(session_id, None).await?;
+            drop(hold);
+            self.write_pending(session_id, None).await?;
             return Ok(response(SessionWorkingFolderDisposition::Applied));
         }
-        let hold = self.execution_roots.hold_preparation(workspace.id).await;
-        self.execution_roots
-            .move_to_folder_held(&hold, folder, None)
-            .await?;
         drop(hold);
-        self.write_pending(session_id, None).await?;
+        self.execution_roots
+            .require_listed_tree(workspace.id, folder)
+            .await?;
+        self.write_pending(session_id, Some(request.path.as_str()))
+            .await?;
+        // A run that ended while the tree was checked found no move to apply, so it is made now.
+        if self.is_run_live(session_id).await? {
+            return Ok(response(SessionWorkingFolderDisposition::Pending));
+        }
+        self.apply_pending_unheld(session_id, None).await?;
         Ok(response(SessionWorkingFolderDisposition::Applied))
     }
 
@@ -359,8 +368,9 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
     }
 
     // The session's pending move, cleared before it is made so a move that fails surfaces once and
-    // never wedges every later run: the workspace to move and its folder, `None` when none is held
-    // or the session already works there.
+    // never wedges every later run: the workspace to move and its folder, `None` when none is held,
+    // another caller took it first, or the session already works there. Only the caller whose
+    // clear removed the row takes it, so two appliers never both make one move.
     async fn take_pending(
         &self,
         session_id: SessionId,
@@ -368,9 +378,15 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
         let Some(Some(pending)) = self.read_pending(session_id).await? else {
             return Ok(None);
         };
-        self.writer
+        #[cfg(test)]
+        self.pending_take_pause.pass().await;
+        let cleared = self
+            .writer
             .write(vec![clear_pending_statement(session_id, &pending)])
             .await?;
+        if cleared.first().is_none_or(|clear| clear.row_count == 0) {
+            return Ok(None);
+        }
         let workspace = self.require_project_workspace(session_id).await?;
         let folder = PathBuf::from(pending);
         if is_working_in(&workspace, &folder).await? {
@@ -664,19 +680,29 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
 }
 
 impl<W: Watcher + Send + Sync + 'static> SessionFolderMoves for SessionWorkingFolders<W> {
-    /// Applies the session's pending move under the gate's hold of the workspace it moves.
+    /// Applies the session's pending move under the gate's hold of the workspace it moves. A move
+    /// for another workspace than the hold's, one the session no longer works in, is dropped.
     fn apply_pending_held<'a>(
         &'a self,
         session_id: &'a SessionId,
         hold: &'a WorkspacePreparationHold<'_>,
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
         async move {
-            if let Some((_workspace_id, folder)) = self.take_pending(*session_id).await? {
-                // The hold names the run's workspace, the session's live one.
-                self.execution_roots
-                    .move_to_folder_held(hold, &folder, None)
-                    .await?;
+            let Some((workspace_id, folder)) = self.take_pending(*session_id).await? else {
+                return Ok(());
+            };
+            if workspace_id != hold.workspace_id() {
+                tracing::info!(
+                    session_id = session_id.text().as_str(),
+                    pending_workspace_id = %workspace_id,
+                    held_workspace_id = %hold.workspace_id(),
+                    "a pending move for a workspace the run does not hold was dropped"
+                );
+                return Ok(());
             }
+            self.execution_roots
+                .move_to_folder_held(hold, &folder, None)
+                .await?;
             Ok(())
         }
         .boxed()

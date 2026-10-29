@@ -48,6 +48,13 @@ const OTHER_SESSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4eb0";
 // reaches it.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(60);
 
+// Long enough for a call the test's preparation hold does not hold to finish, so one still running
+// then waits on that hold.
+const REACH_BOUND: Duration = Duration::from_secs(1);
+
+// A workspace the session does not work in.
+const OTHER_WORKSPACE_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4eb1";
+
 /// The working folders and the run setup gate over the execution roots' fixture, its database
 /// holding the runs table and its mount recording the repository's common folder.
 struct Fixture {
@@ -190,6 +197,22 @@ impl Fixture {
             .disposition
     }
 
+    /// Holds `folder` as the session's pending move.
+    fn hold_move_to(&self, folder: &Path) {
+        self.roots
+            .rows
+            .execute(
+                "UPDATE sessions SET pending_working_folder = ?1 WHERE id = ?2",
+                params![folder.to_string_lossy(), SESSION_ID],
+            )
+            .expect("the move is held");
+    }
+
+    fn prepared_count(&self) -> i64 {
+        self.roots
+            .count("SELECT count(*) FROM session_events WHERE type = 'workspace.prepared'")
+    }
+
     fn pending(&self, session_id: &str) -> Option<String> {
         self.text(&format!(
             "SELECT pending_working_folder FROM sessions WHERE id = '{session_id}'"
@@ -294,14 +317,7 @@ async fn a_pending_move_applied_under_the_callers_session_hold_never_waits_on_it
     let fixture = Fixture::new().await;
     let workspace_id = fixture.ready_at_repository().await;
     let feature = fixture.roots.add_tree("feature").await;
-    fixture
-        .roots
-        .rows
-        .execute(
-            "UPDATE sessions SET pending_working_folder = ?1 WHERE id = ?2",
-            params![feature.to_string_lossy(), SESSION_ID],
-        )
-        .expect("the move is held");
+    fixture.hold_move_to(&feature);
 
     let hold = SESSION_APPEND_LOCK.acquire(session_id()).await;
     tokio::time::timeout(
@@ -318,12 +334,122 @@ async fn a_pending_move_applied_under_the_callers_session_hold_never_waits_on_it
         Some(path_text(&feature))
     );
     assert_eq!(
-        fixture
-            .roots
-            .count("SELECT count(*) FROM session_events WHERE type = 'workspace.prepared'"),
+        fixture.prepared_count(),
         2,
         "the first preparation and the move each end prepared"
     );
+}
+
+// Dies to the live-run read made before the preparation hold: a run bound by its gate while the
+// move waited for that hold would have its folder moved under it.
+#[tokio::test]
+async fn a_run_bound_while_the_move_waits_for_the_hold_holds_the_move() {
+    let fixture = Fixture::new().await;
+    let workspace_id = fixture.ready_at_repository().await;
+    let feature = fixture.roots.add_tree("feature").await;
+    let gate_hold = fixture.roots.service.hold_preparation(workspace_id).await;
+    let mut set = Box::pin(fixture.set(&feature));
+    assert!(
+        tokio::time::timeout(REACH_BOUND, &mut set).await.is_err(),
+        "the move waits for the gate's hold"
+    );
+    fixture
+        .roots
+        .rows
+        .execute(
+            "INSERT INTO runs (run_id, session_id, state, run_version) \
+             VALUES (?1, ?2, 'running', 1)",
+            params![test_run_id().text().as_str(), SESSION_ID],
+        )
+        .expect("the gate's run is stored");
+    drop(gate_hold);
+
+    assert_eq!(set.await, SessionWorkingFolderDisposition::Pending);
+    assert_eq!(fixture.pending(SESSION_ID), Some(path_text(&feature)));
+    assert_eq!(
+        fixture.roots.workspace(workspace_id).bound_root,
+        Some(path_text(&fixture.roots.repository))
+    );
+}
+
+// Dies to the pending move's workspace left uncompared with the hold's: a move held for the
+// session's workspace is then made under the hold of a workspace it never asked to move.
+#[tokio::test]
+async fn a_pending_move_for_another_workspace_than_the_holds_is_dropped() {
+    let fixture = Fixture::new().await;
+    let workspace_id = fixture.ready_at_repository().await;
+    let feature = fixture.roots.add_tree("feature").await;
+    fixture.hold_move_to(&feature);
+    let other = WorkspaceId::new(OTHER_WORKSPACE_ID).expect("a workspace id");
+    let other_hold = fixture.roots.service.hold_preparation(other).await;
+
+    fixture
+        .folders
+        .apply_pending_held(&session_id(), &other_hold)
+        .await
+        .expect("the stale move is dropped");
+
+    assert_eq!(fixture.pending(SESSION_ID), None);
+    assert_eq!(
+        fixture.roots.workspace(workspace_id).bound_root,
+        Some(path_text(&fixture.roots.repository))
+    );
+    assert_eq!(fixture.prepared_count(), 1, "nothing was moved");
+}
+
+// Dies to the take answering a pending move whose clear removed nothing: both appliers that read
+// the move then make it, one move event each.
+#[tokio::test]
+async fn two_appliers_of_one_pending_move_make_it_once() {
+    let fixture = Fixture::new().await;
+    let workspace_id = fixture.ready_at_repository().await;
+    let feature = fixture.roots.add_tree("feature").await;
+    fixture.hold_move_to(&feature);
+    let first_read = fixture.folders.pending_take_pause.arm();
+    let gate_hold = fixture.roots.service.hold_preparation(workspace_id).await;
+    let apply = |folders: Arc<SessionWorkingFolders<NullWatcher>>| {
+        tokio::spawn(async move {
+            folders
+                .apply_pending(&session_id(), None)
+                .await
+                .map_err(|error| error.to_string())
+        })
+    };
+
+    let mut first = apply(Arc::clone(&fixture.folders));
+    first_read
+        .reached
+        .await
+        .expect("the first applier reads the move");
+    let mut second = apply(Arc::clone(&fixture.folders));
+    assert!(
+        tokio::time::timeout(REACH_BOUND, &mut second)
+            .await
+            .is_err(),
+        "the second applier takes the move and waits for the hold"
+    );
+    first_read
+        .release
+        .send(())
+        .expect("the first applier waits");
+    let first_done = tokio::time::timeout(REACH_BOUND, &mut first).await;
+    drop(gate_hold);
+
+    second
+        .await
+        .expect("the second applier ends")
+        .expect("the move lands");
+    match first_done {
+        Ok(ended) => ended,
+        Err(_) => first.await,
+    }
+    .expect("the first applier ends")
+    .expect("the first applier answers");
+    assert_eq!(
+        fixture.roots.workspace(workspace_id).bound_root,
+        Some(path_text(&feature))
+    );
+    assert_eq!(fixture.prepared_count(), 2, "the move was made once");
 }
 
 #[tokio::test]
