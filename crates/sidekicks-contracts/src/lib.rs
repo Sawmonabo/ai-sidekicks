@@ -18,6 +18,7 @@ pub mod command;
 pub mod context_window;
 pub mod daemon;
 pub mod device;
+pub mod dpop;
 pub mod error;
 pub mod event;
 pub mod free_form_string;

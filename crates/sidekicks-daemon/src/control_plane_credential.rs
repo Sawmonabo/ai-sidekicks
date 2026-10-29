@@ -13,13 +13,15 @@
 //!   (`htu`) and a hash of the token.
 //!
 //! The token's claims, the proof's contents, the key's custody and the server's nonce exchange
-//! are the provider's; what is fixed here is the operation, the two header names and the scheme.
+//! are the provider's; what is fixed here is the operation, over the contracts' header name and
+//! scheme.
 
 use std::error::Error;
 
 use futures::future::BoxFuture;
 use reqwest::Method;
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderName, HeaderValue};
+use sidekicks_contracts::dpop::{self, DPOP_AUTHORIZATION_SCHEME};
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::session::id::SessionId;
 use url::Url;
@@ -35,19 +37,8 @@ use url::Url;
                   check the proof header through it"
     )
 )]
-pub(crate) const DPOP_PROOF_HEADER_NAME: HeaderName = HeaderName::from_static("dpop");
-
-/// The `Authorization` scheme of a DPoP-bound token; `Bearer` is refused.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's signed control-plane calls (a push notice, the account services, \
-                  the machine's registration and its certificate challenge) \
-                  check the scheme through it"
-    )
-)]
-pub(crate) const DPOP_AUTHORIZATION_SCHEME: &str = "DPoP";
+pub(crate) const DPOP_PROOF_HEADER_NAME: HeaderName =
+    HeaderName::from_static(dpop::DPOP_PROOF_HEADER_NAME);
 
 /// The request a credential is minted for: the session and machine scope the authority claimed, and
 /// the method and URI are the ones the proof binds.
