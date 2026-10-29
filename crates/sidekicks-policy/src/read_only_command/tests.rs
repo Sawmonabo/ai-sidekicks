@@ -55,8 +55,9 @@ const LIMIT: usize = 64 * 1024;
 #[case::prompt_transform("echo '$(touch f)'; echo ${_@P}", false)]
 #[case::substitution_in_a_pattern("echo ${HOME#$(touch f)}", false)]
 #[case::backquote_in_a_word("echo ${x:-`touch f`}", false)]
-// Only the listed parts make a reading `${…}`; a translated string is none of them.
-#[case::unlisted_expansion_part("echo ${x:-$\"a\"}", false)]
+#[case::process_substitution_in_a_word("echo ${x:-<(touch f)}", false)]
+// Only the listed parts make a reading `${…}`; an array is none of them.
+#[case::unlisted_expansion_part("echo ${x:-(a b)}", false)]
 #[case::reading_expansions("echo ${HOME:0:2} ${HOME:-a} ${HOME##*/} ${HOME/a/b} ${#HOME}", true)]
 // zsh evaluates `[…]` right after `$name` as a subscript, in a word, a string or a here-document.
 #[case::zsh_subscript_assignment("echo $a[PATH=0]; ls", false)]

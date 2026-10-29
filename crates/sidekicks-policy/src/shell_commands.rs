@@ -531,8 +531,8 @@ const READING_EXPANSION_PARTS: &[&str] = &[
 ];
 
 // Whether a `${…}` expansion only reads its variable: its operators listed, each `:` offset or
-// length digits alone, its other parts listed, and no `$` or backquote in a pattern or word token,
-// which holds an expansion the tree does not show.
+// length digits alone, its other parts listed, and no `$`, backquote or `(` in a pattern or word
+// token, which holds an expansion or a process substitution the tree does not show.
 fn is_reading_expansion(expansion: Node<'_>, line: &str) -> bool {
     let mut cursor = expansion.walk();
     if !cursor.goto_first_child() {
@@ -549,7 +549,7 @@ fn is_reading_expansion(expansion: Node<'_>, line: &str) -> bool {
             node.kind() == "number" && text.bytes().all(|byte| byte.is_ascii_digit())
         } else {
             READING_EXPANSION_PARTS.contains(&node.kind())
-                && !(matches!(node.kind(), "regex" | "word") && text.contains(['$', '`']))
+                && !(matches!(node.kind(), "regex" | "word") && text.contains(['$', '`', '(']))
         };
         if !is_reading {
             return false;
