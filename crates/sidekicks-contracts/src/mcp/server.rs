@@ -124,13 +124,15 @@ impl McpApplicationGrade {
 #[serde(rename_all = "camelCase")]
 #[strum(serialize_all = "camelCase")]
 pub enum McpApprovalMode {
-    /// Every call runs without asking.
+    /// Codex decides from the tool's annotations: a tool they mark read-only, or both
+    /// non-destructive and closed-world, runs without asking, and any other asks.
     Auto,
     /// Every call asks.
     Prompt,
-    /// Calls that write ask.
+    /// Asks before a tool that writes: every call asks unless the tool's annotations mark it
+    /// read-only.
     Writes,
-    /// Every call needs an approval.
+    /// Pre-approved: every call runs without asking.
     Approve,
 }
 

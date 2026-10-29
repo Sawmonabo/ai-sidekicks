@@ -2,6 +2,7 @@
 //! provider asks decided in the check's order. The fixture is shared with the permission asks'
 //! tests.
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use rstest::rstest;
@@ -10,10 +11,13 @@ use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalRequestId, ApprovalResolveRequest,
     RememberedRuleSense, RememberedScopeKind,
 };
+use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerName, McpToolName};
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::callback_tools::host::CallbackToolApprovalOutcome;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::session_control::RevokeRuleParams;
 use sidekicks_provider::port::permission_ask::{
@@ -24,8 +28,12 @@ use sidekicks_std::mutex_lock::lock;
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
+use super::step_action::{
+    ASKING_TOOL_REFUSAL, GIT_FOLDER_REFUSAL, OUTSIDE_CHECKOUT_REFUSAL, StepAction,
+};
 use super::test_fixture::{TestPermissionCheck, test_permission_check};
-use super::{PermissionCheck, PermissionCheckError, ProviderAskVerdict};
+use super::{PermissionCheck, PermissionCheckError, ProviderAskVerdict, ToolCallVerdict};
+use crate::permission_asks::tests::{AsksFixture, device};
 use crate::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
 use crate::rules::ApprovalRules;
 use crate::service::tests::{ApprovalFixture, from_json};
@@ -206,21 +214,47 @@ impl CheckFixture {
             ProviderAskVerdict::Allowed => "allowed".to_owned(),
             ProviderAskVerdict::AnsweredByRule(rule) => format!("rule {}", rule.subject),
             ProviderAskVerdict::Denied { refusal } => format!("denied: {refusal}"),
-            ProviderAskVerdict::CardRaised(card) => {
-                let offered: bool = self
-                    .approvals
-                    .database
-                    .reader()
-                    .query_row(
-                        "SELECT json_extract(resource_descriptor, '$.standingAllowOffered')
-                         FROM approval_requests WHERE id = ?1",
-                        [card.approval_request_id.text().as_str()],
-                        |row| row.get(0),
-                    )
-                    .expect("the test reads the card");
-                format!("card offering a rule: {offered}")
-            }
+            ProviderAskVerdict::CardRaised(card) => self.card_words(&card.approval_request_id),
         }
+    }
+
+    /// How the check settles a workflow step's `action` at `level`, in words a case compares.
+    async fn step_verdict(&self, level: PermissionLevel, action: &StepAction) -> String {
+        let verdict = self
+            .check
+            .check_step_action(
+                self.approvals.session_id,
+                self.approvals.run_id,
+                level,
+                action,
+            )
+            .await
+            .expect("the check decides");
+        match verdict {
+            ToolCallVerdict::Settled(CallbackToolApprovalOutcome::Allow { basis }) => {
+                format!("allowed by {basis:?}")
+            }
+            ToolCallVerdict::Settled(CallbackToolApprovalOutcome::Deny { reason, .. }) => {
+                format!("denied: {reason}")
+            }
+            ToolCallVerdict::CardRaised(card) => self.card_words(&card.approval_request_id),
+        }
+    }
+
+    // A raised card in words: whether it offers a standing rule.
+    fn card_words(&self, card: &ApprovalRequestId) -> String {
+        let offered: bool = self
+            .approvals
+            .database
+            .reader()
+            .query_row(
+                "SELECT json_extract(resource_descriptor, '$.standingAllowOffered')
+                 FROM approval_requests WHERE id = ?1",
+                [card.text().as_str()],
+                |row| row.get(0),
+            )
+            .expect("the test reads the card");
+        format!("card offering a rule: {offered}")
     }
 }
 
@@ -370,4 +404,159 @@ async fn a_withdrawn_ask_leaves_its_correction_unspent() {
         "withdrawn"
     );
     assert_eq!(fixture.verdict(&ask).await, "allowed");
+}
+
+// How a step's action settles where the level's table frees it, asks, or refuses it.
+const FREE: &str = "allowed by Policy";
+const CARD: &str = "card offering a rule: true";
+
+fn file_write(target: &Path) -> StepAction {
+    let checkout = PathBuf::from("/work/checkout");
+    StepAction::FileWrite {
+        target: target.to_path_buf(),
+        git_folder: checkout.join(".git"),
+        checkout_root: checkout,
+    }
+}
+
+fn mcp_call(server: &str, approval_mode: McpApprovalMode) -> StepAction {
+    StepAction::McpCall {
+        server: McpServerName::new(server.to_owned()).expect("a short server name"),
+        tool: McpToolName::new("search".to_owned()).expect("a short tool name"),
+        approval_mode,
+    }
+}
+
+// The levels in the order each case lists its verdicts.
+const LEVELS: [PermissionLevel; 5] = [
+    PermissionLevel::Readonly,
+    PermissionLevel::Ask,
+    PermissionLevel::Reviewed,
+    PermissionLevel::Sandboxed,
+    PermissionLevel::Yolo,
+];
+
+// A step's file write follows the levels' own table: inside the checkout it asks only at
+// Read-only, outside it asks at Read-only, Ask and Reviewed, is refused at Sandboxed and is free at
+// YOLO, and Sandboxed refuses the repository's hooks and config inside the checkout too. Killed by
+// an inside write at Ask raising a card, by an outside write at Sandboxed allowed, and by the hooks
+// left open at Sandboxed.
+#[rstest]
+#[case::inside("/work/checkout/src/main.rs", [CARD, FREE, FREE, FREE, FREE])]
+#[case::outside("/work/notes.md", [CARD, CARD, CARD, OUTSIDE, FREE])]
+#[case::git_hooks("/work/checkout/.git/hooks/pre-commit", [CARD, FREE, FREE, GIT, FREE])]
+#[case::git_config("/work/checkout/.git/config", [CARD, FREE, FREE, GIT, FREE])]
+#[tokio::test]
+async fn a_steps_file_write_follows_the_levels_table(
+    #[case] target: &str,
+    #[case] expected: [&str; 5],
+) {
+    let fixture = CheckFixture::new().await;
+    let mut verdicts = Vec::new();
+    for level in LEVELS {
+        verdicts.push(
+            fixture
+                .step_verdict(level, &file_write(Path::new(target)))
+                .await,
+        );
+    }
+    let expected: Vec<String> = expected.iter().map(|verdict| step_words(verdict)).collect();
+    assert_eq!(verdicts, expected);
+}
+
+// A step's tool call follows Codex's own decision for the binding's mode, no annotations read:
+// `approve` runs at every level, and every other mode asks at each level but Sandboxed, which
+// refuses it. Killed by `approve` asking, by YOLO never asking, and by Sandboxed running a tool that
+// asks.
+#[rstest]
+#[case::approve(McpApprovalMode::Approve, [FREE, FREE, FREE, FREE, FREE])]
+#[case::prompt(McpApprovalMode::Prompt, [CARD, CARD, CARD, ASKING, CARD])]
+#[case::writes(McpApprovalMode::Writes, [CARD, CARD, CARD, ASKING, CARD])]
+#[case::auto(McpApprovalMode::Auto, [CARD, CARD, CARD, ASKING, CARD])]
+#[tokio::test]
+async fn a_steps_tool_call_follows_its_bindings_approval_mode(
+    #[case] approval_mode: McpApprovalMode,
+    #[case] expected: [&str; 5],
+) {
+    let fixture = CheckFixture::new().await;
+    let mut verdicts = Vec::new();
+    for level in LEVELS {
+        verdicts.push(
+            fixture
+                .step_verdict(level, &mcp_call("docs", approval_mode))
+                .await,
+        );
+    }
+    let expected: Vec<String> = expected.iter().map(|verdict| step_words(verdict)).collect();
+    assert_eq!(verdicts, expected);
+}
+
+// Stand for the refusals a case expects, which the step's module words.
+const OUTSIDE: &str = "outside";
+const GIT: &str = "git";
+const ASKING: &str = "asking";
+
+fn step_words(verdict: &str) -> String {
+    match verdict {
+        OUTSIDE => format!("denied: {OUTSIDE_CHECKOUT_REFUSAL}"),
+        GIT => format!("denied: {GIT_FOLDER_REFUSAL}"),
+        ASKING => format!("denied: {ASKING_TOOL_REFUSAL}"),
+        other => other.to_owned(),
+    }
+}
+
+// An "Always allow" on a step's card keeps a session rule the daemon answers the same action with
+// next time, with no card, while a same-named tool on another server still asks. Killed by skipping
+// the rule lookup and by a subject that drops the tool's server.
+#[tokio::test]
+async fn a_session_rule_answers_a_steps_second_identical_action() {
+    let fixture = AsksFixture::new().await;
+    let check = &fixture.check;
+    let write = file_write(Path::new("/work/notes.md"));
+    let docs_search = mcp_call("docs", McpApprovalMode::Prompt);
+    for (action, subject) in [
+        (&write, "/work/notes.md"),
+        (&docs_search, "mcp__docs__search"),
+    ] {
+        let card = check
+            .check
+            .check_step_action(
+                check.approvals.session_id,
+                check.approvals.run_id,
+                PermissionLevel::Ask,
+                action,
+            )
+            .await
+            .expect("the check decides");
+        let ToolCallVerdict::CardRaised(card) = card else {
+            panic!("the first {subject} raises its card");
+        };
+        let request: ApprovalResolveRequest = from_json(json!({
+            "decision": "approved",
+            "approvalRequestId": card.approval_request_id,
+            "clientResolutionId": mint_uuid_v7().to_string(),
+            "rememberedScope": { "kind": "session", "pattern": subject, "sense": "allow" },
+        }));
+        fixture
+            .asks
+            .resolve(&request, device())
+            .await
+            .expect("the card is answered");
+    }
+    let mut verdicts = Vec::new();
+    for action in [
+        &write,
+        &docs_search,
+        &mcp_call("wiki", McpApprovalMode::Prompt),
+    ] {
+        verdicts.push(check.step_verdict(PermissionLevel::Ask, action).await);
+    }
+    assert_eq!(
+        verdicts,
+        [
+            "allowed by RememberedRule",
+            "allowed by RememberedRule",
+            CARD
+        ]
+    );
 }
