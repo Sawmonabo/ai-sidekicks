@@ -158,6 +158,7 @@ form_urlencoded = "1.2.2"
 garde = { version = "0.23.0", features = ["derive", "regex", "serde"] }
 h2 = "0.4.20"
 hickory-server = "0.26.3"
+hyper = { version = "1.12.0", default-features = false }
 hyper-util = "0.1.21"
 instant-acme = "0.8.5"
 interprocess = { version = "2.4.6", features = ["tokio"] }
