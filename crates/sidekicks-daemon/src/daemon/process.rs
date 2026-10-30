@@ -65,7 +65,8 @@ use sidekicks_store::database::connection::writer_open::{
 use sidekicks_store::machine::identity_key::MachineIdentity;
 use sidekicks_store::machine::local::read_or_mint_local_machine;
 use sidekicks_workspace::clone::service::CloneService;
-use sidekicks_workspace::git::process::{GitLimits, GitRunner, find_git_executable};
+use sidekicks_workspace::git::process::environment::find_git_executable;
+use sidekicks_workspace::git::process::{GitLimits, GitRunner};
 use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
 use sidekicks_workspace::git::worktree::setup::WorktreeSetupRunner;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;

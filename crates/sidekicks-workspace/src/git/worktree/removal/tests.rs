@@ -23,9 +23,9 @@ use super::{
     FolderProcessOwner, WorktreeRemoval, WorktreeRemovalDeps, WorktreeRemovalError,
     WorktreeSessionSweep, WorktreeSweep, new_removed_worktree_id,
 };
+use crate::git::process::environment::find_git_executable;
 use crate::git::process::{
-    GitRunner, StartedFileWatch, find_git_executable, test_git_runner,
-    test_git_runner_with_environment,
+    GitRunner, StartedFileWatch, test_git_runner, test_git_runner_with_environment,
 };
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::kept_copy::{
