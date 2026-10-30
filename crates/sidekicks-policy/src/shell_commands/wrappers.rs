@@ -312,11 +312,15 @@ pub(super) fn command_wrapper(program: ShellWord<'_>) -> Option<CommandWrapper> 
 /// leading operand. `env -S` puts the words its value splits into in their place, whether the value
 /// is the next word or attached, as in `-S'…'`, `-vS'…'` or `--split-string=…`, and reads them
 /// again as its own arguments, assignments among them. Each word taken off is pushed on `taken`.
+/// `is_program_undecided` is set when a word only the run decides may move which word is the
+/// program: an undecided option word, a value or operand the shell can split, or a split string's
+/// undecided program or assignment.
 pub(super) fn take_wrapper_words(
     builder: &mut WordBuilder<'_>,
     wrapper: CommandWrapper,
     pending: &mut VecDeque<Word>,
     taken: &mut Vec<Word>,
+    is_program_undecided: &mut bool,
 ) -> WrapperRead {
     let mut words = WrapperWords {
         pending,
@@ -328,6 +332,7 @@ pub(super) fn take_wrapper_words(
         let view = builder.view(word);
         // env reads a split string's assignments before its program, and no option after one.
         if words.is_front_split() && is_variable_assignment(view) {
+            *is_program_undecided |= !view.is_decided();
             words.pop_front();
             have_options_ended = true;
             continue;
@@ -346,6 +351,9 @@ pub(super) fn take_wrapper_words(
                     if view.is_decided_through(bytes)
             );
         if !view.is_decided() && !splits_an_attached_value {
+            // An option word's letters decide which later word is the program, and a split
+            // string's program word is the program.
+            *is_program_undecided |= is_option || words.is_front_split();
             if words.is_front_split() || (is_option && wrapper.takes_values()) {
                 return WrapperRead::WrapperIsProgram;
             }
@@ -377,8 +385,10 @@ pub(super) fn take_wrapper_words(
         };
         words.pop_front();
         if !splits {
-            if attached_from.is_none() {
-                words.pop_front();
+            if attached_from.is_none()
+                && let Some(value) = words.pop_front()
+            {
+                *is_program_undecided |= builder.view(value).holds_unquoted_expansion();
             }
             continue;
         }
@@ -403,8 +413,8 @@ pub(super) fn take_wrapper_words(
                 || (view.len() > 0 && view.chars().all(|digit| digit.is_ascii_digit()))
         }),
     };
-    if takes_operand {
-        words.pop_front();
+    if takes_operand && let Some(operand) = words.pop_front() {
+        *is_program_undecided |= builder.view(operand).holds_unquoted_expansion();
     }
     WrapperRead::CommandFollows
 }

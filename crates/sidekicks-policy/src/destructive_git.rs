@@ -116,16 +116,15 @@ fn holds_destructive_git(
 }
 
 // A push that forces or deletes, or a branch delete. A word only the run decides, which can turn
-// into any word or several, counts as a match wherever a decided word is read: as the program, as
-// any word up to the subcommand, each of which git may read as its own option, a value or the
-// subcommand, and after `push` or `branch`. Only a value of git's own option that is one quoted
-// parameter stays one word, which cannot move the subcommand.
+// into any word or several, counts as a match wherever a decided word is read: as the program or
+// a word that can split or move it, as any word up to the subcommand, each of which git may read
+// as its own option, a value or the subcommand, and after `push` or `branch`. Only a value of
+// git's own option that is one quoted parameter stays one word, which cannot move the subcommand.
 fn is_destructive_git(command: ShellCommand<'_>) -> bool {
-    let program = command.program();
-    if !program.is_decided() {
+    if command.is_program_undecided() {
         return true;
     }
-    if !program.is("git") {
+    if !command.program().is("git") {
         return false;
     }
     let mut rest = command.argument_words();
@@ -295,6 +294,32 @@ mod tests {
     #[case::unknown_ansi_c_escape(r"git $'\push' --force", true)]
     // A program only the run decides may be git.
     #[case::expanded_program("G=git; $G push --force", true)]
+    // A wrapper's option word only the run decides sets which later word is the program.
+    #[case::expanded_option_of_a_wrapper("X=i; env -$X git push --force", true)]
+    #[case::quoted_expanded_option_of_a_wrapper("env \"-$X\" git push --force", true)]
+    #[case::expanded_option_before_a_value("sudo -$o root git push --force", true)]
+    // The shell splits a wrapper's unquoted value, operand or assignment into the program and its
+    // words; a quoted one stays one word, which leaves the program read.
+    #[case::split_value_of_a_wrapper("env -u $U main", true)]
+    #[case::split_value_of_nice("nice -n $N main", true)]
+    #[case::split_operand_of_a_wrapper("timeout $D main", true)]
+    #[case::split_assignment_of_a_wrapper("env A=$X main", true)]
+    #[case::quoted_value_of_a_wrapper("env -u \"$U\" main", false)]
+    #[case::quoted_operand_of_a_wrapper("timeout \"$D\" main", false)]
+    #[case::quoted_assignment_of_a_wrapper("env \"A=$X\" main", false)]
+    // env splits its split string again after the shell expanded it, so an expansion in its
+    // program or assignment word can be any program.
+    #[case::split_assignment_inside_a_split_string("env -S \"A=$X main\"", true)]
+    #[case::expanded_split_string("env -S \"$X\"", true)]
+    #[case::env_expanded_program_of_a_split_string("env -S'${P} push -f'", true)]
+    // An expansion the shell splits in a program's folder can be the program; a quoted folder
+    // cannot split, so its file is the program.
+    #[case::split_folder_of_the_program("G=\"git push --force origin main -o\"; $G/x", true)]
+    #[case::expanded_home_folder("$HOME/bin/tool x", true)]
+    #[case::quoted_substituted_folder(
+        "\"$(git rev-parse --show-toplevel)/tools/x.sh\" notes.md",
+        false
+    )]
     #[case::dry_run("git push --dry-run origin main", false)]
     #[case::branch_long_option_with_d("git branch --edit-description", false)]
     fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool) {

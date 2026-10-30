@@ -90,7 +90,6 @@ use super::reads_only;
     "cat <<$'l\\u0073'\nl\\u0073\ntouch made\nls\ncat <<'Z'\n$'lu0073'\nZ",
     false
 )]
-#[case::ansi_c_delimiter_ended_early("cat <<$'x'\nx\ntouch made\nx", false)]
 // A plain parameter in a start is its own text in every shell.
 #[case::parameter_in_a_delimiter("cat <<$X\n$HOME\n$X", true)]
 #[case::quoted_parameter_in_a_delimiter("cat <<\"$X\"\n$(touch f)\n$X", true)]

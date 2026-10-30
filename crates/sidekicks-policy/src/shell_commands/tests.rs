@@ -14,6 +14,16 @@ struct ReadCommand {
     program: String,
     argument_words: Vec<String>,
     wrapper_words: Vec<String>,
+    is_program_undecided: bool,
+}
+
+impl ReadCommand {
+    fn with_undecided_program(self) -> Self {
+        Self {
+            is_program_undecided: true,
+            ..self
+        }
+    }
 }
 
 impl From<ShellCommand<'_>> for ReadCommand {
@@ -28,6 +38,7 @@ impl From<ShellCommand<'_>> for ReadCommand {
                 .wrapper_words()
                 .map(|word| word.to_string())
                 .collect(),
+            is_program_undecided: command.is_program_undecided(),
         }
     }
 }
@@ -37,6 +48,7 @@ fn command(program: &str, argument_words: &[&str], wrapper_words: &[&str]) -> Re
         program: program.to_owned(),
         argument_words: argument_words.iter().map(|&word| word.to_owned()).collect(),
         wrapper_words: wrapper_words.iter().map(|&word| word.to_owned()).collect(),
+        is_program_undecided: false,
     }
 }
 
@@ -120,16 +132,20 @@ fn assert_unread(reading: &ShellLineReading) {
     vec![command("FOO-BAR=1", &["x"], &["env"])],
     true
 )]
-// A word only the run decides where a wrapper reads an option that may take a value, or env a
-// string it refuses, leaves the wrapper the program.
+// A word only the run decides where a wrapper reads an option that may take a value leaves the
+// wrapper the program, which the run decides, and so does env's split string; a string env
+// refuses leaves env the program it is.
 #[case::undecided_option_of_a_wrapper(
     "sudo -$o root git push --force",
-    vec![command("sudo", &["-$o", "root", "git", "push", "--force"], &[])],
+    vec![
+        command("sudo", &["-$o", "root", "git", "push", "--force"], &[])
+            .with_undecided_program(),
+    ],
     true
 )]
 #[case::undecided_program_of_a_split_string(
     "env -S'${P} push -f'",
-    vec![command("env", &["${P}", "push", "-f"], &[])],
+    vec![command("env", &["${P}", "push", "-f"], &[]).with_undecided_program()],
     true
 )]
 #[case::split_string_env_refuses(
@@ -148,7 +164,7 @@ fn assert_unread(reading: &ShellLineReading) {
 // A split string's assignments come before its program, which here only the run decides.
 #[case::undecided_program_after_a_split_assignment(
     "env -S'A=1 ${P} push'",
-    vec![command("env", &["${P}", "push"], &[])],
+    vec![command("env", &["${P}", "push"], &[]).with_undecided_program()],
     true
 )]
 #[case::assignments_only("FOO=1 BAR=2", vec![], true)]
@@ -475,7 +491,12 @@ proptest! {
         prop_assert!(reading.is_whole(), "{line:?}");
         prop_assert_eq!(
             commands_of(&reading),
-            vec![ReadCommand { program, argument_words, wrapper_words: Vec::new() }]
+            vec![ReadCommand {
+                program,
+                argument_words,
+                wrapper_words: Vec::new(),
+                is_program_undecided: false,
+            }]
         );
     }
 }

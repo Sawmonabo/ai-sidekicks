@@ -1,8 +1,8 @@
 //! A shell word as the shell passes it to a program, held as pieces of the line it was read from
 //! and of its reading's one decoded buffer: quotes removed, backslash escapes undone, ANSI-C
-//! strings decoded, and every expansion, substitution and word the shell expands into file names
-//! or alternatives kept as its source text in the line. A word is never copied out of its pieces,
-//! and each query on it costs the pieces it reads.
+//! strings decoded where the shells decode them alike, and every expansion, substitution and word
+//! the shell expands into file names or alternatives kept as its source text in the line. A word
+//! is never copied out of its pieces, and each query on it costs the pieces it reads.
 
 mod quote_removal;
 mod split_string;
@@ -35,7 +35,7 @@ enum PieceKind {
     /// Text of the line that no quote or escape changes.
     Literal,
     /// An expansion, a substitution or a pattern the shell expands into file names or alternatives,
-    /// kept as its source text in the line.
+    /// or an ANSI-C string the shells decode apart, kept as its source text in the line.
     Expansion,
     /// An expansion or a substitution inside double quotes, kept as its source text in the line,
     /// which the shell splits into no further words.
@@ -306,15 +306,15 @@ impl<'r> ShellWord<'r> {
         self.pieces.iter().map(move |&piece| self.texts.text(piece))
     }
 
-    /// Whether the shell passes the word as read here: false when an expansion, a substitution or
-    /// a pattern makes its text, which only the line's run decides and which can split it into
-    /// several words, any of them an option.
+    /// Whether the shell passes the word as read here: false when an expansion, a substitution, a
+    /// pattern or an ANSI-C string the shells decode apart makes its text, which only the line's
+    /// run decides and which can split it into several words, any of them an option.
     pub fn is_decided(self) -> bool {
         self.pieces.iter().all(|piece| !piece.kind.is_expansion())
     }
 
     /// Whether the word's first `bytes` bytes are passed as read here, none of them made by an
-    /// expansion, a substitution or a pattern.
+    /// expansion, a substitution, a pattern or an ANSI-C string the shells decode apart.
     pub(crate) fn is_decided_through(self, bytes: usize) -> bool {
         let mut start = 0;
         self.pieces.iter().all(|piece| {
@@ -322,6 +322,15 @@ impl<'r> ShellWord<'r> {
             start += (piece.end - piece.start) as usize;
             is_decided
         })
+    }
+
+    /// Whether part of the word is an expansion, a substitution or a pattern outside double
+    /// quotes, which the shell can split or expand into several words, or an ANSI-C string the
+    /// shells decode apart; a word whose only undecided parts are double-quoted stays one word.
+    pub(crate) fn holds_unquoted_expansion(self) -> bool {
+        self.pieces
+            .iter()
+            .any(|piece| piece.kind == PieceKind::Expansion)
     }
 
     /// Whether the word is one parameter alone inside double quotes, `"$name"`, `"${name}"` or a
@@ -615,16 +624,23 @@ impl<'s> WordBuilder<'s> {
         (word_from(&self.pieces, first_piece), end)
     }
 
-    /// The word's name without its folder, the text past its last `/`; `None` when the word has
-    /// no `/`, so names no folder.
-    pub(super) fn basename(&mut self, word: Word) -> Option<Word> {
+    /// The word's name without its folder, the text past its last `/`, and whether a piece before
+    /// the piece holding that `/` is an expansion outside double quotes, which the shell can split
+    /// into a program and its words; `None` when the word has no `/`, so names no folder.
+    pub(super) fn basename(&mut self, word: Word) -> Option<(Word, bool)> {
         let texts = PieceTexts::new(self.line, &self.decoded, &self.positions);
         let (index, slash) = word.pieces().rev().find_map(|index| {
             texts
                 .last_position(self.pieces[index], PositionedByte::Slash)
                 .map(|slash| (index, slash))
         })?;
-        Some(self.word_from_inside(word, index, slash + 1))
+        let can_folder_split = self.pieces[word.first_piece as usize..index]
+            .iter()
+            .any(|piece| piece.kind == PieceKind::Expansion);
+        Some((
+            self.word_from_inside(word, index, slash + 1),
+            can_folder_split,
+        ))
     }
 
     /// The word's text past its first `bytes` bytes, as an option's value attached to it is;

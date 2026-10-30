@@ -47,14 +47,15 @@ pub struct ShellLineReading {
 }
 
 // A command's words in the reading, by index: each wrapper's name and its own words from `first`
-// to `program`, then the program, then its arguments up to `end`; and whether a folder named the
-// program or a wrapper.
+// to `program`, then the program, then its arguments up to `end`; whether a folder named the
+// program or a wrapper; and whether the run may decide which program runs.
 #[derive(Clone, Copy)]
 struct CommandEntry {
     first: u32,
     program: u32,
     end: u32,
     is_named_by_path: bool,
+    is_program_undecided: bool,
 }
 
 impl ShellLineReading {
@@ -147,6 +148,15 @@ impl<'r> ShellCommand<'r> {
     /// The program's name, without its folder.
     pub fn program(self) -> ShellWord<'r> {
         self.reading.word(self.entry.program)
+    }
+
+    /// Whether only the line's run decides which program runs: the program word is undecided, an
+    /// expansion the shell splits stands in a folder before the program's name, or a word before
+    /// the program can split or move it, as an undecided option word of a wrapper, a wrapper's
+    /// value, operand or assignment the shell splits, or a split string's undecided program or
+    /// assignment can. The program read is then no ground for any verdict on what runs.
+    pub fn is_program_undecided(self) -> bool {
+        self.entry.is_program_undecided
     }
 
     /// The words after the program.
@@ -541,13 +551,16 @@ fn resolve_command(
     let first_word = words.len();
     let piece_mark = builder.piece_count();
     let mut is_named_by_path = false;
+    let mut is_program_undecided = false;
     let mut last_wrapper = None;
     loop {
         while let Some(assignment) =
             pending.pop_front_if(|word| is_variable_assignment(builder.view(*word)))
         {
-            // One after a wrapper is the wrapper's own, as env reads it; one before is the shell's.
+            // One after a wrapper is the wrapper's own, as env reads it, and the shell splits an
+            // expansion in it; one before is the shell's, which it never splits.
             if last_wrapper.is_some() {
+                is_program_undecided |= builder.view(assignment).holds_unquoted_expansion();
                 words.push(assignment);
             }
         }
@@ -563,17 +576,23 @@ fn resolve_command(
                 program: offset(program),
                 end: offset(program + 1),
                 is_named_by_path,
+                is_program_undecided,
             });
         };
-        let without_folder = builder.basename(name);
-        is_named_by_path |= without_folder.is_some();
-        let program = without_folder.unwrap_or(name);
+        let program = match builder.basename(name) {
+            Some((without_folder, can_folder_split)) => {
+                is_named_by_path = true;
+                is_program_undecided |= can_folder_split;
+                without_folder
+            }
+            None => name,
+        };
         let wrapper = command_wrapper(builder.view(program));
         words.push(program);
         let name_index = words.len() - 1;
         let is_program = match wrapper {
             Some(wrapper) => matches!(
-                take_wrapper_words(builder, wrapper, pending, words),
+                take_wrapper_words(builder, wrapper, pending, words, &mut is_program_undecided),
                 WrapperRead::WrapperIsProgram
             ),
             None => true,
@@ -581,11 +600,13 @@ fn resolve_command(
         if is_program {
             words.truncate(name_index + 1);
             words.extend(pending.drain(..));
+            is_program_undecided |= !builder.view(program).is_decided();
             return Some(CommandEntry {
                 first: offset(first_word),
                 program: offset(name_index),
                 end: offset(words.len()),
                 is_named_by_path,
+                is_program_undecided,
             });
         }
         last_wrapper = Some(name_index);
