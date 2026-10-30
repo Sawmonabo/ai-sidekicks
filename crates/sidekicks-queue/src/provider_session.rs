@@ -353,15 +353,15 @@ impl From<ProviderSessionError> for HandlerError {
     /// anything else, a resume refused among them, is a fault.
     fn from(error: ProviderSessionError) -> Self {
         match error {
-            ProviderSessionError::Provider(refusal)
-            | ProviderSessionError::LevelNotStored {
+            ProviderSessionError::Provider(refusal) => Self::Refused(refusal),
+            ProviderSessionError::LevelNotStored {
                 cause: MoveRecordError::Refused(refusal),
                 ..
             }
             | ProviderSessionError::ModeNotStored {
                 cause: MoveRecordError::Refused(refusal),
                 ..
-            } => Self::Refused(refusal),
+            } => Self::Refused(*refusal),
             ProviderSessionError::Driver(driver) => driver.into(),
             ProviderSessionError::Closed { session_id } => Self::Refused(
                 unchangeable_session_refusal(&session_id, SessionState::Closed),
