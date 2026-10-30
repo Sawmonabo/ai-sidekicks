@@ -15,6 +15,7 @@ use secrecy::{ExposeSecret as _, SecretString};
 use serde_json::{Value, json};
 use sidekicks_contracts::attention::{
     AttentionDeliveryChannel, AttentionDeliveryResult, AttentionDeliverySecret,
+    AttentionDeliveryStoreUnavailableCause,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::MachineSettings;
@@ -67,6 +68,8 @@ struct TestKeychain {
     items: Mutex<BTreeMap<String, String>>,
     // Every call refused while set.
     is_refusing: Mutex<bool>,
+    // Every removal refused while set, every other call answered.
+    is_refusing_removals: Mutex<bool>,
     // The account whose next write is refused.
     refused_write: Mutex<Option<&'static str>>,
     // A keychain whose store never opens, the source of each refusal.
@@ -91,6 +94,7 @@ impl TestKeychain {
         Arc::new(Self {
             items: Mutex::new(BTreeMap::new()),
             is_refusing: Mutex::new(false),
+            is_refusing_removals: Mutex::new(false),
             refused_write: Mutex::new(None),
             unopened: Arc::new(items.keychain(KeychainService::DeliverySecrets)),
             _folder: folder,
@@ -148,7 +152,7 @@ impl SecretKeychain for TestKeychain {
         account: &'call str,
     ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
         async move {
-            if *lock(&self.is_refusing) {
+            if *lock(&self.is_refusing) || *lock(&self.is_refusing_removals) {
                 return Err(self.refusal().await);
             }
             Ok(lock(&self.items).remove(account).is_some())
@@ -224,6 +228,44 @@ impl Fixture {
                 .signing_secret
                 .map(|secret| secret.as_str().to_owned())
         })
+    }
+
+    /// One decided wait whose message is queued, beside a recorded attempt; returns its entry.
+    async fn queue_message(&self) -> String {
+        let run_id = self.log.run(None);
+        self.log
+            .append(self.log.run_state(run_id, "waitingForInput", 2, json!({})))
+            .await;
+        let entry = self.log.entry_of(run_id);
+        self.log
+            .writer
+            .write(vec![
+                statement(
+                    DECIDE_SENT_SQL,
+                    vec![("@entry_id".into(), entry.clone().into())],
+                ),
+                statement(&MACHINE_VERSION_BUMP_SQL, Vec::new()),
+                attempt_outcome_statement(
+                    AttentionDeliveryChannel::WebAddress,
+                    &WireInstant::try_from("2026-10-29T09:00:00.000Z".to_owned())
+                        .expect("an instant"),
+                    AttentionDeliveryResult::Refused,
+                    None,
+                    None,
+                ),
+            ])
+            .await
+            .expect("the test decides the entry and records an attempt");
+        self.log
+            .database
+            .reader()
+            .execute(
+                "INSERT INTO attention_web_address_sends (entry_id, body, next_attempt_at)
+                 VALUES (?1, x'7b7d', '2026-10-29T09:00:05.000Z')",
+                [&entry],
+            )
+            .expect("the test queues the message");
+        entry
     }
 
     fn count(&self, sql: &str) -> i64 {
@@ -362,8 +404,10 @@ async fn each_refusal_answers_with_its_code_and_writes_nothing() {
 
 // A rotate replaces the secret and shows the new one; the list reads the address's scheme and host
 // only; a removal takes the address, its secret, its outcome row and every message still to send,
-// those dropped uncounted. Mutations: the path shown in the list; a removal leaving the secret, the
-// outcome row or a waiting message; a dropped message counted.
+// those dropped uncounted, the rows before the keychain's items, and a keychain that does not open
+// changes nothing. Mutations: the path shown in the list; a removal leaving the secret, the
+// outcome row or a waiting message; a dropped message counted; the keychain read before the rows
+// dropped or moved after them; the keychain removals moved before the rows.
 #[tokio::test]
 async fn a_removal_takes_the_address_its_secret_its_row_and_its_messages() {
     let fixture = Fixture::new().await;
@@ -384,45 +428,7 @@ async fn a_removal_takes_the_address_its_secret_its_row_and_its_messages() {
         Some(rotated.as_str())
     );
 
-    let run_id = fixture.log.run(None);
-    fixture
-        .log
-        .append(
-            fixture
-                .log
-                .run_state(run_id, "waitingForInput", 2, json!({})),
-        )
-        .await;
-    let entry = fixture.log.entry_of(run_id);
-    fixture
-        .log
-        .writer
-        .write(vec![
-            statement(
-                DECIDE_SENT_SQL,
-                vec![("@entry_id".into(), entry.clone().into())],
-            ),
-            statement(&MACHINE_VERSION_BUMP_SQL, Vec::new()),
-            attempt_outcome_statement(
-                AttentionDeliveryChannel::WebAddress,
-                &WireInstant::try_from("2026-10-29T09:00:00.000Z".to_owned()).expect("an instant"),
-                AttentionDeliveryResult::Refused,
-                None,
-                None,
-            ),
-        ])
-        .await
-        .expect("the test decides the entry and records an attempt");
-    fixture
-        .log
-        .database
-        .reader()
-        .execute(
-            "INSERT INTO attention_web_address_sends (entry_id, body, next_attempt_at)
-             VALUES (?1, x'7b7d', '2026-10-29T09:00:05.000Z')",
-            [&entry],
-        )
-        .expect("the test queues the message");
+    let entry = fixture.queue_message().await;
 
     let listed = fixture
         .sender
@@ -442,6 +448,56 @@ async fn a_removal_takes_the_address_its_secret_its_row_and_its_messages() {
         Some(AttentionDeliveryResult::Refused)
     );
     assert!(!listed.email_digest.password_saved);
+
+    // A keychain that does not open refuses before any row changes.
+    *lock(&fixture.keychain.is_refusing) = true;
+    let (code, _) = refusal_of(
+        fixture
+            .sender
+            .remove_address()
+            .await
+            .expect_err("the keychain cannot be used"),
+    );
+    assert_eq!(code, RefusalCode::AttentionDeliveryStoreUnavailable);
+    *lock(&fixture.keychain.is_refusing) = false;
+    assert_eq!(
+        (
+            fixture.count("SELECT COUNT(*) FROM attention_delivery_outcomes"),
+            fixture.count("SELECT COUNT(*) FROM attention_web_address_sends"),
+        ),
+        (1, 1),
+        "nothing changes"
+    );
+
+    // A keychain removal refused after the rows leaves the address saved, its rows gone.
+    *lock(&fixture.keychain.is_refusing_removals) = true;
+    let (code, _) = refusal_of(
+        fixture
+            .sender
+            .remove_address()
+            .await
+            .expect_err("the keychain refuses the removal"),
+    );
+    assert_eq!(code, RefusalCode::AttentionDeliveryStoreUnavailable);
+    *lock(&fixture.keychain.is_refusing_removals) = false;
+    assert_eq!(
+        (
+            fixture.count("SELECT COUNT(*) FROM attention_delivery_outcomes"),
+            fixture.count("SELECT COUNT(*) FROM attention_web_address_sends"),
+        ),
+        (0, 0),
+        "the rows go first"
+    );
+    assert!(
+        fixture
+            .sender
+            .list_deliveries()
+            .await
+            .expect("the list reads")
+            .web_address
+            .saved,
+        "the address stays saved"
+    );
 
     fixture
         .sender
@@ -484,8 +540,10 @@ async fn a_removal_takes_the_address_its_secret_its_row_and_its_messages() {
 
 // The test message needs a saved address and its signing secret; with both it is one signed post
 // of its own body, its `content` repeating its `text`, it writes no row, and with the switch off
-// its client goes. Mutations: a test sent with no address; a missing secret read as no address
-// saved; a moment's body sent; the test's outcome written to the row; the client kept while off.
+// its client goes; a missing or damaged secret answers as its outcome, nothing posted. Mutations: a
+// test sent with no address; a missing secret read as no address saved; a missing secret refused
+// instead of answered; a damaged secret read as missing; a moment's body sent; the test's outcome
+// written to the row; the client kept while off.
 #[tokio::test]
 async fn the_test_message_posts_once_and_writes_no_row() {
     let fixture = Fixture::new().await;
@@ -561,26 +619,39 @@ async fn the_test_message_posts_once_and_writes_no_row() {
         0
     );
 
-    lock(&fixture.keychain.items).remove(SIGNING_SECRET_ACCOUNT);
-    let WebAddressCallError::Refused(refusal) = fixture
-        .sender
-        .test_web_address()
+    // A missing or damaged secret answers as the outcome with its cause, nothing posted.
+    fixture
+        .save(&format!("http://127.0.0.1:{port}/hook"))
         .await
-        .expect_err("the address has no signing secret")
-    else {
-        panic!("the test is refused, not failed");
-    };
-    assert_eq!(
-        (refusal.code, refusal.detail.map(Value::Object)),
+        .expect("the save is kept");
+    for (secret, cause) in [
+        (None, AttentionDeliveryStoreUnavailableCause::SecretMissing),
         (
-            RefusalCode::AttentionDeliveryStoreUnavailable,
-            Some(json!({ "cause": "secretMissing" }))
-        )
-    );
-    assert_eq!(
-        refusal.message,
-        "Nothing was sent: the signing secret is missing. Make a new secret."
-    );
+            Some("not-a-signing-secret"),
+            AttentionDeliveryStoreUnavailableCause::SecretDamaged,
+        ),
+    ] {
+        match secret {
+            None => lock(&fixture.keychain.items).remove(SIGNING_SECRET_ACCOUNT),
+            Some(secret) => lock(&fixture.keychain.items)
+                .insert(SIGNING_SECRET_ACCOUNT.to_owned(), secret.to_owned()),
+        };
+        let tested = fixture
+            .sender
+            .test_web_address()
+            .await
+            .expect("the test answers")
+            .outcome;
+        assert_eq!(
+            (tested.result, tested.cause, tested.http_status),
+            (AttentionDeliveryResult::StoreUnavailable, Some(cause), None)
+        );
+        assert_eq!(lock(&received).len(), 1, "nothing is posted");
+        assert_eq!(
+            fixture.count("SELECT COUNT(*) FROM attention_delivery_outcomes"),
+            0
+        );
+    }
 }
 
 // The names of the environment variables holding the person's own chat addresses.

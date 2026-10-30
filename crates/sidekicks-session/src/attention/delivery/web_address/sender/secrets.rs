@@ -139,10 +139,11 @@ impl WebAddressSender {
     /// Removes the saved address: abandons the attempt in flight and waits for it to end, removes
     /// the outcome row and drops every message still to send as undelivered, uncounted, then
     /// removes the address, then its signing secret. The rows go first, so a crash or a refusal
-    /// after them leaves the address saved and `Remove` offered again, never an outcome beside no
-    /// address. Refuses a keychain that could not be used `attention.delivery.storeUnavailable`;
-    /// a refused removal of the address leaves it and its secret, and a refused removal of the
-    /// secret leaves it with no address, which nothing sends with.
+    /// after them, before the address goes, leaves the address saved and `Remove` offered again,
+    /// never an outcome beside no address. Refuses a keychain that could not be used
+    /// `attention.delivery.storeUnavailable`. A keychain that refuses before the rows changes
+    /// nothing; a refused removal of the address leaves it and its secret, and a refused removal
+    /// of the secret leaves it with no address, which nothing sends with.
     pub async fn remove_address(&self) -> Result<(), WebAddressCallError> {
         let held = self.lock_secrets().await;
         self.abandon_attempt(&held).await;
@@ -156,6 +157,11 @@ impl WebAddressSender {
             AttentionDeliveryChannel::WebAddress,
         )];
         statements.extend(pending.iter().flat_map(drop_statements));
+        // A data read, which a locked keychain refuses, so a refusal comes before any row changes.
+        self.keychain
+            .read(WEB_ADDRESS_ACCOUNT)
+            .await
+            .map_err(store_unavailable)?;
         self.writer.write(statements).await?;
         self.keychain
             .remove(WEB_ADDRESS_ACCOUNT)

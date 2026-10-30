@@ -2,10 +2,10 @@
 //! oldest due first.
 //!
 //! - **The pickup.** Each pass picks up the pending deliveries with no message queued, drops
-//!   uncounted those and the messages waiting whose moment no longer stands, whose entry is gone
-//!   or that are a muted session's end, freezes each other one's body with the machine's name as
-//!   it reads then, and queues it due at once; past 100 waiting, the oldest waiting gives up and
-//!   counts as undelivered.
+//!   uncounted those and, when it picks any up, the messages waiting whose moment no longer
+//!   stands, whose entry is gone or that are a muted session's end, freezes each other one's body
+//!   with the machine's name as it reads then, and queues it due at once; past 100 waiting, the
+//!   oldest waiting gives up and counts as undelivered.
 //! - **The switch.** Every pass reads the settings file first; while `Send to a web address` reads
 //!   off, every pending delivery and its message is dropped as undelivered, uncounted. The pass
 //!   runs at the start, at every attention change, at every settings change and when the timer
@@ -370,9 +370,9 @@ impl WebAddressSender {
 
     // Queues each pending delivery no message waits for, its body frozen with the machine's name
     // as it reads now, due at once; past the bound the oldest waiting give up, counted. One whose
-    // moment no longer stands, whose entry is gone or that is a muted session's end, waiting or
-    // not, is dropped uncounted first, so only a message that stands counts toward the bound, and
-    // one given up is never frozen.
+    // moment no longer stands, whose entry is gone or that is a muted session's end is dropped
+    // uncounted first, and, when it picks any up, so is such a waiting one, so only a message that
+    // stands counts toward the bound, and one given up is never frozen.
     async fn pick_up(&self, follow: &mut ChangeFollow) -> Result<(), WebAddressSendError> {
         let unqueued = self
             .pool
@@ -499,22 +499,7 @@ impl WebAddressSender {
                     .await?;
                 return Ok(Step::Settled);
             }
-            Err(unread) => {
-                tracing::info!(
-                    error = &unread as &(dyn Error + 'static),
-                    "the web address's secrets did not read, so nothing was sent"
-                );
-                (
-                    self.now().1,
-                    TryEnd {
-                        outcome: PostOutcome {
-                            result: AttentionDeliveryResult::StoreUnavailable,
-                            http_status: None,
-                        },
-                        cause: Some(unread.cause()),
-                    },
-                )
-            }
+            Err(unread) => (self.now().1, end_of_unread_secrets(&unread)),
         };
         // The retry waits its delay from the moment the try ended, not from when it began.
         let ended_at = self.now().1;
@@ -545,7 +530,7 @@ impl WebAddressSender {
     }
 
     // The saved address and its signing secret, `None` with no address saved or the address not
-    // reading as one; an address held with no signing secret is refused as a missing secret.
+    // reading as one; an address held with no signing secret reads as `SigningSecretMissing`.
     async fn read_secrets(&self) -> Result<Option<(WebAddress, SecretString)>, SecretsReadError> {
         let Some(address) = self.keychain.read(WEB_ADDRESS_ACCOUNT).await? else {
             return Ok(None);
@@ -645,6 +630,21 @@ impl InstantJob for WebAddressSender {
     fn rearm(self: Arc<Self>) -> BoxFuture<'static, ()> {
         self.wake.notify_one();
         async {}.boxed()
+    }
+}
+
+// How a try whose secrets did not read ended: `storeUnavailable` with the cause, nothing posted.
+fn end_of_unread_secrets(unread: &SecretsReadError) -> TryEnd {
+    tracing::info!(
+        error = unread as &(dyn Error + 'static),
+        "the web address's secrets did not read, so nothing was sent"
+    );
+    TryEnd {
+        outcome: PostOutcome {
+            result: AttentionDeliveryResult::StoreUnavailable,
+            http_status: None,
+        },
+        cause: Some(unread.cause()),
     }
 }
 

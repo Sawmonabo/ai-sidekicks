@@ -233,8 +233,8 @@ pub(crate) struct DueMessage {
     pub(crate) body: Bytes,
     /// The attempts made so far.
     pub(crate) attempt_count: i64,
-    /// Whether its moment still stands: a final state always does, a wait while it is open and
-    /// no later entry speaks for its moment.
+    /// Whether its moment still stands and its entry is there: a final state always does, a wait
+    /// while it is open and no later entry speaks for its moment.
     pub(crate) is_standing: bool,
     /// Whether it is the end of a session muted since it was decided.
     pub(crate) is_muted_end: bool,

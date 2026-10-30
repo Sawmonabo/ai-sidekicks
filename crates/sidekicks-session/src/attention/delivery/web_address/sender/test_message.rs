@@ -5,44 +5,39 @@
 use std::error::Error;
 
 use bytes::Bytes;
-use sidekicks_contracts::attention::{
-    AttentionDeliveryOutcome, AttentionDeliveryStoreUnavailableDetails,
-    AttentionDeliveryTestResponse,
-};
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_contracts::attention::{AttentionDeliveryOutcome, AttentionDeliveryTestResponse};
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_store::machine::local::read_local_machine;
 use uuid::Uuid;
 
 use super::secrets::{WebAddressCallError, address_not_configured, store_unavailable};
-use super::{SecretsReadError, WebAddressSender, end_of_post};
+use super::{SecretsReadError, TryEnd, WebAddressSender, end_of_post, end_of_unread_secrets};
 use crate::attention::delivery::web_address::message::test_message_body;
 use crate::attention::delivery::web_address::post::WebAddressPost;
 
 impl WebAddressSender {
     /// Sends one test message, `Test message from <machine>`, to the saved address and reports how
     /// it ended, with the messages given up on since the last delivery. Refuses with no address
-    /// saved `attention.delivery.notConfigured`, and a keychain that could not be used, or an
-    /// address saved with no signing secret, `attention.delivery.storeUnavailable` with its cause.
+    /// saved `attention.delivery.notConfigured`, and a keychain that could not be used
+    /// `attention.delivery.storeUnavailable` with its cause; a signing secret that is missing or
+    /// damaged answers as the outcome `storeUnavailable` with its cause, nothing posted.
     pub async fn test_web_address(
         &self,
     ) -> Result<AttentionDeliveryTestResponse, WebAddressCallError> {
         let held = self.lock_secrets().await;
-        let secrets = self.read_secrets().await.map_err(|unread| {
-            let cause = unread.cause();
-            match unread {
-                SecretsReadError::Refused(refusal) => store_unavailable(refusal),
-                // The line the test send settles with.
-                SecretsReadError::SigningSecretMissing => DomainError::new(
-                    "Nothing was sent: the signing secret is missing. Make a new secret.",
-                    RefusalCode::AttentionDeliveryStoreUnavailable,
-                )
-                .with_detail(AttentionDeliveryStoreUnavailableDetails { cause }),
-            }
-        })?;
+        let secrets = self.read_secrets().await;
         drop(held);
-        let Some((address, signing_secret)) = secrets else {
-            return Err(address_not_configured().into());
+        let (address, signing_secret) = match secrets {
+            Ok(Some(secrets)) => secrets,
+            Ok(None) => return Err(address_not_configured().into()),
+            Err(SecretsReadError::Refused(refusal)) => {
+                return Err(store_unavailable(refusal).into());
+            }
+            Err(unread @ SecretsReadError::SigningSecretMissing) => {
+                return self
+                    .answer_test(self.now().1, end_of_unread_secrets(&unread))
+                    .await;
+            }
         };
         let machine = read_local_machine(&self.pool)
             .await?
@@ -80,6 +75,15 @@ impl WebAddressSender {
                 self.poster.release();
             }
         }
+        self.answer_test(at, end).await
+    }
+
+    // The test's answer: how it ended, with the channel's current undelivered count.
+    async fn answer_test(
+        &self,
+        at: WireInstant,
+        end: TryEnd,
+    ) -> Result<AttentionDeliveryTestResponse, WebAddressCallError> {
         let undelivered = self.read_outcomes().await?.web_address.undelivered;
         Ok(AttentionDeliveryTestResponse {
             outcome: AttentionDeliveryOutcome {
