@@ -41,6 +41,7 @@ pub struct ShellLineReading {
     // Each command's wrapper words, program and arguments, in that order.
     words: Box<[Word]>,
     commands: Box<[CommandEntry]>,
+    assignments: Box<[Word]>,
     holds_only_reading_forms: bool,
     requoted_line: Option<Box<str>>,
     is_whole: bool,
@@ -72,6 +73,36 @@ impl ShellLineReading {
         self.is_whole
     }
 
+    /// Every assignment the line makes as its own word, `NAME=value`: before a command, alone, or
+    /// in a declaration such as `export`, but not one a wrapper such as env takes as its word.
+    pub fn assignment_words(&self) -> impl ExactSizeIterator<Item = ShellWord<'_>> {
+        self.assignments
+            .iter()
+            .map(|&word| ShellWord::new(self.texts(), &self.pieces, word))
+    }
+
+    /// The line's words as the parser left them unread, split at blanks and at the shell's
+    /// operators into the runs between those operators, each word with its quotes and
+    /// backslashes dropped; what a line not read whole still shows of its commands.
+    pub fn unread_word_runs(&self) -> Vec<Vec<String>> {
+        let mut runs = vec![Vec::new()];
+        let mut word = String::new();
+        for character in self.line.chars() {
+            match character {
+                ';' | '&' | '|' | '(' | ')' | '<' | '>' | '`' | '\n' => {
+                    end_unread_word(&mut runs, &mut word);
+                    runs.push(Vec::new());
+                }
+                '\'' | '"' | '\\' => {}
+                blank if blank.is_whitespace() => end_unread_word(&mut runs, &mut word),
+                other => word.push(other),
+            }
+        }
+        end_unread_word(&mut runs, &mut word);
+        runs.retain(|run| !run.is_empty());
+        runs
+    }
+
     /// Whether every form of the line read is one a line that only reads may hold: no redirect
     /// writes a file (`/dev/null` and a duplication onto a descriptor number write none), every
     /// redirect has a command, nothing sets a variable or evaluates arithmetic, and every
@@ -95,6 +126,7 @@ impl ShellLineReading {
             pieces: Box::default(),
             words: Box::default(),
             commands: Box::default(),
+            assignments: Box::default(),
             holds_only_reading_forms: false,
             requoted_line: None,
             is_whole: false,
@@ -108,7 +140,7 @@ impl ShellLineReading {
         let root = tree.root_node();
         let is_whole = !root.has_error();
         let mut builder = WordBuilder::new(&line);
-        let (words, commands, forms) = commands_in(root, &mut builder);
+        let (words, commands, assignments, forms) = commands_in(root, &mut builder);
         // The tree goes before the arrays shrink to their length, so the two never meet.
         drop(tree);
         let (decoded, pieces, positions) = builder.finish();
@@ -120,6 +152,7 @@ impl ShellLineReading {
             pieces,
             words: words.into_boxed_slice(),
             commands: commands.into_boxed_slice(),
+            assignments: assignments.into_boxed_slice(),
             holds_only_reading_forms: forms.is_reading(),
             requoted_line,
             is_whole,
@@ -197,7 +230,7 @@ impl<'r> ShellCommand<'r> {
             .into_iter()
             .map(move |string| {
                 let (words, skipped_bytes) = match string {
-                    CommandStringWords::Every => (arguments, 0),
+                    CommandStringWords::Joined { from } => (&arguments[from..], 0),
                     CommandStringWords::One {
                         index,
                         skipped_bytes,
@@ -285,15 +318,17 @@ impl ShellLineReader {
 
 // Every simple command in the tree, nested ones included: those in a pipeline, a chain, a subshell
 // or a loop, those a substitution runs, inside double quotes, an assignment or a here-document
-// too, and those the parser read before a syntax error; and whether every form of the line is one
-// a reading line may hold, as the forms noted. A here-document body the shell passes as text is
-// not read. The cursor keeps its own stack, so no nesting depth reaches this thread's.
+// too, those a `find` runs, and those the parser read before a syntax error; every assignment the
+// tree holds; and whether every form of the line is one a reading line may hold, as the forms
+// noted. A here-document body the shell passes as text is not read. The cursor keeps its own
+// stack, so no nesting depth reaches this thread's.
 fn commands_in(
     root: Node<'_>,
     builder: &mut WordBuilder<'_>,
-) -> (Vec<Word>, Vec<CommandEntry>, ReadingForms) {
+) -> (Vec<Word>, Vec<CommandEntry>, Vec<Word>, ReadingForms) {
     let mut words = Vec::new();
     let mut commands = Vec::new();
+    let mut assignments = Vec::new();
     let mut forms = ReadingForms::new();
     let mut pending = VecDeque::new();
     let mut read_body = None;
@@ -302,10 +337,13 @@ fn commands_in(
     loop {
         let node = cursor.node();
         let reads_inside = forms.note(node, previous_sibling, builder);
+        if node.kind() == "variable_assignment" {
+            assignments.push(builder.push_assignment(node));
+        }
         if push_command_words(node, builder, &mut pending, &mut read_body)
             && let Some(command) = resolve_command(builder, &mut pending, &mut words)
         {
-            commands.push(command);
+            push_find_commands(builder, &mut words, command, &mut commands);
         }
         if reads_inside && cursor.goto_first_child() {
             previous_sibling = None;
@@ -318,7 +356,7 @@ fn commands_in(
                 break;
             }
             if !cursor.goto_parent() {
-                return (words, commands, forms);
+                return (words, commands, assignments, forms);
             }
         }
     }
@@ -624,6 +662,75 @@ fn resolve_command(
             });
         }
         last_wrapper = Some(name_index);
+    }
+}
+
+// The primaries of `find` that run the words after them as a command.
+const FIND_COMMAND_PRIMARIES: &[&str] = &["-exec", "-execdir", "-ok", "-okdir"];
+
+// Pushes `command` and every command a `find` among them runs: the words after each of its
+// `-exec`, `-execdir`, `-ok` and `-okdir` up to a `;`, or a `+` right after `{}`, read as a
+// command of its own, each word holding `{}` one only the run decides, since find puts a path
+// there.
+fn push_find_commands(
+    builder: &mut WordBuilder<'_>,
+    words: &mut Vec<Word>,
+    command: CommandEntry,
+    commands: &mut Vec<CommandEntry>,
+) {
+    let mut unread = vec![command];
+    while let Some(command) = unread.pop() {
+        commands.push(command);
+        let program = command.program as usize;
+        if !builder.view(words[program]).is("find") {
+            continue;
+        }
+        let mut segments = Vec::new();
+        let mut segment_start = None;
+        for index in program + 1..command.end as usize {
+            let word = builder.view(words[index]);
+            match segment_start {
+                None if FIND_COMMAND_PRIMARIES
+                    .iter()
+                    .any(|primary| word.is(primary)) =>
+                {
+                    segment_start = Some(index + 1);
+                }
+                None => {}
+                Some(start) => {
+                    let ends_after_path =
+                        word.is("+") && index > start && builder.view(words[index - 1]).is("{}");
+                    if word.is(";") || ends_after_path {
+                        segments.push(start..index);
+                        segment_start = None;
+                    }
+                }
+            }
+        }
+        for segment in segments {
+            let mut pending: VecDeque<Word> = segment
+                .map(|index| {
+                    let word = words[index];
+                    if builder.view(word).to_string().contains("{}") {
+                        builder.push_undecided_copy(word)
+                    } else {
+                        word
+                    }
+                })
+                .collect();
+            if let Some(run) = resolve_command(builder, &mut pending, words) {
+                unread.push(run);
+            }
+        }
+    }
+}
+
+// Ends the word being read into the last run, if it holds any character.
+fn end_unread_word(runs: &mut [Vec<String>], word: &mut String) {
+    if !word.is_empty()
+        && let Some(run) = runs.last_mut()
+    {
+        run.push(std::mem::take(word));
     }
 }
 

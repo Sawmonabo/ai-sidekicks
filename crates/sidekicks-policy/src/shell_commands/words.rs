@@ -189,6 +189,8 @@ pub trait WordText: Copy {
     fn chars(self) -> impl Iterator<Item = char>;
     /// Whether `byte` occurs in the word.
     fn contains(self, byte: PositionedByte) -> bool;
+    /// Whether the shell passes the word as its text reads; a plain string always is.
+    fn is_decided(self) -> bool;
 }
 
 impl WordText for &str {
@@ -206,6 +208,10 @@ impl WordText for &str {
 
     fn contains(self, byte: PositionedByte) -> bool {
         memchr(byte.byte(), self.as_bytes()).is_some()
+    }
+
+    fn is_decided(self) -> bool {
+        true
     }
 }
 
@@ -306,6 +312,10 @@ impl WordText for ShellWord<'_> {
         self.pieces
             .iter()
             .any(|&piece| self.texts.contains(piece, byte))
+    }
+
+    fn is_decided(self) -> bool {
+        ShellWord::is_decided(self)
     }
 }
 
@@ -517,6 +527,19 @@ impl<'s> WordBuilder<'s> {
         }
         if is_equals_expansion && let Some(piece) = self.pieces.get_mut(first_piece) {
             piece.kind = undecided_kind(piece.kind);
+        }
+        word_from(&self.pieces, first_piece)
+    }
+
+    /// Reads the assignment `node`, `NAME=value` or `NAME+=value`, as one word: its name and
+    /// operator as their text, then its value as `push_word` reads a word.
+    pub(super) fn push_assignment(&mut self, node: Node<'_>) -> Word {
+        let first_piece = self.pieces.len();
+        let value = node.child_by_field_name("value");
+        let name_end = value.map_or(node.end_byte(), |value| value.start_byte());
+        self.push_line(node.start_byte()..name_end, PieceKind::Literal);
+        if let Some(value) = value {
+            self.push_word(value);
         }
         word_from(&self.pieces, first_piece)
     }
