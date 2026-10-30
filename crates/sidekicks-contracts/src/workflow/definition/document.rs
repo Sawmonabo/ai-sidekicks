@@ -534,7 +534,9 @@ macro_rules! workflow_document {
             #[schemars(description = "The document schema version; always \"2\".")]
             pub schema_version: WorkflowDocumentSchemaVersion,
             /// The workflow's name.
-            #[schemars(description = "The workflow's name.")]
+            #[schemars(description = format!(
+                "The workflow's name: 1 to {WORKFLOW_NAME_MAX_LEN} characters."
+            ))]
             pub name: WorkflowName,
             /// The workflow's description.
             #[serde(
