@@ -141,20 +141,21 @@ enum ConfiguredServer {
 }
 
 // While the account's connector list holds a connector the `mcp_status` reply lacks, `mcp_status`
-// is asked again on the same process once a second; a reply that reaches the list settles the
-// read, and so does a count that stops growing above none, while a count of none settles once
-// Claude Code's fetch can have ended, and a read that settles short of the list is marked as
-// lacking. Where Claude Code fetches a list the daemon could not read (an unreadable sign-in, a
-// refused host, the environment's own token granted the list's scope), the read waits for a
-// connector or the fetch's end and settles whole. A listed connector at the whole address of a
-// server the process configures is one Claude Code suppresses, so it is not waited for, unless
-// that server is a plugin's, switched off or waits for a sign-in. Killed by a reply settling while
-// it grows, by a count above none asked again until the fetch ends, by a count of none settling
-// before the fetch ends, by an unread list taken as fetched by no one or kept as short, by a
-// credential claimed ahead of the sign-in where a socket's token, a remote session or a desktop
-// app keeps it aside, by a blank key or socket read as set, by a suppressed connector counted as
-// missing, the organization's included, and by a plugin's, a switched-off or a waiting server
-// counted as suppressing one.
+// is asked again on the same process once a second; a reply that reaches the list settles the read,
+// and so does a count that stops growing above none, while a count of none settles once Claude
+// Code's fetch can have ended, and a read that settles short of the list is marked as lacking.
+// Where Claude Code fetches a list the daemon could not read (an unreadable sign-in, a refused
+// host, the environment's own token granted the list's scope, a sign-in file descriptor beside a
+// stored sign-in, which Claude Code passes over), the read waits for a connector or the fetch's end
+// and settles whole. A listed connector at the whole address of a server the process configures is
+// one Claude Code suppresses, so it is not waited for, unless that server is a plugin's, switched
+// off or waits for a sign-in. Killed by a reply settling while it grows, by a count above none
+// asked again until the fetch ends, by a count of none settling before the fetch ends, by an unread
+// list taken as fetched by no one or kept as short, by a credential claimed ahead of the sign-in
+// where a socket's token, a remote session or a desktop app keeps it aside, by a key's file
+// descriptor or a helper held ahead there, by a blank key or socket read as set, by a suppressed
+// connector counted as missing, the organization's included, and by a plugin's, a switched-off or a
+// waiting server counted as suppressing one.
 #[rstest]
 #[case::grows_to_the_list(
     ConnectorFetch::Listed(&["Notes", "Mail"]),
@@ -227,6 +228,14 @@ enum ConfiguredServer {
     0,
     false
 )]
+#[case::a_descriptor_beside_the_stored_sign_in(
+    with_variables(&[("CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "3")]),
+    &[&[][..]],
+    &[][..],
+    29,
+    0,
+    false
+)]
 #[case::api_key_in_a_remote_session(
     with_variables(&[("ANTHROPIC_API_KEY", "key"), ("CLAUDE_CODE_REMOTE", " TRUE ")]),
     &[&[][..]],
@@ -237,6 +246,29 @@ enum ConfiguredServer {
 )]
 #[case::api_key_under_a_desktop_app(
     with_variables(&[("ANTHROPIC_API_KEY", "key"), ("CLAUDE_CODE_ENTRYPOINT", "claude-desktop")]),
+    &[&[][..]],
+    &[][..],
+    29,
+    0,
+    false
+)]
+#[case::a_key_file_descriptor_under_the_third_party_desktop_app(
+    with_variables(&[
+        ("CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR", "3"),
+        ("CLAUDE_CODE_ENTRYPOINT", "claude-desktop-3p"),
+    ]),
+    &[&[][..]],
+    &[][..],
+    29,
+    0,
+    false
+)]
+#[case::an_api_key_helper_in_a_remote_session(
+    ConnectorFetch::Through {
+        sign_in: SIGNED_IN,
+        variables: &[("CLAUDE_CODE_REMOTE", "1")],
+        setting: Some(FetchSetting::ApiKeyHelper),
+    },
     &[&[][..]],
     &[][..],
     29,
@@ -332,9 +364,10 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
 // reply settles the read whole: its connectors switched off by the variable or a settings source,
 // safe mode, another provider or a gateway, bare mode, a socket with no token, a credential ahead
 // of the sign-in, a key's file descriptor among them and one beside a remote-session variable
-// Claude Code reads as off, no sign-in, or one short of a scope the fetch needs, the environment's
-// token and a file descriptor's with the scopes Claude Code gives them. Killed by any of these not
-// read, which leaves the read waiting for the fetch's end.
+// Claude Code reads as off, and a token, a key or a helper under the third-party desktop app or
+// beside a host's credential variable, where the sign-in does not stand ahead of them, no sign-in,
+// or one short of a scope the fetch needs, the environment's token with the scopes Claude Code
+// gives it. Killed by any of these not read, which leaves the read waiting for the fetch's end.
 #[rstest]
 #[case::no_sign_in(with_sign_in(StoredSignIn::Absent))]
 #[case::connectors_switched_off(with_variables(&[("ENABLE_CLAUDEAI_MCP_SERVERS", " Off ")]))]
@@ -349,6 +382,24 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
     with_variables(&[("ANTHROPIC_API_KEY", "key"), ("CLAUDE_CODE_REMOTE", "0")])
 )]
 #[case::an_api_key_helper_ahead(with_setting(FetchSetting::ApiKeyHelper))]
+#[case::an_api_key_under_the_third_party_desktop_app(
+    with_variables(&[
+        ("ANTHROPIC_API_KEY", "key"),
+        ("CLAUDE_CODE_ENTRYPOINT", " claude-desktop-3p "),
+    ])
+)]
+#[case::an_auth_token_in_a_remote_session_with_a_host_credential(
+    with_variables(&[
+        ("ANTHROPIC_AUTH_TOKEN", "token"),
+        ("CLAUDE_CODE_REMOTE", "1"),
+        ("CLAUDE_CODE_HOST_AUTH_ENV_VAR", "HOST_TOKEN"),
+    ])
+)]
+#[case::an_api_key_helper_under_the_third_party_desktop_app(ConnectorFetch::Through {
+    sign_in: SIGNED_IN,
+    variables: &[("CLAUDE_CODE_ENTRYPOINT", "claude-desktop-3p")],
+    setting: Some(FetchSetting::ApiKeyHelper),
+})]
 #[case::a_sign_in_short_of_inference(with_sign_in(StoredSignIn::Scopes(&["user:mcp_servers"])))]
 #[case::a_sign_in_short_of_the_list_scope(with_sign_in(StoredSignIn::Scopes(&["user:inference"])))]
 #[case::a_gateway(with_variables(&[
@@ -362,9 +413,6 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
 )]
 #[case::the_environments_token_short_of_the_list_scope(
     with_variables(&[("CLAUDE_CODE_OAUTH_TOKEN", "token")])
-)]
-#[case::a_descriptor_token_short_of_the_list_scope(
-    with_variables(&[("CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "3")])
 )]
 #[tokio::test(start_paused = true)]
 async fn a_read_whose_claude_code_fetches_no_list_settles_whole_at_the_first_ask(

@@ -168,9 +168,9 @@ impl ClaudeOrganizationMarks {
     /// The marks of the connectors on the list of the account whose process `environment`
     /// started with `settings`, read as the build `build_version` reads it. Not fetched, and not
     /// read, where Claude Code skips its own fetch for the environment, the settings, an absent
-    /// sign-in or its scopes; unread, with the reason logged at debug, where its sign-in is a file
-    /// descriptor's token or cannot be read, the build reported no version, the account names a
-    /// host Claude Code refuses, or the list cannot be read.
+    /// sign-in or its scopes; unread, with the reason logged at debug, where its sign-in cannot be
+    /// read, the build reported no version, the account names a host Claude Code refuses, or the
+    /// list cannot be read.
     pub(crate) async fn read(
         &self,
         environment: &[(String, String)],
@@ -183,16 +183,6 @@ impl ClaudeOrganizationMarks {
         let sign_in = match self.sign_in.read(environment).await {
             ClaudeSignInReading::Absent => return ClaudeConnectorListReading::NotFetched,
             ClaudeSignInReading::Unreadable => return ClaudeConnectorListReading::Unread,
-            ClaudeSignInReading::Descriptor { scopes } => {
-                if skips_fetch_for_scopes(&scopes) {
-                    return ClaudeConnectorListReading::NotFetched;
-                }
-                tracing::debug!(
-                    "no connector marks read: the account's Claude Code signs in with a token \
-                     from a file descriptor"
-                );
-                return ClaudeConnectorListReading::Unread;
-            }
             ClaudeSignInReading::Read(sign_in) => sign_in,
         };
         if skips_fetch_for_scopes(&sign_in.scopes) {

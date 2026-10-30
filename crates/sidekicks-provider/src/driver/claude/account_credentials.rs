@@ -39,10 +39,6 @@ pub(crate) const CUSTOM_SIGN_IN_HOST_VARIABLE: &str = "CLAUDE_CODE_CUSTOM_OAUTH_
 /// b:12096799).
 pub(crate) const OAUTH_TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
-/// The variable naming a file descriptor Claude Code reads a sign-in token from, ahead of its
-/// stored sign-in (`dE`, b:10451095).
-const OAUTH_TOKEN_DESCRIPTOR_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR";
-
 /// The variable listing the scopes Claude Code gives a token its environment hands it, separated
 /// by white space (`Zw`, b:12096391).
 const OAUTH_SCOPES_VARIABLE: &str = "CLAUDE_CODE_OAUTH_SCOPES";
@@ -50,11 +46,6 @@ const OAUTH_SCOPES_VARIABLE: &str = "CLAUDE_CODE_OAUTH_SCOPES";
 /// The scopes Claude Code gives the environment's token where the scopes variable names none
 /// (`Qw`, b:12096337).
 const ENVIRONMENT_TOKEN_SCOPES: [&str; 1] = ["user:inference"];
-
-/// The scopes Claude Code gives a file descriptor's token where the scopes variable names none
-/// (`u$`, b:12096494).
-const DESCRIPTOR_TOKEN_SCOPES: [&str; 3] =
-    ["user:inference", "user:ccr_inference", "user:file_upload"];
 
 /// Opens the credential store a keychain item is read from, blocking while it does.
 pub(crate) type ClaudeKeychainOpen =
@@ -88,24 +79,21 @@ impl ClaudeSignInReader {
     }
 
     /// The sign-in of the Claude Code process `environment` starts: the environment's own token,
-    /// else the token it names a file descriptor for, each with the scopes Claude Code gives it,
-    /// else the record in its credential folder's file, else the keychain item named for that
-    /// folder. Where none holds a record with an access token it is absent, unless a store that
-    /// may hold one could not be read; each reason is logged at debug.
+    /// with the scopes Claude Code gives it, else the record in its credential folder's file, else
+    /// the keychain item named for that folder. A sign-in token file descriptor the environment
+    /// names is passed over, since the daemon's spawn closes every inherited descriptor and Claude
+    /// Code then signs in with the stored record. Where none holds a record with an access token
+    /// it is absent, unless a store that may hold one could not be read; each reason is logged at
+    /// debug.
     pub(crate) async fn read(&self, environment: &[(String, String)]) -> ClaudeSignInReading {
         if let Some(token) = claude_text_variable(environment, OAUTH_TOKEN_VARIABLE) {
             return ClaudeSignInReading::Read(ClaudeAiSignIn {
                 access_token: Zeroizing::new(token.to_owned()),
-                scopes: read_handed_token_scopes(environment, &ENVIRONMENT_TOKEN_SCOPES),
+                scopes: read_handed_token_scopes(environment),
                 refresh_token: None,
                 expires_at: None,
                 client_id: None,
             });
-        }
-        if claude_text_variable(environment, OAUTH_TOKEN_DESCRIPTOR_VARIABLE).is_some() {
-            return ClaudeSignInReading::Descriptor {
-                scopes: read_handed_token_scopes(environment, &DESCRIPTOR_TOKEN_SCOPES),
-            };
         }
         let Some(folder) = claude_credential_folder(environment) else {
             tracing::debug!("no claude.ai sign-in read: the account names no Claude Code home");
@@ -188,12 +176,6 @@ pub(crate) enum ClaudeSignInReading {
     Unreadable,
     /// The sign-in.
     Read(ClaudeAiSignIn),
-    /// A token Claude Code reads from a file descriptor the daemon cannot read, with the scopes
-    /// Claude Code gives it.
-    Descriptor {
-        /// The scopes.
-        scopes: Vec<String>,
-    },
 }
 
 /// An account's claude.ai sign-in: its access token, wiped when dropped, and the scopes it was
@@ -292,9 +274,9 @@ fn read_sign_in_record(bytes: &[u8], source: &'static str) -> Option<ClaudeAiSig
     })
 }
 
-// The scopes Claude Code gives a token `environment` hands it: those its scopes variable lists,
-// else `default`.
-fn read_handed_token_scopes(environment: &[(String, String)], default: &[&str]) -> Vec<String> {
+// The scopes Claude Code gives the token `environment` hands it: those its scopes variable lists,
+// else inference alone.
+fn read_handed_token_scopes(environment: &[(String, String)]) -> Vec<String> {
     let listed: Vec<String> = claude_text_variable(environment, OAUTH_SCOPES_VARIABLE)
         .into_iter()
         .flat_map(|scopes| scopes.split(is_ecmascript_whitespace))
@@ -302,7 +284,10 @@ fn read_handed_token_scopes(environment: &[(String, String)], default: &[&str]) 
         .map(str::to_owned)
         .collect();
     if listed.is_empty() {
-        default.iter().map(|scope| (*scope).to_owned()).collect()
+        ENVIRONMENT_TOKEN_SCOPES
+            .iter()
+            .map(|scope| (*scope).to_owned())
+            .collect()
     } else {
         listed
     }
@@ -497,9 +482,9 @@ mod tests {
     }
 
     // A token the environment hands Claude Code is its sign-in ahead of the stored record, with
-    // the scopes the scopes variable lists, else inference alone; a file descriptor's token is read
-    // as one, with its own default scopes. Killed by the stored record read first, and by either
-    // token's default scopes taken from the other.
+    // the scopes the scopes variable lists, else inference alone; a sign-in file descriptor, which
+    // never reaches the process, leaves the stored record its sign-in. Killed by the stored record
+    // read first, and by the descriptor read as a sign-in of its own.
     #[tokio::test]
     async fn a_token_the_environment_hands_claude_code_comes_ahead_of_the_stored_one() {
         let folder = tempfile::tempdir().expect("a test folder");
@@ -544,15 +529,13 @@ mod tests {
         };
         assert_eq!(sign_in.scopes, ["user:inference", "user:mcp_servers"]);
 
-        let ClaudeSignInReading::Descriptor { scopes } =
+        let ClaudeSignInReading::Read(sign_in) =
             read(&[("CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "3")]).await
         else {
-            panic!("the file descriptor's token");
+            panic!("the stored record past a descriptor");
         };
-        assert_eq!(
-            scopes,
-            ["user:inference", "user:ccr_inference", "user:file_upload"]
-        );
+        assert_eq!(sign_in.access_token.as_str(), "stored");
+        assert_eq!(sign_in.scopes, ["user:mcp_servers"]);
 
         let ClaudeSignInReading::Read(sign_in) = read(&[("CLAUDE_CODE_OAUTH_TOKEN", "  ")]).await
         else {
