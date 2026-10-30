@@ -502,9 +502,10 @@ pub enum AttentionDeliveryResult {
     StoreUnavailable,
 }
 
-/// Why a channel's secret could not be used: the keychain is locked or cannot be used, or the web
-/// address is saved with a signing secret that is missing or does not read. The email digest never
-/// reads `secretMissing`, since a missing mail password is `attention.delivery.notConfigured`.
+/// Why a channel's secret could not be used: the keychain is locked or cannot be opened, or the web
+/// address is saved with a signing secret that is missing or damaged. The email digest never reads
+/// `secretMissing` or `secretDamaged`, since a missing mail password is
+/// `attention.delivery.notConfigured`.
 #[derive(
     Clone,
     Copy,
@@ -525,8 +526,10 @@ pub enum AttentionDeliveryStoreUnavailableCause {
     Locked,
     /// The keychain cannot be used now, or this machine has none the app can use.
     Unavailable,
-    /// The web address's signing secret is missing or does not read.
+    /// The web address's signing secret is missing from the keychain.
     SecretMissing,
+    /// The web address's stored signing secret is not `whsec_` and base64.
+    SecretDamaged,
 }
 
 impl From<KeychainRefusalCause> for AttentionDeliveryStoreUnavailableCause {
