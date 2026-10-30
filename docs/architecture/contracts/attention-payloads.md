@@ -140,7 +140,8 @@ interface AttentionSeenSubject {
 // that reads nothing back answers `EmptyPayload`.
 interface AttentionDeliveryOutcome {
   at: string;
-  // storeUnavailable: the keychain was locked or unavailable, so nothing was sent.
+  // storeUnavailable: the keychain refused, locked or unavailable, or the address is saved with its
+  // signing secret missing or unreadable, so nothing was sent.
   result:
     | "delivered"
     | "refused"
@@ -149,6 +150,7 @@ interface AttentionDeliveryOutcome {
     | "signInRefused"
     | "notEncrypted"
     | "storeUnavailable";
+  cause?: "locked" | "unavailable" | "secretMissing"; // present exactly on storeUnavailable
   httpStatus: number | null; // null where the address gave no answer
   undelivered: number;
 }
@@ -172,7 +174,9 @@ interface AttentionDeliveryTestRequest {
 // outcome's `undelivered` is the channel's current count. The page settles on its result:
 // `delivered` `Sent. The address answered 200.`, `refused` `The address answered <status>.`,
 // `timedOut` `The address did not answer in 15 seconds.`, `unreachable` `The address could not be
-// reached.` and `storeUnavailable` `Nothing was sent: the keychain is locked.`
+// reached.`, and `storeUnavailable` `Nothing was sent: the keychain is locked.` or, with `cause:
+// secretMissing`, `Nothing was sent: the signing secret is missing. Make a new secret.` The refusal
+// `attention.delivery.storeUnavailable` settles the test with the same line its cause names.
 interface AttentionDeliveryTestResponse {
   outcome: AttentionDeliveryOutcome;
 }
@@ -191,7 +195,7 @@ interface AttentionWebAddressSecretRotateResponse {
 }
 // `attention.webAddress.delete` waits for the attempt in flight, then removes the address, its
 // signing secret and the channel's outcome row, and drops every waiting message, uncounted.
-// Refusals: `attention.delivery.storeUnavailable` (`cause: locked | unavailable`),
+// Refusals: `attention.delivery.storeUnavailable` (`cause: locked | unavailable | secretMissing`),
 // `attention.delivery.notConfigured` (`missing: address | password`; also `secret.rotate` with no
 // address saved) and `attention.webAddress.notAnAddress` (`update` on text that is no address).
 ```
