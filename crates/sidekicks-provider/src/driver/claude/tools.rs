@@ -134,7 +134,7 @@ pub(crate) fn normalize_claude_mcp_server_init_census(
     result
 }
 
-/// Reads an `mcp_status` answer's rows as one reading per server, each with its scrubbed error
+/// Reads an `mcp_status` answer's rows as one reading per server, each with its sanitized error
 /// text and the names of its tools where the row lists them; `None` for an answer that carries no
 /// list. A row whose name fails the wire bound is one rejection; the rest are emitted.
 pub(crate) fn normalize_claude_mcp_status_reply(
