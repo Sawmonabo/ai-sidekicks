@@ -320,9 +320,9 @@ mod tests {
 
     // Killed by a hook that lets a provider's background work through or refuses an ordinary
     // command; by a dropped or inverted time-limit check (an untimed background call passed, a
-    // timed one denied); and by a line with an unterminated quote read as a refusal. Mutations:
-    // in `answer_background_work_check`, `untimed_answer` always `Pass`; in
-    // `ClaudeShellCall::of`, `timeout.is_none()` to `is_some()` or the condition dropped.
+    // timed one denied). Mutations: in `answer_background_work_check`, `untimed_answer` always
+    // `Pass`; in `ClaudeShellCall::of`, `timeout.is_none()` to `is_some()` or the condition
+    // dropped.
     #[rstest]
     #[case::provider_background_work(
         json!({"command": "bash -c 'claude --bg x'"}),
@@ -335,10 +335,6 @@ mod tests {
     )]
     #[case::background_with_a_timeout(
         json!({"command": "npm run build", "run_in_background": true, "timeout": 600_000}),
-        Expected::Pass
-    )]
-    #[case::unterminated_quote(
-        json!({"command": r#"claude --bg x && echo "unterminated"#}),
         Expected::Pass
     )]
     #[tokio::test]

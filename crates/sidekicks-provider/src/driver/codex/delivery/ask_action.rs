@@ -42,7 +42,7 @@ pub(crate) struct CodexAskReading {
     /// The scopes a standing rule on it may take.
     pub(crate) rule_scopes: Vec<RememberedScopeKind>,
     /// The refusal of a command that starts a provider's background work, read from the line the
-    /// ask runs; `None` for every other ask, and for a line not read whole.
+    /// ask runs; `None` for every other ask.
     pub(crate) command_refusal: Option<&'static str>,
 }
 
@@ -272,15 +272,6 @@ mod tests {
         ProviderAskAction::Command { command: "claude --bg \"fix it\"".to_owned() },
         &BOTH_SCOPES,
         true
-    )]
-    #[case::an_unterminated_quote_refuses_nothing(
-        "item/commandExecution/requestApproval",
-        json!({"command": "claude --bg 'unclosed"}),
-        &[],
-        None,
-        ProviderAskAction::Command { command: "claude --bg 'unclosed".to_owned() },
-        &BOTH_SCOPES,
-        false
     )]
     #[case::a_network_ask_with_no_command(
         "item/commandExecution/requestApproval",
