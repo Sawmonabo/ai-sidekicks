@@ -17,6 +17,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
 
+use crate::driver::claude::mcp::connectors::list_fetch::ClaudeConnectorFetchSettings;
 use crate::driver::claude::mcp::connectors::organization_mark::ClaudeOrganizationMarks;
 use crate::driver::claude::mcp::connectors::{
     ClaudeAccountServersReadRequest, read_claude_account_answers, read_claude_account_servers,
@@ -144,8 +145,10 @@ async fn read_account(
             .await?;
         let read = read_claude_account_answers(
             &*channel,
-            async |build_version: Option<String>| {
-                marks.read(&environment, build_version.as_deref()).await
+            async |build_version: Option<String>, settings: ClaudeConnectorFetchSettings| {
+                marks
+                    .read(&environment, build_version.as_deref(), &settings)
+                    .await
             },
             probe_ceiling(&environment),
         )

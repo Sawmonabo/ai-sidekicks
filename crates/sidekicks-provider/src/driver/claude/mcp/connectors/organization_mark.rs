@@ -2,8 +2,9 @@
 //! account's connector list from claude.ai, sent exactly as Claude Code sends it at its own start
 //! and only after the account's own Claude Code process answered, so that process has already
 //! renewed an expiring token under its lock. The daemon renews nothing itself: a refused token
-//! leaves every mark absent for that read. Budget: one request per account read, at most three
-//! tries and one more without the additional accounts, within twelve seconds.
+//! leaves every mark absent for that read. Budget: one request per account read, none where
+//! Claude Code fetches no list, at most three tries and one more without the additional accounts,
+//! within twelve seconds.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -14,14 +15,17 @@ use reqwest::header::{
     ACCEPT, ACCEPT_ENCODING, AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGENT,
 };
 use serde::Deserialize;
-use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::PathRules;
 use tokio::sync::OnceCell;
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
 use crate::driver::claude::account_credentials::{
-    CUSTOM_SIGN_IN_HOST_VARIABLE, ClaudeAiSignIn, ClaudeSignInReader,
+    CUSTOM_SIGN_IN_HOST_VARIABLE, ClaudeAiSignIn, ClaudeSignInReader, ClaudeSignInReading,
+};
+use crate::driver::claude::mcp::connectors::list_fetch::{
+    ClaudeConnectorFetchSettings, OAUTH_TOKEN_VARIABLE, skips_connector_fetch,
+    skips_fetch_for_scopes,
 };
 use crate::driver::mcp_server::address::{ServerAddressIdentity, read_server_address};
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
@@ -44,9 +48,6 @@ const CONNECTOR_LIST_PATH: &str = "/v1/mcp_servers?limit=1000";
 
 /// The query Claude Code adds to list a connector's additional accounts too.
 const ADDITIONAL_INSTALLS_QUERY: &str = "&include_additional_installs=true";
-
-/// The scope a token needs for the connector list.
-const CONNECTOR_LIST_SCOPE: &str = "user:mcp_servers";
 
 /// The beta the connector list is served under.
 const MCP_SERVERS_BETA: &str = "mcp-servers-2025-12-04";
@@ -79,26 +80,41 @@ const RETRY_BASE_DELAY: Duration = Duration::from_millis(500);
 /// The time every try and wait of one read fits in.
 const RETRY_BUDGET: Duration = Duration::from_secs(12);
 
+/// The second request one try can make: on a 401 the try renews the token and asks again, all
+/// inside the one try the budget counts (`Sv`, b:12142712 to b:12143700).
+const REFUSED_TOKEN_RETRY: Duration = ATTEMPT_TIMEOUT;
+
 /// The longest Claude Code's own fetch of the connector list runs once it starts: every try and
 /// wait inside its budget, then the one try again without the additional accounts, which the
-/// budget does not bound (`ne`, b:15671200 to b:15673190).
-pub(crate) const CLAUDE_CONNECTOR_FETCH_WINDOW: Duration =
-    RETRY_BUDGET.saturating_add(ATTEMPT_TIMEOUT);
-
-/// The variable that switches Claude Code's claude.ai connectors off.
-const CONNECTORS_SWITCH_VARIABLE: &str = "ENABLE_CLAUDEAI_MCP_SERVERS";
+/// budget does not bound (`ne`, b:15671200 to b:15673190), and a refused token's second request
+/// inside that try. The token renewals themselves, `fa()` before the first try and `WS` on a 401,
+/// are bounded only by the read's ceiling.
+pub(crate) const CLAUDE_CONNECTOR_FETCH_WINDOW: Duration = RETRY_BUDGET
+    .saturating_add(ATTEMPT_TIMEOUT)
+    .saturating_add(REFUSED_TOKEN_RETRY);
 
 /// The idle connections the client keeps per host: the read sends one request at a time.
 const IDLE_CONNECTIONS_PER_HOST: usize = 1;
 
-/// What the read of an account's connector list found: the list's marks, and whether the account's
-/// own Claude Code fetches the list too, so its `mcp_status` can still be waiting on that fetch.
-pub(crate) struct ClaudeConnectorListReading {
-    /// The marks; `None` where the list was not read.
-    pub(crate) marks: Option<ClaudeConnectorMarks>,
-    /// Whether the account's Claude Code fetches its connectors: the account holds a claude.ai
-    /// sign-in and the environment its process starts with does not switch them off.
-    pub(crate) is_fetched_by_claude: bool,
+/// What the read of an account's connector list found, which says how long its `mcp_status` can
+/// still be waiting on Claude Code's own fetch of the list.
+pub(crate) enum ClaudeConnectorListReading {
+    /// The account's Claude Code fetches no list, so it lists no connector; the list is not read.
+    NotFetched,
+    /// Claude Code fetches the list, but the daemon could not read it.
+    Unread,
+    /// The list's marks.
+    Read(ClaudeConnectorMarks),
+}
+
+impl ClaudeConnectorListReading {
+    /// The list's marks; `None` where it was not read.
+    pub(crate) fn into_marks(self) -> Option<ClaudeConnectorMarks> {
+        match self {
+            Self::Read(marks) => Some(marks),
+            Self::NotFetched | Self::Unread => None,
+        }
+    }
 }
 
 /// Reads each account's connector list for its organization marks, with the account's sign-in.
@@ -149,56 +165,64 @@ impl ClaudeOrganizationMarks {
     }
 
     /// The marks of the connectors on the list of the account whose process `environment`
-    /// started, read as the build `build_version` reads it, and whether that process fetches the
-    /// list itself. No marks, with the reason logged at debug, where the build reported no
-    /// version, the account names a host Claude Code refuses, no sign-in with the list's scope is
-    /// read, or the list cannot be read.
+    /// started with `settings`, read as the build `build_version` reads it. Not fetched, and not
+    /// read, where Claude Code skips its own fetch for the environment, the settings, an absent
+    /// sign-in or its scopes; unread, with the reason logged at debug, where its sign-in is the
+    /// environment's own token or cannot be read, the build reported no version, the account names
+    /// a host Claude Code refuses, or the list cannot be read.
     pub(crate) async fn read(
         &self,
         environment: &[(String, String)],
         build_version: Option<&str>,
+        settings: &ClaudeConnectorFetchSettings,
     ) -> ClaudeConnectorListReading {
-        let is_switched_on = !are_connectors_switched_off(environment);
-        let unread = |is_fetched_by_claude| ClaudeConnectorListReading {
-            marks: None,
-            is_fetched_by_claude,
+        if skips_connector_fetch(environment, settings) {
+            return ClaudeConnectorListReading::NotFetched;
+        }
+        if PathRules::NATIVE
+            .environment_value(environment, OAUTH_TOKEN_VARIABLE)
+            .is_some_and(|token| !token.is_empty())
+        {
+            tracing::debug!(
+                "no connector marks read: the account's Claude Code signs in with its \
+                 environment's token"
+            );
+            return ClaudeConnectorListReading::Unread;
+        }
+        let sign_in = match self.sign_in.read(environment).await {
+            ClaudeSignInReading::Absent => return ClaudeConnectorListReading::NotFetched,
+            ClaudeSignInReading::Unreadable => return ClaudeConnectorListReading::Unread,
+            ClaudeSignInReading::Read(sign_in) => sign_in,
         };
+        if skips_fetch_for_scopes(&sign_in.scopes) {
+            tracing::debug!(
+                "no connector marks read: the claude.ai sign-in lacks a scope the list needs"
+            );
+            return ClaudeConnectorListReading::NotFetched;
+        }
         let Some(build_version) = build_version else {
             tracing::debug!(
                 "no connector marks read: the account's Claude Code reported no version to send"
             );
-            return unread(is_switched_on);
+            return ClaudeConnectorListReading::Unread;
         };
         let Some(base) = claude_api_base(environment) else {
-            return unread(is_switched_on);
+            return ClaudeConnectorListReading::Unread;
         };
-        let Some(sign_in) = self.sign_in.read(environment).await else {
-            return unread(false);
-        };
-        ClaudeConnectorListReading {
-            marks: self.read_list(&base, &sign_in, build_version).await,
-            is_fetched_by_claude: is_switched_on,
-        }
+        self.read_list(&base, &sign_in, build_version).await.map_or(
+            ClaudeConnectorListReading::Unread,
+            ClaudeConnectorListReading::Read,
+        )
     }
 
     // The marks of the list at `base`, read with `sign_in` as the build `build_version` reads it;
-    // `None`, logged, where the token lacks the list's scope or the list is not read.
+    // `None`, logged, where the list is not read.
     async fn read_list(
         &self,
         base: &str,
         sign_in: &ClaudeAiSignIn,
         build_version: &str,
     ) -> Option<ClaudeConnectorMarks> {
-        if !sign_in
-            .scopes
-            .iter()
-            .any(|scope| scope == CONNECTOR_LIST_SCOPE)
-        {
-            tracing::debug!(
-                "no connector marks read: the claude.ai sign-in lacks the connector list's scope"
-            );
-            return None;
-        }
         let http = match self.http.get_or_try_init(build_http_client).await {
             Ok(http) => http,
             Err(error) => {
@@ -230,22 +254,6 @@ pub(crate) fn read_connector_list(body: &[u8]) -> Option<ClaudeConnectorMarks> {
     Some(index_connector_marks(
         &list.data.map(|entries| entries.0).unwrap_or_default(),
     ))
-}
-
-/// Whether `environment` switches Claude Code's claude.ai connectors off, as its `is` reads
-/// `ENABLE_CLAUDEAI_MCP_SERVERS` (b:8444642): `0`, `false`, `no` or `off`, trimmed and in any case.
-pub(crate) fn are_connectors_switched_off(environment: &[(String, String)]) -> bool {
-    PathRules::NATIVE
-        .environment_value(environment, CONNECTORS_SWITCH_VARIABLE)
-        .is_some_and(|value| {
-            matches!(
-                value
-                    .trim_matches(is_ecmascript_whitespace)
-                    .to_lowercase()
-                    .as_str(),
-                "0" | "false" | "no" | "off"
-            )
-        })
 }
 
 // The client the list is read through: one idle connection, decoding a gzip, deflate or brotli

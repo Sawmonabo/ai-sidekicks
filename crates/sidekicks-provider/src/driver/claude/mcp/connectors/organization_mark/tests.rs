@@ -212,19 +212,6 @@ async fn the_list_is_asked_for_with_exactly_claude_codes_headers() {
     assert_eq!(list.log.lock().expect("not poisoned").requests, [expected]);
 }
 
-// A token without the list's scope sends nothing. Killed by a read that asks anyway.
-#[tokio::test]
-async fn a_token_without_the_lists_scope_sends_no_request() {
-    let list = serve_answer(StatusCode::OK, json!({ "data": [] })).await;
-
-    let read = marks()
-        .read_list(&list.base, &sign_in(&["user:inference"]), "2.1.312")
-        .await;
-
-    assert!(read.is_none());
-    assert_eq!(list.paths(), [] as [String; 0]);
-}
-
 // The list marks a connector row by its normalized id, an `mcprs` entry matching the row's
 // `mcpsrv` id, a later entry at the same address its sibling, and leaves a connector the list
 // lacks absent, through the declaration the read hands on. Killed by a raw id compare, and by

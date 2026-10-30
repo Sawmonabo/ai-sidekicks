@@ -8,10 +8,12 @@
 //! 150 MB per account at a time, run at the account's first read after the daemon starts and again
 //! only on a refresh or a session's start after a failed or short read, never on a poll; while it
 //! reports fewer connectors than the list holds, less those Claude Code suppresses as duplicates of
-//! a configured server, one `mcp_status` a second on that process, until the count stops growing
-//! above none, or with none until Claude Code's own fetch of the list can have ended, and never
-//! past the machine probe's ceiling.
+//! a configured server, or none where Claude Code fetches a list the daemon could not read, one
+//! `mcp_status` a second on that process, until the count stops growing above none, or with none
+//! until Claude Code's own fetch of the list can have ended, and never past the machine probe's
+//! ceiling; where Claude Code fetches no list, one `mcp_status`.
 
+pub(crate) mod list_fetch;
 pub(crate) mod organization_mark;
 
 use std::future::Future;
@@ -26,6 +28,7 @@ use tokio::time::Instant;
 use crate::driver::ReportedVersionReading;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::mcp::config::{ClaudeMcpEndpoint, ClaudeMcpServer};
+use crate::driver::claude::mcp::connectors::list_fetch::ClaudeConnectorFetchSettings;
 use crate::driver::claude::mcp::connectors::organization_mark::{
     CLAUDE_CONNECTOR_FETCH_WINDOW, ClaudeConnectorListReading, ClaudeConnectorMarks,
 };
@@ -77,17 +80,18 @@ pub(crate) struct ClaudeAccountServerAnswers {
 const CONNECTOR_STATUS_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Reads one account's answers on `channel`, its process that keeps nothing already initialized:
-/// the build's version, then the connector list `read_connector_list` reads for that version and
-/// `get_settings`, then `mcp_status`, asked again on the same process once a second until it
-/// reports as many connectors as the list holds less those at the address of a server the
-/// account's process configures, or `ceiling` passes. A count that stops growing settles the read
-/// at once where it is above none, or where it is none and the account's Claude Code does not
-/// fetch the list; a count of none otherwise settles once Claude Code's own fetch can have ended.
-/// Where the list is not read, `mcp_status` is asked once. Fails as a request does, a refused
-/// request included.
+/// the build's version and `get_settings`, then the connector list `read_connector_list` reads
+/// for that version and those settings, then `mcp_status`, asked again on the same process once a
+/// second until it reports as many connectors as the list holds less those at the address of a
+/// server the account's process configures, or `ceiling` passes. A count that stops growing
+/// settles the read at once where it is above none; a count of none settles once Claude Code's
+/// own fetch can have ended. Where Claude Code fetches no list, `mcp_status` is asked once, and
+/// where the daemon could not read it, until a connector shows or that fetch can have ended. Only
+/// a read that settles short of a list it read lacks listed connectors. Fails as a request does,
+/// a refused request included.
 pub(crate) async fn read_claude_account_answers<ListRead>(
     channel: &dyn ClaudeProcessChannel,
-    read_connector_list: impl FnOnce(Option<String>) -> ListRead,
+    read_connector_list: impl FnOnce(Option<String>, ClaudeConnectorFetchSettings) -> ListRead,
     ceiling: Duration,
 ) -> Result<(ClaudeAccountServerAnswers, Option<ClaudeConnectorMarks>), ClaudeSessionError>
 where
@@ -101,15 +105,16 @@ where
         .send_control_request(ClaudeControlRequest::GetBinaryVersion {})
         .await?;
     let build_version = read_build_version(version.response.as_deref());
-    let list = read_connector_list(build_version).await;
     let settings = channel
         .send_control_request(ClaudeControlRequest::GetSettings {})
         .await?;
-    let organization_addresses = read_organization_addresses(
-        ClaudeSettingsReply::read(settings.response.as_deref())
-            .effective
-            .as_ref(),
-    );
+    let settings_reply = ClaudeSettingsReply::read(settings.response.as_deref());
+    let organization_addresses = read_organization_addresses(settings_reply.effective.as_ref());
+    let list = read_connector_list(
+        build_version,
+        ClaudeConnectorFetchSettings::read(&settings_reply),
+    )
+    .await;
     let mut last_reported_rows = None;
     let (mcp_status, reported_rows, listed_rows) = loop {
         let answer = channel
@@ -117,16 +122,23 @@ where
             .await?;
         let reply = ClaudeMcpStatusReply::read(answer.response.as_deref());
         let reported_rows = count_connector_rows(&reply);
-        let listed_rows = list.marks.as_ref().map_or(0, |marks| {
-            marks.listed_row_count(&read_configured_addresses(&reply, &organization_addresses))
-        });
+        let listed_rows = match &list {
+            ClaudeConnectorListReading::Read(marks) => Some(
+                marks.listed_row_count(&read_configured_addresses(&reply, &organization_addresses)),
+            ),
+            ClaudeConnectorListReading::NotFetched | ClaudeConnectorListReading::Unread => None,
+        };
         let now = Instant::now();
         // A count no longer growing settles the read, so a connector Claude Code never lists
         // costs one more ask rather than the whole ceiling; while it is none, Claude Code may
-        // still be fetching the list, so it settles only where no fetch runs or once it ended.
-        let has_stopped_growing = last_reported_rows == Some(reported_rows)
-            && (reported_rows > 0 || !list.is_fetched_by_claude || now >= fetch_end);
-        if reported_rows >= listed_rows || has_stopped_growing || now >= deadline {
+        // still be fetching the list, so it settles only once that fetch can have ended.
+        let has_stopped_growing =
+            last_reported_rows == Some(reported_rows) && (reported_rows > 0 || now >= fetch_end);
+        let has_reached_list = match listed_rows {
+            Some(listed_rows) => reported_rows >= listed_rows,
+            None => matches!(list, ClaudeConnectorListReading::NotFetched),
+        };
+        if has_reached_list || has_stopped_growing || now >= deadline {
             break (reply, reported_rows, listed_rows);
         }
         last_reported_rows = Some(reported_rows);
@@ -136,9 +148,10 @@ where
         ClaudeAccountServerAnswers {
             mcp_status,
             settings: settings.response,
-            lacks_listed_connectors: reported_rows < listed_rows,
+            lacks_listed_connectors: listed_rows
+                .is_some_and(|listed_rows| reported_rows < listed_rows),
         },
-        list.marks,
+        list.into_marks(),
     ))
 }
 

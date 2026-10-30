@@ -9,13 +9,15 @@ use serde_json::value::{RawValue, to_raw_value};
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::{ProgramStart, Spawner};
+use sidekicks_platforms::{CredentialStore, ProgramStart, Spawner};
 use tokio::runtime::Handle;
 
 use super::{ClaudeAccountServerAnswers, read_claude_account_answers, read_claude_account_servers};
+use crate::driver::claude::account_credentials::ClaudeSignInReader;
 use crate::driver::claude::mcp::config::ClaudeMcpConfigReading;
+use crate::driver::claude::mcp::connectors::list_fetch::ClaudeConnectorFetchSettings;
 use crate::driver::claude::mcp::connectors::organization_mark::{
-    ClaudeConnectorListReading, are_connectors_switched_off, read_connector_list,
+    ClaudeConnectorListReading, ClaudeOrganizationMarks, read_connector_list,
 };
 use crate::driver::claude::mcp::precedence::rank_claude_mcp_servers;
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
@@ -66,12 +68,63 @@ fn connector_row(name: &str) -> serde_json::Value {
     })
 }
 
-// Whether the account's Claude Code fetches its connector list itself.
+// How the account read finds its connector list: read and holding `Listed`'s connectors, or
+// through the account read's own marks, for a process whose stored sign-in is `sign_in`, with
+// `variables` and a setting where named, and an API host Claude Code refuses, so no list is read.
 #[derive(Clone, Copy, Debug)]
 enum ConnectorFetch {
-    SignedIn,
-    NoSignIn,
-    SwitchedOff,
+    Listed(&'static [&'static str]),
+    Through {
+        sign_in: StoredSignIn,
+        variables: &'static [(&'static str, &'static str)],
+        setting: Option<FetchSetting>,
+    },
+}
+
+// The account's stored sign-in: none, one that cannot be read, or one granted `Scopes`.
+#[derive(Clone, Copy, Debug)]
+enum StoredSignIn {
+    Absent,
+    Unreadable,
+    Scopes(&'static [&'static str]),
+}
+
+// A setting that bears on the fetch: a settings source that switches the connectors off, or an
+// API key helper in the merged settings.
+#[derive(Clone, Copy, Debug)]
+enum FetchSetting {
+    ConnectorsDisabled,
+    ApiKeyHelper,
+}
+
+// A sign-in granted every scope the fetch needs.
+const SIGNED_IN: StoredSignIn = StoredSignIn::Scopes(&["user:inference", "user:mcp_servers"]);
+
+// A process signed in, with `variables` set.
+const fn with_variables(variables: &'static [(&'static str, &'static str)]) -> ConnectorFetch {
+    ConnectorFetch::Through {
+        sign_in: SIGNED_IN,
+        variables,
+        setting: None,
+    }
+}
+
+// A process whose stored sign-in is `sign_in`, with no variable or setting of note.
+const fn with_sign_in(sign_in: StoredSignIn) -> ConnectorFetch {
+    ConnectorFetch::Through {
+        sign_in,
+        variables: &[],
+        setting: None,
+    }
+}
+
+// A process signed in, with `setting`.
+const fn with_setting(setting: FetchSetting) -> ConnectorFetch {
+    ConnectorFetch::Through {
+        sign_in: SIGNED_IN,
+        variables: &[],
+        setting: Some(setting),
+    }
 }
 
 // A server the account's process configures at a listed connector's address.
@@ -84,38 +137,30 @@ enum ConfiguredServer {
         status: &'static str,
     },
     // An organization's `managedMcpServers` entry at the connector `at`'s whole address, which its
-    // `managed` row reports cut to its origin.
+    // `managed` row reports with `status`, cut to its origin.
     Organization {
         at: &'static str,
+        status: &'static str,
     },
 }
 
 // While the account's connector list holds a connector the `mcp_status` reply lacks, `mcp_status`
 // is asked again on the same process once a second; a reply that reaches the list settles the
-// read, and so does a count that stops growing above none. A count of none that stops growing
-// settles at once only where the account's Claude Code does not fetch the list, with no sign-in
-// or its connectors switched off, and otherwise once its fetch can have ended; a read that settles
-// short is marked as lacking. A listed connector at the whole address of a server the process
-// configures is one Claude Code suppresses, so it is not waited for, unless that server is a
-// plugin's or waits for a sign-in. With no list read, one reply is taken as it is. Killed by a
-// reply asked once with a list read, by a reply settling while it grows, by a count above none
-// asked again until the fetch ends, by a count of none settling before the fetch ends where one
-// runs or waiting for it where none runs, by the switch's variable not read, by a suppressed
-// connector counted as missing, the organization's included, and by a plugin's or a waiting
+// read, and so does a count that stops growing above none, while a count of none settles once
+// Claude Code's fetch can have ended, and a read that settles short of the list is marked as
+// lacking. Where Claude Code fetches a list the daemon could not read (an unreadable sign-in, a
+// refused host, the environment's own token), the read waits for a connector or the fetch's end
+// and settles whole. A listed connector at the whole address of a server the process configures
+// is one Claude Code suppresses, so it is not waited for, unless that server is a plugin's,
+// switched off or waits for a sign-in. Killed by a reply settling while it grows, by a count above
+// none asked again until the fetch ends, by a count of none settling before the fetch ends, by an
+// unread list taken as fetched by no one or kept as short, by a credential claimed ahead of the
+// sign-in where a socket's token or a remote session keeps it aside, by a suppressed connector
+// counted as missing, the organization's included, and by a plugin's, a switched-off or a waiting
 // server counted as suppressing one.
 #[rstest]
-#[case::list_unread(
-    None,
-    ConnectorFetch::SignedIn,
-    &[&[][..], &["Notes"][..]],
-    &[][..],
-    1,
-    0,
-    false
-)]
 #[case::grows_to_the_list(
-    Some(&["Notes", "Mail"][..]),
-    ConnectorFetch::SignedIn,
+    ConnectorFetch::Listed(&["Notes", "Mail"]),
     &[&[][..], &["Notes"][..], &["Notes", "Mail"][..]],
     &[][..],
     3,
@@ -123,8 +168,7 @@ enum ConfiguredServer {
     false
 )]
 #[case::stops_growing_above_none(
-    Some(&["Notes", "Mail"][..]),
-    ConnectorFetch::SignedIn,
+    ConnectorFetch::Listed(&["Notes", "Mail"]),
     &[&["Notes"][..], &["Notes"][..]],
     &[][..],
     2,
@@ -132,8 +176,7 @@ enum ConfiguredServer {
     true
 )]
 #[case::none_until_the_fetch_lists_one(
-    Some(&["Notes"][..]),
-    ConnectorFetch::SignedIn,
+    ConnectorFetch::Listed(&["Notes"]),
     &[&[][..], &[][..], &["Notes"][..]],
     &[][..],
     3,
@@ -141,35 +184,58 @@ enum ConfiguredServer {
     false
 )]
 #[case::none_through_the_fetch(
-    Some(&["Notes"][..]),
-    ConnectorFetch::SignedIn,
+    ConnectorFetch::Listed(&["Notes"]),
     &[&[][..]],
     &[][..],
-    19,
+    24,
     0,
     true
 )]
-#[case::none_with_no_sign_in(
-    Some(&["Notes"][..]),
-    ConnectorFetch::NoSignIn,
-    &[&[][..], &[][..]],
+#[case::unread_list_none_through_the_fetch(
+    with_sign_in(SIGNED_IN),
+    &[&[][..]],
     &[][..],
-    2,
+    24,
     0,
-    true
+    false
 )]
-#[case::none_with_connectors_switched_off(
-    Some(&["Notes"][..]),
-    ConnectorFetch::SwitchedOff,
-    &[&[][..], &[][..]],
+#[case::unreadable_sign_in_until_a_connector_shows(
+    with_sign_in(StoredSignIn::Unreadable),
+    &[&[][..], &[][..], &["Notes"][..], &["Notes"][..]],
     &[][..],
-    2,
+    4,
+    1,
+    false
+)]
+#[case::unread_with_the_environments_token(
+    with_variables(&[("CLAUDE_CODE_OAUTH_TOKEN", "token")]),
+    &[&[][..]],
+    &[][..],
+    24,
     0,
-    true
+    false
+)]
+#[case::unread_through_a_socket_with_a_token(
+    with_variables(&[
+        ("ANTHROPIC_UNIX_SOCKET", "/run/api.sock"),
+        ("CLAUDE_CODE_OAUTH_TOKEN", "token"),
+    ]),
+    &[&[][..]],
+    &[][..],
+    24,
+    0,
+    false
+)]
+#[case::api_key_in_a_remote_session(
+    with_variables(&[("ANTHROPIC_API_KEY", "key"), ("CLAUDE_CODE_REMOTE", "1")]),
+    &[&[][..]],
+    &[][..],
+    24,
+    0,
+    false
 )]
 #[case::duplicate_of_a_configured_server(
-    Some(&["Notes", "Mail"][..]),
-    ConnectorFetch::SignedIn,
+    ConnectorFetch::Listed(&["Notes", "Mail"]),
     &[&["Mail"][..]],
     &[ConfiguredServer::Row { at: "Notes", name: "notes", status: "connected" }][..],
     1,
@@ -177,8 +243,7 @@ enum ConfiguredServer {
     false
 )]
 #[case::duplicate_of_a_server_awaiting_sign_in(
-    Some(&["Notes", "Mail"][..]),
-    ConnectorFetch::SignedIn,
+    ConnectorFetch::Listed(&["Notes", "Mail"]),
     &[&["Mail"][..], &["Mail", "Notes"][..]],
     &[ConfiguredServer::Row { at: "Notes", name: "notes", status: "needs-auth" }][..],
     2,
@@ -186,8 +251,7 @@ enum ConfiguredServer {
     false
 )]
 #[case::duplicate_of_a_plugin_server(
-    Some(&["Notes", "Mail"][..]),
-    ConnectorFetch::SignedIn,
+    ConnectorFetch::Listed(&["Notes", "Mail"]),
     &[&["Mail"][..], &["Mail", "Notes"][..]],
     &[ConfiguredServer::Row { at: "Notes", name: "plugin:tools:notes", status: "connected" }][..],
     2,
@@ -195,17 +259,31 @@ enum ConfiguredServer {
     false
 )]
 #[case::duplicate_of_an_organization_server(
-    Some(&["Notes", "Mail"][..]),
-    ConnectorFetch::SignedIn,
+    ConnectorFetch::Listed(&["Notes", "Mail"]),
     &[&["Mail"][..]],
-    &[ConfiguredServer::Organization { at: "Notes" }][..],
+    &[ConfiguredServer::Organization { at: "Notes", status: "connected" }][..],
     1,
     2,
     false
 )]
+#[case::duplicate_of_a_switched_off_organization_server(
+    ConnectorFetch::Listed(&["Notes", "Mail"]),
+    &[&["Mail"][..], &["Mail", "Notes"][..]],
+    &[ConfiguredServer::Organization { at: "Notes", status: "disabled" }][..],
+    2,
+    3,
+    false
+)]
+#[case::duplicate_of_an_organization_server_awaiting_sign_in(
+    ConnectorFetch::Listed(&["Notes", "Mail"]),
+    &[&["Mail"][..], &["Mail", "Notes"][..]],
+    &[ConfiguredServer::Organization { at: "Notes", status: "needs-auth" }][..],
+    2,
+    3,
+    false
+)]
 #[tokio::test(start_paused = true)]
 async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list(
-    #[case] listed: Option<&[&str]>,
     #[case] fetch: ConnectorFetch,
     #[case] replies: &[&[&str]],
     #[case] configured: &[ConfiguredServer],
@@ -213,6 +291,53 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
     #[case] kept_rows: usize,
     #[case] lacks_listed_connectors: bool,
 ) {
+    let (asked, answers) = read_account_answers(fetch, replies, configured).await;
+
+    assert_eq!(asked, status_reads);
+    let kept = answers
+        .mcp_status
+        .servers
+        .as_ref()
+        .map_or(0, |rows| rows.0.len());
+    assert_eq!(kept, kept_rows);
+    assert_eq!(answers.lacks_listed_connectors, lacks_listed_connectors);
+}
+
+// Where the account's Claude Code fetches no connector list, the list is not read and the first
+// reply settles the read whole: its connectors switched off by the variable or a settings source,
+// safe mode, another provider, bare mode, a socket with no token, a credential ahead of the
+// sign-in, no sign-in, or one short of a scope the fetch needs. Killed by any of these not read,
+// which leaves the read waiting for the fetch's end.
+#[rstest]
+#[case::no_sign_in(with_sign_in(StoredSignIn::Absent))]
+#[case::connectors_switched_off(with_variables(&[("ENABLE_CLAUDEAI_MCP_SERVERS", " Off ")]))]
+#[case::connectors_disabled_by_a_setting(with_setting(FetchSetting::ConnectorsDisabled))]
+#[case::safe_mode(with_variables(&[("CLAUDE_CODE_SAFE_MODE", "1")]))]
+#[case::another_provider(with_variables(&[("CLAUDE_CODE_USE_VERTEX", " TRUE ")]))]
+#[case::bare_mode(with_variables(&[("CLAUDE_CODE_SIMPLE", "yes")]))]
+#[case::a_socket_with_no_token(with_variables(&[("ANTHROPIC_UNIX_SOCKET", "/run/api.sock")]))]
+#[case::an_auth_token_ahead(with_variables(&[("ANTHROPIC_AUTH_TOKEN", "token")]))]
+#[case::an_api_key_ahead(with_variables(&[("ANTHROPIC_API_KEY", "key")]))]
+#[case::an_api_key_helper_ahead(with_setting(FetchSetting::ApiKeyHelper))]
+#[case::a_sign_in_short_of_inference(with_sign_in(StoredSignIn::Scopes(&["user:mcp_servers"])))]
+#[case::a_sign_in_short_of_the_list_scope(with_sign_in(StoredSignIn::Scopes(&["user:inference"])))]
+#[tokio::test(start_paused = true)]
+async fn a_read_whose_claude_code_fetches_no_list_settles_whole_at_the_first_ask(
+    #[case] fetch: ConnectorFetch,
+) {
+    let (asked, answers) = read_account_answers(fetch, &[&[]], &[]).await;
+
+    assert_eq!(asked, 1);
+    assert!(!answers.lacks_listed_connectors);
+}
+
+// The account read of an account whose list `fetch` finds, its process configuring `configured`
+// and answering `replies` to `mcp_status` in turn: how many times it asked, and its answers.
+async fn read_account_answers(
+    fetch: ConnectorFetch,
+    replies: &[&[&str]],
+    configured: &[ConfiguredServer],
+) -> (usize, ClaudeAccountServerAnswers) {
     let address = |name: &str| format!("https://{}.example.com/mcp", name.to_lowercase());
     let channel = ScriptedChannel::default();
     channel.answer(
@@ -229,12 +354,12 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
                 "scope": "user",
                 "config": { "type": "http", "url": format!("{}/", address(at)) }
             }),
-            ConfiguredServer::Organization { at } => {
+            ConfiguredServer::Organization { at, status } => {
                 let name = format!("org-{}", at.to_lowercase());
                 managed_servers.insert(name.clone(), json!({ "type": "http", "url": address(at) }));
                 json!({
                     "name": name,
-                    "status": "connected",
+                    "status": status,
                     "scope": "managed",
                     "config": {
                         "type": "http",
@@ -244,10 +369,57 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
             }
         })
         .collect();
-    channel.answer(
-        "get_settings",
-        ScriptedAnswer::Reply(json!({ "effective": { "managedMcpServers": managed_servers } })),
-    );
+    let mut settings = json!({ "effective": { "managedMcpServers": managed_servers } });
+    let home = tempfile::tempdir().expect("a test home");
+    let mut environment = vec![
+        (
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            home.path().display().to_string(),
+        ),
+        ("USER".to_owned(), "tester".to_owned()),
+        (
+            "CLAUDE_CODE_CUSTOM_OAUTH_URL".to_owned(),
+            "https://elsewhere.example.com".to_owned(),
+        ),
+    ];
+    if let ConnectorFetch::Through {
+        sign_in,
+        variables,
+        setting,
+    } = fetch
+    {
+        let credentials = home.path().join(".credentials.json");
+        match sign_in {
+            StoredSignIn::Absent => {}
+            StoredSignIn::Unreadable => {
+                std::fs::create_dir(&credentials).expect("a folder stands in for the file");
+            }
+            StoredSignIn::Scopes(scopes) => std::fs::write(
+                &credentials,
+                json!({ "claudeAiOauth": { "accessToken": "token", "scopes": scopes } })
+                    .to_string(),
+            )
+            .expect("the sign-in is planted"),
+        }
+        environment.extend(
+            variables
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
+        );
+        match setting {
+            None => {}
+            Some(FetchSetting::ConnectorsDisabled) => {
+                settings["sources"] = json!([
+                    { "source": "userSettings", "settings": { "model": "opus" } },
+                    { "source": "localSettings", "settings": { "disableClaudeAiConnectors": true } }
+                ]);
+            }
+            Some(FetchSetting::ApiKeyHelper) => {
+                settings["effective"]["apiKeyHelper"] = json!("./print-key.sh");
+            }
+        }
+    }
+    channel.answer("get_settings", ScriptedAnswer::Reply(settings));
     for reply in replies {
         let rows: Vec<_> = reply
             .iter()
@@ -259,53 +431,47 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
             ScriptedAnswer::Reply(json!({ "mcpServers": rows })),
         );
     }
-    let list = listed.map(|names| {
-        let data: Vec<_> = names
-            .iter()
-            .map(|name| {
-                json!({ "id": format!("mcpsrv_{}", name.to_lowercase()), "url": address(name) })
-            })
-            .collect();
-        json!({ "data": data }).to_string()
-    });
-    let is_fetched_by_claude = match fetch {
-        ConnectorFetch::SignedIn => true,
-        ConnectorFetch::NoSignIn => false,
-        ConnectorFetch::SwitchedOff => !are_connectors_switched_off(&[(
-            "ENABLE_CLAUDEAI_MCP_SERVERS".to_owned(),
-            " Off ".to_owned(),
-        )]),
-    };
+    let marks = ClaudeOrganizationMarks::new(ClaudeSignInReader::with_keychain(
+        CredentialStore::in_memory(),
+    ));
 
     let (answers, _marks) = read_claude_account_answers(
         &channel,
-        async |build_version: Option<String>| {
+        async |build_version: Option<String>, settings: ClaudeConnectorFetchSettings| {
             assert_eq!(build_version.as_deref(), Some("2.1.310"));
-            ClaudeConnectorListReading {
-                marks: list
-                    .as_ref()
-                    .and_then(|list| read_connector_list(list.as_bytes())),
-                is_fetched_by_claude,
+            match fetch {
+                ConnectorFetch::Listed(names) => {
+                    let data: Vec<_> = names
+                        .iter()
+                        .map(|name| {
+                            json!({
+                                "id": format!("mcpsrv_{}", name.to_lowercase()),
+                                "url": address(name)
+                            })
+                        })
+                        .collect();
+                    ClaudeConnectorListReading::Read(
+                        read_connector_list(json!({ "data": data }).to_string().as_bytes())
+                            .expect("the list reads"),
+                    )
+                }
+                ConnectorFetch::Through { .. } => {
+                    marks
+                        .read(&environment, build_version.as_deref(), &settings)
+                        .await
+                }
             }
         },
         Duration::from_secs(35),
     )
     .await
     .expect("the read answers");
-
     let asked = channel
         .control_requests()
         .iter()
         .filter(|request| request["subtype"] == "mcp_status")
         .count();
-    assert_eq!(asked, status_reads);
-    let kept = answers
-        .mcp_status
-        .servers
-        .as_ref()
-        .map_or(0, |rows| rows.0.len());
-    assert_eq!(kept, kept_rows);
-    assert_eq!(answers.lacks_listed_connectors, lacks_listed_connectors);
+    (asked, answers)
 }
 
 // A `claudeai` row becomes a read-only connector of the account under its display name, read
@@ -536,10 +702,7 @@ async fn a_real_claude_code_reports_and_loads_connectors_and_organization_server
     reading.initialize().await.expect("the read initializes");
     let (answers, _marks) = read_claude_account_answers(
         &*reading.process,
-        async |_build_version| ClaudeConnectorListReading {
-            marks: None,
-            is_fetched_by_claude: true,
-        },
+        async |_build_version, _settings| ClaudeConnectorListReading::Unread,
         Duration::from_secs(35),
     )
     .await

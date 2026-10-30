@@ -1,7 +1,7 @@
 //! An account's claude.ai sign-in, read where Claude Code keeps it: the `claudeAiOauth` record of
 //! `.credentials.json` in the account's credential folder, else, on macOS, the keychain item Claude
 //! Code files for that folder. This is the one place the driver reads that record. The read never
-//! writes, never logs a value, and answers `None` with a logged reason where no record is read.
+//! writes, never logs a value, and logs its reason where no record is read.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -65,33 +65,45 @@ impl ClaudeSignInReader {
     }
 
     /// The sign-in of the Claude Code process `environment` starts: the record in its credential
-    /// folder's file, else the keychain item named for that folder. `None`, with the reason logged
-    /// at debug, where neither holds a record with an access token or the store cannot be read.
-    pub(crate) async fn read(&self, environment: &[(String, String)]) -> Option<ClaudeAiSignIn> {
+    /// folder's file, else the keychain item named for that folder. Where neither holds a record
+    /// with an access token it is absent, unless a store that may hold one could not be read; each
+    /// reason is logged at debug.
+    pub(crate) async fn read(&self, environment: &[(String, String)]) -> ClaudeSignInReading {
         let Some(folder) = claude_credential_folder(environment) else {
             tracing::debug!("no claude.ai sign-in read: the account names no Claude Code home");
-            return None;
+            return ClaudeSignInReading::Unreadable;
         };
         let file = folder.join(CLAUDE_CREDENTIALS_FILE);
+        let mut is_file_unread = false;
         match tokio::fs::read(&file).await.map(Zeroizing::new) {
             Ok(bytes) => {
                 if let Some(sign_in) = read_sign_in_record(&bytes, "the credential file") {
-                    return Some(sign_in);
+                    return ClaudeSignInReading::Read(sign_in);
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => tracing::debug!(
-                error = &error as &(dyn std::error::Error + 'static),
-                file = %file.display(),
-                "the claude.ai credential file could not be read"
-            ),
+            Err(error) => {
+                is_file_unread = true;
+                tracing::debug!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    file = %file.display(),
+                    "the claude.ai credential file could not be read"
+                );
+            }
         }
+        let absent = || {
+            if is_file_unread {
+                ClaudeSignInReading::Unreadable
+            } else {
+                ClaudeSignInReading::Absent
+            }
+        };
         let Some(open) = &self.keychain else {
             tracing::debug!(
                 file = %file.display(),
-                "no claude.ai sign-in read: the credential file holds no record"
+                "no claude.ai sign-in read from the credential file, and no keychain backs it"
             );
-            return None;
+            return absent();
         };
         let service = claude_keychain_service(environment);
         let account = claude_keychain_account(environment);
@@ -101,31 +113,43 @@ impl ClaudeSignInReader {
             Ok(Ok(Ok(Some(value)))) => value,
             Ok(Ok(Ok(None))) => {
                 tracing::debug!(
-                    "no claude.ai sign-in read: neither the file nor the keychain holds one"
+                    "no claude.ai sign-in read: the keychain holds none, nor does the file"
                 );
-                return None;
+                return absent();
             }
             Ok(Ok(Err(error))) => {
                 tracing::debug!(
                     error = &error as &(dyn std::error::Error + 'static),
                     "no claude.ai sign-in read: the keychain refused the read"
                 );
-                return None;
+                return ClaudeSignInReading::Unreadable;
             }
             Ok(Err(error)) => {
                 tracing::debug!(
                     error = &error as &(dyn std::error::Error + 'static),
                     "no claude.ai sign-in read: the keychain read stopped"
                 );
-                return None;
+                return ClaudeSignInReading::Unreadable;
             }
             Err(_elapsed) => {
                 tracing::debug!("no claude.ai sign-in read: the keychain did not answer in time");
-                return None;
+                return ClaudeSignInReading::Unreadable;
             }
         };
         read_sign_in_record(value.expose_secret().as_bytes(), "the keychain item")
+            .map_or_else(absent, ClaudeSignInReading::Read)
     }
+}
+
+/// What the read of an account's claude.ai sign-in found.
+pub(crate) enum ClaudeSignInReading {
+    /// No store holds a record with an access token.
+    Absent,
+    /// A store that may hold one could not be read: the file where no keychain answered for it,
+    /// or the keychain, which refused, stopped or did not answer in time.
+    Unreadable,
+    /// The sign-in.
+    Read(ClaudeAiSignIn),
 }
 
 /// An account's claude.ai sign-in: its access token, wiped when dropped, and the scopes it was
@@ -302,7 +326,9 @@ mod tests {
     use sidekicks_platforms::CredentialStore;
     use tracing_subscriber::layer::SubscriberExt;
 
-    use super::{ClaudeSignInReader, claude_keychain_account, claude_keychain_service};
+    use super::{
+        ClaudeSignInReader, ClaudeSignInReading, claude_keychain_account, claude_keychain_service,
+    };
 
     // A token no log line may hold.
     const PLANTED_TOKEN: &str = "planted-access-token-value";
@@ -358,7 +384,9 @@ mod tests {
         );
         let _default = tracing::subscriber::set_default(subscriber);
 
-        let sign_in = reader.read(&environment).await.expect("the file's record");
+        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment).await else {
+            panic!("the file's record");
+        };
         assert_eq!(sign_in.access_token.as_str(), PLANTED_TOKEN);
         assert_eq!(sign_in.scopes, ["user:inference", "user:mcp_servers"]);
         assert!(!format!("{sign_in:?}").contains(PLANTED_TOKEN));
@@ -371,7 +399,10 @@ mod tests {
         // which quotes the value, reaches no log line.
         let unreadable = format!(r#"{{"claudeAiOauth":{{"expiresAt":"{PLANTED_TOKEN}"}}}}"#);
         std::fs::write(&credentials, &unreadable).expect("the file is planted");
-        assert!(reader.read(&environment).await.is_none());
+        assert!(matches!(
+            reader.read(&environment).await,
+            ClaudeSignInReading::Absent
+        ));
         assert_eq!(
             std::fs::read(&credentials).expect("the file is still there"),
             unreadable.as_bytes()
@@ -386,10 +417,9 @@ mod tests {
                 &SecretString::from(planted.clone()),
             )
             .expect("the item is planted");
-        let sign_in = reader
-            .read(&environment)
-            .await
-            .expect("the keychain item's record");
+        let ClaudeSignInReading::Read(sign_in) = reader.read(&environment).await else {
+            panic!("the keychain item's record");
+        };
         assert_eq!(sign_in.access_token.as_str(), PLANTED_TOKEN);
 
         let logged = String::from_utf8(lines.0.lock().expect("not poisoned").clone())
