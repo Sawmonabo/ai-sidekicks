@@ -407,6 +407,12 @@ fn a_string_read_again_costs_nothing_and_reads_the_same() {
     Some("/opt/homebrew/bin/zsh"),
     "/tmp/x/zsh -lc 'ls -la'"
 )]
+// A provider's shell whose kind is no line shell is never unwrapped.
+#[case::provider_shell_of_another_kind(
+    "fish -lc 'ls -la'",
+    Some("/opt/homebrew/bin/fish"),
+    "fish -lc 'ls -la'"
+)]
 fn unwraps_only_a_shell_handed_its_whole_line(
     #[case] line: &str,
     #[case] provider_shell: Option<&str>,

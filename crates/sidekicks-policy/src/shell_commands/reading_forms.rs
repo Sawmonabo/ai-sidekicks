@@ -189,16 +189,19 @@ impl ReadingForms {
     }
 
     // A here-document whose delimiter the parser read as the shell reads it, alone on its start's
-    // line, since the parser reads two bodies from one line last first and the shell in order. A
-    // quoted delimiter makes the body text; an unquoted one expands it, so the body holds no
-    // backquote, backslash, arithmetic or zsh subscript, which the parser does not read in a body.
-    // A quoted start the parser reads otherwise is noted to be requoted for a second read.
+    // line, since the parser reads two bodies from one line last first and the shell in order, and
+    // whose body and end lie where the shell's do. A quoted delimiter makes the body text; an
+    // unquoted one expands it, so the body holds no backquote, backslash, arithmetic or zsh
+    // subscript, which the parser does not read in a body. A quoted start the parser reads
+    // otherwise is noted to be requoted for a second read.
     fn note_here_document(&mut self, redirect: Node<'_>, builder: &mut WordBuilder<'_>) -> bool {
         let line = builder.line();
         let (mut start, mut body, mut end) = (None, None, None);
+        let mut strips_tabs = false;
         let mut cursor = redirect.walk();
         for child in redirect.children(&mut cursor) {
             match child.kind() {
+                "<<-" => strips_tabs = true,
                 "heredoc_start" => start = Some(child),
                 "heredoc_body" => body = Some(child),
                 "heredoc_end" => end = Some(child),
@@ -219,16 +222,26 @@ impl ReadingForms {
         builder.truncate(mark);
         let word_text = &line[start.start_byte()..word_end];
         // The parser compares a delimiter's characters with the line's as single bytes, so one past
-        // ASCII never ends its body; bash ends `$"EOF"` at `EOF`, zsh at `$EOF`.
-        if !word_text.is_ascii() || word_text.contains("$\"") {
+        // ASCII never ends its body; bash ends `$"EOF"` at `EOF`, zsh at `$EOF`; zsh reads a quote
+        // inside a `$(…)`, a `${…}` or backquotes in the start as nested, bash as the word's own.
+        if !word_text.is_ascii()
+            || word_text.contains("$\"")
+            || word_text.contains("$(")
+            || word_text.contains("${")
+            || word_text.contains('`')
+        {
             return false;
         }
-        // Past the body the end holds what the parser read to the line's end, which no check reads.
-        let ends_as_the_shell_ends = node_text(end, line) == delimiter;
+        // The parser ends a body at a line that only starts with the delimiter after blanks, and
+        // reads a quote or a substitution in an expanded body across the line the shell ends at.
+        let ends_as_the_shell_ends = || {
+            shell_here_document_span(line, word_end, &delimiter, strips_tabs)
+                .is_some_and(|shell| occupies_the_shells_span(line, body, end, &shell))
+        };
         if !word_text.contains(['\'', '"', '\\']) {
             // The parser ends the delimiter at a blank only, the shell at `;`, `|` or `)` too.
             return word_end == start.end_byte()
-                && ends_as_the_shell_ends
+                && ends_as_the_shell_ends()
                 && is_reading_expanded_body(node_text(body, line));
         }
         // The parser reads a body as text only after a start that opens with a quote or `\`.
@@ -247,8 +260,69 @@ impl ReadingForms {
             return false;
         }
         self.literal_bodies.insert(body.id());
-        ends_as_the_shell_ends
+        ends_as_the_shell_ends()
     }
+}
+
+// Where the shell reads a here-document's body and end, by text: the body from the line after the
+// start's, which ends at the first newline past `start_end`, up to the first line that is the
+// delimiter, after its leading tabs for `<<-`. `None` when no line ends the body.
+fn shell_here_document_span(
+    line: &str,
+    start_end: usize,
+    delimiter: &str,
+    strips_tabs: bool,
+) -> Option<ShellHereDocumentSpan> {
+    let bytes = line.as_bytes();
+    let body_start = start_end + memchr::memchr(b'\n', &bytes[start_end..])? + 1;
+    let mut line_start = body_start;
+    loop {
+        let line_end = memchr::memchr(b'\n', &bytes[line_start..])
+            .map_or(bytes.len(), |offset| line_start + offset);
+        let text = &line[line_start..line_end];
+        let end_text = if strips_tabs {
+            text.trim_start_matches('\t')
+        } else {
+            text
+        };
+        if end_text == delimiter {
+            return Some(ShellHereDocumentSpan {
+                body_start,
+                end: line_end - end_text.len()..line_end,
+            });
+        }
+        if line_end == bytes.len() {
+            return None;
+        }
+        line_start = line_end + 1;
+    }
+}
+
+// Where the shell reads a here-document's body to begin and its delimiter on the line that ends it.
+struct ShellHereDocumentSpan {
+    body_start: usize,
+    end: std::ops::Range<usize>,
+}
+
+// Whether the parser's body and end lie where the shell's do: the end on the shell's delimiter,
+// byte for byte, and the body between the shell's body start and that end, past only the blanks
+// and newlines the parser skips at a line's start, which hold nothing to run.
+fn occupies_the_shells_span(
+    line: &str,
+    body: Node<'_>,
+    end: Node<'_>,
+    shell: &ShellHereDocumentSpan,
+) -> bool {
+    let is_blank = |range: std::ops::Range<usize>| {
+        line.as_bytes()[range]
+            .iter()
+            .all(|byte| matches!(byte, b' ' | b'\t' | b'\n'))
+    };
+    end.byte_range() == shell.end
+        && shell.body_start <= body.start_byte()
+        && body.end_byte() <= shell.end.start
+        && is_blank(shell.body_start..body.start_byte())
+        && is_blank(body.end_byte()..shell.end.start)
 }
 
 // Whether an expanded here-document body holds only what the parser reads in one: no backquote,
@@ -260,15 +334,18 @@ fn is_reading_expanded_body(text: &str) -> bool {
         || has_parameter_subscript(text))
 }
 
-// Whether text holds `$`, an optional `#`, then a name, digits or one special parameter, and then
-// `[`: zsh's subscript, which is arithmetic. In a body the parser leaves a `$` before `#`, a digit
-// or a special parameter as text.
+// Whether text holds `$`, then any run of `#` and zsh's flags `+`, `=`, `~` and `^`, then a name,
+// digits or one special parameter, and then `[`: zsh's subscript, which is arithmetic. In a body
+// and a string the parser leaves a `$` before `#`, a flag, a digit or a special parameter as text.
 fn has_parameter_subscript(text: &str) -> bool {
     let bytes = text.as_bytes();
     memchr::memchr_iter(b'$', bytes).any(|dollar| {
         let mut position = dollar + 1;
-        let is_length = bytes.get(position) == Some(&b'#');
-        position += usize::from(is_length);
+        let flag_count = bytes[position..]
+            .iter()
+            .take_while(|byte| matches!(byte, b'#' | b'+' | b'=' | b'~' | b'^'))
+            .count();
+        position += flag_count;
         let parameter_start = position;
         match bytes.get(position) {
             Some(byte) if byte.is_ascii_digit() => {
@@ -286,7 +363,7 @@ fn has_parameter_subscript(text: &str) -> bool {
             }
             Some(_) | None => {}
         }
-        (position > parameter_start || is_length) && bytes.get(position) == Some(&b'[')
+        (position > parameter_start || flag_count > 0) && bytes.get(position) == Some(&b'[')
     })
 }
 
@@ -342,12 +419,24 @@ fn is_reading_substitution(substitution: Node<'_>, line: &str) -> bool {
 
 // Whether `next`, the node right after `previous`, makes it a zsh subscript: zsh reads `[…]` right
 // after `$name` as its subscript, and `$#name[…]` as the length of a subscripted name, which the
-// parser reads as `$#` and then a separate name; a subscript is arithmetic.
+// parser reads as `$#` and then a separate name; inside double quotes it reads `$+name[…]` and its
+// flag siblings as one too, which the parser reads as a lone `$` and then the string's text. A
+// subscript is arithmetic.
 fn is_zsh_subscript(previous: Node<'_>, next: Node<'_>, line: &str) -> bool {
-    previous.kind() == "simple_expansion"
-        && next.start_byte() == previous.end_byte()
-        && (node_text(next, line).starts_with('[')
-            || (node_text(previous, line) == "$#" && next.is_named()))
+    if next.start_byte() != previous.end_byte() {
+        return false;
+    }
+    match previous.kind() {
+        "simple_expansion" => {
+            node_text(next, line).starts_with('[')
+                || (node_text(previous, line) == "$#" && next.is_named())
+        }
+        "$" => {
+            next.kind() == "string_content"
+                && has_parameter_subscript(&line[previous.start_byte()..next.end_byte()])
+        }
+        _ => false,
+    }
 }
 
 // The `[[ … ]]` operators whose operands bash evaluates as arithmetic.

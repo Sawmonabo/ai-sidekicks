@@ -14,6 +14,7 @@ use memchr::{memchr, memchr_iter, memrchr};
 use tree_sitter::Node;
 
 use self::quote_removal::{decode_ansi_c, unescape_bare, unescape_double_quoted};
+use super::{continues_variable_name, starts_variable_name};
 
 /// `count` as a reading's offset or count: its line is within the reader's limit, a system's
 /// argument bound far below 4 GiB, and its pieces and words are a small multiple of the line.
@@ -36,6 +37,9 @@ enum PieceKind {
     /// An expansion, a substitution or a pattern the shell expands into file names or alternatives,
     /// kept as its source text in the line.
     Expansion,
+    /// An expansion or a substitution inside double quotes, kept as its source text in the line,
+    /// which the shell splits into no further words.
+    QuotedExpansion,
     /// Text an escape or an ANSI-C string decoded, in the decoded buffer.
     Decoded,
     /// A `${…}` that `env -S` expands inside decoded text, kept as that text in the decoded buffer.
@@ -45,7 +49,10 @@ enum PieceKind {
 impl PieceKind {
     // Whether the piece's text is only the run's to decide.
     fn is_expansion(self) -> bool {
-        matches!(self, Self::Expansion | Self::DecodedExpansion)
+        matches!(
+            self,
+            Self::Expansion | Self::QuotedExpansion | Self::DecodedExpansion
+        )
     }
 
     // Whether the piece indexes the decoded buffer rather than the line.
@@ -304,6 +311,24 @@ impl<'r> ShellWord<'r> {
     /// several words, any of them an option.
     pub fn is_decided(self) -> bool {
         self.pieces.iter().all(|piece| !piece.kind.is_expansion())
+    }
+
+    /// Whether the word is one parameter alone inside double quotes, `"$name"` or `"${name}"`:
+    /// the run decides its text, but the shell passes it as one word, never several.
+    pub fn is_one_quoted_parameter(self) -> bool {
+        let [piece] = self.pieces else {
+            return false;
+        };
+        let text = self.texts.text(*piece);
+        let name = text
+            .strip_prefix("${")
+            .and_then(|braced| braced.strip_suffix('}'))
+            .or_else(|| text.strip_prefix('$'))
+            .unwrap_or_default();
+        let is_name = name.chars().next().is_some_and(starts_variable_name)
+            && name.chars().all(continues_variable_name);
+        let is_positional = !name.is_empty() && name.bytes().all(|byte| byte.is_ascii_digit());
+        piece.kind == PieceKind::QuotedExpansion && (is_name || is_positional)
     }
 }
 
@@ -687,7 +712,7 @@ impl<'s> WordBuilder<'s> {
                     | "command_substitution"
                     | "arithmetic_expansion" => {
                         self.push_double_quoted_text(position..child.start_byte());
-                        self.push_line(child.byte_range(), PieceKind::Expansion);
+                        self.push_line(child.byte_range(), PieceKind::QuotedExpansion);
                         position = child.end_byte();
                     }
                     // The closing quote's token can start at the blanks after a line break, so

@@ -70,6 +70,7 @@ mod auth_status;
 pub(super) mod calibration;
 mod capabilities;
 mod capability_probe;
+mod command_shell;
 mod commands;
 mod compaction;
 mod delivery;

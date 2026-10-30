@@ -85,6 +85,41 @@ use super::reads_only;
 // bash and zsh end `$'EOF'` at `EOF`; bash ends `$"EOF"` there too and zsh at `$EOF`.
 #[case::ansi_c_delimiter("cat <<$'EOF'\nx\nEOF\ntouch made\n$EOF", false)]
 #[case::translated_delimiter("cat <<$\"EOF\"\nx\nEOF\ntouch made\n$EOF", false)]
+// zsh reads a quote inside a `$(…)` or backquotes in a start as nested, bash as the word's own.
+#[case::substitution_in_a_delimiter(
+    "cat <<\"$(echo \"x\")\"\n$(echo \"x\")\ntouch made\n$(echo x)",
+    false
+)]
+#[case::backquotes_in_a_delimiter("cat <<\"a`b \"c\"`\"\na`b \"c\"`\ntouch made\na`b c`", false)]
+// zsh evaluates `$+name[…]` and its flag siblings' subscripts in a body.
+#[case::zsh_flag_subscript_in_a_here_document("cat <<EOF\n$+a[PATH=0]\nEOF", false)]
+// The shell ends a body only at a line that is the delimiter whole, after leading tabs for `<<-`;
+// the parser ends one at a line that starts with it after blanks, so a second here-document the
+// parser opens there hides the shell's next command.
+#[case::delimiter_line_with_a_trailing_blank(
+    "cat <<'EOF'\nEOF \ncat <<'X'\nEOF\ntouch made\nX",
+    false
+)]
+#[case::delimiter_line_after_blanks("cat <<'EOF'\n  EOF\ncat <<'X'\nEOF\ntouch made\nX", false)]
+#[case::delimiter_line_after_a_tab("cat <<'EOF'\n\tEOF\ncat <<'X'\nEOF\ntouch made\nX", false)]
+#[case::delimiter_line_with_a_comment("cat <<'EOF'\nEOF #\ncat <<'X'\nEOF\ntouch made\nX", false)]
+#[case::delimiter_line_with_a_separator("cat <<'EOF'\nEOF;\ncat <<'X'\nEOF\ntouch made\nX", false)]
+#[case::tab_stripping_delimiter_after_blanks(
+    "cat <<-'EOF'\n  EOF\ncat <<'X'\nEOF\ntouch made\nX",
+    false
+)]
+#[case::expanded_body_delimiter_with_a_trailing_blank(
+    "cat <<EOF\nx\nEOF \ncat <<'X'\nEOF\ntouch made\nX",
+    false
+)]
+// bash ends an expanded body at its delimiter line inside a quote or a substitution.
+#[case::substitution_across_the_delimiter("cat <<EOF\n$(cat '\nEOF\ntouch made\n')\nEOF", false)]
+#[case::quote_across_the_delimiter("cat <<EOF\n${x:-\"\nEOF\ntouch made\n\"}\nEOF", false)]
+#[case::here_document_across_the_delimiter(
+    "cat <<EOF\n$(cat <<'X'\nEOF\ntouch made\nX\n)\nEOF",
+    false
+)]
+#[case::tab_stripping_delimiter_after_tabs("cat <<-'EOF'\n\tx\n\tEOF", true)]
 fn a_redirect_reads_only_when_it_writes_no_file(#[case] line: &str, #[case] is_read_only: bool) {
     assert_eq!(reads_only(line), is_read_only, "{line:?}");
 }

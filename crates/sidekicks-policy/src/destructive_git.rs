@@ -76,7 +76,7 @@ pub fn runs_destructive_git(reader: &mut ShellLineReader, reading: &ShellLineRea
 pub fn read_git_subcommand<W: WordText>(
     argument_words: impl IntoIterator<Item = W>,
 ) -> GitSubcommandReading<W> {
-    take_git_subcommand(&mut argument_words.into_iter())
+    take_git_subcommand(&mut argument_words.into_iter(), |_, _| {})
 }
 
 /// Whether a provider keeping `rule` as a prefix over its subject's words would also let a force
@@ -116,28 +116,30 @@ fn holds_destructive_git(
 }
 
 // A push that forces or deletes, or a branch delete. A word only the run decides, which can turn
-// into any word or several, counts as a match wherever a decided word is read: as the subcommand,
-// as an option of git's own, which can make the next word its value, and after `push` or `branch`.
+// into any word or several, counts as a match wherever a decided word is read: as the program, as
+// any word up to the subcommand, each of which git may read as its own option, a value or the
+// subcommand, and after `push` or `branch`. Only a value of git's own option that is one quoted
+// parameter stays one word, which cannot move the subcommand.
 fn is_destructive_git(command: ShellCommand<'_>) -> bool {
-    if !command.program().is("git") {
+    let program = command.program();
+    if !program.is_decided() {
+        return true;
+    }
+    if !program.is("git") {
         return false;
     }
     let mut rest = command.argument_words();
-    let word_count = rest.len();
-    let Some(subcommand) = take_git_subcommand(&mut rest).subcommand else {
-        return false;
-    };
-    let subcommand_count = word_count - rest.len();
-    let names_an_undecided_subcommand = command
-        .argument_words()
-        .take(subcommand_count)
-        .enumerate()
-        .any(|(index, word)| {
-            !word.is_decided() && (index + 1 == subcommand_count || word.starts_with("-"))
-        });
-    if names_an_undecided_subcommand {
+    let mut takes_an_undecided_word = false;
+    let reading = take_git_subcommand(&mut rest, |word, is_option_value| {
+        takes_an_undecided_word |=
+            !(word.is_decided() || is_option_value && word.is_one_quoted_parameter());
+    });
+    if takes_an_undecided_word {
         return true;
     }
+    let Some(subcommand) = reading.subcommand else {
+        return false;
+    };
     if subcommand.is("push") {
         return rest.any(|word| {
             !word.is_decided()
@@ -161,14 +163,17 @@ fn is_destructive_git(command: ShellCommand<'_>) -> bool {
 }
 
 // Takes words up to and including the subcommand, the first word that is no option, past the
-// value of an option that takes one, leaving the words after it in `words`. Every word before the
-// subcommand, an option's value included, is checked for an option that changes what git runs.
+// value of an option that takes one, leaving the words after it in `words`, and hands each word
+// taken to `on_taken_word` with whether it is an option's value. Every word before the subcommand,
+// an option's value included, is checked for an option that changes what git runs.
 fn take_git_subcommand<W: WordText>(
     words: &mut impl Iterator<Item = W>,
+    mut on_taken_word: impl FnMut(W, bool),
 ) -> GitSubcommandReading<W> {
     let mut changes_what_runs = false;
     let mut is_option_value = false;
     for word in words.by_ref() {
+        on_taken_word(word, is_option_value);
         if is_option_value {
             is_option_value = false;
         } else if GIT_OPTIONS_WITH_VALUE.iter().any(|option| word.is(option)) {
@@ -273,6 +278,14 @@ mod tests {
     #[case::expanded_subcommand("X=push; git $X -f", true)]
     #[case::braced_expansion_subcommand("git ${X} --force", true)]
     #[case::expansion_after_a_reading_subcommand("git log --since=$DATE", false)]
+    // An undecided word before any subcommand: a brace word or an unquoted expansion splits into
+    // several, so git can read one as its subcommand; one quoted parameter stays one word.
+    #[case::brace_alternatives_of_a_folder("git -C {.,push} --force", true)]
+    #[case::expanded_option_word("git -$X --force", true)]
+    #[case::expanded_option_word_after_its_value("X=\"C . push\"; git -$X --force", true)]
+    #[case::quoted_folder_value("git -C \"$D\" log", false)]
+    // A program only the run decides may be git.
+    #[case::expanded_program("G=git; $G push --force", true)]
     #[case::dry_run("git push --dry-run origin main", false)]
     #[case::branch_long_option_with_d("git branch --edit-description", false)]
     fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool) {

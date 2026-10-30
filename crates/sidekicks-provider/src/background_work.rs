@@ -111,13 +111,17 @@ fn refusal_in(
     None
 }
 
-// The provider's refusal when `command` runs its own program in a background-work form.
+// The provider's refusal when `command` runs its own program in a background-work form, or a
+// program only the run decides, which can be the provider's own with any of its words.
 fn background_work_refusal(
     provider: &ProviderBackgroundWork,
     command: ShellCommand<'_>,
 ) -> Option<&'static str> {
     let work = provider.work;
     let program = command.program();
+    if !program.is_decided() {
+        return Some(work.refusal);
+    }
     if !provider.command_names.iter().any(|name| program.is(name)) {
         return None;
     }
@@ -192,6 +196,7 @@ mod tests {
     #[case::sleep_assertion_wrapper("caffeinate claude --bg x", true)]
     #[case::brace_alternatives(r"claude {--bg,x}", true)]
     #[case::expanded_flag("X=--bg; claude $X x", true)]
+    #[case::expanded_program("$C --bg x", true)]
     #[case::prompt_naming_a_subcommand(r#"claude "list the agents""#, false)]
     #[case::subcommand_after_the_prompt(r#"claude "explain" agents"#, false)]
     #[case::session_listing("claude attach 7c5dcf5d", false)]

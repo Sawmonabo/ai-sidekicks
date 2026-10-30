@@ -20,7 +20,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::data_folder::{program_link_folder, service_log_folder};
@@ -33,6 +32,7 @@ use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::account_home_logs::AccountHomeLogExpiry;
 use crate::driver::codex::calibration::CodexCompactionLimits;
+use crate::driver::codex::command_shell::read_command_shell;
 use crate::driver::codex::commands::{CodexCommandSource, CodexProviderCommandCache};
 use crate::driver::codex::delivery::asks::attribution::CodexAskIntake;
 use crate::driver::codex::delivery::asks::{
@@ -104,7 +104,7 @@ pub(crate) struct CodexDriver {
     runtime_bindings: Arc<dyn RuntimeBindingWriter>,
     shell_lines: Arc<sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound>,
     background_work: Arc<BackgroundWorkForms>,
-    // The shell Codex runs a command's line with, `SHELL` in the environment it starts from.
+    // The shell Codex runs a command's line with, found as Codex finds it.
     command_shell: Option<Arc<Path>>,
     pending_compactions: PendingCompactionRegistry,
     /// The helpers stopped at their token limit, whose later turns are interrupted at their start.
@@ -135,15 +135,6 @@ pub(crate) struct CodexDriver {
     tasks: TaskTracker,
     link: Arc<CodexDriverLink>,
     parts: OnceLock<Arc<CodexDriverParts>>,
-}
-
-// The shell Codex starts a command's line with: the `SHELL` of the environment it starts from,
-// where that names one.
-fn read_command_shell(base_environment: &[(String, String)]) -> Option<Arc<Path>> {
-    PathRules::NATIVE
-        .environment_value(base_environment, "SHELL")
-        .filter(|shell| !shell.is_empty())
-        .map(|shell| Arc::from(Path::new(shell)))
 }
 
 /// What every session shares once the daemon's run engine is registered; each session's task

@@ -45,6 +45,11 @@ use super::reads_only;
 #[case::zsh_subscript_in_a_string("echo \"$a[PATH=0]\"; ls", false)]
 #[case::zsh_length_of_a_subscript("echo $#a[PATH=0]; ls", false)]
 #[case::zsh_length_of_a_subscript_in_a_string("echo \"$#a[PATH=0]\"; ls", false)]
+// zsh also subscripts after its flags `+`, `=`, `~` and `^`, which the parser leaves as a string's
+// text.
+#[case::zsh_set_flag_subscript_in_a_string("cat \"$+PATH[PATH=0]\"; ls", false)]
+#[case::zsh_split_flag_subscript_in_a_string("echo \"$=a[m=1]\"", false)]
+#[case::zsh_flag_run_subscript_in_a_string("echo \"$^=x[m=1]\"", false)]
 fn an_expansion_reads_only_when_it_runs_nothing(#[case] line: &str, #[case] is_read_only: bool) {
     assert_eq!(reads_only(line), is_read_only, "{line:?}");
 }
