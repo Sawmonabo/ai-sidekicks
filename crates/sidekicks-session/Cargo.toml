@@ -65,14 +65,15 @@ mockall.workspace = true
 rstest.workspace = true
 # The credit gate the list feed's tests read through.
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
-# The illegal byte sequence check and the name that is not Unicode the tests read.
+# The illegal byte sequence check and the name that is not Unicode the tests read, and the
+# credential store in memory the web address's secrets are kept in.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
 # The test driver registry, the mock driver, the recorded diagnostics, the runtime binding's test
 # store, the unanswered driver error and the starting level a test's driver answers.
 sidekicks-provider = { workspace = true, features = ["test-support"] }
 # The documents an index holds under a row's key, for the search apply's damaged-row test.
 sidekicks-search = { workspace = true, features = ["index", "test-support"] }
-# The pause points the tests arm.
+# The pause points the tests arm and the wall clock the web address's retries are due on.
 sidekicks-std = { workspace = true, features = ["test-support"] }
 # The test database and session rows the session's tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }

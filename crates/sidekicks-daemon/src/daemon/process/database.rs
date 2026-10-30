@@ -49,6 +49,7 @@ use sidekicks_recovery::session_write_refusal::refuse_session_event;
 use sidekicks_recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_session::attention::changes::{AttentionChanges, attention_changes_after_commits};
+use sidekicks_session::attention::delivery::web_address::sender::WEB_ADDRESS_SENDER_STATEMENT_CAPACITY;
 use sidekicks_session::attention::projection::attention_projection_statements;
 use sidekicks_session::attention::service::ATTENTION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
@@ -218,6 +219,7 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY
     + UNFINISHED_DISCARD_STATEMENT_CAPACITY
     + USAGE_RECORD_STATEMENT_CAPACITY
+    + WEB_ADDRESS_SENDER_STATEMENT_CAPACITY
     + WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY
     + WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY
     + WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY

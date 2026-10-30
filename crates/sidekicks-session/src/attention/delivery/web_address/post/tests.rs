@@ -5,9 +5,7 @@
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
-use axum::Router;
-use axum::body::Bytes;
-use axum::http::{HeaderMap, StatusCode, Uri};
+use axum::http::StatusCode;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use jiff::{SignedDuration, Timestamp};
@@ -19,53 +17,12 @@ use sidekicks_contracts::wire::integer::BoundedInt;
 use standardwebhooks::Webhook;
 
 use super::{PostOutcome, WebAddressPost, WebAddressPoster};
+use crate::attention::delivery::web_address::receiver_double::{closed_port, serve};
 use crate::attention::delivery::web_address::shown_host;
 use crate::attention::delivery::web_address::signature::mint_signing_secret;
 
 const MESSAGE_ID: &str = "018f0000-0000-7000-8000-0000000000e1";
 const BODY: &[u8] = br#"{"text":"Nightly bump \u00b7 Finished","kind":"finished"}"#;
-
-/// One request the double received.
-#[derive(Clone, Debug)]
-struct Received {
-    path_and_query: String,
-    headers: HeaderMap,
-    body: Bytes,
-}
-
-/// A double on a loopback port answering every request with `status`, and what it received.
-async fn serve(status: StatusCode) -> (u16, Arc<Mutex<Vec<Received>>>) {
-    let received = Arc::new(Mutex::new(Vec::new()));
-    let kept = Arc::clone(&received);
-    let router = Router::new().fallback(move |uri: Uri, headers: HeaderMap, body: Bytes| {
-        let kept = Arc::clone(&kept);
-        async move {
-            kept.lock().expect("the double's record").push(Received {
-                path_and_query: uri
-                    .path_and_query()
-                    .map(ToString::to_string)
-                    .unwrap_or_default(),
-                headers,
-                body,
-            });
-            status
-        }
-    });
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("a local port");
-    let port = listener.local_addr().expect("the port's address").port();
-    tokio::spawn(async move { axum::serve(listener, router).await });
-    (port, received)
-}
-
-/// A loopback port nothing listens on.
-async fn closed_port() -> u16 {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("a local port");
-    listener.local_addr().expect("the port's address").port()
-}
 
 /// The service log, captured at TRACE from every target, `log` records included.
 #[derive(Clone, Default)]

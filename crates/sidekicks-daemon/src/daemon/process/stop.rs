@@ -192,6 +192,18 @@ pub(crate) async fn stop_work(
             .into(),
         );
     }
+    // The work's stop ends the web address's sender; a write under way is waited out.
+    if let Some(sender) = process.web_address_sender.take()
+        && let Err(error) = sender.await
+    {
+        failures.push(
+            TaskStopFailure {
+                task: "web address sender",
+                error,
+            }
+            .into(),
+        );
+    }
     // The session services' follows end with the chats' write watch, which they wait out.
     match (
         process.session_attachments.take(),

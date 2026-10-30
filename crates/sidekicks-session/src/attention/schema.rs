@@ -4,9 +4,11 @@
 //!
 //! The entries are a projection of the session events, written in each event's own write and
 //! rebuilt from the log; the deliveries, the seen marks and the counts are the daemon's own
-//! writes, which a rebuild leaves alone. No table refers to another, so a purge deletes them in any
-//! order. A provider's new build is never an entry row: the projection lists it from the provider
-//! drivers' record of each provider's builds, which this part's list therefore holds.
+//! writes, which a rebuild leaves alone. Only the web address's send queue refers to another
+//! table, the deliveries, so a purge's delete of a delivery takes its queued message with it and
+//! the purge deletes the rest in any order. A provider's new build is never an entry row: the
+//! projection lists it from the provider drivers' record of each provider's builds, which this
+//! part's list therefore holds.
 
 use sidekicks_contracts::attention::{
     AttentionBannerState, AttentionSeverity, AttentionTrigger, AttentionWebAddressState,
@@ -16,15 +18,17 @@ use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
 use strum::VariantArray as _;
 
 use crate::attention::delivery::outcome::delivery_outcome_schema_part;
+use crate::attention::delivery::web_address::queue::send_queue_schema_part;
 
 /// The runs' list, which a run's end reads to raise an entry only for a lead run, the provider
 /// drivers' list, whose record of each provider's builds the projection lists, the attention
-/// tables' own part and the delivery channels' outcome table.
+/// tables' own part, the delivery channels' outcome table and the web address's send queue.
 pub fn schema_parts() -> SchemaParts {
     crate::run::schema::schema_parts()
         .with_parts(sidekicks_provider::driver::schema::schema_parts())
         .with_part(SchemaPart::new("attention", attention_schema_sql()))
         .with_part(delivery_outcome_schema_part())
+        .with_part(send_queue_schema_part())
 }
 
 fn attention_schema_sql() -> String {

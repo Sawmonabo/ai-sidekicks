@@ -75,13 +75,6 @@ impl WebAddressPoster {
     /// Sends `post`'s body once and reports how it ended: a 2xx answer within 15 s `delivered`,
     /// any other answer, a redirect among them, `refused`, no answer in time `timedOut`, and no
     /// answer at all `unreachable`. Fails with [`PostError`] when no attempt could be made.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the web address's sender and its test send post each message"
-        )
-    )]
     pub(crate) async fn post(&self, post: WebAddressPost<'_>) -> Result<PostOutcome, PostError> {
         let client = self
             .client

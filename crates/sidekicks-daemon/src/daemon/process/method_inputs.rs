@@ -35,6 +35,9 @@ use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::{RestartSettle, RestartSettleDeps};
 use sidekicks_recovery::startup::{StartupRecovery, StartupRecoveryDeps};
 use sidekicks_session::attention::banner_launcher::BannerLauncher;
+use sidekicks_session::attention::delivery::web_address::sender::{
+    WebAddressSender, WebAddressSenderDependencies,
+};
 use sidekicks_session::attention::service::{AttentionService, AttentionServiceDependencies};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::groups::service::SessionGroupService;
@@ -49,6 +52,7 @@ use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::credential_store::items::SecretItems;
+use sidekicks_store::credential_store::service::KeychainService;
 use sidekicks_store::machine::identity_key::MachineIdentity;
 use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_workspace::clone::service::{CloneAttachedListener, CloneService, CloneServiceDeps};
@@ -203,6 +207,8 @@ pub(crate) struct MethodInputs {
     pub(crate) presence: Arc<PresenceRegister>,
     /// The attention service, started right after the recovery pass.
     pub(crate) attention: Arc<AttentionService>,
+    /// The web address's sender, started right after the attention service.
+    pub(crate) web_address_sender: Arc<WebAddressSender>,
     /// The workspace services' work, which the start begins once the recovery pass has ended.
     pub(crate) workspace_work: WorkspaceWork,
 }
@@ -351,6 +357,15 @@ pub(crate) async fn register_method_inputs(
         launcher: Arc::new(BannerLauncher::new(Arc::new(spawner.clone()))),
         machine_device_id: machine_device_id.clone(),
         scheduler: Arc::clone(&scheduler),
+    }));
+    let web_address_sender = Arc::new(WebAddressSender::new(WebAddressSenderDependencies {
+        writer: Arc::clone(&writer),
+        pool: Arc::clone(&reads),
+        changes: database.attention_changes.clone(),
+        settings: Arc::clone(&settings_reader),
+        keychain: Arc::new(secret_items.keychain(KeychainService::DeliverySecrets)),
+        scheduler: Arc::clone(&scheduler),
+        clock: Arc::clone(&clock),
     }));
     let project_list_feed = Arc::new(ProjectListFeed::new(
         Arc::clone(&port.project_records),
@@ -689,6 +704,7 @@ pub(crate) async fn register_method_inputs(
         machine_device_id,
         presence,
         attention,
+        web_address_sender,
         workspace_work: workspace.work,
     })
 }

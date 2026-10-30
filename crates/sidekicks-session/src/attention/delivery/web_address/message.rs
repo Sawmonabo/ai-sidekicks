@@ -3,9 +3,8 @@
 //! entry's own name and state word and never from a word of a transcript. It is serialized once,
 //! when its send is first written, and those bytes are signed and sent unchanged at every attempt.
 //!
-//! Its size is bounded by what it names: a session's name is capped at 256 code points and the
-//! machine's name likewise, while a workflow's name and a Notify step's notice carry no cap of
-//! their own beyond the message that saved the workflow.
+//! Its size is bounded by what it names: a session's, a workflow's and the machine's names at 256
+//! code points each and a Notify step's notice at 2,000.
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -123,13 +122,6 @@ impl WebAddressMessage {
 
 /// The body of entry `entry_id`'s message, sent from the machine named `machine`, read on `reader`;
 /// `None` when no entry has that id. Fails with [`AttentionReadError`] when the entry's read does.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the web address's sender freezes each message's body"
-    )
-)]
 pub(crate) fn read_message_body(
     reader: &Connection,
     entry_id: &str,

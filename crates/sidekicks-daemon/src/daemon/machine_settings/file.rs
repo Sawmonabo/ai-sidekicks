@@ -135,15 +135,9 @@ impl MachineSettingsFile {
     }
 
     /// A receiver holding the settings as they stand and each later change, which any number of
-    /// the service's own readers clone: keep-awake follows its switches from it, and each spawn
-    /// reads its `Every project` rows from it. Fails as [`Self::read`] does.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start hands the settings to keep-awake and to each spawn"
-        )
-    )]
+    /// the service's own readers clone: the web address's sender drops its waiting messages the
+    /// moment its switch goes off, keep-awake follows its switches from it, and each spawn reads
+    /// its `Every project` rows from it. Fails as [`Self::read`] does.
     pub(crate) async fn watch(
         &self,
     ) -> Result<watch::Receiver<MachineSettings>, MachineSettingsFileError> {

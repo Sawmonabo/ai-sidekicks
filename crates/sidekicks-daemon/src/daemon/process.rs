@@ -190,6 +190,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) session_attachments: Option<SessionAttachments>,
     /// The attention service's decision task, which ends with the work's stop and is waited out.
     pub(crate) attention: Option<JoinHandle<()>>,
+    /// The web address's sender, which ends with the work's stop and is waited out.
+    pub(crate) web_address_sender: Option<JoinHandle<()>>,
     /// The clone service, which owns the askpass broker; the stop closes it.
     pub(crate) clones: Option<Arc<CloneService>>,
     /// The live projects list, closed by the stop.
@@ -256,6 +258,7 @@ impl DaemonProcess {
             session: None,
             session_attachments: None,
             attention: None,
+            web_address_sender: None,
             clones: None,
             project_list_feed: None,
             worktree_setup: None,
@@ -573,6 +576,7 @@ impl DaemonProcess {
         .await?;
         let recovery = inputs.recovery;
         let attention = inputs.attention;
+        let web_address_sender = inputs.web_address_sender;
         self.project_list_feed = Some(inputs.project_list_feed);
         self.clones = inputs.clones;
         self.worktree_setup = Some(inputs.worktree_setup);
@@ -644,6 +648,13 @@ impl DaemonProcess {
         // Right after the recovery pass, so the sweep reads what the last stop left before the
         // session services' follows begin.
         self.attention = Some(attention.start(self.work_stop.clone()).await?);
+        // After the sweep, so a delivery the stop left pending is decided before it is sent.
+        let send_settings = settings
+            .watch()
+            .await
+            .map_err(DaemonStartError::WebAddressSettings)?;
+        self.web_address_sender =
+            Some(web_address_sender.start(send_settings, self.work_stop.clone()));
         self.workspace_work
             .as_mut()
             .expect("the workspace services are built before their work begins")

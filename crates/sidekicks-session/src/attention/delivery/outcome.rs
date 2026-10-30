@@ -70,13 +70,6 @@ CREATE TABLE attention_delivery_outcomes (
 
 /// The write of `channel`'s attempt at `attempted_at`: how it ended and the address's HTTP status,
 /// if it answered; a delivery also clears the count of messages given up on.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the web address's sender and the email digest's record attempts"
-    )
-)]
 pub(crate) fn attempt_outcome_statement(
     channel: AttentionDeliveryChannel,
     attempted_at: &WireInstant,
@@ -104,13 +97,6 @@ pub(crate) fn attempt_outcome_statement(
 }
 
 /// The write that counts one more message of `channel` given up on.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the web address's sender and the email digest count give-ups"
-    )
-)]
 pub(crate) fn undelivered_count_statement(channel: AttentionDeliveryChannel) -> WriteStatement {
     statement(COUNT_UNDELIVERED_SQL, vec![channel_binding(channel)])
 }
