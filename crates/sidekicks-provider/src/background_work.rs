@@ -7,7 +7,9 @@
 use std::sync::Arc;
 
 use sidekicks_policy::destructive_git::read_git_run_settings;
-use sidekicks_policy::shell_commands::{ShellLineReader, ShellLineReading, WordText, is_option};
+use sidekicks_policy::shell_commands::{
+    ShellCommand, ShellLineReader, ShellLineReading, WordText, is_option,
+};
 
 use crate::driver::{BackgroundWork, ProviderDescriptor};
 
@@ -44,7 +46,8 @@ impl BackgroundWorkForms {
 /// The reason the agent reads when the line `reading` holds starts background work of one of
 /// `forms`' providers, or `None` when it starts none. The `-c` and `eval` strings its shells run
 /// and the lines its git settings hand a shell are reread on `reader` and judged as the line is;
-/// a line not read whole is also judged by the words it still shows.
+/// a line not read whole, or one a shell reads from its input, is also judged by the words it
+/// shows.
 pub fn refuse_background_work(
     forms: &BackgroundWorkForms,
     reader: &mut ShellLineReader,
@@ -82,17 +85,22 @@ pub(crate) fn plain_background_work_forms(forms: &BackgroundWorkForms) -> Vec<St
     plain
 }
 
-// The refusal for a command of `reading` that starts background work, or for the words a line
-// not read whole still shows; each string a command hands a shell, or its git settings do, is
-// read and left in `rereads` to be judged in its place. A command is read by the words its text
-// spells, so one whose program only the run decides is judged by those words alone.
+// The refusal for a command of `reading` that starts background work, or for the words the line
+// shows when it is not read whole or a command of it runs a line it reads from its input, a
+// here-document's, a here-string's or a pipe's, as the destructive-git reader reads both; each
+// string a command hands a shell, or its git settings do, is read and left in `rereads` to be
+// judged in its place. A command is read by the words its text spells, so one whose program only
+// the run decides is judged by those words alone.
 fn refusal_in(
     forms: &BackgroundWorkForms,
     reader: &mut ShellLineReader,
     reading: &ShellLineReading,
     rereads: &mut Vec<Arc<ShellLineReading>>,
 ) -> Option<&'static str> {
-    if !reading.is_whole() {
+    let reads_a_line_from_input = reading
+        .commands()
+        .any(ShellCommand::runs_a_line_from_its_input);
+    if !reading.is_whole() || reads_a_line_from_input {
         for run in reading.unread_word_runs() {
             for (index, word) in run.iter().enumerate() {
                 let program = word.rsplit('/').next().unwrap_or(word);
@@ -134,11 +142,12 @@ fn background_work_refusal<W: WordText>(
     if !provider.command_names.iter().any(|name| program.is(name)) {
         return None;
     }
-    // A word only the run decides can turn into any subcommand or flag.
+    // A word that spells alternatives, a brace expansion's, may be any flag among them; a word
+    // only the run decides is none.
     let is_background = names_background_subcommand(work, arguments.clone())
-        || arguments
-            .clone()
-            .any(|word| !word.is_decided() || work.flags.iter().any(|flag| is_option(word, flag)));
+        || arguments.clone().any(|word| {
+            word.spells_alternatives() || work.flags.iter().any(|flag| is_option(word, flag))
+        });
     is_background.then_some(work.refusal)
 }
 
@@ -206,8 +215,10 @@ mod tests {
     #[case::split_string_inside_the_word("env -S'claude --bg x'", true)]
     #[case::option_inside_a_split_string("env -S'-u HOME claude --bg x'", true)]
     #[case::sleep_assertion_wrapper("caffeinate claude --bg x", true)]
+    // A brace word spells its alternatives; a word only the run decides is no flag.
     #[case::brace_alternatives(r"claude {--bg,x}", true)]
-    #[case::expanded_flag("X=--bg; claude $X x", true)]
+    #[case::expanded_flag("X=--bg; claude $X x", false)]
+    #[case::expanded_prompt(r#"claude -p "$PROMPT""#, false)]
     #[case::prompt_naming_a_subcommand(r#"claude "list the agents""#, false)]
     #[case::subcommand_after_the_prompt(r#"claude "explain" agents"#, false)]
     #[case::session_listing("claude attach 7c5dcf5d", false)]
@@ -216,6 +227,13 @@ mod tests {
     #[case::unread_string(r#"sh -c 'claude --bg "x'"#, true)]
     #[case::zsh_short_loop("for x in 1; claude --bg x", true)]
     #[case::zsh_short_loop_of_a_listing("for x in 1; claude attach 7c5dcf5d", false)]
+    #[case::zsh_short_loop_of_a_split_string("for x in 1; env -S'claude --bg x'", true)]
+    #[case::zsh_short_loop_of_an_equals_name("for x in 1; =claude --bg x", true)]
+    // A shell reading its line from its input is judged by the words the line shows.
+    #[case::here_document_to_a_shell("sh <<E\nclaude --bg x\nE", true)]
+    #[case::here_string_to_a_shell("sh <<< 'claude --bg x'", true)]
+    #[case::pipe_into_a_shell("echo 'claude --bg x' | sh", true)]
+    #[case::here_document_of_other_work("bash <<'E'\ncargo test\nE", false)]
     #[case::trap_line("trap 'claude --bg x' EXIT", true)]
     #[case::find_exec("find . -exec claude --bg x \\;", true)]
     #[case::git_alias_line("git -c alias.x='!claude --bg' x", true)]
@@ -230,7 +248,9 @@ mod tests {
     #[case::mapfile_line("mapfile -C 'claude --bg x' <<< x", true)]
     #[case::readarray_line("readarray -C 'claude --bg x' <<< x", true)]
     #[case::emulate_line("emulate sh -c 'claude --bg x'", true)]
+    #[case::emulate_options_ended("emulate sh -c -- 'claude --bg x'", true)]
     #[case::repeat_count("repeat 1 claude --bg x", true)]
+    #[case::repeat_list("repeat 1 { claude --bg x }", true)]
     #[case::zargs_command("zargs -- x -- claude --bg", true)]
     #[case::chroot_command("chroot / claude --bg x", true)]
     #[case::watch_words("watch claude --bg x", true)]
