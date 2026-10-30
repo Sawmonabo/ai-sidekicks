@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use sidekicks_platforms::{
     BaseEnvironmentSource, PathRules, SessionCommand, Spawner, base_environment_source,
-    name_as_login_shell, start_session_child, windows_drive_mounts,
+    name_as_login_shell, quote_powershell_literal, start_session_child, windows_drive_mounts,
 };
 use sidekicks_std::random_hex::random_hex;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
@@ -273,7 +273,7 @@ fn capture_launch(shell: &Path, program: &str, token: &str) -> CaptureLaunch {
             vec![
                 "-Login".to_owned(),
                 "-Command".to_owned(),
-                command("& ", quote_powershell_word(program)),
+                command("& ", quote_powershell_literal(program)),
             ],
         ),
         "xonsh" => (
@@ -343,11 +343,6 @@ fn quote_nu_word(word: &str) -> String {
     } else {
         format!("'{word}'")
     }
-}
-
-// `word` in PowerShell's single quotes, inside which a `'` is doubled.
-fn quote_powershell_word(word: &str) -> String {
-    format!("'{}'", word.replace('\'', "''"))
 }
 
 // Reads the shell's output until the end marker, answering the pairs between the markers. Fails
