@@ -141,7 +141,7 @@ interface AttentionSeenSubject {
 interface AttentionDeliveryOutcome {
   at: string;
   // storeUnavailable: the keychain refused, locked or unavailable, or the address is saved with its
-  // signing secret missing or unreadable, so nothing was sent.
+  // signing secret missing or damaged (not `whsec_` and base64), so nothing was sent.
   result:
     | "delivered"
     | "refused"
@@ -150,7 +150,7 @@ interface AttentionDeliveryOutcome {
     | "signInRefused"
     | "notEncrypted"
     | "storeUnavailable";
-  cause?: "locked" | "unavailable" | "secretMissing"; // present exactly on storeUnavailable
+  cause?: "locked" | "unavailable" | "secretMissing" | "secretDamaged"; // on storeUnavailable alone
   httpStatus: number | null; // null where the address gave no answer
   undelivered: number;
 }
@@ -174,8 +174,10 @@ interface AttentionDeliveryTestRequest {
 // outcome's `undelivered` is the channel's current count. The page settles on its result:
 // `delivered` `Sent. The address answered 200.`, `refused` `The address answered <status>.`,
 // `timedOut` `The address did not answer in 15 seconds.`, `unreachable` `The address could not be
-// reached.`, and `storeUnavailable` `Nothing was sent: the keychain is locked.` or, with `cause:
-// secretMissing`, `Nothing was sent: the signing secret is missing. Make a new secret.` The refusal
+// reached.`, and `storeUnavailable` by its cause: `locked` `Nothing was sent: the keychain is
+// locked.`, `unavailable` `Nothing was sent: the keychain could not be opened.`, `secretMissing`
+// `Nothing was sent: the signing secret is missing. Make a new secret.` and `secretDamaged`
+// `Nothing was sent: the signing secret is damaged. Make a new secret.` The refusal
 // `attention.delivery.storeUnavailable` settles the test with the same line its cause names.
 interface AttentionDeliveryTestResponse {
   outcome: AttentionDeliveryOutcome;
