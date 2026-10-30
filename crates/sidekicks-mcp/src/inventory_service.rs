@@ -220,11 +220,8 @@ impl McpInventoryService {
                 Err(McpInventoryError::Driver { provider, source }) => {
                     failed_providers.push(name_failed_provider(provider, &source));
                 }
-                Err(McpInventoryError::AccountId { provider }) => {
-                    let error = McpInventoryError::AccountId {
-                        provider: provider.clone(),
-                    };
-                    failed_providers.push(name_failed_provider(provider, &error));
+                Err(ref error @ McpInventoryError::AccountId { ref provider }) => {
+                    failed_providers.push(name_failed_provider(provider.clone(), error));
                 }
                 Err(
                     error @ (McpInventoryError::Refused(_)
