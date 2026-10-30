@@ -322,32 +322,57 @@ async fn the_person_config_file_takes_the_custom_sign_in_suffix(
     assert_eq!(person.person_config, home.join(config_file));
 }
 
-// A plugin with no manifest is named by its id and lists its `.mcp.json` servers, while one whose
-// manifest is not JSON lists none, as Claude Code refuses to load it. Killed by a manifest that
-// does not read taken as an absent one.
+// A plugin with no manifest is named by its id and lists its `.mcp.json` servers, and so does one
+// whose manifest Claude Code takes with a member it does not know, while one whose manifest is not
+// JSON, does not read, or has a member Claude Code refuses lists none, as Claude Code refuses to
+// load it; the plugin beside it still lists its servers. Killed by a manifest that does not read
+// or is refused taken as an absent one, by a read error failing the whole read, by a refused
+// member let through, and by a member the schema does not know refused.
 #[rstest]
-#[case::no_manifest(None, &["plugin-server"][..])]
-#[case::corrupt_manifest(Some("{ \"name\": "), &[][..])]
+#[case::no_manifest(Manifest::Absent, &["other-server", "plugin-server"][..])]
+#[case::unknown_member(
+    Manifest::Text(r#"{ "name": "tools", "version": "1.0.0", "tagline": 7 }"#),
+    &["other-server", "plugin-server"][..]
+)]
+#[case::corrupt_manifest(Manifest::Text("{ \"name\": "), &["other-server"][..])]
+#[case::manifest_is_a_folder(Manifest::Folder, &["other-server"][..])]
+#[case::refused_member(
+    Manifest::Text(r#"{ "name": "tools", "version": 3 }"#),
+    &["other-server"][..]
+)]
 #[tokio::test]
 async fn a_plugin_whose_manifest_does_not_read_lists_no_servers(
-    #[case] manifest: Option<&str>,
+    #[case] manifest: Manifest,
     #[case] listed: &[&str],
 ) {
     let scratch = tempfile::tempdir().expect("a scratch folder");
     let plugin_home = scratch.path().join("plugin-home");
     let install = plugin_home.join("plugins").join("cache").join("tools");
+    let other = plugin_home.join("plugins").join("cache").join("other");
     write_json(
         &plugin_home.join("plugins").join("installed_plugins.json"),
-        &json!({ "plugins": { "tools@market": [{ "installPath": install }] } }),
+        &json!({ "plugins": {
+            "tools@market": [{ "installPath": install }],
+            "other@market": [{ "installPath": other }]
+        } }),
     );
     write_json(
         &install.join(".mcp.json"),
         &json!({ "mcpServers": { "plugin-server": { "command": "plugin" } } }),
     );
-    if let Some(manifest) = manifest {
-        fs::create_dir_all(install.join(".claude-plugin")).expect("the manifest folder is made");
-        fs::write(install.join(".claude-plugin").join("plugin.json"), manifest)
-            .expect("the manifest is written");
+    write_json(
+        &other.join(".mcp.json"),
+        &json!({ "mcpServers": { "other-server": { "command": "other" } } }),
+    );
+    let manifest_file = install.join(".claude-plugin").join("plugin.json");
+    match manifest {
+        Manifest::Absent => {}
+        Manifest::Text(text) => {
+            fs::create_dir_all(install.join(".claude-plugin"))
+                .expect("the manifest folder is made");
+            fs::write(&manifest_file, text).expect("the manifest is written");
+        }
+        Manifest::Folder => fs::create_dir_all(&manifest_file).expect("the folder is made"),
     }
 
     let reading = read_claude_mcp_config(&ClaudeMcpConfigSources {
@@ -359,10 +384,19 @@ async fn a_plugin_whose_manifest_does_not_read_lists_no_servers(
     .await
     .expect("the config reads");
 
-    let names: Vec<&str> = reading
+    let mut names: Vec<&str> = reading
         .plugin_servers
         .iter()
         .map(|server| server.binding.server_name().as_str())
         .collect();
+    names.sort_unstable();
     assert_eq!(names, listed);
+}
+
+// A plugin's manifest as a test plants it.
+#[derive(Clone, Copy, Debug)]
+enum Manifest {
+    Absent,
+    Text(&'static str),
+    Folder,
 }

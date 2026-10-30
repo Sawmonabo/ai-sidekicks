@@ -7,6 +7,7 @@
 //! once sent.
 
 mod entry;
+mod plugin_manifest;
 mod policy;
 
 pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudeServerEntryReader};
@@ -24,6 +25,7 @@ use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::plugin::PluginToken;
 use sidekicks_platforms::PathRules;
 
+use self::plugin_manifest::read_plugin_manifest_name;
 use self::policy::read_server_policy;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account_credentials::CUSTOM_SIGN_IN_HOST_VARIABLE;
@@ -615,18 +617,13 @@ struct InstalledPluginRoot {
     manifest: Option<Value>,
 }
 
-// A plugin's manifest, by the one member that names the plugin.
-#[derive(Deserialize)]
-struct ClaudePluginManifest {
-    name: String,
-}
-
 // Each plugin `installed_plugins.json` lists in the plugin home, named as Claude Code names it
 // in its servers' `plugin:<name>:<server>`: by its manifest's `name` (`$le`, b:22533235), else,
 // where it has no manifest, by its id's part before the marketplace (`VJ`, b:22522351; `On`,
 // b:9256803), which for a built-in npm marketplace id such as `@team/db.tools@npm` is the scoped
-// package name. A plugin whose manifest Claude Code cannot read, or reads as no JSON naming the
-// plugin, is left out, as `VJ` refuses to load it (b:22523400 to b:22524200).
+// package name. A plugin whose manifest Claude Code cannot read, reads as no JSON or refuses is
+// left out, logged at debug with its file, as `VJ` refuses to load it (b:22523400 to
+// b:22524200); only an absent manifest, or a folder on its path that is a file, reads as none.
 async fn read_installed_plugin_roots(
     plugin_home: &Path,
 ) -> Result<Vec<InstalledPluginRoot>, ClaudeSettingsReadError> {
@@ -647,13 +644,17 @@ async fn read_installed_plugin_roots(
             .join(".claude-plugin")
             .join("plugin.json");
         let manifest = match tokio::fs::read(&manifest_file).await {
-            Ok(bytes) => {
-                let Ok(manifest) = serde_json::from_str::<Value>(&decode_inbound_json(&bytes))
-                else {
+            Ok(bytes) => match serde_json::from_str::<Value>(&decode_inbound_json(&bytes)) {
+                Ok(manifest) => Some(manifest),
+                Err(error) => {
+                    tracing::debug!(
+                        category = ?error.classify(),
+                        file = %manifest_file.display(),
+                        "a plugin is left out: its manifest is not JSON"
+                    );
                     continue;
-                };
-                Some(manifest)
-            }
+                }
+            },
             Err(failure)
                 if matches!(
                     failure.kind(),
@@ -662,18 +663,26 @@ async fn read_installed_plugin_roots(
             {
                 None
             }
-            Err(failure) if failure.kind() == ErrorKind::PermissionDenied => continue,
             Err(failure) => {
-                return Err(ClaudeSettingsReadError {
-                    path: manifest_file,
-                    failure,
-                });
+                tracing::debug!(
+                    error = &failure as &(dyn std::error::Error + 'static),
+                    file = %manifest_file.display(),
+                    "a plugin is left out: its manifest could not be read"
+                );
+                continue;
             }
         };
         let name = match &manifest {
-            Some(manifest) => match ClaudePluginManifest::deserialize(manifest) {
-                Ok(manifest) => manifest.name,
-                Err(_) => continue,
+            Some(manifest) => match read_plugin_manifest_name(manifest) {
+                Ok(name) => name.to_owned(),
+                Err(member) => {
+                    tracing::debug!(
+                        member,
+                        file = %manifest_file.display(),
+                        "a plugin is left out: Claude Code refuses its manifest"
+                    );
+                    continue;
+                }
             },
             None => plugin_id
                 .rsplit_once('@')
