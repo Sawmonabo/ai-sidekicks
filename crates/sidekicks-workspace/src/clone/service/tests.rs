@@ -1,8 +1,9 @@
 //! The clone service's tests, against a real git on temporary folders with the test's own git
 //! config: a clone with a submodule attaches and its key answers a resend and refuses another
-//! request, as does the key of a start answered by the attached project, a failed clone keeps no
-//! credential, the start's recovery removes only the folders the daemon made, wherever the clone
-//! stood, and a rerun waits for the removal of its own project's folder.
+//! request, as does the key of a start answered by the attached project, a relative parent folder
+//! is refused before any write, a failed clone keeps no credential, the start's recovery removes
+//! only the folders the daemon made, wherever the clone stood, and a rerun waits for the removal of
+//! its own project's folder.
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -12,7 +13,9 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::repo::clone::{
@@ -20,6 +23,7 @@ use sidekicks_contracts::repo::clone::{
 };
 use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::stream::feed::Feed as _;
 use sidekicks_ipc::stream::latest_value::LatestValueFeed;
@@ -371,6 +375,37 @@ async fn a_clone_with_a_submodule_attaches_and_its_key_answers_a_resend_and_refu
         ),
         "the attached project is named: {refused:?}"
     );
+    service.close(WAIT).await.expect("the service closes");
+}
+
+// Kills the relative-folder check dropped (the clone starts in a folder completed from the
+// daemon's own), and its refusal answered with another code or with a detail.
+#[tokio::test]
+async fn a_relative_parent_folder_is_refused_as_naming_no_complete_location_and_writes_nothing() {
+    let harness = Harness::new().await;
+    let service = harness.start().await;
+    let request = start_request(
+        "https://example.invalid/app.git",
+        Path::new("projects"),
+        &new_key(),
+    );
+
+    let before = harness.commits();
+    let refused = service
+        .start_clone(request)
+        .await
+        .expect_err("a relative parent folder is refused");
+    let CloneServiceError::Refused(refusal) = refused else {
+        panic!("the start answers a refusal");
+    };
+    let refusal = DomainError::from(refusal);
+    assert_eq!(refusal.code, RefusalCode::RepoMountRootResolutionFailed);
+    assert_eq!(
+        refusal.detail.map(serde_json::Value::Object),
+        Some(json!({ "reason": "notAbsolute" })),
+        "the reason alone, with no detail"
+    );
+    assert_eq!(harness.commits(), before, "nothing is written");
     service.close(WAIT).await.expect("the service closes");
 }
 

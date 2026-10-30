@@ -10,7 +10,6 @@
 
 use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::jsonrpc::issue::{Issue, IssuePathSegment};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::place::{DistributionRefusalDetails, DistroName, WslPlace};
 use sidekicks_contracts::project::ProjectId;
@@ -44,9 +43,10 @@ pub enum RepoRefusal {
         /// The mount asked for.
         repo_mount_id: RepoMountId,
     },
-    /// A path's canonical repository root could not be resolved, or a folder to list could not be
-    /// read (`repoMount.rootResolutionFailed`); only the closed reason and the system's own words
-    /// are kept, so the path tried never enters the refusal.
+    /// A path's canonical repository root could not be resolved, a folder to list could not be
+    /// read, or a folder a clone goes in names no complete location
+    /// (`repoMount.rootResolutionFailed`); only the closed reason and the system's own words are
+    /// kept, so the path tried never enters the refusal.
     #[error("{}", root_resolution_message(*.reason))]
     RootResolutionFailed {
         /// Why.
@@ -159,14 +159,6 @@ pub enum RepoRefusal {
         /// The project the key first answered.
         project_id: ProjectId,
     },
-    /// A folder a clone goes in that names no complete location, refused as the request's own
-    /// params are (`request.paramsInvalid`), its issue at `member_path`: a relative folder would be
-    /// completed from the daemon's own folder.
-    #[error("the params break the method's contract")]
-    RelativeCloneFolder {
-        /// Where the folder sits in the request's params.
-        member_path: Vec<IssuePathSegment>,
-    },
 }
 
 /// Refuses `repoMount.distributionNotFound` for a folder in a WSL distribution, naming its
@@ -180,17 +172,16 @@ pub fn refuse_distribution(place: Option<&WslPlace>) -> Result<(), RepoRefusal> 
     }
 }
 
-/// Refuses as [`RepoRefusal::RelativeCloneFolder`] at `member_path` a clone folder that names no
-/// complete location on this system; one that does passes.
-pub fn refuse_relative_clone_folder(
-    folder: &str,
-    member_path: impl FnOnce() -> Vec<IssuePathSegment>,
-) -> Result<(), RepoRefusal> {
+/// Refuses `repoMount.rootResolutionFailed` with reason `notAbsolute` for a clone folder that
+/// names no complete location on this system, which would be completed from the daemon's own
+/// folder; one that does passes.
+pub fn refuse_relative_clone_folder(folder: &str) -> Result<(), RepoRefusal> {
     if PathRules::NATIVE.names_complete_location(folder) {
         return Ok(());
     }
-    Err(RepoRefusal::RelativeCloneFolder {
-        member_path: member_path(),
+    Err(RepoRefusal::RootResolutionFailed {
+        reason: RepoMountRootResolutionReason::NotAbsolute,
+        detail: None,
     })
 }
 
@@ -274,16 +265,6 @@ impl From<RepoRefusal> for DomainError {
             RepoRefusal::CloneIdempotencyConflict { project_id } => (
                 RefusalCode::ProjectCloneIdempotencyConflict,
                 Some(refusal_fields(json!({ "projectId": project_id }))),
-            ),
-            RepoRefusal::RelativeCloneFolder { member_path } => (
-                RefusalCode::RequestParamsInvalid,
-                Some(refusal_fields(json!({
-                    "issues": [Issue {
-                        path: member_path,
-                        message: "the folder must name one complete location".to_owned(),
-                        params: None,
-                    }],
-                }))),
             ),
         };
         DomainError {

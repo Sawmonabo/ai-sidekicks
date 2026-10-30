@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use sidekicks_contracts::jsonrpc::issue::IssuePathSegment;
 use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use sidekicks_contracts::machine::settings::{
     BranchNamePattern, MachineSettingsChange, MachineSettingsRead, MachineSettingsReading,
@@ -133,17 +132,14 @@ pub(crate) fn register_machine_settings_methods(
 }
 
 // Refuses a clone folder as a clone start refuses its own: one in a WSL distribution, which this
-// daemon reaches none of, or one naming no complete location, its issue at the folder's path; a
-// cleared folder passes.
+// daemon reaches none of, or one naming no complete location, `repoMount.rootResolutionFailed`
+// with reason `notAbsolute`; a cleared folder passes.
 fn refuse_clone_folder(folder: Option<&PlacedPath>) -> Result<(), DomainError> {
     let Some(folder) = folder else {
         return Ok(());
     };
     refuse_distribution(folder.place.as_ref())?;
-    refuse_relative_clone_folder(folder.path.as_str(), || {
-        let member = |name: &str| IssuePathSegment::Member(name.to_owned());
-        vec![member("change"), member("cloneFolder"), member("path")]
-    })?;
+    refuse_relative_clone_folder(folder.path.as_str())?;
     Ok(())
 }
 
@@ -244,15 +240,11 @@ mod tests {
         let Err(DispatchError::Refused(refusal)) = refused else {
             panic!("a relative clone folder is refused");
         };
-        assert_eq!(refusal.code, RefusalCode::RequestParamsInvalid);
+        assert_eq!(refusal.code, RefusalCode::RepoMountRootResolutionFailed);
         assert_eq!(
-            refusal
-                .detail
-                .and_then(|fields| fields.get("issues").cloned()),
-            Some(json!([{
-                "path": ["change", "cloneFolder", "path"],
-                "message": "the folder must name one complete location",
-            }]))
+            refusal.detail.map(serde_json::Value::Object),
+            Some(json!({ "reason": "notAbsolute" })),
+            "the reason alone, with no detail"
         );
         assert_eq!(
             std::fs::read(&file_path).ok(),

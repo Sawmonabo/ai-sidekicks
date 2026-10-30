@@ -743,6 +743,7 @@ methods! {
                 ProjectEnvironmentNameRefused,
                 ProjectBranchPatternRefused,
                 RepoMountDistributionNotFound,
+                RepoMountRootResolutionFailed,
             ],
         },
         /// The first emission is the file as it stands; each written change follows.
