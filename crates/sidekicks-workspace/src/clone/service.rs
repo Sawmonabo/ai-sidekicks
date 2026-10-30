@@ -251,9 +251,9 @@ impl CloneService {
     /// `cloning`, or `request.projectId` run again after a failed or canceled clone. Refuses
     /// `project.clone.idempotencyConflict` for a key on record whose start asked otherwise,
     /// `repoMount.distributionNotFound` for a WSL place, the request's or the folder set for
-    /// clones, `request.paramsInvalid` for a relative parent folder,
-    /// `repoMount.rootResolutionFailed` for a parent folder whose path is not Unicode or cannot be
-    /// read, `project.clone.refused` when the address leaves no folder name or the destination is
+    /// clones, `repoMount.rootResolutionFailed` for a parent folder that names no complete
+    /// location (`notAbsolute`), whose path is not Unicode, or that cannot be read,
+    /// `project.clone.refused` when the address leaves no folder name or the destination is
     /// taken, and `project.notFound` for a project no longer cloning; nothing is written for any
     /// of them.
     pub async fn start_clone(

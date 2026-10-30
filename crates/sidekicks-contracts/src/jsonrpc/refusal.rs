@@ -532,7 +532,8 @@ refusal_codes! {
     RepoMountReattachConflict = "repoMount.reattachConflict" (FailedPrecondition, 409);
     /// `repoMount.reattach` refused, writing nothing.
     RepoMountReattachRefused = "repoMount.reattachRefused" (FailedPrecondition, 409);
-    /// Canonical repository root could not be resolved for the supplied path.
+    /// A path's canonical repository root could not be resolved, or a folder a request named
+    /// (a mount, a clone's parent) names no complete location, does not exist or cannot be read.
     RepoMountRootResolutionFailed = "repoMount.rootResolutionFailed" (InvalidArgument, 422);
     /// A call the client canceled with `$/cancelRequest` before the daemon reached its commit
     /// point.

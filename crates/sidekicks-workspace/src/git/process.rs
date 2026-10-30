@@ -27,6 +27,10 @@ use tokio_util::task::TaskTracker;
 mod entries;
 pub mod environment;
 
+#[cfg(any(test, feature = "test-support"))]
+use environment::find_git_executable;
+use environment::git_environment;
+
 /// The most one stream of a git call may print, sized for the largest: a `-z` listing of a whole
 /// worktree's paths. Passing it fails the call; nothing is cut.
 pub const GIT_OUTPUT_MAX_BYTES: usize = 64 * 1024 * 1024;
@@ -618,7 +622,7 @@ impl GitRunner {
         command
             .args(arguments)
             .env_clear()
-            .envs(environment::git_environment(login_environment, environment))
+            .envs(git_environment(login_environment, environment))
             .stdin(if is_input_written {
                 Stdio::piped()
             } else {
@@ -694,8 +698,7 @@ pub(crate) fn test_git_runner_with_environment(extra: &[(&str, &str)]) -> GitRun
             .iter()
             .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
     );
-    let executable =
-        environment::find_git_executable(&environment).expect("the tests run where git is");
+    let executable = find_git_executable(&environment).expect("the tests run where git is");
     GitRunner::new(
         sidekicks_platforms::Spawner::new(tokio::runtime::Handle::current())
             .expect("the spawner thread starts"),
