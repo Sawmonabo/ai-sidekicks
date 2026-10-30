@@ -64,7 +64,7 @@ struct DeclarationDraft {
 }
 
 /// The bindings, views, per-root provider-loaded sets and loaded servers the `config/read` replies
-/// in `reads` declare, the plugins' servers aside, and the plugins the person's config names.
+/// in `reads` declare, the plugins' servers aside, and the plugins any config layer names.
 pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> CodexMcpConfigReading {
     let provider = DESCRIPTOR.provider_id();
     let mut drafts: Vec<DeclarationDraft> = Vec::new();

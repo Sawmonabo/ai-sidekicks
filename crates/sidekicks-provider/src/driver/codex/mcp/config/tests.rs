@@ -350,14 +350,15 @@ async fn each_layer_binds_its_own_declaration_and_a_higher_entry_supersedes_it()
     );
 }
 
-// A manifest's MCP path that leaves the plugin's folder by a rooted part is refused, as Codex
-// refuses it, and the plugin's own default file read in its place. Killed by joining the rooted
-// part, which reads the file outside the folder.
+// A manifest's MCP path that leaves the plugin's folder is refused, as Codex refuses it, and the
+// plugin's own default file read in its place: one with a rooted part, which joins outside the
+// folder, and one that climbs out. Killed by the joined path's check against the folder dropped
+// (the rooted part reads the file outside) and by the climb's refusal dropped (the climb does).
 #[tokio::test]
 async fn a_plugin_manifest_path_that_leaves_its_folder_is_not_read() {
     let plugin_home = tempfile::tempdir().expect("a scratch folder is made");
-    let outside = tempfile::tempdir().expect("a scratch folder is made");
-    let outside_file = outside.path().join("servers.json");
+    // Five levels above the plugin's folder, `plugins/cache/market/tools/1.0.0`.
+    let outside_file = plugin_home.path().join("servers.json");
     std::fs::write(
         &outside_file,
         json!({"mcpServers": {"outside": {"command": "outside-server"}}}).to_string(),
@@ -365,23 +366,27 @@ async fn a_plugin_manifest_path_that_leaves_its_folder_is_not_read() {
     .expect("the outside file is written");
     let folder = plugin_home.path().join("plugins/cache/market/tools/1.0.0");
     std::fs::create_dir_all(folder.join(".codex-plugin")).expect("the plugin folder is made");
-    std::fs::write(
-        folder.join(".codex-plugin/plugin.json"),
-        json!({"name": "tools", "mcpServers": format!(".//{}", outside_file.display())})
-            .to_string(),
-    )
-    .expect("the manifest is written");
-    let reply = json!({"config": {}, "origins": {}, "layers": [user_layer(&json!({}))]});
+    for manifest_path in [
+        format!(".//{}", outside_file.display()),
+        "./../../../../../servers.json".to_owned(),
+    ] {
+        std::fs::write(
+            folder.join(".codex-plugin/plugin.json"),
+            json!({"name": "tools", "mcpServers": manifest_path}).to_string(),
+        )
+        .expect("the manifest is written");
+        let reply = json!({"config": {}, "origins": {}, "layers": [user_layer(&json!({}))]});
 
-    let reading = read_scripted(&[attached_root()], plugin_home.path(), &[reply]).await;
+        let reading = read_scripted(&[attached_root()], plugin_home.path(), &[reply]).await;
 
-    assert!(
-        !reading
-            .declarations
-            .iter()
-            .any(|declared| declared.binding == plugin_binding("tools", "outside")),
-        "the file outside the plugin's folder was read"
-    );
+        assert!(
+            !reading
+                .declarations
+                .iter()
+                .any(|declared| declared.binding == plugin_binding("tools", "outside")),
+            "{manifest_path}: the file outside the plugin's folder was read"
+        );
+    }
 }
 
 // Killed by listing an MDM server as the person's own, by leaving it out, and by an override in the

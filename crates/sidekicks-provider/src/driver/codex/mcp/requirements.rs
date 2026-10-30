@@ -12,7 +12,7 @@ use std::path::Path;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use regex::Regex;
+use regex_lite::Regex;
 use serde::Deserialize;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
@@ -149,17 +149,27 @@ impl CodexMcpRequirements {
     }
 }
 
-/// Reads Codex's requirements from `requirements.toml` in `managed_settings_folder` and from the
-/// requirements a device-management profile forces, the profile's winning key by key; `None`
-/// where neither sets an allow list of servers. An absent file declares none. Fails with
-/// [`CodexError::MachinePolicyUnreadable`] where the file cannot otherwise be read, where the
-/// profile's value is not base64 of UTF-8 text, and where either is not requirements of the shape
-/// Codex reads, since Codex refuses to start on any of them.
+/// Where Codex's requirements are read from on this computer.
+#[derive(Clone, Copy)]
+pub(crate) struct CodexRequirementsSources<'path> {
+    /// Codex's administrator-managed settings folder, whose `requirements.toml` is read; `None`
+    /// on a system with none.
+    pub(crate) managed_settings_folder: Option<&'path Path>,
+    /// Whether the requirements a device-management profile forces are read too.
+    pub(crate) is_managed_preference_read: bool,
+}
+
+/// Reads Codex's requirements from `requirements.toml` in the sources' managed settings folder
+/// and, where they ask for it, from the requirements a device-management profile forces, the
+/// profile's winning key by key; `None` where neither sets an allow list of servers. An absent
+/// file declares none. Fails with [`CodexError::MachinePolicyUnreadable`] where the file cannot
+/// otherwise be read, where the profile's value is not base64 of UTF-8 text, and where either is
+/// not requirements of the shape Codex reads, since Codex refuses to start on any of them.
 pub(crate) async fn read_codex_mcp_requirements(
-    managed_settings_folder: Option<&Path>,
+    sources: CodexRequirementsSources<'_>,
 ) -> Result<Option<CodexMcpRequirements>, CodexError> {
     let mut layers = Vec::new();
-    if let Some(folder) = managed_settings_folder {
+    if let Some(folder) = sources.managed_settings_folder {
         let path = folder.join(REQUIREMENTS_FILE_NAME);
         match tokio::fs::read_to_string(&path).await {
             Ok(text) => layers.push((path.display().to_string(), text)),
@@ -172,17 +182,10 @@ pub(crate) async fn read_codex_mcp_requirements(
             }
         }
     }
-    let (application_id, key) = MANAGED_PREFERENCE;
-    let source = format!("the managed preference {application_id}:{key}");
-    let forced = read_managed_preference(application_id, key)
-        .map_err(|failure| unreadable(&source, &failure.to_string()))?;
-    if let Some(encoded) = forced {
-        let decoded = STANDARD
-            .decode(encoded.trim())
-            .map_err(|failure| failure.to_string())
-            .and_then(|bytes| String::from_utf8(bytes).map_err(|failure| failure.to_string()))
-            .map_err(|failure| unreadable(&source, &failure))?;
-        layers.push((source, decoded));
+    if sources.is_managed_preference_read
+        && let Some(forced) = read_forced_requirements()?
+    {
+        layers.push(forced);
     }
     let mut merged = toml::Table::new();
     for (source, text) in layers {
@@ -191,6 +194,24 @@ pub(crate) async fn read_codex_mcp_requirements(
         merge_requirements(&mut merged, layer);
     }
     parse_codex_mcp_requirements(merged).map_err(|failure| unreadable("the requirements", &failure))
+}
+
+// The requirements a device-management profile forces, with the source they are named by; `None`
+// where nothing forces them. Fails as the preference cannot be read or is not base64 of UTF-8.
+fn read_forced_requirements() -> Result<Option<(String, String)>, CodexError> {
+    let (application_id, key) = MANAGED_PREFERENCE;
+    let source = format!("the managed preference {application_id}:{key}");
+    let Some(encoded) = read_managed_preference(application_id, key)
+        .map_err(|failure| unreadable(&source, &failure.to_string()))?
+    else {
+        return Ok(None);
+    };
+    let decoded = STANDARD
+        .decode(encoded.trim())
+        .map_err(|failure| failure.to_string())
+        .and_then(|bytes| String::from_utf8(bytes).map_err(|failure| failure.to_string()))
+        .map_err(|failure| unreadable(&source, &failure))?;
+    Ok(Some((source, decoded)))
 }
 
 // The machine policy's failure at `source`.

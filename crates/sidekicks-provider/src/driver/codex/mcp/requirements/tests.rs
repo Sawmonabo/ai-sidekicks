@@ -1,10 +1,15 @@
+use std::path::Path;
+
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::plugin::PluginToken;
 
-use super::{merge_requirements, parse_codex_mcp_requirements, read_codex_mcp_requirements};
+use super::{
+    CodexRequirementsSources, merge_requirements, parse_codex_mcp_requirements,
+    read_codex_mcp_requirements,
+};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::mcp::config::CodexMcpConfigReading;
 use crate::driver::codex::mcp::config::server_entry::CodexServerTransport;
@@ -174,7 +179,7 @@ url = "https://mcp.example.com/v1"
         vec![user("docs"), user("notes")],
     );
 
-    read_codex_mcp_requirements(Some(folder.path()))
+    read_codex_mcp_requirements(file_only(folder.path()))
         .await
         .expect("the requirements are read")
         .expect("the file sets an allow list")
@@ -358,8 +363,10 @@ url = "https://new.example.com/"
 
 // Requirements Codex cannot read stop the read as they stop Codex, which checks each pattern as it
 // loads the file: a file that is not TOML, an entry of another shape, a pattern that does not
-// compile, and one that compiles only inside the anchors. Killed by any of them read as no
-// requirements, and by the pattern checked only in its anchored form.
+// compile, one that compiles only inside the anchors, one only a full regular expression engine
+// compiles, and a file that cannot be read, here a folder in its place. Killed by any of them read
+// as no requirements, by the pattern checked only in its anchored form, by a pattern compiled with
+// another engine than Codex's, and by a read error other than an absent file passed over.
 #[tokio::test]
 async fn unreadable_requirements_fail_the_read() {
     for text in [
@@ -367,16 +374,35 @@ async fn unreadable_requirements_fail_the_read() {
         "[mcp_servers.docs]\nidentity = 3\n",
         "[mcp_servers.docs.identity]\nurl = { match = \"regex\", expression = \"(\" }\n",
         "[mcp_servers.docs.identity]\nurl = { match = \"regex\", expression = \"a)|(b\" }\n",
+        "[mcp_servers.docs.identity]\nurl = { match = \"regex\", expression = \"\\\\p{L}+\" }\n",
     ] {
         let folder = tempfile::tempdir().expect("a scratch folder is made");
         std::fs::write(folder.path().join("requirements.toml"), text)
             .expect("the requirements are written");
 
-        let read = read_codex_mcp_requirements(Some(folder.path())).await;
+        let read = read_codex_mcp_requirements(file_only(folder.path())).await;
 
         assert!(
             matches!(read, Err(CodexError::MachinePolicyUnreadable { .. })),
             "{text:?} is read as requirements"
         );
+    }
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    std::fs::create_dir(folder.path().join("requirements.toml"))
+        .expect("a folder takes the file's place");
+
+    let read = read_codex_mcp_requirements(file_only(folder.path())).await;
+
+    assert!(
+        matches!(read, Err(CodexError::MachinePolicyUnreadable { .. })),
+        "a requirements file that cannot be read is read as none"
+    );
+}
+
+// The requirements of `folder`'s file alone, the host's managed preference left unread.
+fn file_only(folder: &Path) -> CodexRequirementsSources<'_> {
+    CodexRequirementsSources {
+        managed_settings_folder: Some(folder),
+        is_managed_preference_read: false,
     }
 }

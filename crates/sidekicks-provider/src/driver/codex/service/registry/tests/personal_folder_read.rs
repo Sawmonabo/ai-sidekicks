@@ -1,9 +1,13 @@
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use rstest::rstest;
+use serde_json::json;
 use tempfile::TempDir;
 
+use crate::driver::codex::mcp::read_codex_mcp_servers;
+use crate::driver::codex::mcp::requirements::CodexRequirementsSources;
 use crate::driver::codex::service::command_line::{
     CodexServiceCommandLineInput, compose_codex_service_arguments,
 };
@@ -17,6 +21,7 @@ use crate::driver::codex::service::supervisor::{
     CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
+use crate::driver::mcp_server::read::{McpProbeScope, McpServersReadRequest};
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The switch every service the daemon starts carries.
@@ -25,6 +30,9 @@ const SHARED_UNLOAD: &str = "thread_unload_delay_secs=5";
 /// The switch the probe's own service carries after it.
 const IMMEDIATE_UNLOAD: &str = "thread_unload_delay_secs=0";
 
+/// How long a read the test expects to settle runs before the test fails instead of hanging.
+const READ_WAIT: Duration = Duration::from_secs(10);
+
 /// A registry whose person's own folder holds a service of `kind` on a scripted connection, with
 /// their shared dependencies; the folder and script live as long as the value.
 struct FolderHolding {
@@ -32,7 +40,7 @@ struct FolderHolding {
     on_folder: Arc<CodexService>,
     dependencies: Arc<CodexServiceDependencies>,
     folder: TempDir,
-    _script: ScriptedService,
+    script: ScriptedService,
 }
 
 // The person's own folder holding a scripted service of `kind`. Must be called within a runtime.
@@ -68,7 +76,7 @@ fn hold_folder(kind: CodexServiceKind) -> FolderHolding {
         on_folder,
         dependencies,
         folder,
-        _script: script,
+        script,
     }
 }
 
@@ -182,4 +190,60 @@ async fn the_probe_gets_a_service_of_its_own_only_off_the_terminal_service(
             "the probe's service took the folder"
         );
     }
+}
+
+// A refresh's read that finds no server to probe reads the config on the joined service there and
+// takes no service of its own. Killed by the read taking a probe's service before it knows its
+// targets, and by a probe taken with no target: either starts a transient service, whose start
+// fails here since the test's program does not exist.
+#[tokio::test]
+async fn a_probing_read_with_no_target_takes_no_service_of_its_own() {
+    let mut holding = hold_folder(CodexServiceKind::Joined);
+    let request = McpServersReadRequest {
+        attached_roots: Vec::new(),
+        provider_account_ids: Vec::new(),
+        is_refresh: true,
+        probe: McpProbeScope::EveryBinding,
+        emulated_local_bindings: Vec::new(),
+    };
+    // The scratch folder holds no requirements, and the host's own Codex policy is never read.
+    let requirements = CodexRequirementsSources {
+        managed_settings_folder: Some(holding.folder.path()),
+        is_managed_preference_read: false,
+    };
+    let script = &mut holding.script;
+    let answering = async {
+        let config_read = script.next_sent().await;
+        assert_eq!(config_read["method"], "config/read", "{config_read}");
+        script.answer(
+            &config_read,
+            &json!({"config": {}, "origins": {}, "layers": []}),
+        );
+    };
+
+    let (reading, ()) = tokio::time::timeout(READ_WAIT, async {
+        tokio::join!(
+            read_codex_mcp_servers(
+                &holding.registry,
+                holding.folder.path(),
+                requirements,
+                &request
+            ),
+            answering
+        )
+    })
+    .await
+    .expect("the read settles");
+
+    let reading = reading.expect("the config read answers on the joined service");
+    assert_eq!(reading.probe_readings, Vec::new());
+    assert!(
+        holding.registry.lock().transient.is_empty(),
+        "the read took a service of its own"
+    );
+    let registered = holding.registry.services();
+    assert!(
+        registered.len() == 1 && Arc::ptr_eq(&registered[0], &holding.on_folder),
+        "the read took the folder"
+    );
 }
