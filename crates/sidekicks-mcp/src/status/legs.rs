@@ -390,9 +390,10 @@ impl McpLegs {
         }
     }
 
-    /// `key`'s status, the legs in its aggregate and its server's newest tool names: the newest
-    /// list a live leg in the aggregate reported, else the probe's; `unknown` with no leg and no
-    /// tools for a binding nothing reports.
+    /// `key`'s status, the legs in its aggregate, its server's newest tool names (the newest list a
+    /// live leg in the aggregate reported, else the probe's) and the probe's failure text where
+    /// its reading decides a `failed` status; `unknown` with no leg and no tools for a binding
+    /// nothing reports.
     pub(super) fn reading(&self, key: &McpBindingKey) -> McpBindingStatusReading {
         let Some(binding_status) = self.bindings.get(key) else {
             return McpBindingStatusReading {
@@ -400,6 +401,7 @@ impl McpLegs {
                 legs: Vec::new(),
                 observed_at: None,
                 tool_names: Vec::new(),
+                probe_failure_text: None,
             };
         };
         let fold = fold(&self.legs, key, binding_status);
@@ -408,7 +410,7 @@ impl McpLegs {
             .filter_map(|(_, server, _)| server.tool_names.as_ref())
             .max_by(|one, other| one.observed_at.as_str().cmp(other.observed_at.as_str()))
             .map(|reading| reading.names.clone());
-        let legs = live_servers(&self.legs, key, binding_status)
+        let legs: Vec<McpServerLegStatus> = live_servers(&self.legs, key, binding_status)
             .map(|(leg_id, server, status)| McpServerLegStatus {
                 session_id: leg_id.session_id,
                 binding_id: leg_id.binding_id.clone(),
@@ -417,8 +419,13 @@ impl McpLegs {
                 failed_reason: None,
             })
             .collect();
+        // With no live leg in the aggregate the probe's reading is the one that decides.
+        let probe_failure_text = (legs.is_empty() && fold.status == McpServerStatus::Failed)
+            .then_some(fold.failure_text)
+            .flatten();
         McpBindingStatusReading {
             status: fold.status,
+            probe_failure_text,
             legs,
             observed_at: fold.observed_at,
             tool_names: leg_tool_names

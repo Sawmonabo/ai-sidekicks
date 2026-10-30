@@ -24,7 +24,7 @@ use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::wire::text::TextError;
-use sidekicks_ipc::redaction::sanitize_failure_chain;
+use sidekicks_ipc::redaction::{sanitize_failure_chain, sanitize_failure_reason};
 use sidekicks_provider::account_homes::{AccountHome, AccountHomesReadError, read_account_homes};
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
@@ -500,6 +500,9 @@ impl McpInventoryService {
         let status = status_reading.status;
         let legs = (!status_reading.legs.is_empty()).then_some(status_reading.legs);
         let observed_at = status_reading.observed_at;
+        let probe_failure_text = status_reading.probe_failure_text.and_then(|text| {
+            FreeFormText::new(sanitize_failure_reason(&text, ERROR_MESSAGE_MAX_LEN)).ok()
+        });
         let superseded_in = unique_places(declaration.superseded_in);
         let organization_managed = declaration.organization_managed;
         let provider_enabled = config_enabled(&config);
@@ -522,6 +525,7 @@ impl McpInventoryService {
                     status,
                     legs,
                     observed_at,
+                    probe_failure_text,
                     superseded_in,
                     disabled_in,
                     organization_managed,
@@ -562,6 +566,7 @@ impl McpInventoryService {
                 status,
                 legs,
                 observed_at,
+                probe_failure_text,
                 superseded_in,
                 disabled_in,
                 organization_managed,

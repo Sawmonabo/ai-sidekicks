@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use strum::{IntoStaticStr, VariantArray};
 
+use crate::error::ERROR_MESSAGE_MAX_LEN;
 use crate::mcp::server::config::McpServerConfigView;
 use crate::mcp::server::{
     McpApprovalMode, McpServerBindingId, McpServerStatus, McpToolName, binding_addressed,
@@ -16,6 +17,7 @@ use crate::schema::{push_all_of, required_member};
 use crate::session::id::SessionId;
 use crate::wire::instant::WireInstant;
 use crate::wire::list::{ListKey, UniqueList};
+use crate::wire::text::FreeFormText;
 use crate::wire::{Never, True, literal};
 
 /// One live session's observation of one binding, kept per session because two sessions'
@@ -337,6 +339,17 @@ macro_rules! inventory_entry {
                 #[schemars(with = "WireInstant")]
                 #[garde(dive)]
                 observed_at: Option<WireInstant>,
+                /// Why the machine probe last read the server failed, in the provider's words or
+                /// the daemon's line where the provider gave none: present only while the probe's
+                /// reading decides a `failed` status, with no credential, address query or file
+                /// path in it.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "FreeFormText<ERROR_MESSAGE_MAX_LEN>")]
+                probe_failure_text: Option<FreeFormText<ERROR_MESSAGE_MAX_LEN>>,
                 /// Where another declaration of this provider takes this one's place, by the
                 /// provider's order: a project root, with the distribution it is in, where a
                 /// project's `local` binding wins over its `project` one, either over the `user`

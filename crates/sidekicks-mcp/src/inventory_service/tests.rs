@@ -20,6 +20,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::driver::mcp_server::read::{
@@ -705,4 +706,51 @@ async fn a_provider_whose_stored_account_id_is_no_id_is_named_beside_the_others_
     assert_eq!(failure.provider, failed_provider);
     let cause = failure.cause.as_str();
     assert!(cause.contains("is not an account id"), "{cause}");
+}
+
+/// A plain list after a refresh whose probe read the server `failed` carries the probe's failure
+/// text beside the status, so a page opened after the refresh says why. Killed by the text left
+/// out of the entry.
+#[tokio::test]
+async fn a_plain_list_after_a_failed_probe_carries_its_failure_text() {
+    const REFUSAL: &str =
+        "Plugin db-tools has an invalid manifest: an LSP server lacks its language map";
+    let inventory = open_inventory(Box::new(|provider, request| {
+        let mut reading = reading_of(&provider, &request);
+        for probe_reading in &mut reading.probe_readings {
+            probe_reading.reading = McpServerReading::Observed(McpServerStatus::Failed);
+            probe_reading.failure_text = Some(REFUSAL.to_owned());
+            probe_reading.tool_names.clear();
+        }
+        ready(Ok(reading)).boxed()
+    }))
+    .await;
+    inventory
+        .service
+        .list(&REFRESH)
+        .await
+        .expect("the inventory lists on a refresh");
+
+    let listed = inventory
+        .service
+        .list(&PLAIN_LIST)
+        .await
+        .expect("the inventory lists")
+        .servers;
+
+    let [
+        McpServerInventoryEntry::Answered(McpAnsweredInventoryEntry::User {
+            status,
+            probe_failure_text,
+            ..
+        }),
+    ] = listed.as_slice()
+    else {
+        panic!("the user binding's answered entry: {listed:?}");
+    };
+    assert_eq!(*status, McpServerStatus::Failed);
+    assert_eq!(
+        probe_failure_text.as_ref().map(FreeFormText::as_str),
+        Some(REFUSAL)
+    );
 }
