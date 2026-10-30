@@ -258,8 +258,8 @@ mod tests {
         );
     }
     // An organization server the account's process reports past `pending` reads as its row
-    // reports it, with its tools, and starts no probe, though its entry fetches its headers and
-    // could not be sent whole. Killed by the row's reading left unused, which reads `unknown`
+    // reports it, with its tools, and starts no probe, though its entry signs in itself and could
+    // not be sent whole. Killed by the row's reading left unused, which reads `unknown`
     // unsent.
     #[tokio::test]
     async fn an_organization_server_its_account_reports_reads_as_its_row() {
@@ -269,16 +269,16 @@ mod tests {
             .expect("the home folder is made");
         fixture.starts.script_account_servers(
             json!({ "mcpServers": [{
-                "name": "org-helper",
+                "name": "org-signed",
                 "status": "connected",
                 "scope": "managed",
-                "config": { "type": "http", "url": "https://org-helper.example.com" },
+                "config": { "type": "http", "url": "https://org-signed.example.com" },
                 "tools": [{ "name": "search" }]
             }] }),
-            json!({ "effective": { "managedMcpServers": { "org-helper": {
+            json!({ "effective": { "managedMcpServers": { "org-signed": {
                 "type": "http",
-                "url": "https://org-helper.example.com/mcp",
-                "headersHelper": "./print-headers.sh"
+                "url": "https://org-signed.example.com/mcp",
+                "oauth": { "clientId": "client" }
             } } } }),
         );
 

@@ -386,9 +386,9 @@ fn compose_sent_entry(
     }
 }
 
-// A declared entry as `mcp_set_servers` takes it; `None` for an entry of another shape, a
-// transport the set has no form for, or one that fetches its headers or signs in itself.
-fn compose_tool_server_entry(entry: Value) -> Option<ClaudeToolServerEntry> {
+/// A declared entry as `mcp_set_servers` takes it, values included; `None` for an entry of another
+/// shape, a transport the set has no form for, or one that fetches its headers or signs in itself.
+pub(crate) fn compose_tool_server_entry(entry: Value) -> Option<ClaudeToolServerEntry> {
     let declared: ClaudeDeclaredServer = serde_json::from_value(entry).ok()?;
     if declared.headers_helper.is_some() || declared.oauth.is_some() {
         return None;

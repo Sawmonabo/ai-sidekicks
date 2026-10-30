@@ -287,11 +287,11 @@ async fn a_sent_entry_carries_its_variables_filled_and_no_credential_reaches_a_r
 
 // An entry that fetches its headers from a program or signs in itself is not sent, since the set
 // cannot carry either, nor one over a WebSocket, which the set has no form for, and each reads
-// `unknown`, an organization's `managedMcpServers` entry as the person's own, while an
-// organization's program entry is sent whole. Killed by either sent cut down, the organization's
-// included, by an organization entry left out of the set read nothing, by a WebSocket entry sent
-// or read otherwise, and by the organization's program left unsent or sent without its
-// environment.
+// `unknown`, an organization's `managedMcpServers` entry that signs in as the person's own, while
+// the organization's other entries are sent whole. Killed by either sent cut down, the
+// organization's included, by an organization entry left out of the set read nothing, by a
+// WebSocket entry sent or read otherwise, and by an organization entry left unsent or sent
+// without its headers.
 #[tokio::test]
 async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
     let home = home_declaring(&json!({
@@ -314,28 +314,25 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
         "mcp_status",
         ScriptedAnswer::Reply(json!({"mcpServers": [
             {"name": "plain", "status": "connected"},
-            {"name": "org-program", "status": "connected"}
+            {"name": "org-remote", "status": "connected"},
+            {"name": "org-events", "status": "connected"}
         ]})),
     );
     starts.script_mcp_probe(Arc::clone(&channel));
     let organization = read_claude_organization_servers(
         &[],
         Some(&json!({ "managedMcpServers": {
-            "org-helper": {
+            "org-remote": {
                 "type": "http",
-                "url": "https://org-helper.example.com/mcp",
-                "headersHelper": "./print-headers.sh"
+                "url": "https://org-remote.example.com/mcp?key=org-secret",
+                "headers": { "Authorization": "Bearer org-token" }
             },
             "org-signed": {
                 "type": "sse",
                 "url": "https://org-signed.example.com/sse",
                 "oauth": { "clientId": "client" }
             },
-            "org-program": {
-                "command": "org-server",
-                "args": ["--stdio"],
-                "env": { "ORG_TOKEN": "org-secret" }
-            }
+            "org-events": { "type": "sse", "url": "https://org-events.example.com/sse" }
         } })),
     );
     let mut targets = vec![
@@ -365,20 +362,23 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
     let sent = &channel.control_requests()[0]["servers"];
     assert_eq!(
         sent.as_object().map(serde_json::Map::len),
-        Some(2),
+        Some(3),
         "{sent}"
     );
     assert!(sent.get("plain").is_some(), "{sent}");
     assert_eq!(
-        sent["org-program"],
+        sent["org-remote"],
         json!({
-            "type": "stdio",
-            "command": "org-server",
-            "args": ["--stdio"],
-            "env": { "ORG_TOKEN": "org-secret" }
+            "type": "http",
+            "url": "https://org-remote.example.com/mcp?key=org-secret",
+            "headers": { "Authorization": "Bearer org-token" }
         })
     );
-    for name in ["helper", "signed", "socket", "org-helper", "org-signed"] {
+    assert_eq!(
+        sent["org-events"],
+        json!({ "type": "sse", "url": "https://org-events.example.com/sse" })
+    );
+    for name in ["helper", "signed", "socket", "org-signed"] {
         let reading = readings
             .iter()
             .find(|reading| reading.binding.server_name().as_str() == name)
