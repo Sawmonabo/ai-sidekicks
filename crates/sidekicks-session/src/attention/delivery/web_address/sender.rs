@@ -16,8 +16,8 @@
 //!   from the settings file again before each attempt, and once more at each announced change while
 //!   it is in flight, a read that fails there leaving the attempt to run. The address and the
 //!   signing secret are read under the secrets' lock; a locked or unavailable keychain, or an
-//!   address saved with a signing secret missing or unreadable, is a `storeUnavailable` try with
-//!   its cause. Any 2xx is delivered; any other ending is a failed try, retried 5 s, 5 min and
+//!   address saved with a signing secret missing or damaged, is a `storeUnavailable` try with its
+//!   cause. Any 2xx is delivered; any other ending is a failed try, retried 5 s, 5 min and
 //!   30 min after it ended, the fourth giving up and counting as undelivered. Every write that
 //!   settles a delivery or counts a try raises the counts, and the sender skips the wake its own
 //!   write causes.
@@ -649,7 +649,7 @@ impl InstantJob for WebAddressSender {
 }
 
 // How a post ended. An attempt that could not be made: a signing secret that does not read is a
-// missing one, and a client that does not build reaches nothing.
+// damaged one, and a client that does not build reaches nothing.
 fn end_of_post(posted: Result<PostOutcome, PostError>) -> TryEnd {
     match posted {
         Ok(outcome) => TryEnd {
@@ -664,7 +664,7 @@ fn end_of_post(posted: Result<PostOutcome, PostError>) -> TryEnd {
             let (result, cause) = match error {
                 PostError::SigningSecret(_) => (
                     AttentionDeliveryResult::StoreUnavailable,
-                    Some(AttentionDeliveryStoreUnavailableCause::SecretMissing),
+                    Some(AttentionDeliveryStoreUnavailableCause::SecretDamaged),
                 ),
                 PostError::Client(_) => (AttentionDeliveryResult::Unreachable, None),
             };

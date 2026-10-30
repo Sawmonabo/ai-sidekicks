@@ -792,14 +792,16 @@ enum SigningSecret {
 }
 
 // An address saved with no signing secret it can sign with sends nothing, and each try is a
-// `storeUnavailable` one, counted. Mutations: a missing secret read as no address saved, its
-// message dropped uncounted; a secret that does not read answered as anything but the keychain's.
+// `storeUnavailable` one, counted, naming whether the secret is missing or damaged. Mutations: a
+// missing secret read as no address saved, its message dropped uncounted; a secret that does not
+// read answered as anything but the keychain's, or as a missing one.
 #[rstest]
-#[case::missing(SigningSecret::Missing)]
-#[case::unreadable(SigningSecret::Unreadable)]
+#[case::missing(SigningSecret::Missing, "secretMissing")]
+#[case::unreadable(SigningSecret::Unreadable, "secretDamaged")]
 #[tokio::test]
 async fn an_address_with_no_usable_signing_secret_tries_as_store_unavailable(
     #[case] signing_secret: SigningSecret,
+    #[case] cause: &str,
 ) {
     let (port, received) = serve_answers(vec![Answer::Status(StatusCode::OK)]).await;
     let mut fixture = Fixture::new(port).await;
@@ -825,13 +827,8 @@ async fn an_address_with_no_usable_signing_secret_tries_as_store_unavailable(
     fixture.until_delivery(&entry, "pending", 1).await;
     assert_eq!(
         fixture.outcome(),
-        Some(result_row(
-            "storeUnavailable",
-            Some("secretMissing"),
-            None,
-            0
-        )),
-        "the try names the missing secret as its cause"
+        Some(result_row("storeUnavailable", Some(cause), None, 0)),
+        "the try names what became of the secret as its cause"
     );
     assert_eq!(requests(&received), 0, "nothing is sent");
     fixture.stop().await;
