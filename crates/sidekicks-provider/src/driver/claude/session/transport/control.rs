@@ -42,11 +42,6 @@ pub(crate) enum ClaudeControlRequest {
         /// a re-send.
         #[serde(rename = "sdkMcpServers", skip_serializing_if = "Option::is_none")]
         sdk_mcp_servers: Option<Vec<String>>,
-        /// The plugin folders the process was started with, listed so the reply's
-        /// `plugins_applied` says whether each loaded at launch; the list itself loads nothing.
-        /// Absent where the process loads no plugin.
-        #[serde(skip_serializing_if = "Option::is_none")]
-        plugins: Option<Vec<ClaudeInitializePlugin>>,
     },
     /// Stops the running turn; with `cancel_queued` it also drops what is queued behind it.
     Interrupt {
@@ -164,7 +159,6 @@ impl ClaudeControlRequest {
                 supported_dialog_kinds: None,
                 per_task_stop_affordance: None,
                 sdk_mcp_servers: None,
-                plugins: None,
             })
         } else if probe_name == ClaudeControlSubtype::NegativeControl.as_str() {
             Some(Self::NegativeControl {})
@@ -342,24 +336,6 @@ pub(crate) struct ClaudeAgentDefinition {
     /// The most turns the helper takes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) max_turns: Option<u64>,
-}
-
-/// One plugin folder an `initialize` lists, as Claude Code's `plugins` member takes it.
-#[derive(Clone, Debug, Serialize)]
-pub(crate) struct ClaudeInitializePlugin {
-    /// Always `local`, the one kind Claude Code takes.
-    #[serde(rename = "type")]
-    pub(crate) kind: ClaudeInitializePluginKind,
-    /// The plugin's folder.
-    pub(crate) path: String,
-}
-
-/// The kinds of plugin an `initialize` lists.
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum ClaudeInitializePluginKind {
-    /// A plugin in a folder on this machine.
-    Local,
 }
 
 /// A tool server `mcp_set_servers` installs: a server the person declared, sent with its values,

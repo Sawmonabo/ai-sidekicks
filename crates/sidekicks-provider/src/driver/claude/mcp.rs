@@ -164,6 +164,7 @@ pub(crate) async fn read_claude_mcp_servers(
                 provider_account_id: account.provider_account_id.clone(),
                 has_managed_mcp_file,
                 person: &person,
+                plugin_home: &plugin_home,
                 plugin_roots: &reading.plugin_roots,
                 attached_roots: &request.attached_roots,
                 organization_entries: &account.organization_entries,

@@ -16,7 +16,7 @@ use url::{Position, Url};
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::mcp::config::{ClaudeMcpEndpoint, ClaudeMcpServer};
-use crate::driver::claude::mcp::machine_probe::compose_tool_server_entry;
+use crate::driver::claude::mcp::machine_probe::sent_entry::compose_tool_server_entry;
 use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
 use crate::driver::claude::session::transport::mcp_status::ClaudeMcpServerStatusRow;
 use crate::driver::mcp_server::address::{

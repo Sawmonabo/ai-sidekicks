@@ -124,8 +124,8 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
     ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>>;
 
     /// Starts the MCP server probe's process as `request` names and sends its `initialize`,
-    /// listing the request's plugin folders, handing back the process with the reply and what it
-    /// writes. Fails as the start or `initialize` does, the process then closed.
+    /// handing back the process with what it writes. Fails as the start or `initialize` does, the
+    /// process then closed.
     fn start_mcp_probe(
         &self,
         request: ClaudeMcpProbeProcessRequest,
@@ -316,10 +316,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
             )
             .await?;
             let read = async {
-                short
-                    .initialize(&[])
-                    .await
-                    .map_err(ClaudeLaunchError::from)?;
+                short.initialize().await.map_err(ClaudeLaunchError::from)?;
                 let process = Arc::clone(&short.process);
                 let version = read_spawned_version(
                     &request,
@@ -361,7 +358,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                 Some(request.provider_account_id),
             )
             .await?;
-            if let Err(error) = short.initialize(&[]).await {
+            if let Err(error) = short.initialize().await {
                 short.close().await;
                 return Err(error.into());
             }
@@ -390,17 +387,13 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                 Some(request.provider_account_id),
             )
             .await?;
-            let initialize = match short.initialize(&request.plugin_folders).await {
-                Ok(initialize) => initialize,
-                Err(error) => {
-                    short.close().await;
-                    return Err(error.into());
-                }
-            };
+            if let Err(error) = short.initialize().await {
+                short.close().await;
+                return Err(error.into());
+            }
             let ClaudeShortProcess { process, arrivals } = short;
             Ok(ClaudeMcpProbeProcess {
                 channel: process,
-                initialize,
                 arrivals: arrivals.into_inner(),
             })
         }

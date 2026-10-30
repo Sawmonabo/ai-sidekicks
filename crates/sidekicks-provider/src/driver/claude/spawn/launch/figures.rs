@@ -61,7 +61,7 @@ pub(crate) async fn read_claude_creation_figures(
     )
     .await?;
     let read = async {
-        let initialize = short.initialize(&[]).await?;
+        let initialize = short.initialize().await?;
         let listed = read_claude_listed_commands(initialize.as_deref());
         // One at a time: each command is answered by its own `result`.
         let output_style = print_local_command(&short, "output-style", &listed).await?;
@@ -105,7 +105,7 @@ pub(crate) async fn read_claude_reply_reserve(
     )
     .await?;
     let read = async {
-        short.initialize(&[]).await?;
+        short.initialize().await?;
         read_reply_reserve(&short).await
     }
     .await;

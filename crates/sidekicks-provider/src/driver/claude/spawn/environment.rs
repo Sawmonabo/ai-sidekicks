@@ -32,8 +32,8 @@ pub(crate) const CLAUDE_PROVIDER_SWITCH_VARIABLES: [&str; 6] = [
     "CLAUDE_CODE_USE_VERTEX",
 ];
 
-/// The switch that sends Claude Code's requests through an organization's gateway at
-/// `ANTHROPIC_BASE_URL`, which `Ae` reads ahead of the provider switches (`Su`, b:12043582).
+/// The switch `Su` reads, with `ANTHROPIC_BASE_URL` and a token, to make Claude Code's provider
+/// the gateway (b:12043582).
 pub(crate) const CLAUDE_GATEWAY_SWITCH_VARIABLE: &str = "CLAUDE_CODE_USE_GATEWAY";
 
 /// The folders of an account the daemon manages, which Claude Code reads through

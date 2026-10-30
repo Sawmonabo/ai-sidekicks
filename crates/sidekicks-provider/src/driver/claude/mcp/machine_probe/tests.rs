@@ -75,6 +75,7 @@ async fn probe(
             provider_account_id: test_provider_account_id(),
             has_managed_mcp_file,
             person: &ClaudePersonConfigFiles::resolve(&[], home).await,
+            plugin_home: home,
             plugin_roots: &[],
             attached_roots: &[],
             organization_entries,
@@ -104,7 +105,7 @@ async fn the_probe_is_strict_only_where_no_managed_mcp_file_is_deployed(
             json!({ "mcpServers": [{ "name": "notes", "status": "connected" }] }),
         ),
     );
-    starts.script_mcp_probe(Arc::clone(&channel), json!({}), Vec::new());
+    starts.script_mcp_probe(Arc::clone(&channel), Vec::new());
 
     let readings = probe(
         &starts,
@@ -159,7 +160,7 @@ async fn a_set_error_reads_failed_with_its_credentials_scrubbed() {
             }
         })),
     );
-    starts.script_mcp_probe(Arc::clone(&channel), json!({}), Vec::new());
+    starts.script_mcp_probe(Arc::clone(&channel), Vec::new());
 
     let readings = probe(
         &starts,
@@ -240,7 +241,7 @@ async fn a_sent_entry_carries_its_variables_filled_and_no_credential_reaches_a_r
             {"name": "builder", "status": "connected"}
         ]})),
     );
-    starts.script_mcp_probe(Arc::clone(&channel), json!({}), Vec::new());
+    starts.script_mcp_probe(Arc::clone(&channel), Vec::new());
     let environment = [
         ("TRACKER_HOST", "mcp.example.com"),
         ("TRACKER_TOKEN", "variable-token"),
@@ -317,7 +318,7 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
             {"name": "org-events", "status": "connected"}
         ]})),
     );
-    starts.script_mcp_probe(Arc::clone(&channel), json!({}), Vec::new());
+    starts.script_mcp_probe(Arc::clone(&channel), Vec::new());
     let organization = read_claude_organization_servers(
         &[],
         Some(&json!({ "managedMcpServers": {
@@ -455,7 +456,7 @@ async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
         "mcp_status",
         ScriptedAnswer::Reply(json!({"mcpServers": [{"name": "pending", "status": "connected"}]})),
     );
-    starts.script_mcp_probe(Arc::clone(&channel), json!({}), Vec::new());
+    starts.script_mcp_probe(Arc::clone(&channel), Vec::new());
 
     let probed = probe_claude_mcp_servers(
         &ClaudeMcpProbeSources {
@@ -464,6 +465,7 @@ async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
             provider_account_id: test_provider_account_id(),
             has_managed_mcp_file: false,
             person: &person,
+            plugin_home: &plugin_home,
             plugin_roots: &[],
             attached_roots: std::slice::from_ref(&root),
             organization_entries: &BTreeMap::new(),
@@ -502,25 +504,41 @@ async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
     );
 }
 
-// A server still `pending` when the ceiling passes reads `starting`, the ceiling being Claude
-// Code's startup timeout (`MCP_TIMEOUT`, 30 s unset) plus 5 s, with `mcp_status` asked once a
-// second until then. Killed by waiting past the ceiling and by a fixed ceiling.
+// A sent server still `pending` when the ceiling passes reads `starting`, and one no answer
+// names by then reads `failed` as unreported, the ceiling being Claude Code's startup timeout
+// (`MCP_TIMEOUT`, 30 s unset) plus 5 s, with `mcp_status` asked once a second until then. Killed
+// by waiting past the ceiling, by a fixed ceiling, and by an unreported server read `starting`.
 #[rstest]
-#[case::unset(None, 35)]
-#[case::two_seconds(Some("2000"), 7)]
+#[case::unset(None, 35, true, McpServerStatus::Starting, None)]
+#[case::two_seconds(Some("2000"), 7, true, McpServerStatus::Starting, None)]
+#[case::never_reported(
+    None,
+    35,
+    false,
+    McpServerStatus::Failed,
+    Some("Claude Code did not report the server.")
+)]
 #[tokio::test(start_paused = true)]
-async fn a_server_pending_at_the_ceiling_reads_starting(
+async fn a_sent_server_unsettled_at_the_ceiling_reads_starting_or_unreported(
     #[case] mcp_timeout: Option<&str>,
     #[case] ceiling_seconds: u64,
+    #[case] is_listed: bool,
+    #[case] status: McpServerStatus,
+    #[case] failure_text: Option<&str>,
 ) {
     let home = home_declaring(&json!({ "notes": { "command": "notes-server" } }));
     let starts = ScriptedStarts::default();
     let channel = Arc::new(ScriptedChannel::default());
+    let rows = if is_listed {
+        json!([{ "name": "notes", "status": "pending" }])
+    } else {
+        json!([])
+    };
     channel.answer(
         "mcp_status",
-        ScriptedAnswer::Reply(json!({ "mcpServers": [{ "name": "notes", "status": "pending" }] })),
+        ScriptedAnswer::Reply(json!({ "mcpServers": rows })),
     );
-    starts.script_mcp_probe(Arc::clone(&channel), json!({}), Vec::new());
+    starts.script_mcp_probe(Arc::clone(&channel), Vec::new());
     let environment = mcp_timeout
         .map(|timeout| vec![("MCP_TIMEOUT".to_owned(), timeout.to_owned())])
         .unwrap_or_default();
@@ -547,10 +565,8 @@ async fn a_server_pending_at_the_ceiling_reads_starting(
         u64::try_from(status_reads).expect("a small count"),
         ceiling_seconds + 1
     );
-    assert_eq!(
-        readings[0].reading,
-        McpServerReading::Observed(McpServerStatus::Starting)
-    );
+    assert_eq!(readings[0].reading, McpServerReading::Observed(status));
+    assert_eq!(readings[0].failure_text.as_deref(), failure_text);
     assert_eq!(readings[0].tool_names, [] as [McpToolName; 0]);
 }
 

@@ -16,7 +16,7 @@ use crate::driver::claude::spawn::environment::{
 };
 
 /// The variable that switches Claude Code's claude.ai connectors off.
-pub(crate) const CONNECTORS_SWITCH_VARIABLE: &str = "ENABLE_CLAUDEAI_MCP_SERVERS";
+const CONNECTORS_SWITCH_VARIABLE: &str = "ENABLE_CLAUDEAI_MCP_SERVERS";
 
 /// The variable that starts Claude Code in safe mode, which leaves its connectors off (`Mr`,
 /// b:8611562).

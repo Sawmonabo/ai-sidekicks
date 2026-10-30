@@ -87,7 +87,7 @@ struct ScriptedStartTables {
     account_server_channels: VecDeque<Arc<ScriptedChannel>>,
     account_server_holds: VecDeque<oneshot::Receiver<()>>,
     account_server_reads: usize,
-    mcp_probes: VecDeque<(Arc<ScriptedChannel>, Value, Vec<Value>)>,
+    mcp_probes: VecDeque<(Arc<ScriptedChannel>, Vec<Value>)>,
     mcp_probe_starts: Vec<ClaudeMcpProbeProcessRequest>,
     started: Vec<ScriptedStartRecord>,
     next_process_id: u32,
@@ -171,17 +171,10 @@ impl ScriptedStarts {
         std::mem::take(&mut self.lock().account_server_reads)
     }
 
-    /// Scripts the next MCP server probe's process to be `channel`, its `initialize` answered
-    /// with `initialize` and `frames` written before its first status answer.
-    pub(crate) fn script_mcp_probe(
-        &self,
-        channel: Arc<ScriptedChannel>,
-        initialize: Value,
-        frames: Vec<Value>,
-    ) {
-        self.lock()
-            .mcp_probes
-            .push_back((channel, initialize, frames));
+    /// Scripts the next MCP server probe's process to be `channel`, `frames` written once its
+    /// `initialize` is answered.
+    pub(crate) fn script_mcp_probe(&self, channel: Arc<ScriptedChannel>, frames: Vec<Value>) {
+        self.lock().mcp_probes.push_back((channel, frames));
     }
 
     /// Takes every MCP server probe's start recorded so far, each with its command line.
@@ -398,8 +391,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
             tables.mcp_probes.pop_front()
         };
         async move {
-            let (channel, initialize, frames) =
-                probe.ok_or_else(|| spawn_failure("no probe scripted"))?;
+            let (channel, frames) = probe.ok_or_else(|| spawn_failure("no probe scripted"))?;
             let (sender, arrivals) = mpsc::unbounded_channel();
             for frame in frames {
                 let text = frame.to_string();
@@ -413,14 +405,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                     .expect("the arrivals are held");
             }
             let channel: Arc<dyn ClaudeProcessChannel> = channel;
-            Ok(ClaudeMcpProbeProcess {
-                channel,
-                initialize: Some(
-                    serde_json::value::to_raw_value(&initialize)
-                        .expect("a scripted reply serializes"),
-                ),
-                arrivals,
-            })
+            Ok(ClaudeMcpProbeProcess { channel, arrivals })
         }
         .boxed()
     }

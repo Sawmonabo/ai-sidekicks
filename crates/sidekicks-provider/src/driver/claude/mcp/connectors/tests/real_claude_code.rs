@@ -90,7 +90,7 @@ async fn a_real_claude_code_reports_and_loads_connectors_and_organization_server
     )
     .await
     .expect("the read's process starts");
-    reading.initialize(&[]).await.expect("the read initializes");
+    reading.initialize().await.expect("the read initializes");
     let (answers, _marks) = read_claude_account_answers(
         &*reading.process,
         async |_build_version, _settings| ClaudeConnectorListReading::Unread,
@@ -230,7 +230,7 @@ async fn start_probe(
     )
     .await
     .expect("the probe starts");
-    short.initialize(&[]).await.expect("the probe initializes");
+    short.initialize().await.expect("the probe initializes");
     short
 }
 

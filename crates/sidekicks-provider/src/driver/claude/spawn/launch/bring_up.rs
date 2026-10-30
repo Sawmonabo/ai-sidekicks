@@ -204,7 +204,6 @@ async fn configure(
         .send_initialize(compose_claude_initialize_request(
             subagent_policy,
             in_process_servers,
-            Vec::new(),
         ))
         .await?;
     process

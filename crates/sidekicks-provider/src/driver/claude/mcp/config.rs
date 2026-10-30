@@ -3,15 +3,14 @@
 //! plugin home, the per-project names kept out of a root or switched off there, and the allow and
 //! deny lists. Every credential-bearing value is dropped at the read: a declaration keeps names
 //! only, and a remote address is held whole only in memory, for the duplicate match. The one read
-//! that keeps values takes a single `user`, `local` or `project` server's entry for the probe that
-//! sends it, which drops it once sent; a plugin's servers are never sent, since the probe has
-//! Claude Code load the plugin itself.
+//! that keeps values takes a single server's entry for the probe that sends it, which drops it
+//! once sent.
 
 mod entry;
 mod plugin_manifest;
 mod policy;
 
-pub(crate) use self::entry::ClaudeServerEntryReader;
+pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudeServerEntryReader};
 
 use std::collections::BTreeMap;
 use std::io::ErrorKind;
@@ -211,8 +210,8 @@ pub(crate) struct ClaudeMcpConfigReading {
     pub(crate) server_policy: McpServerPolicy,
 }
 
-/// One plugin installed in the daemon's plugin home and the name Claude Code reports its servers
-/// under when it loads the plugin from its install root with `--plugin-dir`.
+/// One plugin installed in the daemon's plugin home and the name Claude Code loads it under from
+/// its install root with `--plugin-dir-no-mcp`, which its `system/init` frame names it by.
 #[derive(Clone, Debug)]
 pub(crate) struct ClaudePluginRoot {
     /// The plugin's name in its servers' bindings.
@@ -642,10 +641,11 @@ async fn read_plugin_servers(
     Ok((servers, roots))
 }
 
-// One plugin `installed_plugins.json` lists: its name, the root of its first install and its
-// manifest, values included, parsed once for the read; `None` where it has none.
+// One plugin `installed_plugins.json` lists: its name, its whole id, the root of its first
+// install and its manifest, values included, parsed once for the read; `None` where it has none.
 struct InstalledPluginRoot {
     name: PluginToken,
+    id: String,
     root: PathBuf,
     manifest: Option<Value>,
 }
@@ -734,6 +734,7 @@ async fn read_installed_plugin_roots(
         };
         plugins.push(InstalledPluginRoot {
             name,
+            id: plugin_id.clone(),
             root: install.install_path.clone(),
             manifest,
         });
