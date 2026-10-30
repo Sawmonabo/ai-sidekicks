@@ -1,9 +1,9 @@
-//! An account's claude.ai sign-in, read where Claude Code takes it from (`Ln` and `l$`,
-//! b:12096799): the token its environment hands it, else the `claudeAiOauth` record of
-//! `.credentials.json` in the account's credential folder, else, on macOS, the keychain item Claude
-//! Code files for that folder. This is the one place the driver reads that record, and the
-//! person's approval of an API key the environment sets, which Claude Code keeps in its config
-//! file. The read never writes, never logs a value, and logs its reason where no record is read.
+//! An account's claude.ai sign-in, read where Claude Code takes it from: the token its environment
+//! hands it, else the `claudeAiOauth` record of `.credentials.json` in the account's credential
+//! folder, else, on macOS, the keychain item Claude Code files for that folder. This is the one
+//! place the driver reads that record, and the person's approval of an API key the environment
+//! sets, which Claude Code keeps in its config file. The read never writes, never logs a value, and
+//! logs its reason where no record is read.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -37,23 +37,20 @@ const SECURE_STORAGE_FOLDER_VARIABLE: &str = "CLAUDE_SECURESTORAGE_CONFIG_DIR";
 /// from, to a custom host.
 pub(crate) const CUSTOM_SIGN_IN_HOST_VARIABLE: &str = "CLAUDE_CODE_CUSTOM_OAUTH_URL";
 
-/// The variable whose token Claude Code signs in with ahead of its stored sign-in (`l$`,
-/// b:12096799).
+/// The variable whose token Claude Code signs in with ahead of its stored sign-in.
 pub(crate) const OAUTH_TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
-/// The variable whose API key Claude Code calls the API with (`nA`, b:12068002).
+/// The variable whose API key Claude Code calls the API with.
 pub(crate) const API_KEY_VARIABLE: &str = "ANTHROPIC_API_KEY";
 
-/// How many UTF-16 units at a key's end Claude Code files its approval under (`pue`,
-/// b:11866995: `e.trim().slice(-20)`).
+/// How many UTF-16 units at the trimmed key's end Claude Code files its approval under.
 const API_KEY_APPROVAL_UNITS: usize = 20;
 
 /// The variable listing the scopes Claude Code gives a token its environment hands it, separated
-/// by white space (`Zw`, b:12096391).
+/// by white space.
 const OAUTH_SCOPES_VARIABLE: &str = "CLAUDE_CODE_OAUTH_SCOPES";
 
-/// The scopes Claude Code gives the environment's token where the scopes variable names none
-/// (`Qw`, b:12096337).
+/// The scopes Claude Code gives the environment's token where the scopes variable names none.
 const ENVIRONMENT_TOKEN_SCOPES: [&str; 1] = ["user:inference"];
 
 /// Opens the credential store a keychain item is read from, blocking while it does.
@@ -176,11 +173,10 @@ impl ClaudeSignInReader {
     }
 }
 
-/// Whether the person approved the API key `environment` sets, as Claude Code reads it
-/// (`Arr(pue(n))==="approved"`, b:12068002; `Arr`, b:11660589): the key's last 20 UTF-16 units,
-/// trimmed, listed under `customApiKeyResponses.approved` in the config file a process started in
-/// `environment` reads. Not approved where no key is set, or the file or the list is absent or
-/// unreadable, the reason logged at debug.
+/// Whether the person approved the API key `environment` sets, as Claude Code reads it: the key's
+/// last 20 UTF-16 units, trimmed, listed under `customApiKeyResponses.approved` in the config file
+/// a process started in `environment` reads. Not approved where no key is set, or the file or the
+/// list is absent or unreadable, the reason logged at debug.
 pub(crate) async fn is_claude_api_key_approved(environment: &[(String, String)]) -> bool {
     let Some(key) = claude_text_variable(environment, API_KEY_VARIABLE) else {
         return false;

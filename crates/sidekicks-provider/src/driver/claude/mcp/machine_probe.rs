@@ -71,8 +71,7 @@ const PROBE_STATUS_INTERVAL: Duration = Duration::from_secs(1);
 const PLUGIN_NOT_LOADED_TEXT: &str = "Claude Code did not load the plugin.";
 // The failure text of a server the probe sent that no status answer named by the ceiling.
 const SERVER_NOT_REPORTED_TEXT: &str = "Claude Code did not report the server.";
-// Claude Code's notice where a deployed managed MCP file connects no plugin's server (`Nl`,
-// b:43558700).
+// Claude Code's notice where a deployed managed MCP file connects no plugin's server.
 const MANAGED_MCP_FILE_TEXT: &str = concat!(
     "Your organization's managed MCP config has exclusive control over MCP servers in this ",
     "session."

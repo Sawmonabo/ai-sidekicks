@@ -46,8 +46,7 @@ const DISABLED_MCPJSON_SERVERS_KEY: &str = "disabledMcpjsonServers";
 // there, holding the `user` and per-project servers, named `.claude<suffix>.json`.
 const CONFIG_FOLDER_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
 const PERSON_CONFIG_FILE_STEM: &str = ".claude";
-// The suffix the config file takes where Claude Code's sign-in moves to a custom host (`y2`,
-// b:8908775).
+// The suffix the config file takes where Claude Code's sign-in moves to a custom host.
 const CUSTOM_SIGN_IN_CONFIG_SUFFIX: &str = "-custom-oauth";
 // The legacy config file in the config folder, read in place of `.claude.json` where it holds
 // anything.
@@ -81,9 +80,9 @@ pub(crate) struct ClaudePersonConfigFiles {
 
 impl ClaudePersonConfigFiles {
     /// The person's files as a Claude Code process started in `environment` on `home` reads them:
-    /// the config file as `y_` (b:8961710) picks it, a non-empty `.config.json` in the config
-    /// folder (`Le`, b:8610329) over `Flr`'s (b:8961898) `.claude.json`, which takes `y2`'s
-    /// suffix where `CLAUDE_CODE_CUSTOM_OAUTH_URL` holds anything.
+    /// the config file as Claude Code picks it, a non-empty `.config.json` in the config folder
+    /// over the `.claude.json` in `CLAUDE_CONFIG_DIR`, else in the home, which takes the custom
+    /// sign-in suffix where `CLAUDE_CODE_CUSTOM_OAUTH_URL` holds anything.
     pub(crate) async fn resolve(environment: &[(String, String)], home: &Path) -> Self {
         let suffix = PathRules::NATIVE
             .environment_value(environment, CUSTOM_SIGN_IN_HOST_VARIABLE)
@@ -176,9 +175,9 @@ pub(crate) struct ClaudeMcpRootConfig {
     pub(crate) switched_off_server_names: Vec<McpServerName>,
 }
 
-/// Whether `kept_out_server_names` names `server_name`, matched as Claude Code's `e4t`
-/// (b:8799138) matches them: a `plugin:` name exactly, any other after the fold of each character
-/// outside ASCII letters, digits, `_` and `-` to `_`, so `my server` keeps out `my_server`.
+/// Whether `kept_out_server_names` names `server_name`, matched as Claude Code matches them: a
+/// `plugin:` name exactly, any other after the fold of each character outside ASCII letters,
+/// digits, `_` and `-` to `_`, so `my server` keeps out `my_server`.
 pub(crate) fn is_kept_out_server(
     kept_out_server_names: &[McpServerName],
     server_name: &McpServerName,
@@ -219,7 +218,7 @@ pub(crate) struct ClaudePluginRoot {
     /// Its install root.
     pub(crate) root: PathBuf,
     /// The name Claude Code loads it under from that root: its manifest's `name`, else the root's
-    /// folder name (`SWe`, b:22583158), which can differ from the id part the binding takes.
+    /// folder name, which can differ from the id part the binding takes.
     pub(crate) loaded_name: String,
 }
 
@@ -263,14 +262,12 @@ pub(crate) async fn read_claude_mcp_config(
         let project_settings = read_settings(&settings_folder.join("settings.json")).await?;
         let local_settings = read_settings(&settings_folder.join("settings.local.json")).await?;
 
-        // Claude Code's approval of a `.mcp.json` server (`Xat`, b:21860974) rejects one the
-        // merged settings' `disabledMcpjsonServers` name (`jpt`, b:21860565; `pr`, b:10053459),
-        // and otherwise approves it by the settings (`wFn`, b:21860204) or leaves it pending. A
-        // pending one is approved `non_interactive` when the process is not interactive (`ye`,
-        // b:8571908) and the project settings source is on (`Qt`, b:9221918). Every process the
-        // daemon starts runs `-p` and passes no `--setting-sources`, so every source is on
-        // (`Jt`, b:8540453): a server loads unless it is rejected, whatever trust or approval
-        // the folder holds.
+        // Claude Code's approval of a `.mcp.json` server rejects one the merged settings'
+        // `disabledMcpjsonServers` name, and otherwise approves it by the settings or leaves it
+        // pending. A pending one is approved `non_interactive` when the process is not interactive
+        // and the project settings source is on. Every process the daemon starts runs `-p` and
+        // passes no `--setting-sources`, so every source is on: a server loads unless it is
+        // rejected, whatever trust or approval the folder holds.
         let mut kept_out_server_names = person_wide_kept_out.clone();
         for name in project_settings
             .iter()
@@ -650,13 +647,12 @@ struct InstalledPluginRoot {
     manifest: Option<Value>,
 }
 
-// Each plugin `installed_plugins.json` lists in the plugin home, named as Claude Code names it
-// in its servers' `plugin:<name>:<server>`: by its manifest's `name` (`$le`, b:22533235), else,
-// where it has no manifest, by its id's part before the marketplace (`VJ`, b:22522351; `On`,
-// b:9256803), which for a built-in npm marketplace id such as `@team/db.tools@npm` is the scoped
-// package name. A plugin whose manifest Claude Code cannot read, reads as no JSON or refuses is
-// left out, logged at debug with its file, as `VJ` refuses to load it (b:22523400 to
-// b:22524200); only an absent manifest, or a folder on its path that is a file, reads as none.
+// Each plugin `installed_plugins.json` lists in the plugin home, named as Claude Code names it in
+// its servers' `plugin:<name>:<server>`: by its manifest's `name`, else, where it has no manifest,
+// by its id's part before the marketplace, which for a built-in npm marketplace id such as
+// `@team/db.tools@npm` is the scoped package name. A plugin whose manifest Claude Code cannot read,
+// reads as no JSON or refuses is left out, logged at debug with its file, as Claude Code refuses to
+// load it; only an absent manifest, or a folder on its path that is a file, reads as none.
 async fn read_installed_plugin_roots(
     plugin_home: &Path,
 ) -> Result<Vec<InstalledPluginRoot>, ClaudeSettingsReadError> {

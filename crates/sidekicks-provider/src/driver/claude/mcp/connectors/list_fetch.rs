@@ -1,9 +1,8 @@
 //! Whether an account's own Claude Code fetches its claude.ai connector list, read from what the
 //! daemon holds for the account: the environment it composes for the account's process, that
-//! process's `get_settings` reply, the account's sign-in and the person's approval of its API
-//! key, as Claude Code's fetch (`ne`, b:15669889) decides it. A skip is claimed only where it
-//! surely holds, so a condition the daemon cannot read leaves the read waiting for the fetch
-//! instead.
+//! process's `get_settings` reply, the account's sign-in and the person's approval of its API key,
+//! as Claude Code's fetch decides it. A skip is claimed only where it surely holds, so a condition
+//! the daemon cannot read leaves the read waiting for the fetch instead.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -19,63 +18,57 @@ use crate::driver::claude::spawn::environment::{
 /// The variable that switches Claude Code's claude.ai connectors off.
 const CONNECTORS_SWITCH_VARIABLE: &str = "ENABLE_CLAUDEAI_MCP_SERVERS";
 
-/// The variable that starts Claude Code in safe mode, which leaves its connectors off (`Mr`,
-/// b:8611562).
+/// The variable that starts Claude Code in safe mode, which leaves its connectors off.
 const SAFE_MODE_VARIABLE: &str = "CLAUDE_CODE_SAFE_MODE";
 
-/// The variable that starts Claude Code in bare mode, which reads no claude.ai sign-in (`wr`,
-/// b:8611562).
+/// The variable that starts Claude Code in bare mode, which reads no claude.ai sign-in.
 const BARE_MODE_VARIABLE: &str = "CLAUDE_CODE_SIMPLE";
 
 /// The gateway's address and the token Claude Code signs in to it with, which with the gateway's
-/// switch make its provider the gateway (`Su`, b:12043582); outside a gateway the token takes
-/// precedence over a claude.ai sign-in as a key does (`U_`, b:12064753).
+/// switch make its provider the gateway; outside a gateway the token takes precedence over a
+/// claude.ai sign-in as a key does.
 const GATEWAY_ADDRESS_VARIABLE: &str = "ANTHROPIC_BASE_URL";
 const AUTH_TOKEN_VARIABLE: &str = "ANTHROPIC_AUTH_TOKEN";
 
 /// The variable naming a socket Claude Code reaches the API through, which then signs in only
-/// with `CLAUDE_CODE_OAUTH_TOKEN` (`tl`, b:12063921).
+/// with `CLAUDE_CODE_OAUTH_TOKEN`.
 const UNIX_SOCKET_VARIABLE: &str = "ANTHROPIC_UNIX_SOCKET";
 
 /// The entrypoint whose print-mode process counts its API key only once the person approved it:
-/// every other client's counts it at once (`nA`, b:12068002: `UTn()&&n`; `UTn`, b:8583930, a
-/// non-interactive process whose client is not `claude-vscode`; the client set at b:28701288).
+/// a non-interactive process under any other client counts it at once.
 const API_KEY_APPROVAL_ENTRYPOINT: &str = "claude-vscode";
 
-/// The variable that makes Claude Code's client `github-action` ahead of any entrypoint
-/// (b:28701288), read as a switch.
+/// The variable that makes Claude Code's client `github-action` ahead of any entrypoint, read as a
+/// switch.
 const GITHUB_ACTIONS_VARIABLE: &str = "GITHUB_ACTIONS";
 
 /// The variable naming the file descriptor Claude Code reads a key from, which takes precedence
-/// over the sign-in outside a remote session or a desktop app's (`tl`: `(r||S)&&!xr()`; `NZ`,
-/// b:10451032).
+/// over the sign-in outside a remote session or a desktop app's.
 const KEY_DESCRIPTOR_VARIABLE: &str = "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR";
 
-/// The variable of a remote session, under which the sign-in can stand ahead of other credentials
-/// (`xr`, b:12053815), read as a switch (`FS=D.bool()`, b:8981426).
+/// The variable of a remote session, under which the sign-in can stand ahead of other credentials,
+/// read as a switch.
 const REMOTE_SESSION_VARIABLE: &str = "CLAUDE_CODE_REMOTE";
 
 /// The variable naming the app that started Claude Code, and the apps under which, as in a remote
-/// session, the sign-in can stand ahead of other credentials (`Nc`, b:9165396).
+/// session, the sign-in can stand ahead of other credentials.
 const ENTRYPOINT_VARIABLE: &str = "CLAUDE_CODE_ENTRYPOINT";
 const DESKTOP_ENTRYPOINTS: [&str; 3] = ["claude-desktop", "claude-desktop-3p", "local-agent"];
 
-/// The desktop app under which a token or a key still takes precedence over the sign-in (`j_e`,
-/// b:12057984).
+/// The desktop app under which a token or a key still takes precedence over the sign-in.
 const THIRD_PARTY_DESKTOP_ENTRYPOINT: &str = "claude-desktop-3p";
 
 /// The variable naming where a host hands Claude Code its credential, under which a token or a key
-/// still takes precedence over the sign-in (`j_e`, b:12057984; read as text, `ft=D.str()`,
-/// b:8957034).
+/// still takes precedence over the sign-in, read as text.
 const HOST_AUTH_VARIABLE: &str = "CLAUDE_CODE_HOST_AUTH_ENV_VAR";
 
 /// The scopes a sign-in needs for Claude Code to fetch the list: inference, without which a
-/// credential is taken to precede it (`Et`, b:12115433), and the list's own.
+/// credential is taken to precede it, and the list's own.
 const FETCH_SCOPES: [&str; 2] = ["user:inference", "user:mcp_servers"];
 
 /// What in an account's `get_settings` reply bears on its connector fetch: whether any settings
-/// source switches the connectors off (`afe`, b:10067964), and whether the merged settings name an
-/// API key helper, which precedes the sign-in (`Ng`, b:12069425).
+/// source switches the connectors off, and whether the merged settings name an API key helper,
+/// which precedes the sign-in.
 pub(crate) struct ClaudeConnectorFetchSettings {
     are_connectors_disabled: bool,
     has_api_key_helper: bool,
@@ -118,15 +111,14 @@ impl ClaudeConnectorFetchSettings {
     }
 }
 
-/// Whether the account's Claude Code, started in `environment` with `settings`, skips its fetch
-/// of the connector list whatever its sign-in: its connectors switched off by the variable or a
+/// Whether the account's Claude Code, started in `environment` with `settings`, skips its fetch of
+/// the connector list whatever its sign-in: its connectors switched off by the variable or a
 /// settings source, safe mode, another provider than Anthropic's API or a gateway, bare mode, a
 /// socket with no token, or a credential that precedes the sign-in. A key's file descriptor or an
-/// API key helper precedes it outside a remote session or a desktop app's (`xr`); a token, a key
-/// or a helper also does under the `claude-desktop-3p` app or a host's credential variable
-/// (`j_e`, whose `yI()` holds only where that variable is set as well). A set API key is such a
-/// credential where [`does_api_key_need_approval`] does not hold, else only where
-/// `is_api_key_approved` (`nA`, b:12068002).
+/// API key helper precedes it outside a remote session or a desktop app's; a token, a key or a
+/// helper precedes it outside them too, and inside them under the `claude-desktop-3p` app or a
+/// host's credential variable. A set API key is such a credential where
+/// [`does_api_key_need_approval`] does not hold, else only where `is_api_key_approved`.
 pub(crate) fn skips_connector_fetch(
     environment: &[(String, String)],
     settings: &ClaudeConnectorFetchSettings,
@@ -188,8 +180,8 @@ pub(crate) fn skips_fetch_for_scopes(scopes: &[String]) -> bool {
         .all(|needed| scopes.iter().any(|scope| scope == needed))
 }
 
-// Whether `environment` switches Claude Code's claude.ai connectors off, as its `is` reads
-// `ENABLE_CLAUDEAI_MCP_SERVERS` (b:8444642): `0`, `false`, `no` or `off`, trimmed and in any case.
+// Whether `environment` switches Claude Code's claude.ai connectors off, as it reads
+// `ENABLE_CLAUDEAI_MCP_SERVERS`: `0`, `false`, `no` or `off`, trimmed and in any case.
 fn are_connectors_switched_off(environment: &[(String, String)]) -> bool {
     PathRules::NATIVE
         .environment_value(environment, CONNECTORS_SWITCH_VARIABLE)
@@ -203,8 +195,8 @@ fn is_variable_on(environment: &[(String, String)], name: &str) -> bool {
         .is_some_and(is_switched_on)
 }
 
-// Whether a variable's `value` reads as on, as Claude Code's `Ne` reads it (b:8444500): `1`,
-// `true`, `yes` or `on`, trimmed and in any case.
+// Whether a variable's `value` reads as on, as Claude Code reads it: `1`, `true`, `yes` or `on`,
+// trimmed and in any case.
 fn is_switched_on(value: &str) -> bool {
     matches!(fold_switch(value).as_str(), "1" | "true" | "yes" | "on")
 }

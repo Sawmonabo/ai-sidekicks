@@ -22,7 +22,7 @@ const CLAUDE_SCRATCH_FOLDER: &str = "claude-scratch";
 const ACCOUNT_SCRATCH_FOLDERS: &str = "accounts";
 
 /// The switches that each move Claude Code to a provider other than Anthropic's own API, in the
-/// order it reads them (`Ae`, b:9648677).
+/// order it reads them.
 pub(crate) const CLAUDE_PROVIDER_SWITCH_VARIABLES: [&str; 6] = [
     "CLAUDE_CODE_USE_BEDROCK",
     "CLAUDE_CODE_USE_FOUNDRY",
@@ -32,8 +32,8 @@ pub(crate) const CLAUDE_PROVIDER_SWITCH_VARIABLES: [&str; 6] = [
     "CLAUDE_CODE_USE_VERTEX",
 ];
 
-/// The switch `Su` reads, with `ANTHROPIC_BASE_URL` and a token, to make Claude Code's provider
-/// the gateway (b:12043582).
+/// The switch Claude Code reads, with `ANTHROPIC_BASE_URL` and a token, to make its provider the
+/// gateway.
 pub(crate) const CLAUDE_GATEWAY_SWITCH_VARIABLE: &str = "CLAUDE_CODE_USE_GATEWAY";
 
 /// The folders of an account the daemon manages, which Claude Code reads through
@@ -117,8 +117,8 @@ pub(crate) fn claude_config_folder(
     Some(home.join(".claude"))
 }
 
-/// The value of the text variable `name` in `environment` as Claude Code reads it (`t`,
-/// b:8907349): trimmed of ECMAScript white space, an empty value read as unset.
+/// The value of the text variable `name` in `environment` as Claude Code reads it: trimmed of
+/// ECMAScript white space, an empty value read as unset.
 pub(crate) fn claude_text_variable<'environment>(
     environment: &'environment [(String, String)],
     name: &str,

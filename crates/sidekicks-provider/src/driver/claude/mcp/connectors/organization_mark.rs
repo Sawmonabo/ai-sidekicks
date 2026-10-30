@@ -82,15 +82,14 @@ const RETRY_BASE_DELAY: Duration = Duration::from_millis(500);
 const RETRY_BUDGET: Duration = Duration::from_secs(12);
 
 /// The second request one try can make: on a 401 the try renews the token and asks again, with no
-/// latch, so every try can make one (`Sv`, b:12142712 to b:12143700).
+/// latch, so every try can make one.
 const REFUSED_TOKEN_RETRY: Duration = ATTEMPT_TIMEOUT;
 
 /// The longest Claude Code's own fetch of the connector list runs once it starts: the budget, which
 /// the last of its tries starts inside, that try's refused-token request past it, then the one
-/// plain try without the additional accounts, which the budget does not bound (`ne`, b:15671200 to
-/// b:15673190), and that try's own refused-token request: 12 + 5 + 5 + 5 seconds. The token
-/// renewals themselves, `fa()` before the first try and `WS` on a 401, are bounded only by the
-/// read's ceiling.
+/// plain try without the additional accounts, which the budget does not bound, and that try's own
+/// refused-token request: 12 + 5 + 5 + 5 seconds. The token renewals themselves, one before the
+/// first try and one on each 401, are bounded only by the read's ceiling.
 pub(crate) const CLAUDE_CONNECTOR_FETCH_WINDOW: Duration = RETRY_BUDGET
     .saturating_add(REFUSED_TOKEN_RETRY)
     .saturating_add(ATTEMPT_TIMEOUT)
@@ -137,7 +136,7 @@ pub(crate) struct ClaudeConnectorMarks {
 impl ClaudeConnectorMarks {
     /// How many connectors Claude Code lists from the list, one per address and one per additional
     /// account, less those it suppresses as duplicates of a server configured at one of
-    /// `configured_addresses` (`m$t`, b:21827999, matching by `KF`'s address, b:21825786).
+    /// `configured_addresses`, matched by the connector's address.
     pub(crate) fn listed_row_count(&self, configured_addresses: &[ServerAddressIdentity]) -> usize {
         self.listed_rows
             .iter()

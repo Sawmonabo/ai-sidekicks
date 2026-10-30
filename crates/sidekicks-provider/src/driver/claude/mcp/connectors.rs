@@ -220,12 +220,10 @@ fn count_connector_rows(reply: &ClaudeMcpStatusReply) -> usize {
 }
 
 // The folded address of each server the account's process configures outside claude.ai and the
-// plugins, which Claude Code matches its connectors against to suppress duplicates (`m$t`,
-// b:21827999, as its print-mode caller passes them, b:28484035): each row of an `mcp_status`
-// reply, and each of `organization_addresses`, the organization's `managedMcpServers` at their
-// whole addresses, which the reply's row cuts short (`Y6e`, b:26858500; `Sii`, b:10326167). One
-// switched off (`Io`, b:21855527) or waiting for a sign-in (`cRe` and `uoi`, b:12356518), as its
-// row reads, suppresses none.
+// plugins, which Claude Code matches its connectors against to suppress duplicates, as its print
+// mode passes them: each row of an `mcp_status` reply, and each of `organization_addresses`, the
+// organization's `managedMcpServers` at their whole addresses, which the reply's row cuts short.
+// One switched off or waiting for a sign-in, as its row reads, suppresses none.
 fn read_configured_addresses(
     reply: &ClaudeMcpStatusReply,
     organization_addresses: &[(String, ServerAddressIdentity)],

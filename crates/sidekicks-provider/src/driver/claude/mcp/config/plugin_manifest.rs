@@ -1,8 +1,8 @@
-//! A plugin's `plugin.json` as Claude Code checks it before it loads the plugin (`Qme` with the
-//! `plugin-json` schema `IZ`, b:18552397 and b:9086426): the manifest is an object, its `name`
-//! names the plugin, and each member the schema knows has the form it takes. A component member
-//! is checked by its outer form alone (a path, a list of paths, or an object), not by the entries
-//! inside it. A member the schema does not know passes, as the schema leaves it unread.
+//! A plugin's `plugin.json` as Claude Code checks it against its manifest schema before it loads
+//! the plugin: the manifest is an object, its `name` names the plugin, and each member the schema
+//! knows has the form it takes. A component member is checked by its outer form alone (a path, a
+//! list of paths, or an object), not by the entries inside it. A member the schema does not know
+//! passes, as the schema leaves it unread.
 
 use std::sync::LazyLock;
 
@@ -10,14 +10,13 @@ use regex::Regex;
 use serde_json::{Map, Value};
 use url::Url;
 
-/// A dependency written as text: a plugin name, optionally with `@marketplace` and a version
-/// range (`Oo`, b:9114878).
+/// A dependency written as text: a plugin name, optionally with `@marketplace` and a version range.
 static DEPENDENCY_TEXT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Za-z0-9][-A-Za-z0-9._]*(@[A-Za-z0-9][-A-Za-z0-9._]*)?(@\^[^@]*)?$")
         .expect("the dependency pattern compiles")
 });
 
-/// A dependency's plugin or marketplace name written as an object's member (`Ko`, b:9115007).
+/// A dependency's plugin or marketplace name written as an object's member.
 static DEPENDENCY_PART: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Za-z0-9][-A-Za-z0-9._]*$").expect("the dependency part pattern compiles")
 });
@@ -28,7 +27,7 @@ const BUNDLE_SUFFIXES: [&str; 2] = [".mcpb", ".dxt"];
 /// A member of the manifest and the check its value passes.
 type MemberCheck = (&'static str, fn(&Value) -> bool);
 
-/// A `userConfig` key, which becomes a variable name (`no`, b:9078682).
+/// A `userConfig` key, which becomes a variable name.
 static USER_CONFIG_KEY: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").expect("the option key pattern compiles")
 });
@@ -81,8 +80,8 @@ pub(crate) fn read_plugin_manifest_name(
     manifest.get("name").and_then(Value::as_str).ok_or("name")
 }
 
-// A plugin name as `ye` takes it (b:9067336): text with no space and no control or bidirectional
-// formatting character (`jot`, b:9114878).
+// A plugin name as the schema takes it: text with no space and no control or bidirectional
+// formatting character.
 fn is_plugin_name(value: &Value) -> bool {
     value.as_str().is_some_and(|name| {
         !name.is_empty()
@@ -97,8 +96,8 @@ fn is_plugin_name(value: &Value) -> bool {
     })
 }
 
-// An author as `We` takes it (b:9067611): an object with a non-empty `name`, and text where it
-// names an email or an address.
+// An author as the schema takes it: an object with a non-empty `name`, and text where it names an
+// email or an address.
 fn is_author(value: &Value) -> bool {
     value.as_object().is_some_and(|author| {
         author
@@ -125,8 +124,8 @@ fn is_one_or_list_of(value: &Value, is_item: fn(&Value) -> bool) -> bool {
     is_item(value) || is_list_of(value, is_item)
 }
 
-// A dependency as `Ko` takes it: a plugin name as text, or an object naming the plugin and, where
-// it names one, its marketplace.
+// A dependency as the schema takes it: a plugin name as text, or an object naming the plugin and,
+// where it names one, its marketplace.
 fn is_dependency(value: &Value) -> bool {
     match value {
         Value::String(text) => DEPENDENCY_TEXT.is_match(text),
@@ -142,7 +141,7 @@ fn is_dependency(value: &Value) -> bool {
     }
 }
 
-// A path relative to the plugin root, as `N` takes it (b:9064778): text starting `./`.
+// A path relative to the plugin root, as the schema takes it: text starting `./`.
 fn is_path(value: &Value) -> bool {
     value.as_str().is_some_and(|path| path.starts_with("./"))
 }
@@ -151,17 +150,17 @@ fn is_path_ending(value: &Value, suffix: &str) -> bool {
     is_path(value) && value.as_str().is_some_and(|path| path.ends_with(suffix))
 }
 
-// A path to a JSON file, as `ne` takes it.
+// A path to a JSON file, as the schema takes it.
 fn is_json_path(value: &Value) -> bool {
     is_path_ending(value, ".json")
 }
 
-// A skill folder, as `Bt` takes it: the plugin root `.` or a path.
+// A skill folder, as the schema takes it: the plugin root `.` or a path.
 fn is_skill_path(value: &Value) -> bool {
     value.as_str() == Some(".") || is_path(value)
 }
 
-// Commands as `qs` takes them (b:9071972): a path, a list of paths, or commands by name, each an
+// Commands as the schema takes them: a path, a list of paths, or commands by name, each an
 // object.
 fn is_commands(value: &Value) -> bool {
     is_one_or_list_of(value, is_path)
@@ -170,8 +169,8 @@ fn is_commands(value: &Value) -> bool {
             .is_some_and(|commands| commands.values().all(Value::is_object))
 }
 
-// MCP or LSP servers as `to` and `ro` take them (b:9076049, b:9083524), past a bundle: a JSON
-// file's path, or servers by name, each an object.
+// MCP or LSP servers as the schema takes them, past a bundle: a JSON file's path, or servers by
+// name, each an object.
 fn is_servers(value: &Value) -> bool {
     is_json_path(value)
         || value
@@ -179,7 +178,7 @@ fn is_servers(value: &Value) -> bool {
             .is_some_and(|servers| servers.values().all(Value::is_object))
 }
 
-// An MCP bundle as `qt` takes it (b:9064867): a path or an address ending `.mcpb` or `.dxt`.
+// An MCP bundle as the schema takes it: a path or an address ending `.mcpb` or `.dxt`.
 fn is_bundle(value: &Value) -> bool {
     value.as_str().is_some_and(|bundle| {
         BUNDLE_SUFFIXES
@@ -189,7 +188,7 @@ fn is_bundle(value: &Value) -> bool {
     })
 }
 
-// User options as `no` takes them: each keyed by a name a variable can take, each an object.
+// User options as the schema takes them: each keyed by a name a variable can take, each an object.
 fn is_user_config(value: &Value) -> bool {
     value.as_object().is_some_and(|options| {
         options
@@ -198,7 +197,7 @@ fn is_user_config(value: &Value) -> bool {
     })
 }
 
-// A type contract as `mo` takes it (b:9084991): a path to a `.d.ts` file with no `..` segment.
+// A type contract as the schema takes it: a path to a `.d.ts` file with no `..` segment.
 fn is_types_path(value: &Value) -> bool {
     is_path_ending(value, ".d.ts")
         && value
@@ -206,8 +205,8 @@ fn is_types_path(value: &Value) -> bool {
             .is_some_and(|path| !path.split(['/', '\\']).any(|segment| segment == ".."))
 }
 
-// The experimental components as `ho` takes them (b:9085907): anything but an object reads as
-// absent; in an object, each component it knows has its form.
+// The experimental components as the schema takes them: anything but an object reads as absent; in
+// an object, each component it knows has its form.
 fn is_experimental(value: &Value) -> bool {
     let Some(experimental) = value.as_object() else {
         return true;

@@ -13,7 +13,7 @@ use super::{
 };
 use crate::driver::claude::session::ignored_settings::ClaudeSettingsReadError;
 
-// The built-in marketplace that installs plugins from npm packages (`$y`, b:9066066).
+// The built-in marketplace that installs plugins from npm packages.
 const NPM_MARKETPLACE: &str = "npm";
 
 /// One server's entry as the person wrote it, values included, and, for a plugin's server, the
@@ -157,11 +157,10 @@ fn entry_at(file: Option<&Value>, keys: &[&str]) -> Option<Value> {
     Some(entry.clone())
 }
 
-// The data folder Claude Code keeps for the plugin `plugin_id` in `plugin_home` (`$p`,
-// b:12820188), named by `L` (b:12819628): a plugin of the built-in npm marketplace (`Ybe`,
-// b:9114643) by its package name with each character outside lowercase letters, digits and `-`
-// escaped (`ijo`, b:12819472), then `-npm`; any other plugin by its id with each character
-// outside letters, digits, `-` and `_` written `-` (`_Wt`, b:12819196).
+// The data folder Claude Code keeps for the plugin `plugin_id` in `plugin_home`, named for it: a
+// plugin of the built-in npm marketplace by its package name with each character outside
+// lowercase letters, digits and `-` escaped, then `-npm`; any other plugin by its id with each
+// character outside letters, digits, `-` and `_` written `-`.
 fn plugin_data_folder(plugin_home: &Path, plugin_id: &str) -> PathBuf {
     let folder_name = match npm_package_name(plugin_id) {
         Some(package_name) => format!(
@@ -182,9 +181,9 @@ fn plugin_data_folder(plugin_home: &Path, plugin_id: &str) -> PathBuf {
     plugin_home.join("plugins").join("data").join(folder_name)
 }
 
-// The package name of a plugin id from the built-in npm marketplace, `<package>@npm` with a
-// package name npm accepts (`rxe`, b:9084013): no `..`, and `[a-z0-9][a-z0-9-._]*`,
-// optionally scoped as `@<scope>/` of the same form (b:9083900); `None` for any other id.
+// The package name of a plugin id from the built-in npm marketplace, `<package>@npm` with a package
+// name npm accepts: no `..`, and `[a-z0-9][a-z0-9-._]*`, optionally scoped as `@<scope>/` of the
+// same form; `None` for any other id.
 fn npm_package_name(plugin_id: &str) -> Option<&str> {
     let package_name = plugin_id.strip_suffix(NPM_MARKETPLACE)?.strip_suffix('@')?;
     let is_name_part = |part: &str| {
@@ -207,8 +206,8 @@ fn npm_package_name(plugin_id: &str) -> Option<&str> {
     (is_valid && !package_name.contains("..")).then_some(package_name)
 }
 
-// A package name with each character outside lowercase letters, digits and `-` written `_` and
-// its two hex digits (`ijo`, b:12819472); a checked package name holds ASCII alone.
+// A package name with each character outside lowercase letters, digits and `-` written `_` and its
+// two hex digits; a checked package name holds ASCII alone.
 fn escape_npm_package_name(package_name: &str) -> String {
     package_name
         .chars()

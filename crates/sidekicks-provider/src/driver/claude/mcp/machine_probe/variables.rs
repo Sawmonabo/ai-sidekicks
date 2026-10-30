@@ -1,10 +1,9 @@
 //! How a probed entry's `${VAR}` references are filled, as Claude Code fills a server's entry when
-//! it loads it: a plugin's own placeholders first, then each variable from the probe's
-//! environment, a credential variable read as empty. A program's command, arguments and
-//! environment blank a covered name only where it is set; a remote server's address and headers
-//! blank it whether set or not and ignore its `:-default`, so no credential leaves for a server
-//! the entry names. The lists and patterns are Claude Code 2.1.310's, cited by byte offset in its
-//! bundle.
+//! it loads it: a plugin's own placeholders first, then each variable from the probe's environment,
+//! a credential variable read as empty. A program's command, arguments and environment blank a
+//! covered name only where it is set; a remote server's address and headers blank it whether set or
+//! not and ignore its `:-default`, so no credential leaves for a server the entry names. The lists
+//! and patterns are Claude Code 2.1.310's.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -33,10 +32,9 @@ enum ValueSink {
     Remote,
 }
 
-// Names a program's values blank where set (`x4().plain`, b:18425355): the static part of `DYr`
-// (b:11442296), that is `qwn` with `cfe` (b:9324785, b:9325189), its fixed `CLAUDE_CODE_*` names
-// and `_rt` with `gkt` (b:11434842, b:11431226). `DOt`, which `x4` adds under `INPUT_` too, is
-// `INPUT_COVERED` below.
+// Names a program's values blank where set: the fixed part of Claude Code's own list, its
+// credential variables, its fixed `CLAUDE_CODE_*` names and its background sessions' variables.
+// The names it blanks under `INPUT_` too are `INPUT_COVERED` below.
 const PROGRAM_COVERED: &[&str] = &[
     "CLAUDE_CODE_OAUTH_TOKEN",
     "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
@@ -93,8 +91,7 @@ const PROGRAM_COVERED: &[&str] = &[
     "CLAUDE_BG_DISPATCHER_RATE_LIMIT_TIER",
 ];
 
-// Names a program's values blank where set, bare and under `INPUT_`: `zmo` (b:18425033), which
-// `DOt` doubles.
+// Names a program's values blank where set, bare and under `INPUT_`.
 const INPUT_COVERED: &[&str] = &[
     "CLAUDE_CODE_OAUTH_REFRESH_TOKEN",
     "CLAUDE_SESSION_INGRESS_TOKEN_FILE",
@@ -107,8 +104,8 @@ const INPUT_COVERED: &[&str] = &[
     "SELF_HOSTED_RUNNER_ENVIRONMENT_SECRET",
 ];
 
-// Names a remote server's values also blank, bare and under `INPUT_` (`Vmo`, b:18425355): `eo`
-// (b:9973102) less `Kmo`'s five (b:18425355), then `qmo` (b:18425355).
+// Names a remote server's values also blank, bare and under `INPUT_`: Claude Code's list of
+// credential variables less five, then the further names it blanks for a remote server alone.
 const REMOTE_COVERED: &[&str] = &[
     "ANTHROPIC_API_KEY",
     "CLAUDE_CODE_OAUTH_TOKEN",
@@ -221,8 +218,8 @@ const REMOTE_COVERED: &[&str] = &[
 ];
 
 // Endpoint names a remote server's values blank, bare and under `INPUT_`, where the value carries
-// a credential (`AHe`, `Zmo`, b:18425355): `Yj`'s `_BASE_URL` names (b:9321777, with `qi` and
-// `To`, b:9321438) and `CLAUDE_CODE_API_BASE_URL`.
+// a credential: the `_BASE_URL` names of Claude Code's providers and its own services, and
+// `CLAUDE_CODE_API_BASE_URL`.
 const CREDENTIALED_ENDPOINTS: &[&str] = &[
     "ANTHROPIC_BASE_URL",
     "_CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL",
@@ -241,8 +238,8 @@ const CREDENTIALED_ENDPOINTS: &[&str] = &[
     "CLAUDE_CODE_API_BASE_URL",
 ];
 
-// The prefixes under which a name passes `Ewn`'s first test (`Qn`, `Wo`, b:9992354), and those
-// that cover every name under them (`Nt`, `Bo`).
+// The prefixes under which a name passes the package credential check's first test, and those
+// that cover every name under them.
 const PACKAGE_CREDENTIAL_PREFIXES: &[&str] = &[
     "INPUT_",
     "ORG_GRADLE_PROJECT_",
@@ -255,7 +252,7 @@ const PACKAGE_CREDENTIAL_PREFIXES: &[&str] = &[
 const PACKAGE_LOGIN_PREFIXES: &[&str] = &["POETRY_HTTP_BASIC_", "CONAN_LOGIN_USERNAME_"];
 
 // The Bundler setting words a `BUNDLE_<word>__…` name may start with and still not be a
-// credential, unless its rest names a host (`Zn`, `Mo`, `vwn`, b:9991402).
+// credential, unless its rest names a host.
 const BUNDLE_SETTING_WORDS: &[&str] = &[
     "BUILD", "LOCAL", "MIRROR", "PATH", "WITH", "WITHOUT", "CACHE", "DISABLE", "IGNORE", "ONLY",
 ];
@@ -315,7 +312,7 @@ pub(super) fn expand_entry_variables(
     }
 }
 
-// `value` with a plugin's three placeholders filled (`mde`, b:12908654).
+// `value` with a plugin's three placeholders filled.
 fn fill_plugin_placeholders(value: &str, plugin: &ClaudePluginPlaceholders) -> String {
     let filled = value
         .replace("${CLAUDE_PLUGIN_ROOT}", &plugin.root)
@@ -327,7 +324,7 @@ fn fill_plugin_placeholders(value: &str, plugin: &ClaudePluginPlaceholders) -> S
 }
 
 // `value` with each `${VAR}` filled from `environment`'s last setting of `VAR`, a set value, even
-// an empty one, before any default, and each covered name read as empty (`P4`, b:18427479).
+// an empty one, before any default, and each covered name read as empty.
 fn expand_variables(value: &str, environment: &[(String, String)], sink: ValueSink) -> String {
     static VARIABLE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
@@ -353,9 +350,10 @@ fn expand_variables(value: &str, environment: &[(String, String)], sink: ValueSi
         .into_owned()
 }
 
-// Whether Claude Code reads `name` as empty in a value bound for `sink`: a name of the program
-// set or `yqe`'s, and for a remote server also the remote set, `CHe`'s patterns and an endpoint
-// carrying a credential. Names compare upper-cased, as Claude Code compares them.
+// Whether Claude Code reads `name` as empty in a value bound for `sink`: a name of the program set
+// or one of Claude Code's own variables, and for a remote server also the remote set, the
+// credential patterns and an endpoint carrying a credential. Names compare upper-cased, as Claude
+// Code compares them.
 fn is_covered(name: &str, value: Option<&str>, sink: ValueSink) -> bool {
     let name = name.to_ascii_uppercase();
     let is_listed = |list: &[&str]| list.contains(&name.as_str());
@@ -378,8 +376,8 @@ fn is_covered(name: &str, value: Option<&str>, sink: ValueSink) -> bool {
                 && value.is_some_and(|value| scrub_credentials(value) != value)))
 }
 
-// `yqe` (b:11442044): Claude Code's own artifact and memory endpoints and its telemetry settings,
-// bare or under `INPUT_`, for an upper-cased name.
+// Whether an upper-cased name is one of Claude Code's own artifact and memory endpoints or its
+// telemetry settings, bare or under `INPUT_`.
 fn is_claude_variable(name: &str) -> bool {
     let name = name.strip_prefix("INPUT_").unwrap_or(name);
     (name.starts_with("CLAUDE_CODE_ARTIFACT") && name.ends_with("_BASE_URL"))
@@ -389,8 +387,9 @@ fn is_claude_variable(name: &str) -> bool {
         || name == "CLAUDE_CODE_OTEL_DIAG_STDERR"
 }
 
-// `CHe` (b:18425355) for an upper-cased name: a git config pair, a Cargo registry token, a
-// package tool's login and a Bundler host credential, `INPUT_` stripped once.
+// Whether an upper-cased name matches Claude Code's credential patterns: a git config pair, a
+// Cargo registry token, a package tool's login and a Bundler host credential, `INPUT_` stripped
+// once.
 fn is_credential_pattern(name: &str) -> bool {
     static GIT_CONFIG: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"^GIT_CONFIG_(?:PARAMETERS|(?:KEY|VALUE)_[0-9]+)$")
@@ -408,8 +407,8 @@ fn is_credential_pattern(name: &str) -> bool {
         || is_bundler_credential(bare)
 }
 
-// `Ewn` (b:9992640) for an upper-cased name: one under a package tool's prefix that is a login or
-// reads as a secret.
+// Whether an upper-cased name is a package tool's credential: one under its prefix that is a
+// login or reads as a secret.
 fn is_package_credential(name: &str) -> bool {
     static LOGIN: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"USER(?:_?NAME)?_?[0-9]*$").expect("the login pattern compiles")
@@ -424,12 +423,12 @@ fn is_package_credential(name: &str) -> bool {
             || is_secret_name(&name))
 }
 
-// `Ebe` (b:9991233) for an upper-cased name: one whose words read as a secret, a connection
-// string or a Bundler host credential, and no git config key.
+// Whether an upper-cased name names a secret: its words read as a secret, a connection string or
+// a Bundler host credential, and it is no git config key.
 fn is_secret_name(name: &str) -> bool {
     static SECRET_WORD: LazyLock<Regex> = LazyLock::new(|| {
-        // `Tn` (b:9982118, its word lists b:9981200), its look-ahead consumed, which finds the
-        // same names.
+        // Claude Code's secret word pattern with its look-ahead consumed, which finds the same
+        // names.
         let words = "TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|KEY|AUTH|COOKIE|PAT|DSN|WEBHOOK|\
                      CREDENTIAL|CREDENTIALS|CREDS|APIKEY|ACCESSKEY|SECRETKEY|ACCOUNTKEY|PRIVATEKEY|\
                      AUTHKEY|SSHKEY|SIGNINGKEY|MASTERKEY|DEPLOYKEY|ENCRYPTIONKEY|PGPASSWORD|\
@@ -441,12 +440,10 @@ fn is_secret_name(name: &str) -> bool {
         .expect("the secret word pattern compiles")
     });
     static CONNECTION_STRING: LazyLock<Regex> = LazyLock::new(|| {
-        // `Tt` (b:9981200).
         Regex::new(r"CONN(?:ECT(?:ION)?)?_?STR(?:ING)?S?(?:$|[_0-9])")
             .expect("the connection string pattern compiles")
     });
     static GIT_CONFIG_KEY: LazyLock<Regex> = LazyLock::new(|| {
-        // `po` (b:9982286).
         Regex::new(r"^GIT_CONFIG_KEY_[0-9][A-Za-z0-9_]*$").expect("the git key pattern compiles")
     });
     let stripped = name
@@ -462,7 +459,7 @@ fn is_secret_name(name: &str) -> bool {
         && !GIT_CONFIG_KEY.is_match(name)
 }
 
-// `Mn` (b:9981200) for an upper-cased name: `_` between a digit and the capital after it.
+// An upper-cased name with `_` put between a digit and the capital after it.
 fn split_words(name: &str) -> String {
     static DIGIT_THEN_CAPITAL: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"([0-9])([A-Z])").expect("the word pattern compiles"));
@@ -471,8 +468,8 @@ fn split_words(name: &str) -> String {
         .into_owned()
 }
 
-// `vwn` (b:9991548) for an upper-cased name: `BUNDLE_…__…`, bare or under `INPUT_`, unless it
-// starts with a Bundler setting word whose rest does not name a host.
+// Whether an upper-cased name is a Bundler credential: `BUNDLE_…__…`, bare or under `INPUT_`,
+// unless it starts with a Bundler setting word whose rest does not name a host.
 fn is_bundler_credential(name: &str) -> bool {
     static HOST_KEY: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"^(?:[A-Za-z0-9]+(?:___[A-Za-z0-9]+)*__)+[A-Za-z]{2,}$")

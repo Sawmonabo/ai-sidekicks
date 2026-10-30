@@ -1,7 +1,7 @@
 //! What Claude Code reports of the plugins the probe's process loads with `--plugin-dir-no-mcp`:
 //! its `system/init` frame's `plugins[]`, the plugins it loaded, each with its folder and its
 //! `<name>@inline` source, and its `plugin_errors`, each naming a plugin by `<name>@inline` or,
-//! for a folder that did not load at all, by that folder's path (b:10962973).
+//! for a folder that did not load at all, by that folder's path.
 
 use std::path::Path;
 
