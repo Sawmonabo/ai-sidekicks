@@ -15,7 +15,7 @@ mod tests;
 mod views;
 
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -32,7 +32,7 @@ use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::account_home_logs::AccountHomeLogExpiry;
 use crate::driver::codex::calibration::CodexCompactionLimits;
-use crate::driver::codex::command_shell::read_command_shell;
+use crate::driver::codex::command_shell::read_codex_shells;
 use crate::driver::codex::commands::{CodexCommandSource, CodexProviderCommandCache};
 use crate::driver::codex::delivery::asks::attribution::CodexAskIntake;
 use crate::driver::codex::delivery::asks::{
@@ -104,8 +104,8 @@ pub(crate) struct CodexDriver {
     runtime_bindings: Arc<dyn RuntimeBindingWriter>,
     shell_lines: Arc<sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound>,
     background_work: Arc<BackgroundWorkForms>,
-    // The shell Codex runs a command's line with, found as Codex finds it.
-    command_shell: Option<Arc<Path>>,
+    // The shells Codex may start a command's line with, found as Codex finds them.
+    line_shells: Arc<[PathBuf]>,
     pending_compactions: PendingCompactionRegistry,
     /// The helpers stopped at their token limit, whose later turns are interrupted at their start.
     pub(crate) limit_stopped_helpers: Arc<CodexLimitStoppedHelpers>,
@@ -187,6 +187,7 @@ impl CodexDriver {
             &services.home_folder,
         ));
         let link = Arc::new(CodexDriverLink::default());
+        let shells = read_codex_shells(&services.base_environment);
         let release = Arc::new(CodexConversationRelease::default());
         let command_channel_root = command_channel_root(&services.data_folder);
         let link_folder = program_link_folder(&services.data_folder);
@@ -216,6 +217,7 @@ impl CodexDriver {
                 additional_config_overrides: Vec::new(),
                 startup_timeout: CODEX_SERVICE_STARTUP_TIMEOUT,
                 dispatches_hook_mode: services.dispatches_hook_mode,
+                session_shell_kind: shells.session_kind,
                 events: Arc::new(CodexDriverServiceEvents::new(Arc::clone(&link))),
                 release: Arc::clone(&release),
                 drains: LastingServiceDrains::default(),
@@ -248,7 +250,7 @@ impl CodexDriver {
             runtime_bindings: Arc::clone(&services.runtime_bindings),
             shell_lines: Arc::clone(&services.shell_lines),
             background_work: Arc::clone(&services.background_work),
-            command_shell: read_command_shell(&services.base_environment),
+            line_shells: shells.line_shells,
             pending_compactions: services.pending_compactions.clone(),
             limit_stopped_helpers: Arc::new(CodexLimitStoppedHelpers::new(tasks.clone())),
             processes: Arc::clone(&services.processes),
@@ -322,7 +324,7 @@ impl CodexDriver {
             },
             shell_lines: Arc::clone(&self.shell_lines),
             background_work: Arc::clone(&self.background_work),
-            command_shell: self.command_shell.clone(),
+            line_shells: Arc::clone(&self.line_shells),
             project_rules: Arc::clone(&self.project_rules) as _,
             tasks: self.tasks.clone(),
         }));

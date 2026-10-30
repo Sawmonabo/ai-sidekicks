@@ -10,9 +10,11 @@ use std::time::Duration;
 
 use serde::Serialize;
 use sidekicks_platforms::{
-    PathRules, RunningProgramPath, ShellWordRefused, read_running_program_path,
+    PathRules, RunningProgramPath, ShellWordRefused, quote_powershell_literal,
+    read_running_program_path,
 };
 
+use crate::driver::codex::command_shell::CodexShellKind;
 use crate::driver::codex::service::home::CodexServiceKind;
 
 /// The hook `timeout`, 10^12 seconds, a hold no call outlasts and one Codex runs without fault;
@@ -93,8 +95,8 @@ pub(crate) enum HookCommandError {
     /// The daemon's program path is not UTF-8 text, which a command line carries.
     #[error("the daemon's program path is not UTF-8 text: {}", .0.display())]
     ProgramPathNotText(PathBuf),
-    /// A word cannot be written for the system's command shell.
-    #[error("a hook command word cannot be written for the system's command shell")]
+    /// A word cannot be written for the shell Codex runs the hooks in.
+    #[error("a hook command word cannot be written for the shell Codex runs it in")]
     Word(#[from] ShellWordRefused),
     /// The system could not name the daemon's own program.
     #[error("the daemon's own program could not be read")]
@@ -102,35 +104,39 @@ pub(crate) enum HookCommandError {
 }
 
 /// The terminal service's hook commands that run `daemon_program`, the daemon's own program as it
-/// started, in its hidden `hook provider` mode for each tool event: the quoted program and its
-/// arguments alone, which Codex runs through `$SHELL -lc`, falling back to `/bin/sh`, or on
-/// Windows through `%COMSPEC% /C`, in the folder it sets. Fails when the path is not UTF-8 text or
-/// a word cannot be written for the system's command shell.
+/// started, in its hidden `hook provider` mode for each tool event: the program and its arguments
+/// alone, quoted for `shell_kind`, the session's shell. Codex runs a session's hooks in the shell
+/// of its one local environment, zsh, bash and sh with `-c`, PowerShell with `-NoProfile -Command`
+/// and cmd with `/c`, and through `$SHELL -lc`, `/bin/sh` or `%COMSPEC% /C` only while a session
+/// has no single local environment. Fails when the path is not UTF-8 text or a word cannot be
+/// written for that shell.
 pub(crate) fn compose_daemon_hook_commands(
     daemon_program: &Path,
+    shell_kind: CodexShellKind,
 ) -> Result<CodexHookCommands, HookCommandError> {
     let program = daemon_program
         .to_str()
         .ok_or_else(|| HookCommandError::ProgramPathNotText(daemon_program.to_owned()))?;
     Ok(CodexHookCommands {
-        pre_tool_use: compose_daemon_hook_command(program, PRE_TOOL_USE_EVENT)?,
-        post_tool_use: compose_daemon_hook_command(program, POST_TOOL_USE_EVENT)?,
+        pre_tool_use: compose_daemon_hook_command(program, PRE_TOOL_USE_EVENT, shell_kind)?,
+        post_tool_use: compose_daemon_hook_command(program, POST_TOOL_USE_EVENT, shell_kind)?,
     })
 }
 
 /// The hooks the daemon starts the terminal service with: none while its program dispatches no
 /// hook mode, as `dispatches_hook_mode` says, else the hooks that run that program as it started,
-/// read from where it runs now. Fails when the system cannot name the program or its hook commands
-/// cannot be written.
+/// read from where it runs now, quoted for `shell_kind`, the session's shell. Fails when the system
+/// cannot name the program or its hook commands cannot be written.
 pub(crate) fn read_terminal_service_hooks(
     dispatches_hook_mode: bool,
+    shell_kind: CodexShellKind,
 ) -> Result<TerminalServiceHooks, HookCommandError> {
     if !CodexServiceKind::Terminal.runs_daemon_hooks(dispatches_hook_mode) {
         return Ok(TerminalServiceHooks::NoHooks);
     }
     match read_running_program_path().map_err(HookCommandError::ProgramUnread)? {
         RunningProgramPath::OnDisk(path) => Ok(TerminalServiceHooks::Daemon(
-            compose_daemon_hook_commands(&path)?,
+            compose_daemon_hook_commands(&path, shell_kind)?,
         )),
         RunningProgramPath::Replaced => Ok(TerminalServiceHooks::ProgramReplaced),
     }
@@ -168,17 +174,29 @@ pub(crate) fn compare_daemon_hook_commands(
     }
 }
 
-// One event's command, every word quoted for the system's command shell. One command per event,
-// so Codex lists and trusts each, and the program knows its event even when its input is unread.
+// One event's command, every word quoted for a shell of `shell_kind`: single-quoted for zsh, bash
+// and sh, a PowerShell string after its call operator, which runs a quoted program, and cmd's
+// quotes. One command per event, so Codex lists and trusts each, and the program knows its event
+// even when its input is unread.
 fn compose_daemon_hook_command(
     program: &str,
     event_name: &str,
+    shell_kind: CodexShellKind,
 ) -> Result<String, ShellWordRefused> {
-    let words = [program, "hook", "provider", "--event", event_name]
-        .into_iter()
-        .map(|word| PathRules::NATIVE.quote_shell_word(word))
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(words.join(" "))
+    let words = [program, "hook", "provider", "--event", event_name].into_iter();
+    let quoted = match shell_kind {
+        CodexShellKind::Zsh | CodexShellKind::Bash | CodexShellKind::Sh => words
+            .map(|word| PathRules::Posix.quote_shell_word(word))
+            .collect::<Result<Vec<_>, _>>()?,
+        CodexShellKind::PowerShell => ["&".to_owned()]
+            .into_iter()
+            .chain(words.map(quote_powershell_literal))
+            .collect(),
+        CodexShellKind::Cmd => words
+            .map(|word| PathRules::Windows.quote_shell_word(word))
+            .collect::<Result<Vec<_>, _>>()?,
+    };
+    Ok(quoted.join(" "))
 }
 
 /// What one service start carries beyond the switches every service the daemon starts shares.
@@ -263,6 +281,7 @@ mod tests {
 
     use rstest::rstest;
 
+    use super::CodexShellKind;
     use super::{
         CODEX_HOOK_TIMEOUT, CodexHookCommands, CodexListedHook, CodexServiceCommandLineInput,
         LastingServiceVerdict, TerminalServiceHooks, compare_daemon_hook_commands,
@@ -310,21 +329,25 @@ mod tests {
     ) {
         let listed: Vec<CodexListedHook> = listed_program_suffix
             .map(|suffix| {
-                compose_daemon_hook_commands(&PathBuf::from(format!("{PROGRAM}{suffix}")))
-                    .expect("the path is text")
-                    .events()
-                    .iter()
-                    .map(|(event_name, command)| CodexListedHook {
-                        event_name: (*event_name).to_owned(),
-                        command: (*command).to_owned(),
-                        timeout_seconds,
-                    })
-                    .collect()
+                compose_daemon_hook_commands(
+                    &PathBuf::from(format!("{PROGRAM}{suffix}")),
+                    CodexShellKind::Sh,
+                )
+                .expect("the path is text")
+                .events()
+                .iter()
+                .map(|(event_name, command)| CodexListedHook {
+                    event_name: (*event_name).to_owned(),
+                    command: (*command).to_owned(),
+                    timeout_seconds,
+                })
+                .collect()
             })
             .unwrap_or_default();
         let hooks = match hooks {
             "daemon" => TerminalServiceHooks::Daemon(
-                compose_daemon_hook_commands(Path::new(PROGRAM)).expect("the path is text"),
+                compose_daemon_hook_commands(Path::new(PROGRAM), CodexShellKind::Sh)
+                    .expect("the path is text"),
             ),
             "replaced" => TerminalServiceHooks::ProgramReplaced,
             _ => TerminalServiceHooks::NoHooks,
@@ -368,5 +391,50 @@ mod tests {
                 .any(|argument| argument.starts_with("hooks.")),
             "{arguments:?}"
         );
+    }
+
+    /// A daemon program path holding the characters each shell's quoting must keep.
+    const QUOTED_PROGRAM: &str = "/opt/it's 100%/sidekicks-daemon";
+
+    // Killed by quoting the hook words for another shell than the session's: zsh, bash and sh read
+    // the line back as the program and its four arguments.
+    #[rstest]
+    #[case::zsh(CodexShellKind::Zsh)]
+    #[case::bash(CodexShellKind::Bash)]
+    #[case::sh(CodexShellKind::Sh)]
+    fn a_posix_shells_hook_line_reads_back_as_its_words(#[case] shell_kind: CodexShellKind) {
+        let hooks = compose_daemon_hook_commands(Path::new(QUOTED_PROGRAM), shell_kind)
+            .expect("the path is text");
+
+        assert_eq!(
+            shlex::split(&hooks.pre_tool_use),
+            Some(
+                [QUOTED_PROGRAM, "hook", "provider", "--event", "PreToolUse"]
+                    .map(str::to_owned)
+                    .to_vec()
+            )
+        );
+    }
+
+    // Killed by quoting for `sh` where the session's shell is PowerShell, which needs its call
+    // operator before a quoted program and doubles a quote inside one, or cmd, which takes double
+    // quotes and expands `%`.
+    #[rstest]
+    #[case::powershell(
+        CodexShellKind::PowerShell,
+        "& '/opt/it''s 100%/sidekicks-daemon' 'hook' 'provider' '--event' 'PreToolUse'"
+    )]
+    #[case::cmd(
+        CodexShellKind::Cmd,
+        r#""/opt/it's 100%%cd:~,%/sidekicks-daemon" "hook" "provider" "--event" "PreToolUse""#
+    )]
+    fn a_hook_line_is_quoted_for_the_sessions_shell(
+        #[case] shell_kind: CodexShellKind,
+        #[case] expected: &str,
+    ) {
+        let hooks = compose_daemon_hook_commands(Path::new(QUOTED_PROGRAM), shell_kind)
+            .expect("the path is text");
+
+        assert_eq!(hooks.pre_tool_use, expected);
     }
 }

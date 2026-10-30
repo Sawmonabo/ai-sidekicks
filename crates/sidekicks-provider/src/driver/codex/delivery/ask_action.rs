@@ -8,7 +8,7 @@
 //! the shell, read once on the ask's own shell-line reader for every check, and a tool server's
 //! call is named as Codex's pre-tool hook names it.
 
-use std::path::Path;
+use std::path::PathBuf;
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::approval::RememberedScopeKind;
@@ -51,20 +51,20 @@ pub(crate) struct CodexAskReading {
 /// file itself; `called_tool` is the tool of the one tool call in flight on the ask's thread for
 /// its server, where there is exactly one, since Codex's own ask before a tool call names no tool.
 /// No other ask reads them. A command's line is read on `reader`, the ask's own, which runs on the
-/// daemon-wide shell-line bound's blocking thread, and shown without the `-lc` wrapper of
-/// `command_shell`, the shell Codex starts its lines with, as well as a system shell's.
+/// daemon-wide shell-line bound's blocking thread, and shown without the `-lc` wrapper of any of
+/// `line_shells`, the shells Codex starts a command's line with, as well as a system shell's.
 pub(crate) fn read_codex_ask_action(
     method: &str,
     params: &Map<String, Value>,
     changed_paths: &[String],
     called_tool: Option<&str>,
     background_work: &BackgroundWorkForms,
-    command_shell: Option<&Path>,
+    line_shells: &[PathBuf],
     reader: &mut ShellLineReader,
 ) -> CodexAskReading {
     match method {
         CODEX_COMMAND_APPROVAL_METHOD => {
-            read_command_ask(params, background_work, command_shell, reader)
+            read_command_ask(params, background_work, line_shells, reader)
         }
         CODEX_FILE_CHANGE_APPROVAL_METHOD => CodexAskReading {
             action: ProviderAskAction::FileChange {
@@ -91,7 +91,7 @@ pub(crate) fn read_codex_ask_action(
 fn read_command_ask(
     params: &Map<String, Value>,
     background_work: &BackgroundWorkForms,
-    command_shell: Option<&Path>,
+    line_shells: &[PathBuf],
     reader: &mut ShellLineReader,
 ) -> CodexAskReading {
     let command = read_non_empty_string(params, "command").unwrap_or_default();
@@ -135,7 +135,7 @@ fn read_command_ask(
         let reading = reader.read(command);
         (
             ProviderAskAction::Command {
-                command: unwrap_shell_command_line(command, command_shell).into_owned(),
+                command: unwrap_shell_command_line(command, line_shells).into_owned(),
             },
             refuse_background_work(background_work, reader, &reading),
         )
@@ -198,7 +198,7 @@ fn read_tool_server_ask(
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::PathBuf;
 
     use rstest::rstest;
     use serde_json::{Value, json};
@@ -358,7 +358,7 @@ mod tests {
             &changed_paths,
             called_tool,
             &BackgroundWorkForms::of_providers(PROVIDERS),
-            Some(Path::new(COMMAND_SHELL)),
+            &[PathBuf::from(COMMAND_SHELL)],
             &mut reader,
         );
 

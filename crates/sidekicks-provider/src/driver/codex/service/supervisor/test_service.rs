@@ -31,6 +31,7 @@ use crate::command::askpass::command_askpass_program_path;
 use crate::command::channel::command_channel_root;
 use crate::command::waiting_checks::SystemInputWaitReader;
 use crate::command::wrapper::command_wrapper_program_path;
+use crate::driver::codex::command_shell::CodexShellKind;
 use crate::driver::codex::exec_relay::CodexExecRelayDependencies;
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
 use crate::driver::codex::service::command_line::{
@@ -64,6 +65,9 @@ use crate::spawned_version::{
 /// Whether the test services' daemon runs the hook mode a hook command starts: the tests' program
 /// runs none, so a terminal service starts, and is answered, with no hooks.
 const TEST_DISPATCHES_HOOK_MODE: bool = false;
+
+/// The kind of shell the test services' hooks are quoted for.
+const TEST_SESSION_SHELL_KIND: CodexShellKind = CodexShellKind::Sh;
 
 /// The largest message the scripted service takes, far above any a test sends.
 const SCRIPTED_MESSAGE_LIMIT: usize = 1 << 20;
@@ -207,6 +211,7 @@ pub(crate) fn test_codex_service_dependencies(
         additional_config_overrides: Vec::new(),
         startup_timeout: CODEX_SERVICE_STARTUP_TIMEOUT,
         dispatches_hook_mode: TEST_DISPATCHES_HOOK_MODE,
+        session_shell_kind: TEST_SESSION_SHELL_KIND,
         events,
         release: Arc::new(CodexConversationRelease::default()),
         drains: LastingServiceDrains::default(),
@@ -423,15 +428,16 @@ impl CodexServiceEvents for ExitsHeard {
 /// the daemon starts a terminal service with, as trusted, and no loaded conversation; a config
 /// write is refused, so a start that writes trust fails.
 pub(crate) async fn answer_as_codex_service(stream: impl AsyncRead + AsyncWrite + Unpin) {
-    let hooks = match read_terminal_service_hooks(TEST_DISPATCHES_HOOK_MODE)
-        .expect("the daemon's hooks read")
-    {
-        TerminalServiceHooks::Daemon(hooks) => vec![
-            listed_hook("preToolUse", &hooks.pre_tool_use),
-            listed_hook("postToolUse", &hooks.post_tool_use),
-        ],
-        TerminalServiceHooks::NoHooks | TerminalServiceHooks::ProgramReplaced => Vec::new(),
-    };
+    let hooks =
+        match read_terminal_service_hooks(TEST_DISPATCHES_HOOK_MODE, TEST_SESSION_SHELL_KIND)
+            .expect("the daemon's hooks read")
+        {
+            TerminalServiceHooks::Daemon(hooks) => vec![
+                listed_hook("preToolUse", &hooks.pre_tool_use),
+                listed_hook("postToolUse", &hooks.post_tool_use),
+            ],
+            TerminalServiceHooks::NoHooks | TerminalServiceHooks::ProgramReplaced => Vec::new(),
+        };
     // A probe that only connects ends before the upgrade.
     let Ok(mut socket) = tokio_tungstenite::accept_async(stream).await else {
         return;

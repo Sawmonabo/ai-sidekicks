@@ -1,6 +1,7 @@
 //! A command line run through a shell, as a project's own setup commands run: the person's login
 //! shell where the account names one, else the system's default shell, given the line as each
-//! system's shells read one; and the shells a program that runs command lines falls back to.
+//! system's shells read one; and the shell programs a program that runs command lines looks for,
+//! where each is installed, and the ones it falls back to.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -24,17 +25,54 @@ pub struct LineShellProgram {
     pub installed_paths: &'static [&'static str],
 }
 
-#[cfg(unix)]
 const ZSH: LineShellProgram = LineShellProgram {
     name: "zsh",
     installed_paths: &["/bin/zsh"],
 };
 
-#[cfg(unix)]
 const BASH: LineShellProgram = LineShellProgram {
     name: "bash",
     installed_paths: &["/bin/bash", "/usr/bin/bash"],
 };
+
+const SH: LineShellProgram = LineShellProgram {
+    name: "sh",
+    installed_paths: &["/bin/sh"],
+};
+
+#[cfg(windows)]
+const PWSH: LineShellProgram = LineShellProgram {
+    name: "pwsh",
+    installed_paths: &[r"C:\Program Files\PowerShell\7\pwsh.exe"],
+};
+
+#[cfg(not(windows))]
+const PWSH: LineShellProgram = LineShellProgram {
+    name: "pwsh",
+    installed_paths: &["/usr/local/bin/pwsh"],
+};
+
+#[cfg(windows)]
+const POWERSHELL: LineShellProgram = LineShellProgram {
+    name: "powershell",
+    installed_paths: &[r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"],
+};
+
+#[cfg(not(windows))]
+const POWERSHELL: LineShellProgram = LineShellProgram {
+    name: "powershell",
+    installed_paths: &[],
+};
+
+const CMD: LineShellProgram = LineShellProgram {
+    name: "cmd",
+    installed_paths: &[],
+};
+
+/// Every shell program a program that runs command lines may look for, each with the paths this
+/// system installs it at: zsh, bash, sh, PowerShell 7, Windows PowerShell and Windows' command
+/// interpreter.
+pub const LINE_SHELL_PROGRAMS: &[LineShellProgram] = &[ZSH, BASH, SH, PWSH, POWERSHELL, CMD];
 
 /// The shell programs a program that runs command lines falls back to, in order, where the
 /// account's login shell is none it runs lines in: on macOS zsh, then bash.
@@ -49,16 +87,11 @@ pub const FALLBACK_LINE_SHELLS: &[LineShellProgram] = &[BASH, ZSH];
 /// The shell programs a program that runs command lines falls back to, in order: on Windows,
 /// which names no login shell, PowerShell 7, then Windows PowerShell.
 #[cfg(windows)]
-pub const FALLBACK_LINE_SHELLS: &[LineShellProgram] = &[
-    LineShellProgram {
-        name: "pwsh",
-        installed_paths: &[r"C:\Program Files\PowerShell\7\pwsh.exe"],
-    },
-    LineShellProgram {
-        name: "powershell",
-        installed_paths: &[r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"],
-    },
-];
+pub const FALLBACK_LINE_SHELLS: &[LineShellProgram] = &[PWSH, POWERSHELL];
+
+/// The shell a program that runs command lines takes when no shell it looks for is found: `/bin/sh`
+/// on macOS and Linux, Windows' command interpreter on Windows.
+pub const ULTIMATE_FALLBACK_LINE_SHELL: &str = if cfg!(windows) { "cmd.exe" } else { "/bin/sh" };
 
 /// A command that runs `line` through `shell`: `-c <line>` on macOS and Linux and for any shell on
 /// Windows but its command interpreter, which takes `/d /s /c "<line>"` as written, so the line

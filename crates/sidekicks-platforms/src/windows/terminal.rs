@@ -37,7 +37,7 @@ use windows_sys::core::BOOL;
 use windows_sys::w;
 
 #[cfg(any(test, feature = "test-support"))]
-use crate::shell_folder_start::windows::quote_powershell_literal;
+use crate::powershell_literal::quote_powershell_literal;
 use crate::spawner::Spawner;
 #[cfg(any(test, feature = "test-support"))]
 use crate::terminal::{AbnormalExit, TestProgram};

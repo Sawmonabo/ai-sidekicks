@@ -37,6 +37,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use crate::driver::codex::command_shell::CodexShellKind;
 use crate::driver::codex::exec_relay::{CodexExecRelay, CodexExecRelayDependencies};
 use crate::driver::codex::server_requests::CodexServerRequestResponder;
 use crate::driver::codex::service::asks::CodexServiceAsks;
@@ -112,6 +113,9 @@ pub(crate) struct CodexServiceDependencies {
     /// Whether the daemon's program runs the hook mode a hook command starts, so the terminal
     /// service is started with the daemon's hooks.
     pub(crate) dispatches_hook_mode: bool,
+    /// The kind of shell Codex runs the terminal service's hook commands in, which they are
+    /// quoted for.
+    pub(crate) session_shell_kind: CodexShellKind,
     /// The session's recovery, told of exits, recoveries, crash loops and planned restarts.
     pub(crate) events: Arc<dyn CodexServiceEvents>,
     /// The conversations sessions moved off, which see each of their frames first.
