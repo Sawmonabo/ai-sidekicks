@@ -9,7 +9,7 @@ use sidekicks_client::error::ClientError;
 use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
-use sidekicks_platforms::ChildExit;
+use sidekicks_platforms::{ChildExit, ServiceRegistrationError};
 
 use crate::commands::daemon::status::describe_cannot_start;
 use crate::confirmation::ConfirmationUnavailableError;
@@ -112,13 +112,43 @@ pub(crate) enum CommandFailure {
         /// Why its start failed, where its status file says.
         cannot_start: Option<DaemonCannotStart>,
     },
+    /// The service registered to start at login did not answer the handshake within the wait; the
+    /// system's service manager keeps it, so it was not stopped.
+    #[error(
+        "Installed the background service, but it did not answer within {} ms of its start",
+        waited.as_millis()
+    )]
+    InstalledNotAnswering {
+        /// How long the install waited.
+        waited: Duration,
+        /// The last handshake's failure.
+        #[source]
+        last_failure: ClientError,
+    },
+    /// This system has no registration that starts the service at login.
+    #[error("The background service cannot be registered to start at login on this system")]
+    ServiceRegistrationMissing,
+    /// The app's own registration runs the service, so the command line has nothing of its own to
+    /// remove.
+    #[error(
+        "The app runs the background service on this computer. Turn it off in System Settings \
+         › General › Login Items & Extensions."
+    )]
+    AppOwnsService,
+    /// The system's service manager refused a step of the service's registration.
+    #[error("The system refused the background service's registration")]
+    RegistrationRefused(#[source] ServiceRegistrationError),
 }
 
 impl CommandFailure {
     /// The exit code the failure ends the run with.
     const fn exit_code(&self) -> ExitCode {
         match self {
-            Self::StartTimedOut { .. } | Self::DaemonExited { .. } => ExitCode::Unavailable,
+            Self::StartTimedOut { .. }
+            | Self::DaemonExited { .. }
+            | Self::InstalledNotAnswering { .. } => ExitCode::Unavailable,
+            Self::ServiceRegistrationMissing | Self::AppOwnsService => ExitCode::Configuration,
+            Self::RegistrationRefused(_) => ExitCode::Software,
         }
     }
 }
@@ -236,7 +266,7 @@ mod tests {
     use sidekicks_contracts::jsonrpc::message::{ConnectionUnavailableReason, JsonRpcErrorData};
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
-    use sidekicks_platforms::ChildExit;
+    use sidekicks_platforms::{ChildExit, ServiceRegistrationError};
 
     use super::{CommandFailure, ExitCode, ProcessEnding, exit_code_for_failure};
     use crate::confirmation::ConfirmationUnavailableError;
@@ -425,6 +455,25 @@ mod tests {
             cannot_start: None,
         }).context("could not read why the background service cannot start"),
         ProcessEnding::Exit(ExitCode::Unavailable)
+    )]
+    #[case::installed_not_answering(
+        CommandFailure::InstalledNotAnswering {
+            waited: Duration::from_millis(200),
+            last_failure: ClientError::link_down(LinkFault::PeerClosed),
+        }.into(),
+        ProcessEnding::Exit(ExitCode::Unavailable)
+    )]
+    #[case::no_service_registration_here(
+        CommandFailure::ServiceRegistrationMissing.into(),
+        ProcessEnding::Exit(ExitCode::Configuration)
+    )]
+    #[case::app_owns_the_service(
+        CommandFailure::AppOwnsService.into(),
+        ProcessEnding::Exit(ExitCode::Configuration)
+    )]
+    #[case::registration_refused(
+        CommandFailure::RegistrationRefused(ServiceRegistrationError::NoHomeFolder).into(),
+        ProcessEnding::Exit(ExitCode::Software)
     )]
     #[case::anything_else(anyhow!("failed"), ProcessEnding::Exit(ExitCode::Software))]
     fn a_failure_ends_the_run_as_its_cause_names(

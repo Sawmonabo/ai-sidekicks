@@ -73,15 +73,11 @@ pub(crate) fn start<Output: Write, ErrorOutput: Write>(
     let deadline = args
         .timeout
         .map_or(HANDSHAKE_DEADLINE, Duration::from_millis);
-    let mut is_repair_shown = false;
-    let mut repair_written = Ok(());
+    let mut repair_line = RepairLine::new(&mut context.stderr);
     let started = start_daemon(args.daemon_path.as_deref(), deadline, |details| {
-        if !is_repair_shown {
-            is_repair_shown = true;
-            repair_written = writeln!(context.stderr, "{}", describe_repairing(details));
-        }
+        repair_line.show(details);
     });
-    repair_written?;
+    repair_line.finish()?;
     let line = match started? {
         DaemonStart::AlreadyRunning => "The background service is already running.\n",
         DaemonStart::Started { scope_refused } => {
@@ -98,6 +94,38 @@ pub(crate) fn start<Output: Write, ErrorOutput: Write>(
     context.stdout.write_all(line.as_bytes())?;
     context.stdout.flush()?;
     Ok(ExitCode::Success)
+}
+
+/// The repair's line on stderr, written once however often a waited-for daemon answers that it is
+/// repairing its database file; a failed write is kept for [`RepairLine::finish`].
+pub(crate) struct RepairLine<'a, ErrorOutput: Write> {
+    stderr: &'a mut ErrorOutput,
+    is_shown: bool,
+    written: io::Result<()>,
+}
+
+impl<'a, ErrorOutput: Write> RepairLine<'a, ErrorOutput> {
+    /// A repair line not yet written to `stderr`.
+    pub(crate) fn new(stderr: &'a mut ErrorOutput) -> Self {
+        Self {
+            stderr,
+            is_shown: false,
+            written: Ok(()),
+        }
+    }
+
+    /// Writes the line for `details` unless it was written already.
+    pub(crate) fn show(&mut self, details: DaemonRepairingDetails) {
+        if !self.is_shown {
+            self.is_shown = true;
+            self.written = writeln!(self.stderr, "{}", describe_repairing(details));
+        }
+    }
+
+    /// Ends the line's use; fails with its write's error where the write failed.
+    pub(crate) fn finish(self) -> io::Result<()> {
+        self.written
+    }
 }
 
 /// Starts this machine's background service unless one answers, on a runtime of its own, and

@@ -2,73 +2,18 @@
 //! home, temporary folder and runtime folder of the test's own, every process it starts ended
 //! before the test returns.
 
-use std::env::consts::EXE_SUFFIX;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 use std::time::Duration;
 
 use serde::Deserialize;
 use sidekicks_contracts::process_identity::ProcessIdentity;
-use sidekicks_platforms::{
-    LeftoverSweep, PathRules, pin_identified_process, pin_running_process, replace_file_atomically,
-};
-use tempfile::TempDir;
+use sidekicks_platforms::{pin_identified_process, pin_running_process};
+
+use crate::helpers::{PrivateFolders, built_daemon_program, path_text, text};
 
 /// How long a process the test ends has between the stop and the kill.
 const STOP_GRACE: Duration = Duration::from_secs(5);
-
-/// A home, temporary folder and runtime folder of the test's own, so nothing it starts reads or
-/// writes the person's.
-struct PrivateFolders {
-    root: TempDir,
-}
-
-impl PrivateFolders {
-    /// Makes the three folders in a new temporary folder, its name short enough that the daemon's
-    /// socket under the home fits the system's bound on a socket's path.
-    fn new() -> Self {
-        let root = tempfile::Builder::new()
-            .prefix("s")
-            .tempdir()
-            .expect("a temporary folder is made");
-        for name in ["h", "t", "x"] {
-            fs::create_dir(root.path().join(name)).expect("a private folder is made");
-        }
-        Self { root }
-    }
-
-    fn path(&self) -> &Path {
-        self.root.path()
-    }
-
-    /// Runs the built `sidekicks` with `arguments` on these folders, and answers how it ended.
-    fn run_sidekicks(&self, arguments: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_sidekicks"))
-            .args(arguments)
-            .env(
-                PathRules::NATIVE.home_environment_name(),
-                self.path().join("h"),
-            )
-            .env("TMPDIR", self.path().join("t"))
-            .env("XDG_RUNTIME_DIR", self.path().join("x"))
-            .output()
-            .expect("the program runs")
-    }
-
-    /// Writes `body` as an executable POSIX script `name` in the root, and answers its path.
-    fn write_script(&self, name: &str, body: &str) -> PathBuf {
-        let path = self.path().join(name);
-        replace_file_atomically(
-            &path,
-            format!("#!/bin/sh\n{body}\n").as_bytes(),
-            0o755,
-            LeftoverSweep::Unswept,
-        )
-        .expect("the script is written");
-        path
-    }
-}
 
 /// Ends the daemon these folders run, the one `daemon status --json` names, when it drops, so the
 /// test leaves no daemon behind on any path.
@@ -112,30 +57,9 @@ impl Drop for StandInEnding {
     }
 }
 
-/// The built daemon program, found beside this test program as the build lays them out. Panics
-/// with the build to run when it is missing, since running this crate's tests does not build it.
-fn built_daemon_program() -> PathBuf {
-    let test_program = std::env::current_exe().expect("the test program names itself");
-    let program = test_program
-        .parent()
-        .and_then(Path::parent)
-        .expect("the test program sits in the build's deps folder")
-        .join(format!("sidekicks-daemon{EXE_SUFFIX}"));
-    assert!(
-        program.is_file(),
-        "{} is missing: run `cargo build -p sidekicks-daemon` first",
-        program.display()
-    );
-    program
-}
-
 fn read_pid(pid_file: &Path) -> Option<u32> {
     let text = fs::read_to_string(pid_file).ok()?;
     Some(text.trim().parse().expect("the stand-in wrote its id"))
-}
-
-fn text(bytes: &[u8]) -> &str {
-    std::str::from_utf8(bytes).expect("UTF-8")
 }
 
 // Fails when the start reports success at the spawn rather than at the handshake, since the status
@@ -212,8 +136,4 @@ fn a_started_program_that_never_answers_is_ended_and_the_start_exits_69() {
             .is_none(),
         "the program that never answered still runs"
     );
-}
-
-fn path_text(path: &Path) -> &str {
-    path.to_str().expect("a temporary path is UTF-8")
 }
