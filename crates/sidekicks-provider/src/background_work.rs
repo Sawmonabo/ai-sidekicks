@@ -12,12 +12,13 @@ use sidekicks_policy::shell_commands::{
 
 use crate::driver::{BackgroundWork, ProviderDescriptor};
 
-// The reason the agent reads when a command's program is a word only the run decides, which may
-// be any provider's own program with any of its words.
-const UNDECIDED_PROGRAM_REFUSAL: &str = "A program named by a variable, a substitution or a \
-     pattern is decided only as the line runs, and it may start work outside this session, which \
-     would run outside the session's agents, outside Stop and Interrupt, and off its receipt; it \
-     is refused inside the session, so name the program plainly.";
+// The reason the agent reads when only the run decides a command's program or what it runs,
+// which may be any provider's own program with any of its words.
+const UNDECIDED_PROGRAM_REFUSAL: &str = "A program or line decided only as the line runs, \
+     through a variable, a substitution, a pattern, or a shell or xargs reading its input, may \
+     start work outside this session, which would run outside the session's agents, outside Stop \
+     and Interrupt, and off its receipt; it is refused inside the session, so name the program \
+     and its words plainly.";
 
 /// Every registered provider's background work: the names its command runs under, the
 /// subcommands and flags that start the work, and the refusal an agent reads. Built once at the
@@ -95,8 +96,9 @@ pub(crate) fn plain_background_work_forms(forms: &BackgroundWorkForms) -> Vec<St
     plain
 }
 
-// The refusal for a command of `reading` that hands a shell no string and starts background work;
-// each string a command hands a shell is read and left in `rereads` to be judged in its place.
+// The refusal for a command of `reading` whose program only the run decides, or that hands a shell
+// no string and starts background work; each string any other command hands a shell is read and
+// left in `rereads` to be judged in its place.
 fn refusal_in(
     forms: &BackgroundWorkForms,
     reader: &mut ShellLineReader,
@@ -104,11 +106,12 @@ fn refusal_in(
     rereads: &mut Vec<Arc<ShellLineReading>>,
 ) -> Option<&'static str> {
     for command in reading.commands() {
+        if command.is_program_undecided() && !forms.providers.is_empty() {
+            return Some(UNDECIDED_PROGRAM_REFUSAL);
+        }
         let strings = reader.read_command_strings(command);
         if !strings.is_empty() {
             rereads.extend(strings);
-        } else if command.is_program_undecided() && !forms.providers.is_empty() {
-            return Some(UNDECIDED_PROGRAM_REFUSAL);
         } else if let Some(refusal) = forms
             .providers
             .iter()
@@ -223,14 +226,18 @@ mod tests {
     }
 
     // Killed by refusing an undecided program with the first provider's own reason, which names
-    // forms the line does not hold, and by dropping the mark a wrapper's split value, an env split
-    // string's undecided program or a split folder sets.
+    // forms the line does not hold, by dropping the mark a wrapper's split value, an env split
+    // string's undecided program, a split folder, xargs's replacement or zsh's `=name` sets, and
+    // by reading a marked command's shell string before its mark.
     #[rstest]
     #[case::expanded_program("$C --bg x")]
     #[case::quoted_parameter_program("\"$EDITOR\" notes.md")]
     #[case::split_value_of_a_wrapper("U=\"y claude --bg\"; env -u $U x")]
     #[case::expanded_split_string("env -S \"$X\"")]
     #[case::split_folder_of_the_program("C=\"claude --bg go\"; $C/x")]
+    #[case::split_value_before_a_shell_string("U=\"y claude --bg\"; env -u $U sh -c x")]
+    #[case::xargs_replaced_program("echo x | xargs -J % % --bg")]
+    #[case::equals_expansion("nice =claude --bg")]
     fn an_undecided_program_is_refused_with_a_reason_naming_no_provider(#[case] line: &str) {
         let mut reader = ShellLineReader::new(LIMIT);
         let reading = reader.read(line);
