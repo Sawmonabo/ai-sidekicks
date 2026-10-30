@@ -14,6 +14,7 @@ use reqwest::header::{
     ACCEPT, ACCEPT_ENCODING, AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGENT,
 };
 use serde::Deserialize;
+use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::PathRules;
 use tokio::sync::OnceCell;
 use tokio::time::Instant;
@@ -79,8 +80,27 @@ const RETRY_BASE_DELAY: Duration = Duration::from_millis(500);
 /// The time every try and wait of one read fits in.
 const RETRY_BUDGET: Duration = Duration::from_secs(12);
 
+/// The longest Claude Code's own fetch of the connector list runs once it starts: every try and
+/// wait inside its budget, then the one try again without the additional accounts, which the
+/// budget does not bound (`ne`, b:15671200 to b:15673190).
+pub(crate) const CLAUDE_CONNECTOR_FETCH_WINDOW: Duration =
+    RETRY_BUDGET.saturating_add(ATTEMPT_TIMEOUT);
+
+/// The variable that switches Claude Code's claude.ai connectors off.
+const CONNECTORS_SWITCH_VARIABLE: &str = "ENABLE_CLAUDEAI_MCP_SERVERS";
+
 /// The idle connections the client keeps per host: the read sends one request at a time.
 const IDLE_CONNECTIONS_PER_HOST: usize = 1;
+
+/// What the read of an account's connector list found: the list's marks, and whether the account's
+/// own Claude Code fetches the list too, so its `mcp_status` can still be waiting on that fetch.
+pub(crate) struct ClaudeConnectorListReading {
+    /// The marks; `None` where the list was not read.
+    pub(crate) marks: Option<ClaudeConnectorMarks>,
+    /// Whether the account's Claude Code fetches its connectors: the account holds a claude.ai
+    /// sign-in and the environment its process starts with does not switch them off.
+    pub(crate) is_fetched_by_claude: bool,
+}
 
 /// Reads each account's connector list for its organization marks, with the account's sign-in.
 pub(crate) struct ClaudeOrganizationMarks {
@@ -130,23 +150,36 @@ impl ClaudeOrganizationMarks {
     }
 
     /// The marks of the connectors on the list of the account whose process `environment`
-    /// started, read as the build `build_version` reads it. `None`, with the reason logged at
-    /// debug, where the build reported no version, the account names a host Claude Code refuses,
-    /// no sign-in with the list's scope is read, or the list cannot be read.
+    /// started, read as the build `build_version` reads it, and whether that process fetches the
+    /// list itself. No marks, with the reason logged at debug, where the build reported no
+    /// version, the account names a host Claude Code refuses, no sign-in with the list's scope is
+    /// read, or the list cannot be read.
     pub(crate) async fn read(
         &self,
         environment: &[(String, String)],
         build_version: Option<&str>,
-    ) -> Option<ClaudeConnectorMarks> {
+    ) -> ClaudeConnectorListReading {
+        let is_switched_on = !are_connectors_switched_off(environment);
+        let unread = |is_fetched_by_claude| ClaudeConnectorListReading {
+            marks: None,
+            is_fetched_by_claude,
+        };
         let Some(build_version) = build_version else {
             tracing::debug!(
                 "no connector marks read: the account's Claude Code reported no version to send"
             );
-            return None;
+            return unread(is_switched_on);
         };
-        let base = claude_api_base(environment)?;
-        let sign_in = self.sign_in.read(environment).await?;
-        self.read_list(&base, &sign_in, build_version).await
+        let Some(base) = claude_api_base(environment) else {
+            return unread(is_switched_on);
+        };
+        let Some(sign_in) = self.sign_in.read(environment).await else {
+            return unread(false);
+        };
+        ClaudeConnectorListReading {
+            marks: self.read_list(&base, &sign_in, build_version).await,
+            is_fetched_by_claude: is_switched_on,
+        }
     }
 
     // The marks of the list at `base`, read with `sign_in` as the build `build_version` reads it;
@@ -198,6 +231,22 @@ pub(crate) fn read_connector_list(body: &[u8]) -> Option<ClaudeConnectorMarks> {
     Some(index_connector_marks(
         &list.data.map(|entries| entries.0).unwrap_or_default(),
     ))
+}
+
+/// Whether `environment` switches Claude Code's claude.ai connectors off, as its `is` reads
+/// `ENABLE_CLAUDEAI_MCP_SERVERS` (b:8444642): `0`, `false`, `no` or `off`, trimmed and in any case.
+pub(crate) fn are_connectors_switched_off(environment: &[(String, String)]) -> bool {
+    PathRules::NATIVE
+        .environment_value(environment, CONNECTORS_SWITCH_VARIABLE)
+        .is_some_and(|value| {
+            matches!(
+                value
+                    .trim_matches(is_ecmascript_whitespace)
+                    .to_lowercase()
+                    .as_str(),
+                "0" | "false" | "no" | "off"
+            )
+        })
 }
 
 // The client the list is read through: one idle connection, decoding a gzip, deflate or brotli

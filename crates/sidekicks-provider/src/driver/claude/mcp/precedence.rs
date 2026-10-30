@@ -22,7 +22,8 @@ use crate::driver::mcp_server::read::{
 const CLAUDE_TOOL_APPROVAL_MODE: McpApprovalMode = McpApprovalMode::Prompt;
 
 /// The servers one account brings: its organization's servers and its connectors, with what the
-/// account's own process reported of each connector and each organization server a probe can send.
+/// account's own process reported of each connector and each organization server, and each
+/// organization server a probe can send.
 /// It derives no `Debug`, since an organization entry carries its headers' values.
 #[derive(Clone)]
 pub(crate) struct ClaudeMcpAccountServers {
@@ -34,6 +35,9 @@ pub(crate) struct ClaudeMcpAccountServers {
     pub(crate) connectors: Vec<ClaudeMcpServer>,
     /// What the account's process reported of each connector: its status, error text and tools.
     pub(crate) connector_readings: Vec<McpProbeReading>,
+    /// What the account's process reported of each organization server past `pending`: its
+    /// status, error text and tools, so only a server it reports nothing settled of is probed.
+    pub(crate) organization_readings: Vec<McpProbeReading>,
     /// Each organization server as `mcp_set_servers` takes it, by its name, where the account's
     /// managed settings declare it whole.
     pub(crate) organization_entries: BTreeMap<McpServerName, ClaudeToolServerEntry>,
@@ -391,8 +395,9 @@ mod tests {
     // Killed by ranking a scope above the organization, by matching a connector on its stripped
     // address, which drops the query that keeps the second connector apart, by not folding the
     // address's case, default port and trailing slash, by a `project` server the root keeps out
-    // taking a `user` server's name, by the person's servers left loadable
-    // under a managed file, and by a name the organization's server loads kept out.
+    // taking a `user` server's name, that kept-out name matched only exactly (`my server` keeps
+    // out `my_server`), by the person's servers left loadable under a managed file, and by a name
+    // the organization's server loads kept out.
     #[test]
     fn the_organization_outranks_every_scope_and_a_connector_yields_only_at_its_folded_address() {
         let provider = DESCRIPTOR.provider_id();
@@ -426,16 +431,17 @@ mod tests {
                 remote_server(user("github"), "https://github.example.com/mcp"),
                 remote_server(user("docs"), "https://Docs.Example.com:443/mcp"),
                 remote_server(user("notes"), "https://notes.example.com/mcp"),
+                remote_server(user("my_server"), "https://mine.example.com/mcp"),
             ],
             plugin_servers: Vec::new(),
             roots: vec![ClaudeMcpRootConfig {
                 root: root.clone(),
                 local_servers: Vec::new(),
-                project_servers: vec![remote_server(
-                    project("docs"),
-                    "https://kept-out.example.com/mcp",
-                )],
-                kept_out_server_names: vec![server_name("docs")],
+                project_servers: vec![
+                    remote_server(project("docs"), "https://kept-out.example.com/mcp"),
+                    remote_server(project("my_server"), "https://kept-out.example.com/mine"),
+                ],
+                kept_out_server_names: vec![server_name("docs"), server_name("my server")],
                 switched_off_server_names: Vec::new(),
             }],
             server_policy: McpServerPolicy::default(),
@@ -454,6 +460,7 @@ mod tests {
                 ),
             ],
             connector_readings: Vec::new(),
+            organization_readings: Vec::new(),
             organization_entries: BTreeMap::new(),
             lacks_listed_connectors: false,
         }];
@@ -466,7 +473,7 @@ mod tests {
             superseded_in(declarations, &user("github")),
             std::slice::from_ref(&at_root)
         );
-        for kept in ["docs", "notes"] {
+        for kept in ["docs", "notes", "my_server"] {
             assert_eq!(
                 superseded_in(declarations, &user(kept)),
                 [] as [McpOverrideOrigin; 0],
@@ -491,12 +498,17 @@ mod tests {
         assert_eq!(ranking.roots[0].provider_loaded, [organization]);
         assert_eq!(
             ranking.roots[0].kept_out_server_names,
-            [server_name("docs"), server_name("notes")]
+            [
+                server_name("docs"),
+                server_name("my server"),
+                server_name("notes"),
+                server_name("my_server")
+            ]
         );
         let unmanaged = rank_claude_mcp_servers(&reading, &accounts, false);
         assert_eq!(
             unmanaged.roots[0].kept_out_server_names,
-            [server_name("docs")]
+            [server_name("docs"), server_name("my server")]
         );
     }
 }

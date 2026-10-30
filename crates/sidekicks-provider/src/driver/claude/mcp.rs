@@ -8,7 +8,7 @@ pub(crate) mod machine_probe;
 pub(crate) mod organization;
 pub(crate) mod precedence;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use futures::future::join_all;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
@@ -36,21 +36,21 @@ use crate::driver::mcp_server::status::{FAILURE_TEXT_MAX_CODE_POINTS, McpServerR
 /// person's config ranked under each requested account's connectors and organization servers, a
 /// refresh also re-reading each account and answering what each account's process reported of its
 /// connectors as their probe readings, and the probe's readings of each declared binding the
-/// request's probe scope names. An account whose read failed brings no servers, its failure
-/// recorded where the read ran. A connector is never probed, since its account's process already
-/// reports it; an organization's server is probed under the first account that brings it, and
-/// every other binding under the first account that answered; with no such account no Claude Code
-/// process can run, so each target reads `unknown`, carrying the first account's failure as its
-/// failure text where accounts were asked.
-/// Fails as the config read or the probe does.
+/// request's probe scope names, the managed settings read from `managed_settings_folder`. An
+/// account whose read failed brings no servers, its failure recorded where the read ran. A
+/// connector is never probed, since its account's process already reports it, nor is an
+/// organization's server that process reports past `pending`, which reads as reported; any other
+/// organization server is probed under the first account that brings it, and every other binding
+/// under the first account that answered; with no such account no Claude Code process can run, so
+/// each target reads `unknown`, carrying the first account's failure as its failure text where
+/// accounts were asked. Fails as the config read or the probe does.
 pub(crate) async fn read_claude_mcp_servers(
     driver: &ClaudeDriver,
+    managed_settings_folder: Option<&Path>,
     request: McpServersReadRequest,
 ) -> Result<ProviderMcpServersReading, DriverError> {
     let sources = &driver.sources;
-    let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
-    let has_managed_mcp_file =
-        has_readable_managed_mcp_file(managed_settings_folder.as_deref()).await;
+    let has_managed_mcp_file = has_readable_managed_mcp_file(managed_settings_folder).await;
     let plugin_home = plugin_home(&sources.home_folder, &DESCRIPTOR.provider_id());
     let roots: Vec<ClaudeMcpRoot> = request
         .attached_roots
@@ -64,7 +64,7 @@ pub(crate) async fn read_claude_mcp_servers(
         ClaudePersonConfigFiles::resolve(&sources.base_environment, &sources.home_folder).await;
     let config_sources = ClaudeMcpConfigSources {
         person: &person,
-        managed_settings_folder: managed_settings_folder.as_deref(),
+        managed_settings_folder,
         plugin_home: &plugin_home,
         roots: &roots,
     };
@@ -127,7 +127,18 @@ pub(crate) async fn read_claude_mcp_servers(
         }
         planned.push(&declaration.binding);
         match plan_claude_probe(&declaration.binding, &reading.roots) {
-            Some(ClaudeProbePlan::Probe(target)) => targets_by_account[index].push(target),
+            Some(ClaudeProbePlan::Probe(target)) => {
+                let reported = accounts.get(index).and_then(|account| {
+                    account
+                        .organization_readings
+                        .iter()
+                        .find(|reading| reading.binding == target.binding)
+                });
+                match reported {
+                    Some(reading) => probe_readings.push(reading.clone()),
+                    None => targets_by_account[index].push(target),
+                }
+            }
             Some(ClaudeProbePlan::Withheld(reading)) => probe_readings.push(reading),
             None => {}
         }
@@ -186,6 +197,7 @@ mod tests {
 
     use serde_json::json;
     use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
+    use sidekicks_contracts::wire::text::FreeFormText;
 
     use super::read_claude_mcp_servers;
     use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
@@ -194,12 +206,24 @@ mod tests {
     use crate::driver::mcp_server::status::McpServerReading;
     use crate::runtime_binding::test_store::test_provider_account_id;
 
+    // A refresh that probes every binding of the test's account.
+    fn refresh_probing_everything() -> McpServersReadRequest {
+        McpServersReadRequest {
+            attached_roots: Vec::new(),
+            provider_account_ids: vec![test_provider_account_id()],
+            is_refresh: true,
+            probe: McpProbeScope::EveryBinding,
+            emulated_local_bindings: Vec::new(),
+        }
+    }
+
     // With every asked account's read failing, no Claude Code process can run a probe, so a
     // personal server reads `unknown` with the account's failure as its failure text. Killed by
     // the reading left without a cause.
     #[tokio::test]
     async fn an_unprobed_server_names_the_failed_account_read() {
         let fixture = ScriptedDriver::new();
+        let managed_settings = tempfile::tempdir().expect("an empty managed settings folder");
         let home = &fixture.driver.sources.home_folder;
         std::fs::create_dir_all(home).expect("the home folder is made");
         std::fs::write(
@@ -213,13 +237,8 @@ mod tests {
 
         let reading = read_claude_mcp_servers(
             &fixture.driver,
-            McpServersReadRequest {
-                attached_roots: Vec::new(),
-                provider_account_ids: vec![test_provider_account_id()],
-                is_refresh: true,
-                probe: McpProbeScope::EveryBinding,
-                emulated_local_bindings: Vec::new(),
-            },
+            Some(managed_settings.path()),
+            refresh_probing_everything(),
         )
         .await
         .expect("the read answers");
@@ -237,5 +256,55 @@ mod tests {
             failure_text.contains("get_binary_version"),
             "{failure_text}"
         );
+    }
+    // An organization server the account's process reports past `pending` reads as its row
+    // reports it, with its tools, and starts no probe, though its entry fetches its headers and
+    // could not be sent whole. Killed by the row's reading left unused, which reads `unknown`
+    // unsent.
+    #[tokio::test]
+    async fn an_organization_server_its_account_reports_reads_as_its_row() {
+        let fixture = ScriptedDriver::new();
+        let managed_settings = tempfile::tempdir().expect("an empty managed settings folder");
+        std::fs::create_dir_all(&fixture.driver.sources.home_folder)
+            .expect("the home folder is made");
+        fixture.starts.script_account_servers(
+            json!({ "mcpServers": [{
+                "name": "org-helper",
+                "status": "connected",
+                "scope": "managed",
+                "config": { "type": "http", "url": "https://org-helper.example.com" },
+                "tools": [{ "name": "search" }]
+            }] }),
+            json!({ "effective": { "managedMcpServers": { "org-helper": {
+                "type": "http",
+                "url": "https://org-helper.example.com/mcp",
+                "headersHelper": "./print-headers.sh"
+            } } } }),
+        );
+
+        let reading = read_claude_mcp_servers(
+            &fixture.driver,
+            Some(managed_settings.path()),
+            refresh_probing_everything(),
+        )
+        .await
+        .expect("the read answers");
+
+        let organization = reading
+            .probe_readings
+            .iter()
+            .find(|reading| matches!(&reading.binding, McpServerBindingRef::Managed { .. }))
+            .expect("the organization server has a reading");
+        assert_eq!(
+            organization.reading,
+            McpServerReading::Observed(McpServerStatus::Connected)
+        );
+        let tool_names: Vec<&str> = organization
+            .tool_names
+            .iter()
+            .map(FreeFormText::as_str)
+            .collect();
+        assert_eq!(tool_names, ["search"]);
+        assert!(fixture.starts.take_mcp_probe_starts().is_empty());
     }
 }

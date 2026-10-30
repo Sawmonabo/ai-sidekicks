@@ -175,8 +175,8 @@ pub(crate) fn plan_claude_probe(
 /// is re-read from the person's config, each file once. A target sent with its declaration whose
 /// entry is gone gets no reading; one whose entry the set cannot carry whole, an organization's
 /// server with no sendable entry among them, reads `unknown` unsent; one the status never names
-/// reads `starting` with no tools. Fails as the config read, a
-/// start or a request does, the process then closed.
+/// reads `starting` with no tools. Fails as the config read, a start or a request does, the
+/// process then closed.
 pub(crate) async fn probe_claude_mcp_servers(
     sources: &ClaudeMcpProbeSources<'_>,
     targets: &[McpProbeTarget],

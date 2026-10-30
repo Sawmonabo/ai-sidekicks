@@ -495,7 +495,11 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         request: McpServersReadRequest,
     ) -> BoxFuture<'_, Result<ProviderMcpServersReading, DriverError>> {
-        read_claude_mcp_servers(self, request).boxed()
+        async move {
+            let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
+            read_claude_mcp_servers(self, managed_settings_folder.as_deref(), request).await
+        }
+        .boxed()
     }
 
     fn reread_live_mcp_statuses(&self) -> BoxFuture<'_, ()> {

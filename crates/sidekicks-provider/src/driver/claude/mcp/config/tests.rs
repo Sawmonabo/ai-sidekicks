@@ -124,7 +124,10 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
         &json!({ "mcpServers": {
             "remote": {
                 "type": "http",
-                "url": "https://alice-userinfo:hunter2-password@Mcp.Example.com/mcp?api_key=query-secret-value&team=a",
+                "url": concat!(
+                    "https://alice-userinfo:hunter2-password@Mcp.Example.com/mcp",
+                    "?api_key=query-secret-value&team=a"
+                ),
                 "headers": {
                     "Authorization": "Bearer bearer-secret-token",
                     "X-Api-Key": "header-secret-value",
@@ -293,4 +296,73 @@ async fn a_legacy_config_that_holds_anything_is_read_in_place_of_claude_json(
         .map(|server| server.binding.server_name().as_str())
         .collect();
     assert_eq!(names, [read_server]);
+}
+
+// The person's config file takes Claude Code's suffix for a custom sign-in host where the
+// environment names one, and none where it names none or an empty one. Killed by the suffix
+// never taken, and by it taken for an empty value.
+#[rstest]
+#[case::custom_host(Some("https://claude.fedstart.com"), ".claude-custom-oauth.json")]
+#[case::empty_host(Some(""), ".claude.json")]
+#[case::no_host(None, ".claude.json")]
+#[tokio::test]
+async fn the_person_config_file_takes_the_custom_sign_in_suffix(
+    #[case] custom_host: Option<&str>,
+    #[case] config_file: &str,
+) {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let home = scratch.path().join("home");
+    let environment: Vec<(String, String)> = custom_host
+        .map(|host| ("CLAUDE_CODE_CUSTOM_OAUTH_URL".to_owned(), host.to_owned()))
+        .into_iter()
+        .collect();
+
+    let person = ClaudePersonConfigFiles::resolve(&environment, &home).await;
+
+    assert_eq!(person.person_config, home.join(config_file));
+}
+
+// A plugin with no manifest is named by its id and lists its `.mcp.json` servers, while one whose
+// manifest is not JSON lists none, as Claude Code refuses to load it. Killed by a manifest that
+// does not read taken as an absent one.
+#[rstest]
+#[case::no_manifest(None, &["plugin-server"][..])]
+#[case::corrupt_manifest(Some("{ \"name\": "), &[][..])]
+#[tokio::test]
+async fn a_plugin_whose_manifest_does_not_read_lists_no_servers(
+    #[case] manifest: Option<&str>,
+    #[case] listed: &[&str],
+) {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let plugin_home = scratch.path().join("plugin-home");
+    let install = plugin_home.join("plugins").join("cache").join("tools");
+    write_json(
+        &plugin_home.join("plugins").join("installed_plugins.json"),
+        &json!({ "plugins": { "tools@market": [{ "installPath": install }] } }),
+    );
+    write_json(
+        &install.join(".mcp.json"),
+        &json!({ "mcpServers": { "plugin-server": { "command": "plugin" } } }),
+    );
+    if let Some(manifest) = manifest {
+        fs::create_dir_all(install.join(".claude-plugin")).expect("the manifest folder is made");
+        fs::write(install.join(".claude-plugin").join("plugin.json"), manifest)
+            .expect("the manifest is written");
+    }
+
+    let reading = read_claude_mcp_config(&ClaudeMcpConfigSources {
+        person: &ClaudePersonConfigFiles::resolve(&[], &scratch.path().join("home")).await,
+        managed_settings_folder: None,
+        plugin_home: &plugin_home,
+        roots: &[],
+    })
+    .await
+    .expect("the config reads");
+
+    let names: Vec<&str> = reading
+        .plugin_servers
+        .iter()
+        .map(|server| server.binding.server_name().as_str())
+        .collect();
+    assert_eq!(names, listed);
 }

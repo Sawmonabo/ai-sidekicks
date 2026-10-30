@@ -1,10 +1,10 @@
 //! The read of the person's own Claude Code MCP config: the user and per-project servers in
 //! `.claude.json`, each attached root's `.mcp.json`, the servers of the plugins in the daemon's
-//! plugin home, the per-project names kept out of a root or switched off there, and the allow
-//! and deny lists. Every credential-bearing value is dropped at the read: a
-//! declaration keeps names only, and a remote address is held whole only in memory, for the
-//! duplicate match. The one read that keeps values takes a single server's entry for the probe
-//! that sends it, which drops it once sent.
+//! plugin home, the per-project names kept out of a root or switched off there, and the allow and
+//! deny lists. Every credential-bearing value is dropped at the read: a declaration keeps names
+//! only, and a remote address is held whole only in memory, for the duplicate match. The one read
+//! that keeps values takes a single server's entry for the probe that sends it, which drops it
+//! once sent.
 
 mod entry;
 mod policy;
@@ -12,6 +12,7 @@ mod policy;
 pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudeServerEntryReader};
 
 use std::collections::BTreeMap;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -39,9 +40,13 @@ use crate::inbound_json::decode_inbound_json;
 // The settings key naming a project's `.mcp.json` servers its sessions refuse.
 const DISABLED_MCPJSON_SERVERS_KEY: &str = "disabledMcpjsonServers";
 // The variable that moves the person's Claude Code config folder, and their own config file
-// there, holding the `user` and per-project servers.
+// there, holding the `user` and per-project servers, named `.claude<suffix>.json`.
 const CONFIG_FOLDER_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
-const PERSON_CONFIG_FILE: &str = ".claude.json";
+const PERSON_CONFIG_FILE_STEM: &str = ".claude";
+// The variable that moves Claude Code's sign-in to a custom host, and the suffix its config file
+// then takes (`y2`, b:8908775).
+const CUSTOM_SIGN_IN_HOST_VARIABLE: &str = "CLAUDE_CODE_CUSTOM_OAUTH_URL";
+const CUSTOM_SIGN_IN_CONFIG_SUFFIX: &str = "-custom-oauth";
 // The legacy config file in the config folder, read in place of `.claude.json` where it holds
 // anything.
 const LEGACY_PERSON_CONFIG_FILE: &str = ".config.json";
@@ -60,8 +65,10 @@ pub(crate) struct ClaudeMcpRoot {
 
 /// Where the person's own Claude Code config sits: `.claude.json` and `settings.json` in the
 /// folder `CLAUDE_CONFIG_DIR` names where the person's environment sets it, as Claude Code reads
-/// them, else `.claude.json` in the home folder and `settings.json` in its `.claude` folder; a
-/// non-empty legacy `.config.json` in that config folder is read in place of `.claude.json`.
+/// them, else `.claude.json` in the home folder and `settings.json` in its `.claude` folder; the
+/// config file is `.claude-custom-oauth.json` where the environment sets
+/// `CLAUDE_CODE_CUSTOM_OAUTH_URL`, and a non-empty legacy `.config.json` in that config folder is
+/// read in place of either.
 #[derive(Clone, Debug)]
 pub(crate) struct ClaudePersonConfigFiles {
     /// The file of the `user` and per-project servers.
@@ -73,17 +80,23 @@ pub(crate) struct ClaudePersonConfigFiles {
 impl ClaudePersonConfigFiles {
     /// The person's files as a Claude Code process started in `environment` on `home` reads them:
     /// the config file as `y_` (b:8961710) picks it, a non-empty `.config.json` in the config
-    /// folder (`Le`, b:8610329) over `Flr`'s (b:8961898) `.claude.json`.
+    /// folder (`Le`, b:8610329) over `Flr`'s (b:8961898) `.claude.json`, which takes `y2`'s
+    /// suffix where `CLAUDE_CODE_CUSTOM_OAUTH_URL` holds anything.
     pub(crate) async fn resolve(environment: &[(String, String)], home: &Path) -> Self {
+        let suffix = PathRules::NATIVE
+            .environment_value(environment, CUSTOM_SIGN_IN_HOST_VARIABLE)
+            .filter(|host| !host.is_empty())
+            .map_or("", |_host| CUSTOM_SIGN_IN_CONFIG_SUFFIX);
+        let person_config_file = format!("{PERSON_CONFIG_FILE_STEM}{suffix}.json");
         let (config_folder, person_config) = match PathRules::NATIVE
             .environment_value(environment, CONFIG_FOLDER_VARIABLE)
             .filter(|folder| !folder.is_empty())
         {
             Some(folder) => (
                 Path::new(folder).to_path_buf(),
-                Path::new(folder).join(PERSON_CONFIG_FILE),
+                Path::new(folder).join(&person_config_file),
             ),
-            None => (home.join(".claude"), home.join(PERSON_CONFIG_FILE)),
+            None => (home.join(".claude"), home.join(&person_config_file)),
         };
         let legacy_config = config_folder.join(LEGACY_PERSON_CONFIG_FILE);
         let is_legacy_read = tokio::fs::metadata(&legacy_config)
@@ -569,10 +582,13 @@ async fn read_plugin_servers(
 ) -> Result<Vec<ClaudeMcpServer>, ClaudeSettingsReadError> {
     let mut servers: Vec<ClaudeMcpServer> = Vec::new();
     for plugin in read_installed_plugin_roots(plugin_home).await? {
-        for file in plugin_server_files(&plugin.root) {
-            let Some(file) = read_json_file::<ClaudeMcpServersFile>(&file).await? else {
-                continue;
-            };
+        let servers_file: Option<ClaudeMcpServersFile> =
+            read_json_file(&plugin.root.join(SERVERS_FILE)).await?;
+        let inline = plugin
+            .manifest
+            .as_ref()
+            .and_then(|manifest| ClaudeMcpServersFile::deserialize(manifest).ok());
+        for file in [servers_file, inline].into_iter().flatten() {
             let read = read_servers(&file.mcp_servers, |server_name| {
                 McpServerBindingRef::Plugin {
                     provider: DESCRIPTOR.provider_id(),
@@ -590,12 +606,13 @@ async fn read_plugin_servers(
     Ok(servers)
 }
 
-// One plugin `installed_plugins.json` lists: its name, its whole id and the root of its first
-// install.
+// One plugin `installed_plugins.json` lists: its name, its whole id, the root of its first
+// install and its manifest, values included, parsed once for the read; `None` where it has none.
 struct InstalledPluginRoot {
     name: PluginToken,
     id: String,
     root: PathBuf,
+    manifest: Option<Value>,
 }
 
 // A plugin's manifest, by the one member that names the plugin.
@@ -605,9 +622,11 @@ struct ClaudePluginManifest {
 }
 
 // Each plugin `installed_plugins.json` lists in the plugin home, named as Claude Code names it
-// in its servers' `plugin:<name>:<server>`: by its manifest's `name` (`$le`, b:22533235), else by
-// its id's part before the marketplace (`VJ`, b:22522351; `On`, b:9256803), which for a built-in
-// npm marketplace id such as `@team/db.tools@npm` is the scoped package name.
+// in its servers' `plugin:<name>:<server>`: by its manifest's `name` (`$le`, b:22533235), else,
+// where it has no manifest, by its id's part before the marketplace (`VJ`, b:22522351; `On`,
+// b:9256803), which for a built-in npm marketplace id such as `@team/db.tools@npm` is the scoped
+// package name. A plugin whose manifest Claude Code cannot read, or reads as no JSON naming the
+// plugin, is left out, as `VJ` refuses to load it (b:22523400 to b:22524200).
 async fn read_installed_plugin_roots(
     plugin_home: &Path,
 ) -> Result<Vec<InstalledPluginRoot>, ClaudeSettingsReadError> {
@@ -623,10 +642,39 @@ async fn read_installed_plugin_roots(
         else {
             continue;
         };
-        let manifest: Option<ClaudePluginManifest> =
-            read_json_file(&plugin_manifest_file(&install.install_path)).await?;
-        let name = match manifest {
-            Some(manifest) => manifest.name,
+        let manifest_file = install
+            .install_path
+            .join(".claude-plugin")
+            .join("plugin.json");
+        let manifest = match tokio::fs::read(&manifest_file).await {
+            Ok(bytes) => {
+                let Ok(manifest) = serde_json::from_str::<Value>(&decode_inbound_json(&bytes))
+                else {
+                    continue;
+                };
+                Some(manifest)
+            }
+            Err(failure)
+                if matches!(
+                    failure.kind(),
+                    ErrorKind::NotFound | ErrorKind::NotADirectory
+                ) =>
+            {
+                None
+            }
+            Err(failure) if failure.kind() == ErrorKind::PermissionDenied => continue,
+            Err(failure) => {
+                return Err(ClaudeSettingsReadError {
+                    path: manifest_file,
+                    failure,
+                });
+            }
+        };
+        let name = match &manifest {
+            Some(manifest) => match ClaudePluginManifest::deserialize(manifest) {
+                Ok(manifest) => manifest.name,
+                Err(_) => continue,
+            },
             None => plugin_id
                 .rsplit_once('@')
                 .map_or(plugin_id.as_str(), |(name, _)| name)
@@ -639,20 +687,10 @@ async fn read_installed_plugin_roots(
             name,
             id: plugin_id.clone(),
             root: install.install_path.clone(),
+            manifest,
         });
     }
     Ok(plugins)
-}
-
-// A plugin's manifest under its install root.
-fn plugin_manifest_file(root: &Path) -> PathBuf {
-    root.join(".claude-plugin").join("plugin.json")
-}
-
-// The files a plugin declares its servers in, in the order Claude Code reads them: its root's
-// `.mcp.json`, then its manifest.
-fn plugin_server_files(root: &Path) -> [PathBuf; 2] {
-    [root.join(SERVERS_FILE), plugin_manifest_file(root)]
 }
 
 #[cfg(test)]

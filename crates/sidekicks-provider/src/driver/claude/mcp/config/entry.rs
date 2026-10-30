@@ -8,8 +8,8 @@ use serde_json::Value;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 
 use super::{
-    ClaudePersonConfigFiles, InstalledPluginRoot, SERVERS_FILE, plugin_server_files,
-    read_installed_plugin_roots, read_json_file,
+    ClaudePersonConfigFiles, InstalledPluginRoot, SERVERS_FILE, read_installed_plugin_roots,
+    read_json_file,
 };
 use crate::driver::claude::session::ignored_settings::ClaudeSettingsReadError;
 
@@ -106,28 +106,30 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
                 if self.plugins.is_none() {
                     self.plugins = Some(read_installed_plugin_roots(self.plugin_home).await?);
                 }
-                let plugins: Vec<(PathBuf, String)> = self
+                let keys = ["mcpServers", server_name.as_str()];
+                // Each plugin of the name, with the entry its manifest declares inline.
+                let plugins: Vec<(PathBuf, String, Option<Value>)> = self
                     .plugins
                     .as_deref()
                     .unwrap_or_default()
                     .iter()
                     .filter(|plugin| plugin.name == *scope_ref)
-                    .map(|plugin| (plugin.root.clone(), plugin.id.clone()))
+                    .map(|plugin| {
+                        let inline = entry_at(plugin.manifest.as_ref(), &keys);
+                        (plugin.root.clone(), plugin.id.clone(), inline)
+                    })
                     .collect();
-                for (root, id) in plugins {
-                    for file in plugin_server_files(&root) {
-                        if let Some(entry) = entry_at(
-                            self.read_file(&file).await?,
-                            &["mcpServers", server_name.as_str()],
-                        ) {
-                            return Ok(Some(ClaudeDeclaredEntry {
-                                entry,
-                                plugin_folders: Some(ClaudePluginFolders {
-                                    data: plugin_data_folder(self.plugin_home, &id),
-                                    root,
-                                }),
-                            }));
-                        }
+                for (root, id, inline) in plugins {
+                    let in_servers_file =
+                        entry_at(self.read_file(&root.join(SERVERS_FILE)).await?, &keys);
+                    if let Some(entry) = in_servers_file.or(inline) {
+                        return Ok(Some(ClaudeDeclaredEntry {
+                            entry,
+                            plugin_folders: Some(ClaudePluginFolders {
+                                data: plugin_data_folder(self.plugin_home, &id),
+                                root,
+                            }),
+                        }));
                     }
                 }
                 Ok(None)
