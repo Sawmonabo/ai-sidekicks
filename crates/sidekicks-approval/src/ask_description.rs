@@ -4,10 +4,11 @@
 //!
 //! - A command's subject is its program and, where the word right after it reads as one, its
 //!   first subcommand (`npm run`, `git push`); git's own options are read past to its subcommand.
-//!   Only a line read whole, of one plain command, has one: a rule over a line of several, over a
-//!   program that hands a shell a line (`sh`, `su`, `eval`), with or without one this time, over a
-//!   command run through another (`sudo`, `env`, `xargs`), or over a git command whose options
-//!   change what it runs, would answer commands the card never named.
+//!   Only a line read whole, of one plain command whose program the text spells, has one: a rule
+//!   over a line of several, over a program only the run decides (`$TOOL build`), over a program
+//!   that hands a shell a line (`sh`, `su`, `eval`), with or without one this time, over a command
+//!   run through another (`sudo`, `env`, `xargs`), or over a git command whose options change what
+//!   it runs, would answer commands the card never named.
 //! - A force push or a branch delete, wherever the line runs it, is `destructiveGit` and takes no
 //!   standing allow, and no rule in force answers it: it always reaches the card. So does an ask
 //!   the provider's own safety check flagged.
@@ -168,8 +169,10 @@ fn may_allow_stand_on(
 
 fn command_subject_of(command: ShellCommand<'_>) -> Option<String> {
     // A wrapper's name, even one that only describes the command, makes a rule on every program,
-    // and a rule on a program that hands a shell a line covers every line it is handed.
+    // a program the text does not spell names none, and a rule on a program that hands a shell a
+    // line covers every line it is handed.
     if command.wrapper_words().next().is_some()
+        || command.is_program_undecided()
         || command.is_program_a_wrapper()
         || hands_a_shell_a_line(command.program())
     {
@@ -278,8 +281,18 @@ mod tests {
         ApprovalCategory::ToolExecution
     )]
     #[case::lookup_through_a_wrapper("command -v node", None, ApprovalCategory::ToolExecution)]
-    // A wrapper whose own words use up its command is one of the line's commands.
-    #[case::shell_beside_a_command("sudo -s; ls", None, ApprovalCategory::ToolExecution)]
+    // A program the text does not spell takes no rule and no destructive label; a wrapper's
+    // operand the run decides leaves its command no rule either.
+    #[case::expanded_program(r#""$TOOL" build"#, None, ApprovalCategory::ToolExecution)]
+    #[case::undecided_operand_of_a_wrapper(
+        r#"timeout "$T" git status"#,
+        None,
+        ApprovalCategory::ToolExecution
+    )]
+    #[case::force_push("git push --force", Some("git push"), ApprovalCategory::DestructiveGit)]
+    // A wrapper whose own words use up its command is one of the line's commands; `sudo -s` runs a
+    // shell reading its input, which may be a destructive git line.
+    #[case::shell_beside_a_command("sudo -s; ls", None, ApprovalCategory::DestructiveGit)]
     #[case::force_push_in_a_split_string(
         "env -S'git push --force'",
         None,
@@ -290,8 +303,9 @@ mod tests {
         None,
         ApprovalCategory::DestructiveGit
     )]
-    // A rule on a program that hands a shell a line would cover its every `-c` line.
-    #[case::shell_of_another_user("su -", None, ApprovalCategory::ToolExecution)]
+    // A rule on a program that hands a shell a line would cover its every `-c` line; `su` with no
+    // command runs a shell reading its input.
+    #[case::shell_of_another_user("su -", None, ApprovalCategory::DestructiveGit)]
     #[case::shell_running_a_file("bash x.sh", None, ApprovalCategory::ToolExecution)]
     #[case::force_push_in_a_shell_string(
         "bash -c 'git push --force origin main'",
