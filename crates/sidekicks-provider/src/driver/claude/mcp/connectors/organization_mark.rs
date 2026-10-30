@@ -22,9 +22,11 @@ use zeroize::Zeroizing;
 
 use crate::driver::claude::account_credentials::{
     CUSTOM_SIGN_IN_HOST_VARIABLE, ClaudeAiSignIn, ClaudeSignInReader, ClaudeSignInReading,
+    is_claude_api_key_approved,
 };
 use crate::driver::claude::mcp::connectors::list_fetch::{
-    ClaudeConnectorFetchSettings, skips_connector_fetch, skips_fetch_for_scopes,
+    ClaudeConnectorFetchSettings, does_api_key_need_approval, skips_connector_fetch,
+    skips_fetch_for_scopes,
 };
 use crate::driver::mcp_server::address::{ServerAddressIdentity, read_server_address};
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
@@ -167,17 +169,20 @@ impl ClaudeOrganizationMarks {
 
     /// The marks of the connectors on the list of the account whose process `environment`
     /// started with `settings`, read as the build `build_version` reads it. Not fetched, and not
-    /// read, where Claude Code skips its own fetch for the environment, the settings, an absent
-    /// sign-in or its scopes; unread, with the reason logged at debug, where its sign-in cannot be
-    /// read, the build reported no version, the account names a host Claude Code refuses, or the
-    /// list cannot be read.
+    /// read, where Claude Code skips its own fetch for the environment, the settings, an approved
+    /// API key, an absent sign-in or its scopes; unread, with the reason logged at debug, where
+    /// its sign-in cannot be read, the build reported no version, the account names a host Claude
+    /// Code refuses, or the list cannot be read.
     pub(crate) async fn read(
         &self,
         environment: &[(String, String)],
         build_version: Option<&str>,
         settings: &ClaudeConnectorFetchSettings,
     ) -> ClaudeConnectorListReading {
-        if skips_connector_fetch(environment, settings) {
+        // The key's approval is read only where Claude Code reads it.
+        let is_api_key_approved = does_api_key_need_approval(environment)
+            && is_claude_api_key_approved(environment).await;
+        if skips_connector_fetch(environment, settings, is_api_key_approved) {
             return ClaudeConnectorListReading::NotFetched;
         }
         let sign_in = match self.sign_in.read(environment).await {

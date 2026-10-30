@@ -2,7 +2,7 @@
 //! connectors and organization servers, Claude Code's precedence over them, and the machine probe
 //! of the bindings no live session reads.
 
-mod config;
+pub(crate) mod config;
 pub(crate) mod connectors;
 pub(crate) mod machine_probe;
 pub(crate) mod organization;

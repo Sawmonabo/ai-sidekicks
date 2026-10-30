@@ -74,13 +74,27 @@ enum StoredSignIn {
     Scopes(&'static [&'static str]),
 }
 
-// A setting that bears on the fetch: a settings source that switches the connectors off, or an
-// API key helper in the merged settings.
+// A setting that bears on the fetch: a settings source that switches the connectors off, an API
+// key helper in the merged settings, or the person's approval or refusal of the API key, filed in
+// Claude Code's config file.
 #[derive(Clone, Copy, Debug)]
 enum FetchSetting {
     ConnectorsDisabled,
     ApiKeyHelper,
+    ApiKeyApproved,
+    ApiKeyRefused,
 }
+
+// An API key under the entrypoint whose process counts it only once approved, padded as Claude Code
+// trims it; Claude Code files its approval under the key's last 20 characters.
+const API_KEY_UNDER_APPROVAL: &[(&str, &str)] = &[
+    (
+        "ANTHROPIC_API_KEY",
+        " sk-ant-api03-prefix-0123456789abcdefghij ",
+    ),
+    ("CLAUDE_CODE_ENTRYPOINT", "claude-vscode"),
+];
+const API_KEY_APPROVAL_SUFFIX: &str = "0123456789abcdefghij";
 
 // The ceiling of an account read under Claude Code's default startup timeout.
 const READ_CEILING: Duration = Duration::from_secs(35);
@@ -153,7 +167,8 @@ enum ConfiguredServer {
 // asked again until the fetch ends, by a count of none settling before the fetch ends, by an unread
 // list taken as fetched by no one or kept as short, by a credential claimed ahead of the sign-in
 // where a socket's token, a remote session or a desktop app keeps it aside, by a key's file
-// descriptor or a helper held ahead there, by a blank key or socket read as set, by a suppressed
+// descriptor or a helper held ahead there, by a key under the `claude-vscode` app held ahead with
+// no approval filed or a refusal, by a blank key or socket read as set, by a suppressed
 // connector counted as missing, the organization's included, and by a plugin's, a switched-off or a
 // waiting server counted as suppressing one.
 #[rstest]
@@ -275,6 +290,26 @@ enum ConfiguredServer {
     0,
     false
 )]
+#[case::an_unapproved_api_key_under_the_vscode_app(
+    with_variables(API_KEY_UNDER_APPROVAL),
+    &[&[][..]],
+    &[][..],
+    29,
+    0,
+    false
+)]
+#[case::a_refused_api_key_under_the_vscode_app(
+    ConnectorFetch::Through {
+        sign_in: SIGNED_IN,
+        variables: API_KEY_UNDER_APPROVAL,
+        setting: Some(FetchSetting::ApiKeyRefused),
+    },
+    &[&[][..]],
+    &[][..],
+    29,
+    0,
+    false
+)]
 #[case::a_blank_api_key(
     with_variables(&[("ANTHROPIC_API_KEY", "  ")]),
     &[&[][..]],
@@ -365,7 +400,8 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
 // safe mode, another provider or a gateway, bare mode, a socket with no token, a credential ahead
 // of the sign-in, a key's file descriptor among them and one beside a remote-session variable
 // Claude Code reads as off, and a token, a key or a helper under the third-party desktop app or
-// beside a host's credential variable, where the sign-in does not stand ahead of them, no sign-in,
+// beside a host's credential variable, where the sign-in does not stand ahead of them, a key under
+// the `claude-vscode` app the person approved or run in GitHub Actions, no sign-in,
 // or one short of a scope the fetch needs, the environment's token with the scopes Claude Code
 // gives it. Killed by any of these not read, which leaves the read waiting for the fetch's end.
 #[rstest]
@@ -400,6 +436,16 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
     variables: &[("CLAUDE_CODE_ENTRYPOINT", "claude-desktop-3p")],
     setting: Some(FetchSetting::ApiKeyHelper),
 })]
+#[case::an_approved_api_key_under_the_vscode_app(ConnectorFetch::Through {
+    sign_in: SIGNED_IN,
+    variables: API_KEY_UNDER_APPROVAL,
+    setting: Some(FetchSetting::ApiKeyApproved),
+})]
+#[case::an_unapproved_api_key_under_the_vscode_app_in_github_actions(with_variables(&[
+    ("ANTHROPIC_API_KEY", "key"),
+    ("CLAUDE_CODE_ENTRYPOINT", "claude-vscode"),
+    ("GITHUB_ACTIONS", "true"),
+]))]
 #[case::a_sign_in_short_of_inference(with_sign_in(StoredSignIn::Scopes(&["user:mcp_servers"])))]
 #[case::a_sign_in_short_of_the_list_scope(with_sign_in(StoredSignIn::Scopes(&["user:inference"])))]
 #[case::a_gateway(with_variables(&[
@@ -436,6 +482,16 @@ async fn a_short_mcp_timeout_still_waits_for_claude_codes_fetch() {
 
     assert_eq!(asked, 29);
     assert!(!answers.lacks_listed_connectors);
+}
+
+// Files `responses` as the person's API key approvals in the config file of a process whose config
+// folder is `folder` and whose sign-in host is a custom one.
+fn plant_api_key_responses(folder: &std::path::Path, responses: &serde_json::Value) {
+    std::fs::write(
+        folder.join(".claude-custom-oauth.json"),
+        json!({ "customApiKeyResponses": responses, "numStartups": 3 }).to_string(),
+    )
+    .expect("the approvals are planted");
 }
 
 // The account read of an account whose list `fetch` finds, its process configuring `configured`
@@ -526,6 +582,18 @@ async fn read_account_answers(
             Some(FetchSetting::ApiKeyHelper) => {
                 settings["effective"]["apiKeyHelper"] = json!("./print-key.sh");
             }
+            Some(FetchSetting::ApiKeyApproved) => plant_api_key_responses(
+                home.path(),
+                &json!({ "approved": [API_KEY_APPROVAL_SUFFIX], "rejected": [] }),
+            ),
+            // The whole key listed as approved is no approval; Claude Code matches its end.
+            Some(FetchSetting::ApiKeyRefused) => plant_api_key_responses(
+                home.path(),
+                &json!({
+                    "approved": ["sk-ant-api03-prefix-0123456789abcdefghij", 7],
+                    "rejected": [API_KEY_APPROVAL_SUFFIX]
+                }),
+            ),
         }
     }
     channel.answer("get_settings", ScriptedAnswer::Reply(settings));

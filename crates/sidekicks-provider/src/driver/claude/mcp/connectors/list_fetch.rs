@@ -1,8 +1,9 @@
 //! Whether an account's own Claude Code fetches its claude.ai connector list, read from what the
 //! daemon holds for the account: the environment it composes for the account's process, that
-//! process's `get_settings` reply and the account's sign-in, as Claude Code's fetch (`ne`,
-//! b:15669889) decides it. A skip is claimed only where it surely holds, so a condition the daemon
-//! cannot read leaves the read waiting for the fetch instead.
+//! process's `get_settings` reply, the account's sign-in and the person's approval of its API
+//! key, as Claude Code's fetch (`ne`, b:15669889) decides it. A skip is claimed only where it
+//! surely holds, so a condition the daemon cannot read leaves the read waiting for the fetch
+//! instead.
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -10,7 +11,7 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::PathRules;
 
-use crate::driver::claude::account_credentials::OAUTH_TOKEN_VARIABLE;
+use crate::driver::claude::account_credentials::{API_KEY_VARIABLE, OAUTH_TOKEN_VARIABLE};
 use crate::driver::claude::spawn::environment::{
     CLAUDE_GATEWAY_SWITCH_VARIABLE, CLAUDE_PROVIDER_SWITCH_VARIABLES, claude_text_variable,
 };
@@ -27,18 +28,23 @@ const SAFE_MODE_VARIABLE: &str = "CLAUDE_CODE_SAFE_MODE";
 const BARE_MODE_VARIABLE: &str = "CLAUDE_CODE_SIMPLE";
 
 /// The gateway's address and the token Claude Code signs in to it with, which with the gateway's
-/// switch make its provider the gateway (`Su`, b:12043582).
+/// switch make its provider the gateway (`Su`, b:12043582); outside a gateway the token takes
+/// precedence over a claude.ai sign-in as a key does (`U_`, b:12064753).
 const GATEWAY_ADDRESS_VARIABLE: &str = "ANTHROPIC_BASE_URL";
-const GATEWAY_TOKEN_VARIABLE: &str = "ANTHROPIC_AUTH_TOKEN";
+const AUTH_TOKEN_VARIABLE: &str = "ANTHROPIC_AUTH_TOKEN";
 
 /// The variable naming a socket Claude Code reaches the API through, which then signs in only
 /// with `CLAUDE_CODE_OAUTH_TOKEN` (`tl`, b:12063921).
 const UNIX_SOCKET_VARIABLE: &str = "ANTHROPIC_UNIX_SOCKET";
 
-/// The variables whose token or key takes precedence over a claude.ai sign-in in a print-mode
-/// process unless the sign-in stands ahead of them (`tl`, b:12063921: `(s||y)&&!j_e()`; `U_`,
-/// b:12064753; `nA`, b:12068002).
-const TOKEN_AND_KEY_VARIABLES: [&str; 2] = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"];
+/// The entrypoint whose print-mode process counts its API key only once the person approved it:
+/// every other client's counts it at once (`nA`, b:12068002: `UTn()&&n`; `UTn`, b:8583930, a
+/// non-interactive process whose client is not `claude-vscode`; the client set at b:28701288).
+const API_KEY_APPROVAL_ENTRYPOINT: &str = "claude-vscode";
+
+/// The variable that makes Claude Code's client `github-action` ahead of any entrypoint
+/// (b:28701288), read as a switch.
+const GITHUB_ACTIONS_VARIABLE: &str = "GITHUB_ACTIONS";
 
 /// The variable naming the file descriptor Claude Code reads a key from, which takes precedence
 /// over the sign-in outside a remote session or a desktop app's (`tl`: `(r||S)&&!xr()`; `NZ`,
@@ -118,25 +124,30 @@ impl ClaudeConnectorFetchSettings {
 /// socket with no token, or a credential that precedes the sign-in. A key's file descriptor or an
 /// API key helper precedes it outside a remote session or a desktop app's (`xr`); a token, a key
 /// or a helper also does under the `claude-desktop-3p` app or a host's credential variable
-/// (`j_e`, whose `yI()` holds only where that variable is set as well).
+/// (`j_e`, whose `yI()` holds only where that variable is set as well). A set API key is such a
+/// credential where [`does_api_key_need_approval`] does not hold, else only where
+/// `is_api_key_approved` (`nA`, b:12068002).
 pub(crate) fn skips_connector_fetch(
     environment: &[(String, String)],
     settings: &ClaudeConnectorFetchSettings,
+    is_api_key_approved: bool,
 ) -> bool {
     let is_set = |name: &str| claude_text_variable(environment, name).is_some();
     let is_on = |name: &str| is_variable_on(environment, name);
     let is_gateway = is_on(CLAUDE_GATEWAY_SWITCH_VARIABLE)
         && is_set(GATEWAY_ADDRESS_VARIABLE)
-        && is_set(GATEWAY_TOKEN_VARIABLE);
+        && is_set(AUTH_TOKEN_VARIABLE);
     let entrypoint = claude_text_variable(environment, ENTRYPOINT_VARIABLE);
     let is_remote_or_desktop = is_on(REMOTE_SESSION_VARIABLE)
         || entrypoint.is_some_and(|entrypoint| DESKTOP_ENTRYPOINTS.contains(&entrypoint));
     let does_sign_in_lead_tokens = is_remote_or_desktop
         && !is_set(HOST_AUTH_VARIABLE)
         && entrypoint != Some(THIRD_PARTY_DESKTOP_ENTRYPOINT);
+    let is_api_key_counted = is_set(API_KEY_VARIABLE)
+        && (is_api_key_approved || !does_api_key_need_approval(environment));
     let has_preceding_credential = !is_set(UNIX_SOCKET_VARIABLE)
         && ((!does_sign_in_lead_tokens
-            && (TOKEN_AND_KEY_VARIABLES.into_iter().any(is_set) || settings.has_api_key_helper))
+            && (is_set(AUTH_TOKEN_VARIABLE) || is_api_key_counted || settings.has_api_key_helper))
             || (!is_remote_or_desktop
                 && (is_set(KEY_DESCRIPTOR_VARIABLE) || settings.has_api_key_helper)));
     are_connectors_switched_off(environment)
@@ -149,15 +160,23 @@ pub(crate) fn skips_connector_fetch(
         || has_preceding_credential
 }
 
-/// Whether `environment` starts Claude Code in safe mode, which fetches no connector list and
-/// connects no plugin server.
-pub(crate) fn is_claude_safe_mode(environment: &[(String, String)]) -> bool {
+/// Whether the account's Claude Code, started in `environment`, counts the API key it sets only
+/// once the person approved it: a key under the `claude-vscode` entrypoint, outside GitHub
+/// Actions, whose client then reads the stored approval.
+pub(crate) fn does_api_key_need_approval(environment: &[(String, String)]) -> bool {
+    claude_text_variable(environment, API_KEY_VARIABLE).is_some()
+        && !is_variable_on(environment, GITHUB_ACTIONS_VARIABLE)
+        && claude_text_variable(environment, ENTRYPOINT_VARIABLE)
+            == Some(API_KEY_APPROVAL_ENTRYPOINT)
+}
+
+// Whether `environment` starts Claude Code in safe mode, which fetches no connector list.
+fn is_claude_safe_mode(environment: &[(String, String)]) -> bool {
     is_variable_on(environment, SAFE_MODE_VARIABLE)
 }
 
-/// Whether `environment` starts Claude Code in bare mode, which reads no claude.ai sign-in and
-/// connects no plugin server.
-pub(crate) fn is_claude_bare_mode(environment: &[(String, String)]) -> bool {
+// Whether `environment` starts Claude Code in bare mode, which reads no claude.ai sign-in.
+fn is_claude_bare_mode(environment: &[(String, String)]) -> bool {
     is_variable_on(environment, BARE_MODE_VARIABLE)
 }
 
