@@ -225,8 +225,9 @@ impl CommandWrapper {
                 .options()
                 .filter(|(option, _)| !shell_options.contains(option))
                 .map(|(option, _)| (option, false));
+            // A value after `=` on an option that takes none is an error, which runs nothing.
             return long_option_named(word, shell.chain(other))
-                .is_some_and(|(is_shell, _)| is_shell);
+                .is_some_and(|(is_shell, attached_from)| is_shell && attached_from.is_none());
         }
         let names_letter = |options: &[&str], letter: char| {
             options.iter().any(|option| {

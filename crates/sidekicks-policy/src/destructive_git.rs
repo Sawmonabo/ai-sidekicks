@@ -648,7 +648,7 @@ mod tests {
     #[case::source_of_the_input("source /dev/stdin <<< x", true)]
     #[case::source_of_a_substitution(". <(echo x)", true)]
     #[case::climb_to_the_input("sh ../../dev/stdin <<< x", true)]
-    #[case::source_through_a_device_folder("source /dev/fd/../stdin <<< x", true)]
+    #[case::source_climbing_into_a_device_folder("source /tmp/../dev/stdin <<< x", true)]
     #[case::shell_running_a_script("sh ./script.sh", false)]
     #[case::source_of_a_script("source ./x.sh", false)]
     // `su` handed no command, and a wrapper left with none that runs a shell, run a shell reading
@@ -662,6 +662,7 @@ mod tests {
     #[case::xargs_handing_sudo_its_input("echo 'git push --force' | xargs sudo -s", true)]
     #[case::xargs_handing_a_wrapper_its_input("echo 'git push --force' | xargs nohup", true)]
     #[case::sudo_user_named_s("echo 'git push --force' | sudo -us", false)]
+    #[case::sudo_login_with_a_value("echo 'git push --force' | sudo --login=x", false)]
     // The words of an alias a line defines run where the line uses it.
     #[case::alias_value("shopt -s expand_aliases\nalias g='git push --force'\ng", true)]
     // A split string's split strings are read in turn, and past the bound on what they read the
