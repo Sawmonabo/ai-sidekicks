@@ -341,10 +341,19 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
 }
 
 // A plugin's server is sent with `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` filled with
-// its install root and its data folder, both also handed to its program's environment. Killed by
-// either placeholder sent as written and by the environment left without them.
+// its install root and its data folder, both also handed to its program's environment; a plugin
+// of the built-in npm marketplace has its data folder named from its escaped package name. Killed
+// by either placeholder sent as written, by the environment left without them, and by the npm
+// plugin's folder named as any other plugin's.
+#[rstest]
+#[case::marketplace("db-tools@team.market", "db-tools", "db-tools-team-market")]
+#[case::npm("@team/db.tools@npm", "@team/db.tools", "_40team_2fdb_2etools-npm")]
 #[tokio::test]
-async fn a_plugin_server_is_sent_with_its_placeholders_filled() {
+async fn a_plugin_server_is_sent_with_its_placeholders_filled(
+    #[case] plugin_id: &str,
+    #[case] plugin_name: &str,
+    #[case] data_folder: &str,
+) {
     let home = tempfile::tempdir().expect("a test home");
     let plugin_home = home.path().join("plugin-home");
     let install = home.path().join("installs").join("db-tools");
@@ -352,7 +361,7 @@ async fn a_plugin_server_is_sent_with_its_placeholders_filled() {
     std::fs::create_dir_all(&install).expect("the install folder is made");
     std::fs::write(
         plugin_home.join("plugins").join("installed_plugins.json"),
-        json!({ "plugins": { "db-tools@team.market": [{ "installPath": install }] } }).to_string(),
+        json!({ "plugins": { plugin_id: [{ "installPath": install }] } }).to_string(),
     )
     .expect("the plugin list is written");
     std::fs::write(
@@ -366,16 +375,17 @@ async fn a_plugin_server_is_sent_with_its_placeholders_filled() {
     .expect("the plugin's servers are written");
     let starts = ScriptedStarts::default();
     let channel = Arc::new(ScriptedChannel::default());
+    let reported_name = format!("plugin:{plugin_name}:db");
     channel.answer(
         "mcp_status",
         ScriptedAnswer::Reply(
-            json!({"mcpServers": [{"name": "plugin:db-tools:db", "status": "connected"}]}),
+            json!({"mcpServers": [{"name": reported_name, "status": "connected"}]}),
         ),
     );
     starts.script_mcp_probe(Arc::clone(&channel));
     let binding = McpServerBindingRef::Plugin {
         provider: DESCRIPTOR.provider_id(),
-        scope_ref: PluginToken::new("db-tools".to_owned()).expect("a plugin name"),
+        scope_ref: PluginToken::new(plugin_name.to_owned()).expect("a plugin name"),
         server_name: McpServerName::new("db".to_owned()).expect("a server name"),
     };
     let Some(ClaudeProbePlan::Probe(target)) = plan_claude_probe(&binding, &[]) else {
@@ -402,11 +412,11 @@ async fn a_plugin_server_is_sent_with_its_placeholders_filled() {
     let data = plugin_home
         .join("plugins")
         .join("data")
-        .join("db-tools-team-market")
+        .join(data_folder)
         .to_string_lossy()
         .into_owned();
     assert_eq!(
-        channel.control_requests()[0]["servers"]["plugin:db-tools:db"],
+        channel.control_requests()[0]["servers"][&reported_name],
         json!({
             "type": "stdio",
             "command": format!("{root}/servers/db"),
@@ -416,11 +426,12 @@ async fn a_plugin_server_is_sent_with_its_placeholders_filled() {
     );
 }
 
-// A project server the root rejected is never sent to the probe and reads switched off, and one
-// the root never approved reads `unknown` unsent, while an approved one is sent. Killed by the
-// probe sending either withheld server and by the approval read ignored.
+// A project server that `disabledMcpjsonServers` names in the project's own or its local
+// settings is never sent to the probe and reads switched off, while one no settings approve, in a
+// folder never trusted, is sent, as Claude Code loads it in a process that is not interactive.
+// Killed by an unapproved server withheld, and by either rejected server sent.
 #[tokio::test]
-async fn a_project_server_the_root_rejected_or_never_approved_is_never_sent() {
+async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
     let scratch = tempfile::tempdir().expect("a scratch folder");
     let home = scratch.path().join("home");
     let folder = scratch.path().join("project");
@@ -430,21 +441,22 @@ async fn a_project_server_the_root_rejected_or_never_approved_is_never_sent() {
         folder.join(".mcp.json"),
         json!({ "mcpServers": {
             "rejected": { "command": "./scripts/setup.sh" },
-            "pending": { "command": "./scripts/pending.sh" },
-            "approved": { "command": "approved-server" }
+            "refused": { "command": "./scripts/refused.sh" },
+            "pending": { "command": "pending-server" }
         } })
         .to_string(),
     )
     .expect("the project's servers are written");
     std::fs::write(
         folder.join(".claude").join("settings.local.json"),
-        json!({
-            "disabledMcpjsonServers": ["rejected"],
-            "enabledMcpjsonServers": ["approved"]
-        })
-        .to_string(),
+        json!({ "disabledMcpjsonServers": ["rejected"] }).to_string(),
     )
     .expect("the project's local settings are written");
+    std::fs::write(
+        folder.join(".claude").join("settings.json"),
+        json!({ "disabledMcpjsonServers": ["refused"] }).to_string(),
+    )
+    .expect("the project's settings are written");
     let root = PlacedPath {
         path: FilesystemPath::new(folder.to_string_lossy().into_owned()).expect("a root path"),
         place: None,
@@ -475,11 +487,11 @@ async fn a_project_server_the_root_rejected_or_never_approved_is_never_sent() {
     let channel = Arc::new(ScriptedChannel::default());
     channel.answer(
         "mcp_status",
-        ScriptedAnswer::Reply(json!({"mcpServers": [{"name": "approved", "status": "connected"}]})),
+        ScriptedAnswer::Reply(json!({"mcpServers": [{"name": "pending", "status": "connected"}]})),
     );
     starts.script_mcp_probe(Arc::clone(&channel));
 
-    probe_claude_mcp_servers(
+    let probed = probe_claude_mcp_servers(
         &ClaudeMcpProbeSources {
             starts: &starts,
             environment: Vec::new(),
@@ -499,7 +511,7 @@ async fn a_project_server_the_root_rejected_or_never_approved_is_never_sent() {
     assert_eq!(
         sent.as_object()
             .map(|servers| servers.keys().map(String::as_str).collect::<Vec<_>>()),
-        Some(vec!["approved"]),
+        Some(vec!["pending"]),
         "{sent}"
     );
     let reading_of = |name: &str| {
@@ -509,9 +521,17 @@ async fn a_project_server_the_root_rejected_or_never_approved_is_never_sent() {
             .map(|reading| reading.reading)
     };
     assert_eq!(reading_of("rejected"), Some(McpServerReading::SwitchedOff));
+    assert_eq!(reading_of("refused"), Some(McpServerReading::SwitchedOff));
+    assert_eq!(reading_of("pending"), None);
     assert_eq!(
-        reading_of("pending"),
-        Some(McpServerReading::Observed(McpServerStatus::Unknown))
+        probed
+            .iter()
+            .map(|reading| (reading.binding.server_name().as_str(), reading.reading))
+            .collect::<Vec<_>>(),
+        [(
+            "pending",
+            McpServerReading::Observed(McpServerStatus::Connected)
+        )]
     );
 }
 

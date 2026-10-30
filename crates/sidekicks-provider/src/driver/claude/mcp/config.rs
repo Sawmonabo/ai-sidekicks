@@ -1,7 +1,7 @@
 //! The read of the person's own Claude Code MCP config: the user and per-project servers in
 //! `.claude.json`, each attached root's `.mcp.json`, the servers of the plugins in the daemon's
-//! plugin home, the per-project names kept out of a root, never approved there or switched off
-//! there, and the allow and deny lists. Every credential-bearing value is dropped at the read: a
+//! plugin home, the per-project names kept out of a root or switched off there, and the allow
+//! and deny lists. Every credential-bearing value is dropped at the read: a
 //! declaration keeps names only, and a remote address is held whole only in memory, for the
 //! duplicate match. The one read that keeps values takes a single server's entry for the probe
 //! that sends it, which drops it once sent.
@@ -37,9 +37,6 @@ use crate::inbound_json::decode_inbound_json;
 
 // The settings key naming a project's `.mcp.json` servers its sessions refuse.
 const DISABLED_MCPJSON_SERVERS_KEY: &str = "disabledMcpjsonServers";
-// The settings keys approving a project's `.mcp.json` servers by name, and all of them at once.
-const ENABLED_MCPJSON_SERVERS_KEY: &str = "enabledMcpjsonServers";
-const ENABLE_ALL_PROJECT_MCP_SERVERS_KEY: &str = "enableAllProjectMcpServers";
 // The variable that moves the person's Claude Code config folder, and their own config file
 // there, holding the `user` and per-project servers.
 const CONFIG_FOLDER_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
@@ -141,14 +138,11 @@ pub(crate) struct ClaudeMcpRootConfig {
     pub(crate) project_servers: Vec<ClaudeMcpServer>,
     /// The names of `.mcp.json` servers the root's sessions refuse: `disabledMcpjsonServers`
     /// across the user, project, project-local and managed settings and the root's entry in
-    /// `.claude.json`.
+    /// `.claude.json`. Every other `.mcp.json` server loads, approved or not, since every process
+    /// the daemon starts runs non-interactively with the project settings source on.
     pub(crate) kept_out_server_names: Vec<McpServerName>,
     /// The names Claude Code's own per-project switch turns off at the root.
     pub(crate) switched_off_server_names: Vec<McpServerName>,
-    /// The names of the root's `project` servers neither kept out nor approved there:
-    /// `enabledMcpjsonServers` and `enableAllProjectMcpServers` across the user, project-local
-    /// and managed settings and the root's entry in `.claude.json` name none of them.
-    pub(crate) unapproved_server_names: Vec<McpServerName>,
 }
 
 /// The person's Claude Code MCP config as the read found it.
@@ -204,6 +198,14 @@ pub(crate) async fn read_claude_mcp_config(
         let project_settings = read_settings(&settings_folder.join("settings.json")).await?;
         let local_settings = read_settings(&settings_folder.join("settings.local.json")).await?;
 
+        // Claude Code's approval of a `.mcp.json` server (`Xat`, b:21860974) rejects one the
+        // merged settings' `disabledMcpjsonServers` name (`jpt`, b:21860565; `pr`, b:10053459),
+        // and otherwise approves it by the settings (`wFn`, b:21860204) or leaves it pending. A
+        // pending one is approved `non_interactive` when the process is not interactive (`ye`,
+        // b:8571908) and the project settings source is on (`Qt`, b:9221918). Every process the
+        // daemon starts runs `-p` and passes no `--setting-sources`, so every source is on
+        // (`Jt`, b:8540453): a server loads unless it is rejected, whatever trust or approval
+        // the folder holds.
         let mut kept_out_server_names = person_wide_kept_out.clone();
         for name in project_settings
             .iter()
@@ -241,48 +243,16 @@ pub(crate) async fn read_claude_mcp_config(
                 }
             }
         };
-        // A project's own settings never approve its servers; the person's files and the
-        // administrator's do.
-        let approving = user_settings
-            .iter()
-            .chain(&local_settings)
-            .chain(&managed_settings);
-        let mut approves_every_server = project_entry
-            .and_then(|entry| entry.enable_all_project_mcp_servers.read())
-            .is_some_and(|enabled| *enabled);
-        let mut approved_server_names: Vec<McpServerName> = project_entry
-            .map(|entry| read_names(&entry.enabled_mcpjson_servers))
-            .unwrap_or_default();
-        for settings in approving {
-            approves_every_server |=
-                find_claude_setting(settings, &[ENABLE_ALL_PROJECT_MCP_SERVERS_KEY])
-                    == Some(&Value::Bool(true));
-            approved_server_names.extend(read_setting_names(settings, ENABLED_MCPJSON_SERVERS_KEY));
-        }
-        let project_servers = read_servers(&project_file.mcp_servers, rooted(false));
-        let unapproved_server_names = if approves_every_server {
-            Vec::new()
-        } else {
-            project_servers
-                .iter()
-                .map(|server| server.binding.server_name())
-                .filter(|name| {
-                    !kept_out_server_names.contains(name) && !approved_server_names.contains(name)
-                })
-                .cloned()
-                .collect()
-        };
         roots.push(ClaudeMcpRootConfig {
             root: root.root.clone(),
             local_servers: project_entry
                 .map(|entry| read_servers(&entry.mcp_servers, rooted(true)))
                 .unwrap_or_default(),
-            project_servers,
+            project_servers: read_servers(&project_file.mcp_servers, rooted(false)),
             kept_out_server_names,
             switched_off_server_names: project_entry
                 .map(|entry| read_names(&entry.disabled_mcp_servers))
                 .unwrap_or_default(),
-            unapproved_server_names,
         });
     }
 
@@ -348,10 +318,6 @@ struct ClaudeProjectEntry {
     disabled_mcp_servers: ClaudeNameList,
     #[serde(default)]
     disabled_mcpjson_servers: ClaudeNameList,
-    #[serde(default)]
-    enabled_mcpjson_servers: ClaudeNameList,
-    #[serde(default)]
-    enable_all_project_mcp_servers: Tolerated<bool>,
 }
 
 // A file holding servers under `mcpServers`: a project's or a plugin's `.mcp.json`, or a plugin's
