@@ -134,7 +134,7 @@ fn assert_unread(reading: &ShellLineReading) {
 )]
 // A word only the run decides where a wrapper reads an option that may take a value leaves the
 // wrapper the program, which the run decides, and so does env's split string; a string env
-// refuses leaves env the program it is.
+// refuses whatever the run supplies leaves env the program it is.
 #[case::undecided_option_of_a_wrapper(
     "sudo -$o root git push --force",
     vec![
@@ -153,14 +153,29 @@ fn assert_unread(reading: &ShellLineReading) {
     vec![command("env", &["git", "push", "-f"], &[])],
     true
 )]
-// A line break outside quotes parts GNU env's words but not macOS env's.
+// A line break outside quotes parts env's words as a space does.
 #[case::split_string_line_break(
     "env -S'A=1\nx git push --force'",
-    vec![command("env", &[], &[])],
+    vec![command(
+        "x",
+        &["git", "push", "--force"],
+        &["env", "-SA=1\nx git push --force", "A=1"],
+    )],
     true
 )]
-// Splits nested in splits read no more bytes in all than the line holds.
-#[case::split_strings_past_the_line("env -S-S-S-Sx", vec![command("env", &[], &[])], true)]
+// Splits nested in splits read no more bytes in all than the line holds, and what env makes of
+// the rest only the run decides.
+#[case::split_strings_past_the_line(
+    "env -S-S-S-Sx",
+    vec![command("env", &[], &[]).with_undecided_program()],
+    true
+)]
+// xargs appends the words it reads from its input to the command.
+#[case::xargs_appends_its_input(
+    "xargs -0 git log",
+    vec![command("git", &["log", "{}"], &["xargs", "-0"])],
+    true
+)]
 // A split string's assignments come before its program, which here only the run decides.
 #[case::undecided_program_after_a_split_assignment(
     "env -S'A=1 ${P} push'",

@@ -55,9 +55,10 @@ const PUSH_DESTRUCTIVE_LETTERS: &[char] = &['f', 'd'];
 const BRANCH_DELETE_LETTERS: &[char] = &['d', 'D'];
 
 /// Whether the line `reading` holds runs a force push or a branch delete anywhere, the `-c` and
-/// `eval` strings its shells run included, each reread on `reader`. A command that hands a shell a
-/// string is judged by that string alone; a string the reader leaves unread holds no command, so
-/// it reads as no destructive git.
+/// `eval` strings its shells run included, each reread on `reader`. A command whose program only
+/// the run decides counts as one; any other command that hands a shell a string is judged by that
+/// string alone; a string the reader leaves unread holds no command, so it reads as no destructive
+/// git.
 pub fn runs_destructive_git(reader: &mut ShellLineReader, reading: &ShellLineReading) -> bool {
     // The strings still to judge, so a nesting depth costs a list entry and never a stack frame.
     let mut rereads = Vec::new();
@@ -95,14 +96,18 @@ pub fn covers_destructive_git(rule: &ProviderAskRule) -> bool {
         && subcommand.is_none_or(|subcommand| DESTRUCTIVE_GIT_SUBCOMMANDS.contains(&subcommand))
 }
 
-// Whether a command of `reading` that hands a shell no string is a destructive git command; each
-// string a command hands a shell is read and left in `rereads` to be judged in its place.
+// Whether a command of `reading` whose program only the run decides, or that hands a shell no
+// string, is a destructive git command; each string any other command hands a shell is read and
+// left in `rereads` to be judged in its place.
 fn holds_destructive_git(
     reader: &mut ShellLineReader,
     reading: &ShellLineReading,
     rereads: &mut Vec<Arc<ShellLineReading>>,
 ) -> bool {
     for command in reading.commands() {
+        if command.is_program_undecided() {
+            return true;
+        }
         let strings = reader.read_command_strings(command);
         if strings.is_empty() {
             if is_destructive_git(command) {
@@ -115,15 +120,12 @@ fn holds_destructive_git(
     false
 }
 
-// A push that forces or deletes, or a branch delete. A word only the run decides, which can turn
-// into any word or several, counts as a match wherever a decided word is read: as the program or
-// a word that can split or move it, as any word up to the subcommand, each of which git may read
-// as its own option, a value or the subcommand, and after `push` or `branch`. Only a value of
-// git's own option that is one quoted parameter stays one word, which cannot move the subcommand.
+// A push that forces or deletes, or a branch delete, of a command whose program is decided. A
+// word only the run decides, which can turn into any word or several, counts as a match wherever a
+// decided word is read: as any word up to the subcommand, each of which git may read as its own
+// option, a value or the subcommand, and after `push` or `branch`. Only a value of git's own
+// option that is one quoted parameter stays one word, which cannot move the subcommand.
 fn is_destructive_git(command: ShellCommand<'_>) -> bool {
-    if command.is_program_undecided() {
-        return true;
-    }
     if !command.program().is("git") {
         return false;
     }
@@ -298,24 +300,80 @@ mod tests {
     #[case::expanded_option_of_a_wrapper("X=i; env -$X git push --force", true)]
     #[case::quoted_expanded_option_of_a_wrapper("env \"-$X\" git push --force", true)]
     #[case::expanded_option_before_a_value("sudo -$o root git push --force", true)]
-    // The shell splits a wrapper's unquoted value, operand or assignment into the program and its
-    // words; a quoted one stays one word, which leaves the program read.
+    // The shell splits a wrapper's unquoted value or assignment into the program and its words;
+    // a quoted one stays one word, which leaves the program read.
     #[case::split_value_of_a_wrapper("env -u $U main", true)]
     #[case::split_value_of_nice("nice -n $N main", true)]
     #[case::split_operand_of_a_wrapper("timeout $D main", true)]
     #[case::split_assignment_of_a_wrapper("env A=$X main", true)]
     #[case::quoted_value_of_a_wrapper("env -u \"$U\" main", false)]
-    #[case::quoted_operand_of_a_wrapper("timeout \"$D\" main", false)]
+    #[case::attached_quoted_value_of_a_wrapper("env -u\"$U\" main", false)]
     #[case::quoted_assignment_of_a_wrapper("env \"A=$X\" main", false)]
+    // A wrapper's operand only the run decides, quoted or not, may be an option that moves the
+    // program, as `--foreground` before timeout's duration is.
+    #[case::quoted_operand_of_a_wrapper("timeout \"$D\" main", true)]
+    #[case::quoted_operand_before_the_duration("timeout \"$D\" 5 git push --force", true)]
+    #[case::quoted_operand_before_the_priority("chrt \"$P\" 5 git push --force", true)]
+    // A marked command is judged before the string it hands a shell, which the run may make an
+    // argument of another program.
+    #[case::split_value_before_a_shell_string("env -u $U sh -c 'echo hi'", true)]
+    #[case::split_folder_of_a_shell("$D/sh -c 'echo hi'", true)]
+    #[case::expanded_option_before_a_shell_string("command -$v sh -c x", true)]
+    #[case::split_assignment_before_a_shell_string("env A=$X bash -c x", true)]
+    #[case::split_operand_before_a_shell_string("timeout $D sh -c x", true)]
+    // Programs that run the words after them, and zsh's `=name`, which names a program's path.
+    #[case::builtin_eval("builtin eval 'git push --force'", true)]
+    #[case::noglob_modifier("noglob git push --force", true)]
+    #[case::equals_expansion("=git push --force", true)]
+    #[case::dash_modifier("true; - git push --force", true)]
+    // xargs appends its input's words to the command, and puts them where the command holds the
+    // string it replaces.
+    #[case::xargs_appended_words("echo --force | xargs git push origin main", true)]
+    #[case::xargs_replaced_program("echo git | xargs -J % % push --force", true)]
+    #[case::xargs_replaced_argument("echo --force | xargs -I% git push origin %", true)]
+    #[case::xargs_replaced_shell_string("echo 'git push -f' | xargs -I% sh -c %", true)]
+    #[case::xargs_appended_shell_string("echo 'git push -f' | xargs sh -c", true)]
+    #[case::xargs_appended_words_after_a_reading_subcommand("echo x | xargs git status", false)]
+    // A shell handed no `-c` string and no script reads its line from its input, and `source`
+    // reads one from anything but a regular file.
+    #[case::here_string_to_a_shell("sh <<< 'git push --force'", true)]
+    #[case::pipe_into_a_shell("echo 'git push --force' | sh", true)]
+    #[case::shell_reading_its_input("sh -s <<< x", true)]
+    #[case::source_of_the_input("source /dev/stdin <<< x", true)]
+    #[case::source_of_a_substitution(". <(echo x)", true)]
+    #[case::shell_running_a_script("sh ./script.sh", false)]
+    #[case::source_of_a_script("source ./x.sh", false)]
+    // The words of an alias a line defines run where the line uses it.
+    #[case::alias_value("shopt -s expand_aliases\nalias g='git push --force'\ng", true)]
     // env splits its split string again after the shell expanded it, so an expansion in its
-    // program or assignment word can be any program.
+    // program or assignment word can be any program, and env's own `${name}` counts as one
+    // however the line spells it.
     #[case::split_assignment_inside_a_split_string("env -S \"A=$X main\"", true)]
     #[case::expanded_split_string("env -S \"$X\"", true)]
     #[case::env_expanded_program_of_a_split_string("env -S'${P} push -f'", true)]
+    #[case::env_expanded_value_of_a_split_string("env -S'-u ${X} main'", true)]
+    #[case::escaped_env_expanded_value_of_a_split_string("env -S\"-u \\${X} main\"", true)]
+    // Where an expansion decides whether env refuses its split string, or the split spends the
+    // line's bytes, only the run decides what env runs; a line break or vertical tab is a blank.
+    #[case::expansion_closing_a_split_quote("X=\"'A=1 git push --force\"; env -S\"'$X\"", true)]
+    #[case::expansion_after_a_split_escape("X='_git push --force'; env -S\"\\\\$X\"", true)]
+    #[case::expansion_after_a_split_dollar(
+        "X='{P}'; P=git; export P; env -S'$'\"$X push --force\"",
+        true
+    )]
+    #[case::expansion_ending_a_split_string("X='git push --force #'; env -S\"$X'\"", true)]
+    #[case::nested_split_past_the_line("env -S'-S \"git push --force\"'", true)]
+    #[case::split_chain_past_the_line("env -S-S-S-Sgit push --force", true)]
+    #[case::line_break_in_a_split_string("env -S'A=1\ngit push --force'", true)]
+    #[case::vertical_tab_in_a_split_string("env -S'git\u{b}push\u{b}--force'", true)]
     // An expansion the shell splits in a program's folder can be the program; a quoted folder
     // cannot split, so its file is the program.
     #[case::split_folder_of_the_program("G=\"git push --force origin main -o\"; $G/x", true)]
     #[case::expanded_home_folder("$HOME/bin/tool x", true)]
+    #[case::substituted_folder("$(printf 'git push -f -o')/x", true)]
+    // A pattern or a brace in a folder changes no name.
+    #[case::brace_folder("{a,b}/x", false)]
+    #[case::pattern_folder("g?t/x", false)]
     #[case::quoted_substituted_folder(
         "\"$(git rev-parse --show-toplevel)/tools/x.sh\" notes.md",
         false

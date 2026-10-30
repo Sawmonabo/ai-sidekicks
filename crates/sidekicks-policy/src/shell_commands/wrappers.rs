@@ -1,26 +1,51 @@
 //! The programs that run the command after their own options and operands, such as `env -i`,
-//! `sudo -u` or `timeout 5`, and how each reads its own words before the command's.
+//! `sudo -u` or `timeout 5`, how each reads its own words before the command's, and what those
+//! words leave for the run to decide about the command.
 
 use std::collections::VecDeque;
 
+use super::command_string::{CommandStringWords, command_string_words};
 use super::is_variable_assignment;
-use super::words::{ShellWord, Word, WordBuilder, WordText, long_option_named, short_option_named};
+use super::words::{
+    ShellWord, SplitString, Word, WordBuilder, WordText, long_option_named, short_option_named,
+};
 
 /// How a program that runs the command after it reads its own words first: its options that take
 /// a value (the rest of the short option's cluster, after a long option's `=`, or the next word);
-/// those that split their value into the command's words; those with which it runs no command; the
-/// letters whose optional value is only the rest of their cluster; whether it reads its short
-/// options in clusters and `-` alone as an option; and the operand it takes before the command.
+/// those that split their value into the command's words; those whose value, or optional value
+/// inside their own word, is a string the program replaces with its input's words; those with
+/// which it runs no command; the letters whose optional value is only the rest of their cluster;
+/// whether it reads its short options in clusters and `-` alone as an option; the operand it takes
+/// before the command; and whether it appends its input's words to the command.
 #[derive(Clone, Copy)]
 pub(super) struct CommandWrapper {
     options_with_value: &'static [&'static str],
     split_string_options: &'static [&'static str],
+    replacement_options: &'static [&'static str],
+    optional_replacement_options: &'static [&'static str],
     options_running_nothing: &'static [&'static str],
     letters_with_attached_value: &'static str,
     reads_clusters: bool,
     is_lone_dash_an_option: bool,
     leading_operand: LeadingOperand,
+    appends_input_words: bool,
 }
+
+/// What the words before a command's program leave for the run to decide: whether the program
+/// itself, and the strings a wrapper replaces with its input's words, if one does.
+#[derive(Default)]
+pub(super) struct WrapperRegion {
+    /// Whether a word before the program, or the program word, lets only the run decide which
+    /// program runs.
+    pub(super) is_program_undecided: bool,
+    // Whether a wrapper appends its input's words to the command.
+    appends_input_words: bool,
+    // The strings a wrapper replaces with its input's words; `None` for one the run decides.
+    replacements: Vec<Option<String>>,
+}
+
+// The default string xargs replaces when its optional replacement option names none.
+const DEFAULT_REPLACEMENT: &str = "{}";
 
 // The operand a wrapper takes after its options and before the command.
 #[derive(Clone, Copy)]
@@ -37,7 +62,19 @@ enum LeadingOperand {
 enum OptionKind {
     TakesValue,
     SplitsValue,
+    Replaces,
+    ReplacesOptionally,
     RunsNothing,
+}
+
+// What an option's value is to the wrapper.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ValueRole {
+    Plain,
+    // It splits into the command's words.
+    Splits,
+    // The wrapper replaces it with its input's words wherever the command holds it.
+    Replaces,
 }
 
 // What an option word holds, as getopt reads it.
@@ -45,9 +82,14 @@ enum OptionWord {
     // Options that take no value, or one only the rest of their cluster holds.
     Flags,
     // An option whose value starts at this byte offset in the word, or is the next word when
-    // `None`, and whether the value splits into the command's words.
+    // `None`, and what the value is to the wrapper.
     Value {
-        splits: bool,
+        role: ValueRole,
+        attached_from: Option<usize>,
+    },
+    // An option whose replacement string is the rest of its word from this byte offset, or the
+    // default one when `None`.
+    OptionalReplacement {
         attached_from: Option<usize>,
     },
     // An option with which the wrapper runs no command.
@@ -59,9 +101,9 @@ pub(super) enum WrapperRead {
     /// The command's program is the next word left, if any.
     CommandFollows,
     /// The wrapper itself is the program and the words left are its arguments: one of its
-    /// options runs no command, env refuses its split string or has split as much as the line
-    /// holds, or a word only the run decides stands where the wrapper reads an option that may
-    /// take a value, or where a split string's word is read.
+    /// options runs no command, env refuses its split string or only the run decides what env
+    /// makes of it, or a word only the run decides stands where the wrapper reads an option that
+    /// may take a value, or where a split string's word is read.
     WrapperIsProgram,
 }
 
@@ -70,11 +112,14 @@ impl CommandWrapper {
         Self {
             options_with_value,
             split_string_options: &[],
+            replacement_options: &[],
+            optional_replacement_options: &[],
             options_running_nothing: &[],
             letters_with_attached_value: "",
             reads_clusters: true,
             is_lone_dash_an_option: false,
             leading_operand: LeadingOperand::Absent,
+            appends_input_words: false,
         }
     }
 
@@ -84,6 +129,11 @@ impl CommandWrapper {
         };
         with_kind(self.split_string_options, OptionKind::SplitsValue)
             .chain(with_kind(self.options_with_value, OptionKind::TakesValue))
+            .chain(with_kind(self.replacement_options, OptionKind::Replaces))
+            .chain(with_kind(
+                self.optional_replacement_options,
+                OptionKind::ReplacesOptionally,
+            ))
             .chain(with_kind(
                 self.options_running_nothing,
                 OptionKind::RunsNothing,
@@ -93,7 +143,9 @@ impl CommandWrapper {
     // Whether an option word only the run decides can hide an option that takes a value, so the
     // word after it need not be the command.
     fn takes_values(self) -> bool {
-        !self.options_with_value.is_empty() || !self.split_string_options.is_empty()
+        !self.options_with_value.is_empty()
+            || !self.split_string_options.is_empty()
+            || !self.replacement_options.is_empty()
     }
 
     // What the option word `word` holds, as getopt reads it: a long option by its whole name or by
@@ -121,15 +173,15 @@ impl CommandWrapper {
 
 impl OptionKind {
     fn option_word(self, attached_from: Option<usize>) -> OptionWord {
+        let value = |role| OptionWord::Value {
+            role,
+            attached_from,
+        };
         match self {
-            Self::TakesValue => OptionWord::Value {
-                splits: false,
-                attached_from,
-            },
-            Self::SplitsValue => OptionWord::Value {
-                splits: true,
-                attached_from,
-            },
+            Self::TakesValue => value(ValueRole::Plain),
+            Self::SplitsValue => value(ValueRole::Splits),
+            Self::Replaces => value(ValueRole::Replaces),
+            Self::ReplacesOptionally => OptionWord::OptionalReplacement { attached_from },
             Self::RunsNothing => OptionWord::RunsNothing,
         }
     }
@@ -142,6 +194,10 @@ const TIMEOUT: CommandWrapper = CommandWrapper {
 };
 
 const NICE: CommandWrapper = CommandWrapper::new(&["-n", "--adjustment"]);
+
+// A program that runs the command after it and reads no option of its own that takes a value:
+// bash's and zsh's `builtin`, zsh's precommand modifiers, and `nohup` and `setsid`.
+const NO_VALUE_WRAPPER: CommandWrapper = CommandWrapper::new(&[]);
 
 // The programs that run the command after them, so the program is the word past their own.
 const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
@@ -173,7 +229,11 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
             ..CommandWrapper::new(&[])
         },
     ),
-    ("nohup", CommandWrapper::new(&[])),
+    ("nohup", NO_VALUE_WRAPPER),
+    ("builtin", NO_VALUE_WRAPPER),
+    ("noglob", NO_VALUE_WRAPPER),
+    ("nocorrect", NO_VALUE_WRAPPER),
+    ("-", NO_VALUE_WRAPPER),
     (
         "time",
         CommandWrapper::new(&["-o", "--output", "-f", "--format"]),
@@ -217,10 +277,15 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
     (
         "xargs",
         CommandWrapper {
-            // GNU's `-i`, `-e` and `-l` take an optional value inside their own word.
-            letters_with_attached_value: "iel",
+            // `-I` and BSD's `-J` name the string xargs replaces with its input's words, and so
+            // do GNU's `-i` and `--replace`, `{}` when their own word names none; with neither,
+            // xargs appends those words to the command.
+            replacement_options: &["-I", "-J"],
+            optional_replacement_options: &["-i", "--replace"],
+            appends_input_words: true,
+            // GNU's `-e` and `-l` take an optional value inside their own word.
+            letters_with_attached_value: "el",
             ..CommandWrapper::new(&[
-                "-I",
                 "-L",
                 "-n",
                 "--max-args",
@@ -234,7 +299,6 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
                 "-E",
                 "-a",
                 "--arg-file",
-                "-J",
                 "-R",
                 "-S",
             ])
@@ -244,7 +308,7 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
         "stdbuf",
         CommandWrapper::new(&["-i", "--input", "-o", "--output", "-e", "--error"]),
     ),
-    ("setsid", CommandWrapper::new(&[])),
+    ("setsid", NO_VALUE_WRAPPER),
     (
         "ionice",
         CommandWrapper::new(&[
@@ -312,15 +376,16 @@ pub(super) fn command_wrapper(program: ShellWord<'_>) -> Option<CommandWrapper> 
 /// leading operand. `env -S` puts the words its value splits into in their place, whether the value
 /// is the next word or attached, as in `-S'…'`, `-vS'…'` or `--split-string=…`, and reads them
 /// again as its own arguments, assignments among them. Each word taken off is pushed on `taken`.
-/// `is_program_undecided` is set when a word only the run decides may move which word is the
-/// program: an undecided option word, a value or operand the shell can split, or a split string's
-/// undecided program or assignment.
+/// The program stays decided only while each word taken is a decided literal, an assignment or an
+/// option's value whose only undecided parts are double-quoted, or a decided option with such a
+/// value attached; any other word only the run decides, a leading operand quoted or not among them,
+/// sets `region.is_program_undecided`, and so does a split string only the run decides.
 pub(super) fn take_wrapper_words(
     builder: &mut WordBuilder<'_>,
     wrapper: CommandWrapper,
     pending: &mut VecDeque<Word>,
     taken: &mut Vec<Word>,
-    is_program_undecided: &mut bool,
+    region: &mut WrapperRegion,
 ) -> WrapperRead {
     let mut words = WrapperWords {
         pending,
@@ -332,7 +397,7 @@ pub(super) fn take_wrapper_words(
         let view = builder.view(word);
         // env reads a split string's assignments before its program, and no option after one.
         if words.is_front_split() && is_variable_assignment(view) {
-            *is_program_undecided |= !view.is_decided();
+            region.is_program_undecided |= view.holds_unquoted_expansion();
             words.pop_front();
             have_options_ended = true;
             continue;
@@ -340,20 +405,20 @@ pub(super) fn take_wrapper_words(
         let is_option = !have_options_ended
             && view.starts_with("-")
             && (!view.is("-") || wrapper.is_lone_dash_an_option);
-        // A split string attached to its decided option, as in `-S"git $X"`, is split as env
-        // splits it, its expansions left to the run.
-        let splits_an_attached_value = !view.is_decided()
-            && is_option
-            && !words.is_front_split()
+        // A decided option with its value attached that the shell passes as one word, as in
+        // `-u"$U"` or `-S"git $X"`, whose value env splits as it splits any.
+        let is_option_with_quoted_value = is_option
+            && !view.holds_unquoted_expansion()
             && matches!(
                 wrapper.option_word(view),
-                OptionWord::Value { splits: true, attached_from: Some(bytes) }
+                OptionWord::Value { attached_from: Some(bytes), .. }
+                    | OptionWord::OptionalReplacement { attached_from: Some(bytes) }
                     if view.is_decided_through(bytes)
             );
-        if !view.is_decided() && !splits_an_attached_value {
-            // An option word's letters decide which later word is the program, and a split
-            // string's program word is the program.
-            *is_program_undecided |= is_option || words.is_front_split();
+        if !view.is_decided() && !is_option_with_quoted_value {
+            // Any other word is an assignment, the leading operand or the program, each of which
+            // its own reading marks.
+            region.is_program_undecided |= is_option || words.is_front_split();
             if words.is_front_split() || (is_option && wrapper.takes_values()) {
                 return WrapperRead::WrapperIsProgram;
             }
@@ -372,37 +437,60 @@ pub(super) fn take_wrapper_words(
             have_options_ended = true;
             continue;
         }
-        let (splits, attached_from) = match wrapper.option_word(view) {
-            OptionWord::RunsNothing => return WrapperRead::WrapperIsProgram,
-            OptionWord::Flags => {
-                words.pop_front();
+        let option_word = wrapper.option_word(view);
+        if matches!(option_word, OptionWord::RunsNothing) {
+            return WrapperRead::WrapperIsProgram;
+        }
+        words.pop_front();
+        let (role, attached_from) = match option_word {
+            OptionWord::RunsNothing | OptionWord::Flags => continue,
+            OptionWord::OptionalReplacement { attached_from } => {
+                region
+                    .replacements
+                    .push(view.is_decided().then(|| match attached_from {
+                        Some(bytes) => view.to_string().split_off(bytes),
+                        None => DEFAULT_REPLACEMENT.to_owned(),
+                    }));
                 continue;
             }
             OptionWord::Value {
-                splits,
+                role,
                 attached_from,
-            } => (splits, attached_from),
+            } => (role, attached_from),
         };
-        words.pop_front();
-        if !splits {
-            if attached_from.is_none()
-                && let Some(value) = words.pop_front()
-            {
-                *is_program_undecided |= builder.view(value).holds_unquoted_expansion();
-            }
-            continue;
-        }
         let value = match attached_from {
-            Some(bytes) => builder.word_after(word, bytes),
-            None => words.pop_front(),
+            Some(bytes) if role == ValueRole::Splits => builder.word_after(word, bytes),
+            Some(bytes) => {
+                if role == ValueRole::Replaces {
+                    let replacement = view.is_decided().then(|| view.to_string().split_off(bytes));
+                    region.replacements.push(replacement);
+                }
+                continue;
+            }
+            None => {
+                let Some(value) = words.pop_front() else {
+                    continue;
+                };
+                let value_view = builder.view(value);
+                region.is_program_undecided |= value_view.holds_unquoted_expansion();
+                if role == ValueRole::Replaces {
+                    let replacement = value_view.is_decided().then(|| value_view.to_string());
+                    region.replacements.push(replacement);
+                }
+                (role == ValueRole::Splits).then_some(value)
+            }
         };
         let Some(value) = value else {
             continue;
         };
-        let Some(split_words) = builder.split_string(value) else {
-            return WrapperRead::WrapperIsProgram;
-        };
-        words.push_split(split_words);
+        match builder.split_string(value) {
+            SplitString::Words(split_words) => words.push_split(split_words),
+            SplitString::Refused => return WrapperRead::WrapperIsProgram,
+            SplitString::Undecided => {
+                region.is_program_undecided = true;
+                return WrapperRead::WrapperIsProgram;
+            }
+        }
     }
     let takes_operand = match wrapper.leading_operand {
         LeadingOperand::Absent => false,
@@ -414,9 +502,59 @@ pub(super) fn take_wrapper_words(
         }),
     };
     if takes_operand && let Some(operand) = words.pop_front() {
-        *is_program_undecided |= builder.view(operand).holds_unquoted_expansion();
+        region.is_program_undecided |= !builder.view(operand).is_decided();
     }
+    region.appends_input_words |= wrapper.appends_input_words;
     WrapperRead::CommandFollows
+}
+
+impl WrapperRegion {
+    /// Whether a wrapper read so far hands the command after it words from its input.
+    pub(super) fn takes_input_words(&self) -> bool {
+        self.appends_input_words || !self.replacements.is_empty()
+    }
+
+    /// Reads into the command whose program is `words[program]`, its arguments the words after
+    /// it, what a wrapper before it takes from its input: each word holding a string the wrapper
+    /// replaces becomes one only the run decides, as every word does when the run decides that
+    /// string, and the words it appends are one more such word. The program is then undecided
+    /// when the run decides its word, or a line it hands a shell holds the input's words.
+    pub(super) fn read_input_words(
+        &mut self,
+        builder: &mut WordBuilder<'_>,
+        words: &mut Vec<Word>,
+        program: usize,
+    ) {
+        if !self.takes_input_words() {
+            return;
+        }
+        for word in &mut words[program..] {
+            let text = builder.view(*word).to_string();
+            let holds_replacement = self.replacements.iter().any(|replacement| {
+                replacement
+                    .as_deref()
+                    .is_none_or(|replacement| text.contains(replacement))
+            });
+            if holds_replacement {
+                *word = builder.push_undecided_copy(*word);
+            }
+        }
+        if self.appends_input_words {
+            words.push(builder.push_input_word());
+        }
+        let arguments = &words[program + 1..];
+        let program = builder.view(words[program]);
+        let argument_words = || arguments.iter().map(|&word| builder.view(word));
+        self.is_program_undecided |= !program.is_decided()
+            || command_string_words(program, argument_words())
+                .into_iter()
+                .any(|string| match string {
+                    CommandStringWords::Every => argument_words().any(|word| !word.is_decided()),
+                    CommandStringWords::One { index, .. } => {
+                        !builder.view(arguments[index]).is_decided()
+                    }
+                });
+    }
 }
 
 // The words left of a command, how many at their front a split string made, and the words taken

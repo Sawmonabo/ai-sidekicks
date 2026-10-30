@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use tree_sitter::{Node, Parser};
 
-use self::command_string::{CommandStringWords, command_string_words};
+use self::command_string::{CommandStringWords, command_string_words, reads_its_line_from_input};
 pub use self::command_string::{
     PROVIDER_LINE_SHELLS, hands_a_shell_a_line, unwrap_shell_command_line,
 };
@@ -28,7 +28,7 @@ use self::words::{
     BytePositions, JoinedWords, Piece, PieceTexts, ShellText, Word, WordBuilder, node_text, offset,
 };
 pub use self::words::{PositionedByte, ShellWord, WordText, is_option};
-use self::wrappers::{WrapperRead, command_wrapper, take_wrapper_words};
+use self::wrappers::{WrapperRead, WrapperRegion, command_wrapper, take_wrapper_words};
 
 /// The simple commands of one line, nested ones included, in the order they appear, outer ones
 /// before those nested in them; `is_whole` is false when the parser could not read some of the
@@ -150,11 +150,15 @@ impl<'r> ShellCommand<'r> {
         self.reading.word(self.entry.program)
     }
 
-    /// Whether only the line's run decides which program runs: the program word is undecided, an
-    /// expansion the shell splits stands in a folder before the program's name, or a word before
-    /// the program can split or move it, as an undecided option word of a wrapper, a wrapper's
-    /// value, operand or assignment the shell splits, or a split string's undecided program or
-    /// assignment can. The program read is then no ground for any verdict on what runs.
+    /// Whether only the line's run decides which program runs or what it runs. The program is
+    /// decided only when every word before it is a decided literal, an assignment or a wrapper's
+    /// option value whose only undecided parts are double-quoted, or a decided option with such a
+    /// value attached; its name is decided and its folder holds no `$` expansion outside double
+    /// quotes (a parameter, a substitution or an arithmetic expansion; a pattern or a brace there
+    /// changes no name); env decides its split strings whatever the run supplies; no line it runs
+    /// comes from its input, as a shell's or `source`'s with no `-c` string or script does; and
+    /// no line it hands a shell holds the words xargs reads from its input. The program read is
+    /// otherwise no ground for any verdict on what runs.
     pub fn is_program_undecided(self) -> bool {
         self.entry.is_program_undecided
     }
@@ -551,8 +555,10 @@ fn resolve_command(
     let first_word = words.len();
     let piece_mark = builder.piece_count();
     let mut is_named_by_path = false;
-    let mut is_program_undecided = false;
+    let mut region = WrapperRegion::default();
     let mut last_wrapper = None;
+    // Whether a wrapper before the last one hands the command after it its input's words.
+    let mut is_last_wrapper_given_input = false;
     loop {
         while let Some(assignment) =
             pending.pop_front_if(|word| is_variable_assignment(builder.view(*word)))
@@ -560,12 +566,13 @@ fn resolve_command(
             // One after a wrapper is the wrapper's own, as env reads it, and the shell splits an
             // expansion in it; one before is the shell's, which it never splits.
             if last_wrapper.is_some() {
-                is_program_undecided |= builder.view(assignment).holds_unquoted_expansion();
+                region.is_program_undecided |= builder.view(assignment).holds_unquoted_expansion();
                 words.push(assignment);
             }
         }
         let Some(name) = pending.pop_front() else {
-            // A wrapper whose own words use up the command is its program, as `sudo -s` is.
+            // A wrapper whose own words use up the command is its program, as `sudo -s` is, and
+            // the input's words a wrapper before it appends are its own words too.
             let Some(program) = last_wrapper else {
                 builder.truncate(piece_mark);
                 return None;
@@ -576,13 +583,13 @@ fn resolve_command(
                 program: offset(program),
                 end: offset(program + 1),
                 is_named_by_path,
-                is_program_undecided,
+                is_program_undecided: region.is_program_undecided || is_last_wrapper_given_input,
             });
         };
         let program = match builder.basename(name) {
             Some((without_folder, can_folder_split)) => {
                 is_named_by_path = true;
-                is_program_undecided |= can_folder_split;
+                region.is_program_undecided |= can_folder_split;
                 without_folder
             }
             None => name,
@@ -590,9 +597,10 @@ fn resolve_command(
         let wrapper = command_wrapper(builder.view(program));
         words.push(program);
         let name_index = words.len() - 1;
+        is_last_wrapper_given_input = region.takes_input_words();
         let is_program = match wrapper {
             Some(wrapper) => matches!(
-                take_wrapper_words(builder, wrapper, pending, words, &mut is_program_undecided),
+                take_wrapper_words(builder, wrapper, pending, words, &mut region),
                 WrapperRead::WrapperIsProgram
             ),
             None => true,
@@ -600,13 +608,19 @@ fn resolve_command(
         if is_program {
             words.truncate(name_index + 1);
             words.extend(pending.drain(..));
-            is_program_undecided |= !builder.view(program).is_decided();
+            region.read_input_words(builder, words, name_index);
+            let program = builder.view(words[name_index]);
+            let argument_words = words[name_index + 1..]
+                .iter()
+                .map(|&word| builder.view(word));
+            region.is_program_undecided |=
+                !program.is_decided() || reads_its_line_from_input(program, argument_words);
             return Some(CommandEntry {
                 first: offset(first_word),
                 program: offset(name_index),
                 end: offset(words.len()),
                 is_named_by_path,
-                is_program_undecided,
+                is_program_undecided: region.is_program_undecided,
             });
         }
         last_wrapper = Some(name_index);

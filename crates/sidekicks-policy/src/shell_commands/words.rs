@@ -4,6 +4,7 @@
 //! the shell expands into file names or alternatives kept as its source text in the line. A word
 //! is never copied out of its pieces, and each query on it costs the pieces it reads.
 
+mod options;
 mod quote_removal;
 mod split_string;
 
@@ -13,7 +14,10 @@ use std::sync::{Arc, OnceLock};
 use memchr::{memchr, memchr_iter, memrchr};
 use tree_sitter::Node;
 
+pub use self::options::is_option;
+pub(super) use self::options::{long_option_named, short_option_named};
 use self::quote_removal::{decode_ansi_c, unescape_bare, unescape_double_quoted};
+pub(super) use self::split_string::SplitString;
 use super::{continues_variable_name, starts_variable_name};
 
 /// `count` as a reading's offset or count: its line is within the reader's limit, a system's
@@ -42,7 +46,8 @@ enum PieceKind {
     QuotedExpansion,
     /// Text an escape or an ANSI-C string decoded, in the decoded buffer.
     Decoded,
-    /// A `${…}` that `env -S` expands inside decoded text, kept as that text in the decoded buffer.
+    /// A `${…}` that `env -S` expands inside decoded text, kept as that text in the decoded buffer,
+    /// or text standing for the words a program reads from its input, as xargs does.
     DecodedExpansion,
 }
 
@@ -186,79 +191,6 @@ pub trait WordText: Copy {
     fn contains(self, byte: PositionedByte) -> bool;
 }
 
-/// Whether `word` is `option`, alone or with `=<value>`; `option` is ASCII, so its byte length
-/// counts its characters.
-pub fn is_option(word: impl WordText, option: &str) -> bool {
-    word.starts_with(option) && matches!(word.chars().nth(option.len()), None | Some('='))
-}
-
-/// The option of `options` the long option word `word` names, as `getopt_long` reads it: the one
-/// it names whole, or else the one its name, up to any `=`, is a prefix of when that prefix fits
-/// no other; with the byte offset of a value attached after `=`.
-pub(super) fn long_option_named<'o, T>(
-    word: impl WordText,
-    options: impl Iterator<Item = (&'o str, T)>,
-) -> Option<(T, Option<usize>)> {
-    let mut prefixed = None;
-    let mut prefix_count = 0;
-    let mut named = None;
-    for (option, value) in options {
-        let mut option_characters = option.chars();
-        let is_prefix = word
-            .chars()
-            .take_while(|&character| character != '=')
-            .all(|character| option_characters.next() == Some(character));
-        if !is_prefix {
-            continue;
-        }
-        if option_characters.next().is_none() {
-            named = Some(value);
-            break;
-        }
-        prefix_count += 1;
-        prefixed = Some(value);
-    }
-    let value = named.or(prefixed.filter(|_| prefix_count == 1))?;
-    let mut name_length = 0;
-    let mut characters = word.chars();
-    let has_value = loop {
-        match characters.next() {
-            Some('=') => break true,
-            Some(character) => name_length += character.len_utf8(),
-            None => break false,
-        }
-    };
-    Some((value, has_value.then_some(name_length + 1)))
-}
-
-/// The option of `options` the short cluster `word` names first, as getopt reads a cluster, with
-/// the byte offset of its value when the rest of the cluster holds it; `None` when no letter is
-/// listed before one of `letters_with_attached_value`, whose optional value is the cluster's rest.
-pub(super) fn short_option_named<'o, T>(
-    word: impl WordText,
-    options: &(impl Iterator<Item = (&'o str, T)> + Clone),
-    letters_with_attached_value: &str,
-) -> Option<(T, Option<usize>)> {
-    let mut position = 1;
-    let mut letters = word.chars().skip(1).peekable();
-    while let Some(letter) = letters.next() {
-        position += letter.len_utf8();
-        if letters_with_attached_value.contains(letter) {
-            return None;
-        }
-        let named = options.clone().find(|&(option, _)| {
-            let mut characters = option.chars();
-            characters.next() == Some('-')
-                && characters.next() == Some(letter)
-                && characters.next().is_none()
-        });
-        if let Some((_, value)) = named {
-            return Some((value, letters.peek().is_some().then_some(position)));
-        }
-    }
-    None
-}
-
 impl WordText for &str {
     fn is(self, text: &str) -> bool {
         self == text
@@ -325,12 +257,16 @@ impl<'r> ShellWord<'r> {
     }
 
     /// Whether part of the word is an expansion, a substitution or a pattern outside double
-    /// quotes, which the shell can split or expand into several words, or an ANSI-C string the
-    /// shells decode apart; a word whose only undecided parts are double-quoted stays one word.
+    /// quotes, which the shell can split or expand into several words, an ANSI-C string the
+    /// shells decode apart, or a `${…}` that `env -S` expands, however the line spelled it; a word
+    /// whose only undecided parts are double-quoted stays one word.
     pub(crate) fn holds_unquoted_expansion(self) -> bool {
-        self.pieces
-            .iter()
-            .any(|piece| piece.kind == PieceKind::Expansion)
+        self.pieces.iter().any(|piece| {
+            matches!(
+                piece.kind,
+                PieceKind::Expansion | PieceKind::DecodedExpansion
+            )
+        })
     }
 
     /// Whether the word is one parameter alone inside double quotes, `"$name"`, `"${name}"` or a
@@ -551,9 +487,21 @@ impl<'s> WordBuilder<'s> {
     }
 
     /// Reads the literal `node` as a word: a concatenation joins its parts, and every kind no
-    /// quoting or escape changes reads as its text.
+    /// quoting or escape changes reads as its text, but for zsh's `=name` at the word's start,
+    /// which zsh expands into the path of the program `name`.
     pub(super) fn push_word(&mut self, node: Node<'_>) -> Word {
         let first_piece = self.pieces.len();
+        let first_part = if node.kind() == "concatenation" {
+            node.child(0)
+        } else {
+            Some(node)
+        };
+        let is_equals_expansion = first_part.is_some_and(|part| {
+            let mut characters = node_text(part, self.line).chars();
+            part.kind() == "word"
+                && characters.next() == Some('=')
+                && characters.next().is_some_and(starts_variable_name)
+        });
         if node.kind() == "concatenation" {
             let mut cursor = node.walk();
             if cursor.goto_first_child() {
@@ -566,6 +514,34 @@ impl<'s> WordBuilder<'s> {
             }
         } else {
             self.push_part(node);
+        }
+        if is_equals_expansion && let Some(piece) = self.pieces.get_mut(first_piece) {
+            piece.kind = undecided_kind(piece.kind);
+        }
+        word_from(&self.pieces, first_piece)
+    }
+
+    /// A word standing for the words a program reads from its input and appends to its command,
+    /// as xargs does: `{}` in the decoded buffer, whose words only the run decides.
+    pub(super) fn push_input_word(&mut self) -> Word {
+        let first_piece = self.pieces.len();
+        let start = offset(self.decoded.len());
+        self.decoded.push_str("{}");
+        let end = offset(self.decoded.len());
+        push_piece(&mut self.pieces, start, end, PieceKind::DecodedExpansion);
+        word_from(&self.pieces, first_piece)
+    }
+
+    /// `word` with every piece one only the run decides, as a word holding the string xargs
+    /// replaces with its input's words is.
+    pub(super) fn push_undecided_copy(&mut self, word: Word) -> Word {
+        let first_piece = self.pieces.len();
+        for index in word.pieces() {
+            let piece = self.pieces[index];
+            self.pieces.push(Piece {
+                kind: undecided_kind(piece.kind),
+                ..piece
+            });
         }
         word_from(&self.pieces, first_piece)
     }
@@ -624,9 +600,11 @@ impl<'s> WordBuilder<'s> {
         (word_from(&self.pieces, first_piece), end)
     }
 
-    /// The word's name without its folder, the text past its last `/`, and whether a piece before
-    /// the piece holding that `/` is an expansion outside double quotes, which the shell can split
-    /// into a program and its words; `None` when the word has no `/`, so names no folder.
+    /// The word's name without its folder, the text past its last `/`, and whether the folder
+    /// holds a `$` expansion outside double quotes, a parameter, a substitution or an arithmetic
+    /// expansion, which the shell can split into a program and its words; a pattern or a brace in
+    /// the folder changes no name, and a name past a pattern's last `/` holding no pattern itself
+    /// is decided. `None` when the word has no `/`, so names no folder.
     pub(super) fn basename(&mut self, word: Word) -> Option<(Word, bool)> {
         let texts = PieceTexts::new(self.line, &self.decoded, &self.positions);
         let (index, slash) = word.pieces().rev().find_map(|index| {
@@ -636,9 +614,24 @@ impl<'s> WordBuilder<'s> {
         })?;
         let can_folder_split = self.pieces[word.first_piece as usize..index]
             .iter()
-            .any(|piece| piece.kind == PieceKind::Expansion);
+            .any(|&piece| is_dollar_expansion(texts, piece));
+        let piece = self.pieces[index];
+        let name = Piece {
+            start: slash + 1,
+            ..piece
+        };
+        let is_name_plain = piece.kind == PieceKind::Expansion
+            && !texts
+                .text(name)
+                .bytes()
+                .any(|byte| NAME_UNDECIDING_BYTES.contains(&byte));
+        let name_kind = if is_name_plain {
+            PieceKind::Literal
+        } else {
+            piece.kind
+        };
         Some((
-            self.word_from_inside(word, index, slash + 1),
+            self.word_from_inside(word, index, slash + 1, name_kind),
             can_folder_split,
         ))
     }
@@ -652,15 +645,17 @@ impl<'s> WordBuilder<'s> {
             skipped += (piece.end - piece.start) as usize;
             skipped > bytes
         })?;
-        let start = self.pieces[index].end - offset(skipped - bytes);
-        Some(self.word_from_inside(word, index, start))
+        let piece = self.pieces[index];
+        let start = piece.end - offset(skipped - bytes);
+        Some(self.word_from_inside(word, index, start, piece.kind))
     }
 
-    // The rest of `word` from `start` inside its piece at `index`, as a word of its own.
-    fn word_from_inside(&mut self, word: Word, index: usize, start: u32) -> Word {
+    // The rest of `word` from `start` inside its piece at `index`, that rest of the piece read as
+    // `kind`, as a word of its own.
+    fn word_from_inside(&mut self, word: Word, index: usize, start: u32, kind: PieceKind) -> Word {
         let first_piece = self.pieces.len();
         let piece = self.pieces[index];
-        push_piece(&mut self.pieces, start, piece.end, piece.kind);
+        push_piece(&mut self.pieces, start, piece.end, kind);
         self.pieces
             .extend_from_within(index + 1..word.end_piece as usize);
         word_from(&self.pieces, first_piece)
@@ -808,6 +803,29 @@ fn quoted_text_end(bytes: &[u8], from: usize, quote: u8) -> usize {
     }
     bytes.len()
 }
+
+// The kind of `kind`'s text when only the run decides it.
+fn undecided_kind(kind: PieceKind) -> PieceKind {
+    if kind.is_in_decoded() {
+        PieceKind::DecodedExpansion
+    } else {
+        PieceKind::Expansion
+    }
+}
+
+// Whether `piece` is a `$` expansion the shell can split: a parameter, a substitution or an
+// arithmetic expansion outside double quotes, never an ANSI-C string.
+fn is_dollar_expansion(texts: PieceTexts<'_>, piece: Piece) -> bool {
+    let text = texts.text(piece);
+    matches!(
+        piece.kind,
+        PieceKind::Expansion | PieceKind::DecodedExpansion
+    ) && ((text.starts_with('$') && !text.starts_with("$'")) || text.starts_with('`'))
+}
+
+// The bytes that leave a name past a pattern word's last `/` undecided: a pattern of its own, the
+// end of a group, quote or substitution that spans the `/`, or an escape.
+const NAME_UNDECIDING_BYTES: &[u8] = b"*?[]{}()^\\'\"$`";
 
 // A piece of the range, unless it is empty: no piece is.
 fn push_piece(pieces: &mut Vec<Piece>, start: u32, end: u32, kind: PieceKind) {
