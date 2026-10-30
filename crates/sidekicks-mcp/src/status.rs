@@ -44,8 +44,8 @@ pub(crate) struct McpBindingStatusReading {
     /// The names of the server's tools in the newest list a live leg in the aggregate reported,
     /// else the machine probe's; empty where none is held.
     pub(crate) tool_names: Vec<McpToolName>,
-    /// The machine probe's newest failure text, where its reading decides a `failed` status.
-    pub(crate) probe_failure_text: Option<String>,
+    /// The machine probe's newest failure reason, where its reading decides a `failed` status.
+    pub(crate) probe_failure_reason: Option<String>,
 }
 
 /// The one keeper of every binding's MCP status. Its state sits behind two locks, `legs` then

@@ -349,7 +349,7 @@ macro_rules! inventory_entry {
                     deserialize_with = "crate::wire::present"
                 )]
                 #[schemars(with = "FreeFormText<ERROR_MESSAGE_MAX_LEN>")]
-                probe_failure_text: Option<FreeFormText<ERROR_MESSAGE_MAX_LEN>>,
+                probe_failure_reason: Option<FreeFormText<ERROR_MESSAGE_MAX_LEN>>,
                 /// Where another declaration of this provider takes this one's place, by the
                 /// provider's order: a project root, with the distribution it is in, where a
                 /// project's `local` binding wins over its `project` one, either over the `user`

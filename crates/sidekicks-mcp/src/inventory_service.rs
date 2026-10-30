@@ -23,7 +23,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_contracts::wire::text::TextError;
+use sidekicks_contracts::wire::text::{TextError, is_ecmascript_whitespace};
 use sidekicks_ipc::redaction::{sanitize_failure_chain, sanitize_failure_reason};
 use sidekicks_provider::account_homes::{AccountHome, AccountHomesReadError, read_account_homes};
 use sidekicks_provider::driver::contract::ProviderDriver;
@@ -500,8 +500,14 @@ impl McpInventoryService {
         let status = status_reading.status;
         let legs = (!status_reading.legs.is_empty()).then_some(status_reading.legs);
         let observed_at = status_reading.observed_at;
-        let probe_failure_text = status_reading.probe_failure_text.and_then(|text| {
-            FreeFormText::new(sanitize_failure_reason(&text, ERROR_MESSAGE_MAX_LEN)).ok()
+        let probe_failure_reason = status_reading.probe_failure_reason.and_then(|text| {
+            // A blank text carries no reason; past that, the NUL dropped and the cap kept leave
+            // nothing the text check refuses.
+            let reason = sanitize_failure_reason(&text.replace('\0', ""), ERROR_MESSAGE_MAX_LEN);
+            (!reason.chars().all(is_ecmascript_whitespace)).then(|| {
+                FreeFormText::new(reason)
+                    .expect("a sanitized, NUL-free, non-blank reason within its cap is free text")
+            })
         });
         let superseded_in = unique_places(declaration.superseded_in);
         let organization_managed = declaration.organization_managed;
@@ -525,7 +531,7 @@ impl McpInventoryService {
                     status,
                     legs,
                     observed_at,
-                    probe_failure_text,
+                    probe_failure_reason,
                     superseded_in,
                     disabled_in,
                     organization_managed,
@@ -566,7 +572,7 @@ impl McpInventoryService {
                 status,
                 legs,
                 observed_at,
-                probe_failure_text,
+                probe_failure_reason,
                 superseded_in,
                 disabled_in,
                 organization_managed,

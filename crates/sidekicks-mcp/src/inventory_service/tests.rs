@@ -709,17 +709,24 @@ async fn a_provider_whose_stored_account_id_is_no_id_is_named_beside_the_others_
 }
 
 /// A plain list after a refresh whose probe read the server `failed` carries the probe's failure
-/// text beside the status, so a page opened after the refresh says why. Killed by the text left
-/// out of the entry.
+/// reason beside the status, so a page opened after the refresh says why, a NUL in the probe's
+/// text dropped. Killed by the reason left out of the entry, and by a text holding a NUL refused
+/// and dropped whole.
+#[rstest]
+#[case::plain("Plugin db-tools has an invalid manifest: an LSP server lacks its language map")]
+#[case::holding_a_nul(
+    "Plugin db-tools has an invalid manifest:\0 an LSP server lacks its language map"
+)]
 #[tokio::test]
-async fn a_plain_list_after_a_failed_probe_carries_its_failure_text() {
+async fn a_plain_list_after_a_failed_probe_carries_its_failure_reason(#[case] probe_text: &str) {
     const REFUSAL: &str =
         "Plugin db-tools has an invalid manifest: an LSP server lacks its language map";
-    let inventory = open_inventory(Box::new(|provider, request| {
+    let probe_text = probe_text.to_owned();
+    let inventory = open_inventory(Box::new(move |provider, request| {
         let mut reading = reading_of(&provider, &request);
         for probe_reading in &mut reading.probe_readings {
             probe_reading.reading = McpServerReading::Observed(McpServerStatus::Failed);
-            probe_reading.failure_text = Some(REFUSAL.to_owned());
+            probe_reading.failure_text = Some(probe_text.clone());
             probe_reading.tool_names.clear();
         }
         ready(Ok(reading)).boxed()
@@ -741,7 +748,7 @@ async fn a_plain_list_after_a_failed_probe_carries_its_failure_text() {
     let [
         McpServerInventoryEntry::Answered(McpAnsweredInventoryEntry::User {
             status,
-            probe_failure_text,
+            probe_failure_reason,
             ..
         }),
     ] = listed.as_slice()
@@ -750,7 +757,7 @@ async fn a_plain_list_after_a_failed_probe_carries_its_failure_text() {
     };
     assert_eq!(*status, McpServerStatus::Failed);
     assert_eq!(
-        probe_failure_text.as_ref().map(FreeFormText::as_str),
+        probe_failure_reason.as_ref().map(FreeFormText::as_str),
         Some(REFUSAL)
     );
 }

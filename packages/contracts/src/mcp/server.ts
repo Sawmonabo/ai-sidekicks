@@ -298,6 +298,11 @@ interface McpServerInventoryFacts {
   status: McpServerStatus;
   legs?: McpServerLegStatus[] | undefined;
   observedAt?: string | undefined;
+  /**
+   * The machine probe's newest failure text, sanitized and at most `ERROR_MESSAGE_MAX_LEN` code
+   * points; present only while the probe's reading decides a `failed` status.
+   */
+  probeFailureReason?: string | undefined;
   requiredServer?: boolean | undefined;
   /**
    * The project roots in which another binding of this provider and server name takes this one's

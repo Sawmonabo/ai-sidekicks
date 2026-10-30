@@ -401,7 +401,7 @@ impl McpLegs {
                 legs: Vec::new(),
                 observed_at: None,
                 tool_names: Vec::new(),
-                probe_failure_text: None,
+                probe_failure_reason: None,
             };
         };
         let fold = fold(&self.legs, key, binding_status);
@@ -420,12 +420,12 @@ impl McpLegs {
             })
             .collect();
         // With no live leg in the aggregate the probe's reading is the one that decides.
-        let probe_failure_text = (legs.is_empty() && fold.status == McpServerStatus::Failed)
+        let probe_failure_reason = (legs.is_empty() && fold.status == McpServerStatus::Failed)
             .then_some(fold.failure_text)
             .flatten();
         McpBindingStatusReading {
             status: fold.status,
-            probe_failure_text,
+            probe_failure_reason,
             legs,
             observed_at: fold.observed_at,
             tool_names: leg_tool_names
