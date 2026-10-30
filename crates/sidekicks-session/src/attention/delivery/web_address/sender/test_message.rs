@@ -5,13 +5,16 @@
 use std::error::Error;
 
 use bytes::Bytes;
-use sidekicks_contracts::attention::{AttentionDeliveryOutcome, AttentionDeliveryTestResponse};
+use sidekicks_contracts::attention::{
+    AttentionDeliveryOutcome, AttentionDeliveryStoreUnavailableDetails,
+    AttentionDeliveryTestResponse,
+};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_store::machine::local::read_local_machine;
 use uuid::Uuid;
 
-use super::secrets::{
-    WebAddressCallError, address_not_configured, signing_secret_missing, store_unavailable,
-};
+use super::secrets::{WebAddressCallError, address_not_configured, store_unavailable};
 use super::{SecretsReadError, WebAddressSender, end_of_post};
 use crate::attention::delivery::web_address::message::test_message_body;
 use crate::attention::delivery::web_address::post::WebAddressPost;
@@ -25,9 +28,17 @@ impl WebAddressSender {
         &self,
     ) -> Result<AttentionDeliveryTestResponse, WebAddressCallError> {
         let held = self.lock_secrets().await;
-        let secrets = self.read_secrets().await.map_err(|unread| match unread {
-            SecretsReadError::Refused(refusal) => store_unavailable(refusal),
-            SecretsReadError::SigningSecretMissing => signing_secret_missing(),
+        let secrets = self.read_secrets().await.map_err(|unread| {
+            let cause = unread.cause();
+            match unread {
+                SecretsReadError::Refused(refusal) => store_unavailable(refusal),
+                // The line the test send settles with.
+                SecretsReadError::SigningSecretMissing => DomainError::new(
+                    "Nothing was sent: the signing secret is missing. Make a new secret.",
+                    RefusalCode::AttentionDeliveryStoreUnavailable,
+                )
+                .with_detail(AttentionDeliveryStoreUnavailableDetails { cause }),
+            }
         })?;
         drop(held);
         let Some((address, signing_secret)) = secrets else {

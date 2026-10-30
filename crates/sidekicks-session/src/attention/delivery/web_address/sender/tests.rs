@@ -42,6 +42,8 @@ use crate::attention::delivery::web_address::{SIGNING_SECRET_ACCOUNT, WEB_ADDRES
 use crate::attention::projection::{MACHINE_VERSION_BUMP_SQL, statement};
 use crate::attention::test_log::AttentionTestLog;
 
+mod settings_reads;
+
 // Long enough for a write and a read on a loaded machine, and for an attempt's 15 s timeout.
 const WAIT: Duration = Duration::from_secs(30);
 
@@ -348,15 +350,15 @@ fn result_row(
 enum Address {
     Answering(Answer),
     Closed,
-    InALockedKeychain,
+    InAKeychainThatDoesNotOpen,
 }
 
 // Every try's ending as the delivery, its message and the outcome row record it: a 2xx delivers,
 // any other ending is retried 5 s, 5 min and 30 min after it ended and the fourth gives up,
 // counted, its entry left present and unresolved. The address that never answers holds its try
 // while the wall clock moves 15 s on. Mutations: a redirect followed; a retry past the third, on
-// another schedule or due from the try's start; a locked keychain left uncounted; a give-up left
-// uncounted or its entry resolved; the sender woken by its own write.
+// another schedule or due from the try's start; a keychain that does not open left uncounted; a
+// give-up left uncounted or its entry resolved; the sender woken by its own write.
 #[rstest]
 #[case::delivered(
     Address::Answering(Answer::Status(StatusCode::OK)),
@@ -373,7 +375,12 @@ enum Address {
 )]
 #[case::no_answer_in_15_seconds(Address::Answering(Answer::Hang), 1, "timedOut", None)]
 #[case::a_closed_port(Address::Closed, 1, "unreachable", None)]
-#[case::a_locked_keychain_four_times(Address::InALockedKeychain, 4, "storeUnavailable", None)]
+#[case::a_keychain_that_does_not_open_four_times(
+    Address::InAKeychainThatDoesNotOpen,
+    4,
+    "storeUnavailable",
+    None
+)]
 #[tokio::test]
 async fn each_try_ends_as_the_address_answers(
     #[case] address: Address,
@@ -383,13 +390,13 @@ async fn each_try_ends_as_the_address_answers(
 ) {
     let (port, received) = match address {
         Address::Answering(answer) => serve_answers(vec![answer]).await,
-        Address::Closed | Address::InALockedKeychain => {
+        Address::Closed | Address::InAKeychainThatDoesNotOpen => {
             (closed_port().await, ReceivedRequests::default())
         }
     };
     let mut fixture = Fixture::new(port).await;
     // The test's store that does not open is one the keychain cannot use.
-    let cause = matches!(address, Address::InALockedKeychain).then_some("unavailable");
+    let cause = matches!(address, Address::InAKeychainThatDoesNotOpen).then_some("unavailable");
     if cause.is_some() {
         fixture.store_opens.store(false, Ordering::SeqCst);
     }
@@ -521,6 +528,53 @@ async fn past_the_bound_the_oldest_waiting_gives_up_counted() {
         None,
         "the delivery's delete takes its message"
     );
+}
+
+// A waiting message whose wait was answered before the pickup is dropped uncounted and takes no
+// slot, so the oldest standing one stays waiting when a new one comes past the bound. Mutations:
+// the waiting read without its standing, so the answered one counts toward the bound and the oldest
+// gives up counted; the answered one given up counted.
+#[tokio::test]
+async fn a_waiting_message_that_no_longer_stands_takes_no_slot() {
+    let mut fixture = Fixture::new(closed_port().await).await;
+    fixture.store_opens.store(false, Ordering::SeqCst);
+    let mut entries = Vec::new();
+    for _ in 1..MAX_WAITING_MESSAGES {
+        entries.push(fixture.waiting().await.1);
+    }
+    let (answered_run, answered) = fixture.waiting().await;
+    fixture.start().await;
+    fixture
+        .until("every message is tried once", |fixture| {
+            entries
+                .iter()
+                .chain([&answered])
+                .all(|entry| fixture.delivery(entry) == (Some("pending".to_owned()), Some(1)))
+        })
+        .await;
+    fixture.stop().await;
+    fixture
+        .log
+        .append(fixture.log.run_state(answered_run, "running", 3, json!({})))
+        .await;
+    let (_, newest) = fixture.waiting().await;
+    fixture.start().await;
+
+    fixture.until_delivery(&answered, "undelivered", 1).await;
+    fixture.until_delivery(&newest, "pending", 1).await;
+    assert_eq!(fixture.send(&answered), None);
+    assert_eq!(
+        fixture.delivery(&entries[0]),
+        (Some("pending".to_owned()), Some(1)),
+        "the oldest standing message still waits"
+    );
+    assert_eq!(fixture.waiting_count(), MAX_WAITING_MESSAGES);
+    assert_eq!(
+        fixture.outcome().map(|outcome| outcome.3),
+        Some(0),
+        "nothing is given up"
+    );
+    fixture.stop().await;
 }
 
 // A restart sends a waiting message whose retry fell due while the daemon was stopped at once,
@@ -782,5 +836,3 @@ async fn an_address_with_no_usable_signing_secret_tries_as_store_unavailable(
     assert_eq!(requests(&received), 0, "nothing is sent");
     fixture.stop().await;
 }
-
-mod settings_reads;

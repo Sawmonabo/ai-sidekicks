@@ -11,9 +11,9 @@ use sidekicks_platforms::WallClock as _;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::armed_instant::ARM_RETRY_DELAY;
 
-use super::super::{RETRY_DELAYS, SEND_RETRY_JOB};
 use super::{Fixture, requests, result_row};
 use crate::attention::delivery::web_address::receiver_double::{Answer, serve_answers};
+use crate::attention::delivery::web_address::sender::{RETRY_DELAYS, SEND_RETRY_JOB};
 
 /// When the switch reads off against the messages waiting.
 #[derive(Clone, Copy, Debug)]

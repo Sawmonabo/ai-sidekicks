@@ -4,8 +4,8 @@
 //! run's delete, takes the row with it. The writes are statement sets that settle a delivery, each
 //! raising the counts of the delivery's session while it is still pending, and the reads are what
 //! the sender works from. A row or a pending delivery can outlive its entry, which a damaged
-//! history's rebuild deletes without its delivery; the sender reads such a row as due like any
-//! other, and such a delivery at its pickup, and drops it.
+//! history's rebuild deletes without its delivery; the sender drops either at its pickup, and such
+//! a row once it is due.
 
 use std::sync::LazyLock;
 
@@ -77,11 +77,19 @@ static UNQUEUED_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The messages waiting, oldest moment first.
-const WAITING_SQL: &str = "SELECT send.entry_id, entry.session_id
+// The messages waiting, oldest moment first, with whether each moment stands and is a muted
+// session's end; one whose entry is gone reads with no session.
+static WAITING_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT send.entry_id, entry.session_id, {standing}, {muted_end}
   FROM attention_web_address_sends AS send
-  JOIN attention_entries AS entry ON entry.id = send.entry_id
- ORDER BY entry.created_at, entry.id";
+  LEFT JOIN attention_entries AS entry ON entry.id = send.entry_id
+  LEFT JOIN sessions AS session_row ON session_row.id = entry.session_id
+ ORDER BY entry.created_at, entry.id",
+        standing = *STANDING_SQL,
+        muted_end = *MUTED_END_SQL,
+    )
+});
 
 // The message due first at `@now`, with what its attempt reads of its moment: its attempts so far,
 // whether its moment still stands and whether it is a muted session's end.
@@ -197,14 +205,24 @@ impl QueuedDelivery {
     }
 }
 
-/// A pending delivery no message waits for yet, with what its pickup reads of its moment.
-pub(crate) struct UnqueuedDelivery {
+/// A pending delivery the pickup reads, queued or not, with what it reads of its moment.
+pub(crate) struct PickupDelivery {
     /// Its delivery.
     pub(crate) delivery: QueuedDelivery,
     /// Whether its moment still stands, as [`DueMessage::is_standing`] reads it.
     pub(crate) is_standing: bool,
     /// Whether it is the end of a session muted since it was decided.
     pub(crate) is_muted_end: bool,
+}
+
+impl PickupDelivery {
+    fn of_row(row: &Row<'_>) -> rusqlite::Result<Self> {
+        Ok(Self {
+            delivery: QueuedDelivery::of_row(row)?,
+            is_standing: row.get(2)?,
+            is_muted_end: row.get(3)?,
+        })
+    }
 }
 
 /// The message due first, with what its attempt reads of its moment.
@@ -224,22 +242,13 @@ pub(crate) struct DueMessage {
 
 /// The pending deliveries no message waits for yet, oldest moment first, with whether each is
 /// still to send.
-pub(crate) fn read_unqueued(reader: &Connection) -> rusqlite::Result<Vec<UnqueuedDelivery>> {
-    reader
-        .prepare_cached(&UNQUEUED_SQL)?
-        .query_map([], |row| {
-            Ok(UnqueuedDelivery {
-                delivery: QueuedDelivery::of_row(row)?,
-                is_standing: row.get(2)?,
-                is_muted_end: row.get(3)?,
-            })
-        })?
-        .collect()
+pub(crate) fn read_unqueued(reader: &Connection) -> rusqlite::Result<Vec<PickupDelivery>> {
+    read_pickup_deliveries(reader, &UNQUEUED_SQL)
 }
 
-/// The messages waiting, oldest moment first.
-pub(crate) fn read_waiting(reader: &Connection) -> rusqlite::Result<Vec<QueuedDelivery>> {
-    read_deliveries(reader, WAITING_SQL)
+/// The messages waiting, oldest moment first, with whether each is still to send.
+pub(crate) fn read_waiting(reader: &Connection) -> rusqlite::Result<Vec<PickupDelivery>> {
+    read_pickup_deliveries(reader, &WAITING_SQL)
 }
 
 /// Every pending delivery, queued or not.
@@ -362,6 +371,13 @@ fn read_deliveries(reader: &Connection, sql: &str) -> rusqlite::Result<Vec<Queue
     reader
         .prepare_cached(sql)?
         .query_map([], QueuedDelivery::of_row)?
+        .collect()
+}
+
+fn read_pickup_deliveries(reader: &Connection, sql: &str) -> rusqlite::Result<Vec<PickupDelivery>> {
+    reader
+        .prepare_cached(sql)?
+        .query_map([], PickupDelivery::of_row)?
         .collect()
 }
 

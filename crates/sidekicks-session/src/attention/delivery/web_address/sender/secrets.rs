@@ -9,9 +9,9 @@ use secrecy::{ExposeSecret as _, SecretString};
 use sidekicks_contracts::attention::{
     AttentionDeliveryChannel, AttentionDeliveryListResponse, AttentionDeliveryMissing,
     AttentionDeliveryNotConfiguredDetails, AttentionDeliverySecret,
-    AttentionDeliveryStoreUnavailableCause, AttentionDeliveryStoreUnavailableDetails,
-    AttentionEmailDigestDelivery, AttentionWebAddressDelivery,
-    AttentionWebAddressSecretRotateResponse, AttentionWebAddressUpdateResponse,
+    AttentionDeliveryStoreUnavailableDetails, AttentionEmailDigestDelivery,
+    AttentionWebAddressDelivery, AttentionWebAddressSecretRotateResponse,
+    AttentionWebAddressUpdateResponse,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::web_address::WebAddress;
@@ -137,21 +137,15 @@ impl WebAddressSender {
     }
 
     /// Removes the saved address: abandons the attempt in flight and waits for it to end, removes
-    /// the address, then its signing secret, then the outcome row, and drops every message still to
-    /// send as undelivered, uncounted. Refuses a keychain that could not be used
-    /// `attention.delivery.storeUnavailable`; a refused removal of the address removes nothing,
-    /// and a refused removal of the secret keeps the row, while no message goes with no address.
+    /// the outcome row and drops every message still to send as undelivered, uncounted, then
+    /// removes the address, then its signing secret. The rows go first, so a crash or a refusal
+    /// after them leaves the address saved and `Remove` offered again, never an outcome beside no
+    /// address. Refuses a keychain that could not be used `attention.delivery.storeUnavailable`;
+    /// a refused removal of the address leaves it and its secret, and a refused removal of the
+    /// secret leaves it with no address, which nothing sends with.
     pub async fn remove_address(&self) -> Result<(), WebAddressCallError> {
         let held = self.lock_secrets().await;
         self.abandon_attempt(&held).await;
-        self.keychain
-            .remove(WEB_ADDRESS_ACCOUNT)
-            .await
-            .map_err(store_unavailable)?;
-        self.keychain
-            .remove(SIGNING_SECRET_ACCOUNT)
-            .await
-            .map_err(store_unavailable)?;
         let pending = self
             .pool
             .read(ReadLength::Short, |connection| {
@@ -163,6 +157,14 @@ impl WebAddressSender {
         )];
         statements.extend(pending.iter().flat_map(drop_statements));
         self.writer.write(statements).await?;
+        self.keychain
+            .remove(WEB_ADDRESS_ACCOUNT)
+            .await
+            .map_err(store_unavailable)?;
+        self.keychain
+            .remove(SIGNING_SECRET_ACCOUNT)
+            .await
+            .map_err(store_unavailable)?;
         Ok(())
     }
 
@@ -238,18 +240,6 @@ pub(super) fn address_not_configured() -> DomainError {
     )
     .with_detail(AttentionDeliveryNotConfiguredDetails {
         missing: AttentionDeliveryMissing::Address,
-    })
-}
-
-/// The refusal of a saved address whose signing secret is missing from the keychain, in the line
-/// the test send settles with.
-pub(super) fn signing_secret_missing() -> DomainError {
-    DomainError::new(
-        "Nothing was sent: the signing secret is missing. Make a new secret.",
-        RefusalCode::AttentionDeliveryStoreUnavailable,
-    )
-    .with_detail(AttentionDeliveryStoreUnavailableDetails {
-        cause: AttentionDeliveryStoreUnavailableCause::SecretMissing,
     })
 }
 

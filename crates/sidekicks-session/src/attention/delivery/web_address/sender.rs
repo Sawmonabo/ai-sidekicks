@@ -2,10 +2,10 @@
 //! oldest due first.
 //!
 //! - **The pickup.** Each pass picks up the pending deliveries with no message queued, drops
-//!   uncounted those whose moment no longer stands, whose entry is gone or that are a muted
-//!   session's end, freezes each other one's body with the machine's name as it reads then, and
-//!   queues it due at once; past 100 waiting, the oldest waiting gives up and counts as
-//!   undelivered.
+//!   uncounted those and the messages waiting whose moment no longer stands, whose entry is gone
+//!   or that are a muted session's end, freezes each other one's body with the machine's name as
+//!   it reads then, and queues it due at once; past 100 waiting, the oldest waiting gives up and
+//!   counts as undelivered.
 //! - **The switch.** Every pass reads the settings file first; while `Send to a web address` reads
 //!   off, every pending delivery and its message is dropped as undelivered, uncounted. The pass
 //!   runs at the start, at every attention change, at every settings change and when the timer
@@ -181,7 +181,7 @@ enum SecretsReadError {
 }
 
 impl SecretsReadError {
-    /// Why the secrets could not be used, as the outcome and the refusal name it.
+    /// Why the secrets could not be used, as the outcome names it.
     fn cause(&self) -> AttentionDeliveryStoreUnavailableCause {
         match self {
             Self::Refused(refusal) => refusal.cause().into(),
@@ -210,8 +210,8 @@ enum Step {
     Stopped,
 }
 
-/// What a pickup read: the messages waiting, the deliveries frozen to queue, those given up past
-/// the bound and those dropped uncounted.
+/// What a pickup read: the messages waiting that stand, the deliveries frozen to queue, those given
+/// up past the bound and those dropped uncounted.
 struct Pickup {
     waiting: Vec<QueuedDelivery>,
     frozen: Vec<(QueuedDelivery, Vec<u8>)>,
@@ -292,7 +292,10 @@ impl WebAddressSender {
                     } else {
                         tracing::debug!(error, "the web address's messages still were not sent");
                     }
-                    ArmedInstant::schedule_retry_after_failure(&self);
+                    // A pass that fails as the stop lands leaves no retry to outlive it.
+                    if !stop.is_cancelled() {
+                        ArmedInstant::schedule_retry_after_failure(&self);
+                    }
                 }
             }
             tokio::select! {
@@ -367,9 +370,9 @@ impl WebAddressSender {
 
     // Queues each pending delivery no message waits for, its body frozen with the machine's name
     // as it reads now, due at once; past the bound the oldest waiting give up, counted. One whose
-    // moment no longer stands, whose entry is gone or that is a muted session's end is dropped
-    // uncounted first, so only a message that stands counts toward the bound, and one given up is
-    // never frozen.
+    // moment no longer stands, whose entry is gone or that is a muted session's end, waiting or
+    // not, is dropped uncounted first, so only a message that stands counts toward the bound, and
+    // one given up is never frozen.
     async fn pick_up(&self, follow: &mut ChangeFollow) -> Result<(), WebAddressSendError> {
         let unqueued = self
             .pool
@@ -388,11 +391,18 @@ impl WebAddressSender {
             .pool
             .read(ReadLength::Short, move |connection| {
                 let mut pickup = Pickup {
-                    waiting: read_waiting(connection)?,
+                    waiting: Vec::new(),
                     frozen: Vec::new(),
                     given_up: Vec::new(),
                     dropped: Vec::new(),
                 };
+                for waiting in read_waiting(connection)? {
+                    if waiting.is_standing && !waiting.is_muted_end {
+                        pickup.waiting.push(waiting.delivery);
+                    } else {
+                        pickup.dropped.push(waiting.delivery);
+                    }
+                }
                 // Newest first, so the newest that stand fill the bound and any older one past it
                 // gives up unfrozen.
                 for unqueued in unqueued.into_iter().rev() {
@@ -464,7 +474,7 @@ impl WebAddressSender {
         let cancel = stop.child_token();
         *lock(&self.attempt_cancel) = cancel.clone();
         drop(held);
-        let (attempted_at, end) = match secrets {
+        let (attempted_instant, end) = match secrets {
             Ok(Some((address, signing_secret))) => {
                 let (attempted_at, attempted_instant) = self.now();
                 let post = self.poster.post(WebAddressPost {
@@ -509,7 +519,7 @@ impl WebAddressSender {
         // The retry waits its delay from the moment the try ended, not from when it began.
         let ended_at = self.now().1;
         self.write_own(
-            tried_statements(&due, &attempted_at, &ended_at, end),
+            tried_statements(&due, &attempted_instant, &ended_at, end),
             follow,
         )
         .await?;
