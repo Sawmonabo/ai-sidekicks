@@ -9,6 +9,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use crate::driver::claude::event_normalizer::CLAUDE_QUESTION_TOOL_NAME;
 use crate::driver::claude::session::transport::control::{
     ClaudeAgentDefinition, ClaudeControlRequest, ClaudeHookMatcher, ClaudeHooks,
+    ClaudeInitializePlugin,
 };
 use crate::driver::session_control::{SubagentDefinition, SubagentPolicy};
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
@@ -104,11 +105,13 @@ impl ClaudeDialogKind {
 
 /// The `initialize` request a session's process is brought up with: the daemon's hooks, the
 /// session's helper definitions, the two dialogs the console draws, and the per-task stop the
-/// console offers, and the tool servers the daemon hosts in-process, by name. The helper hold is
-/// registered only where the policy limits helpers at once.
+/// console offers, the tool servers the daemon hosts in-process, by name, and the plugin folders
+/// the process was started with, where it was started with any. The helper hold is registered only
+/// where the policy limits helpers at once.
 pub(crate) fn compose_claude_initialize_request(
     subagent_policy: Option<&SubagentPolicy>,
     in_process_servers: Vec<String>,
+    plugins: Vec<ClaudeInitializePlugin>,
 ) -> ClaudeControlRequest {
     let held = |matcher: Option<String>, hook: ClaudeHookCallback| ClaudeHookMatcher {
         matcher,
@@ -168,6 +171,7 @@ pub(crate) fn compose_claude_initialize_request(
         ),
         per_task_stop_affordance: Some(true),
         sdk_mcp_servers: (!in_process_servers.is_empty()).then_some(in_process_servers),
+        plugins: (!plugins.is_empty()).then_some(plugins),
     }
 }
 

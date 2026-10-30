@@ -18,7 +18,9 @@ use crate::driver::ReportedVersionReading;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::read_claude_capabilities;
 use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
-use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
+use crate::driver::claude::mcp::machine_probe::{
+    ClaudeMcpProbeProcess, ClaudeMcpProbeProcessRequest,
+};
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
@@ -122,12 +124,12 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
     ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>>;
 
     /// Starts the MCP server probe's process as `request` names and sends its `initialize`,
-    /// handing back the process to send the probe's requests on and close. Fails as the start or
-    /// `initialize` does, the process then closed.
+    /// listing the request's plugin folders, handing back the process with the reply and what it
+    /// writes. Fails as the start or `initialize` does, the process then closed.
     fn start_mcp_probe(
         &self,
         request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>>;
+    ) -> BoxFuture<'_, Result<ClaudeMcpProbeProcess, ClaudeLaunchError>>;
 
     /// Stops every live process and starts none after.
     fn stop_every_process(&self) -> BoxFuture<'_, ()>;
@@ -314,7 +316,10 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
             )
             .await?;
             let read = async {
-                short.initialize().await.map_err(ClaudeLaunchError::from)?;
+                short
+                    .initialize(&[])
+                    .await
+                    .map_err(ClaudeLaunchError::from)?;
                 let process = Arc::clone(&short.process);
                 let version = read_spawned_version(
                     &request,
@@ -356,7 +361,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                 Some(request.provider_account_id),
             )
             .await?;
-            if let Err(error) = short.initialize().await {
+            if let Err(error) = short.initialize(&[]).await {
                 short.close().await;
                 return Err(error.into());
             }
@@ -369,7 +374,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
     fn start_mcp_probe(
         &self,
         request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<ClaudeMcpProbeProcess, ClaudeLaunchError>> {
         async move {
             let executable =
                 Self::resolve(&self.command_search, &self.home_folder, request.environment).await?;
@@ -385,12 +390,19 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                 Some(request.provider_account_id),
             )
             .await?;
-            if let Err(error) = short.initialize().await {
-                short.close().await;
-                return Err(error.into());
-            }
-            let process: Arc<dyn ClaudeProcessChannel> = short.process;
-            Ok(process)
+            let initialize = match short.initialize(&request.plugin_folders).await {
+                Ok(initialize) => initialize,
+                Err(error) => {
+                    short.close().await;
+                    return Err(error.into());
+                }
+            };
+            let ClaudeShortProcess { process, arrivals } = short;
+            Ok(ClaudeMcpProbeProcess {
+                channel: process,
+                initialize,
+                arrivals: arrivals.into_inner(),
+            })
         }
         .boxed()
     }

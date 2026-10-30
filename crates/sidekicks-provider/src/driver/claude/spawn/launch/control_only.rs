@@ -22,7 +22,8 @@ use crate::driver::claude::session::process::{
 };
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::{
-    ClaudeContextUsageDetail, ClaudeControlRequest,
+    ClaudeContextUsageDetail, ClaudeControlRequest, ClaudeInitializePlugin,
+    ClaudeInitializePluginKind,
 };
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
 use crate::driver::claude::session::transport::readings::ClaudeModelCatalogReading;
@@ -93,7 +94,8 @@ impl ForwardedArrivals {
         if self.sender.send(arrival).is_err() && !self.is_reader_gone.swap(true, Ordering::Relaxed)
         {
             tracing::debug!(
-                "a short Claude Code process wrote after its reads ended; its later output is dropped"
+                "a short Claude Code process wrote after its reads ended; its later output is \
+                 dropped"
             );
         }
     }
@@ -180,11 +182,22 @@ impl ClaudeShortProcess {
         .await
     }
 
-    /// Sends `initialize` with no hooks and answers its reply. Fails as `send_initialize` does.
-    pub(crate) async fn initialize(&self) -> Result<Option<Box<RawValue>>, ClaudeSessionError> {
+    /// Sends `initialize`, listing `plugin_folders`, the folders the process was started with,
+    /// and answers its reply. Fails as `send_initialize` does.
+    pub(crate) async fn initialize(
+        &self,
+        plugin_folders: &[PathBuf],
+    ) -> Result<Option<Box<RawValue>>, ClaudeSessionError> {
+        let plugins = plugin_folders
+            .iter()
+            .map(|folder| ClaudeInitializePlugin {
+                kind: ClaudeInitializePluginKind::Local,
+                path: folder.to_string_lossy().into_owned(),
+            })
+            .collect();
         Ok(self
             .process
-            .send_initialize(compose_claude_initialize_request(None, Vec::new()))
+            .send_initialize(compose_claude_initialize_request(None, Vec::new(), plugins))
             .await?
             .response)
     }
@@ -238,7 +251,7 @@ pub(crate) async fn probe_claude_sign_in(
 ) -> Result<String, ClaudeLaunchError> {
     let short =
         ClaudeShortProcess::start_control_only(launcher, executable, None, None, None).await?;
-    let reply = short.initialize().await;
+    let reply = short.initialize(&[]).await;
     short.close().await;
     let sources = reply?
         .and_then(|reply| serde_json::from_str::<InitializeAccount>(reply.get()).ok())
@@ -273,7 +286,7 @@ pub(crate) async fn read_claude_model_catalog(
         ClaudeShortProcess::start_control_only(launcher, executable, None, None, None).await?;
     let read = async {
         Ok::<_, ClaudeSessionError>(ClaudeModelCatalogReading {
-            initialize: short.initialize().await?,
+            initialize: short.initialize(&[]).await?,
             context_usage: short.read_context_usage().await?,
         })
     }

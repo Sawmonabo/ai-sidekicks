@@ -739,6 +739,7 @@ async fn read_pending_dialogs(
             supported_dialog_kinds: None,
             per_task_stop_affordance: None,
             sdk_mcp_servers: None,
+            plugins: None,
         })
         .await;
     match reply {

@@ -104,7 +104,7 @@ async fn the_probe_is_strict_only_where_no_managed_mcp_file_is_deployed(
             json!({ "mcpServers": [{ "name": "notes", "status": "connected" }] }),
         ),
     );
-    starts.script_mcp_probe(Arc::clone(&channel));
+    starts.script_mcp_probe(Arc::clone(&channel), json!({}), Vec::new());
 
     let readings = probe(
         &starts,
@@ -159,7 +159,7 @@ async fn a_set_error_reads_failed_with_its_credentials_scrubbed() {
             }
         })),
     );
-    starts.script_mcp_probe(Arc::clone(&channel));
+    starts.script_mcp_probe(Arc::clone(&channel), json!({}), Vec::new());
 
     let readings = probe(
         &starts,
@@ -240,7 +240,7 @@ async fn a_sent_entry_carries_its_variables_filled_and_no_credential_reaches_a_r
             {"name": "builder", "status": "connected"}
         ]})),
     );
-    starts.script_mcp_probe(Arc::clone(&channel));
+    starts.script_mcp_probe(Arc::clone(&channel), json!({}), Vec::new());
     let environment = [
         ("TRACKER_HOST", "mcp.example.com"),
         ("TRACKER_TOKEN", "variable-token"),
@@ -317,7 +317,7 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
             {"name": "org-events", "status": "connected"}
         ]})),
     );
-    starts.script_mcp_probe(Arc::clone(&channel));
+    starts.script_mcp_probe(Arc::clone(&channel), json!({}), Vec::new());
     let organization = read_claude_organization_servers(
         &[],
         Some(&json!({ "managedMcpServers": {
@@ -390,174 +390,6 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
     }
 }
 
-// A plugin's server is probed by loading its plugin from its install root with `--plugin-dir`,
-// never sent with `mcp_set_servers` and never under `--strict-mcp-config`, with the account's
-// connectors switched off, and reads as Claude Code's own load reports it under
-// `plugin:<loaded name>:<server>`: the manifest's `name`, else the install folder's name. A plugin
-// whose manifest passes the daemon's top-level check but fails a deeper rule (an `lspServers`
-// entry without `extensionToLanguage`) is still listed, and Claude Code, which loads none of it,
-// reports no row, so it reads `failed`; a deployed managed MCP file starts no process and reads
-// `failed` with Claude Code's notice; a refused start fails the server with its error. Killed by
-// the server sent through the set, by the strict flag kept, by the connectors left on, by a
-// missing row read `starting` or `connected`, by the plugin named by its id, and by the managed
-// file starting a process.
-#[rstest]
-#[case::loaded(Some(json!({ "name": "db-tools" })), "plugin:db-tools:db", false, true,
-    McpServerStatus::Connected, None)]
-#[case::loaded_without_a_manifest(
-    None,
-    "plugin:1.0.0:db",
-    false,
-    true,
-    McpServerStatus::Connected,
-    None
-)]
-#[case::refused_by_a_deeper_rule(
-    Some(json!({ "name": "db-tools", "lspServers": { "go": { "command": "gopls" } } })),
-    "notes",
-    false,
-    true,
-    McpServerStatus::Failed,
-    Some("Claude Code did not load the plugin.")
-)]
-#[case::under_a_managed_mcp_file(Some(json!({ "name": "db-tools" })), "plugin:db-tools:db", true,
-    true, McpServerStatus::Failed, Some(
-        "Your organization's managed MCP config has exclusive control over MCP servers in this \
-         session."
-    ))]
-#[case::start_refused(Some(json!({ "name": "db-tools" })), "plugin:db-tools:db", false, false,
-    McpServerStatus::Failed, Some(
-        "the provider driver failed: the Claude Code process could not be started: no probe \
-         scripted"
-    ))]
-#[tokio::test]
-async fn a_plugin_server_reads_as_claude_codes_own_load_of_its_plugin(
-    #[case] manifest: Option<Value>,
-    #[case] reported_name: &str,
-    #[case] has_managed_mcp_file: bool,
-    #[case] is_start_scripted: bool,
-    #[case] status: McpServerStatus,
-    #[case] failure_text: Option<&str>,
-) {
-    let home = tempfile::tempdir().expect("a test home");
-    let plugin_home = home.path().join("plugin-home");
-    let install = home.path().join("installs").join("db-tools").join("1.0.0");
-    std::fs::create_dir_all(plugin_home.join("plugins")).expect("the plugin folder is made");
-    std::fs::create_dir_all(&install).expect("the install folder is made");
-    std::fs::write(
-        plugin_home.join("plugins").join("installed_plugins.json"),
-        json!({ "plugins": { "db-tools@team.market": [{ "installPath": install }] } }).to_string(),
-    )
-    .expect("the plugin list is written");
-    std::fs::write(
-        install.join(".mcp.json"),
-        json!({ "mcpServers": { "db": { "command": "${CLAUDE_PLUGIN_ROOT}/servers/db" } } })
-            .to_string(),
-    )
-    .expect("the plugin's servers are written");
-    if let Some(manifest) = manifest {
-        std::fs::create_dir_all(install.join(".claude-plugin"))
-            .expect("the manifest folder is made");
-        std::fs::write(
-            install.join(".claude-plugin").join("plugin.json"),
-            manifest.to_string(),
-        )
-        .expect("the manifest is written");
-    }
-    let person = ClaudePersonConfigFiles::resolve(&[], home.path()).await;
-    let reading = read_claude_mcp_config(&ClaudeMcpConfigSources {
-        person: &person,
-        managed_settings_folder: None,
-        plugin_home: &plugin_home,
-        roots: &[],
-    })
-    .await
-    .expect("the config reads");
-    let [server] = reading.plugin_servers.as_slice() else {
-        panic!(
-            "the plugin's one server is listed: {:?}",
-            reading.plugin_servers
-        );
-    };
-    let Some(ClaudeProbePlan::Probe(target)) = plan_claude_probe(&server.binding, &[]) else {
-        panic!("a plugin binding is probed");
-    };
-    let starts = ScriptedStarts::default();
-    let channel = Arc::new(ScriptedChannel::default());
-    channel.answer(
-        "mcp_status",
-        ScriptedAnswer::Reply(
-            json!({"mcpServers": [{"name": reported_name, "status": "connected"}]}),
-        ),
-    );
-    if is_start_scripted {
-        starts.script_mcp_probe(Arc::clone(&channel));
-    }
-
-    let readings = probe_claude_mcp_servers(
-        &ClaudeMcpProbeSources {
-            starts: &starts,
-            environment: vec![("ENABLE_CLAUDEAI_MCP_SERVERS".to_owned(), "true".to_owned())],
-            provider_account_id: test_provider_account_id(),
-            has_managed_mcp_file,
-            person: &person,
-            plugin_roots: &reading.plugin_roots,
-            attached_roots: &[],
-            organization_entries: &BTreeMap::new(),
-        },
-        &[target],
-    )
-    .await
-    .expect("the probe reads");
-
-    let [db] = readings.as_slice() else {
-        panic!("one reading: {readings:?}");
-    };
-    assert_eq!(db.reading, McpServerReading::Observed(status));
-    assert_eq!(db.failure_text.as_deref(), failure_text);
-    let process_starts = starts.take_mcp_probe_starts();
-    if has_managed_mcp_file {
-        assert!(process_starts.is_empty());
-        return;
-    }
-    let [process] = process_starts.as_slice() else {
-        panic!("one probe process starts");
-    };
-    let plugin_dir = [
-        "--plugin-dir".to_owned(),
-        install.to_string_lossy().into_owned(),
-    ];
-    assert!(
-        process
-            .arguments
-            .windows(2)
-            .any(|pair| pair == plugin_dir.as_slice()),
-        "{:?}",
-        process.arguments
-    );
-    assert!(
-        !process
-            .arguments
-            .iter()
-            .any(|argument| argument == "--strict-mcp-config")
-    );
-    assert_eq!(
-        process
-            .environment
-            .iter()
-            .rev()
-            .find(|(name, _value)| name == "ENABLE_CLAUDEAI_MCP_SERVERS")
-            .map(|(_name, value)| value.as_str()),
-        Some("false")
-    );
-    assert!(
-        channel
-            .control_requests()
-            .iter()
-            .all(|request| request["subtype"] != "mcp_set_servers")
-    );
-}
-
 // A project server that `disabledMcpjsonServers` names in the project's own or its local
 // settings is never sent to the probe and reads switched off, a name written `my server` keeping
 // out `my_server` as Claude Code's name fold does, while one no settings approve, in a folder
@@ -623,7 +455,7 @@ async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
         "mcp_status",
         ScriptedAnswer::Reply(json!({"mcpServers": [{"name": "pending", "status": "connected"}]})),
     );
-    starts.script_mcp_probe(Arc::clone(&channel));
+    starts.script_mcp_probe(Arc::clone(&channel), json!({}), Vec::new());
 
     let probed = probe_claude_mcp_servers(
         &ClaudeMcpProbeSources {
@@ -688,7 +520,7 @@ async fn a_server_pending_at_the_ceiling_reads_starting(
         "mcp_status",
         ScriptedAnswer::Reply(json!({ "mcpServers": [{ "name": "notes", "status": "pending" }] })),
     );
-    starts.script_mcp_probe(Arc::clone(&channel));
+    starts.script_mcp_probe(Arc::clone(&channel), json!({}), Vec::new());
     let environment = mcp_timeout
         .map(|timeout| vec![("MCP_TIMEOUT".to_owned(), timeout.to_owned())])
         .unwrap_or_default();
@@ -794,3 +626,5 @@ async fn a_real_claude_code_probe_reads_a_sent_server_connected_with_its_tools()
         McpServerReading::Observed(McpServerStatus::Failed)
     );
 }
+
+mod plugins;
