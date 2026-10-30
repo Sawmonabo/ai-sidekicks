@@ -3,14 +3,15 @@
 //! plugin home, the per-project names kept out of a root or switched off there, and the allow and
 //! deny lists. Every credential-bearing value is dropped at the read: a declaration keeps names
 //! only, and a remote address is held whole only in memory, for the duplicate match. The one read
-//! that keeps values takes a single server's entry for the probe that sends it, which drops it
-//! once sent.
+//! that keeps values takes a single `user`, `local` or `project` server's entry for the probe that
+//! sends it, which drops it once sent; a plugin's servers are never sent, since the probe has
+//! Claude Code load the plugin itself.
 
 mod entry;
 mod plugin_manifest;
 mod policy;
 
-pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudeServerEntryReader};
+pub(crate) use self::entry::ClaudeServerEntryReader;
 
 use std::collections::BTreeMap;
 use std::io::ErrorKind;
@@ -202,10 +203,25 @@ pub(crate) struct ClaudeMcpConfigReading {
     pub(crate) user_servers: Vec<ClaudeMcpServer>,
     /// The servers of the plugins installed in the daemon's plugin home.
     pub(crate) plugin_servers: Vec<ClaudeMcpServer>,
+    /// Each plugin installed in the daemon's plugin home, as Claude Code loads it from its root.
+    pub(crate) plugin_roots: Vec<ClaudePluginRoot>,
     /// What the read found at each attached root, in the order the roots were given.
     pub(crate) roots: Vec<ClaudeMcpRootConfig>,
     /// The allow and deny lists of the user and managed settings.
     pub(crate) server_policy: McpServerPolicy,
+}
+
+/// One plugin installed in the daemon's plugin home and the name Claude Code reports its servers
+/// under when it loads the plugin from its install root with `--plugin-dir`.
+#[derive(Clone, Debug)]
+pub(crate) struct ClaudePluginRoot {
+    /// The plugin's name in its servers' bindings.
+    pub(crate) name: PluginToken,
+    /// Its install root.
+    pub(crate) root: PathBuf,
+    /// The name Claude Code loads it under from that root: its manifest's `name`, else the root's
+    /// folder name (`SWe`, b:22583158), which can differ from the id part the binding takes.
+    pub(crate) loaded_name: String,
 }
 
 /// Reads the person's Claude Code MCP config from `sources`. A file that is absent, not the
@@ -306,9 +322,11 @@ pub(crate) async fn read_claude_mcp_config(
         });
     }
 
+    let (plugin_servers, plugin_roots) = read_plugin_servers(sources.plugin_home).await?;
     Ok(ClaudeMcpConfigReading {
         user_servers,
-        plugin_servers: read_plugin_servers(sources.plugin_home).await?,
+        plugin_servers,
+        plugin_roots,
         roots,
         server_policy: read_server_policy(user_settings.as_ref(), &managed_settings),
     })
@@ -577,12 +595,14 @@ fn read_server_entry(
     }
 }
 
-// The servers of each plugin `installed_plugins.json` lists in the plugin home: those of the
-// plugin's root `.mcp.json`, then those its manifest declares inline, a name taken once.
+// The servers of each plugin `installed_plugins.json` lists in the plugin home, those of the
+// plugin's root `.mcp.json` then those its manifest declares inline, a name taken once, and each
+// plugin's root.
 async fn read_plugin_servers(
     plugin_home: &Path,
-) -> Result<Vec<ClaudeMcpServer>, ClaudeSettingsReadError> {
+) -> Result<(Vec<ClaudeMcpServer>, Vec<ClaudePluginRoot>), ClaudeSettingsReadError> {
     let mut servers: Vec<ClaudeMcpServer> = Vec::new();
+    let mut roots: Vec<ClaudePluginRoot> = Vec::new();
     for plugin in read_installed_plugin_roots(plugin_home).await? {
         let servers_file: Option<ClaudeMcpServersFile> =
             read_json_file(&plugin.root.join(SERVERS_FILE)).await?;
@@ -604,15 +624,28 @@ async fn read_plugin_servers(
                 }
             }
         }
+        let loaded_name = if plugin.manifest.is_some() {
+            plugin.name.as_str().to_owned()
+        } else {
+            plugin
+                .root
+                .file_name()
+                .map(|folder| folder.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
+        roots.push(ClaudePluginRoot {
+            name: plugin.name,
+            root: plugin.root,
+            loaded_name,
+        });
     }
-    Ok(servers)
+    Ok((servers, roots))
 }
 
-// One plugin `installed_plugins.json` lists: its name, its whole id, the root of its first
-// install and its manifest, values included, parsed once for the read; `None` where it has none.
+// One plugin `installed_plugins.json` lists: its name, the root of its first install and its
+// manifest, values included, parsed once for the read; `None` where it has none.
 struct InstalledPluginRoot {
     name: PluginToken,
-    id: String,
     root: PathBuf,
     manifest: Option<Value>,
 }
@@ -701,7 +734,6 @@ async fn read_installed_plugin_roots(
         };
         plugins.push(InstalledPluginRoot {
             name,
-            id: plugin_id.clone(),
             root: install.install_path.clone(),
             manifest,
         });

@@ -10,7 +10,6 @@ use sidekicks_contracts::mcp::server::{
     McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
 };
 use sidekicks_contracts::place::PlacedPath;
-use sidekicks_contracts::plugin::PluginToken;
 use sidekicks_platforms::Spawner;
 use tempfile::TempDir;
 use tokio::runtime::Handle;
@@ -76,7 +75,7 @@ async fn probe(
             provider_account_id: test_provider_account_id(),
             has_managed_mcp_file,
             person: &ClaudePersonConfigFiles::resolve(&[], home).await,
-            plugin_home: &home.join("plugin-home"),
+            plugin_roots: &[],
             attached_roots: &[],
             organization_entries,
         },
@@ -391,89 +390,118 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
     }
 }
 
-// A plugin's server is sent under `plugin:<name>:<server>`, the plugin named by its manifest's
-// `name` where it has one and else by its id's part before the marketplace, with
-// `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` filled with its install root and its data
-// folder, both also handed to its program's environment; a plugin of the built-in npm marketplace
-// has its data folder named from its escaped package name. Killed by either placeholder sent as
-// written, by the environment left without them, by the npm plugin's folder named as any other
-// plugin's, and by a plugin named by its id over its manifest.
+// A plugin's server is probed by loading its plugin from its install root with `--plugin-dir`,
+// never sent with `mcp_set_servers` and never under `--strict-mcp-config`, with the account's
+// connectors switched off, and reads as Claude Code's own load reports it under
+// `plugin:<loaded name>:<server>`: the manifest's `name`, else the install folder's name. A plugin
+// whose manifest passes the daemon's top-level check but fails a deeper rule (an `lspServers`
+// entry without `extensionToLanguage`) is still listed, and Claude Code, which loads none of it,
+// reports no row, so it reads `failed`; a deployed managed MCP file starts no process and reads
+// `failed` with Claude Code's notice; a refused start fails the server with its error. Killed by
+// the server sent through the set, by the strict flag kept, by the connectors left on, by a
+// missing row read `starting` or `connected`, by the plugin named by its id, and by the managed
+// file starting a process.
 #[rstest]
-#[case::marketplace("db-tools@team.market", None, "db-tools", "db-tools-team-market")]
-#[case::npm(
-    "@team/db.tools@npm",
+#[case::loaded(Some(json!({ "name": "db-tools" })), "plugin:db-tools:db", false, true,
+    McpServerStatus::Connected, None)]
+#[case::loaded_without_a_manifest(
     None,
-    "@team/db.tools",
-    "_40team_2fdb_2etools-npm"
+    "plugin:1.0.0:db",
+    false,
+    true,
+    McpServerStatus::Connected,
+    None
 )]
-#[case::npm_named_by_its_manifest(
-    "@team/db.tools@npm",
-    Some("team-db-tools"),
-    "team-db-tools",
-    "_40team_2fdb_2etools-npm"
+#[case::refused_by_a_deeper_rule(
+    Some(json!({ "name": "db-tools", "lspServers": { "go": { "command": "gopls" } } })),
+    "notes",
+    false,
+    true,
+    McpServerStatus::Failed,
+    Some("Claude Code did not load the plugin.")
 )]
+#[case::under_a_managed_mcp_file(Some(json!({ "name": "db-tools" })), "plugin:db-tools:db", true,
+    true, McpServerStatus::Failed, Some(
+        "Your organization's managed MCP config has exclusive control over MCP servers in this \
+         session."
+    ))]
+#[case::start_refused(Some(json!({ "name": "db-tools" })), "plugin:db-tools:db", false, false,
+    McpServerStatus::Failed, Some(
+        "the provider driver failed: the Claude Code process could not be started: no probe \
+         scripted"
+    ))]
 #[tokio::test]
-async fn a_plugin_server_is_sent_with_its_placeholders_filled(
-    #[case] plugin_id: &str,
-    #[case] manifest_name: Option<&str>,
-    #[case] plugin_name: &str,
-    #[case] data_folder: &str,
+async fn a_plugin_server_reads_as_claude_codes_own_load_of_its_plugin(
+    #[case] manifest: Option<Value>,
+    #[case] reported_name: &str,
+    #[case] has_managed_mcp_file: bool,
+    #[case] is_start_scripted: bool,
+    #[case] status: McpServerStatus,
+    #[case] failure_text: Option<&str>,
 ) {
     let home = tempfile::tempdir().expect("a test home");
     let plugin_home = home.path().join("plugin-home");
-    let install = home.path().join("installs").join("db-tools");
+    let install = home.path().join("installs").join("db-tools").join("1.0.0");
     std::fs::create_dir_all(plugin_home.join("plugins")).expect("the plugin folder is made");
     std::fs::create_dir_all(&install).expect("the install folder is made");
     std::fs::write(
         plugin_home.join("plugins").join("installed_plugins.json"),
-        json!({ "plugins": { plugin_id: [{ "installPath": install }] } }).to_string(),
+        json!({ "plugins": { "db-tools@team.market": [{ "installPath": install }] } }).to_string(),
     )
     .expect("the plugin list is written");
     std::fs::write(
         install.join(".mcp.json"),
-        json!({ "mcpServers": { "db": {
-            "command": "${CLAUDE_PLUGIN_ROOT}/servers/db",
-            "args": ["--store", "${CLAUDE_PLUGIN_DATA}/db"]
-        } } })
-        .to_string(),
+        json!({ "mcpServers": { "db": { "command": "${CLAUDE_PLUGIN_ROOT}/servers/db" } } })
+            .to_string(),
     )
     .expect("the plugin's servers are written");
-    if let Some(manifest_name) = manifest_name {
+    if let Some(manifest) = manifest {
         std::fs::create_dir_all(install.join(".claude-plugin"))
             .expect("the manifest folder is made");
         std::fs::write(
             install.join(".claude-plugin").join("plugin.json"),
-            json!({ "name": manifest_name }).to_string(),
+            manifest.to_string(),
         )
         .expect("the manifest is written");
     }
+    let person = ClaudePersonConfigFiles::resolve(&[], home.path()).await;
+    let reading = read_claude_mcp_config(&ClaudeMcpConfigSources {
+        person: &person,
+        managed_settings_folder: None,
+        plugin_home: &plugin_home,
+        roots: &[],
+    })
+    .await
+    .expect("the config reads");
+    let [server] = reading.plugin_servers.as_slice() else {
+        panic!(
+            "the plugin's one server is listed: {:?}",
+            reading.plugin_servers
+        );
+    };
+    let Some(ClaudeProbePlan::Probe(target)) = plan_claude_probe(&server.binding, &[]) else {
+        panic!("a plugin binding is probed");
+    };
     let starts = ScriptedStarts::default();
     let channel = Arc::new(ScriptedChannel::default());
-    let reported_name = format!("plugin:{plugin_name}:db");
     channel.answer(
         "mcp_status",
         ScriptedAnswer::Reply(
             json!({"mcpServers": [{"name": reported_name, "status": "connected"}]}),
         ),
     );
-    starts.script_mcp_probe(Arc::clone(&channel));
-    let binding = McpServerBindingRef::Plugin {
-        provider: DESCRIPTOR.provider_id(),
-        scope_ref: PluginToken::new(plugin_name.to_owned()).expect("a plugin name"),
-        server_name: McpServerName::new("db".to_owned()).expect("a server name"),
-    };
-    let Some(ClaudeProbePlan::Probe(target)) = plan_claude_probe(&binding, &[]) else {
-        panic!("a plugin binding is probed");
-    };
+    if is_start_scripted {
+        starts.script_mcp_probe(Arc::clone(&channel));
+    }
 
-    probe_claude_mcp_servers(
+    let readings = probe_claude_mcp_servers(
         &ClaudeMcpProbeSources {
             starts: &starts,
-            environment: Vec::new(),
+            environment: vec![("ENABLE_CLAUDEAI_MCP_SERVERS".to_owned(), "true".to_owned())],
             provider_account_id: test_provider_account_id(),
-            has_managed_mcp_file: false,
-            person: &ClaudePersonConfigFiles::resolve(&[], home.path()).await,
-            plugin_home: &plugin_home,
+            has_managed_mcp_file,
+            person: &person,
+            plugin_roots: &reading.plugin_roots,
             attached_roots: &[],
             organization_entries: &BTreeMap::new(),
         },
@@ -482,21 +510,51 @@ async fn a_plugin_server_is_sent_with_its_placeholders_filled(
     .await
     .expect("the probe reads");
 
-    let root = install.to_string_lossy().into_owned();
-    let data = plugin_home
-        .join("plugins")
-        .join("data")
-        .join(data_folder)
-        .to_string_lossy()
-        .into_owned();
+    let [db] = readings.as_slice() else {
+        panic!("one reading: {readings:?}");
+    };
+    assert_eq!(db.reading, McpServerReading::Observed(status));
+    assert_eq!(db.failure_text.as_deref(), failure_text);
+    let process_starts = starts.take_mcp_probe_starts();
+    if has_managed_mcp_file {
+        assert!(process_starts.is_empty());
+        return;
+    }
+    let [process] = process_starts.as_slice() else {
+        panic!("one probe process starts");
+    };
+    let plugin_dir = [
+        "--plugin-dir".to_owned(),
+        install.to_string_lossy().into_owned(),
+    ];
+    assert!(
+        process
+            .arguments
+            .windows(2)
+            .any(|pair| pair == plugin_dir.as_slice()),
+        "{:?}",
+        process.arguments
+    );
+    assert!(
+        !process
+            .arguments
+            .iter()
+            .any(|argument| argument == "--strict-mcp-config")
+    );
     assert_eq!(
-        channel.control_requests()[0]["servers"][&reported_name],
-        json!({
-            "type": "stdio",
-            "command": format!("{root}/servers/db"),
-            "args": ["--store", format!("{data}/db")],
-            "env": { "CLAUDE_PLUGIN_ROOT": root, "CLAUDE_PLUGIN_DATA": data }
-        })
+        process
+            .environment
+            .iter()
+            .rev()
+            .find(|(name, _value)| name == "ENABLE_CLAUDEAI_MCP_SERVERS")
+            .map(|(_name, value)| value.as_str()),
+        Some("false")
+    );
+    assert!(
+        channel
+            .control_requests()
+            .iter()
+            .all(|request| request["subtype"] != "mcp_set_servers")
     );
 }
 
@@ -574,7 +632,7 @@ async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
             provider_account_id: test_provider_account_id(),
             has_managed_mcp_file: false,
             person: &person,
-            plugin_home: &plugin_home,
+            plugin_roots: &[],
             attached_roots: std::slice::from_ref(&root),
             organization_entries: &BTreeMap::new(),
         },

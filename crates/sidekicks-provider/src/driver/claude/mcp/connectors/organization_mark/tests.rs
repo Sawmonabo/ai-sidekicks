@@ -272,6 +272,7 @@ async fn the_list_marks_each_connector_by_its_normalized_id() {
     let reading = ClaudeMcpConfigReading {
         user_servers: Vec::new(),
         plugin_servers: Vec::new(),
+        plugin_roots: Vec::new(),
         roots: Vec::new(),
         server_policy: McpServerPolicy::default(),
     };

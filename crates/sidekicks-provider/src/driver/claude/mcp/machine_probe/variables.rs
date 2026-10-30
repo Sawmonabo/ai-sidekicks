@@ -1,10 +1,9 @@
 //! How a probed entry's `${VAR}` references are filled, as Claude Code fills a server's entry when
-//! it loads it: a plugin's own placeholders first, then each variable from the probe's
-//! environment, a credential variable read as empty. A program's command, arguments and
-//! environment blank a covered name only where it is set; a remote server's address and headers
-//! blank it whether set or not and ignore its `:-default`, so no credential leaves for a server
-//! the entry names. The lists and patterns are Claude Code 2.1.310's, cited by byte offset in its
-//! bundle.
+//! it loads it: each variable from the probe's environment, a credential variable read as empty.
+//! A program's command, arguments and environment blank a covered name only where it is set; a
+//! remote server's address and headers blank it whether set or not and ignore its `:-default`, so
+//! no credential leaves for a server the entry names. The lists and patterns are Claude Code
+//! 2.1.310's, cited by byte offset in its bundle.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -13,18 +12,6 @@ use regex::{Captures, Regex};
 use sidekicks_ipc::redaction::scrub_credentials;
 
 use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
-
-/// What a plugin's placeholders read: `${CLAUDE_PLUGIN_ROOT}` its install root,
-/// `${CLAUDE_PLUGIN_DATA}` its data folder and `${CLAUDE_PROJECT_DIR}` the root the probe runs
-/// at, left as written where it runs at none.
-pub(super) struct ClaudePluginPlaceholders {
-    /// The plugin's install root.
-    pub(super) root: String,
-    /// The plugin's data folder.
-    pub(super) data: String,
-    /// The root the probe's process runs at.
-    pub(super) project: Option<String>,
-}
 
 // Where a filled value goes: to a program the probe starts, or to a remote server.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -261,21 +248,13 @@ const BUNDLE_SETTING_WORDS: &[&str] = &[
 ];
 
 /// `entry` with each `${VAR}` and `${VAR:-default}` in its program, arguments, environment,
-/// address and headers filled from `environment` by Claude Code's rule, a plugin's placeholders
-/// filled first and its root and data folder handed to its program's environment; a variable with
-/// no value and no default is left as written.
+/// address and headers filled from `environment` by Claude Code's rule; a variable with no value
+/// and no default is left as written.
 pub(super) fn expand_entry_variables(
     entry: ClaudeToolServerEntry,
     environment: &[(String, String)],
-    plugin: Option<&ClaudePluginPlaceholders>,
 ) -> ClaudeToolServerEntry {
-    let expand = |value: String, sink: ValueSink| {
-        let filled = match plugin {
-            Some(plugin) => fill_plugin_placeholders(&value, plugin),
-            None => value,
-        };
-        expand_variables(&filled, environment, sink)
-    };
+    let expand = |value: String, sink: ValueSink| expand_variables(&value, environment, sink);
     let expand_values = |values: BTreeMap<String, String>, sink: ValueSink| {
         values
             .into_iter()
@@ -284,16 +263,7 @@ pub(super) fn expand_entry_variables(
     };
     match entry {
         ClaudeToolServerEntry::Stdio { command, args, env } => {
-            let mut env = expand_values(env, ValueSink::Program);
-            if let Some(plugin) = plugin {
-                // Claude Code hands a plugin's program these two unless its entry sets them.
-                for (name, value) in [
-                    ("CLAUDE_PLUGIN_ROOT", &plugin.root),
-                    ("CLAUDE_PLUGIN_DATA", &plugin.data),
-                ] {
-                    env.entry(name.to_owned()).or_insert_with(|| value.clone());
-                }
-            }
+            let env = expand_values(env, ValueSink::Program);
             ClaudeToolServerEntry::Stdio {
                 command: expand(command, ValueSink::Program),
                 args: args
@@ -312,17 +282,6 @@ pub(super) fn expand_entry_variables(
             headers: expand_values(headers, ValueSink::Remote),
         },
         sdk @ ClaudeToolServerEntry::Sdk { .. } => sdk,
-    }
-}
-
-// `value` with a plugin's three placeholders filled (`mde`, b:12908654).
-fn fill_plugin_placeholders(value: &str, plugin: &ClaudePluginPlaceholders) -> String {
-    let filled = value
-        .replace("${CLAUDE_PLUGIN_ROOT}", &plugin.root)
-        .replace("${CLAUDE_PLUGIN_DATA}", &plugin.data);
-    match &plugin.project {
-        Some(project) => filled.replace("${CLAUDE_PROJECT_DIR}", project),
-        None => filled,
     }
 }
 

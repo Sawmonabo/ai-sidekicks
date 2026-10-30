@@ -434,6 +434,7 @@ mod tests {
                 remote_server(user("my_server"), "https://mine.example.com/mcp"),
             ],
             plugin_servers: Vec::new(),
+            plugin_roots: Vec::new(),
             roots: vec![ClaudeMcpRootConfig {
                 root: root.clone(),
                 local_servers: Vec::new(),

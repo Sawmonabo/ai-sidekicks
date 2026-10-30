@@ -146,15 +146,15 @@ enum ConfiguredServer {
 // Claude Code's fetch can have ended, and a read that settles short of the list is marked as
 // lacking. Where Claude Code fetches a list the daemon could not read (an unreadable sign-in, a
 // refused host, the environment's own token granted the list's scope), the read waits for a
-// connector or the fetch's end and settles whole. A listed connector at the whole address of a server the process configures
-// is one Claude Code suppresses, so it is not waited for, unless that server is a plugin's,
-// switched off or waits for a sign-in. Killed by a reply settling while it grows, by a count above
-// none asked again until the fetch ends, by a count of none settling before the fetch ends, by an
-// unread list taken as fetched by no one or kept as short, by a credential claimed ahead of the
-// sign-in where a socket's token, a remote session or a desktop app keeps it aside, by a blank
-// key or socket read as set, by a suppressed connector
-// counted as missing, the organization's included, and by a plugin's, a switched-off or a waiting
-// server counted as suppressing one.
+// connector or the fetch's end and settles whole. A listed connector at the whole address of a
+// server the process configures is one Claude Code suppresses, so it is not waited for, unless
+// that server is a plugin's, switched off or waits for a sign-in. Killed by a reply settling while
+// it grows, by a count above none asked again until the fetch ends, by a count of none settling
+// before the fetch ends, by an unread list taken as fetched by no one or kept as short, by a
+// credential claimed ahead of the sign-in where a socket's token, a remote session or a desktop
+// app keeps it aside, by a blank key or socket read as set, by a suppressed connector counted as
+// missing, the organization's included, and by a plugin's, a switched-off or a waiting server
+// counted as suppressing one.
 #[rstest]
 #[case::grows_to_the_list(
     ConnectorFetch::Listed(&["Notes", "Mail"]),
@@ -681,6 +681,7 @@ fn an_accounts_rows_become_read_only_connectors_and_host_only_organization_serve
     let reading = ClaudeMcpConfigReading {
         user_servers: Vec::new(),
         plugin_servers: Vec::new(),
+        plugin_roots: Vec::new(),
         roots: Vec::new(),
         server_policy: McpServerPolicy::default(),
     };

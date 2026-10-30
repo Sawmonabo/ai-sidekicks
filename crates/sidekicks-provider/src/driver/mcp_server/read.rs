@@ -68,7 +68,8 @@ pub(crate) struct McpProbeTarget {
 /// where one is sent, the driver re-reads it from where it lives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum McpProbeStart {
-    /// The provider loads it by its own config at the binding's root; nothing is sent.
+    /// The provider loads it itself, by its own config at the binding's root or with the plugin
+    /// that declares it; nothing is sent.
     LoadedByProvider,
     /// Its entry in the person's config is off by default and is switched on by its name.
     SwitchedOnByName,
