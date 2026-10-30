@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use axum::http::StatusCode;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use bytes::Bytes;
 use jiff::{SignedDuration, Timestamp};
 use rstest::rstest;
 use secrecy::{ExposeSecret as _, SecretString};
@@ -95,7 +96,7 @@ async fn nothing_past_the_scheme_and_host_leaves_and_user_info_moves_to_the_head
             address: &saved,
             signing_secret: &secret,
             message_id: MESSAGE_ID,
-            body: BODY,
+            body: &Bytes::from_static(BODY),
             attempted_at: Timestamp::now(),
         })
         .await
@@ -109,7 +110,7 @@ async fn nothing_past_the_scheme_and_host_leaves_and_user_info_moves_to_the_head
             address: &closed,
             signing_secret: &secret,
             message_id: MESSAGE_ID,
-            body: BODY,
+            body: &Bytes::from_static(BODY),
             attempted_at: Timestamp::now(),
         })
         .await
@@ -192,7 +193,7 @@ async fn every_attempt_verifies_with_one_id_one_body_and_its_own_timestamp(
                 address: &saved,
                 signing_secret: &secret,
                 message_id: MESSAGE_ID,
-                body: BODY,
+                body: &Bytes::from_static(BODY),
                 attempted_at,
             })
             .await

@@ -102,32 +102,32 @@ pub(crate) fn undelivered_count_statement(channel: AttentionDeliveryChannel) -> 
 }
 
 /// The write that removes `channel`'s outcome row, with the channel's secret.
-pub fn outcome_removal_statement(channel: AttentionDeliveryChannel) -> WriteStatement {
+pub(crate) fn outcome_removal_statement(channel: AttentionDeliveryChannel) -> WriteStatement {
     statement(REMOVE_OUTCOME_SQL, vec![channel_binding(channel)])
 }
 
 /// What one channel's row holds: its last attempt, `None` before any, and the messages given up on
 /// since its last delivery.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ChannelOutcome {
+pub(crate) struct ChannelOutcome {
     /// The last attempt, or `None`.
-    pub last_outcome: Option<AttentionDeliveryOutcome>,
+    pub(crate) last_outcome: Option<AttentionDeliveryOutcome>,
     /// The messages given up on since the last delivery.
-    pub undelivered: SafeInt<0>,
+    pub(crate) undelivered: SafeInt<0>,
 }
 
 /// Both channels' rows, a channel with no row reading as no attempt and nothing given up on.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DeliveryOutcomes {
+pub(crate) struct DeliveryOutcomes {
     /// The web address's.
-    pub web_address: ChannelOutcome,
+    pub(crate) web_address: ChannelOutcome,
     /// The email digest's.
-    pub email_digest: ChannelOutcome,
+    pub(crate) email_digest: ChannelOutcome,
 }
 
 /// Reads both channels' rows on `reader`. Fails when the read fails or a stored value does not read
 /// as its column's.
-pub fn read_delivery_outcomes(reader: &Connection) -> rusqlite::Result<DeliveryOutcomes> {
+pub(crate) fn read_delivery_outcomes(reader: &Connection) -> rusqlite::Result<DeliveryOutcomes> {
     let none = || ChannelOutcome {
         last_outcome: None,
         undelivered: SafeInt::ZERO,

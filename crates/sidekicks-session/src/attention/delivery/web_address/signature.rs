@@ -22,7 +22,7 @@ pub(crate) struct UnreadableSigningSecret;
 
 /// A fresh signing secret: 32 random bytes from the system's source, as `whsec_` and their padded
 /// standard base64. Fails when the system's random source does.
-pub fn mint_signing_secret() -> Result<SecretString, getrandom::Error> {
+pub(crate) fn mint_signing_secret() -> Result<SecretString, getrandom::Error> {
     let mut key = Zeroizing::new([0; KEY_LENGTH]);
     getrandom::fill(key.as_mut_slice())?;
     let mut secret = String::from(SECRET_PREFIX);

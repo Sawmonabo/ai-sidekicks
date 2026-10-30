@@ -9,13 +9,13 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
+use bytes::Bytes;
 use jiff::Timestamp;
 use percent_encoding::percent_decode_str;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderValue};
 use reqwest::redirect::Policy;
 use reqwest::{Client, StatusCode, Url};
 use secrecy::SecretString;
-use secrecy::zeroize::Zeroizing;
 use sidekicks_contracts::attention::AttentionDeliveryResult;
 use sidekicks_contracts::web_address::WebAddress;
 use sidekicks_contracts::wire::integer::BoundedInt;
@@ -47,7 +47,7 @@ pub(crate) struct WebAddressPost<'post> {
     /// The message's `webhook-id`, the same at every attempt.
     pub(crate) message_id: &'post str,
     /// The message's body, the same bytes at every attempt.
-    pub(crate) body: &'post [u8],
+    pub(crate) body: &'post Bytes,
     /// When the attempt is made.
     pub(crate) attempted_at: Timestamp,
 }
@@ -79,6 +79,12 @@ impl WebAddressPoster {
         lock(&self.client).take();
     }
 
+    /// Whether a client is kept.
+    #[cfg(test)]
+    pub(crate) fn is_client_kept(&self) -> bool {
+        lock(&self.client).is_some()
+    }
+
     // The kept client, built when none is.
     fn client(&self) -> Result<Client, PostError> {
         let mut kept = lock(&self.client);
@@ -108,7 +114,7 @@ impl WebAddressPoster {
             .header("webhook-id", post.message_id)
             .header("webhook-timestamp", timestamp.to_string())
             .header("webhook-signature", signature)
-            .body(post.body.to_vec());
+            .body(post.body.clone());
         if let Some(authorization) = authorization {
             request = request.header(AUTHORIZATION, authorization);
         }
@@ -165,9 +171,7 @@ fn moved_user_info(address: &WebAddress) -> (Url, Option<HeaderValue>) {
         return (url, None);
     }
     let password = url.password().unwrap_or_default();
-    let mut credentials = Zeroizing::new(Vec::with_capacity(
-        url.username().len() + 1 + password.len(),
-    ));
+    let mut credentials = Vec::with_capacity(url.username().len() + 1 + password.len());
     credentials.extend(percent_decode_str(url.username()));
     credentials.push(b':');
     credentials.extend(percent_decode_str(password));
@@ -175,8 +179,9 @@ fn moved_user_info(address: &WebAddress) -> (Url, Option<HeaderValue>) {
         .expect("an http or https address takes a user name");
     url.set_password(None)
         .expect("an http or https address takes a password");
-    let mut value = Zeroizing::new(String::from("Basic "));
-    STANDARD.encode_string(credentials.as_slice(), &mut value);
+    // Not wiped: the header keeps a plain copy, as the address itself does at every attempt.
+    let mut value = String::from("Basic ");
+    STANDARD.encode_string(&credentials, &mut value);
     let mut header = HeaderValue::from_str(&value).expect("base64 is a header value");
     header.set_sensitive(true);
     (url, Some(header))

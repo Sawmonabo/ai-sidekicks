@@ -3,10 +3,12 @@
 //! and refers to that delivery, so whatever deletes the delivery, a session's purge or a workflow
 //! run's delete, takes the row with it. The writes are statement sets that settle a delivery, each
 //! raising the counts of the delivery's session while it is still pending, and the reads are what
-//! the sender works from.
+//! the sender works from. A row can outlive its entry, which a damaged history's rebuild deletes
+//! without its delivery; the sender reads such a row as due like any other and drops it.
 
 use std::sync::LazyLock;
 
+use bytes::Bytes;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension as _, Row};
 use sidekicks_contracts::attention::{AttentionTrigger, AttentionWebAddressState};
@@ -15,9 +17,11 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_store::database::schema::SchemaPart;
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{WriteStatement, text_binding};
-use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::database::stored_column::optional_text_column;
 
-use crate::attention::projection::{session_binding, statement, version_bump_sql};
+use crate::attention::projection::{
+    MACHINE_VERSION_BUMP_SQL, session_binding, statement, version_bump_sql,
+};
 
 /// The most messages that wait at once; a newer one past it gives up on the oldest.
 pub(crate) const MAX_WAITING_MESSAGES: usize = 100;
@@ -48,19 +52,20 @@ const WAITING_SQL: &str = "SELECT send.entry_id, entry.session_id
 // The message due first at `@now`, with what its attempt reads of its moment: its attempts so far,
 // whether its moment still stands and whether it is a muted session's end. A final state and a
 // Notify step always stand; a wait stands while it is open and no later entry speaks for its
-// moment.
+// moment; a message whose entry is gone reads with no session and never stands.
 static NEXT_DUE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT send.entry_id, entry.session_id, send.body, delivery.web_address_attempt_count,
-    entry.trigger IN ({final_states})
-      OR (entry.resolved_at IS NULL
-          AND NOT EXISTS (SELECT 1 FROM attention_entries AS later
-                           WHERE later.moment_id = entry.moment_id AND later.id <> entry.id
-                             AND {later_sequence} > {entry_sequence})),
-    entry.trigger IN ({ends}) AND session_row.muted_at IS NOT NULL
+    entry.id IS NOT NULL
+      AND (entry.trigger IN ({final_states})
+           OR (entry.resolved_at IS NULL
+               AND NOT EXISTS (SELECT 1 FROM attention_entries AS later
+                                WHERE later.moment_id = entry.moment_id AND later.id <> entry.id
+                                  AND {later_sequence} > {entry_sequence}))),
+    entry.id IS NOT NULL AND entry.trigger IN ({ends}) AND session_row.muted_at IS NOT NULL
   FROM attention_web_address_sends AS send
   JOIN attention_deliveries AS delivery ON delivery.entry_id = send.entry_id
-  JOIN attention_entries AS entry ON entry.id = send.entry_id
+  LEFT JOIN attention_entries AS entry ON entry.id = send.entry_id
   LEFT JOIN sessions AS session_row ON session_row.id = entry.session_id
  WHERE send.next_attempt_at <= @now
  ORDER BY send.next_attempt_at, entry.created_at, entry.id
@@ -78,12 +83,12 @@ static NEXT_DUE_SQL: LazyLock<String> = LazyLock::new(|| {
 
 const EARLIEST_DUE_SQL: &str = "SELECT MIN(next_attempt_at) FROM attention_web_address_sends";
 
-// Every pending delivery, queued or not.
+// Every pending delivery, queued or not, its entry's session `NULL` once the entry is gone.
 static PENDING_DELIVERIES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT delivery.entry_id, entry.session_id
   FROM attention_deliveries AS delivery
-  JOIN attention_entries AS entry ON entry.id = delivery.entry_id
+  LEFT JOIN attention_entries AS entry ON entry.id = delivery.entry_id
  WHERE delivery.web_address_state = '{pending}'",
         pending = *PENDING_STATE,
     )
@@ -158,15 +163,16 @@ CREATE TABLE attention_web_address_sends (
 pub(crate) struct QueuedDelivery {
     /// The entry, whose id is also the message's `webhook-id`.
     pub(crate) entry_id: String,
-    /// The entry's session.
-    pub(crate) session_id: SessionId,
+    /// The entry's session, `None` once the entry is gone, when its write raises the machine's
+    /// count alone.
+    pub(crate) session_id: Option<SessionId>,
 }
 
 impl QueuedDelivery {
     fn of_row(row: &Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
             entry_id: row.get(0)?,
-            session_id: text_column(row, 1, |text| SessionId::new(&text))?,
+            session_id: optional_text_column(row, 1, |text| SessionId::new(&text))?,
         })
     }
 }
@@ -176,7 +182,7 @@ pub(crate) struct DueMessage {
     /// Its delivery.
     pub(crate) delivery: QueuedDelivery,
     /// Its frozen body.
-    pub(crate) body: Vec<u8>,
+    pub(crate) body: Bytes,
     /// The attempts made so far.
     pub(crate) attempt_count: i64,
     /// Whether its moment still stands: a final state always does, a wait while it is open and
@@ -211,7 +217,7 @@ pub(crate) fn read_next_due(
         .query_row([now.as_str()], |row| {
             Ok(DueMessage {
                 delivery: QueuedDelivery::of_row(row)?,
-                body: row.get(2)?,
+                body: Bytes::from(row.get::<_, Vec<u8>>(2)?),
                 attempt_count: row.get(3)?,
                 is_standing: row.get(4)?,
                 is_muted_end: row.get(5)?,
@@ -297,14 +303,19 @@ pub(crate) fn machine_version_statement() -> WriteStatement {
     statement(MACHINE_VERSION_SQL, Vec::new())
 }
 
+// The raise of the delivery's session's counts while it is pending, or of the machine's alone once
+// its entry is gone.
 fn bump_if_pending(delivery: &QueuedDelivery) -> WriteStatement {
-    statement(
-        &BUMP_IF_PENDING_SQL,
-        vec![
-            session_binding(delivery.session_id),
-            text_binding("@entry_id", &delivery.entry_id),
-        ],
-    )
+    match delivery.session_id {
+        Some(session_id) => statement(
+            &BUMP_IF_PENDING_SQL,
+            vec![
+                session_binding(session_id),
+                text_binding("@entry_id", &delivery.entry_id),
+            ],
+        ),
+        None => statement(&MACHINE_VERSION_BUMP_SQL, Vec::new()),
+    }
 }
 
 fn read_deliveries(reader: &Connection, sql: &str) -> rusqlite::Result<Vec<QueuedDelivery>> {

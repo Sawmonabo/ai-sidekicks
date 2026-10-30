@@ -2,6 +2,7 @@
 //! says and keeps what it received.
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::Bytes;
@@ -29,6 +30,8 @@ pub(crate) enum Answer {
     Redirect,
     /// No answer, ever.
     Hang,
+    /// This status once the wait has passed.
+    After(Duration, StatusCode),
 }
 
 /// What the double received, in order.
@@ -88,5 +91,9 @@ async fn answer_with(answer: Answer) -> Response {
         Answer::Status(status) => status.into_response(),
         Answer::Redirect => (StatusCode::FOUND, [(LOCATION, "/elsewhere")]).into_response(),
         Answer::Hang => std::future::pending().await,
+        Answer::After(wait, status) => {
+            tokio::time::sleep(wait).await;
+            status.into_response()
+        }
     }
 }

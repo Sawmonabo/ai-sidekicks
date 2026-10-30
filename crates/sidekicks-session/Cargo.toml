@@ -14,8 +14,9 @@ doctest = false
 # The skipped-file cursor's base64url encoding.
 base64.workspace = true
 blake3.workspace = true
-# The wire message other crates' tests split into its attachments.
-bytes = { workspace = true, optional = true }
+# The web address's frozen bodies, and the wire message other crates' tests split into its
+# attachments.
+bytes.workspace = true
 # The cron matches a provider's recurring job wakes a sleeping session for.
 croner.workspace = true
 diffy.workspace = true
@@ -39,6 +40,7 @@ satteri-pulldown-cmark.workspace = true
 secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The web address's HMAC-SHA256.
 sha2.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
@@ -62,7 +64,6 @@ uuid.workspace = true
 [dev-dependencies]
 # The web address's double on a loopback port.
 axum = { workspace = true, features = ["http1", "tokio"] }
-bytes.workspace = true
 mockall.workspace = true
 rstest.workspace = true
 # The credit gate the list feed's tests read through.
@@ -94,7 +95,6 @@ tracing-subscriber.workspace = true
 # transcript's test log, the questions service's fixtures, the list feed's test build, the follow
 # count and the search index's test services.
 test-support = [
-  "dep:bytes",
   "dep:tempfile",
   "sidekicks-provider/test-support",
   "sidekicks-std/test-support",

@@ -336,10 +336,11 @@ enum Address {
 }
 
 // Every try's ending as the delivery, its message and the outcome row record it: a 2xx delivers,
-// any other ending is retried 5 s, 5 min and 30 min later and the fourth gives up, counted, its
-// entry left present and unresolved. Mutations: a redirect followed; a retry past the third or on
-// another schedule; a locked keychain left uncounted; a give-up left uncounted or its entry
-// resolved; the sender woken by its own write.
+// any other ending is retried 5 s, 5 min and 30 min after it ended and the fourth gives up,
+// counted, its entry left present and unresolved. The address that never answers holds its try
+// while the wall clock moves 15 s on. Mutations: a redirect followed; a retry past the third, on
+// another schedule or due from the try's start; a locked keychain left uncounted; a give-up left
+// uncounted or its entry resolved; the sender woken by its own write.
 #[rstest]
 #[case::delivered(
     Address::Answering(Answer::Status(StatusCode::OK)),
@@ -376,6 +377,14 @@ async fn each_try_ends_as_the_address_answers(
     }
     let (run_id, entry) = fixture.waiting().await;
     fixture.start().await;
+    if let Address::Answering(Answer::Hang) = address {
+        fixture
+            .until("the attempt reaches the address", |_| {
+                requests(&received) == 1
+            })
+            .await;
+        fixture.advance(Duration::from_secs(15));
+    }
 
     for tried in 1..=tries {
         let is_settled = result == "delivered" || tried == 4;
@@ -421,9 +430,10 @@ async fn each_try_ends_as_the_address_answers(
         }
     }
     if result == "delivered" {
-        // The start's one pass delivered it; the sender's own write woke no other.
+        // The start's one pass, reading the switch once and again before its one attempt, delivered
+        // it; the sender's own write woke no other.
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(fixture.settings.reads.load(Ordering::SeqCst), 1);
+        assert_eq!(fixture.settings.reads.load(Ordering::SeqCst), 2);
     }
     if let Address::Answering(_) = address {
         assert_eq!(
@@ -683,5 +693,148 @@ async fn a_retry_goes_only_while_its_moment_stands() {
     fixture.until_delivery(&muted_end, "undelivered", 0).await;
     assert_eq!(requests(&received), 5);
     assert_eq!(fixture.outcome().map(|outcome| outcome.2), Some(0));
+    fixture.stop().await;
+}
+
+// A message whose entry went from under it, as a damaged history's rebuild deletes it, is dropped
+// uncounted at the next pass, and nothing is left armed for it. Mutation: the due read joined to
+// the entries, so the row is never picked and the timer is armed at its past due time again.
+#[tokio::test]
+async fn a_waiting_message_whose_entry_went_is_dropped_uncounted() {
+    let mut fixture = Fixture::new(closed_port().await).await;
+    fixture.start().await;
+    let (_, entry) = fixture.waiting().await;
+    fixture.until_delivery(&entry, "pending", 1).await;
+    fixture.stop().await;
+    fixture
+        .log
+        .database
+        .reader()
+        .execute("DELETE FROM attention_entries WHERE id = ?1", [&entry])
+        .expect("the test deletes the entry as a rebuild does");
+    fixture.advance(RETRY_DELAYS[0]);
+    fixture.start().await;
+
+    fixture.until_delivery(&entry, "undelivered", 1).await;
+    assert_eq!(fixture.send(&entry), None);
+    assert_eq!(
+        fixture.outcome(),
+        Some(result_row("unreachable", None, 0)),
+        "the drop counts nothing"
+    );
+    fixture
+        .until("nothing is armed", |fixture| {
+            fixture.sender().timer.instant().is_none()
+        })
+        .await;
+    fixture.stop().await;
+}
+
+// The settings file decides the switch even while its announcement reads otherwise: one attempt
+// runs and the pass ends. Mutation: the attempt waiting on the announcement's current value, which
+// ends it at once and turns the pass again without end.
+#[tokio::test]
+async fn the_file_decides_the_switch_over_its_announcement() {
+    let (port, received) = serve_answers(vec![Answer::Status(StatusCode::OK)]).await;
+    let mut fixture = Fixture::new(port).await;
+    let mut announced = lock(&fixture.settings.settings).clone();
+    announced.notifications.web_address.enabled = false;
+    fixture.settings.announce.send_replace(announced);
+    let (_, entry) = fixture.waiting().await;
+    fixture.start().await;
+
+    fixture.until_delivery(&entry, "delivered", 1).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(requests(&received), 1);
+    assert_eq!(
+        fixture.settings.reads.load(Ordering::SeqCst),
+        2,
+        "one pass and its one attempt read the file"
+    );
+    fixture.stop().await;
+}
+
+// Removing the address while an attempt is in flight abandons it: no outcome and no message stay,
+// and the delivery reads undelivered, uncounted. Mutation: the removal leaving the attempt to end
+// and write its outcome.
+#[tokio::test]
+async fn removing_the_address_abandons_the_attempt_in_flight() {
+    let (port, received) = serve_answers(vec![Answer::After(
+        Duration::from_secs(2),
+        StatusCode::INTERNAL_SERVER_ERROR,
+    )])
+    .await;
+    let mut fixture = Fixture::new(port).await;
+    fixture.start().await;
+    let (_, entry) = fixture.waiting().await;
+    fixture
+        .until("the attempt reaches the address", |_| {
+            requests(&received) == 1
+        })
+        .await;
+
+    tokio::time::timeout(Duration::from_secs(5), fixture.sender().remove_address())
+        .await
+        .expect("the removal ends the attempt at once")
+        .expect("the removal is kept");
+    // Past the moment the address answers.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        fixture.outcome(),
+        None,
+        "the abandoned attempt wrote nothing"
+    );
+    assert_eq!(fixture.send(&entry), None);
+    assert_eq!(
+        fixture.delivery(&entry),
+        (Some("undelivered".to_owned()), Some(0))
+    );
+    fixture.stop().await;
+}
+
+/// What the keychain holds beside the saved address.
+#[derive(Clone, Copy, Debug)]
+enum SigningSecret {
+    Missing,
+    Unreadable,
+}
+
+// An address saved with no signing secret it can sign with sends nothing, and each try is a
+// `storeUnavailable` one, counted. Mutations: a missing secret read as no address saved, its
+// message dropped uncounted; a secret that does not read answered as anything but the keychain's.
+#[rstest]
+#[case::missing(SigningSecret::Missing)]
+#[case::unreadable(SigningSecret::Unreadable)]
+#[tokio::test]
+async fn an_address_with_no_usable_signing_secret_tries_as_store_unavailable(
+    #[case] signing_secret: SigningSecret,
+) {
+    let (port, received) = serve_answers(vec![Answer::Status(StatusCode::OK)]).await;
+    let mut fixture = Fixture::new(port).await;
+    match signing_secret {
+        SigningSecret::Missing => {
+            fixture
+                .keychain
+                .remove(SIGNING_SECRET_ACCOUNT)
+                .await
+                .expect("the test removes the secret");
+        }
+        SigningSecret::Unreadable => {
+            fixture
+                .keychain
+                .write_verified(SIGNING_SECRET_ACCOUNT, &SecretString::from("whsec_!"))
+                .await
+                .expect("the test keeps a secret that does not read");
+        }
+    }
+    let (_, entry) = fixture.waiting().await;
+    fixture.start().await;
+
+    fixture.until_delivery(&entry, "pending", 1).await;
+    assert_eq!(
+        fixture.outcome(),
+        Some(result_row("storeUnavailable", None, 0))
+    );
+    assert_eq!(requests(&received), 0, "nothing is sent");
     fixture.stop().await;
 }

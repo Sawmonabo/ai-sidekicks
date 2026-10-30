@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use axum::http::StatusCode;
+use bytes::Bytes;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::OptionalExtension as _;
@@ -480,9 +481,10 @@ async fn a_removal_takes_the_address_its_secret_its_row_and_its_messages() {
     );
 }
 
-// The test message needs a saved address; with one it is one signed post of its own body, its
-// `content` repeating its `text`, and it writes no row. Mutations: a test sent with no address; a
-// moment's body sent; the test's outcome written to the row.
+// The test message needs a saved address and its signing secret; with both it is one signed post
+// of its own body, its `content` repeating its `text`, it writes no row, and with the switch off
+// its client goes. Mutations: a test sent with no address; a missing secret read as no address
+// saved; a moment's body sent; the test's outcome written to the row; the client kept while off.
 #[tokio::test]
 async fn the_test_message_posts_once_and_writes_no_row() {
     let fixture = Fixture::new().await;
@@ -535,6 +537,10 @@ async fn the_test_message_posts_once_and_writes_no_row() {
         fixture.count("SELECT COUNT(*) FROM attention_delivery_outcomes"),
         0
     );
+    assert!(
+        !fixture.sender.poster.is_client_kept(),
+        "no client is kept while the switch reads off"
+    );
 
     // A closed port answers nothing, and the test still writes no row.
     let closed = closed_port().await;
@@ -552,6 +558,22 @@ async fn the_test_message_posts_once_and_writes_no_row() {
     assert_eq!(
         fixture.count("SELECT COUNT(*) FROM attention_delivery_outcomes"),
         0
+    );
+
+    lock(&fixture.keychain.items).remove(SIGNING_SECRET_ACCOUNT);
+    let (code, detail) = refusal_of(
+        fixture
+            .sender
+            .test_web_address()
+            .await
+            .expect_err("the address has no signing secret"),
+    );
+    assert_eq!(
+        (code, detail),
+        (
+            RefusalCode::AttentionDeliveryStoreUnavailable,
+            Some(json!({ "cause": "unavailable" }))
+        )
     );
 }
 
@@ -610,7 +632,7 @@ async fn each_chat_service_takes_the_test_and_a_moment() {
                 address: &address,
                 signing_secret: &signing_secret,
                 message_id: &entry,
-                body: &body,
+                body: &Bytes::from(body),
                 attempted_at: fixture.sender.now().0,
             })
             .await

@@ -8,22 +8,22 @@ pub(crate) mod queue;
 #[cfg(test)]
 mod receiver_double;
 pub mod sender;
-pub mod signature;
+pub(crate) mod signature;
 
 use reqwest::Url;
 use sidekicks_contracts::web_address::WebAddress;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
 /// The delivery secrets' keychain account holding the saved address.
-pub const WEB_ADDRESS_ACCOUNT: &str = "web-address";
+pub(crate) const WEB_ADDRESS_ACCOUNT: &str = "web-address";
 
 /// The delivery secrets' keychain account holding the address's signing secret.
-pub const SIGNING_SECRET_ACCOUNT: &str = "web-address-signing-secret";
+pub(crate) const SIGNING_SECRET_ACCOUNT: &str = "web-address-signing-secret";
 
 /// The part of `address` that may be shown back: its scheme and host, `https://ntfy.sh`, with no
 /// port, path, query or user info; an IPv6 host keeps its brackets and an international one reads
 /// in its ASCII form.
-pub fn shown_host(address: &WebAddress) -> NonEmptyText {
+pub(crate) fn shown_host(address: &WebAddress) -> NonEmptyText {
     let parsed = Url::parse(address.as_str()).expect("a web address parses");
     let host = parsed
         .host_str()

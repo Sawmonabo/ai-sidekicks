@@ -14,6 +14,7 @@ use sidekicks_contracts::attention::{
     AttentionWebAddressUpdateResponse,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_contracts::web_address::WebAddress;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_ipc::domain_error::DomainError;
@@ -23,7 +24,7 @@ use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLe
 use sidekicks_store::database::writer::WriteError;
 use sidekicks_store::machine::local::LocalMachineError;
 
-use super::{WebAddressSender, drop_statements};
+use super::{WebAddressSendError, WebAddressSender, drop_statements};
 use crate::attention::delivery::MAIL_PASSWORD_ACCOUNT;
 use crate::attention::delivery::outcome::{
     DeliveryOutcomes, outcome_removal_statement, read_delivery_outcomes,
@@ -58,6 +59,9 @@ pub enum WebAddressCallError {
     /// This machine has no row, which the daemon's start writes before any call is served.
     #[error("this machine has no row to read its name from")]
     MachineUnrecorded,
+    /// The machine's settings file did not read.
+    #[error(transparent)]
+    Settings(Box<WebAddressSendError>),
 }
 
 impl From<WebAddressCallError> for HandlerError {
@@ -70,7 +74,8 @@ impl From<WebAddressCallError> for HandlerError {
             | WebAddressCallError::Database(_)
             | WebAddressCallError::Pool(_)
             | WebAddressCallError::Machine(_)
-            | WebAddressCallError::MachineUnrecorded) => Self::Internal(Box::new(fault)),
+            | WebAddressCallError::MachineUnrecorded
+            | WebAddressCallError::Settings(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }
@@ -87,7 +92,7 @@ impl WebAddressSender {
     ) -> Result<AttentionWebAddressUpdateResponse, WebAddressCallError> {
         let Some(address) = WebAddress::new(address.as_str()) else {
             return Err(DomainError::new(
-                "Not a web address, so nothing was saved.",
+                "Not a web address.",
                 RefusalCode::AttentionWebAddressNotAnAddress,
             )
             .into());
@@ -238,6 +243,18 @@ pub(super) fn address_not_configured() -> DomainError {
     )
     .with_detail(AttentionDeliveryNotConfiguredDetails {
         missing: AttentionDeliveryMissing::Address,
+    })
+}
+
+/// The refusal of a saved address whose signing secret is missing from the keychain, which is
+/// one that could not be used.
+pub(super) fn signing_secret_missing() -> DomainError {
+    DomainError::new(
+        "The web address's signing secret is missing from the keychain, so nothing was sent.",
+        RefusalCode::AttentionDeliveryStoreUnavailable,
+    )
+    .with_detail(AttentionDeliveryStoreUnavailableDetails {
+        cause: KeychainRefusalCause::Unavailable,
     })
 }
 

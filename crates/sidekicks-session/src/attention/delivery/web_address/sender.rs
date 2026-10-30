@@ -9,11 +9,13 @@
 //!   runs at the start, at every attention change, at every settings change and when the timer
 //!   fires, so a delivery the gate wrote as the switch went off is dropped too, and an attempt in
 //!   flight is abandoned the moment the switch goes off.
-//! - **An attempt.** A message whose moment no longer stands, or a muted session's end, is dropped
-//!   uncounted, and so is one with no address saved. The address and the signing secret are read
-//!   under the secrets' lock; a locked or unavailable keychain is a `storeUnavailable` try. Any
-//!   2xx is delivered; any other ending is a failed try, retried 5 s, 5 min and 30 min later, the
-//!   fourth giving up and counting as undelivered. Every write that settles a delivery or counts a
+//! - **An attempt.** A message whose moment no longer stands, whose entry is gone, or a muted
+//!   session's end, is dropped uncounted, and so is one with no address saved. The switch is read
+//!   from the settings file again before each attempt, and once more at each announced change while
+//!   it is in flight. The address and the signing secret are read under the secrets' lock; a locked
+//!   or unavailable keychain, or an address saved with no signing secret, is a `storeUnavailable`
+//!   try. Any 2xx is delivered; any other ending is a failed try, retried 5 s, 5 min and 30 min
+//!   after it ended, the fourth giving up and counting as undelivered. Every write that settles a delivery or counts a
 //!   try raises the counts, and the sender skips the wake its own write causes.
 //! - **The timer.** One job on the wall clock's timer, armed at the earliest waiting message, only
 //!   wakes the sender; nothing is armed while nothing waits.
@@ -72,8 +74,9 @@ use crate::attention::delivery::web_address::{SIGNING_SECRET_ACCOUNT, WEB_ADDRES
 use crate::attention::read::AttentionReadError;
 
 /// The statements the sender prepares on a read connection: the deliveries still to pick up, the
-/// messages waiting, the next one due, the earliest due and every pending delivery.
-pub const WEB_ADDRESS_SENDER_STATEMENT_CAPACITY: usize = 5;
+/// messages waiting, the next one due, the earliest due, every pending delivery and the channels'
+/// outcome rows its calls read.
+pub const WEB_ADDRESS_SENDER_STATEMENT_CAPACITY: usize = 6;
 
 /// The wait after each failed try before the next; one more failure gives up.
 pub(crate) const RETRY_DELAYS: [Duration; 3] = [
@@ -151,6 +154,24 @@ pub enum WebAddressSendError {
     /// This machine has no row, which the daemon's start writes before any sender runs.
     #[error("this machine has no row to read its name from")]
     MachineUnrecorded,
+    /// A waiting message's due time does not read as an instant.
+    #[error("a waiting message's due time {due} does not read as an instant")]
+    UnreadableDueTime {
+        /// The stored due time.
+        due: String,
+    },
+}
+
+/// Why the saved address's secrets did not read: the keychain refused, or the address is held
+/// with no signing secret beside it.
+#[derive(Debug, thiserror::Error)]
+enum SecretsReadError {
+    /// The keychain is locked or cannot be used.
+    #[error(transparent)]
+    Refused(#[from] KeychainRefusal),
+    /// The address is saved, and its signing secret is missing from the keychain.
+    #[error("the web address is saved with no signing secret beside it")]
+    SigningSecretMissing,
 }
 
 /// How an attempt step ended.
@@ -159,8 +180,19 @@ enum Step {
     Settled,
     /// No message is due.
     Idle,
-    /// The switch went off while a message was in flight.
+    /// The switch reads off, before an attempt or while one was in flight.
     SwitchedOff,
+    /// The sender is stopping; nothing more is attempted or armed.
+    Stopped,
+}
+
+/// What a pickup read: the messages waiting, the deliveries frozen to queue, those given up past
+/// the bound and those whose entry went.
+struct Pickup {
+    waiting: Vec<QueuedDelivery>,
+    frozen: Vec<(QueuedDelivery, Vec<u8>)>,
+    given_up: Vec<QueuedDelivery>,
+    gone: Vec<QueuedDelivery>,
 }
 
 /// The machine's change count the task follows, and the version it has accounted for, its own
@@ -236,7 +268,7 @@ impl WebAddressSender {
                     } else {
                         tracing::debug!(error, "the web address's messages still were not sent");
                     }
-                    ArmedInstant::retry_while_empty(&self, error);
+                    ArmedInstant::schedule_retry_while_empty(&self);
                 }
             }
             tokio::select! {
@@ -279,6 +311,7 @@ impl WebAddressSender {
                     Step::Settled => {}
                     Step::Idle => return self.arm_next().await,
                     Step::SwitchedOff => break,
+                    Step::Stopped => return Ok(()),
                 }
             }
         }
@@ -308,7 +341,8 @@ impl WebAddressSender {
     }
 
     // Queues each pending delivery no message waits for, its body frozen with the machine's name
-    // as it reads now, due at once; past the bound the oldest waiting give up, counted.
+    // as it reads now, due at once; past the bound the oldest waiting give up, counted. Only a
+    // message that stands counts toward the bound, and one given up is never frozen.
     async fn pick_up(&self, follow: &mut ChangeFollow) -> Result<(), WebAddressSendError> {
         let unqueued = self
             .pool
@@ -323,36 +357,46 @@ impl WebAddressSender {
             .await?
             .ok_or(WebAddressSendError::MachineUnrecorded)?
             .name;
-        let (waiting, bodies) = self
+        let pickup = self
             .pool
             .read(ReadLength::Short, move |connection| {
-                let waiting = read_waiting(connection)?;
-                let bodies = unqueued
-                    .into_iter()
-                    .map(|delivery| {
-                        let body = read_message_body(connection, &delivery.entry_id, &machine)?;
-                        Ok((delivery, body))
-                    })
-                    .collect::<Result<Vec<_>, WebAddressSendError>>()?;
-                Ok::<_, WebAddressSendError>((waiting, bodies))
+                let mut pickup = Pickup {
+                    waiting: read_waiting(connection)?,
+                    frozen: Vec::new(),
+                    given_up: Vec::new(),
+                    gone: Vec::new(),
+                };
+                // Newest first, so the newest that stand fill the bound and any older one past it
+                // gives up unfrozen.
+                for delivery in unqueued.into_iter().rev() {
+                    if pickup.frozen.len() == MAX_WAITING_MESSAGES {
+                        pickup.given_up.push(delivery);
+                        continue;
+                    }
+                    match read_message_body(connection, &delivery.entry_id, &machine)? {
+                        Some(body) => pickup.frozen.push((delivery, body)),
+                        // Its entry went since the pickup read it, so there is nothing to send.
+                        None => pickup.gone.push(delivery),
+                    }
+                }
+                Ok::<_, WebAddressSendError>(pickup)
             })
             .await?;
         let due_at = self.now().1;
-        let given_up = (waiting.len() + bodies.len()).saturating_sub(MAX_WAITING_MESSAGES);
+        let waiting_given_up =
+            (pickup.waiting.len() + pickup.frozen.len()).saturating_sub(MAX_WAITING_MESSAGES);
         let mut statements = Vec::new();
-        for delivery in waiting.iter().take(given_up) {
+        for delivery in pickup
+            .waiting
+            .iter()
+            .take(waiting_given_up)
+            .chain(&pickup.given_up)
+        {
             statements.extend(give_up_statements(delivery));
         }
-        for (index, (delivery, body)) in bodies.into_iter().enumerate() {
-            match body {
-                // A delivery newer than the bound past what already waits gives up at once.
-                Some(_) if waiting.len() + index < given_up => {
-                    statements.extend(give_up_statements(&delivery));
-                }
-                Some(body) => statements.push(queue_statement(&delivery, body, &due_at)),
-                // Its entry went in the same instant, so there is nothing to send.
-                None => statements.extend(drop_statements(&delivery)),
-            }
+        statements.extend(pickup.gone.iter().flat_map(drop_statements));
+        for (delivery, body) in pickup.frozen.into_iter().rev() {
+            statements.push(queue_statement(&delivery, body, &due_at));
         }
         self.write_own(statements, follow).await
     }
@@ -379,6 +423,9 @@ impl WebAddressSender {
                 .await?;
             return Ok(Step::Settled);
         }
+        if !self.is_switched_on().await? {
+            return Ok(Step::SwitchedOff);
+        }
         let held = self.secrets.lock().await;
         let secrets = self.read_secrets().await;
         let _attempt = self.attempt.lock().await;
@@ -399,9 +446,12 @@ impl WebAddressSender {
                     posted = post => posted,
                     // Abandoned with nothing written; at a stop no other attempt follows.
                     () = cancel.cancelled() => {
-                        return Ok(if stop.is_cancelled() { Step::Idle } else { Step::Settled });
+                        return Ok(if stop.is_cancelled() { Step::Stopped } else { Step::Settled });
                     }
-                    () = switched_off(settings) => return Ok(Step::SwitchedOff),
+                    switched_off = self.switched_off(settings) => {
+                        switched_off?;
+                        return Ok(Step::SwitchedOff);
+                    }
                 };
                 (attempted_instant, outcome_of_post(posted))
             }
@@ -410,9 +460,9 @@ impl WebAddressSender {
                     .await?;
                 return Ok(Step::Settled);
             }
-            Err(refusal) => {
+            Err(unread) => {
                 tracing::info!(
-                    error = &refusal as &(dyn Error + 'static),
+                    error = &unread as &(dyn Error + 'static),
                     "the web address's secrets did not read, so nothing was sent"
                 );
                 (
@@ -424,19 +474,40 @@ impl WebAddressSender {
                 )
             }
         };
-        self.write_own(tried_statements(&due, &attempted_at, outcome), follow)
-            .await?;
+        // The retry waits its delay from the moment the try ended, not from when it began.
+        let ended_at = self.now().1;
+        self.write_own(
+            tried_statements(&due, &attempted_at, &ended_at, outcome),
+            follow,
+        )
+        .await?;
         Ok(Step::Settled)
     }
 
-    // The saved address and its signing secret, `None` with either missing or the address not
-    // reading as one.
-    async fn read_secrets(&self) -> Result<Option<(WebAddress, SecretString)>, KeychainRefusal> {
+    // Returns once the settings file reads the switch off after an announced change, and never
+    // once the announcements end. Fails when the file does not read.
+    async fn switched_off(
+        &self,
+        settings: &mut watch::Receiver<MachineSettings>,
+    ) -> Result<(), WebAddressSendError> {
+        loop {
+            if settings.changed().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+            if !self.is_switched_on().await? {
+                return Ok(());
+            }
+        }
+    }
+
+    // The saved address and its signing secret, `None` with no address saved or the address not
+    // reading as one; an address held with no signing secret is a keychain that could not be used.
+    async fn read_secrets(&self) -> Result<Option<(WebAddress, SecretString)>, SecretsReadError> {
         let Some(address) = self.keychain.read(WEB_ADDRESS_ACCOUNT).await? else {
             return Ok(None);
         };
         let Some(signing_secret) = self.keychain.read(SIGNING_SECRET_ACCOUNT).await? else {
-            return Ok(None);
+            return Err(SecretsReadError::SigningSecretMissing);
         };
         let address = WebAddress::new(address.expose_secret());
         if address.is_none() {
@@ -456,10 +527,16 @@ impl WebAddressSender {
                 Ok::<_, WebAddressSendError>(read_earliest_due(connection)?)
             })
             .await?;
-        let next = earliest
-            .and_then(|text| WireInstant::try_from(text).ok())
-            .and_then(|instant| instant.timestamp())
-            .map(SystemTime::from);
+        let next = match earliest {
+            None => None,
+            Some(due) => Some(
+                WireInstant::try_from(due.clone())
+                    .ok()
+                    .and_then(|instant| instant.timestamp())
+                    .map(SystemTime::from)
+                    .ok_or(WebAddressSendError::UnreadableDueTime { due })?,
+            ),
+        };
         ArmedInstant::arm(self, next);
         Ok(())
     }
@@ -527,17 +604,6 @@ impl InstantJob for WebAddressSender {
     }
 }
 
-// Waits until the switch reads off, forever once its announcements end.
-async fn switched_off(settings: &mut watch::Receiver<MachineSettings>) {
-    if settings
-        .wait_for(|settings| !settings.notifications.web_address.enabled)
-        .await
-        .is_err()
-    {
-        std::future::pending::<()>().await;
-    }
-}
-
 // An attempt that could not be made: a signing secret that does not read is the keychain's, and a
 // client that does not build reaches nothing.
 fn outcome_of_post(posted: Result<PostOutcome, PostError>) -> PostOutcome {
@@ -556,11 +622,13 @@ fn outcome_of_post(posted: Result<PostOutcome, PostError>) -> PostOutcome {
     })
 }
 
-// The writes after `due`'s try at `attempted_at` ended as `outcome`: a delivery settles it, any
-// other ending retries it after its delay, the last one giving up, counted.
+// The writes after `due`'s try made at `attempted_at` ended at `ended_at` as `outcome`: a delivery
+// settles it, any other ending retries it its delay after `ended_at`, the last one giving up,
+// counted.
 fn tried_statements(
     due: &DueMessage,
     attempted_at: &WireInstant,
+    ended_at: &WireInstant,
     outcome: PostOutcome,
 ) -> Vec<WriteStatement> {
     let mut statements = vec![attempt_outcome_statement(
@@ -578,10 +646,10 @@ fn tried_statements(
             true,
         )),
         (_, Some(delay)) => {
-            let due_at = attempted_at
+            let due_at = ended_at
                 .timestamp()
-                .and_then(|attempted| {
-                    attempted
+                .and_then(|ended| {
+                    ended
                         .checked_add(SignedDuration::try_from(*delay).ok()?)
                         .ok()
                 })

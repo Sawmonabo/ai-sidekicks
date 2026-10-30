@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
@@ -20,10 +19,11 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowNotifyNotice};
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::presence::PresenceRegister;
-use sidekicks_platforms::{WallClock, WallClockTimer, WallClockWait};
+use sidekicks_platforms::{WallClock, WallClockTimer};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::armed_instant::ARM_RETRY_DELAY;
+use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::database::writer::test_file::{test_run_id, test_session_id};
 use sidekicks_store::events::session::appender::SessionEventLinkage;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
@@ -652,40 +652,13 @@ async fn a_day_old_build_moved_to_retires_when_its_timer_fires_with_no_batch() {
         .expect("the decision task ends with the stop");
 }
 
-// The system's wall-clock timer, which refuses its first arm as a system refusing the setting.
-struct RefusingFirstArm {
-    timer: WallClockTimer,
-    has_refused: AtomicBool,
-}
-
-impl WallClock for RefusingFirstArm {
-    fn arm(&self, instant: SystemTime) -> std::io::Result<()> {
-        if !self.has_refused.swap(true, Ordering::SeqCst) {
-            return Err(std::io::Error::other("the test refuses the first arm"));
-        }
-        self.timer.arm(instant)
-    }
-
-    fn disarm(&self) -> std::io::Result<()> {
-        self.timer.disarm()
-    }
-
-    fn wait(&self) -> WallClockWait<'_> {
-        self.timer.wait()
-    }
-}
-
 // A retirement whose wall-clock timer the system refuses leaves the slot empty for a minute on the
 // monotonic clock, then the retry arms it. Killed by the retry dropped.
 #[tokio::test]
 async fn a_refused_retirement_is_armed_again_by_its_retry_a_minute_later() {
-    let fixture = Fixture::with_wall_clock(Arc::new(RefusingFirstArm {
-        timer: WallClockTimer::new().expect("the wall-clock timer is made"),
-        has_refused: AtomicBool::new(false),
-    }))
-    .await;
-    let within_day = Timestamp::from_millisecond(Timestamp::now().as_millisecond())
-        .expect("the clock's instant is a timestamp")
+    let clock = Arc::new(TestWallClock::default());
+    let fixture = Fixture::with_wall_clock(Arc::clone(&clock) as Arc<dyn WallClock>).await;
+    let within_day = Timestamp::try_from(clock.now()).expect("the clock's instant is a timestamp")
         - SignedDuration::from_hours(23);
     insert_build(
         &fixture.log,
@@ -696,6 +669,7 @@ async fn a_refused_retirement_is_armed_again_by_its_retry_a_minute_later() {
     );
     tokio::time::pause();
 
+    clock.refuse_arms(true);
     fixture.service.arm_provider_build_retirement().await;
     tokio::time::advance(ARM_RETRY_DELAY.saturating_sub(std::time::Duration::from_secs(1))).await;
     assert_eq!(
@@ -703,6 +677,7 @@ async fn a_refused_retirement_is_armed_again_by_its_retry_a_minute_later() {
         [PROVIDER_BUILD_RETIREMENT_RETRY_JOB],
         "the refused retirement waits for its retry"
     );
+    clock.refuse_arms(false);
 
     tokio::time::advance(std::time::Duration::from_secs(1)).await;
     wait_until_armed_at(
