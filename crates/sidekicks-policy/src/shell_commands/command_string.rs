@@ -1,8 +1,9 @@
 //! The lines a command hands a shell: an `eval`'s words, the string a shell runs with `-c`, the
 //! command `su` hands the target user's shell, an alias's value, a trap's line, the line an
-//! option of `compgen`, `mapfile`, `script` or `flock` names, zsh's `emulate … -c` string, and the
-//! words `watch` joins; the commands that read their line from somewhere other than their words;
-//! and the line a provider's `<shell> -lc '…'` wrapper hands its shell.
+//! option of `compgen`, `mapfile`, `script` or `flock` names, zsh's `emulate … -c` string and
+//! `repeat`'s `{ … }` list, and the words `watch` joins; the commands that read their line from
+//! somewhere other than their words; and the line a provider's `<shell> -lc '…'` wrapper hands
+//! its shell.
 
 use std::borrow::Cow;
 use std::path::Path;
@@ -75,8 +76,9 @@ fn is_provider_line_form(options: &[String]) -> bool {
 }
 
 /// Whether `program` hands a shell a line: `eval`, `su`, `alias`, `trap`, `emulate`, `watch`, a
-/// program one of whose options names a line, or a shell that runs a `-c` string, whether or not
-/// this command's words hand it one, since a rule on the program covers its every line.
+/// program one of whose options names a line, `repeat`, whose `{ … }` list is one, or a shell
+/// that runs a `-c` string, whether or not this command's words hand it one, since a rule on the
+/// program covers its every line.
 pub fn hands_a_shell_a_line(program: impl WordText) -> bool {
     shell_line_program(program).is_some()
 }
@@ -84,8 +86,9 @@ pub fn hands_a_shell_a_line(program: impl WordText) -> bool {
 /// Which of a command's argument words make a line it hands a shell.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum CommandStringWords {
-    /// The words from the one at `from` on, joined by spaces, as `eval` and `watch` join them.
-    Joined { from: usize },
+    /// The words from the one at `from` up to the one at `end`, joined by spaces, as `eval` and
+    /// `watch` join them.
+    Joined { from: usize, end: usize },
     /// The word at `index` past its first `skipped_bytes` bytes: a shell's `-c` string whole, or
     /// the value of `su`'s command option, which may follow the option's name in its own word.
     One { index: usize, skipped_bytes: usize },
@@ -102,9 +105,10 @@ pub(super) fn command_string_words<W: WordText>(
         index,
         skipped_bytes: 0,
     };
+    let end = argument_words.clone().count();
     match shell_line_program(program) {
         None => Vec::new(),
-        Some(ShellLineProgram::Eval) => vec![CommandStringWords::Joined { from: 0 }],
+        Some(ShellLineProgram::Eval) => vec![CommandStringWords::Joined { from: 0, end }],
         Some(ShellLineProgram::Su) => su_command_strings(&argument_words),
         Some(ShellLineProgram::Alias) => alias_values(argument_words),
         Some(ShellLineProgram::Trap) => first_operand(argument_words, &NO_OPTIONS)
@@ -112,9 +116,10 @@ pub(super) fn command_string_words<W: WordText>(
             .into_iter()
             .collect(),
         Some(ShellLineProgram::Watch) => first_operand(argument_words, &WATCH_OPTIONS)
-            .map(|from| CommandStringWords::Joined { from })
+            .map(|from| CommandStringWords::Joined { from, end })
             .into_iter()
             .collect(),
+        Some(ShellLineProgram::BraceGroup) => brace_group(argument_words).into_iter().collect(),
         Some(ShellLineProgram::Emulate) => emulate_command_string(argument_words)
             .map(whole)
             .into_iter()
@@ -140,16 +145,17 @@ pub(super) fn command_string_words<W: WordText>(
 }
 
 /// Whether `program` reads the line it runs from its input rather than its words: a shell handed
-/// neither a `-c` string nor a script it names with a decided regular path, so it reads its
-/// standard input, a here-string, a here-document or a pipe; `su` handed no command, whose target
-/// shell reads the same; or `source` or `.` given anything but a decided regular path.
+/// no `-c` string, with no operand or one naming the input, so it reads its standard input, a
+/// here-string, a here-document or a pipe; `su` handed no command, whose target shell reads the
+/// same; or `source` or `.` with no operand or one naming the input. An operand only the run
+/// decides reads as a script, never as the input.
 pub(super) fn reads_its_line_from_input<'r>(
     program: ShellWord<'r>,
     mut argument_words: impl Iterator<Item = ShellWord<'r>> + Clone,
 ) -> bool {
     if program.is("source") || program.is(".") {
         let mut words = argument_words.skip_while(|word| word.is("--"));
-        return !words.next().is_some_and(is_regular_script_path);
+        return words.next().is_none_or(names_the_input);
     }
     let options_with_value = match shell_line_program(program) {
         Some(ShellLineProgram::Shell(options_with_value)) => options_with_value,
@@ -157,18 +163,16 @@ pub(super) fn reads_its_line_from_input<'r>(
         Some(_) | None => return false,
     };
     match shell_operand(argument_words.clone(), options_with_value) {
-        ShellOperand::CommandString(_) | ShellOperand::MissingCommandString => false,
-        ShellOperand::Script(index) => !argument_words
-            .nth(index)
-            .is_some_and(is_regular_script_path),
+        ShellOperand::CommandString(_) | ShellOperand::Nothing => false,
+        ShellOperand::Script(index) => argument_words.nth(index).is_some_and(names_the_input),
         ShellOperand::Input => true,
     }
 }
 
-// Whether `word` is a path the run cannot change that names a regular file, as a script is: never
-// one of the system's device or process folders, through which a file reads a stream.
-fn is_regular_script_path(word: ShellWord<'_>) -> bool {
-    word.is_decided() && !names_a_stream_folder(&word.to_string())
+// Whether `word` is a path the text spells under the system's device or process folders, through
+// which a file reads a stream, as `/dev/stdin` reads the input.
+fn names_the_input(word: ShellWord<'_>) -> bool {
+    word.is_decided() && names_a_stream_folder(&word.to_string())
 }
 
 // Whether `path`, its `.` and `..` segments and repeated slashes folded lexically, is under `/dev`
@@ -204,6 +208,8 @@ enum ShellLineProgram {
     Watch,
     // zsh's `emulate <shell> -c <line>`.
     Emulate,
+    // A wrapper's `{ <list> }` after its operand, as zsh's `repeat <count> { <list> }` runs.
+    BraceGroup,
     // A program one of whose options names the line, as `compgen -C <line>` does.
     OptionLine(LineOptions),
     // A shell with the options of its own that take the next word as their value.
@@ -273,8 +279,12 @@ fn shell_line_program(program: impl WordText) -> Option<ShellLineProgram> {
     {
         return Some(ShellLineProgram::OptionLine(options));
     }
-    if let Some(options) = command_wrapper(program).and_then(CommandWrapper::line_options) {
+    let wrapper = command_wrapper(program);
+    if let Some(options) = wrapper.and_then(CommandWrapper::line_options) {
         return Some(ShellLineProgram::OptionLine(options));
+    }
+    if wrapper.is_some_and(CommandWrapper::runs_a_brace_group) {
+        return Some(ShellLineProgram::BraceGroup);
     }
     COMMAND_STRING_SHELLS
         .iter()
@@ -293,6 +303,8 @@ const COMMAND_STRING_SHELLS: &[(&str, &[&str])] = &[
     ("ksh", &["-R"]),
 ];
 const SHELL_OPTIONS_WITH_VALUE: &[&str] = &["-o", "+o", "-O", "+O", "--rcfile", "--init-file"];
+// The options with which a shell prints and exits, reading no line.
+const SHELL_OPTIONS_RUNNING_NOTHING: &[&str] = &["--version", "--help"];
 
 // The command line a shell runs: with `-c` among its short options, the first word after the
 // options; the words after it are the line's own `$0` and arguments.
@@ -302,7 +314,7 @@ fn shell_command_string_index<W: WordText>(
 ) -> Option<usize> {
     match shell_operand(argument_words, options_with_value) {
         ShellOperand::CommandString(index) => Some(index),
-        ShellOperand::MissingCommandString | ShellOperand::Script(_) | ShellOperand::Input => None,
+        ShellOperand::Nothing | ShellOperand::Script(_) | ShellOperand::Input => None,
     }
 }
 
@@ -310,15 +322,17 @@ fn shell_command_string_index<W: WordText>(
 enum ShellOperand {
     // The `-c` string, the word at this index.
     CommandString(usize),
-    // `-c` with no string after the options, which the shell refuses, running nothing.
-    MissingCommandString,
+    // No line: `-c` with no string after the options, which the shell refuses, or `--version` or
+    // `--help`, with which it prints and exits.
+    Nothing,
     // The script the word at this index names.
     Script(usize),
     // Its standard input: no operand follows the options, or `-s` is among them.
     Input,
 }
 
-// The first word after a shell's options, read as `-c` and `-s` among its short options make it.
+// The first word after a shell's options, read as `-c` and `-s` among its short options make it,
+// or none when an option runs nothing.
 fn shell_operand<W: WordText>(
     argument_words: impl Iterator<Item = W>,
     options_with_value: &[&str],
@@ -332,6 +346,12 @@ fn shell_operand<W: WordText>(
         };
         if word.is("--") || word.is("-") {
             break words.next().map(|(index, _)| index);
+        }
+        if SHELL_OPTIONS_RUNNING_NOTHING
+            .iter()
+            .any(|option| word.is(option))
+        {
+            return ShellOperand::Nothing;
         }
         if SHELL_OPTIONS_WITH_VALUE
             .iter()
@@ -349,7 +369,7 @@ fn shell_operand<W: WordText>(
     };
     match operand {
         Some(index) if reads_command_string => ShellOperand::CommandString(index),
-        None if reads_command_string => ShellOperand::MissingCommandString,
+        None if reads_command_string => ShellOperand::Nothing,
         Some(index) if !reads_input => ShellOperand::Script(index),
         Some(_) | None => ShellOperand::Input,
     }
@@ -471,14 +491,59 @@ fn first_operand<W: WordText>(
     first
 }
 
-// zsh's `emulate` runs the word after a short cluster holding `c`, `-c`, `-xc` or `-cx` alike, as
-// the string of its `-c`.
+// zsh's `emulate` runs, as the string of its `-c`, the first word after a short cluster holding
+// `c` that is no option: past option words, each `-o` or `+o`, or a cluster holding `o`, with its
+// value, and past one `-` or `--`, after which the next word is the string whatever it holds.
 fn emulate_command_string<W: WordText>(argument_words: impl Iterator<Item = W>) -> Option<usize> {
     let mut words = argument_words.enumerate();
-    words.find(|(_, word)| {
+    let (_, cluster) = words.find(|(_, word)| {
         word.starts_with("-") && !word.starts_with("--") && word.contains(PositionedByte::LetterC)
     })?;
+    let mut takes_value = names_emulate_option_with_value(cluster);
+    for (index, word) in words.by_ref() {
+        if std::mem::take(&mut takes_value) {
+            continue;
+        }
+        if word.is("-") || word.is("--") {
+            break;
+        }
+        if !is_shell_option(word) {
+            return Some(index);
+        }
+        takes_value = names_emulate_option_with_value(word);
+    }
     words.next().map(|(index, _)| index)
+}
+
+// Whether an option word of `emulate`, `-` or `+` and its letters, holds `o`, whose value, an
+// option's name, is the next word.
+fn names_emulate_option_with_value(word: impl WordText) -> bool {
+    word.chars().skip(1).any(|letter| letter == 'o')
+}
+
+// The words of the list inside the first `{` word and its matching `}`, or the last word when no
+// `}` closes it, as a line: zsh runs a wrapper's `{ <list> }` as the shell runs that list.
+fn brace_group<W: WordText>(argument_words: impl Iterator<Item = W>) -> Option<CommandStringWords> {
+    let mut words = argument_words.enumerate();
+    let (open, _) = words.find(|(_, word)| word.is("{"))?;
+    let mut depth = 0_usize;
+    let mut end = open + 1;
+    for (index, word) in words {
+        end = index + 1;
+        if word.is("{") {
+            depth += 1;
+        } else if word.is("}") {
+            if depth == 0 {
+                end = index;
+                break;
+            }
+            depth -= 1;
+        }
+    }
+    Some(CommandStringWords::Joined {
+        from: open + 1,
+        end,
+    })
 }
 
 // The lines `su` hands the target user's shell: the value of its last `-c`, `--command` or

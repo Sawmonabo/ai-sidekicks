@@ -11,6 +11,7 @@
 mod command_string;
 pub mod reading_bound;
 mod reading_forms;
+mod unread_words;
 mod words;
 mod wrappers;
 
@@ -82,51 +83,6 @@ impl ShellLineReading {
         self.assignments
             .iter()
             .map(|&word| ShellWord::new(self.texts(), &self.pieces, word))
-    }
-
-    /// The line's words as the parser left them unread, split at blanks and at the shell's
-    /// operators into the runs between those operators, each word with its quotes and
-    /// backslashes dropped, and a comment's words, from a `#` that starts a word outside quotes
-    /// to the line's end, left out; what a line not read whole still shows of its commands.
-    pub fn unread_word_runs(&self) -> Vec<Vec<String>> {
-        let mut runs = vec![Vec::new()];
-        let mut word = String::new();
-        let mut quote = None;
-        let mut is_escaped = false;
-        let mut is_word_start = true;
-        let mut is_comment = false;
-        for character in self.line.chars() {
-            if is_comment && character != '\n' {
-                continue;
-            }
-            is_comment = false;
-            let was_escaped = std::mem::take(&mut is_escaped);
-            let was_word_start = std::mem::replace(&mut is_word_start, false);
-            match character {
-                '#' if quote.is_none() && !was_escaped && was_word_start => is_comment = true,
-                ';' | '&' | '|' | '(' | ')' | '<' | '>' | '`' | '\n' => {
-                    end_unread_word(&mut runs, &mut word);
-                    runs.push(Vec::new());
-                    is_word_start = quote.is_none();
-                }
-                '\'' | '"' if !was_escaped => {
-                    quote = match quote {
-                        None => Some(character),
-                        Some(open) if open == character => None,
-                        open => open,
-                    };
-                }
-                '\\' => is_escaped = !was_escaped && quote != Some('\''),
-                blank if blank.is_whitespace() => {
-                    end_unread_word(&mut runs, &mut word);
-                    is_word_start = quote.is_none();
-                }
-                other => word.push(other),
-            }
-        }
-        end_unread_word(&mut runs, &mut word);
-        runs.retain(|run| !run.is_empty());
-        runs
     }
 
     /// Whether every form of the line read is one a line that only reads may hold: no redirect
@@ -217,8 +173,8 @@ impl<'r> ShellCommand<'r> {
     }
 
     /// Whether the command runs a line it reads from its input rather than its words: a shell, or
-    /// `su`, handed neither a `-c` string nor a script it names with a regular path; `source` or
-    /// `.` of anything else; a wrapper left with no command that runs a shell, as `sudo -s`,
+    /// `su`, handed no `-c` string, with no operand or one naming the input, such as `/dev/stdin`;
+    /// `source` or `.` of the same; a wrapper left with no command that runs a shell, as `sudo -s`,
     /// `chroot <dir>` and `script` do; a command a wrapper before it hands its input's words, as
     /// `xargs sudo -s` does; or a shell's line holding the words xargs reads from its input.
     pub fn runs_a_line_from_its_input(self) -> bool {
@@ -259,7 +215,7 @@ impl<'r> ShellCommand<'r> {
             .into_iter()
             .map(move |string| {
                 let (words, skipped_bytes) = match string {
-                    CommandStringWords::Joined { from } => (&arguments[from..], 0),
+                    CommandStringWords::Joined { from, end } => (&arguments[from..end], 0),
                     CommandStringWords::One {
                         index,
                         skipped_bytes,
@@ -750,15 +706,6 @@ fn push_find_commands(
                 unread.push(run);
             }
         }
-    }
-}
-
-// Ends the word being read into the last run, if it holds any character.
-fn end_unread_word(runs: &mut [Vec<String>], word: &mut String) {
-    if !word.is_empty()
-        && let Some(run) = runs.last_mut()
-    {
-        run.push(std::mem::take(word));
     }
 }
 

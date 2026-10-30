@@ -7,6 +7,7 @@
 mod options;
 mod quote_removal;
 mod split_string;
+mod unexpanded_word;
 
 use std::fmt;
 use std::sync::{Arc, OnceLock};
@@ -16,8 +17,9 @@ use tree_sitter::Node;
 
 pub use self::options::is_option;
 pub(super) use self::options::{long_option_named, short_option_named};
-use self::quote_removal::{decode_ansi_c, unescape_bare, unescape_double_quoted};
-use super::{continues_variable_name, starts_variable_name};
+pub(in crate::shell_commands) use self::quote_removal::decode_ansi_c;
+use self::quote_removal::{unescape_bare, unescape_double_quoted};
+use super::starts_variable_name;
 
 /// `count` as a reading's offset or count: its line is within the reader's limit, a system's
 /// argument bound far below 4 GiB, and its pieces and words are a small multiple of the line.
@@ -190,6 +192,9 @@ pub trait WordText: Copy {
     fn contains(self, byte: PositionedByte) -> bool;
     /// Whether the shell passes the word as its text reads; a plain string always is.
     fn is_decided(self) -> bool;
+    /// Whether the word stands for words its text spells beside its own, which a reading counts
+    /// wherever one of them would match; a plain string never does.
+    fn spells_alternatives(self) -> bool;
 }
 
 impl WordText for &str {
@@ -211,6 +216,10 @@ impl WordText for &str {
 
     fn is_decided(self) -> bool {
         true
+    }
+
+    fn spells_alternatives(self) -> bool {
+        false
     }
 }
 
@@ -274,23 +283,14 @@ impl<'r> ShellWord<'r> {
         })
     }
 
-    /// Whether the word is one parameter alone inside double quotes, `"$name"`, `"${name}"` or a
-    /// positional one, `"$1"` or `"${10}"`: the run decides its text, but the shell passes it as
-    /// one word, never several.
-    pub fn is_one_quoted_parameter(self) -> bool {
-        let [piece] = self.pieces else {
-            return false;
-        };
-        let text = self.texts.text(*piece);
-        let name = text
-            .strip_prefix("${")
-            .and_then(|braced| braced.strip_suffix('}'))
-            .or_else(|| text.strip_prefix('$'))
-            .unwrap_or_default();
-        let is_name = name.chars().next().is_some_and(starts_variable_name)
-            && name.chars().all(continues_variable_name);
-        let is_positional = !name.is_empty() && name.bytes().all(|byte| byte.is_ascii_digit());
-        piece.kind == PieceKind::QuotedExpansion && (is_name || is_positional)
+    /// Whether the word stands for words its text spells beside its own: a brace expansion's
+    /// alternatives, an ANSI-C string bash and zsh decode apart, or the words a program hands its
+    /// command from its input, as xargs does. A parameter, a substitution, an arithmetic
+    /// expansion, zsh's `=name` or a file-name pattern spells none: only the run decides it.
+    pub fn spells_alternatives(self) -> bool {
+        self.pieces
+            .iter()
+            .any(|&piece| piece.kind.is_expansion() && !is_run_decided(self.texts.text(piece)))
     }
 }
 
@@ -315,6 +315,10 @@ impl WordText for ShellWord<'_> {
 
     fn is_decided(self) -> bool {
         ShellWord::is_decided(self)
+    }
+
+    fn spells_alternatives(self) -> bool {
+        ShellWord::spells_alternatives(self)
     }
 }
 
@@ -573,60 +577,6 @@ impl<'s> WordBuilder<'s> {
         word_from(&self.pieces, first_piece)
     }
 
-    /// Reads the shell word that starts at byte `start` of the line as the shell reads a word it
-    /// expands nothing in, as a here-document's delimiter: up to a blank, a newline or a
-    /// metacharacter outside quotes, its quotes removed, its escapes undone and its ANSI-C strings
-    /// decoded. Returns the word and the byte its text ends at.
-    pub(super) fn push_unexpanded_word(&mut self, start: usize) -> (Word, usize) {
-        let line = self.line;
-        let bytes = line.as_bytes();
-        let first_piece = self.pieces.len();
-        let mut position = start;
-        while let Some(&byte) = bytes.get(position) {
-            match byte {
-                b'\'' => {
-                    let close = memchr(b'\'', &bytes[position + 1..])
-                        .map_or(bytes.len(), |offset| position + 1 + offset);
-                    self.push_line(position + 1..close, PieceKind::Literal);
-                    position = close + 1;
-                }
-                b'"' => {
-                    let close = quoted_text_end(bytes, position + 1, b'"');
-                    self.push_double_quoted_text(position + 1..close);
-                    position = close + 1;
-                }
-                b'$' if bytes.get(position + 1) == Some(&b'\'') => {
-                    let close = quoted_text_end(bytes, position + 2, b'\'');
-                    self.push_ansi_c(position..(close + 1).min(bytes.len()));
-                    position = close + 1;
-                }
-                byte if WORD_ENDING_BYTES.contains(&byte) => break,
-                _ => {
-                    let run_start = position;
-                    while let Some(&byte) = bytes.get(position) {
-                        let opens_ansi_c = byte == b'$' && bytes.get(position + 1) == Some(&b'\'');
-                        if matches!(byte, b'\'' | b'"')
-                            || opens_ansi_c
-                            || WORD_ENDING_BYTES.contains(&byte)
-                        {
-                            break;
-                        }
-                        position += if byte == b'\\' { 2 } else { 1 };
-                    }
-                    position = position.min(bytes.len());
-                    let text = &line[run_start..position];
-                    if memchr(b'\\', text.as_bytes()).is_some() {
-                        self.push_decoded(|value| unescape_bare(text, value));
-                    } else {
-                        self.push_line(run_start..position, PieceKind::Literal);
-                    }
-                }
-            }
-        }
-        let end = position.min(bytes.len());
-        (word_from(&self.pieces, first_piece), end)
-    }
-
     /// The word's name without its folder, the text past its last `/`, and whether the folder
     /// holds a `$` expansion outside double quotes, a parameter, a substitution or an arithmetic
     /// expansion, which the shell can split into a program and its words; a pattern or a brace in
@@ -833,22 +783,6 @@ fn word_from(pieces: &[Piece], first_piece: usize) -> Word {
     }
 }
 
-// The bytes that end an unquoted shell word: blanks, a newline and the metacharacters.
-const WORD_ENDING_BYTES: &[u8] = b" \t\n;&|<>()";
-
-// Where quoted text that starts at `from` ends: at its closing `quote`, each backslash taking the
-// byte after it, or at the line's end when no quote closes it.
-fn quoted_text_end(bytes: &[u8], from: usize, quote: u8) -> usize {
-    let mut position = from;
-    while let Some(&byte) = bytes.get(position) {
-        if byte == quote {
-            return position;
-        }
-        position += if byte == b'\\' { 2 } else { 1 };
-    }
-    bytes.len()
-}
-
 // The kind of `kind`'s text when only the run decides it.
 fn undecided_kind(kind: PieceKind) -> PieceKind {
     if kind.is_in_decoded() {
@@ -866,6 +800,15 @@ fn is_dollar_expansion(texts: PieceTexts<'_>, piece: Piece) -> bool {
         piece.kind,
         PieceKind::Expansion | PieceKind::DecodedExpansion
     ) && ((text.starts_with('$') && !text.starts_with("$'")) || text.starts_with('`'))
+}
+
+// Whether only the run decides the text of an undecided piece: a parameter, a substitution or an
+// arithmetic expansion, a process substitution, zsh's `=name`, or a file-name pattern with no
+// brace alternatives in it.
+fn is_run_decided(text: &str) -> bool {
+    (text.starts_with('$') && !text.starts_with("$'"))
+        || text.starts_with(['`', '<', '>', '='])
+        || (!text.contains('{') && (has_unescaped_pattern(text) || text.contains('(')))
 }
 
 // The bytes that leave a name past a pattern word's last `/` undecided: a pattern of its own, the

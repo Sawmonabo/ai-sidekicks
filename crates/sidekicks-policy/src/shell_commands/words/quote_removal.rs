@@ -44,7 +44,7 @@ pub(super) fn unescape_double_quoted(text: &str, value: &mut String) {
 /// written, when it holds any escape outside the ones they decode the same way (`\\ \' \" \? \a
 /// \b \e \E \f \n \r \t \v`, octal, and `\x` with a hex digit), or one of those that decodes to
 /// NUL, which ends bash's value of the string but stays in zsh's word.
-pub(super) fn decode_ansi_c(body: &str, value: &mut String) -> bool {
+pub(in crate::shell_commands) fn decode_ansi_c(body: &str, value: &mut String) -> bool {
     let characters: Vec<char> = body.chars().collect();
     let limit = characters.len();
     let mut position = 0;

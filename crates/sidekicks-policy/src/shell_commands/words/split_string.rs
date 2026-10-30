@@ -46,6 +46,20 @@ impl WordBuilder<'_> {
         words
     }
 
+    /// The words env reads in place of `value`, an `-S` value as a token scan shows it, each as
+    /// its text; `None` when env refuses it.
+    pub(in crate::shell_commands) fn split_string_text(value: &str) -> Option<Vec<String>> {
+        let mut builder = WordBuilder::new(value);
+        builder.push_line(0..value.len(), PieceKind::Literal);
+        let words = builder.split_string(word_from(&builder.pieces, 0))?;
+        Some(
+            words
+                .into_iter()
+                .map(|word| builder.view(word).to_string())
+                .collect(),
+        )
+    }
+
     fn value_parts(&self, word: Word) -> Vec<ValuePart> {
         let mut parts = Vec::new();
         for &piece in &self.pieces[word.pieces()] {

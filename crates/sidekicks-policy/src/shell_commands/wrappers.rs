@@ -17,8 +17,9 @@ use super::words::{ShellWord, Word, WordBuilder, WordText, long_option_named, sh
 /// whose value stands where the leading operand would; those whose optional value inside their own
 /// word ends its input in place of `--`; the letters whose optional value is only the rest of
 /// their cluster; whether it reads its short options in clusters and `-` alone as an option; the
-/// operand it takes before the command; whether it appends its input's words to the command; and
-/// when, given no command, it runs a shell that reads its input.
+/// operand it takes before the command; whether it appends its input's words to the command;
+/// when, given no command, it runs a shell that reads its input; and whether a `{` after its
+/// operand opens a list it runs in place of a command.
 #[derive(Clone, Copy)]
 pub(super) struct CommandWrapper {
     options_with_value: &'static [&'static str],
@@ -58,6 +59,9 @@ const DEFAULT_REPLACEMENT: &str = "{}";
 enum LeadingOperand {
     Absent,
     AnyWord,
+    // Any word, after which a `{` opens the list the wrapper runs in place of a command, as zsh's
+    // `repeat <count> { <list> }` reads one.
+    AnyWordBeforeList,
     // A word of digits alone, or one only the run decides; any other word is the command, as
     // `chrt`'s optional priority is.
     Digits,
@@ -138,9 +142,10 @@ pub(super) enum WrapperRead {
     /// The command's program is the next word left, if any.
     CommandFollows,
     /// The wrapper itself is the program and the words left are its arguments: one of its
-    /// options runs no command or hands a shell a line in its place, env refuses its split string
-    /// or only the run decides what env makes of it, or a word only the run decides stands where
-    /// the wrapper reads an option that may take a value, or where a split string's word is read.
+    /// options runs no command or hands a shell a line in its place, a `{` after its operand opens
+    /// the list it runs, env refuses its split string or only the run decides what env makes of
+    /// it, or a word only the run decides stands where the wrapper reads an option that may take a
+    /// value, or where a split string's word is read.
     WrapperIsProgram,
 }
 
@@ -154,6 +159,24 @@ impl CommandWrapper {
             letters_with_attached_value: self.letters_with_attached_value,
             reads_past_operands: true,
         })
+    }
+
+    /// The value the option word `word` takes, as the wrapper reads it: inside the word from this
+    /// byte offset, or the next word when `None`, and whether the wrapper splits it into its own
+    /// words, as `env -S` does; `None` for an option that takes no value of its own.
+    pub(super) fn option_value(self, word: &str) -> Option<(Option<usize>, bool)> {
+        match self.option_word(word) {
+            OptionWord::Value {
+                role,
+                attached_from,
+            } => Some((attached_from, role == ValueRole::Splits)),
+            OptionWord::OperandValue { attached_from } => Some((attached_from, false)),
+            OptionWord::Flags
+            | OptionWord::OptionalReplacement { .. }
+            | OptionWord::RunsNothing
+            | OptionWord::HandsALine
+            | OptionWord::InputEnd { .. } => None,
+        }
     }
 
     const fn new(options_with_value: &'static [&'static str]) -> Self {
@@ -201,6 +224,12 @@ impl CommandWrapper {
                 OptionKind::ReplacesOperand,
             ))
             .chain(with_kind(self.input_end_options, OptionKind::EndsInput))
+    }
+
+    /// Whether a `{` word after the wrapper's operand opens a list it runs, up to the matching `}`,
+    /// in place of a command, as zsh's `repeat <count> { <list> }` does.
+    pub(super) fn runs_a_brace_group(self) -> bool {
+        matches!(self.leading_operand, LeadingOperand::AnyWordBeforeList)
     }
 
     // Whether an option word only the run decides can hide an option that takes a value, so the
@@ -255,7 +284,7 @@ impl CommandWrapper {
     // What the option word `word` holds, as getopt reads it: a long option by its whole name or by
     // a prefix of exactly one listed long option, and a short cluster up to the first letter that
     // takes a value or runs nothing; a wrapper that reads no clusters lists its options whole.
-    fn option_word(self, word: ShellWord<'_>) -> OptionWord {
+    fn option_word(self, word: impl WordText) -> OptionWord {
         if !self.reads_clusters {
             return self
                 .options()
@@ -502,11 +531,11 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
             ..CommandWrapper::new(&["-arch", "-d", "-e"])
         },
     ),
-    // zsh's `repeat <count> <command>`.
+    // zsh's `repeat <count> <command>` and `repeat <count> { <list> }`.
     (
         "repeat",
         CommandWrapper {
-            leading_operand: LeadingOperand::AnyWord,
+            leading_operand: LeadingOperand::AnyWordBeforeList,
             ..CommandWrapper::new(&[])
         },
     ),
@@ -737,7 +766,7 @@ pub(super) fn take_wrapper_words(
     let operand_words = match wrapper.leading_operand {
         _ if is_operand_replaced => 0,
         LeadingOperand::Absent => 0,
-        LeadingOperand::AnyWord => 1,
+        LeadingOperand::AnyWord | LeadingOperand::AnyWordBeforeList => 1,
         LeadingOperand::Digits => usize::from(words.front().is_some_and(|word| {
             let view = builder.view(word);
             !view.is_decided()
@@ -755,10 +784,14 @@ pub(super) fn take_wrapper_words(
     for _ in 0..operand_words {
         words.pop_front();
     }
-    // A line option after the operand, as `flock <file> -c <line>` takes it.
+    // A line option after the operand, as `flock <file> -c <line>` takes it, or a list in
+    // braces, as `repeat <count> { <list> }` runs it.
     if let Some(word) = words.front() {
         let view = builder.view(word);
         if view.starts_with("-") && matches!(wrapper.option_word(view), OptionWord::HandsALine) {
+            return WrapperRead::WrapperIsProgram;
+        }
+        if wrapper.runs_a_brace_group() && view.is("{") {
             return WrapperRead::WrapperIsProgram;
         }
     }
@@ -811,11 +844,12 @@ impl WrapperRegion {
         command_string_words(program, argument_words())
             .into_iter()
             .any(|string| match string {
-                CommandStringWords::Joined { from } => {
-                    argument_words().skip(from).any(|word| !word.is_decided())
-                }
+                CommandStringWords::Joined { from, end } => argument_words()
+                    .take(end)
+                    .skip(from)
+                    .any(ShellWord::spells_alternatives),
                 CommandStringWords::One { index, .. } => {
-                    !builder.view(arguments[index]).is_decided()
+                    builder.view(arguments[index]).spells_alternatives()
                 }
             })
     }

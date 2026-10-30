@@ -183,19 +183,18 @@ fn is_destructive_git(command: ShellCommand<'_>, settings: &GitRunSettings) -> b
     }
 }
 
-// A push that forces or deletes, or a branch delete, of git's `arguments`. A word only the run
-// decides, which can turn into any word or several, counts as a match wherever a decided word is
-// read: as any word up to the subcommand, each of which git may read as its own option, a value or
-// the subcommand, and after `push` or `branch`. Only a value of git's own option that is one quoted
-// parameter stays one word, which cannot move the subcommand.
-fn is_destructive_git_arguments<W: GitArgument>(arguments: impl Iterator<Item = W>) -> bool {
+// A push that forces or deletes, or a branch delete, of git's `arguments`, read by the words
+// their text spells: a word that spells alternatives, a brace expansion's, an ANSI-C string's the
+// shells decode apart or the words xargs hands its command, counts as a match wherever a word is
+// read, since one of them may be git's own option, its value, the subcommand or an option of a
+// push; a word only the run decides, a parameter, a substitution or a pattern, is none of them.
+fn is_destructive_git_arguments<W: WordText>(arguments: impl Iterator<Item = W>) -> bool {
     let mut rest = arguments;
-    let mut takes_an_undecided_word = false;
-    let reading = take_git_subcommand(&mut rest, |word, is_option_value| {
-        takes_an_undecided_word |=
-            !(word.is_decided() || is_option_value && word.is_one_quoted_parameter());
+    let mut takes_alternatives = false;
+    let reading = take_git_subcommand(&mut rest, |word, _| {
+        takes_alternatives |= word.spells_alternatives();
     });
-    if takes_an_undecided_word {
+    if takes_alternatives {
         return true;
     }
     let Some(subcommand) = reading.subcommand else {
@@ -203,7 +202,7 @@ fn is_destructive_git_arguments<W: GitArgument>(arguments: impl Iterator<Item = 
     };
     if subcommand.is("push") {
         return rest.any(|word| {
-            !word.is_decided()
+            word.spells_alternatives()
                 || is_short_option_cluster_with(word, PUSH_DESTRUCTIVE_LETTERS)
                 || PUSH_DESTRUCTIVE_OPTIONS
                     .iter()
@@ -215,7 +214,7 @@ fn is_destructive_git_arguments<W: GitArgument>(arguments: impl Iterator<Item = 
     }
     if subcommand.is("branch") {
         return rest.any(|word| {
-            !word.is_decided()
+            word.spells_alternatives()
                 || word.is("--delete")
                 || is_short_option_cluster_with(word, BRANCH_DELETE_LETTERS)
         });
@@ -421,24 +420,6 @@ fn push_config_options<W: WordText>(
     });
 }
 
-// A word of git's arguments as the destructive reading reads it.
-trait GitArgument: WordText {
-    // Whether the shell passes the word as one word whatever the run makes of its text.
-    fn is_one_quoted_parameter(self) -> bool;
-}
-
-impl GitArgument for ShellWord<'_> {
-    fn is_one_quoted_parameter(self) -> bool {
-        ShellWord::is_one_quoted_parameter(self)
-    }
-}
-
-impl GitArgument for &str {
-    fn is_one_quoted_parameter(self) -> bool {
-        false
-    }
-}
-
 // A word of a git command with its aliases in place: one the line read, or one of an alias's
 // value.
 #[derive(Clone, Copy)]
@@ -485,12 +466,10 @@ impl WordText for GitArgumentWord<'_> {
             Self::Alias(_) => true,
         }
     }
-}
 
-impl GitArgument for GitArgumentWord<'_> {
-    fn is_one_quoted_parameter(self) -> bool {
+    fn spells_alternatives(self) -> bool {
         match self {
-            Self::Read(word) => word.is_one_quoted_parameter(),
+            Self::Read(word) => word.spells_alternatives(),
             Self::Alias(_) => false,
         }
     }
@@ -605,23 +584,23 @@ mod tests {
     #[case::shell_string_after_the_user("su root -sc 'git push --force'", true)]
     // A priority only the run decides is still `chrt`'s priority.
     #[case::undecided_priority("chrt $P git push --force", true)]
-    // A word only the run decides may be the subcommand or any option of a push.
+    // A brace word spells its alternatives, any of which may be the subcommand or an option of a
+    // push; a word only the run decides, a parameter, a substitution or a pattern, is none.
     #[case::brace_alternatives_of_a_push("git push {--force,origin}", true)]
     #[case::brace_alternatives_of_one_option("git push --{force,force}", true)]
-    #[case::pattern_of_an_option("git push --forc?", true)]
-    #[case::expanded_subcommand("X=push; git $X -f", true)]
-    #[case::braced_expansion_subcommand("git ${X} --force", true)]
-    #[case::expansion_after_a_reading_subcommand("git log --since=$DATE", false)]
-    // An undecided word before any subcommand: a brace word or an unquoted expansion splits into
-    // several, so git can read one as its subcommand; one quoted parameter stays one word.
     #[case::brace_alternatives_of_a_folder("git -C {.,push} --force", true)]
-    #[case::expanded_option_word("git -$X --force", true)]
-    #[case::expanded_option_word_after_its_value("X=\"C . push\"; git -$X --force", true)]
+    #[case::pattern_of_an_option("git push --forc?", false)]
+    #[case::expanded_subcommand("X=push; git $X -f", false)]
+    #[case::braced_expansion_subcommand("git ${X} --force", false)]
+    #[case::expansion_after_a_reading_subcommand("git log --since=$DATE", false)]
+    #[case::expanded_option_word("git -$X --force", false)]
+    #[case::expanded_option_word_after_its_value("X=\"C . push\"; git -$X --force", false)]
     #[case::quoted_folder_value("git -C \"$D\" log", false)]
-    // env splits a split string again after the shell expanded it, quoted or not.
+    #[case::expanded_refspec("git push origin \"$BRANCH\"", false)]
+    #[case::expanded_branch_name("git branch \"$NEW\"", false)]
     #[case::quoted_parameter_inside_a_split_string(
         "X=\". push\"; env -S\"git -C $X --force\"",
-        true
+        false
     )]
     // zsh drops the backslash of an escape it does not know, so this word is `push` there.
     #[case::unknown_ansi_c_escape(r"git $'\push' --force", true)]
@@ -640,13 +619,19 @@ mod tests {
     #[case::xargs_replaced_shell_string("echo 'git push -f' | xargs -I% sh -c %", true)]
     #[case::xargs_appended_shell_string("echo 'git push -f' | xargs sh -c", true)]
     #[case::xargs_appended_words_after_a_reading_subcommand("echo x | xargs git status", false)]
-    // A shell handed no `-c` string and no script reads its line from its input, and `source`
-    // reads one from anything but a regular file, its path's `.` and `..` folded.
+    // A shell handed no `-c` string reads its line from its input with no operand or one the
+    // text spells under a stream folder, its path's `.` and `..` folded, and `source` the same; an
+    // operand only the run decides is a script, and a shell asked its version or help runs none.
     #[case::here_string_to_a_shell("sh <<< 'git push --force'", true)]
     #[case::pipe_into_a_shell("echo 'git push --force' | sh", true)]
     #[case::shell_reading_its_input("sh -s <<< x", true)]
+    #[case::shell_reading_the_input_path("sh /dev/stdin <<< x", true)]
     #[case::source_of_the_input("source /dev/stdin <<< x", true)]
-    #[case::source_of_a_substitution(". <(echo x)", true)]
+    #[case::source_of_a_substitution(". <(echo x)", false)]
+    #[case::source_of_an_expanded_path("source \"$HOME/x\"", false)]
+    #[case::dot_of_an_expanded_path(". \"$NVM_DIR/nvm.sh\"", false)]
+    #[case::shell_running_an_expanded_script("bash \"$SCRIPT\"", false)]
+    #[case::shell_version("echo 'git push --force' | bash --version", false)]
     #[case::climb_to_the_input("sh ../../dev/stdin <<< x", true)]
     #[case::source_climbing_into_a_device_folder("source /tmp/../dev/stdin <<< x", true)]
     #[case::shell_running_a_script("sh ./script.sh", false)]
@@ -683,7 +668,10 @@ mod tests {
     #[case::mapfile_line("mapfile -tC 'git push --force' -c 1 <<< x", true)]
     #[case::readarray_attached_line("readarray -c1 -C'git push --force' <<< x", true)]
     #[case::emulate_line("emulate sh -c 'git push --force'", true)]
+    #[case::emulate_option_after_the_line_option("emulate sh -c -x 'git push --force'", true)]
+    #[case::emulate_options_ended("emulate sh -c -- 'git push --force'", true)]
     #[case::repeat_count("repeat 1 git push --force", true)]
+    #[case::repeat_list("repeat 1 { git push --force }", true)]
     #[case::zargs_command("zargs -- x -- git push --force", true)]
     #[case::zargs_input_appended("zargs -- --force -- git push origin", true)]
     #[case::chroot_command("chroot / git push --force", true)]
@@ -709,8 +697,7 @@ mod tests {
         "GIT_CONFIG_PARAMETERS=\"'core.pager=git push -f'\" git log",
         true
     )]
-    #[case::git_hooks_folder("git -c core.hooksPath=/x status", false)]
-    #[case::git_alias_from_the_environment("git --config-env=alias.x=A x", false)]
+    #[case::git_hooks_folder("git -c core.hooksPath='git push --force' status", false)]
     #[case::git_environment_alias_through_env(
         "env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0=push git p --force",
         true
@@ -721,7 +708,11 @@ mod tests {
     // A line the parser does not read whole is judged by the words it still shows.
     #[case::zsh_short_loop("for x in 1; git push --force", true)]
     #[case::zsh_short_loop_of_a_reading_command("for x in 1; git status", false)]
-    #[case::zsh_short_loop_with_a_comment("for x in 1; git push origin #--force", false)]
+    #[case::zsh_short_loop_with_a_comment("for x in 1; git push origin # --force", false)]
+    // The scan reads zsh's `=name` as the name, an ANSI-C string decoded and env's split string.
+    #[case::zsh_short_loop_of_an_equals_name("for x in 1; =git push --force", true)]
+    #[case::zsh_short_loop_of_an_ansi_c_name("for x in 1; $'git' push --force", true)]
+    #[case::zsh_short_loop_of_a_split_string("for x in 1; env -S'git push --force'", true)]
     #[case::nocorrect_modifier("nocorrect git push --force", true)]
     #[case::here_document_to_a_shell("sh <<E\ngit push --force\nE", true)]
     #[case::dry_run("git push --dry-run origin main", false)]
