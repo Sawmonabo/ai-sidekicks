@@ -26,6 +26,7 @@ use sidekicks_platforms::PathRules;
 
 use self::policy::read_server_policy;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::account_credentials::CUSTOM_SIGN_IN_HOST_VARIABLE;
 use crate::driver::claude::session::ignored_settings::{
     ClaudeSettingsReadError, find_claude_setting, list_managed_settings_files,
 };
@@ -43,9 +44,8 @@ const DISABLED_MCPJSON_SERVERS_KEY: &str = "disabledMcpjsonServers";
 // there, holding the `user` and per-project servers, named `.claude<suffix>.json`.
 const CONFIG_FOLDER_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
 const PERSON_CONFIG_FILE_STEM: &str = ".claude";
-// The variable that moves Claude Code's sign-in to a custom host, and the suffix its config file
-// then takes (`y2`, b:8908775).
-const CUSTOM_SIGN_IN_HOST_VARIABLE: &str = "CLAUDE_CODE_CUSTOM_OAUTH_URL";
+// The suffix the config file takes where Claude Code's sign-in moves to a custom host (`y2`,
+// b:8908775).
 const CUSTOM_SIGN_IN_CONFIG_SUFFIX: &str = "-custom-oauth";
 // The legacy config file in the config folder, read in place of `.claude.json` where it holds
 // anything.

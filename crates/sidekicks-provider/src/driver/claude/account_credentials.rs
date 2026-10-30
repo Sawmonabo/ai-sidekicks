@@ -29,6 +29,10 @@ const CLAUDE_KEYCHAIN_FALLBACK_ACCOUNT: &str = "claude-code-user";
 /// The variable naming the folder Claude Code keeps its sign-in in, apart from its config home.
 const SECURE_STORAGE_FOLDER_VARIABLE: &str = "CLAUDE_SECURESTORAGE_CONFIG_DIR";
 
+/// The variable that moves Claude Code's sign-in, and the API host it reads the connector list
+/// from, to a custom host.
+pub(crate) const CUSTOM_SIGN_IN_HOST_VARIABLE: &str = "CLAUDE_CODE_CUSTOM_OAUTH_URL";
+
 /// Opens the credential store a keychain item is read from, blocking while it does.
 pub(crate) type ClaudeKeychainOpen =
     Arc<dyn Fn() -> Result<CredentialStore, CredentialStoreError> + Send + Sync>;

@@ -20,7 +20,9 @@ use tokio::sync::OnceCell;
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
-use crate::driver::claude::account_credentials::{ClaudeAiSignIn, ClaudeSignInReader};
+use crate::driver::claude::account_credentials::{
+    CUSTOM_SIGN_IN_HOST_VARIABLE, ClaudeAiSignIn, ClaudeSignInReader,
+};
 use crate::driver::mcp_server::address::{ServerAddressIdentity, read_server_address};
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
 
@@ -36,9 +38,6 @@ const APPROVED_CUSTOM_BASES: [&str; 3] = [
     "https://claude.fedstart.com",
     "https://claude-staging.fedstart.com",
 ];
-
-/// The variable that moves Claude Code's API host to an approved one.
-const CUSTOM_BASE_VARIABLE: &str = "CLAUDE_CODE_CUSTOM_OAUTH_URL";
 
 /// The connector list's path and query, the whole list in one page.
 const CONNECTOR_LIST_PATH: &str = "/v1/mcp_servers?limit=1000";
@@ -261,7 +260,8 @@ async fn build_http_client() -> Result<reqwest::Client, reqwest::Error> {
 /// its trailing `/` dropped, else the default. `None`, logged, where it names a host Claude Code
 /// refuses.
 pub(crate) fn claude_api_base(environment: &[(String, String)]) -> Option<String> {
-    let Some(custom) = PathRules::NATIVE.environment_value(environment, CUSTOM_BASE_VARIABLE)
+    let Some(custom) =
+        PathRules::NATIVE.environment_value(environment, CUSTOM_SIGN_IN_HOST_VARIABLE)
     else {
         return Some(CLAUDE_API_BASE.to_owned());
     };
