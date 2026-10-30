@@ -1,94 +1,28 @@
 //! The scheduler's order, clocks and conditions.
 
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use futures::future::BoxFuture;
-use sidekicks_platforms::{WallClock, WallClockWait};
-use tokio::sync::{Notify, oneshot, watch};
+use sidekicks_platforms::WallClock;
+use tokio::sync::{oneshot, watch};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
+use super::test_wall_clock::TestWallClock;
 use super::{JobCondition, ScheduleError, ScheduledJobOutcome, Scheduler};
-use crate::mutex_lock::lock;
 
 // Far longer than any periodic look would wait between two looks.
 const IDLE_SPAN: Duration = Duration::from_secs(600);
 
-// When the test's wall clock starts, how far ahead a job's instant is, and where the clock
-// jumps to, as a sleep the tokio clock does not see would move it.
-const CLOCK_START: Duration = Duration::from_hours(500_000);
+// How far ahead a job's instant is, and where the clock jumps to, as a sleep the tokio clock does
+// not see would move it.
 const INSTANT_AHEAD: Duration = Duration::from_secs(3_600);
 const JUMP_AHEAD: Duration = Duration::from_secs(7_200);
 
 // How long the test waits for a run that must come.
 const RUN_BOUND: Duration = Duration::from_secs(5);
-
-// A wall clock the test sets, whose timer fires once the clock reaches the armed instant,
-// which refuses to arm while told to, and which counts the scheduler's waits on it, one per
-// turn of its task.
-struct TestWallClock {
-    now: Mutex<SystemTime>,
-    armed_instant: Mutex<Option<SystemTime>>,
-    is_arm_refused: AtomicBool,
-    fired: Notify,
-    wait_count: AtomicUsize,
-}
-
-impl TestWallClock {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            now: Mutex::new(SystemTime::UNIX_EPOCH + CLOCK_START),
-            armed_instant: Mutex::new(None),
-            is_arm_refused: AtomicBool::new(false),
-            fired: Notify::new(),
-            wait_count: AtomicUsize::new(0),
-        })
-    }
-
-    fn set_now(&self, now: SystemTime) {
-        *lock(&self.now) = now;
-        self.fire_if_reached();
-    }
-
-    fn fire_if_reached(&self) {
-        let now = self.now();
-        let mut armed_instant = lock(&self.armed_instant);
-        if armed_instant.is_some_and(|instant| instant <= now) {
-            *armed_instant = None;
-            self.fired.notify_one();
-        }
-    }
-}
-
-impl WallClock for TestWallClock {
-    fn now(&self) -> SystemTime {
-        *lock(&self.now)
-    }
-
-    fn arm(&self, instant: SystemTime) -> std::io::Result<()> {
-        if self.is_arm_refused.load(Ordering::Relaxed) {
-            return Err(std::io::Error::other("the test refuses the arm"));
-        }
-        *lock(&self.armed_instant) = Some(instant);
-        self.fire_if_reached();
-        Ok(())
-    }
-
-    fn disarm(&self) -> std::io::Result<()> {
-        *lock(&self.armed_instant) = None;
-        Ok(())
-    }
-
-    fn wait(&self) -> WallClockWait<'_> {
-        self.wait_count.fetch_add(1, Ordering::Relaxed);
-        Box::pin(async move {
-            self.fired.notified().await;
-            Ok(())
-        })
-    }
-}
 
 // A job that reports its first run on `ran` and counts every run in `run_count`.
 fn reporting_job(
@@ -111,7 +45,7 @@ fn reporting_job(
 
 #[tokio::test(start_paused = true)]
 async fn an_idle_scheduler_arms_nothing_and_turns_no_more() {
-    let wall_clock = TestWallClock::new();
+    let wall_clock = Arc::new(TestWallClock::default());
     let scheduler = Scheduler::start(wall_clock.clone(), None, watch::channel(0).1);
     // A receiver waits for wakes, which must not turn the task.
     let _wakes = scheduler.on_wake();
@@ -120,13 +54,13 @@ async fn an_idle_scheduler_arms_nothing_and_turns_no_more() {
     // the task again.
     tokio::time::sleep(IDLE_SPAN).await;
 
-    assert_eq!(wall_clock.wait_count.load(Ordering::Relaxed), 1);
+    assert_eq!(wall_clock.wait_count(), 1);
     scheduler.stop().await.expect("the task ends");
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_wall_clock_job_runs_once_when_the_clock_jumps_past_its_instant() {
-    let wall_clock = TestWallClock::new();
+    let wall_clock = Arc::new(TestWallClock::default());
     let scheduler = Scheduler::start(wall_clock.clone(), None, watch::channel(0).1);
     let run_count = Arc::new(AtomicUsize::new(0));
     let (ran, wall_clock_job_ran) = oneshot::channel();
@@ -170,7 +104,7 @@ async fn a_wall_clock_job_runs_once_when_the_clock_jumps_past_its_instant() {
 
 #[tokio::test(start_paused = true)]
 async fn a_refused_rearm_is_told_to_its_job_and_later_jobs_still_run() {
-    let wall_clock = TestWallClock::new();
+    let wall_clock = Arc::new(TestWallClock::default());
     let scheduler = Scheduler::start(wall_clock.clone(), None, watch::channel(0).1);
     let started_at = wall_clock.now();
     let run_count = Arc::new(AtomicUsize::new(0));
@@ -194,7 +128,7 @@ async fn a_refused_rearm_is_told_to_its_job_and_later_jobs_still_run() {
         .expect("the second job is scheduled");
 
     // The first job runs, and the arm for the second is refused.
-    wall_clock.is_arm_refused.store(true, Ordering::Relaxed);
+    wall_clock.refuse_arms(true);
     wall_clock.set_now(started_at + INSTANT_AHEAD);
     tokio::time::timeout(RUN_BOUND, first_job_ran)
         .await
@@ -215,7 +149,7 @@ async fn a_refused_rearm_is_told_to_its_job_and_later_jobs_still_run() {
     );
 
     // The task still turns: a job scheduled once arming works again runs at its instant.
-    wall_clock.is_arm_refused.store(false, Ordering::Relaxed);
+    wall_clock.refuse_arms(false);
     let (third_ran, third_job_ran) = oneshot::channel();
     let _third = scheduler
         .schedule_at(
@@ -240,7 +174,7 @@ async fn a_refused_rearm_is_told_to_its_job_and_later_jobs_still_run() {
 #[tokio::test(start_paused = true)]
 async fn a_job_waiting_for_idle_holds_no_other_job_and_runs_when_the_count_falls_to_zero() {
     let (busy, busy_count) = watch::channel(1);
-    let scheduler = Scheduler::start(TestWallClock::new(), None, busy_count);
+    let scheduler = Scheduler::start(Arc::new(TestWallClock::default()), None, busy_count);
     let quiet_count = Arc::new(AtomicUsize::new(0));
     let (quiet_ran, quiet_job_ran) = oneshot::channel();
     let _quiet = scheduler
@@ -284,7 +218,7 @@ async fn a_job_waiting_for_idle_holds_no_other_job_and_runs_when_the_count_falls
 async fn a_count_rising_mid_drain_parks_the_jobs_after_it() {
     let (busy, busy_count) = watch::channel(0);
     let busy = Arc::new(busy);
-    let scheduler = Scheduler::start(TestWallClock::new(), None, busy_count);
+    let scheduler = Scheduler::start(Arc::new(TestWallClock::default()), None, busy_count);
     let (busy_started, busy_job_ran) = oneshot::channel();
     let raised = Arc::clone(&busy);
     let mut busy_started = Some(busy_started);
@@ -340,7 +274,7 @@ async fn a_count_rising_mid_drain_parks_the_jobs_after_it() {
 #[tokio::test(start_paused = true)]
 async fn a_bounded_job_runs_at_its_wall_clock_bound_while_still_busy() {
     const BOUND: Duration = Duration::from_hours(25);
-    let wall_clock = TestWallClock::new();
+    let wall_clock = Arc::new(TestWallClock::default());
     let (_busy, busy_count) = watch::channel(1);
     let scheduler = Scheduler::start(wall_clock.clone(), None, busy_count.clone());
     let started_at = wall_clock.now();

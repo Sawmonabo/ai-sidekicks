@@ -17,13 +17,13 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowNotifyNotice};
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_platforms::{WallClock, WallClockTimer, WallClockWait};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
+use sidekicks_std::scheduler::armed_instant::ARM_RETRY_DELAY;
 use sidekicks_store::database::writer::test_file::{test_run_id, test_session_id};
 use sidekicks_store::events::session::appender::SessionEventLinkage;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
@@ -31,9 +31,7 @@ use tokio::sync::watch;
 use tokio::time::{Instant, timeout};
 use tokio_util::sync::CancellationToken;
 
-use super::build_retirement::{
-    PROVIDER_BUILD_RETIREMENT_JOB, PROVIDER_BUILD_RETIREMENT_RETRY_JOB, RETIREMENT_RETRY_DELAY,
-};
+use super::build_retirement::{PROVIDER_BUILD_RETIREMENT_JOB, PROVIDER_BUILD_RETIREMENT_RETRY_JOB};
 use super::{AttentionService, AttentionServiceDependencies, DecisionTask, MERGE_WINDOW};
 use crate::attention::banner_launcher::counting_starter::CountingStarter;
 use crate::attention::banner_launcher::{BannerLauncher, WindowlessAppStarter};
@@ -394,7 +392,7 @@ async fn a_notify_steps_entry_is_decided_by_the_running_task() {
                 &node_id,
                 SafeInt::ZERO,
                 "018f0000-0000-7000-8000-0000000000aa",
-                &NonEmptyText::new("Deployed".to_owned()).expect("a test notice"),
+                &WorkflowNotifyNotice::new("Deployed".to_owned()).expect("a test notice"),
                 "2026-10-28T09:00:00.000Z",
             ),
             ..SessionEventLinkage::default()
@@ -580,7 +578,7 @@ fn insert_build(
 /// Waits until the service holds the provider build retirement armed for `instant`.
 async fn wait_until_armed_at(service: &AttentionService, instant: SystemTime) {
     timeout(WAIT, async {
-        while lock(&service.retirement).armed_instant() != Some(instant) {
+        while service.retirement.instant() != Some(instant) {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
     })
@@ -699,8 +697,7 @@ async fn a_refused_retirement_is_armed_again_by_its_retry_a_minute_later() {
     tokio::time::pause();
 
     fixture.service.arm_provider_build_retirement().await;
-    tokio::time::advance(RETIREMENT_RETRY_DELAY.saturating_sub(std::time::Duration::from_secs(1)))
-        .await;
+    tokio::time::advance(ARM_RETRY_DELAY.saturating_sub(std::time::Duration::from_secs(1))).await;
     assert_eq!(
         fixture.scheduler.waiting_job_names(),
         [PROVIDER_BUILD_RETIREMENT_RETRY_JOB],

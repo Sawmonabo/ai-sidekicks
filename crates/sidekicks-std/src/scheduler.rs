@@ -18,6 +18,8 @@
 //!   them.
 //! - A job with a processor budget registers it with its run (`budget::metered_job`), which
 //!   meters the run on its own threads and writes its processor time beside the budget.
+//! - A job its owner keeps armed for the next of its instants, armed again in place and retried a
+//!   minute later when refused, is an `armed_instant::ArmedInstant`.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -38,8 +40,11 @@ use crate::mutex_lock::lock;
 pub use crate::scheduler::condition::JobCondition;
 use crate::scheduler::condition::ParkedRuns;
 
+pub mod armed_instant;
 pub mod budget;
 mod condition;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_wall_clock;
 
 // Wakes a receiver may fall behind before it reads a lag; wakes are rare.
 const WAKE_SIGNAL_CAPACITY: usize = 16;
