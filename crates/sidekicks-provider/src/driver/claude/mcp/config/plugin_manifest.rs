@@ -4,9 +4,10 @@
 //! is checked by its outer form alone (a path, a list of paths, or an object), not by the entries
 //! inside it. A member the schema does not know passes, as the schema leaves it unread.
 
-use regex::Regex;
-use serde_json::Value;
 use std::sync::LazyLock;
+
+use regex::Regex;
+use serde_json::{Map, Value};
 use url::Url;
 
 /// A dependency written as text: a plugin name, optionally with `@marketplace` and a version
@@ -32,13 +33,11 @@ static USER_CONFIG_KEY: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").expect("the option key pattern compiles")
 });
 
-/// The plugin name `manifest`, a plugin's parsed `plugin.json`, gives where Claude Code would load
-/// the plugin; else the first member it refuses, by its name, a manifest that is no object refused
-/// whole under the empty name.
-pub(crate) fn read_plugin_manifest_name(manifest: &Value) -> Result<&str, &'static str> {
-    let Some(manifest) = manifest.as_object() else {
-        return Err("");
-    };
+/// The plugin name `manifest`, the object a plugin's `plugin.json` holds, gives where Claude Code
+/// would load the plugin; else the first member it refuses, by its name.
+pub(crate) fn read_plugin_manifest_name(
+    manifest: &Map<String, Value>,
+) -> Result<&str, &'static str> {
     let checks: [MemberCheck; 27] = [
         ("name", is_plugin_name),
         ("$schema", Value::is_string),

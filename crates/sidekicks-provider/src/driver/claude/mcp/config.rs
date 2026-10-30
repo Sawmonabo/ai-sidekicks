@@ -672,8 +672,15 @@ async fn read_installed_plugin_roots(
                 continue;
             }
         };
-        let name = match &manifest {
-            Some(manifest) => match read_plugin_manifest_name(manifest) {
+        let name = match manifest.as_ref().map(Value::as_object) {
+            Some(None) => {
+                tracing::debug!(
+                    file = %manifest_file.display(),
+                    "a plugin is left out: its manifest is not a JSON object"
+                );
+                continue;
+            }
+            Some(Some(manifest)) => match read_plugin_manifest_name(manifest) {
                 Ok(name) => name.to_owned(),
                 Err(member) => {
                     tracing::debug!(

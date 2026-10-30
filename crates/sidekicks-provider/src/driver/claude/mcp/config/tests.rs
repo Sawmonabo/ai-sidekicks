@@ -336,6 +336,7 @@ async fn the_person_config_file_takes_the_custom_sign_in_suffix(
 )]
 #[case::corrupt_manifest(Manifest::Text("{ \"name\": "), &["other-server"][..])]
 #[case::manifest_is_a_folder(Manifest::Folder, &["other-server"][..])]
+#[case::manifest_not_an_object(Manifest::Text("[]"), &["other-server"][..])]
 #[case::refused_member(
     Manifest::Text(r#"{ "name": "tools", "version": 3 }"#),
     &["other-server"][..]
