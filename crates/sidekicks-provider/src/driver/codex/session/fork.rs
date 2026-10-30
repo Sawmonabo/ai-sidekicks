@@ -12,6 +12,7 @@ use std::sync::Arc;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::port_registration::PortRegistration;
 
@@ -40,11 +41,13 @@ use crate::driver::codex::thread::view::{
 };
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::driver::ports::SessionRelaunchListener;
 use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
 use crate::left_conversations::LeftConversation;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::tool_server_route::ToolServerRoute;
-use crate::runtime_binding::store::RuntimeBindingRebind;
+use crate::runtime_binding::resume::ResumeFunctionLegs;
+use crate::runtime_binding::store::{RuntimeBindingRebind, mint_runtime_binding_id};
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
@@ -72,6 +75,8 @@ pub(crate) struct CodexForkDependencies {
     pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
     /// The compaction waits, whose wait on a conversation the session leaves ends.
     pub(crate) pending_compactions: PendingCompactionRegistry,
+    /// The session directory, which answers the legs of the binding a fork moves the session to.
+    pub(crate) session_relaunched: Arc<PortRegistration<Arc<dyn SessionRelaunchListener>>>,
 }
 
 /// Where a fork keeps the conversation up to.
@@ -343,8 +348,10 @@ fn record_fork_source(record: &CodexSessionRecord) -> CodexForkSource<'_> {
 // conversation the session leaves, then the record's own view of the fork, the routing band and
 // the service bound to it, the left conversation's helpers released, and that conversation let go
 // once no command of it runs. The message-to-turn map is dropped, since a fork's turns carry ids
-// of their own; an undo rebuilds it from the fork's history. A failed binding write lets the fork
-// go, the record unchanged.
+// of their own; an undo rebuilds it from the fork's history. A fork onto another binding ends the
+// leg the record holds and takes legs of its own, opened before the binding's write under a
+// binding minted for them, so they never share the pair of a leg that is still open. A failed
+// opening or binding write lets the fork go, the record unchanged.
 async fn move_record_to_fork(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexForkDependencies,
@@ -353,6 +360,18 @@ async fn move_record_to_fork(
 ) -> Result<CodexRoutedFrames, CodexError> {
     let pre_fork_thread_id = task.record.thread_id.clone();
     let service = Arc::clone(&task.record.service);
+    let is_rebound = binding_id != task.record.binding_id;
+    let legs = if is_rebound && binding_id.is_some() {
+        match open_fork_legs(task.record.session_id, dependencies).await {
+            Ok(legs) => Some(legs),
+            Err(error) => {
+                let_go_codex_thread(&service, &forked.thread_id).await;
+                return Err(error);
+            }
+        }
+    } else {
+        None
+    };
     record_fork_in_binding(
         task.record,
         dependencies,
@@ -376,6 +395,10 @@ async fn move_record_to_fork(
     record.declared_output_speed = read_codex_declared_tier(session_id, &forked.reply);
     record.reasoning_effort = read_thread_reasoning_effort(&forked.reply);
     record.turn_id_by_client_message_id.clear();
+    if is_rebound {
+        record.end_mcp_server_status_leg();
+        record.on_mcp_server_status = legs.and_then(|legs| legs.on_mcp_server_status);
+    }
     let routed = task
         .routing
         .move_session_thread(
@@ -402,6 +425,27 @@ async fn move_record_to_fork(
         .let_go(&service, pre_fork_thread_id, session_id)
         .await;
     Ok(routed)
+}
+
+// The legs the session directory answers for a fork of `session_id` under a binding minted for
+// them. Fails as the directory is not registered or cannot answer them.
+async fn open_fork_legs(
+    session_id: SessionId,
+    dependencies: &CodexForkDependencies,
+) -> Result<ResumeFunctionLegs, CodexError> {
+    let session_relaunched = &dependencies.session_relaunched;
+    let opened = match session_relaunched.require_port() {
+        Ok(listener) => {
+            listener
+                .open_relaunch_legs(session_id, mint_runtime_binding_id())
+                .await
+        }
+        Err(unregistered) => Err(unregistered.into()),
+    };
+    opened.map_err(|cause| CodexError::PortFailed {
+        port: session_relaunched.port_name(),
+        cause,
+    })
 }
 
 // Points the binding at the fork, recording the conversation the session leaves in the same write,

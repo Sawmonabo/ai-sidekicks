@@ -32,8 +32,8 @@ use tokio::sync::Notify;
 
 use super::channel::ScriptedChannel;
 use super::daemon_services::{
-    RecordingPorts, RecordingUsage, ScriptedAttachments, register_scripted_ports,
-    test_callback_tool_host,
+    RecordingPorts, RecordingUsage, ScriptedAttachments, TakenBindingWrites,
+    register_scripted_ports, test_callback_tool_host,
 };
 use super::starts::{ScriptedStartRecord, ScriptedStarts};
 use super::{
@@ -43,6 +43,7 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
 use crate::driver::contract::params_and_results::DriverCliVersionReport;
+use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::ports::SessionRelaunchListener;
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
@@ -57,6 +58,7 @@ use crate::port::run_host::RunHost;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::port::session_advisor_store::SessionAdvisorStore;
 use crate::run::posture::{ExecutionPostureService, compose_execution_posture};
+use crate::runtime_binding::resume::ResumeFunctionLegs;
 use crate::runtime_binding::store::RuntimeBinding;
 use crate::runtime_binding::test_store::{spawn_config_on, test_provider_account_id};
 
@@ -152,13 +154,17 @@ impl SessionAdvisorStore for RecordedAdvisors {
 }
 
 /// Each relaunch the driver reported, with the binding it resumed on, `None` for one that failed,
-/// and each binding it had opened before its resume; every opening is refused once a test sets
-/// `is_open_refused`, and every report once it sets `is_relaunch_refused`.
+/// each binding it had opened before its resume and each it asked legs alone for, answered with
+/// the status sink a test sets; every opening is refused once a test sets `is_open_refused`, and
+/// every report once it sets `is_relaunch_refused`.
 #[derive(Default)]
 pub(crate) struct RecordedRelaunches {
     taken: Mutex<Vec<(SessionId, Option<RuntimeBindingId>)>>,
     opened: Mutex<Vec<(SessionId, RuntimeBindingId)>>,
+    legs_opened: Mutex<Vec<(SessionId, RuntimeBindingId)>>,
     reported: Notify,
+    /// The status sink each opening answers in its function legs; none until a test sets one.
+    pub(crate) status_sink: Mutex<Option<McpServerStatusProducer>>,
     /// Whether each opening is refused.
     pub(crate) is_open_refused: AtomicBool,
     /// Whether each report is refused, after it is kept.
@@ -169,6 +175,11 @@ impl RecordedRelaunches {
     /// The bindings opened so far, in the order the driver opened them.
     pub(crate) fn opened(&self) -> Vec<(SessionId, RuntimeBindingId)> {
         lock(&self.opened).clone()
+    }
+
+    /// The bindings the driver asked legs alone for, with no cursor, in the order it asked.
+    pub(crate) fn legs_opened(&self) -> Vec<(SessionId, RuntimeBindingId)> {
+        lock(&self.legs_opened).clone()
     }
 
     /// The relaunches once `count` are reported, each after the process it started, which a start
@@ -193,16 +204,31 @@ impl SessionRelaunchListener for RecordedRelaunches {
         &self,
         session_id: SessionId,
         binding_id: RuntimeBindingId,
-    ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn std::error::Error + Send + Sync>>> {
         lock(&self.opened).push((session_id, binding_id));
         let is_refused = self.is_open_refused.load(Ordering::SeqCst);
+        let legs = ResumeFunctionLegs {
+            on_mcp_server_status: lock(&self.status_sink).clone(),
+        };
         async move {
             if is_refused {
                 return Err("the test refuses the opening".into());
             }
-            Ok(())
+            Ok(legs)
         }
         .boxed()
+    }
+
+    fn open_relaunch_legs(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn std::error::Error + Send + Sync>>> {
+        lock(&self.legs_opened).push((session_id, binding_id));
+        let legs = ResumeFunctionLegs {
+            on_mcp_server_status: lock(&self.status_sink).clone(),
+        };
+        async move { Ok(legs) }.boxed()
     }
 
     fn session_relaunched(
@@ -325,6 +351,7 @@ impl ScriptedDriver {
                 &home,
                 folder.path().join("session-token"),
             )),
+            runtime_bindings: Arc::new(TakenBindingWrites),
             ..test_driver_services()
         };
         let ports = &base.ports;

@@ -369,7 +369,7 @@ fn wraps_a_start_with_its_name_and_terminal() {
 // skipping the wrapper for a start that carries `shellSnapshot`, by wrapping a copy's start or
 // giving it the askpass, by setting only git's terminal prompt off, and by keeping a refused start.
 #[tokio::test]
-async fn wraps_a_sessions_start_and_gives_a_copys_start_no_way_to_ask() {
+async fn wraps_a_sessions_start_and_gives_a_copy_s_start_no_way_to_ask() {
     let folder = tempfile::tempdir().expect("a test folder");
     let session_id = new_session_id();
     let relay = relay_reporting_to(
@@ -799,6 +799,7 @@ async fn run_parity_turn(
         },
         CodexServiceKind::Account,
         dependencies,
+        Vec::new(),
     );
     let (events, mut frames) = CodexDetachedFrames::new();
     let connection = service

@@ -153,6 +153,7 @@ pub(crate) fn scripted_live_session(
         task_ended: SetOnce::new(),
         served_bindings: Mutex::default(),
         messaging_socket: None,
+        mcp_server_readings: Mutex::default(),
     }
 }
 

@@ -21,7 +21,8 @@ use crate::driver::claude::session::naming::{
     name_claude_session, stored_claude_conversation, tell_claude_session_name,
 };
 use crate::driver::claude::session::purge::{ClaudePurgePlace, purge_claude_conversations};
-use crate::driver::claude::session::restart::{ClaudeEndedConversation, ClaudeSessionStanding};
+use crate::driver::claude::session::restart::ClaudeSessionStanding;
+use crate::driver::claude::session::restart::ended_process::ClaudeEndedConversation;
 use crate::driver::claude::session::slots::ClaudeCloseStart;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
@@ -398,7 +399,7 @@ impl ClaudeDriver {
             .require_port()?
             .resolve_spawn_context(session_id, provider_account_id.clone())
             .await?;
-        Ok(self.account_process_environment(
+        Ok(self.sources.account_process_environment(
             &context.account_folders,
             &provider_account_id,
             &context.every_project_rows,

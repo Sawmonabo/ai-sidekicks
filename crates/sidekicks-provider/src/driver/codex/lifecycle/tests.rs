@@ -11,6 +11,7 @@ mod resume;
 mod rule_revoke;
 mod sessions;
 mod skill_picks;
+mod status_legs;
 mod terminal_reach;
 mod usage;
 
@@ -275,7 +276,7 @@ pub(super) fn listen_on_codex_folder(folder: &Path) {
     let listener = bind_socket_listener(&socket).expect("the test service listens");
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
-            tokio::spawn(answer_as_codex_service(stream, |_method| {}));
+            tokio::spawn(answer_as_codex_service(stream, None, |_request| {}));
         }
     });
 }

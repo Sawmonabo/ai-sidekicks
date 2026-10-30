@@ -37,7 +37,8 @@ use tokio_util::task::TaskTracker;
 
 #[cfg(test)]
 pub(crate) use self::stand_in::{
-    CODEX_HOME_NAME, HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE, StandInLaunches,
+    CODEX_HOME_NAME, CONFIG_READ_REPLY_NAME, HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE,
+    REQUEST_RECORD_NAME, StandInLaunches,
 };
 pub use self::stand_in::{
     CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, serve_as_codex_service_stand_in,
@@ -362,7 +363,7 @@ pub(crate) fn script_codex_service(
     kind: CodexServiceKind,
     dependencies: Arc<CodexServiceDependencies>,
 ) -> (Arc<CodexService>, ScriptedService) {
-    let service = CodexService::new(home, socket, kind, dependencies);
+    let service = CodexService::new(home, socket, kind, dependencies, Vec::new());
     let (connection, script) = connect_scripted_service(
         SCRIPTED_MESSAGE_LIMIT,
         service.connection_handlers(SCRIPTED_DIAL),
@@ -464,13 +465,22 @@ impl CodexServiceEvents for ExitsHeard {
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
 }
 
+/// The conversation a machine probe's ephemeral start opens on a test service.
+pub(crate) const PROBE_THREAD_ID: &str = "probe-thread";
+
+/// The one tool each server a test service lists for a machine probe has.
+pub(crate) const PROBE_TOOL_NAME: &str = "lookup";
+
 /// Answers one connection's requests on `stream` as far as a start needs, telling `on_request`
-/// each request's method as it comes: the version, the hooks the daemon starts a terminal service
-/// with, as trusted, and no loaded conversation; a config write is refused, so a start that writes
-/// trust fails.
+/// each request as it comes: the version, the hooks the daemon starts a terminal service with, as
+/// trusted, and no loaded conversation; a config write is refused, so a start that writes trust
+/// fails. A machine probe is answered too: its ephemeral start opens [`PROBE_THREAD_ID`], each
+/// server its config switches on or sends reports ready, and each listed server is connected with
+/// [`PROBE_TOOL_NAME`]. A config read is answered with `config_read_reply` where one is given.
 pub(crate) async fn answer_as_codex_service(
     stream: impl AsyncRead + AsyncWrite + Unpin,
-    mut on_request: impl FnMut(&str),
+    config_read_reply: Option<Value>,
+    mut on_request: impl FnMut(&Value),
 ) {
     let hooks = match read_terminal_service_hooks(TEST_DISPATCHES_HOOK_MODE)
         .expect("the daemon's hooks read")
@@ -494,8 +504,25 @@ pub(crate) async fn answer_as_codex_service(
             continue;
         }
         let id = &request["id"];
-        on_request(request["method"].as_str().unwrap_or_default());
+        on_request(&request);
+        let mut notices = Vec::new();
         let reply = match request["method"].as_str() {
+            Some("thread/start") if request["params"]["ephemeral"] == json!(true) => {
+                notices = started_probe_servers(&request["params"]);
+                json!({"id": id,
+                    "result": {"thread": {"id": PROBE_THREAD_ID, "sessionId": "probe-session"}}})
+            }
+            Some("mcpServerStatus/list") => json!({"id": id, "result": {"data": [{
+                "name": request["params"]["serverName"],
+                "authStatus": "unsupported",
+                "runtimeStatus": "connected",
+                "tools": {PROBE_TOOL_NAME: {"name": PROBE_TOOL_NAME, "inputSchema": {}}},
+                "resources": [],
+                "resourceTemplates": [],
+            }], "nextCursor": null}}),
+            Some("config/read") if config_read_reply.is_some() => {
+                json!({"id": id, "result": config_read_reply})
+            }
             Some("config/value/write") => json!({"id": id,
                 "error": {"code": -32603, "message": "the test service writes no config"}}),
             Some("initialize") => json!({"id": id,
@@ -504,14 +531,32 @@ pub(crate) async fn answer_as_codex_service(
             Some("thread/loaded/list") => json!({"id": id, "result": {"data": []}}),
             _ => json!({"id": id, "result": {}}),
         };
-        if socket
-            .send(Message::Text(reply.to_string().into()))
-            .await
-            .is_err()
-        {
-            return;
+        for message in std::iter::once(reply).chain(notices) {
+            if socket
+                .send(Message::Text(message.to_string().into()))
+                .await
+                .is_err()
+            {
+                return;
+            }
         }
     }
+}
+
+// The ready notice of each server a probe's start switches on or sends, by its config's server
+// table.
+fn started_probe_servers(params: &Value) -> Vec<Value> {
+    params["config"]["mcp_servers"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, entry)| entry["enabled"] == json!(true))
+        .map(|(name, _)| {
+            json!({"jsonrpc": "2.0", "method": "mcpServer/startupStatus/updated", "params": {
+                "threadId": PROBE_THREAD_ID, "name": name, "status": "ready", "error": null,
+            }})
+        })
+        .collect()
 }
 
 fn listed_hook(event_name: &str, command: &str) -> Value {

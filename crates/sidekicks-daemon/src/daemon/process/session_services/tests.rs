@@ -7,6 +7,7 @@ use std::time::SystemTime;
 
 use futures::future::BoxFuture;
 
+use futures::FutureExt as _;
 use sidekicks_artifact::admission::UploadAdmission;
 use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_artifact::plans::store::StoredPlanHolds;
@@ -20,6 +21,9 @@ use sidekicks_contracts::session::id::{SessionId, UserId};
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
+use sidekicks_mcp::status::McpServerStatusTracker;
+use sidekicks_mcp::status::notices::McpNoticeBoard;
 use sidekicks_platforms::{Spawner, WallClockTimer};
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -198,6 +202,10 @@ async fn fixture() -> Fixture {
         .register(Arc::new(configuration) as Arc<dyn RunTokenLimitReader>)
         .expect("a new registration takes its port");
     let token_limits = Arc::new(token_limits);
+    let (first_observations, mcp_first_observations) = open_first_observation_drain(
+        McpBindingStore::new(Arc::clone(&log.writer), Arc::clone(&reads)),
+    )
+    .await;
     let session = build_session_services(SessionServiceStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&log.writer),
@@ -255,6 +263,11 @@ async fn fixture() -> Fixture {
         )),
         token_limits,
         scheduler,
+        mcp_status: Arc::new(McpServerStatusTracker::new(
+            Arc::new(McpNoticeBoard::default()),
+            first_observations,
+        )),
+        mcp_first_observations: mcp_first_observations.boxed(),
     })
     .expect("the session services build");
     Fixture {

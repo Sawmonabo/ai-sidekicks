@@ -30,24 +30,22 @@ use crate::driver::claude::session::reply_reserve::{ClaudeReplyReserve, read_con
 use crate::driver::claude::session::transport::readings::{
     ClaudeModelContextRead, ClaudeSessionFolderReadRequest,
 };
-use crate::driver::claude::spawn::environment::claude_config_folder;
+use crate::driver::claude::spawn::environment::{
+    CLAUDE_GATEWAY_SWITCH_VARIABLE, CLAUDE_PROVIDER_SWITCH_VARIABLES, claude_config_folder,
+};
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::record_readers::{read_count, read_non_empty_string};
 
-/// The variables that point Claude Code at an API endpoint other than its default: the switch to
-/// each provider it reaches besides Anthropic's own API, then each provider's base address.
-const CLAUDE_ENDPOINT_VARIABLES: [&str; 11] = [
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_MANTLE",
-    "CLAUDE_CODE_USE_VERTEX",
-    "CLAUDE_CODE_USE_FOUNDRY",
-    "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+/// Each provider's base address, which points Claude Code at an API endpoint other than its
+/// default.
+const CLAUDE_BASE_ADDRESS_VARIABLES: [&str; 7] = [
     "ANTHROPIC_BASE_URL",
     "ANTHROPIC_BEDROCK_BASE_URL",
     "ANTHROPIC_BEDROCK_MANTLE_BASE_URL",
     "ANTHROPIC_VERTEX_BASE_URL",
     "ANTHROPIC_FOUNDRY_BASE_URL",
     "ANTHROPIC_AWS_BASE_URL",
+    "ANTHROPIC_GOOGLE_CLOUD_BASE_URL",
 ];
 
 /// A figure read every waiter shares: its process's result, a failure shared whole.
@@ -59,16 +57,19 @@ type SharedRead<T> = Shared<BoxFuture<'static, ClaudeFigureResult<T>>>;
 // The reads held under one kind of key.
 type HeldReads<K, T> = Arc<Mutex<HashMap<K, SharedRead<T>>>>;
 
-/// The endpoint a process sends its requests to: the value each endpoint variable has in its
-/// environment, in [`CLAUDE_ENDPOINT_VARIABLES`]' order; all `None` is Claude Code's default.
+/// The endpoint a process sends its requests to: the value its environment gives each switch that
+/// moves Claude Code off Anthropic's own API, the gateway's included, then each base address; all
+/// `None` is Claude Code's default.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct ClaudeEndpoint(Vec<Option<String>>);
 
 impl ClaudeEndpoint {
     fn of(spawn_environment: &[(String, String)], rules: PathRules) -> Self {
         Self(
-            CLAUDE_ENDPOINT_VARIABLES
+            CLAUDE_PROVIDER_SWITCH_VARIABLES
                 .iter()
+                .chain([&CLAUDE_GATEWAY_SWITCH_VARIABLE])
+                .chain(&CLAUDE_BASE_ADDRESS_VARIABLES)
                 .map(|name| {
                     rules
                         .environment_value(spawn_environment, name)
@@ -271,6 +272,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
 
+    use serde_json::value::to_raw_value;
     use sidekicks_platforms::PathRules;
     use tokio::sync::oneshot;
 
@@ -278,7 +280,8 @@ mod tests {
     use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
     use crate::driver::claude::session::reply_reserve::ClaudeReplyReserve;
     use crate::driver::claude::session::transport::{
-        control::ClaudeControlSubtype, readings::ClaudeSessionFolderReadRequest,
+        control::ClaudeControlSubtype,
+        readings::{ClaudeModelContextRead, ClaudeSessionFolderReadRequest},
     };
     use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 
@@ -386,5 +389,36 @@ mod tests {
             .await;
 
         assert_eq!(next.ok(), Some(reserve()));
+    }
+
+    // A window read at Anthropic's own API is not taken for a process switched to Google Cloud or
+    // to a gateway, nor theirs for each other, as Claude Code reaches each elsewhere. Killed by
+    // either switch left out of the endpoint.
+    #[test]
+    fn a_window_is_read_again_for_each_switch_claude_code_reads() {
+        let figures = ClaudeModelFigures::new(None, PathRules::Posix);
+        let switched = |name: &str| vec![(name.to_owned(), "1".to_owned())];
+        let endpoints = [
+            Vec::new(),
+            switched("CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD"),
+            switched("CLAUDE_CODE_USE_GATEWAY"),
+        ];
+        for (index, environment) in endpoints.iter().enumerate() {
+            let usage = serde_json::json!({ "model": "claude-opus-5", "rawMaxTokens": index + 1 });
+            figures.record_context_reads(
+                environment,
+                vec![ClaudeModelContextRead {
+                    requested_model: None,
+                    usage: Some(to_raw_value(&usage).expect("the usage serializes")),
+                }],
+            );
+        }
+
+        for (index, environment) in endpoints.iter().enumerate() {
+            assert_eq!(
+                figures.context_window_of(environment, "claude-opus-5"),
+                Some(u64::try_from(index + 1).expect("a small window"))
+            );
+        }
     }
 }

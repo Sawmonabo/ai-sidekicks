@@ -3,8 +3,11 @@
 //! binding's first observation in this process, handed on to be recorded.
 
 mod legs;
+pub mod machine_probe;
+pub mod normalizer;
 pub mod notices;
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
@@ -13,29 +16,23 @@ use sidekicks_contracts::mcp::governance::{
     McpServerStatusChangedNotice, McpServerStatusChangedType,
 };
 use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus, McpToolName};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::redaction::sanitize_failure_reason;
 use sidekicks_ipc::stream::latest_value::KeyedLatestValueOutlet;
-use sidekicks_provider::driver::mcp_server_status::{
+use sidekicks_provider::driver::mcp_server::status::{
     McpServerStatusEmission, McpServerStatusUpdate,
 };
 use sidekicks_std::mutex_lock::lock;
 
 use self::legs::{ChangeOrigin, LegId, McpLegs, ObservationOutcome, StatusChange};
 use self::notices::{McpNoticeBoard, McpNoticeKey, McpNoticeKind, McpNoticeOrigin};
-use crate::binding_store::McpBindingKey;
+use crate::binding::store::McpBindingKey;
 
 /// A binding's status as the inventory reads it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the inventory reads each binding's status through it"
-    )
-)]
 pub(crate) struct McpBindingStatusReading {
     /// The most severe status among the legs in the aggregate, else the machine probe's newest
     /// reading, else `unknown`.
@@ -44,48 +41,44 @@ pub(crate) struct McpBindingStatusReading {
     pub(crate) legs: Vec<McpServerLegStatus>,
     /// When the newest leg in the aggregate, else the probe, observed it.
     pub(crate) observed_at: Option<WireInstant>,
+    /// The names of the server's tools in the newest list a live leg in the aggregate reported,
+    /// else the machine probe's; empty where none is held.
+    pub(crate) tool_names: Vec<McpToolName>,
+    /// The machine probe's newest failure reason, where its reading decides a `failed` status.
+    pub(crate) probe_failure_reason: Option<String>,
 }
 
-/// The one keeper of every binding's MCP status. Its state sits behind one lock that is never held
-/// across an await: each call applies its change and sends its notice synchronously, so a reader
-/// of the board sees changes in the order they were applied.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the producer wiring, the session-close and driver-exit retires, the machine \
-                  probe and the inventory call it"
-    )
-)]
-pub(crate) struct McpServerStatusTracker {
+/// The one keeper of every binding's MCP status. Its state sits behind two locks, `legs` then
+/// `first_observations`, neither held across an await: each call applies its change and sends its
+/// notice synchronously, so a reader of the board sees changes in the order they were applied.
+pub struct McpServerStatusTracker {
     legs: Mutex<McpLegs>,
     board: Arc<McpNoticeBoard>,
     /// Each binding a leg reports or the probe reads, for the drain to record; the drain keeps
     /// which bindings it has recorded, so one whose write failed is tried again at its next
-    /// reading.
-    first_observations: KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,
+    /// reading. `None` once the daemon's stop ended the drain. Locked after `legs`, never before.
+    first_observations: Mutex<Option<KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>>>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the producer wiring, the session-close and driver-exit retires, the machine \
-                  probe and the inventory call it"
-    )
-)]
 impl McpServerStatusTracker {
     /// A tracker with no leg, sending its status notices on `board` and the ref of each binding a
     /// leg reports or the probe reads through `first_observations`, whose drain records it.
-    pub(crate) fn new(
+    pub fn new(
         board: Arc<McpNoticeBoard>,
         first_observations: KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,
     ) -> Self {
         Self {
             legs: Mutex::new(McpLegs::new()),
             board,
-            first_observations,
+            first_observations: Mutex::new(Some(first_observations)),
         }
+    }
+
+    /// Ends the first-observation drain once it has read what was sent before, whoever still
+    /// holds the tracker; a binding first observed later is not recorded. The daemon's stop calls
+    /// it before it waits for the drain.
+    pub fn end_first_observations(&self) {
+        lock(&self.first_observations).take();
     }
 
     /// Opens a sink for the leg `binding_id` of `session_id`, the one its producer reports
@@ -115,8 +108,8 @@ impl McpServerStatusTracker {
         self.apply(outcome);
     }
 
-    /// Retires the leg `binding_id` of `session_id`, at its session's close or its driver's exit:
-    /// its servers leave the aggregate, each binding whose aggregate it was in sends `sessionEnded`,
+    /// Retires the leg `binding_id` of `session_id`, at the end of its provider process: its
+    /// servers leave the aggregate, each binding whose aggregate it was in sends `sessionEnded`,
     /// and what the leg reports later is ignored.
     pub(crate) fn retire_leg(&self, session_id: SessionId, binding_id: RuntimeBindingId) {
         let leg = LegId {
@@ -129,19 +122,28 @@ impl McpServerStatusTracker {
         }
     }
 
-    /// Stores the machine probe's newest reading of `binding`, which stands for the binding while
-    /// no live leg holds a status; a `machineProbe` notice goes out when the probe's own reading
-    /// changed, and the binding goes to the drain as a leg's reading does.
+    /// Stores the machine probe's newest reading of `binding` with its server's `tool_names`; its
+    /// status stands for the binding while no live leg holds one, a `machineProbe` notice goes
+    /// out when the probe's own status changed, and the binding goes to the drain as a leg's
+    /// reading does.
     pub(crate) fn record_probe(
         &self,
         binding: &McpServerBindingRef,
         status: McpServerStatus,
         failure_text: Option<String>,
+        tool_names: Vec<McpToolName>,
     ) {
         let observed_at = WireInstant::now();
         let mut legs = lock(&self.legs);
-        let outcome = legs.record_probe(binding, status, failure_text, observed_at);
+        let outcome = legs.record_probe(binding, status, failure_text, tool_names, observed_at);
         self.apply(outcome);
+    }
+
+    /// Drops the machine probe's reading of every binding of `provider` that `except` does not
+    /// hold, the bindings its newest read declares, so a binding gone from its config is not kept;
+    /// a binding a live leg holds keeps its legs, and nothing is sent.
+    pub(crate) fn forget_probes_of(&self, provider: &ProviderId, except: &HashSet<McpBindingKey>) {
+        lock(&self.legs).forget_probes_of(provider, except);
     }
 
     /// The status of the binding `binding` keys.
@@ -158,9 +160,10 @@ impl McpServerStatusTracker {
     /// Hands the reading's binding to the drain and sends its changes; called under the state
     /// lock, so notices leave in the order their changes were applied.
     fn apply(&self, outcome: ObservationOutcome) {
-        if let Some(binding) = outcome.observed_binding {
-            self.first_observations
-                .send(McpBindingKey::of(&binding), binding);
+        if let Some(binding) = outcome.observed_binding
+            && let Some(first_observations) = lock(&self.first_observations).as_ref()
+        {
+            first_observations.send(McpBindingKey::of(&binding), binding);
         }
         for change in outcome.changes {
             self.send(change);
@@ -253,13 +256,6 @@ impl McpServerStatusTracker {
 /// What one leg's producer reports through. A retired leg is remembered while any of its sinks is
 /// open, so a late reading is ignored, and forgotten when its last sink drops, so memory stays
 /// bounded by the legs that can still report.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the producer each leg is spawned with reports through it"
-    )
-)]
 pub(crate) struct McpLegStatusSink {
     tracker: Arc<McpServerStatusTracker>,
     leg: LegId,
@@ -268,13 +264,6 @@ pub(crate) struct McpLegStatusSink {
 impl McpLegStatusSink {
     /// Applies a driver's emission for this leg, `binding` being the effective binding the leg
     /// serves the server from.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the producer each leg is spawned with reports through it"
-        )
-    )]
     pub(crate) fn observe(&self, binding: &McpServerBindingRef, emission: McpServerStatusEmission) {
         self.tracker.observe(
             binding,
@@ -287,6 +276,38 @@ impl Drop for McpLegStatusSink {
     fn drop(&mut self) {
         lock(&self.tracker.legs).close_sink(&self.leg);
     }
+}
+
+/// A tracker over a fresh board, with a feed reading the board's notices and the feed its first
+/// observations go to, which the caller keeps open so the tracker can hand bindings to it.
+#[cfg(any(test, feature = "test-support"))]
+pub async fn open_test_tracker() -> (
+    Arc<McpServerStatusTracker>,
+    impl sidekicks_ipc::stream::feed::Feed<Emission = McpSubscribeEmission>,
+    impl sidekicks_ipc::stream::feed::Feed<Emission = McpServerBindingRef>,
+) {
+    use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
+
+    let board = Arc::new(McpNoticeBoard::default());
+    let subscriber_board = Arc::clone(&board);
+    let subscriber = KeyedLatestValueFeed::open(move |outlet| {
+        let id = subscriber_board.attach(outlet);
+        std::future::ready(Ok(move || subscriber_board.detach(id)))
+    })
+    .await
+    .expect("the board's follow succeeds");
+    let mut first_observations = None;
+    let first_observation_feed = KeyedLatestValueFeed::open(|outlet| {
+        first_observations = Some(outlet);
+        std::future::ready(Ok(|| {}))
+    })
+    .await
+    .expect("the follow succeeds");
+    let tracker = Arc::new(McpServerStatusTracker::new(
+        board,
+        first_observations.expect("the follow kept the outlet"),
+    ));
+    (tracker, subscriber, first_observation_feed)
 }
 
 #[cfg(test)]
@@ -303,8 +324,7 @@ mod tests {
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_ipc::stream::feed::{CreditGate, Feed};
-    use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
-    use sidekicks_provider::driver::mcp_server_status::McpServerReading;
+    use sidekicks_provider::driver::mcp_server::status::McpServerReading;
 
     use super::*;
 
@@ -428,35 +448,6 @@ mod tests {
         }
     }
 
-    /// A tracker over a fresh board, with a feed reading the board's notices and the feed its
-    /// first observations go to, which is kept open so the tracker can hand bindings to it.
-    async fn tracker_and_subscriber() -> (
-        Arc<McpServerStatusTracker>,
-        impl Feed<Emission = McpSubscribeEmission>,
-        impl Feed<Emission = McpServerBindingRef>,
-    ) {
-        let board = Arc::new(McpNoticeBoard::default());
-        let subscriber_board = Arc::clone(&board);
-        let subscriber = KeyedLatestValueFeed::open(move |outlet| {
-            let id = subscriber_board.attach(outlet);
-            std::future::ready(Ok(move || subscriber_board.detach(id)))
-        })
-        .await
-        .expect("the board's follow succeeds");
-        let mut first_observations = None;
-        let first_observation_feed = KeyedLatestValueFeed::open(|outlet| {
-            first_observations = Some(outlet);
-            std::future::ready(Ok(|| {}))
-        })
-        .await
-        .expect("the follow succeeds");
-        let tracker = Arc::new(McpServerStatusTracker::new(
-            board,
-            first_observations.expect("the follow kept the outlet"),
-        ));
-        (tracker, subscriber, first_observation_feed)
-    }
-
     /// The status notices waiting on `subscriber`, in the order it reads them.
     fn waiting_notices(
         subscriber: &mut impl Feed<Emission = McpSubscribeEmission>,
@@ -483,7 +474,7 @@ mod tests {
     /// from the provider, scope and name alone.
     #[tokio::test]
     async fn a_notice_carries_the_id_of_its_own_binding() {
-        let (tracker, mut subscriber, _first_observation_feed) = tracker_and_subscriber().await;
+        let (tracker, mut subscriber, _first_observation_feed) = open_test_tracker().await;
         let bindings = ["/work/one", "/work/two"].map(|root| {
             serde_json::from_value::<McpServerBindingRef>(serde_json::json!({
                 "provider": "provider-a",
@@ -494,8 +485,8 @@ mod tests {
             .expect("the test writes a binding ref")
         });
 
-        tracker.record_probe(&bindings[0], Failed, None);
-        tracker.record_probe(&bindings[1], Connected, None);
+        tracker.record_probe(&bindings[0], Failed, None, Vec::new());
+        tracker.record_probe(&bindings[1], Connected, None, Vec::new());
 
         let ids: Vec<McpServerBindingId> = waiting_notices(&mut subscriber)
             .into_iter()
@@ -515,6 +506,61 @@ mod tests {
             .collect();
         assert_eq!(ids, expected);
         assert_ne!(ids[0], ids[1]);
+    }
+
+    /// A live leg's tool list outranks the probe's, even a newer one, and a report that lists no
+    /// tools leaves the leg's last list; once the leg retires, the probe's list stands. Killed by
+    /// a report with no list read as an empty one, and by the probe's list outranking a live
+    /// leg's.
+    #[tokio::test]
+    async fn a_live_legs_tool_list_outranks_the_probes_and_a_report_without_one_keeps_it() {
+        let (tracker, _subscriber, _first_observation_feed) = open_test_tracker().await;
+        let provider = ProviderId::new("provider-a".to_owned()).expect("a provider id");
+        let server_name = McpServerName::new("docs".to_owned()).expect("a server name");
+        let binding = McpServerBindingRef::User {
+            provider,
+            server_name: server_name.clone(),
+        };
+        let key = McpBindingKey::of(&binding);
+        let tools = |names: &[&str]| -> Vec<McpToolName> {
+            names
+                .iter()
+                .map(|name| McpToolName::new((*name).to_owned()).expect("a tool name"))
+                .collect()
+        };
+        let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
+        let binding_id = RuntimeBindingId::new("leg-a".to_owned()).expect("a binding id");
+        let sink = tracker.open_leg(session_id, binding_id.clone());
+        let report = |status: McpServerStatus, tool_names: Option<Vec<McpToolName>>| {
+            sink.observe(
+                &binding,
+                McpServerStatusEmission::new(
+                    server_name.clone(),
+                    McpServerReading::Observed(status),
+                    None,
+                    tool_names,
+                ),
+            );
+        };
+
+        tracker.record_probe(&binding, Connected, None, tools(&["probed"]));
+        report(Connected, Some(tools(&["search", "delete"])));
+        assert_eq!(
+            tracker.reading(&key).tool_names,
+            tools(&["search", "delete"])
+        );
+        report(Starting, None);
+        assert_eq!(
+            tracker.reading(&key).tool_names,
+            tools(&["search", "delete"])
+        );
+        tracker.record_probe(&binding, Connected, None, tools(&["reprobed"]));
+        assert_eq!(
+            tracker.reading(&key).tool_names,
+            tools(&["search", "delete"])
+        );
+        tracker.retire_leg(session_id, binding_id);
+        assert_eq!(tracker.reading(&key).tool_names, tools(&["reprobed"]));
     }
 
     // Each case's comment names the mistake it catches. A `sessionFeed` notice carries its leg's
@@ -637,7 +683,7 @@ mod tests {
             provider,
             server_name: server_name.clone(),
         };
-        let (tracker, mut subscriber, _first_observation_feed) = tracker_and_subscriber().await;
+        let (tracker, mut subscriber, _first_observation_feed) = open_test_tracker().await;
 
         let mut sessions: HashMap<&str, SessionId> = HashMap::new();
         let mut sinks: HashMap<&str, Vec<McpLegStatusSink>> = HashMap::new();
@@ -661,7 +707,11 @@ mod tests {
                 Step::Observe(name, scope, reading, failure_text) => {
                     let observed_binding = match scope {
                         Managed => &managed_binding,
-                        _ => &binding,
+                        User
+                        | McpBindingScope::Project
+                        | McpBindingScope::Local
+                        | McpBindingScope::Plugin
+                        | McpBindingScope::Connector => &binding,
                     };
                     sinks
                         .get(name)
@@ -673,6 +723,7 @@ mod tests {
                                 server_name.clone(),
                                 reading,
                                 failure_text.map(str::to_owned),
+                                None,
                             ),
                         );
                 }
@@ -687,7 +738,7 @@ mod tests {
                         .expect("the case opened a sink");
                     drop(sink);
                 }
-                Step::Probe(status) => tracker.record_probe(&binding, status, None),
+                Step::Probe(status) => tracker.record_probe(&binding, status, None, Vec::new()),
             }
             // Read after each step, so each notice is seen before a later one under its key
             // replaces it.

@@ -46,7 +46,8 @@ use crate::driver::claude::session::context_reading::ClaudeContextReadings;
 use crate::driver::claude::session::controls::ClaudeSessionControls;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
 use crate::driver::claude::session::process::ClaudeProcessEnd;
-use crate::driver::claude::session::restart::{ClaudeSessionRestarts, claude_process_exit_of};
+use crate::driver::claude::session::restart::ClaudeSessionRestarts;
+use crate::driver::claude::session::restart::ended_process::claude_process_exit_of;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
@@ -150,6 +151,7 @@ impl ClaudeSessionTask {
             return;
         }
         let observation = &routed.frame.observation;
+        let is_turn_ending = routed.is_turn_ending;
         let (frame_kind, text) = (observation.frame_kind.as_str(), routed.frame.text.as_str());
         services
             .idle_sleep
@@ -166,6 +168,13 @@ impl ClaudeSessionTask {
                 .controls
                 .observe_lead_frame(session_id, frame_kind)
                 .await;
+            if let Some(servers) = observation
+                .handshake
+                .as_ref()
+                .and_then(|handshake| handshake.mcp_servers.as_ref())
+            {
+                live.report_mcp_servers(servers, frame_kind);
+            }
         }
         // A helper's end frees the starts the helper limit held behind it.
         let admitted =
@@ -193,6 +202,11 @@ impl ClaudeSessionTask {
         }
         if let Some(run) = after.context_read {
             services.context_readings.request_read(live, run);
+        }
+        // A server still starting or unread is asked after once per turn, off the session's task.
+        if is_turn_ending && live.is_any_mcp_server_unsettled() {
+            let live = Arc::clone(live);
+            tokio::spawn(async move { live.read_mcp_status().await });
         }
     }
 
@@ -297,13 +311,15 @@ impl ClaudeSessionTask {
         dispatch_delivery(&*start.dispatch, origin, delivery).await;
     }
 
-    // The process is gone: what it held is forgotten, its stream's last rows sent, and its slot
-    // let go unless a close or rewind already took it. An exit nothing asked for restarts the
-    // session; a rewind's fork that took the session keeps what it holds.
+    // The process is gone: its MCP server leg ends, what it held is forgotten, its stream's last
+    // rows sent, and its slot let go unless a close or rewind already took it. An exit nothing
+    // asked for restarts the session; a rewind's fork that took the session keeps what it holds.
     async fn end(&self, end: &ClaudeProcessEnd) {
         let services = &self.services;
         let session_id = self.live.session_id;
         let slots = &services.self_started.start.slots;
+        // Every process end ends its leg, a superseded one's included.
+        self.live.end_mcp_server_leg();
         services.delivery.end_session(&self.stream).await;
         services.streams.remove(&self.stream);
         services

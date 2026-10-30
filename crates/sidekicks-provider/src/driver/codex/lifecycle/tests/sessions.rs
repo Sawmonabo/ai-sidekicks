@@ -29,9 +29,10 @@ use crate::driver::codex::session::side_questions::test_copies::{
 use crate::driver::codex::session::side_questions::wait_for_side_question_answer;
 use crate::driver::codex::session::slots::{CodexSessionSlots, closing_session_refusal};
 use crate::driver::codex::session::state::CodexTurnMessage;
-use crate::driver::codex::session::test_fixture::{
-    RefusedRelaunchStep, TEST_THREAD, TakenRelaunches, turn_completed, turn_reply,
+use crate::driver::codex::session::test_fixture::relaunches::{
+    RefusedRelaunchStep, TakenRelaunches,
 };
+use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed, turn_reply};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
@@ -39,6 +40,7 @@ use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::session_control::CloseSessionParams;
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
+use crate::runtime_binding::resume::ResumeFunctionLegs;
 
 /// How long a close may take before the test counts it as stuck.
 const CLOSE_BOUND: Duration = Duration::from_secs(10);
@@ -482,6 +484,7 @@ async fn a_conversation_not_resumed_in_place_tells_the_queue(#[case] failure: Re
     let relaunches = TakenRelaunches {
         heard: Box::new(drop),
         refused: RefusedRelaunchStep::Nothing,
+        legs: ResumeFunctionLegs::default(),
     };
     assert!(
         parts

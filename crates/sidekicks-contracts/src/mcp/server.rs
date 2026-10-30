@@ -314,6 +314,20 @@ binding_addressed! {
     pub enum McpServerBindingRef in every scope {}
 }
 
+impl McpServerBindingRef {
+    /// The name of the server the binding declares, which every scope carries.
+    pub fn server_name(&self) -> &McpServerName {
+        match self {
+            Self::User { server_name, .. }
+            | Self::Project { server_name, .. }
+            | Self::Local { server_name, .. }
+            | Self::Plugin { server_name, .. }
+            | Self::Connector { server_name, .. }
+            | Self::Managed { server_name, .. } => server_name,
+        }
+    }
+}
+
 literal! {
     /// The `type` of a config-changed notice.
     pub enum McpServerConfigChangedType = "mcp.server.config.changed";
@@ -353,6 +367,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<config::ProviderMcpDeclaration>(),
         Definition::read::<inventory::McpServerLegStatus>(),
         Definition::read::<inventory::McpServerFailedReason>(),
+        Definition::read::<inventory::McpOverrideOrigin>(),
+        Definition::read::<inventory::McpManagedLayer>(),
+        Definition::read::<inventory::McpManagedLayerKind>(),
         Definition::read::<inventory::McpAssignableIdempotencyClass>(),
         Definition::read::<inventory::McpToolOverride>(),
         Definition::read::<inventory::McpToolOverrideFacet>(),

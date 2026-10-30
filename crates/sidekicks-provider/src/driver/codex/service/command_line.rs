@@ -217,10 +217,7 @@ pub(crate) fn compose_codex_service_arguments(input: &CodexServiceCommandLineInp
             CODEX_HOOK_TIMEOUT.as_millis()
         ),
         "features.browser_use=false".to_owned(),
-        format!(
-            "thread_unload_delay_secs={}",
-            CODEX_THREAD_UNLOAD_DELAY.as_secs()
-        ),
+        compose_thread_unload_override(CODEX_THREAD_UNLOAD_DELAY),
         // The session's compaction bound is a share of the whole window, so the limit counts the
         // whole context, Codex's own default, even where a config file chose only what follows
         // the prefix.
@@ -237,6 +234,12 @@ pub(crate) fn compose_codex_service_arguments(input: &CodexServiceCommandLineInp
     .into_iter()
     .chain(overrides.flat_map(|config_override| ["-c".to_owned(), config_override]))
     .collect()
+}
+
+/// The switch that unloads a conversation no client holds `delay` after its last client left, in
+/// whole seconds; a later one on the same command line wins over an earlier one.
+pub(crate) fn compose_thread_unload_override(delay: Duration) -> String {
+    format!("thread_unload_delay_secs={}", delay.as_secs())
 }
 
 /// One hook event's switch, its value written by TOML's own writer so any command text, quotes,

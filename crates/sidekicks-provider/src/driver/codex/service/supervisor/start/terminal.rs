@@ -320,7 +320,7 @@ async fn launch_terminal_service(
             }));
         }
     };
-    let mut overrides = dependencies.additional_config_overrides.clone();
+    let mut overrides = service.launch_config_overrides();
     if let Some(hook_commands) = &hook_commands {
         overrides.extend(hook_commands.config_overrides());
     }

@@ -199,7 +199,7 @@ methods! {
             mutating: false,
             params: McpServerBindingRef,
             result: McpServerReadResponse,
-            refusals: [McpServerNotFound],
+            refusals: [McpServerNotFound, ProviderUnavailable, ProviderTimeout],
         },
         /// Searches the public MCP Registry.
         McpRegistrySearch = query "mcp.registry.search" {

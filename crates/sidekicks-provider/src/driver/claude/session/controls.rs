@@ -591,7 +591,8 @@ impl ClaudeSessionControls {
 /// style it runs with now, on the full id of the model it runs, in `working_directory` where one is
 /// given, its commands reaching `command_channel` where given. The session's own channel stays the
 /// session process's, since it admits only parties under that process, so its variables give way
-/// to `command_channel`'s, and a process given none runs its commands with no channel.
+/// to `command_channel`'s, and a process given none runs its commands with no channel. It reports
+/// its MCP servers on no status leg, since its servers are the session's.
 pub(crate) fn one_turn_legs(
     live: &LiveClaudeSession,
     working_directory: Option<std::path::PathBuf>,
@@ -620,6 +621,7 @@ pub(crate) fn one_turn_legs(
         advisor: settings.advisor,
         output_style: settings.output_style,
         working_directory: working_directory.unwrap_or_else(|| legs.working_directory.clone()),
+        on_mcp_server_status: None,
         ..legs.clone()
     }
 }

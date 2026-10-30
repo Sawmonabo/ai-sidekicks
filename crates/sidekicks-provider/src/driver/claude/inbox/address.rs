@@ -1,13 +1,18 @@
 //! Where the daemon keeps each session's inbox, and its own, so Claude Code answers them: a socket
 //! in Claude Code's default socket folder of each place, or a named pipe on native Windows. Claude
 //! Code sends receipts, idle notices and artifact replies only to a socket in one of its default
-//! folders whose name is shaped like its own, or to a pipe named `cc-msg-<32 hex>`.
+//! folders whose name is shaped like its own, or to a pipe named `cc-msg-<32 hex>`. The driver
+//! answers them over the places the daemon's start registers.
+
+use std::sync::{Arc, OnceLock};
 
 use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::port_registration::PortRegistration;
 
+use crate::driver::ports::SessionPlace;
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
 /// The variable Claude Code puts its socket folder under when it is set and not empty.
@@ -176,6 +181,60 @@ fn socket_folder(environment: &PlaceInboxEnvironment<'_>) -> String {
         "{TEMPORARY_FOLDER}/{SOCKET_FOLDER_NAME}-{}",
         environment.user_id
     )
+}
+
+/// Claude Code's inbox addresses over the places the daemon's start registers, composed once they
+/// are; a POSIX place carries the user id its socket folder names, a native Windows place's pipe
+/// needs none.
+pub(crate) struct ClaudeRegisteredPlacesAddresser {
+    places: Arc<PortRegistration<Arc<[SessionPlace]>>>,
+    addresser: OnceLock<ClaudeSessionInboxAddresser>,
+}
+
+impl ClaudeRegisteredPlacesAddresser {
+    /// The addresser over the places registered on `places`, until then answering every place as
+    /// one the start did not list.
+    pub(crate) fn new(places: Arc<PortRegistration<Arc<[SessionPlace]>>>) -> Self {
+        Self {
+            places,
+            addresser: OnceLock::new(),
+        }
+    }
+
+    fn answer<T>(&self, answer: impl FnOnce(&ClaudeSessionInboxAddresser) -> T) -> T {
+        if let Some(addresser) = self.addresser.get() {
+            return answer(addresser);
+        }
+        let Some(places) = self.places.port() else {
+            return answer(&ClaudeSessionInboxAddresser::new(std::iter::empty()));
+        };
+        answer(self.addresser.get_or_init(|| {
+            ClaudeSessionInboxAddresser::new(places.iter().filter_map(|place| {
+                let user_id = place.user_id?;
+                Some((
+                    place.place.clone(),
+                    PlaceInboxEnvironment {
+                        login_shell: &place.login_shell,
+                        user_id,
+                    },
+                ))
+            }))
+        }))
+    }
+}
+
+impl SessionInboxAddresser for ClaudeRegisteredPlacesAddresser {
+    fn session_inbox_address(
+        &self,
+        session_id: &SessionId,
+        place: Option<&Place>,
+    ) -> FilesystemPath {
+        self.answer(|addresser| addresser.session_inbox_address(session_id, place))
+    }
+
+    fn daemon_inbox_address(&self, place: Option<&Place>) -> FilesystemPath {
+        self.answer(|addresser| addresser.daemon_inbox_address(place))
+    }
 }
 
 #[cfg(test)]

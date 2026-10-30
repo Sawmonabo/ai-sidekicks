@@ -152,6 +152,8 @@ pub(crate) async fn stop_work(
     {
         failures.push(failure.into());
     }
+    // Ends a fill under way, whose reads run on the drivers.
+    drop(process.mcp_attribution_fills.take());
     // Before the attachments and the drivers, so no run is admitted or delivered past here.
     if let Some(session) = &process.session {
         session.queue.stop().await;
@@ -269,22 +271,50 @@ pub(crate) async fn stop_work(
 }
 
 /// Closes everything that holds a file in the data folder: lets the session and repository
-/// services go, then closes the database file within what is left of the drain bound, ends the
-/// crash monitor, waiting for its exit, and removes its socket from the run folder, then lets the
-/// data folder's lock go last. Answers each step's failure, every step having run.
+/// services go, then, within what is left of the drain bound, ends the MCP first-observation drain
+/// and waits for it, ending it where it stands past the bound, and closes the database file,
+/// ends the crash monitor, waiting for its exit, and removes its socket from the run folder, then
+/// lets the data folder's lock go last. Answers each step's failure, every step having run.
 pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<DaemonStopFailure> {
     let mut failures = Vec::new();
-    // Their pools and writer handles go before the file closes.
-    drop(process.session.take());
-    drop(process.repo.take());
-    if let Some(database) = process.database.take() {
-        let remaining = DAEMON_STOP_DRAIN_BOUND.saturating_sub(
+    let remaining = || {
+        DAEMON_STOP_DRAIN_BOUND.saturating_sub(
             process
                 .stop_started
                 .map_or(Duration::ZERO, |started| started.elapsed()),
-        );
+        )
+    };
+    let mut session = process.session.take();
+    let mcp_first_observations = session.as_mut().and_then(|session| {
+        // Ended here, since the tracker outlives the session services: the provider port holds it.
+        session.mcp_status.end_first_observations();
+        session.mcp_first_observations.take()
+    });
+    // Their pools and writer handles go before the file closes.
+    drop(session);
+    drop(process.repo.take());
+    // Before the file closes, since the drain writes through its writer.
+    if let Some(mut drain) = mcp_first_observations {
+        let ended = match tokio::time::timeout(remaining(), &mut drain).await {
+            Ok(ended) => ended,
+            Err(_elapsed) => {
+                drain.abort();
+                drain.await
+            }
+        };
+        if let Err(error) = ended {
+            failures.push(
+                TaskStopFailure {
+                    task: "MCP first-observation drain",
+                    error,
+                }
+                .into(),
+            );
+        }
+    }
+    if let Some(database) = process.database.take() {
         failures.extend(
-            close_database_file(database, remaining, process.has_stop_failed)
+            close_database_file(database, remaining(), process.has_stop_failed)
                 .await
                 .into_iter()
                 .map(DaemonStopFailure::from),

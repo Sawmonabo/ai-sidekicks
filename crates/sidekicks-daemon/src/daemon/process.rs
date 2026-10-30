@@ -7,6 +7,7 @@ mod crash_monitor;
 pub(crate) mod damage_gate;
 pub(crate) mod database;
 pub(crate) mod jobs;
+mod mcp_attribution;
 mod method_inputs;
 pub(crate) mod method_tables;
 mod projections;
@@ -88,6 +89,7 @@ use crate::daemon::process::crash_monitor::CrashMonitor;
 use crate::daemon::process::damage_gate::DispatchDamageWatch;
 use crate::daemon::process::database::{DatabaseFile, DatabaseFileStart, open_database_file};
 use crate::daemon::process::jobs::{IdleMemoryCollect, JobDeps, schedule_jobs};
+use crate::daemon::process::mcp_attribution::McpAttributionFills;
 use crate::daemon::process::method_inputs::{
     MethodInputsStart, device_id_of, register_method_inputs,
 };
@@ -180,6 +182,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) providers: Option<Providers>,
     /// The providers' first capability reads, ended by the stop before the drivers.
     pub(crate) providers_registration: Option<ProvidersRegistration>,
+    /// The MCP attribution table's fills, ended by the stop before the drivers.
+    pub(crate) mcp_attribution_fills: Option<McpAttributionFills>,
     /// The repository services, whose watch, fetches and askpass broker the stop ends.
     pub(crate) repo: Option<RepoServices>,
     /// The repository services' background work, ended by the stop before the scheduler.
@@ -252,6 +256,7 @@ impl DaemonProcess {
             in_flight: None,
             providers: None,
             providers_registration: None,
+            mcp_attribution_fills: None,
             repo: None,
             repo_attachments: None,
             session: None,
@@ -585,6 +590,7 @@ impl DaemonProcess {
         self.workspace_work = Some(inputs.workspace_work);
         // Before the socket serves, so no creation is under way.
         settle_interrupted_creations(self.worktree_creator.insert(inputs.worktree_creator)).await;
+        let mcp_inventory = inputs.mcp_inventory;
         let session = self.session.insert(inputs.session);
         let queue = Arc::clone(&session.queue);
         let caller_check = CallerCheck::new(
@@ -694,6 +700,18 @@ impl DaemonProcess {
             () = self.work_stop.cancelled() => {}
         }
         self.check_stop("waiting for the providers' first reads")?;
+        // After the first reads, so each provider's read joins what its start runs.
+        self.mcp_attribution_fills = Some(McpAttributionFills::start(
+            mcp_inventory,
+            Arc::clone(
+                &self
+                    .repo
+                    .as_ref()
+                    .expect("the repository services are built before their work begins")
+                    .mounts,
+            ),
+            self.work_stop.clone(),
+        ));
         // Once the drivers are read, the runs a stop left waiting are delivered again.
         for (session_id, error) in queue
             .recover()

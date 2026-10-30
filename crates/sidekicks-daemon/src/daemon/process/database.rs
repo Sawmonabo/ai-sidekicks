@@ -26,6 +26,7 @@ use sidekicks_approval::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 use sidekicks_artifact::plans::service::PLANS_STATEMENT_CAPACITY;
 use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_mcp::binding::store::MCP_BINDING_STORE_STATEMENT_CAPACITY;
 use sidekicks_platforms::DaemonRunFolder;
 use sidekicks_provider::driver::DRIVERS_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::capabilities::writer::DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY;
@@ -177,6 +178,7 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + INTERVENTION_SERVICE_STATEMENT_CAPACITY
     + LIVE_RUN_BINDINGS_STATEMENT_CAPACITY
     + MACHINE_REGISTRY_STATEMENT_CAPACITY
+    + MCP_BINDING_STORE_STATEMENT_CAPACITY
     + MOUNT_OCCUPANCY_STATEMENT_CAPACITY
     + OUTBOX_STATEMENT_CAPACITY
     + PLANS_STATEMENT_CAPACITY

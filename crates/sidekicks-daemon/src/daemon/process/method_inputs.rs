@@ -19,6 +19,12 @@ use sidekicks_contracts::wire::text::{BoundedText, TextError};
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
+use sidekicks_mcp::binding::resolver::McpAttributionTable;
+use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
+use sidekicks_mcp::inventory_service::{McpInventoryService, McpInventorySources};
+use sidekicks_mcp::status::McpServerStatusTracker;
+use sidekicks_mcp::status::machine_probe::McpMachineProbeGate;
+use sidekicks_mcp::status::notices::McpNoticeBoard;
 use sidekicks_platforms::{
     DaemonRunFolder, Spawner, TOOL_MEMORY_CAP_ENFORCEABLE, WallClock, available_memory,
     physical_memory, read_process_peak_bytes,
@@ -50,6 +56,7 @@ use sidekicks_std::error_description::describe_error;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_std::scheduler::Scheduler;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::credential_store::items::SecretItems;
 use sidekicks_store::machine::identity_key::MachineIdentity;
 use sidekicks_store::machine::local::LocalMachine;
@@ -102,6 +109,7 @@ use crate::data_acts::export::{DataExportDeps, DataExports};
 use crate::ipc::handlers::agent::command::CommandMethodSources;
 use crate::ipc::handlers::approval::ApprovalMethodSources;
 use crate::ipc::handlers::driver::DriverMethodSources;
+use crate::ipc::handlers::mcp::McpMethodSources;
 use crate::ipc::handlers::run::control::RunControlServices;
 use crate::ipc::handlers::run::queue::RunQueueMethods;
 use crate::ipc::handlers::session::controls::SessionControlMethods;
@@ -207,6 +215,8 @@ pub(crate) struct MethodInputs {
     pub(crate) attention: Arc<AttentionService>,
     /// The workspace services' work, which the start begins once the recovery pass has ended.
     pub(crate) workspace_work: WorkspaceWork,
+    /// The MCP server inventory, whose fills of the attribution table the start begins.
+    pub(crate) mcp_inventory: Arc<McpInventoryService>,
 }
 
 /// Why the method tables' services could not be built.
@@ -307,6 +317,17 @@ pub(crate) async fn register_method_inputs(
         Arc::clone(&providers.runtime_bindings),
         Arc::clone(&epochs),
     ));
+    let mcp_binding_store = McpBindingStore::new(Arc::clone(&writer), Arc::clone(&reads));
+    // The status tracker sends each binding it first observes to the drain, which records it.
+    let (first_observations, mcp_first_observations) =
+        open_first_observation_drain(mcp_binding_store.clone()).await;
+    let mcp_notice_board = Arc::new(McpNoticeBoard::default());
+    // One table, so the inventory's reads refresh what the status producers resolve names by.
+    let mcp_attribution = Arc::new(McpAttributionTable::default());
+    let mcp_status = Arc::new(McpServerStatusTracker::new(
+        Arc::clone(&mcp_notice_board),
+        first_observations,
+    ));
     let port = build_provider_port(ProviderPortStart {
         reads: Arc::clone(&reads),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
@@ -315,7 +336,20 @@ pub(crate) async fn register_method_inputs(
         settings: Arc::clone(&settings_reader),
         plan_holds: plan_holds.as_ref(),
         ports: &providers.ports,
+        mcp_status: Arc::clone(&mcp_status),
+        mcp_attribution: Arc::clone(&mcp_attribution),
     })?;
+    let mcp_inventory = Arc::new(McpInventoryService::new(McpInventorySources {
+        providers: Arc::clone(&registry),
+        reads: Arc::clone(&reads),
+        // The accounts read's time on the pool, over the daemon's life.
+        meter: ProcessorMeter::default(),
+        projects: Arc::clone(&port.project_records),
+        store: mcp_binding_store,
+        tracker: Arc::clone(&mcp_status),
+        attribution: mcp_attribution,
+        probe_gate: Arc::new(McpMachineProbeGate::default()),
+    }));
     let worktree_sources = Arc::new(WorktreeSources {
         reads: Arc::clone(&reads),
         records: Arc::clone(&port.project_records),
@@ -422,6 +456,8 @@ pub(crate) async fn register_method_inputs(
         provider_accounts: Arc::clone(&providers.ports.provider_accounts),
         token_limits: Arc::new(token_limits),
         scheduler: Arc::clone(&scheduler),
+        mcp_status,
+        mcp_first_observations: mcp_first_observations.boxed(),
     })?;
     let shells = Arc::new(
         build_shell_table(ShellTableStart {
@@ -650,6 +686,11 @@ pub(crate) async fn register_method_inputs(
                 read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
             },
             event_log: Arc::clone(&database.event_log),
+            mcp_methods: McpMethodSources {
+                log: Arc::clone(&database.event_log),
+                board: mcp_notice_board,
+                inventory: Arc::clone(&mcp_inventory),
+            },
             run_safety_holds: Arc::clone(&session.run_safety_holds),
             sessions: Arc::clone(&session.sessions),
             drafts: Arc::clone(&session.drafts),
@@ -706,6 +747,7 @@ pub(crate) async fn register_method_inputs(
         presence,
         attention,
         workspace_work: workspace.work,
+        mcp_inventory,
     })
 }
 

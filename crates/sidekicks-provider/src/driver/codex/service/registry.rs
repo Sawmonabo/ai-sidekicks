@@ -5,7 +5,10 @@
 //! terminal's plain `codex` joins, except for a planned restart's second service, which takes a
 //! socket of its own beside it under a name no daemon start reuses, the home's socket then pointed
 //! at it. The capability read runs one short-lived service of its own on an empty folder, which
-//! the registry never holds.
+//! the registry never holds, and a read on the person's own folder with no fitting service there
+//! runs one on a socket of its own beside it.
+
+pub(crate) mod personal_folder_read;
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -73,6 +76,9 @@ struct RegisteredServices {
     // Services that left their home and are ending, so a shutdown meanwhile stops them too: those a
     // planned restart took over from until they are retired, and the one the switch-off stops.
     replaced: Vec<Arc<CodexService>>,
+    // Services started for one read on the person's own Codex folder, held until stopped so a
+    // shutdown meanwhile stops them too.
+    transient: Vec<Arc<CodexService>>,
 }
 
 impl CodexServiceRegistry {
@@ -122,6 +128,7 @@ impl CodexServiceRegistry {
                     },
                     kind,
                     Arc::clone(&self.dependencies),
+                    Vec::new(),
                 );
                 Arc::clone(slot.insert(service))
             }
@@ -151,6 +158,7 @@ impl CodexServiceRegistry {
             },
             CodexServiceKind::Account,
             Arc::clone(&self.dependencies),
+            Vec::new(),
         ))
     }
 
@@ -333,6 +341,7 @@ impl CodexServiceRegistry {
             },
             CodexServiceKind::Terminal,
             Arc::clone(&self.dependencies),
+            Vec::new(),
         );
         if let Err(error) = replacement
             .ensure_started(self.dependencies.startup_timeout)
@@ -402,7 +411,14 @@ impl CodexServiceRegistry {
         let services: Vec<Arc<CodexService>> = {
             let mut services = self.lock();
             let replaced = std::mem::take(&mut services.replaced);
-            services.by_home.values().cloned().chain(replaced).collect()
+            let transient = std::mem::take(&mut services.transient);
+            services
+                .by_home
+                .values()
+                .cloned()
+                .chain(replaced)
+                .chain(transient)
+                .collect()
         };
         join_all(services.iter().map(|service| service.shutdown(intent))).await;
         match intent {

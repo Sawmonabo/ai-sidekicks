@@ -26,7 +26,7 @@ use crate::callback_tools::spawn_binding::{
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
-use crate::driver::claude::session::establishment::ClaudeSpawnSources;
+use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::posture::{digest_output_schema, find_posture_divergence};
 use crate::driver::claude::session::settings_file::ClaudeSettingsFileError;
 use crate::driver::claude::session::state::{ClaudeSpawnBinding, LiveClaudeSession};
@@ -38,7 +38,7 @@ use crate::driver::claude::spawn::environment::{
 };
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::params_and_results::StartRunParams;
-use crate::driver::mcp_server_status::McpServerStatusProducer;
+use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::run::posture::{
     CURATED_CREDENTIAL_POLICY_REF, CredentialPolicyResolveError, ExecutionPostureService,

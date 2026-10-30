@@ -42,7 +42,7 @@ use crate::port::permission_ask::test_port::RecordedAsks;
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
 use crate::run::delivery::LateAppendableRow;
 use crate::run::posture::compose_execution_posture;
-use crate::runtime_binding::resume::{ResumeFunctionLegs, compose_resume_session_params};
+use crate::runtime_binding::resume::compose_resume_session_params;
 use crate::runtime_binding::store::{
     RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStore, mint_runtime_binding_id,
     read_binding,
@@ -93,7 +93,6 @@ fn resume_params(
         ),
         Vec::new(),
         ProviderRowValues::default(),
-        ResumeFunctionLegs::default(),
         Vec::new(),
         live_runs,
     )

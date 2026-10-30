@@ -23,13 +23,16 @@ use sidekicks_provider::driver::session_control::{
     LiveRunResume, OpenTurnResume, ProviderTurnAnswer, ResumedRunAnswer,
 };
 use sidekicks_provider::driver::test_registry::new_run_id;
+use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
 use sidekicks_session::idle_sleep::openings::SessionProcessWaker;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
+use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use tokio::time::timeout;
 
-use super::{Opening, WAIT};
+use super::{Opening, READ_STATEMENT_CAPACITY, WAIT};
 use crate::provider_session::resumed_runs::ResumedRuns;
 
 /// The recurring job the wake's test stores for the session.
@@ -374,5 +377,46 @@ async fn a_wake_resumes_a_sleeping_session_once_with_its_kept_schedules() {
         opening.following.followed(),
         vec![opening.session_id],
         "the idle sleep follows the woken session awake"
+    );
+}
+
+// A stored resume, as a wake after a daemon restart composes one, and a side question's source
+// open no status leg, since the driver that resumes asks the session directory for its own legs and
+// the copy runs under no binding of the session's; only the queue's own relaunch opens the legs of
+// the binding it hands its process. A leg opened by the compose would be retired by its drop,
+// taking the woken process's leg on the same binding with it. Killed by the compose opening the
+// legs of the binding it composes for.
+#[tokio::test]
+async fn only_a_relaunch_opens_status_legs_and_a_composed_resume_opens_none() {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |_, _| {}).await;
+    let pool = DatabaseReadPool::new(opening.database.path(), READ_STATEMENT_CAPACITY);
+    let leg = read_session_leg(&pool, opening.session_id)
+        .await
+        .expect("the leg reads")
+        .expect("the session ran");
+
+    let stored = opening
+        .sessions
+        .compose_resume(opening.session_id, &leg, mint_runtime_binding_id())
+        .await
+        .expect("the stored resume composes");
+    let side_question = opening
+        .sessions
+        .side_question_source(opening.session_id)
+        .await
+        .expect("the side question's source composes")
+        .expect("the session ran");
+
+    assert!(stored.params.on_mcp_server_status.is_none());
+    assert!(side_question.resume.on_mcp_server_status.is_none());
+    assert_eq!(lock(&opening.handed_ids).len(), 0, "a compose opened legs");
+    timeout(WAIT, opening.sessions.wake_process(opening.session_id))
+        .await
+        .expect("the wake takes its own lock once")
+        .expect("the conversation resumes");
+    assert_eq!(
+        lock(&opening.handed_ids).len(),
+        1,
+        "the relaunch opens its binding's legs"
     );
 }

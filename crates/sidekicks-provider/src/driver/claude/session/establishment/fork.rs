@@ -1,10 +1,13 @@
 //! A fork of a session's conversation at a recorded turn, adopted in place of the process it
 //! forks: the conversation is cut at the turn's end and the next turn's prompt dropped, the fork
-//! brought up on the predecessor's legs, the session's binding pointed at it, and the predecessor
-//! stopped. A fork that cannot be brought up or adopted leaves the predecessor the session's.
+//! brought up on the predecessor's legs but for a tool-server status leg of its own, the session's
+//! binding pointed at it, and the predecessor stopped. A fork that cannot be brought up or adopted
+//! leaves the predecessor the session's.
 
+use std::error::Error;
 use std::sync::Arc;
 
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -28,7 +31,8 @@ use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
 use crate::left_conversations::LeftConversation;
-use crate::runtime_binding::store::RuntimeBindingRebind;
+use crate::runtime_binding::resume::ResumeFunctionLegs;
+use crate::runtime_binding::store::{RuntimeBindingRebind, mint_runtime_binding_id};
 
 impl ClaudeSessionEstablishment {
     /// Forks `predecessor`'s conversation at the turn `params` names and moves the session onto
@@ -59,6 +63,17 @@ impl ClaudeSessionEstablishment {
             Ok(step_bound) => step_bound,
             Err(error) => return Ok(degraded("rewind-adoption-failed", &describe_error(&error))),
         };
+        // The fork reports its tool servers on a leg of its own, under a binding minted for it,
+        // never on the predecessor's, which ends with the predecessor.
+        let fork_legs = match self.open_fork_legs(session_id).await {
+            Ok(fork_legs) => fork_legs,
+            Err(error) => {
+                return Ok(degraded(
+                    "rewind-adoption-failed",
+                    &describe_error(error.as_ref()),
+                ));
+            }
+        };
         let settings = lock(&predecessor.settings).clone();
         // The predecessor's own legs, at the level, model, advisor and style it runs with now.
         let legs = ClaudeSpawnBoundLegs {
@@ -66,6 +81,7 @@ impl ClaudeSessionEstablishment {
             model: settings.running_model.clone(),
             advisor: settings.advisor.clone(),
             output_style: settings.output_style.clone(),
+            on_mcp_server_status: fork_legs.on_mcp_server_status,
             ..predecessor.spawn_bound_legs.clone()
         };
         let forked_provider_session_id = mint_uuid_v7().to_string();
@@ -188,6 +204,18 @@ impl ClaudeSessionEstablishment {
             .await
             .map_err(ClaudeSpawnContextError::Place)?;
         Ok(context.step_bound)
+    }
+
+    // The legs the session directory answers for a fork of `session_id` under a binding minted
+    // for it. Fails as the directory is not registered or cannot answer them.
+    async fn open_fork_legs(
+        &self,
+        session_id: SessionId,
+    ) -> Result<ResumeFunctionLegs, Box<dyn Error + Send + Sync>> {
+        let listener = self.sources.ports.session_relaunched.require_port()?;
+        listener
+            .open_relaunch_legs(session_id, mint_runtime_binding_id())
+            .await
     }
 
     // Points the session's binding at the conversation it moved onto.

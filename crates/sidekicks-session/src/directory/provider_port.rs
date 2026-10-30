@@ -1,8 +1,10 @@
 //! The session directory's answer to the provider side: where and as whom each of a session's
 //! provider processes runs and the folder its runs work in, what its provider session opens with,
-//! and the binding each resume a driver started on its own minted. The lead is read from the
-//! session's log; a session opens and resumes at the permission level stored on it, at the posture
-//! that level runs at in the session's repository.
+//! the binding each resume a driver started on its own minted, and the function legs each
+//! process is handed. The lead is read from the session's log; a session opens and resumes at the
+//! permission level stored on it, at the posture that level runs at in the session's repository.
+
+pub mod function_legs;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -25,6 +27,8 @@ use sidekicks_contracts::repo::mount::WorkspaceState;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::TextError;
+use sidekicks_mcp::binding::resolver::McpAttributionTable;
+use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
 use sidekicks_provider::driver::session_control::{CreateSessionParams, DriverResumeResult};
 use sidekicks_provider::driver::{
@@ -33,6 +37,7 @@ use sidekicks_provider::driver::{
 };
 use sidekicks_provider::left_conversations::LeftConversation;
 use sidekicks_provider::run::posture::compose_execution_posture;
+use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_provider::runtime_binding::store::{
     RuntimeBindingRelaunch, RuntimeBindingStoreError,
 };
@@ -57,6 +62,8 @@ use crate::permission_level::read_session_permission_level;
 use crate::run::agent::{SessionLead, read_session_lead};
 use crate::run::binding_cursors::{RunBindingCursorError, RunBindingCursors};
 use crate::run::stored_leg::read_session_leg;
+
+use self::function_legs::SessionFunctionLegsFor;
 
 /// The statements the port prepares on a pooled connection: the lead, the working folder, the run
 /// folder, the level, the mode, the step bound, the advisor, and the session's run ids and their
@@ -152,6 +159,9 @@ pub enum SessionDirectoryProviderPortError {
     /// The session's bindings could not be read.
     #[error(transparent)]
     Bindings(#[from] RuntimeBindingStoreError),
+    /// The session's project root is no path its MCP servers can be attributed at.
+    #[error("the session's project root is no path its MCP servers can be attributed at")]
+    McpRootPath(#[source] TextError),
 }
 
 /// Why a session's git folder is unavailable, each answered as a refusal rather than a fault.
@@ -177,7 +187,7 @@ pub enum SessionGitFolder {
 }
 
 /// What a session's provider session opens with, composed from its lead as the session's log and
-/// records stand now; the caller binds its function legs to the binding it mints.
+/// records stand now, and the function legs of each binding the caller mints for it.
 pub struct SessionProviderOpening {
     /// The provider the lead runs on.
     pub provider: ProviderId,
@@ -185,6 +195,8 @@ pub struct SessionProviderOpening {
     pub git_folder: FilesystemPath,
     /// The create's data legs, its posture the one of the level the session stands at.
     pub create_params: CreateSessionParams,
+    /// The function legs of each binding the session's processes run under.
+    pub function_legs_for: SessionFunctionLegsFor,
 }
 
 /// What [`SessionDirectoryProviderPort`] reads and records through.
@@ -205,6 +217,10 @@ pub struct SessionDirectoryProviderPortDeps {
     pub project_records: Arc<ProjectRecords>,
     /// The folders of the account a process runs on, read through the port its owner registers.
     pub provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    /// The keeper of every MCP binding's status, on which each process's leg is opened.
+    pub mcp_status: Arc<McpServerStatusTracker>,
+    /// Which binding each server name a session reports resolves to at its root.
+    pub mcp_attribution: Arc<McpAttributionTable>,
 }
 
 /// The session directory's reads and records that the provider side calls: the spawn context of
@@ -231,8 +247,9 @@ impl SessionDirectoryProviderPort {
     /// What `session_id`'s provider session opens with on `provider_account_id`'s account: its
     /// lead's provider, the model it runs on now and the effort, output speed, options and larger
     /// window its binding names, at the posture of the level it stands at, in the mode it was last
-    /// moved to, with the row values set in the app for that provider. Fails for a session with no
-    /// lead or no workspace, and as the reads, git or the settings file fail.
+    /// moved to, with the row values set in the app for that provider, and each binding's function
+    /// legs. Fails for a session with no lead or no workspace, as the reads, git or the settings
+    /// file fail, and when its project root is no path.
     pub async fn compose_opening(
         &self,
         session_id: SessionId,
@@ -249,6 +266,9 @@ impl SessionDirectoryProviderPort {
             running_model,
         } = lead;
         let row_values = row_values_of(&standing.provider_settings, &binding.provider_name);
+        let function_legs_for = self
+            .compose_function_legs(session_id, binding.provider_name.clone())
+            .await?;
         Ok(SessionProviderOpening {
             git_folder: standing.git_folder,
             create_params: CreateSessionParams {
@@ -275,6 +295,7 @@ impl SessionDirectoryProviderPort {
                 on_mcp_server_status: None,
             },
             provider: binding.provider_name,
+            function_legs_for,
         })
     }
 
@@ -602,16 +623,30 @@ impl SessionSpawnContextResolver for SessionDirectoryProviderPort {
 
 impl SessionRelaunchListener for SessionDirectoryProviderPort {
     /// Opens the binding's cursor where the session's leg's stands and keeps it, with that leg,
-    /// for the relaunch's result. Fails as the cursor's open fails.
+    /// for the relaunch's result, and answers the binding's function legs, composed as an
+    /// opening's are. Fails as the reads or the cursor's open fail.
     fn open_relaunch_binding(
         &self,
         session_id: SessionId,
         binding_id: RuntimeBindingId,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn Error + Send + Sync>>> {
         async move {
-            self.deps
-                .binding_cursors
-                .open_driver_relaunch(session_id, binding_id)
+            self.open_relaunch(session_id, binding_id)
+                .await
+                .map_err(Into::into)
+        }
+        .boxed()
+    }
+
+    /// Answers the binding's function legs, composed as an opening's are, with no cursor opened.
+    /// Fails as the reads fail.
+    fn open_relaunch_legs(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.compose_relaunch_legs(session_id, binding_id)
                 .await
                 .map_err(Into::into)
         }

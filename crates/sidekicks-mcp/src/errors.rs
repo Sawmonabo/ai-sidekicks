@@ -13,13 +13,12 @@ use sidekicks_contracts::mcp::governance::McpServerConfigWriteConflictReason;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 
-use crate::binding_store::McpBindingKey;
+use crate::binding::store::McpBindingKey;
 
 /// Why a write to a provider's own config lost to a concurrent edit, with what each reason
 /// carries; its reason is the detail's `reason`.
-#[expect(dead_code, reason = "the mcp.* handlers refuse through it")]
 #[derive(Debug)]
-pub(crate) enum McpConfigWriteConflict {
+pub enum McpConfigWriteConflict {
     /// The provider refused the write's expected version as stale; both versions go back so the
     /// caller can read the config again.
     StaleVersion {
@@ -34,9 +33,8 @@ pub(crate) enum McpConfigWriteConflict {
 }
 
 /// A refusal of an `mcp.*` call, converted into the reply's error by its code.
-#[expect(dead_code, reason = "the mcp.* handlers refuse through it")]
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum McpRefusal {
+pub enum McpRefusal {
     /// The binding store cannot be reached, so every MCP change fails closed, changing nothing.
     #[error("the MCP binding store cannot be reached, so no MCP change can be made until it can")]
     BindingStoreUnavailable {
@@ -93,11 +91,7 @@ pub(crate) enum McpRefusal {
 impl From<McpRefusal> for DomainError {
     fn from(refusal: McpRefusal) -> Self {
         let message = refusal.to_string();
-        let (code, detail, source): (
-            _,
-            Option<Map<String, Value>>,
-            Option<Box<dyn Error + Send + Sync>>,
-        ) = match refusal {
+        let (code, detail, source) = match refusal {
             McpRefusal::BindingStoreUnavailable { source } => {
                 (RefusalCode::McpBindingStoreUnavailable, None, Some(source))
             }

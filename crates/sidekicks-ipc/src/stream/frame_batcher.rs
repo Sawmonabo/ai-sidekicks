@@ -118,14 +118,13 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
     /// opens closes or the `STREAM_FRAME_MAX_CHANGES`th change is signaled; false when the signal
     /// was gone before any change came.
     async fn wait_for_window(&mut self) -> bool {
-        let window_end = match self.window_end {
-            Some(window_end) => window_end,
-            None => {
-                if self.change_count.changed().await.is_err() {
-                    return false;
-                }
-                *self.window_end.insert(Instant::now() + STREAM_WINDOW)
+        let window_end = if let Some(window_end) = self.window_end {
+            window_end
+        } else {
+            if self.change_count.changed().await.is_err() {
+                return false;
             }
+            *self.window_end.insert(Instant::now() + STREAM_WINDOW)
         };
         loop {
             let signaled = self

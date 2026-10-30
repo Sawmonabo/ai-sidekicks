@@ -92,6 +92,9 @@ pub enum DriverDiagnosticKind {
     /// A provider command entry broke the contract's bounds; it is dropped and its siblings are
     /// unaffected.
     ProviderCommandEntryRejected,
+    /// A tool server's status the provider reported broke the bound its reader puts it through,
+    /// so the server's row keeps its last reading.
+    McpServerStatusRejected,
     /// A declared output-speed state broke the bounds, so the binding reads as unobserved until
     /// the provider declares another. Details carry the field and lengths, never untrusted values.
     OutputSpeedStateRejected,
@@ -191,6 +194,7 @@ impl DriverDiagnosticKind {
             Self::SupersededRunReportFailed => "driver.session.supersededRunReportFailed",
             Self::CompactionWaitTerminal => "driver.compaction.waitTerminal",
             Self::ProviderCommandEntryRejected => "driver.providerCommands.entryRejected",
+            Self::McpServerStatusRejected => "driver.mcpServerStatus.rejected",
             Self::OutputSpeedStateRejected => "driver.outputSpeed.stateRejected",
             Self::OutputSpeedApplyRefused => "driver.outputSpeed.applyRefused",
             Self::McpTaskHandleWriteRefused => "driver.mcpTaskHandle.writeRefused",

@@ -2,28 +2,29 @@
 //! session resumes after its crash window's next wait, or, once the window fills, the restarts stop
 //! and the person is told. A new provider build relaunches each session the same way, an idle one
 //! at once and a busy one when its turn settles. Until a relaunch has composed its start, the
-//! ended process's settings are held, so a level or mode moved meanwhile starts with it.
+//! ended process's settings are held, so a level or mode moved meanwhile starts with it. What an
+//! ended process leaves is in `ended_process`, and the resume that brings it back in `relaunch`.
+
+pub(crate) mod ended_process;
 
 mod relaunch;
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::SystemTime;
 
 use futures::future::join_all;
 use serde_json::json;
-use sidekicks_contracts::command::ExitCode;
-use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode};
+use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::settle_all::settle_all;
 use tokio::sync::SetOnce;
 use tokio_util::task::AbortOnDropHandle;
 
+use self::ended_process::{ClaudeEndedConversation, ended_conversation_of};
 use self::relaunch::compose_claude_relaunch;
 use crate::crash_window::{CrashOutcome, CrashWindow};
 use crate::driver::claude::DESCRIPTOR;
@@ -33,21 +34,18 @@ use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::establishment::{
     ClaudeResumeAnswer, ClaudeSessionEstablishment,
 };
-use crate::driver::claude::session::process::ClaudeProcessEnd;
 use crate::driver::claude::session::slots::{
     ClaudeCloseStart, ClaudeSessionSlots, ClaudeSlotClose,
 };
 use crate::driver::claude::session::state::{
     ClaudeLiveSettings, ClaudeSlotSettled, LiveClaudeSession,
 };
-use crate::driver::contract::error::{DriverError, bound_failure_detail};
+use crate::driver::contract::error::DriverError;
 use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::driver::error_causes::{
-    UNSPECIFIED_PROVIDER_FAILURE_DETAIL, session_process_unavailable,
-};
+use crate::driver::error_causes::session_process_unavailable;
 use crate::driver::ports::DriverPorts;
 use crate::driver::session_control::{
     DriverResumeResult, ProviderBuildChange, ResumeSessionParams,
@@ -111,15 +109,6 @@ impl Drop for ClaudeHeldStageLeft {
     fn drop(&mut self) {
         drop(self.0.set(()));
     }
-}
-
-/// The conversation an ended process wrote, where its file is found again.
-#[derive(Clone, Debug)]
-pub(crate) struct ClaudeEndedConversation {
-    /// Claude Code's id of the conversation.
-    pub(crate) provider_session_id: String,
-    /// The environment the process ran in, which names its Claude Code home.
-    pub(crate) spawn_environment: Vec<(String, String)>,
 }
 
 /// Every Claude Code session's restarts after an exit, and its moves to a new build.
@@ -747,30 +736,5 @@ impl ClaudeSessionRestarts {
             session_id,
             settled,
         }
-    }
-}
-
-// Where the file of the conversation `live`'s process wrote is found again.
-fn ended_conversation_of(live: &LiveClaudeSession) -> ClaudeEndedConversation {
-    ClaudeEndedConversation {
-        provider_session_id: live.provider_session_id.clone(),
-        spawn_environment: live.spawn_bound_legs.spawn_environment.clone(),
-    }
-}
-
-/// The exit a process's end crosses the wire with: a wait that failed reads as code 0, its error
-/// the output tail, since the process is gone either way.
-pub(crate) fn claude_process_exit_of(end: &ClaudeProcessEnd) -> ProcessExit {
-    match end {
-        Ok(exit) => exit.clone(),
-        Err(error) => ProcessExit::Code(ProcessExitWithCode {
-            exit_code: ExitCode::new(0).expect("zero is a safe integer"),
-            signal: None,
-            silent_seconds: None,
-            output_tail: bound_failure_detail(
-                &describe_error(&**error as &(dyn Error + 'static)),
-                UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
-            ),
-        }),
     }
 }
