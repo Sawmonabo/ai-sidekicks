@@ -165,8 +165,9 @@ const ROOT_FREE_SCOPES: [McpBindingScope; 4] = [
 /// a session in no root, the provider's root-free bindings. It sits behind a lock taken only for
 /// a lookup or a replacement, never across an await, so a status producer reads it without
 /// waiting. Each read that replaces it is stamped before its driver read, so an older read that
-/// finishes later replaces nothing; a leg holding a report no name resolved waits on it and is
-/// handed each replacement.
+/// finishes later replaces nothing but, where it asked the accounts and no later read that asked
+/// them has replaced their bindings, those; a leg holding a report no name resolved waits on it
+/// and is handed each replacement.
 #[derive(Debug, Default)]
 pub struct McpAttributionTable {
     roots: Mutex<McpAttributionRoots>,
@@ -202,13 +203,18 @@ struct McpAttributionRoots {
     /// What the provider loads at each root by its own config, as its last inventory read said.
     provider_loaded:
         HashMap<ProviderId, HashMap<PlacedPath, HashMap<McpServerName, McpServerBindingRef>>>,
-    /// The provider's bindings in no project root (managed, user, plugin and connector), as its
-    /// last inventory read declared them, which a session in no root loads.
+    /// The provider's bindings in no project root (managed, user, plugin and connector), from its
+    /// own and its accounts' declared bindings, which a session in no root loads.
     root_free: HashMap<ProviderId, HashMap<McpServerName, McpServerBindingRef>>,
-    /// The bindings each provider's accounts declared at the last read that asked them.
+    /// The bindings each provider's own config declared at the newest read that replaced them.
+    config_declared: HashMap<ProviderId, Vec<McpServerBindingRef>>,
+    /// The bindings each provider's accounts declared at the newest read that asked them.
     account_declared: HashMap<ProviderId, Vec<McpServerBindingRef>>,
     /// The stamp of the newest read that replaced each provider's bindings.
     applied_stamps: HashMap<ProviderId, u64>,
+    /// The stamp of the newest read that asked each provider's accounts and replaced their
+    /// bindings.
+    applied_account_stamps: HashMap<ProviderId, u64>,
 }
 
 /// Whether a reading asked the provider's accounts, which decides where the table takes the
@@ -227,9 +233,12 @@ impl McpAttributionTable {
         self.next_read_stamp.fetch_add(1, Ordering::SeqCst)
     }
 
-    /// Holds `leg` until the table's next replacement, which hands it the new bindings.
+    /// Holds `leg` until the table's next replacement, which hands it the new bindings; a leg
+    /// that has ended meanwhile is let go first.
     pub(crate) fn wait_for_replacement(&self, leg: Weak<dyn McpUnresolvedReports>) {
-        lock(&self.waiting_legs.0).push(leg);
+        let mut waiting = lock(&self.waiting_legs.0);
+        waiting.retain(|waiting_leg| waiting_leg.strong_count() > 0);
+        waiting.push(leg);
     }
 
     /// Replaces whole what `provider` loads by its own config with what the read stamped `stamp`
@@ -237,9 +246,10 @@ impl McpAttributionTable {
     /// root, where a root missing from the reading resolves no provider-loaded name afterwards,
     /// and in no root, from the bindings it declares in a root-free scope. Where a root's list
     /// names a server twice, its first binding stands; where two root-free scopes declare one
-    /// name, the scope first in [`ROOT_FREE_SCOPES`] stands; the accounts' bindings come from the
-    /// reading where `accounts` says it asked them, else from the last read that did. Each leg
-    /// waiting on the table then resolves its held reports again.
+    /// name, the scope first in [`ROOT_FREE_SCOPES`] stands. The accounts' bindings come from the
+    /// reading where `accounts` says it asked them and no read stamped later that asked them has
+    /// replaced them, even where a later read replaced the rest, else from the last read that did.
+    /// Each leg waiting on the table then resolves its held reports again.
     pub(crate) fn replace_provider_loaded(
         &self,
         provider: &ProviderId,
@@ -247,29 +257,22 @@ impl McpAttributionTable {
         accounts: McpAccountsAsked,
         stamp: u64,
     ) -> bool {
-        let loaded = reading
-            .roots
+        let loaded = read_provider_loaded(reading);
+        let config_declared: Vec<McpServerBindingRef> = reading
+            .declarations
             .iter()
-            .map(|root| {
-                let mut names = HashMap::new();
-                for binding in &root.provider_loaded {
-                    names
-                        .entry(McpBindingKey::of(binding).server_name)
-                        .or_insert_with(|| binding.clone());
-                }
-                (root.root.clone(), names)
-            })
+            .map(|declaration| declaration.binding.clone())
             .collect();
-        {
+        let is_later = |applied: Option<&u64>| applied.is_some_and(|applied| *applied > stamp);
+        let is_newest = {
             let mut roots = lock(&self.roots);
-            if roots
-                .applied_stamps
-                .get(provider)
-                .is_some_and(|applied| *applied > stamp)
-            {
+            let is_newest = !is_later(roots.applied_stamps.get(provider));
+            let takes_accounts = accounts == McpAccountsAsked::Asked
+                && !is_later(roots.applied_account_stamps.get(provider));
+            if !is_newest && !takes_accounts {
                 return false;
             }
-            if accounts == McpAccountsAsked::Asked {
+            if takes_accounts {
                 let account_declared = reading
                     .account_servers
                     .iter()
@@ -279,33 +282,36 @@ impl McpAttributionTable {
                 roots
                     .account_declared
                     .insert(provider.clone(), account_declared);
+                roots.applied_account_stamps.insert(provider.clone(), stamp);
             }
-            let declared: Vec<&McpServerBindingRef> = reading
-                .declarations
-                .iter()
-                .map(|declaration| &declaration.binding)
+            if is_newest {
+                roots
+                    .config_declared
+                    .insert(provider.clone(), config_declared);
+                roots.provider_loaded.insert(provider.clone(), loaded);
+                roots.applied_stamps.insert(provider.clone(), stamp);
+            }
+            let declared: Vec<&McpServerBindingRef> = roots
+                .config_declared
+                .get(provider)
+                .into_iter()
+                .flatten()
                 .chain(roots.account_declared.get(provider).into_iter().flatten())
                 .collect();
-            let mut root_free = HashMap::new();
-            for scope in ROOT_FREE_SCOPES {
-                for binding in &declared {
-                    let key = McpBindingKey::of(binding);
-                    if key.scope == scope {
-                        root_free
-                            .entry(key.server_name)
-                            .or_insert_with(|| (*binding).clone());
-                    }
-                }
-            }
-            roots.applied_stamps.insert(provider.clone(), stamp);
-            roots.provider_loaded.insert(provider.clone(), loaded);
+            let root_free = find_root_free(&declared);
             roots.root_free.insert(provider.clone(), root_free);
-        }
+            is_newest
+        };
+        self.resolve_waiting_legs();
+        is_newest
+    }
+
+    // Hands every leg waiting on the table the replacement, each resolving its held reports again.
+    fn resolve_waiting_legs(&self) {
         let waiting = std::mem::take(&mut *lock(&self.waiting_legs.0));
         for leg in waiting.iter().filter_map(Weak::upgrade) {
             leg.resolve_again();
         }
-        true
     }
 
     /// The binding `server_name` resolves to in a session of `provider` at `root`: the daemon's
@@ -329,6 +335,45 @@ impl McpAttributionTable {
     }
 }
 
+// What `reading` says the provider loads at each root by its own config, each name to the first
+// binding the root's list gives it.
+fn read_provider_loaded(
+    reading: &ProviderMcpServersReading,
+) -> HashMap<PlacedPath, HashMap<McpServerName, McpServerBindingRef>> {
+    reading
+        .roots
+        .iter()
+        .map(|root| {
+            let mut names = HashMap::new();
+            for binding in &root.provider_loaded {
+                names
+                    .entry(McpBindingKey::of(binding).server_name)
+                    .or_insert_with(|| binding.clone());
+            }
+            (root.root.clone(), names)
+        })
+        .collect()
+}
+
+// The root-free bindings among `declared`, each name to the binding of the scope first in
+// `ROOT_FREE_SCOPES` that declares it.
+fn find_root_free(
+    declared: &[&McpServerBindingRef],
+) -> HashMap<McpServerName, McpServerBindingRef> {
+    let mut root_free = HashMap::new();
+    for scope in ROOT_FREE_SCOPES {
+        for binding in declared {
+            let key = McpBindingKey::of(binding);
+            if key.scope == scope {
+                root_free
+                    .entry(key.server_name)
+                    .or_insert_with(|| (*binding).clone());
+            }
+        }
+    }
+    root_free
+}
+
 #[cfg(test)]
 mod tests {
     use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -337,9 +382,10 @@ mod tests {
     use sidekicks_contracts::place::PlacedPath;
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_provider::driver::mcp_server::read::{
-        McpRootReading, McpServerDeclaration, McpServerPolicy, McpServerToolDefaults,
-        ProviderMcpServersReading,
+        McpAccountServers, McpRootReading, McpServerDeclaration, McpServerPolicy,
+        McpServerToolDefaults, ProviderMcpServersReading,
     };
+    use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 
     use super::{McpAccountsAsked, McpAttributionTable};
 
@@ -496,5 +542,75 @@ mod tests {
             table.resolve(&provider, Some(&root_a), &server_name("docs")),
             Some(project_binding(&provider, &root_a, "docs"))
         );
+    }
+
+    /// A fill, which asks no account, stamped after a list and finishing first, leaves the list's
+    /// newly declared connector binding to take its place, while the fill's own bindings stand.
+    /// Killed by the list's replace skipped whole as stale, and by its accounts' bindings taken
+    /// over a later read that asked them.
+    #[test]
+    fn a_fill_finishing_before_an_older_list_keeps_the_lists_account_bindings() {
+        let provider = ProviderId::new("provider-a".to_owned()).expect("a provider id");
+        let root_a = root("/repos/a");
+        let connector = |name: &str| McpServerBindingRef::Connector {
+            provider: provider.clone(),
+            scope_ref: test_provider_account_id(),
+            server_name: server_name(name),
+        };
+        let user_docs = McpServerBindingRef::User {
+            provider: provider.clone(),
+            server_name: server_name("docs"),
+        };
+        let listing = |connector_name: &str| ProviderMcpServersReading {
+            account_servers: vec![McpAccountServers {
+                provider_account_id: test_provider_account_id(),
+                declarations: vec![declaration(connector(connector_name))],
+            }],
+            ..reading(&provider, std::slice::from_ref(&root_a), Vec::new())
+        };
+        let table = McpAttributionTable::default();
+        let list_stamp = table.stamp_read();
+        let fill_stamp = table.stamp_read();
+        let fill = reading(
+            &provider,
+            std::slice::from_ref(&root_a),
+            vec![user_docs.clone()],
+        );
+
+        assert!(table.replace_provider_loaded(
+            &provider,
+            &fill,
+            McpAccountsAsked::NotAsked,
+            fill_stamp
+        ));
+        assert!(!table.replace_provider_loaded(
+            &provider,
+            &listing("mail"),
+            McpAccountsAsked::Asked,
+            list_stamp
+        ));
+
+        assert_eq!(
+            table.resolve(&provider, None, &server_name("mail")),
+            Some(connector("mail"))
+        );
+        assert_eq!(
+            table.resolve(&provider, None, &server_name("docs")),
+            Some(user_docs)
+        );
+        let newer_list_stamp = table.stamp_read();
+        table.replace_provider_loaded(
+            &provider,
+            &listing("calendar"),
+            McpAccountsAsked::Asked,
+            newer_list_stamp,
+        );
+        assert!(!table.replace_provider_loaded(
+            &provider,
+            &listing("mail"),
+            McpAccountsAsked::Asked,
+            list_stamp
+        ));
+        assert_eq!(table.resolve(&provider, None, &server_name("mail")), None);
     }
 }

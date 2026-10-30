@@ -6,7 +6,7 @@
 use std::cmp::Ordering;
 use std::error::Error;
 use std::io;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use semver::Version;
 use serde::Deserialize;
@@ -267,15 +267,11 @@ fn read_server_map(file: Value) -> Option<Map<String, Value>> {
 }
 
 // The file a manifest's `./`-relative path names in `plugin_root`; `None` for a path Codex
-// refuses: one without the prefix, one naming the folder itself, or one that leaves it, by
-// climbing out or by a rooted or absolute part.
+// refuses: one without the prefix, one naming the folder itself, one that climbs out, and one that
+// joins outside the folder, by a rooted or absolute part.
 fn resolve_manifest_path(plugin_root: &Path, path: &str) -> Option<PathBuf> {
     let relative = path.strip_prefix(MANIFEST_PATH_PREFIX)?;
-    let stays_inside = Path::new(relative)
-        .components()
-        .all(|part| matches!(part, Component::Normal(_) | Component::CurDir));
-    if relative.is_empty() || !stays_inside || relative.split(['/', '\\']).any(|part| part == "..")
-    {
+    if relative.is_empty() || relative.split(['/', '\\']).any(|part| part == "..") {
         return None;
     }
     let file = plugin_root.join(relative);

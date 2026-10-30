@@ -43,6 +43,7 @@ notify.workspace = true
 opentelemetry-proto.workspace = true
 process-wrap.workspace = true
 regex.workspace = true
+regex-lite.workspace = true
 # The claude.ai connector list a connector's organization mark is read from.
 reqwest.workspace = true
 rusqlite.workspace = true

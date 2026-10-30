@@ -1,8 +1,10 @@
 //! The reads that run on the person's own Codex folder: Codex's config read and the machine probe.
 //! Each runs on the daemon's service there where one fits; otherwise on a transient service the
 //! daemon starts as its own child on a socket of its own beside the folder's, never the folder's
-//! service, and stops once the read settles. The probe never runs on a joined service, whose
-//! unload delay the daemon does not set, so its throwaway conversation would outlive it.
+//! service, and stops once the read settles. A transient service unloads a conversation as its
+//! connection drops, so a probe that follows a config read runs on the service the read started.
+//! The probe never runs on a joined service, whose unload delay the daemon does not set, so its
+//! throwaway conversation would outlive it.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -71,6 +73,33 @@ impl CodexServiceRegistry {
         answered
     }
 
+    /// Runs `probe`, the machine probe, on `service`, the one a read on the person's own folder
+    /// runs on, where a probe fits it: the terminal service, or a transient one the read started;
+    /// otherwise on a service as a [`PersonalFolderRead::Probe`] read takes one. Fails as
+    /// [`Self::read_on_personal_folder`] does.
+    pub(crate) async fn probe_on_personal_folder<Answer, Probing>(
+        &self,
+        service: Arc<CodexService>,
+        probe: impl FnOnce(Arc<CodexService>) -> Probing,
+    ) -> Result<Answer, CodexError>
+    where
+        Probing: Future<Output = Result<Answer, CodexError>>,
+    {
+        let is_transient = self
+            .lock()
+            .transient
+            .iter()
+            .any(|transient| Arc::ptr_eq(transient, &service));
+        let is_terminal = self
+            .terminal_service()
+            .is_some_and(|terminal| Arc::ptr_eq(&terminal, &service));
+        if is_transient || is_terminal {
+            return probe(service).await;
+        }
+        self.read_on_personal_folder(PersonalFolderRead::Probe, probe)
+            .await
+    }
+
     // The service `purpose` runs on: one of the daemon's on the folder that fits and serves, else
     // a transient one, made but not started and held among the transient services.
     pub(super) fn personal_folder_service(
@@ -80,12 +109,7 @@ impl CodexServiceRegistry {
         let home = self.homes.terminal_reach_home();
         let fitting = match purpose {
             PersonalFolderRead::Config => self.service_on(&home.codex_home),
-            PersonalFolderRead::Probe => self
-                .lock()
-                .by_home
-                .get(&home.codex_home)
-                .filter(|service| service.kind() == CodexServiceKind::Terminal)
-                .cloned(),
+            PersonalFolderRead::Probe => self.terminal_service(),
         };
         if let Some(service) = fitting.filter(|service| service.is_serving()) {
             return Ok(PersonalFolderService {
@@ -93,11 +117,8 @@ impl CodexServiceRegistry {
                 is_transient: false,
             });
         }
-        let config_overrides = match purpose {
-            PersonalFolderRead::Config => Vec::new(),
-            // After the shared delay, so the probe's conversation unloads as its connection drops.
-            PersonalFolderRead::Probe => vec![compose_thread_unload_override(Duration::ZERO)],
-        };
+        // After the shared delay, so a probe's conversation unloads as its connection drops.
+        let config_overrides = vec![compose_thread_unload_override(Duration::ZERO)];
         let path = own_socket_path(&home.codex_home).map_err(|error| CodexError::Transport {
             detail: "The socket of a Codex read's own service could not be named.".to_owned(),
             cause: Some(Box::new(error)),
@@ -115,6 +136,17 @@ impl CodexServiceRegistry {
             service,
             is_transient: true,
         })
+    }
+
+    // The terminal service on the person's own folder, serving or not; `None` where the folder
+    // holds no service or a joined one.
+    fn terminal_service(&self) -> Option<Arc<CodexService>> {
+        let home = self.homes.terminal_reach_home();
+        self.lock()
+            .by_home
+            .get(&home.codex_home)
+            .filter(|service| service.kind() == CodexServiceKind::Terminal)
+            .cloned()
     }
 
     // Stops `service`, a read's transient one, on the driver's tracked tasks once it is free to

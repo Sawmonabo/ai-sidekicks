@@ -59,8 +59,8 @@ pub(crate) struct CodexMcpConfigReading {
     /// The binding each read's place loads under each name its config declares, and whether
     /// Codex's merge there switches it on.
     pub(crate) loaded_servers: Vec<CodexLoadedServer>,
-    /// The keys of the plugins the person's config names, `<plugin>@<marketplace>`, each a plugin
-    /// of the person's own Codex folder.
+    /// The keys of the plugins any config layer names, `<plugin>@<marketplace>`, each a plugin of
+    /// the person's own Codex folder.
     pub(crate) person_plugin_keys: Vec<String>,
 }
 

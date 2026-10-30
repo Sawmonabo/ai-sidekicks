@@ -59,6 +59,6 @@ fn inventory_handler_error(error: McpInventoryError) -> HandlerError {
         fault @ (McpInventoryError::Projects(_)
         | McpInventoryError::ProjectRoot(_)
         | McpInventoryError::Accounts(_)
-        | McpInventoryError::AccountId) => HandlerError::Internal(Box::new(fault)),
+        | McpInventoryError::AccountId { .. }) => HandlerError::Internal(Box::new(fault)),
     }
 }

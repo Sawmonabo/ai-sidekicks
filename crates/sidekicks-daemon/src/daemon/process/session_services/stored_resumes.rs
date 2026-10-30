@@ -1,9 +1,9 @@
 //! The resume of a session no driver holds in memory, as after a daemon restart: composed from the
 //! session's stored leg by the run queue's own composition, the one its opening, its restart and
 //! its wake resume with, the timed fires the idle sleep stored for the session among its params,
-//! under a binding minted here whose cursor the driver opens before it resumes, and with no function
-//! legs, which the driver asks the session directory for. A driver reads it for a session it holds
-//! nothing for.
+//! under a binding minted here whose cursor the driver opens before it resumes, and with no
+//! function legs, which the driver asks the session directory for. A driver reads it for a session
+//! it holds nothing for.
 
 use std::error::Error;
 use std::sync::Arc;

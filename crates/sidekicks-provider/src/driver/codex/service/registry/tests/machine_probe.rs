@@ -17,6 +17,7 @@ use crate::driver::codex::mcp::machine_probe::{
     CodexMcpProbeSite, CodexProbedServer, CodexProbedServerStart, probe_codex_mcp_servers,
 };
 use crate::driver::codex::mcp::read_codex_mcp_servers;
+use crate::driver::codex::mcp::requirements::CodexRequirementsSources;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome};
@@ -122,7 +123,15 @@ async fn a_probing_read_runs_on_one_service_and_reads_each_server_once() {
         emulated_local_bindings: vec![local.clone()],
     };
 
-    let reading = read_codex_mcp_servers(&registry, folder.path(), &request)
+    // An empty managed settings folder, so the host's own Codex policy is never read.
+    let managed = folder.path().join("managed");
+    std::fs::create_dir_all(&managed).expect("the managed settings folder is made");
+    let requirements = CodexRequirementsSources {
+        managed_settings_folder: Some(&managed),
+        is_managed_preference_read: false,
+    };
+
+    let reading = read_codex_mcp_servers(&registry, folder.path(), requirements, &request)
         .await
         .expect("the read probes");
 

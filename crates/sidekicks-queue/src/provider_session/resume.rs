@@ -61,8 +61,8 @@ impl ProviderSessions {
     /// The resume of `session_id`'s conversation from its stored `leg` under `binding_id`,
     /// composed from the session's lead as it stands now on the account the leg ran on, at the
     /// level it stands at, in the mode it was last moved to and with the timed fires the idle
-    /// sleep stored for it, under `binding_id`, with no function legs. Fails as the composition, the
-    /// posture or the read of the mode or the timed fires fails, and with
+    /// sleep stored for it, under `binding_id`, with no function legs. Fails as the composition,
+    /// the posture or the read of the mode or the timed fires fails, and with
     /// [`ProviderSessionError::NotResumable`] for a leg with no conversation.
     pub async fn compose_resume(
         &self,
@@ -96,7 +96,6 @@ impl ProviderSessions {
             execution_posture.clone(),
             opening.create_params.options,
             opening.create_params.row_values,
-            ResumeFunctionLegs::default(),
             kept_schedules,
         )?;
         Ok(ComposedResume {
