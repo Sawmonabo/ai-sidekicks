@@ -112,14 +112,18 @@ async fn probe_plugin(
     reading
 }
 
-// How the process's `system/init` frame names a plugin's load error: not at all, by the name
-// Claude Code loads it under, or by its folder for one that did not load at all.
+// What the process's `system/init` frame says of the plugin: nothing (no frame), its load error
+// by the name Claude Code loads it under or by its folder for one that did not load at all, or a
+// `failed` row for its server.
 #[derive(Clone, Copy, Debug)]
-enum LoadErrorForm {
+enum InitFrame {
     Absent,
-    ByName,
-    ByFolder,
+    LoadErrorByName,
+    LoadErrorByFolder,
+    FailedRow,
 }
+
+const SPAWN_ERROR: &str = "spawn ENOENT";
 
 const LOAD_ERROR: &str = "lspServers.go: extensionToLanguage is required";
 
@@ -132,19 +136,20 @@ const LOAD_ERROR: &str = "lspServers.go: extensionToLanguage is required";
 // a deeper rule (an `lspServers` entry without `extensionToLanguage`) is still listed, and Claude
 // Code, which loads none of it, reports no row, so it reads `failed` at the first ask, with the
 // load error its `system/init` frame gives the plugin, by name or by folder, else the plain line
-// where no frame came; a deployed managed MCP file starts no process and reads `failed` with
+// where no frame came, while a row the frame lists for the server stands where no answer names it;
+// a deployed managed MCP file starts no process and reads `failed` with
 // Claude Code's notice; a refused start fails the server with its error. Killed by the server
 // sent through the set, by the strict flag kept, by the folder not listed, by the connectors left
 // on, by a missing row read `starting` or `connected`, by the plugin named by its id, by either
-// form of the load error not matched, by its text dropped, by waiting past the first list, and by
-// the managed file starting a process.
+// form of the load error not matched, by its text dropped, by the frame's rows unread, by waiting
+// past the first list, and by the managed file starting a process.
 #[rstest]
-#[case::loaded(Some(json!({ "name": "db-tools" })), "plugin:db-tools:db", LoadErrorForm::Absent,
+#[case::loaded(Some(json!({ "name": "db-tools" })), "plugin:db-tools:db", InitFrame::Absent,
     false, true, McpServerStatus::Connected, None)]
 #[case::loaded_without_a_manifest(
     None,
     "plugin:1.0.0:db",
-    LoadErrorForm::Absent,
+    InitFrame::Absent,
     false,
     true,
     McpServerStatus::Connected,
@@ -153,7 +158,7 @@ const LOAD_ERROR: &str = "lspServers.go: extensionToLanguage is required";
 #[case::refused_with_no_init_frame(
     Some(json!({ "name": "db-tools", "lspServers": { "go": { "command": "gopls" } } })),
     "notes",
-    LoadErrorForm::Absent,
+    InitFrame::Absent,
     false,
     true,
     McpServerStatus::Failed,
@@ -162,7 +167,7 @@ const LOAD_ERROR: &str = "lspServers.go: extensionToLanguage is required";
 #[case::refused_with_its_load_error_by_name(
     Some(json!({ "name": "db-tools", "lspServers": { "go": { "command": "gopls" } } })),
     "notes",
-    LoadErrorForm::ByName,
+    InitFrame::LoadErrorByName,
     false,
     true,
     McpServerStatus::Failed,
@@ -171,19 +176,28 @@ const LOAD_ERROR: &str = "lspServers.go: extensionToLanguage is required";
 #[case::refused_with_its_load_error_by_folder(
     Some(json!({ "name": "db-tools", "lspServers": { "go": { "command": "gopls" } } })),
     "notes",
-    LoadErrorForm::ByFolder,
+    InitFrame::LoadErrorByFolder,
     false,
     true,
     McpServerStatus::Failed,
     Some(LOAD_ERROR)
 )]
+#[case::listed_failed_by_the_init_frame(
+    Some(json!({ "name": "db-tools" })),
+    "notes",
+    InitFrame::FailedRow,
+    false,
+    true,
+    McpServerStatus::Failed,
+    Some(SPAWN_ERROR)
+)]
 #[case::under_a_managed_mcp_file(Some(json!({ "name": "db-tools" })), "plugin:db-tools:db",
-    LoadErrorForm::Absent, true, true, McpServerStatus::Failed, Some(
+    InitFrame::Absent, true, true, McpServerStatus::Failed, Some(
         "Your organization's managed MCP config has exclusive control over MCP servers in this \
          session."
     ))]
 #[case::start_refused(Some(json!({ "name": "db-tools" })), "plugin:db-tools:db",
-    LoadErrorForm::Absent, false, false, McpServerStatus::Failed, Some(
+    InitFrame::Absent, false, false, McpServerStatus::Failed, Some(
         "the provider driver failed: the Claude Code process could not be started: no probe \
          scripted"
     ))]
@@ -191,7 +205,7 @@ const LOAD_ERROR: &str = "lspServers.go: extensionToLanguage is required";
 async fn a_plugin_server_reads_as_claude_codes_own_load_of_its_plugin(
     #[case] manifest: Option<Value>,
     #[case] reported_name: &str,
-    #[case] load_error: LoadErrorForm,
+    #[case] init_frame: InitFrame,
     #[case] has_managed_mcp_file: bool,
     #[case] is_start_scripted: bool,
     #[case] status: McpServerStatus,
@@ -199,30 +213,38 @@ async fn a_plugin_server_reads_as_claude_codes_own_load_of_its_plugin(
 ) {
     let plugin = install_plugin(manifest).await;
     let install_path = plugin.install.to_string_lossy().into_owned();
-    let error_entry = match load_error {
-        LoadErrorForm::Absent => None,
-        LoadErrorForm::ByName => Some(json!({
-            "plugin": "db-tools@inline",
-            "type": "manifest-validation-error",
-            "message": LOAD_ERROR,
-        })),
-        LoadErrorForm::ByFolder => Some(json!({
-            "plugin": "inline[0]",
-            "type": "manifest-validation-error",
-            "message": LOAD_ERROR,
-            "path": install_path,
-        })),
+    let init = |rows: Value, errors: Value| {
+        vec![json!({
+            "type": "system",
+            "subtype": "init",
+            "mcp_servers": rows,
+            "plugin_errors": errors,
+        })]
     };
-    let frames = error_entry
-        .map(|entry| {
-            vec![json!({
-                "type": "system",
-                "subtype": "init",
-                "mcp_servers": [],
-                "plugin_errors": [entry],
-            })]
-        })
-        .unwrap_or_default();
+    let frames = match init_frame {
+        InitFrame::Absent => Vec::new(),
+        InitFrame::LoadErrorByName => init(
+            json!([]),
+            json!([{
+                "plugin": "db-tools@inline",
+                "type": "manifest-validation-error",
+                "message": LOAD_ERROR,
+            }]),
+        ),
+        InitFrame::LoadErrorByFolder => init(
+            json!([]),
+            json!([{
+                "plugin": "inline[0]",
+                "type": "manifest-validation-error",
+                "message": LOAD_ERROR,
+                "path": install_path,
+            }]),
+        ),
+        InitFrame::FailedRow => init(
+            json!([{ "name": "plugin:db-tools:db", "status": "failed", "error": SPAWN_ERROR }]),
+            json!([]),
+        ),
+    };
     let starts = ScriptedStarts::default();
     let channel = Arc::new(ScriptedChannel::default());
     channel.answer(
