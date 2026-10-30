@@ -9,6 +9,7 @@
 //! and items from here; this module imports nothing from them.
 
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,7 @@ use crate::wire::record::{JsonRecord, Record};
 use crate::wire::text::{BoundedText, NonEmptyText, branded_text};
 use crate::wire::{literal, named_scalar};
 use crate::workflow::definition::item::WorkflowPinnedItem;
+use crate::workflow::kind::NOTIFY_KIND;
 
 /// The message of the issue a document's read raises at a repeated node id (`nodes[i].id`). The
 /// daemon's refusal recognizes the rule by it and carries the repeat's `nodeIdDuplicate` finding,
@@ -46,15 +48,14 @@ pub type WorkflowName = BoundedText<1, WORKFLOW_NAME_MAX_LEN>;
 /// A Notify step's notice: one to [`NOTIFY_NOTICE_MAX_LEN`] code points.
 pub type WorkflowNotifyNotice = BoundedText<1, NOTIFY_NOTICE_MAX_LEN>;
 
-/// The kind of a workflow's Notify step.
-const NOTIFY_KIND: &str = "output.notify";
-
 /// The Notify step's parameter holding its notice.
 const NOTIFY_NOTICE_PARAM: &str = "notice";
 
 /// The message of the issue a document's read raises at a Notify step's notice that does not read
 /// as a [`WorkflowNotifyNotice`].
-const NOTIFY_NOTICE_MESSAGE: &str = "a Notify step's notice is text of 1 to 2000 characters";
+static NOTIFY_NOTICE_MESSAGE: LazyLock<String> = LazyLock::new(|| {
+    format!("a Notify step's notice is text of 1 to {NOTIFY_NOTICE_MAX_LEN} characters")
+});
 
 ts_constants! {
     /// The document schema version this contract reads and writes.
@@ -533,7 +534,7 @@ macro_rules! workflow_document {
             #[schemars(description = "The document schema version; always \"2\".")]
             pub schema_version: WorkflowDocumentSchemaVersion,
             /// The workflow's name.
-            #[schemars(description = "The workflow's name; at most 256 characters.")]
+            #[schemars(description = "The workflow's name.")]
             pub name: WorkflowName,
             /// The workflow's description.
             #[serde(
@@ -619,7 +620,7 @@ macro_rules! workflow_document {
                                 .join(index)
                                 .join("params")
                                 .join(NOTIFY_NOTICE_PARAM),
-                            garde::Error::new(NOTIFY_NOTICE_MESSAGE),
+                            garde::Error::new(NOTIFY_NOTICE_MESSAGE.as_str()),
                         );
                     }
                 }
@@ -846,7 +847,10 @@ mod tests {
             .collect();
         assert_eq!(
             issues,
-            vec![("nodes[1].params.notice".to_owned(), NOTIFY_NOTICE_MESSAGE)]
+            vec![(
+                "nodes[1].params.notice".to_owned(),
+                NOTIFY_NOTICE_MESSAGE.as_str()
+            )]
         );
         document_with(NOTIFY_NOTICE_MAX_LEN)
             .validate()
