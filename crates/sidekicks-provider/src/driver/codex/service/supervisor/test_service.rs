@@ -31,7 +31,6 @@ use crate::command::askpass::command_askpass_program_path;
 use crate::command::channel::command_channel_root;
 use crate::command::waiting_checks::SystemInputWaitReader;
 use crate::command::wrapper::command_wrapper_program_path;
-use crate::driver::codex::command_shell::CodexShellKind;
 use crate::driver::codex::exec_relay::CodexExecRelayDependencies;
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
 use crate::driver::codex::service::command_line::{
@@ -50,6 +49,7 @@ use crate::driver::codex::service::supervisor::{
 };
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::shells::CodexShellKind;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,

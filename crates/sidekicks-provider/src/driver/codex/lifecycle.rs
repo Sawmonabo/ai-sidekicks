@@ -32,7 +32,6 @@ use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::account_home_logs::AccountHomeLogExpiry;
 use crate::driver::codex::calibration::CodexCompactionLimits;
-use crate::driver::codex::command_shell::read_codex_shells;
 use crate::driver::codex::commands::{CodexCommandSource, CodexProviderCommandCache};
 use crate::driver::codex::delivery::asks::attribution::CodexAskIntake;
 use crate::driver::codex::delivery::asks::{
@@ -77,6 +76,7 @@ use crate::driver::codex::session::recovery::{
 use crate::driver::codex::session::rewind::CodexConversationRewind;
 use crate::driver::codex::session::side_questions::CodexSideQuestions;
 use crate::driver::codex::session::slots::CodexSessionSlots;
+use crate::driver::codex::shells::read_codex_shells;
 use crate::driver::contract::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::driver::{DriverServices, attachments::AttachmentResolver};

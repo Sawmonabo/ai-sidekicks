@@ -37,7 +37,6 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use crate::driver::codex::command_shell::CodexShellKind;
 use crate::driver::codex::exec_relay::{CodexExecRelay, CodexExecRelayDependencies};
 use crate::driver::codex::server_requests::CodexServerRequestResponder;
 use crate::driver::codex::service::asks::CodexServiceAsks;
@@ -63,6 +62,7 @@ use crate::driver::codex::session::errors::{
 };
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::session::state::CODEX_THREAD_FRAME_ROUTER_CONFIG;
+use crate::driver::codex::shells::CodexShellKind;
 use crate::driver::codex::transport::connection::{
     CodexAppServerConnection, CodexConnectionEvents, CodexConnectionHandlers,
     open_codex_connection, read_codex_object,

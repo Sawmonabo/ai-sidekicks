@@ -107,7 +107,7 @@ fn refusal_in(
         let strings = reader.read_command_strings(command);
         if !strings.is_empty() {
             rereads.extend(strings);
-        } else if !command.program().is_decided() && !forms.providers.is_empty() {
+        } else if command.is_program_undecided() && !forms.providers.is_empty() {
             return Some(UNDECIDED_PROGRAM_REFUSAL);
         } else if let Some(refusal) = forms
             .providers
@@ -223,10 +223,14 @@ mod tests {
     }
 
     // Killed by refusing an undecided program with the first provider's own reason, which names
-    // forms the line does not hold.
+    // forms the line does not hold, and by dropping the mark a wrapper's split value, an env split
+    // string's undecided program or a split folder sets.
     #[rstest]
     #[case::expanded_program("$C --bg x")]
     #[case::quoted_parameter_program("\"$EDITOR\" notes.md")]
+    #[case::split_value_of_a_wrapper("U=\"y claude --bg\"; env -u $U x")]
+    #[case::expanded_split_string("env -S \"$X\"")]
+    #[case::split_folder_of_the_program("C=\"claude --bg go\"; $C/x")]
     fn an_undecided_program_is_refused_with_a_reason_naming_no_provider(#[case] line: &str) {
         let mut reader = ShellLineReader::new(LIMIT);
         let reading = reader.read(line);
