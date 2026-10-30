@@ -14,7 +14,7 @@ use sidekicks_ipc::redaction::sanitize_failure_reason;
 
 /// The most code points of a provider's error text a reading keeps: room past the error-message
 /// cap a notice applies when it sends the text.
-const FAILURE_TEXT_MAX_CODE_POINTS: usize = 4 * ERROR_MESSAGE_MAX_LEN;
+pub(crate) const FAILURE_TEXT_MAX_CODE_POINTS: usize = 4 * ERROR_MESSAGE_MAX_LEN;
 
 /// What a provider reported about one MCP server for a session: a status it observed, or that it
 /// switched the server off for this conversation or project.
@@ -175,20 +175,6 @@ pub(crate) fn bound_mcp_server_status_emission(
                  {text_failure}"
             ),
         })
-}
-
-/// `error` and each of its causes, joined by `: ` and sanitized as a provider's error text is,
-/// so it can stand as a server's failure text; it never quotes a credential, a URL's query or an
-/// absolute path.
-pub(crate) fn sanitize_failure_chain(error: &(dyn std::error::Error + 'static)) -> String {
-    let mut text = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        text.push_str(": ");
-        text.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    sanitize_failure_reason(&text, FAILURE_TEXT_MAX_CODE_POINTS)
 }
 
 #[cfg(test)]

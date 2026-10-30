@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 use futures::future::join_all;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
+use sidekicks_ipc::redaction::sanitize_failure_chain;
 use sidekicks_store::data_folder::plugin_home;
 
 use self::config::{
@@ -29,7 +30,7 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::mcp_server::read::{
     McpProbeReading, McpProbeTarget, McpServersReadRequest, ProviderMcpServersReading,
 };
-use crate::driver::mcp_server::status::{McpServerReading, sanitize_failure_chain};
+use crate::driver::mcp_server::status::{FAILURE_TEXT_MAX_CODE_POINTS, McpServerReading};
 
 /// Answers which MCP servers Claude Code declares and loads on this computer for `request`: the
 /// person's config ranked under each requested account's connectors and organization servers, a
@@ -84,7 +85,9 @@ pub(crate) async fn read_claude_mcp_servers(
         match read {
             Ok(servers) => accounts.push(ClaudeMcpAccountServers::clone(&servers)),
             Err(error) => {
-                account_failure.get_or_insert_with(|| sanitize_failure_chain(&*error));
+                account_failure.get_or_insert_with(|| {
+                    sanitize_failure_chain(&*error, FAILURE_TEXT_MAX_CODE_POINTS)
+                });
             }
         }
     }

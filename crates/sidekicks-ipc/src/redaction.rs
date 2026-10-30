@@ -190,6 +190,22 @@ pub fn sanitize_failure_reason(raw: &str, max_code_points: usize) -> String {
     cap_text(sanitized, max_code_points)
 }
 
+/// `error` and each of its causes joined by `: `, any NUL dropped, then made safe as
+/// [`sanitize_failure_reason`] makes a failure text and capped at `max_code_points`.
+pub fn sanitize_failure_chain(
+    error: &(dyn std::error::Error + 'static),
+    max_code_points: usize,
+) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    sanitize_failure_reason(&text.replace('\0', ""), max_code_points)
+}
+
 #[cfg(test)]
 mod tests {
     use super::sanitize_failure_reason;

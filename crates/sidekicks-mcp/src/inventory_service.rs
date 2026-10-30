@@ -24,7 +24,7 @@ use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::wire::text::TextError;
-use sidekicks_ipc::redaction::sanitize_failure_reason;
+use sidekicks_ipc::redaction::sanitize_failure_chain;
 use sidekicks_provider::account_homes::{AccountHome, AccountHomesReadError, read_account_homes};
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
@@ -597,21 +597,12 @@ fn name_failed_provider(
 fn read_failure_cause(
     error: &(dyn std::error::Error + 'static),
 ) -> FreeFormText<ERROR_MESSAGE_MAX_LEN> {
-    let mut text = error.to_string();
-    let mut source = error.source();
-    while let Some(cause) = source {
-        text.push_str(": ");
-        text.push_str(&cause.to_string());
-        source = cause.source();
-    }
-    FreeFormText::new(sanitize_failure_reason(
-        &text.replace('\0', ""),
-        ERROR_MESSAGE_MAX_LEN,
-    ))
-    .unwrap_or_else(|_blank| {
-        FreeFormText::new("The provider's MCP servers could not be read".to_owned())
-            .expect("the fallback is text")
-    })
+    FreeFormText::new(sanitize_failure_chain(error, ERROR_MESSAGE_MAX_LEN)).unwrap_or_else(
+        |_blank| {
+            FreeFormText::new("The provider's MCP servers could not be read".to_owned())
+                .expect("the fallback is text")
+        },
+    )
 }
 
 /// Whether a declaration's own config leaves its server on: its `enabled` member, on where it
