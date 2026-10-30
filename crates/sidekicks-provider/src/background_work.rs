@@ -12,6 +12,13 @@ use sidekicks_policy::shell_commands::{
 
 use crate::driver::{BackgroundWork, ProviderDescriptor};
 
+// The reason the agent reads when a command's program is a word only the run decides, which may
+// be any provider's own program with any of its words.
+const UNDECIDED_PROGRAM_REFUSAL: &str = "A program named by a variable, a substitution or a \
+     pattern is decided only as the line runs, and it may start work outside this session, which \
+     would run outside the session's agents, outside Stop and Interrupt, and off its receipt; it \
+     is refused inside the session, so name the program plainly.";
+
 /// Every registered provider's background work: the names its command runs under, the
 /// subcommands and flags that start the work, and the refusal an agent reads. Built once at the
 /// daemon's start.
@@ -100,6 +107,8 @@ fn refusal_in(
         let strings = reader.read_command_strings(command);
         if !strings.is_empty() {
             rereads.extend(strings);
+        } else if !command.program().is_decided() && !forms.providers.is_empty() {
+            return Some(UNDECIDED_PROGRAM_REFUSAL);
         } else if let Some(refusal) = forms
             .providers
             .iter()
@@ -111,17 +120,13 @@ fn refusal_in(
     None
 }
 
-// The provider's refusal when `command` runs its own program in a background-work form, or a
-// program only the run decides, which can be the provider's own with any of its words.
+// The provider's refusal when `command` runs its own program in a background-work form.
 fn background_work_refusal(
     provider: &ProviderBackgroundWork,
     command: ShellCommand<'_>,
 ) -> Option<&'static str> {
     let work = provider.work;
     let program = command.program();
-    if !program.is_decided() {
-        return Some(work.refusal);
-    }
     if !provider.command_names.iter().any(|name| program.is(name)) {
         return None;
     }
@@ -163,7 +168,7 @@ mod tests {
     use rstest::rstest;
     use sidekicks_policy::shell_commands::ShellLineReader;
 
-    use super::{BackgroundWorkForms, refuse_background_work};
+    use super::{BackgroundWorkForms, UNDECIDED_PROGRAM_REFUSAL, refuse_background_work};
     use crate::driver::PROVIDERS;
 
     // Far past every line here, so the cases read the walk and never the cap.
@@ -196,7 +201,6 @@ mod tests {
     #[case::sleep_assertion_wrapper("caffeinate claude --bg x", true)]
     #[case::brace_alternatives(r"claude {--bg,x}", true)]
     #[case::expanded_flag("X=--bg; claude $X x", true)]
-    #[case::expanded_program("$C --bg x", true)]
     #[case::prompt_naming_a_subcommand(r#"claude "list the agents""#, false)]
     #[case::subcommand_after_the_prompt(r#"claude "explain" agents"#, false)]
     #[case::session_listing("claude attach 7c5dcf5d", false)]
@@ -215,6 +219,25 @@ mod tests {
             )
             .is_some(),
             is_refused
+        );
+    }
+
+    // Killed by refusing an undecided program with the first provider's own reason, which names
+    // forms the line does not hold.
+    #[rstest]
+    #[case::expanded_program("$C --bg x")]
+    #[case::quoted_parameter_program("\"$EDITOR\" notes.md")]
+    fn an_undecided_program_is_refused_with_a_reason_naming_no_provider(#[case] line: &str) {
+        let mut reader = ShellLineReader::new(LIMIT);
+        let reading = reader.read(line);
+
+        assert_eq!(
+            refuse_background_work(
+                &BackgroundWorkForms::of_providers(PROVIDERS),
+                &mut reader,
+                &reading
+            ),
+            Some(UNDECIDED_PROGRAM_REFUSAL)
         );
     }
 }
