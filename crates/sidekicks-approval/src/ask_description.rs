@@ -298,6 +298,12 @@ mod tests {
         None,
         ApprovalCategory::DestructiveGit
     )]
+    // An alias's value is a line handed to the shell, named as a `-c` string is.
+    #[case::force_push_in_an_alias(
+        "alias g='git push --force'",
+        None,
+        ApprovalCategory::DestructiveGit
+    )]
     fn a_command_reads_its_subject_and_category(
         #[case] line: &str,
         #[case] subject: Option<&str>,
