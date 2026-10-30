@@ -1,6 +1,3 @@
-use std::collections::BTreeMap;
-use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 
 use rstest::rstest;
@@ -9,8 +6,7 @@ use serde_json::value::{RawValue, to_raw_value};
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::{CredentialStore, ProgramStart, Spawner};
-use tokio::runtime::Handle;
+use sidekicks_platforms::CredentialStore;
 
 use super::{ClaudeAccountServerAnswers, read_claude_account_answers, read_claude_account_servers};
 use crate::driver::claude::account_credentials::ClaudeSignInReader;
@@ -19,27 +15,16 @@ use crate::driver::claude::mcp::connectors::list_fetch::ClaudeConnectorFetchSett
 use crate::driver::claude::mcp::connectors::organization_mark::{
     ClaudeConnectorListReading, ClaudeOrganizationMarks, read_connector_list,
 };
+use crate::driver::claude::mcp::machine_probe::probe_ceiling;
 use crate::driver::claude::mcp::precedence::rank_claude_mcp_servers;
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
-use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::driver::claude::session::transport::control::{
-    ClaudeControlRequest, ClaudeSettingsReply, ClaudeToolServerEntry,
-};
-use crate::driver::claude::session::transport::mcp_status::{
-    ClaudeMcpServerStatus, ClaudeMcpStatusReply,
-};
-use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
-use crate::driver::claude::spawn::launch::control_only::{
-    CLAUDE_CONTROL_ONLY_ARGUMENTS, ClaudeShortProcess,
-};
+use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
+use crate::driver::claude::session::transport::mcp_status::ClaudeMcpStatusReply;
 use crate::driver::mcp_server::read::McpServerPolicy;
 use crate::driver::mcp_server::status::McpServerReading;
-use crate::process_registry::ProviderProcessRegistry;
 use crate::runtime_binding::test_store::test_provider_account_id;
-use crate::spawned_version::ResolvedProviderExecutable;
 
-// How long a probe waits for a server it hands over to report connected.
-const PROBE_CONNECT_DEADLINE: Duration = Duration::from_secs(60);
+mod real_claude_code;
 
 fn raw(value: &serde_json::Value) -> Box<RawValue> {
     to_raw_value(value).expect("a test reply serializes")
@@ -97,13 +82,24 @@ enum FetchSetting {
     ApiKeyHelper,
 }
 
+// The ceiling of an account read under Claude Code's default startup timeout.
+const READ_CEILING: Duration = Duration::from_secs(35);
+
 // A sign-in granted every scope the fetch needs.
 const SIGNED_IN: StoredSignIn = StoredSignIn::Scopes(&["user:inference", "user:mcp_servers"]);
 
 // A process signed in, with `variables` set.
 const fn with_variables(variables: &'static [(&'static str, &'static str)]) -> ConnectorFetch {
+    with_sign_in_and_variables(SIGNED_IN, variables)
+}
+
+// A process whose stored sign-in is `sign_in`, with `variables` set.
+const fn with_sign_in_and_variables(
+    sign_in: StoredSignIn,
+    variables: &'static [(&'static str, &'static str)],
+) -> ConnectorFetch {
     ConnectorFetch::Through {
-        sign_in: SIGNED_IN,
+        sign_in,
         variables,
         setting: None,
     }
@@ -149,13 +145,14 @@ enum ConfiguredServer {
 // read, and so does a count that stops growing above none, while a count of none settles once
 // Claude Code's fetch can have ended, and a read that settles short of the list is marked as
 // lacking. Where Claude Code fetches a list the daemon could not read (an unreadable sign-in, a
-// refused host, the environment's own token), the read waits for a connector or the fetch's end
-// and settles whole. A listed connector at the whole address of a server the process configures
+// refused host, the environment's own token granted the list's scope), the read waits for a
+// connector or the fetch's end and settles whole. A listed connector at the whole address of a server the process configures
 // is one Claude Code suppresses, so it is not waited for, unless that server is a plugin's,
 // switched off or waits for a sign-in. Killed by a reply settling while it grows, by a count above
 // none asked again until the fetch ends, by a count of none settling before the fetch ends, by an
 // unread list taken as fetched by no one or kept as short, by a credential claimed ahead of the
-// sign-in where a socket's token or a remote session keeps it aside, by a suppressed connector
+// sign-in where a socket's token, a remote session or a desktop app keeps it aside, by a blank
+// key or socket read as set, by a suppressed connector
 // counted as missing, the organization's included, and by a plugin's, a switched-off or a waiting
 // server counted as suppressing one.
 #[rstest]
@@ -187,7 +184,7 @@ enum ConfiguredServer {
     ConnectorFetch::Listed(&["Notes"]),
     &[&[][..]],
     &[][..],
-    24,
+    29,
     0,
     true
 )]
@@ -195,7 +192,7 @@ enum ConfiguredServer {
     with_sign_in(SIGNED_IN),
     &[&[][..]],
     &[][..],
-    24,
+    29,
     0,
     false
 )]
@@ -207,11 +204,14 @@ enum ConfiguredServer {
     1,
     false
 )]
-#[case::unread_with_the_environments_token(
-    with_variables(&[("CLAUDE_CODE_OAUTH_TOKEN", "token")]),
+#[case::the_environments_token_granted_the_list_scope(
+    with_sign_in_and_variables(StoredSignIn::Absent, &[
+        ("CLAUDE_CODE_OAUTH_TOKEN", "token"),
+        ("CLAUDE_CODE_OAUTH_SCOPES", " user:inference  user:mcp_servers "),
+    ]),
     &[&[][..]],
     &[][..],
-    24,
+    29,
     0,
     false
 )]
@@ -219,10 +219,11 @@ enum ConfiguredServer {
     with_variables(&[
         ("ANTHROPIC_UNIX_SOCKET", "/run/api.sock"),
         ("CLAUDE_CODE_OAUTH_TOKEN", "token"),
+        ("CLAUDE_CODE_OAUTH_SCOPES", "user:inference user:mcp_servers"),
     ]),
     &[&[][..]],
     &[][..],
-    24,
+    29,
     0,
     false
 )]
@@ -230,7 +231,31 @@ enum ConfiguredServer {
     with_variables(&[("ANTHROPIC_API_KEY", "key"), ("CLAUDE_CODE_REMOTE", "1")]),
     &[&[][..]],
     &[][..],
-    24,
+    29,
+    0,
+    false
+)]
+#[case::api_key_under_a_desktop_app(
+    with_variables(&[("ANTHROPIC_API_KEY", "key"), ("CLAUDE_CODE_ENTRYPOINT", "claude-desktop")]),
+    &[&[][..]],
+    &[][..],
+    29,
+    0,
+    false
+)]
+#[case::a_blank_api_key(
+    with_variables(&[("ANTHROPIC_API_KEY", "  ")]),
+    &[&[][..]],
+    &[][..],
+    29,
+    0,
+    false
+)]
+#[case::a_blank_socket(
+    with_variables(&[("ANTHROPIC_UNIX_SOCKET", " ")]),
+    &[&[][..]],
+    &[][..],
+    29,
     0,
     false
 )]
@@ -291,7 +316,7 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
     #[case] kept_rows: usize,
     #[case] lacks_listed_connectors: bool,
 ) {
-    let (asked, answers) = read_account_answers(fetch, replies, configured).await;
+    let (asked, answers) = read_account_answers(fetch, replies, configured, READ_CEILING).await;
 
     assert_eq!(asked, status_reads);
     let kept = answers
@@ -305,9 +330,10 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
 
 // Where the account's Claude Code fetches no connector list, the list is not read and the first
 // reply settles the read whole: its connectors switched off by the variable or a settings source,
-// safe mode, another provider, bare mode, a socket with no token, a credential ahead of the
-// sign-in, no sign-in, or one short of a scope the fetch needs. Killed by any of these not read,
-// which leaves the read waiting for the fetch's end.
+// safe mode, another provider or a gateway, bare mode, a socket with no token, a credential ahead
+// of the sign-in, a key's file descriptor among them, no sign-in, or one short of a scope the
+// fetch needs, the environment's token and a file descriptor's with the scopes Claude Code gives
+// them. Killed by any of these not read, which leaves the read waiting for the fetch's end.
 #[rstest]
 #[case::no_sign_in(with_sign_in(StoredSignIn::Absent))]
 #[case::connectors_switched_off(with_variables(&[("ENABLE_CLAUDEAI_MCP_SERVERS", " Off ")]))]
@@ -321,22 +347,53 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
 #[case::an_api_key_helper_ahead(with_setting(FetchSetting::ApiKeyHelper))]
 #[case::a_sign_in_short_of_inference(with_sign_in(StoredSignIn::Scopes(&["user:mcp_servers"])))]
 #[case::a_sign_in_short_of_the_list_scope(with_sign_in(StoredSignIn::Scopes(&["user:inference"])))]
+#[case::a_gateway(with_variables(&[
+    ("CLAUDE_CODE_USE_GATEWAY", "1"),
+    ("ANTHROPIC_BASE_URL", "https://gateway.example.com"),
+    ("ANTHROPIC_AUTH_TOKEN", "token"),
+    ("CLAUDE_CODE_REMOTE", "1"),
+]))]
+#[case::a_key_file_descriptor_ahead(
+    with_variables(&[("CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR", "3")])
+)]
+#[case::the_environments_token_short_of_the_list_scope(
+    with_variables(&[("CLAUDE_CODE_OAUTH_TOKEN", "token")])
+)]
+#[case::a_descriptor_token_short_of_the_list_scope(
+    with_variables(&[("CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "3")])
+)]
 #[tokio::test(start_paused = true)]
 async fn a_read_whose_claude_code_fetches_no_list_settles_whole_at_the_first_ask(
     #[case] fetch: ConnectorFetch,
 ) {
-    let (asked, answers) = read_account_answers(fetch, &[&[]], &[]).await;
+    let (asked, answers) = read_account_answers(fetch, &[&[]], &[], READ_CEILING).await;
 
     assert_eq!(asked, 1);
     assert!(!answers.lacks_listed_connectors);
 }
 
+// Under a short `MCP_TIMEOUT`, a list Claude Code fetches but the daemon could not read is still
+// waited for until that fetch can have ended, and kept whole. Killed by the read stopping at the
+// servers' own ceiling, 15 seconds.
+#[tokio::test(start_paused = true)]
+async fn a_short_mcp_timeout_still_waits_for_claude_codes_fetch() {
+    let ceiling = probe_ceiling(&[("MCP_TIMEOUT".to_owned(), "10000".to_owned())]);
+
+    let (asked, answers) =
+        read_account_answers(with_sign_in(SIGNED_IN), &[&[]], &[], ceiling).await;
+
+    assert_eq!(asked, 29);
+    assert!(!answers.lacks_listed_connectors);
+}
+
 // The account read of an account whose list `fetch` finds, its process configuring `configured`
-// and answering `replies` to `mcp_status` in turn: how many times it asked, and its answers.
+// and answering `replies` to `mcp_status` in turn, under `ceiling`: how many times it asked, and
+// its answers.
 async fn read_account_answers(
     fetch: ConnectorFetch,
     replies: &[&[&str]],
     configured: &[ConfiguredServer],
+    ceiling: Duration,
 ) -> (usize, ClaudeAccountServerAnswers) {
     let address = |name: &str| format!("https://{}.example.com/mcp", name.to_lowercase());
     let channel = ScriptedChannel::default();
@@ -462,7 +519,7 @@ async fn read_account_answers(
                 }
             }
         },
-        Duration::from_secs(35),
+        ceiling,
     )
     .await
     .expect("the read answers");
@@ -638,233 +695,4 @@ fn an_accounts_rows_become_read_only_connectors_and_host_only_organization_serve
             .iter()
             .all(|declaration| declaration.is_read_only)
     );
-}
-
-// A real Claude Code on a claude.ai subscription login, checked for what the account read
-// and a session's hand-over rely on: (1) a connector handed over as a `claudeai-proxy` entry
-// under `--strict-mcp-config` connects with its tools; (2) an organization server sent with
-// `mcp_set_servers` connects where managed settings allow only the managed servers; (3) the
-// read's process reports the account's connectors and the organization's servers and no
-// server of the person's. The managed settings of (2) ride `--managed-settings`, and its
-// server is the one `SIDEKICKS_TEST_CLAUDE_ORGANIZATION_SERVER` names.
-#[tokio::test]
-#[ignore = "needs an installed Claude Code, a home signed in to claude.ai with a connector, \
-            and a reachable MCP server"]
-async fn a_real_claude_code_reports_and_loads_connectors_and_organization_servers() {
-    let program = PathBuf::from(
-        std::env::var_os("SIDEKICKS_TEST_CLAUDE_PROGRAM")
-            .expect("SIDEKICKS_TEST_CLAUDE_PROGRAM names the installed Claude Code program"),
-    );
-    let home = PathBuf::from(
-        std::env::var_os("SIDEKICKS_TEST_CLAUDE_HOME")
-            .expect("SIDEKICKS_TEST_CLAUDE_HOME names a Claude Code home signed in to claude.ai"),
-    );
-    let organization_url = std::env::var("SIDEKICKS_TEST_CLAUDE_ORGANIZATION_SERVER")
-        .expect("SIDEKICKS_TEST_CLAUDE_ORGANIZATION_SERVER names a reachable MCP server");
-    let folder = tempfile::tempdir().expect("a test folder");
-    let launcher = ClaudeProcessLauncher::new(
-        Spawner::new(Handle::current()).expect("a spawner"),
-        Arc::new(ProviderProcessRegistry::default()),
-        folder.path(),
-    );
-    let mut environment: Vec<(String, String)> = std::env::vars()
-        .filter(|(name, _value)| name != "CLAUDE_CONFIG_DIR")
-        .collect();
-    environment.push((
-        "CLAUDE_CONFIG_DIR".to_owned(),
-        home.to_string_lossy().into_owned(),
-    ));
-    let executable = ResolvedProviderExecutable {
-        requested_command: "claude".to_owned(),
-        resolved_executable_path: program.clone(),
-        start: ProgramStart {
-            program,
-            leading_arguments: Vec::new(),
-        },
-        environment,
-    };
-    let account = test_provider_account_id();
-
-    // (3) The read's own process.
-    let read_folder = folder.path().join("account-read");
-    tokio::fs::create_dir_all(&read_folder)
-        .await
-        .expect("the read's folder is made");
-    let reading = ClaudeShortProcess::start_control_only(
-        &launcher,
-        &executable,
-        Some(read_folder),
-        None,
-        Some(account.clone()),
-    )
-    .await
-    .expect("the read's process starts");
-    reading.initialize().await.expect("the read initializes");
-    let (answers, _marks) = read_claude_account_answers(
-        &*reading.process,
-        async |_build_version, _settings| ClaudeConnectorListReading::Unread,
-        Duration::from_secs(35),
-    )
-    .await
-    .expect("the account read answers");
-    let status_answer = reading
-        .process
-        .send_control_request(ClaudeControlRequest::McpStatus {})
-        .await
-        .expect("mcp_status is answered");
-    reading.close().await;
-    let rows = answers
-        .mcp_status
-        .servers
-        .as_ref()
-        .expect("the read lists its servers")
-        .0
-        .as_slice();
-    for row in rows {
-        let origin = row.source.as_deref().or(row.scope.as_deref());
-        assert!(
-            matches!(origin, Some("claudeai" | "managed" | "enterprise")),
-            "the read started a server of the person's: {row:?}"
-        );
-    }
-    let effective = ClaudeSettingsReply::read(answers.settings.as_deref()).effective;
-    let managed_names = effective
-        .as_ref()
-        .and_then(|settings| settings.get("managedMcpServers"))
-        .and_then(serde_json::Value::as_object)
-        .map(|servers| servers.keys().cloned().collect::<Vec<_>>())
-        .unwrap_or_default();
-    for name in &managed_names {
-        assert!(
-            rows.iter()
-                .any(|row| row.name.as_deref() == Some(name.as_str())),
-            "the organization server {name} is not reported"
-        );
-    }
-    let status: serde_json::Value = serde_json::from_str(
-        status_answer
-            .response
-            .as_deref()
-            .expect("the read answers mcp_status")
-            .get(),
-    )
-    .expect("the answer is JSON");
-    let connector = status["mcpServers"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|row| row["scope"] == "claudeai")
-        .expect("the account reports a connector")
-        .clone();
-    assert!(
-        !read_claude_account_servers(&account, &answers, None)
-            .connectors
-            .is_empty()
-    );
-
-    // (1) The connector handed over under `--strict-mcp-config`.
-    let connector_name = connector["name"].as_str().expect("the connector is named");
-    let mcp_config = json!({ "mcpServers": { connector_name: {
-        "type": "claudeai-proxy",
-        "url": connector["config"]["url"],
-        "id": connector["config"]["id"],
-    } } });
-    let handed_over = start_probe(
-        &launcher,
-        &executable,
-        folder.path().join("connector-probe"),
-        &["--mcp-config".to_owned(), mcp_config.to_string()],
-    )
-    .await;
-    wait_for_connected(&handed_over, connector_name).await;
-    handed_over.close().await;
-
-    // (2) The organization server sent with `mcp_set_servers`.
-    let managed_settings = json!({
-        "allowedMcpServers": [],
-        "allowManagedMcpServersOnly": true,
-        "managedMcpServers": {
-            "probe-organization": { "type": "http", "url": organization_url },
-        },
-    });
-    let sent = start_probe(
-        &launcher,
-        &executable,
-        folder.path().join("organization-probe"),
-        &[
-            "--managed-settings".to_owned(),
-            managed_settings.to_string(),
-        ],
-    )
-    .await;
-    sent.process
-        .send_control_request(ClaudeControlRequest::McpSetServers {
-            servers: [(
-                "probe-organization".to_owned(),
-                ClaudeToolServerEntry::Http {
-                    url: organization_url.clone(),
-                    headers: BTreeMap::new(),
-                },
-            )]
-            .into(),
-        })
-        .await
-        .expect("mcp_set_servers is answered");
-    wait_for_connected(&sent, "probe-organization").await;
-    sent.close().await;
-}
-
-// A process that keeps nothing under `--strict-mcp-config` with `extra` arguments, initialized.
-async fn start_probe(
-    launcher: &ClaudeProcessLauncher,
-    executable: &ResolvedProviderExecutable,
-    working_folder: PathBuf,
-    extra: &[String],
-) -> ClaudeShortProcess {
-    tokio::fs::create_dir_all(&working_folder)
-        .await
-        .expect("the probe's folder is made");
-    let arguments = CLAUDE_CONTROL_ONLY_ARGUMENTS
-        .into_iter()
-        .map(str::to_owned)
-        .chain(["--strict-mcp-config".to_owned()])
-        .chain(extra.iter().cloned())
-        .collect();
-    let short = ClaudeShortProcess::start(
-        launcher,
-        executable,
-        arguments,
-        working_folder,
-        Some(test_provider_account_id()),
-    )
-    .await
-    .expect("the probe starts");
-    short.initialize().await.expect("the probe initializes");
-    short
-}
-
-// Reads `mcp_status` until `name` reports connected with its tools, within the deadline.
-async fn wait_for_connected(short: &ClaudeShortProcess, name: &str) {
-    let reads = async {
-        loop {
-            let answer = short
-                .process
-                .send_control_request(ClaudeControlRequest::McpStatus {})
-                .await
-                .expect("mcp_status is answered");
-            let reply = ClaudeMcpStatusReply::read(answer.response.as_deref());
-            let is_connected = reply.servers.iter().flat_map(|rows| &rows.0).any(|row| {
-                row.name.as_deref() == Some(name)
-                    && row.status == Some(ClaudeMcpServerStatus::Connected)
-                    && row.tools.as_ref().is_some_and(|tools| !tools.0.is_empty())
-            });
-            if is_connected {
-                return;
-            }
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-    };
-    tokio::time::timeout(PROBE_CONNECT_DEADLINE, reads)
-        .await
-        .unwrap_or_else(|_elapsed| panic!("{name} did not connect with its tools"));
 }

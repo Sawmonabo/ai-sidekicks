@@ -3,8 +3,8 @@
 //! and only after the account's own Claude Code process answered, so that process has already
 //! renewed an expiring token under its lock. The daemon renews nothing itself: a refused token
 //! leaves every mark absent for that read. Budget: one request per account read, none where
-//! Claude Code fetches no list, at most three tries and one more without the additional accounts,
-//! within twelve seconds.
+//! Claude Code fetches no list, at most three tries within twelve seconds, and the one plain try
+//! after them, without the additional accounts.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -24,8 +24,7 @@ use crate::driver::claude::account_credentials::{
     CUSTOM_SIGN_IN_HOST_VARIABLE, ClaudeAiSignIn, ClaudeSignInReader, ClaudeSignInReading,
 };
 use crate::driver::claude::mcp::connectors::list_fetch::{
-    ClaudeConnectorFetchSettings, OAUTH_TOKEN_VARIABLE, skips_connector_fetch,
-    skips_fetch_for_scopes,
+    ClaudeConnectorFetchSettings, skips_connector_fetch, skips_fetch_for_scopes,
 };
 use crate::driver::mcp_server::address::{ServerAddressIdentity, read_server_address};
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
@@ -80,16 +79,18 @@ const RETRY_BASE_DELAY: Duration = Duration::from_millis(500);
 /// The time every try and wait of one read fits in.
 const RETRY_BUDGET: Duration = Duration::from_secs(12);
 
-/// The second request one try can make: on a 401 the try renews the token and asks again, all
-/// inside the one try the budget counts (`Sv`, b:12142712 to b:12143700).
+/// The second request one try can make: on a 401 the try renews the token and asks again, with no
+/// latch, so every try can make one (`Sv`, b:12142712 to b:12143700).
 const REFUSED_TOKEN_RETRY: Duration = ATTEMPT_TIMEOUT;
 
-/// The longest Claude Code's own fetch of the connector list runs once it starts: every try and
-/// wait inside its budget, then the one try again without the additional accounts, which the
-/// budget does not bound (`ne`, b:15671200 to b:15673190), and a refused token's second request
-/// inside that try. The token renewals themselves, `fa()` before the first try and `WS` on a 401,
-/// are bounded only by the read's ceiling.
+/// The longest Claude Code's own fetch of the connector list runs once it starts: the budget, which
+/// the last of its tries starts inside, that try's refused-token request past it, then the one
+/// plain try without the additional accounts, which the budget does not bound (`ne`, b:15671200 to
+/// b:15673190), and that try's own refused-token request: 12 + 5 + 5 + 5 seconds. The token
+/// renewals themselves, `fa()` before the first try and `WS` on a 401, are bounded only by the
+/// read's ceiling.
 pub(crate) const CLAUDE_CONNECTOR_FETCH_WINDOW: Duration = RETRY_BUDGET
+    .saturating_add(REFUSED_TOKEN_RETRY)
     .saturating_add(ATTEMPT_TIMEOUT)
     .saturating_add(REFUSED_TOKEN_RETRY);
 
@@ -167,9 +168,9 @@ impl ClaudeOrganizationMarks {
     /// The marks of the connectors on the list of the account whose process `environment`
     /// started with `settings`, read as the build `build_version` reads it. Not fetched, and not
     /// read, where Claude Code skips its own fetch for the environment, the settings, an absent
-    /// sign-in or its scopes; unread, with the reason logged at debug, where its sign-in is the
-    /// environment's own token or cannot be read, the build reported no version, the account names
-    /// a host Claude Code refuses, or the list cannot be read.
+    /// sign-in or its scopes; unread, with the reason logged at debug, where its sign-in is a file
+    /// descriptor's token or cannot be read, the build reported no version, the account names a
+    /// host Claude Code refuses, or the list cannot be read.
     pub(crate) async fn read(
         &self,
         environment: &[(String, String)],
@@ -179,19 +180,19 @@ impl ClaudeOrganizationMarks {
         if skips_connector_fetch(environment, settings) {
             return ClaudeConnectorListReading::NotFetched;
         }
-        if PathRules::NATIVE
-            .environment_value(environment, OAUTH_TOKEN_VARIABLE)
-            .is_some_and(|token| !token.is_empty())
-        {
-            tracing::debug!(
-                "no connector marks read: the account's Claude Code signs in with its \
-                 environment's token"
-            );
-            return ClaudeConnectorListReading::Unread;
-        }
         let sign_in = match self.sign_in.read(environment).await {
             ClaudeSignInReading::Absent => return ClaudeConnectorListReading::NotFetched,
             ClaudeSignInReading::Unreadable => return ClaudeConnectorListReading::Unread,
+            ClaudeSignInReading::Descriptor { scopes } => {
+                if skips_fetch_for_scopes(&scopes) {
+                    return ClaudeConnectorListReading::NotFetched;
+                }
+                tracing::debug!(
+                    "no connector marks read: the account's Claude Code signs in with a token \
+                     from a file descriptor"
+                );
+                return ClaudeConnectorListReading::Unread;
+            }
             ClaudeSignInReading::Read(sign_in) => sign_in,
         };
         if skips_fetch_for_scopes(&sign_in.scopes) {

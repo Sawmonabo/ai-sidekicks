@@ -1,4 +1,5 @@
-//! An account's claude.ai sign-in, read where Claude Code keeps it: the `claudeAiOauth` record of
+//! An account's claude.ai sign-in, read where Claude Code takes it from (`Ln` and `l$`,
+//! b:12096799): the token its environment hands it, else the `claudeAiOauth` record of
 //! `.credentials.json` in the account's credential folder, else, on macOS, the keychain item Claude
 //! Code files for that folder. This is the one place the driver reads that record. The read never
 //! writes, never logs a value, and logs its reason where no record is read.
@@ -11,11 +12,12 @@ use std::time::Duration;
 use secrecy::ExposeSecret;
 use serde::Deserialize;
 use sha2::Digest;
+use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::{CredentialStore, CredentialStoreError, PathRules, login_keychain};
 use unicode_normalization::UnicodeNormalization;
 use zeroize::Zeroizing;
 
-use crate::driver::claude::spawn::environment::claude_config_folder;
+use crate::driver::claude::spawn::environment::{claude_config_folder, claude_text_variable};
 
 /// The file in the credential folder Claude Code keeps a sign-in in where the keychain is not used.
 const CLAUDE_CREDENTIALS_FILE: &str = ".credentials.json";
@@ -32,6 +34,27 @@ const SECURE_STORAGE_FOLDER_VARIABLE: &str = "CLAUDE_SECURESTORAGE_CONFIG_DIR";
 /// The variable that moves Claude Code's sign-in, and the API host it reads the connector list
 /// from, to a custom host.
 pub(crate) const CUSTOM_SIGN_IN_HOST_VARIABLE: &str = "CLAUDE_CODE_CUSTOM_OAUTH_URL";
+
+/// The variable whose token Claude Code signs in with ahead of its stored sign-in (`l$`,
+/// b:12096799).
+pub(crate) const OAUTH_TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
+
+/// The variable naming a file descriptor Claude Code reads a sign-in token from, ahead of its
+/// stored sign-in (`dE`, b:10451095).
+const OAUTH_TOKEN_DESCRIPTOR_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR";
+
+/// The variable listing the scopes Claude Code gives a token its environment hands it, separated
+/// by white space (`Zw`, b:12096391).
+const OAUTH_SCOPES_VARIABLE: &str = "CLAUDE_CODE_OAUTH_SCOPES";
+
+/// The scopes Claude Code gives the environment's token where the scopes variable names none
+/// (`Qw`, b:12096337).
+const ENVIRONMENT_TOKEN_SCOPES: [&str; 1] = ["user:inference"];
+
+/// The scopes Claude Code gives a file descriptor's token where the scopes variable names none
+/// (`u$`, b:12096494).
+const DESCRIPTOR_TOKEN_SCOPES: [&str; 3] =
+    ["user:inference", "user:ccr_inference", "user:file_upload"];
 
 /// Opens the credential store a keychain item is read from, blocking while it does.
 pub(crate) type ClaudeKeychainOpen =
@@ -64,11 +87,26 @@ impl ClaudeSignInReader {
         }
     }
 
-    /// The sign-in of the Claude Code process `environment` starts: the record in its credential
-    /// folder's file, else the keychain item named for that folder. Where neither holds a record
-    /// with an access token it is absent, unless a store that may hold one could not be read; each
-    /// reason is logged at debug.
+    /// The sign-in of the Claude Code process `environment` starts: the environment's own token,
+    /// else the token it names a file descriptor for, each with the scopes Claude Code gives it,
+    /// else the record in its credential folder's file, else the keychain item named for that
+    /// folder. Where none holds a record with an access token it is absent, unless a store that
+    /// may hold one could not be read; each reason is logged at debug.
     pub(crate) async fn read(&self, environment: &[(String, String)]) -> ClaudeSignInReading {
+        if let Some(token) = claude_text_variable(environment, OAUTH_TOKEN_VARIABLE) {
+            return ClaudeSignInReading::Read(ClaudeAiSignIn {
+                access_token: Zeroizing::new(token.to_owned()),
+                scopes: read_handed_token_scopes(environment, &ENVIRONMENT_TOKEN_SCOPES),
+                refresh_token: None,
+                expires_at: None,
+                client_id: None,
+            });
+        }
+        if claude_text_variable(environment, OAUTH_TOKEN_DESCRIPTOR_VARIABLE).is_some() {
+            return ClaudeSignInReading::Descriptor {
+                scopes: read_handed_token_scopes(environment, &DESCRIPTOR_TOKEN_SCOPES),
+            };
+        }
         let Some(folder) = claude_credential_folder(environment) else {
             tracing::debug!("no claude.ai sign-in read: the account names no Claude Code home");
             return ClaudeSignInReading::Unreadable;
@@ -150,6 +188,12 @@ pub(crate) enum ClaudeSignInReading {
     Unreadable,
     /// The sign-in.
     Read(ClaudeAiSignIn),
+    /// A token Claude Code reads from a file descriptor the daemon cannot read, with the scopes
+    /// Claude Code gives it.
+    Descriptor {
+        /// The scopes.
+        scopes: Vec<String>,
+    },
 }
 
 /// An account's claude.ai sign-in: its access token, wiped when dropped, and the scopes it was
@@ -246,6 +290,22 @@ fn read_sign_in_record(bytes: &[u8], source: &'static str) -> Option<ClaudeAiSig
         expires_at: record.expires_at,
         client_id: record.client_id,
     })
+}
+
+// The scopes Claude Code gives a token `environment` hands it: those its scopes variable lists,
+// else `default`.
+fn read_handed_token_scopes(environment: &[(String, String)], default: &[&str]) -> Vec<String> {
+    let listed: Vec<String> = claude_text_variable(environment, OAUTH_SCOPES_VARIABLE)
+        .into_iter()
+        .flat_map(|scopes| scopes.split(is_ecmascript_whitespace))
+        .filter(|scope| !scope.is_empty())
+        .map(str::to_owned)
+        .collect();
+    if listed.is_empty() {
+        default.iter().map(|scope| (*scope).to_owned()).collect()
+    } else {
+        listed
+    }
 }
 
 // The folder Claude Code started in `environment` keeps its sign-in in: the secure-storage folder
@@ -429,6 +489,71 @@ mod tests {
             !logged.contains(PLANTED_TOKEN),
             "a log line holds the token: {logged}"
         );
+    }
+
+    // A token the environment hands Claude Code is its sign-in ahead of the stored record, with
+    // the scopes the scopes variable lists, else inference alone; a file descriptor's token is read
+    // as one, with its own default scopes. Killed by the stored record read first, and by either
+    // token's default scopes taken from the other.
+    #[tokio::test]
+    async fn a_token_the_environment_hands_claude_code_comes_ahead_of_the_stored_one() {
+        let folder = tempfile::tempdir().expect("a test folder");
+        std::fs::write(
+            folder.path().join(".credentials.json"),
+            r#"{"claudeAiOauth":{"accessToken":"stored","scopes":["user:mcp_servers"]}}"#,
+        )
+        .expect("the file is planted");
+        let reader = ClaudeSignInReader::with_keychain(CredentialStore::in_memory());
+        let read = |variables: &[(&str, &str)]| {
+            let environment: Vec<(String, String)> = [("CLAUDE_CONFIG_DIR", folder.path())]
+                .iter()
+                .map(|(name, path)| ((*name).to_owned(), path.display().to_string()))
+                .chain(
+                    variables
+                        .iter()
+                        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
+                )
+                .collect();
+            let reader = reader.clone();
+            async move { reader.read(&environment).await }
+        };
+
+        let ClaudeSignInReading::Read(sign_in) =
+            read(&[("CLAUDE_CODE_OAUTH_TOKEN", " handed ")]).await
+        else {
+            panic!("the environment's token");
+        };
+        assert_eq!(sign_in.access_token.as_str(), "handed");
+        assert_eq!(sign_in.scopes, ["user:inference"]);
+
+        let ClaudeSignInReading::Read(sign_in) = read(&[
+            ("CLAUDE_CODE_OAUTH_TOKEN", "handed"),
+            (
+                "CLAUDE_CODE_OAUTH_SCOPES",
+                "user:inference\tuser:mcp_servers",
+            ),
+        ])
+        .await
+        else {
+            panic!("the environment's token");
+        };
+        assert_eq!(sign_in.scopes, ["user:inference", "user:mcp_servers"]);
+
+        let ClaudeSignInReading::Descriptor { scopes } =
+            read(&[("CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR", "3")]).await
+        else {
+            panic!("the file descriptor's token");
+        };
+        assert_eq!(
+            scopes,
+            ["user:inference", "user:ccr_inference", "user:file_upload"]
+        );
+
+        let ClaudeSignInReading::Read(sign_in) = read(&[("CLAUDE_CODE_OAUTH_TOKEN", "  ")]).await
+        else {
+            panic!("the stored record");
+        };
+        assert_eq!(sign_in.access_token.as_str(), "stored");
     }
 
     // The keychain item's name: the base name where neither folder is named or the secure-storage

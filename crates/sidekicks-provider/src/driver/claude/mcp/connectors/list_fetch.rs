@@ -4,11 +4,16 @@
 //! b:15669889) decides it. A skip is claimed only where it surely holds, so a condition the daemon
 //! cannot read leaves the read waiting for the fetch instead.
 
+use serde::Deserialize;
 use serde_json::Value;
+use serde_json::value::RawValue;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::PathRules;
 
-use crate::driver::claude::session::transport::control::ClaudeSettingsReply;
+use crate::driver::claude::account_credentials::OAUTH_TOKEN_VARIABLE;
+use crate::driver::claude::spawn::environment::{
+    CLAUDE_GATEWAY_SWITCH_VARIABLE, CLAUDE_PROVIDER_SWITCH_VARIABLES, claude_text_variable,
+};
 
 /// The variable that switches Claude Code's claude.ai connectors off.
 const CONNECTORS_SWITCH_VARIABLE: &str = "ENABLE_CLAUDEAI_MCP_SERVERS";
@@ -21,32 +26,32 @@ const SAFE_MODE_VARIABLE: &str = "CLAUDE_CODE_SAFE_MODE";
 /// b:8611562).
 const BARE_MODE_VARIABLE: &str = "CLAUDE_CODE_SIMPLE";
 
-/// The variables that each move Claude Code to a provider other than Anthropic's own API (`Ae`,
-/// b:9648677).
-const THIRD_PARTY_PROVIDER_VARIABLES: [&str; 6] = [
-    "CLAUDE_CODE_USE_BEDROCK",
-    "CLAUDE_CODE_USE_FOUNDRY",
-    "CLAUDE_CODE_USE_ANTHROPIC_AWS",
-    "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD",
-    "CLAUDE_CODE_USE_MANTLE",
-    "CLAUDE_CODE_USE_VERTEX",
-];
+/// The gateway's address and the token Claude Code signs in to it with, which with the gateway's
+/// switch make its provider the gateway (`Su`, b:12043582).
+const GATEWAY_ADDRESS_VARIABLE: &str = "ANTHROPIC_BASE_URL";
+const GATEWAY_TOKEN_VARIABLE: &str = "ANTHROPIC_AUTH_TOKEN";
 
 /// The variable naming a socket Claude Code reaches the API through, which then signs in only
 /// with `CLAUDE_CODE_OAUTH_TOKEN` (`tl`, b:12063921).
 const UNIX_SOCKET_VARIABLE: &str = "ANTHROPIC_UNIX_SOCKET";
 
-/// The variable whose token Claude Code signs in with ahead of its stored sign-in (`Ln`,
-/// b:12097863).
-pub(crate) const OAUTH_TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
-
 /// The variables whose credential takes precedence over a claude.ai sign-in in a print-mode
-/// process (`tl`, b:12063921; `nA`, b:12068002).
-const PRECEDING_CREDENTIAL_VARIABLES: [&str; 2] = ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"];
+/// process: the token, the key, and the file descriptor Claude Code reads a key from (`tl`,
+/// b:12063921; `nA`, b:12068002; `NZ`, b:10451032).
+const PRECEDING_CREDENTIAL_VARIABLES: [&str; 3] = [
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "CLAUDE_CODE_API_KEY_FILE_DESCRIPTOR",
+];
 
 /// The variable of a remote session, where those credentials can stand aside for the sign-in
 /// (`xr`, b:12053815; `j_e`, b:12058162).
 const REMOTE_SESSION_VARIABLE: &str = "CLAUDE_CODE_REMOTE";
+
+/// The variable naming the app that started Claude Code, and the apps under which, as in a remote
+/// session, those credentials can stand aside for the sign-in (`Nc`, b:9165396).
+const ENTRYPOINT_VARIABLE: &str = "CLAUDE_CODE_ENTRYPOINT";
+const DESKTOP_ENTRYPOINTS: [&str; 3] = ["claude-desktop", "claude-desktop-3p", "local-agent"];
 
 /// The scopes a sign-in needs for Claude Code to fetch the list: inference, without which a
 /// credential is taken to precede it (`Et`, b:12115433), and the list's own.
@@ -60,9 +65,23 @@ pub(crate) struct ClaudeConnectorFetchSettings {
     has_api_key_helper: bool,
 }
 
+// The members of a `get_settings` answer the fetch reads: the merged settings and each settings
+// source's own, as `{ source, settings }`.
+#[derive(Default, Deserialize)]
+struct ConnectorFetchSettingsReply {
+    #[serde(default)]
+    effective: Option<Value>,
+    #[serde(default)]
+    sources: Option<Value>,
+}
+
 impl ClaudeConnectorFetchSettings {
-    /// Reads `reply`; a member it lacks reads as not set.
-    pub(crate) fn read(reply: &ClaudeSettingsReply) -> Self {
+    /// Reads a `get_settings` answer; an absent one, one that is no object, or a member it lacks
+    /// reads as not set.
+    pub(crate) fn read(reply: Option<&RawValue>) -> Self {
+        let reply: ConnectorFetchSettingsReply = reply
+            .and_then(|reply| serde_json::from_str(reply.get()).ok())
+            .unwrap_or_default();
         let are_connectors_disabled = reply
             .sources
             .as_ref()
@@ -85,22 +104,37 @@ impl ClaudeConnectorFetchSettings {
 
 /// Whether the account's Claude Code, started in `environment` with `settings`, skips its fetch
 /// of the connector list whatever its sign-in: its connectors switched off by the variable or a
-/// settings source, safe mode, another provider than Anthropic's API, bare mode, a socket with no
-/// token, or a credential that precedes the sign-in outside a remote session.
+/// settings source, safe mode, another provider than Anthropic's API or a gateway, bare mode, a
+/// socket with no token, or a credential that precedes the sign-in outside a remote session or a
+/// desktop app's.
 pub(crate) fn skips_connector_fetch(
     environment: &[(String, String)],
     settings: &ClaudeConnectorFetchSettings,
 ) -> bool {
-    let value = |name: &str| PathRules::NATIVE.environment_value(environment, name);
-    let is_set = |name: &str| value(name).is_some_and(|value| !value.is_empty());
-    let is_on = |name: &str| value(name).is_some_and(is_switched_on);
+    let is_set = |name: &str| claude_text_variable(environment, name).is_some();
+    let is_on = |name: &str| {
+        PathRules::NATIVE
+            .environment_value(environment, name)
+            .is_some_and(is_switched_on)
+    };
+    let is_gateway = is_on(CLAUDE_GATEWAY_SWITCH_VARIABLE)
+        && is_set(GATEWAY_ADDRESS_VARIABLE)
+        && is_set(GATEWAY_TOKEN_VARIABLE);
+    // Any remote-session value, read or not as Claude Code reads it, counts as one, so the read
+    // waits rather than settling early.
+    let can_sign_in_stand_ahead = PathRules::NATIVE
+        .environment_value(environment, REMOTE_SESSION_VARIABLE)
+        .is_some()
+        || claude_text_variable(environment, ENTRYPOINT_VARIABLE)
+            .is_some_and(|entrypoint| DESKTOP_ENTRYPOINTS.contains(&entrypoint));
     let has_preceding_credential = !is_set(UNIX_SOCKET_VARIABLE)
-        && !is_set(REMOTE_SESSION_VARIABLE)
+        && !can_sign_in_stand_ahead
         && (PRECEDING_CREDENTIAL_VARIABLES.into_iter().any(is_set) || settings.has_api_key_helper);
     are_connectors_switched_off(environment)
         || settings.are_connectors_disabled
         || is_on(SAFE_MODE_VARIABLE)
-        || THIRD_PARTY_PROVIDER_VARIABLES.into_iter().any(is_on)
+        || CLAUDE_PROVIDER_SWITCH_VARIABLES.into_iter().any(is_on)
+        || is_gateway
         || is_on(BARE_MODE_VARIABLE)
         || (is_set(UNIX_SOCKET_VARIABLE) && !is_set(OAUTH_TOKEN_VARIABLE))
         || has_preceding_credential

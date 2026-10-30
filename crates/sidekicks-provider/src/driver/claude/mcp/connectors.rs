@@ -10,8 +10,9 @@
 //! reports fewer connectors than the list holds, less those Claude Code suppresses as duplicates of
 //! a configured server, or none where Claude Code fetches a list the daemon could not read, one
 //! `mcp_status` a second on that process, until the count stops growing above none, or with none
-//! until Claude Code's own fetch of the list can have ended, and never past the machine probe's
-//! ceiling; where Claude Code fetches no list, one `mcp_status`.
+//! until Claude Code's own fetch of the list can have ended, and never past the later of the
+//! machine probe's ceiling and one ask after that fetch; where Claude Code fetches no list, one
+//! `mcp_status`.
 
 pub(crate) mod list_fetch;
 pub(crate) mod organization_mark;
@@ -83,7 +84,9 @@ const CONNECTOR_STATUS_INTERVAL: Duration = Duration::from_secs(1);
 /// the build's version and `get_settings`, then the connector list `read_connector_list` reads
 /// for that version and those settings, then `mcp_status`, asked again on the same process once a
 /// second until it reports as many connectors as the list holds less those at the address of a
-/// server the account's process configures, or `ceiling` passes. A count that stops growing
+/// server the account's process configures, or the later of `ceiling` and one ask after Claude
+/// Code's own fetch can have ended passes, so a short `ceiling` never cuts that fetch's wait. A
+/// count that stops growing
 /// settles the read at once where it is above none; a count of none settles once Claude Code's
 /// own fetch can have ended. Where Claude Code fetches no list, `mcp_status` is asked once, and
 /// where the daemon could not read it, until a connector shows or that fetch can have ended. Only
@@ -98,9 +101,9 @@ where
     ListRead: Future<Output = ClaudeConnectorListReading>,
 {
     let started = Instant::now();
-    let deadline = started + ceiling;
     // One more ask after Claude Code's fetch can have ended, so its connectors are seen.
     let fetch_end = started + CLAUDE_CONNECTOR_FETCH_WINDOW + CONNECTOR_STATUS_INTERVAL;
+    let deadline = (started + ceiling).max(fetch_end + CONNECTOR_STATUS_INTERVAL);
     let version = channel
         .send_control_request(ClaudeControlRequest::GetBinaryVersion {})
         .await?;
@@ -112,7 +115,7 @@ where
     let organization_addresses = read_organization_addresses(settings_reply.effective.as_ref());
     let list = read_connector_list(
         build_version,
-        ClaudeConnectorFetchSettings::read(&settings_reply),
+        ClaudeConnectorFetchSettings::read(settings.response.as_deref()),
     )
     .await;
     let mut last_reported_rows = None;

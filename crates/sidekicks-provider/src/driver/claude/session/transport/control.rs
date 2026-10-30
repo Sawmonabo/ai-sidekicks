@@ -450,9 +450,8 @@ pub(crate) struct ClaudeSessionTitleReply {
     pub(crate) title: Option<String>,
 }
 
-/// A `get_settings` answer: the settings merged from every source, what took effect for the
-/// session and each source's own settings, each read by the member its reader needs; every other
-/// member is left unread.
+/// A `get_settings` answer: the settings merged from every source and what took effect for the
+/// session, each read by the member its reader needs; every other member is left unread.
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct ClaudeSettingsReply {
     /// The settings merged from every source.
@@ -461,9 +460,6 @@ pub(crate) struct ClaudeSettingsReply {
     /// What took effect for the session.
     #[serde(default)]
     pub(crate) applied: Option<Value>,
-    /// Each settings source that holds any, as `{ source, settings }`.
-    #[serde(default)]
-    pub(crate) sources: Option<Value>,
 }
 
 impl ClaudeSettingsReply {

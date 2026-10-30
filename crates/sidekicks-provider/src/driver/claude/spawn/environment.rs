@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::PathRules;
 
 use crate::driver::ProviderAccountFolders;
@@ -19,6 +20,21 @@ use crate::spawn_environment::{
 // The data folder's folder of Claude Code scratch folders, and in it the folder of each account's.
 const CLAUDE_SCRATCH_FOLDER: &str = "claude-scratch";
 const ACCOUNT_SCRATCH_FOLDERS: &str = "accounts";
+
+/// The switches that each move Claude Code to a provider other than Anthropic's own API, in the
+/// order it reads them (`Ae`, b:9648677).
+pub(crate) const CLAUDE_PROVIDER_SWITCH_VARIABLES: [&str; 6] = [
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_FOUNDRY",
+    "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+    "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD",
+    "CLAUDE_CODE_USE_MANTLE",
+    "CLAUDE_CODE_USE_VERTEX",
+];
+
+/// The switch that sends Claude Code's requests through an organization's gateway at
+/// `ANTHROPIC_BASE_URL`, which `Ae` reads ahead of the provider switches (`Su`, b:12043582).
+pub(crate) const CLAUDE_GATEWAY_SWITCH_VARIABLE: &str = "CLAUDE_CODE_USE_GATEWAY";
 
 /// The folders of an account the daemon manages, which Claude Code reads through
 /// `CLAUDE_CONFIG_DIR` and `CLAUDE_SECURESTORAGE_CONFIG_DIR`; each an absolute path.
@@ -99,6 +115,18 @@ pub(crate) fn claude_config_folder(
         .map(PathBuf::from)
         .or_else(std::env::home_dir)?;
     Some(home.join(".claude"))
+}
+
+/// The value of the text variable `name` in `environment` as Claude Code reads it (`t`,
+/// b:8907349): trimmed of ECMAScript white space, an empty value read as unset.
+pub(crate) fn claude_text_variable<'environment>(
+    environment: &'environment [(String, String)],
+    name: &str,
+) -> Option<&'environment str> {
+    PathRules::NATIVE
+        .environment_value(environment, name)
+        .map(|value| value.trim_matches(is_ecmascript_whitespace))
+        .filter(|value| !value.is_empty())
 }
 
 /// The whole environment a session process, a relaunch or the sign-in check starts with, with

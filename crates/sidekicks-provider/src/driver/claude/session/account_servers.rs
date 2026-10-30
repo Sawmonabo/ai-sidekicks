@@ -1,12 +1,14 @@
 //! When each account's connectors and organization servers are read, and what is kept between
 //! reads: an account is read when it is first asked for after the daemon starts, again on a
-//! refresh, and at a session's start after a failed or short read, one read per account at a time,
-//! a second ask while one runs joining it, and the result kept for the account until a refresh,
-//! each connector marked from its organization's connector list.
+//! refresh, and at a session's start after a failed read or a short one, a short result read again
+//! that way once, one read per account at a time, a second ask while one runs joining it, and the
+//! result kept for the account until a refresh, each connector marked from its organization's
+//! connector list.
 //! Budget: one Claude Code process of about 140 to 150 MB per account at a time, and none once the
 //! account's result is kept; a failed read, or one that still lacked a connector its list holds,
 //! is kept for a plain list until the account's next session or refresh asks again, so a plain
-//! list never starts a process for an account read before.
+//! list never starts a process for an account read before, and a short result costs at most one
+//! more process between refreshes.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -54,7 +56,14 @@ pub(crate) struct ClaudeAccountServerReads {
     starts: Arc<dyn ClaudeProcessStarts>,
     sources: Arc<ClaudeSpawnSources>,
     marks: Arc<ClaudeOrganizationMarks>,
-    reads: Mutex<HashMap<ProviderAccountId, ClaudeAccountServersRead>>,
+    reads: Mutex<HashMap<ProviderAccountId, HeldRead>>,
+}
+
+// One account's held read, and whether a session's start began it to read a short result again,
+// so a short result it brings is kept until a refresh.
+struct HeldRead {
+    read: ClaudeAccountServersRead,
+    is_short_reread: bool,
 }
 
 impl ClaudeAccountServerReads {
@@ -81,25 +90,28 @@ impl ClaudeAccountServerReads {
 
     /// `provider_account_id`'s read for `ask`: the running one; else the kept result or failure
     /// for a plain list; else the kept result for a session's start unless it lacked a listed
-    /// connector; else a new read started now, which runs to its end whether or not the caller
-    /// awaits it. Resolves to the account's servers, or the error the read failed with.
+    /// connector and no session's start has read it again since the last refresh; else a new read
+    /// started now, which runs to its end whether or not the caller awaits it. Resolves to the
+    /// account's servers, or the error the read failed with.
     pub(crate) fn read(
         &self,
         provider_account_id: &ProviderAccountId,
         ask: ClaudeAccountReadAsk,
     ) -> ClaudeAccountServersRead {
         let mut reads = lock(&self.reads);
-        if let Some(read) = reads.get(provider_account_id) {
-            let is_joined = match (read.peek(), ask) {
+        let mut is_short_reread = false;
+        if let Some(held) = reads.get(provider_account_id) {
+            let is_joined = match (held.read.peek(), ask) {
                 (None, _) | (Some(_), ClaudeAccountReadAsk::List) => true,
                 (Some(Ok(servers)), ClaudeAccountReadAsk::SessionStart) => {
-                    !servers.lacks_listed_connectors
+                    is_short_reread = servers.lacks_listed_connectors;
+                    !servers.lacks_listed_connectors || held.is_short_reread
                 }
                 (Some(Err(_)), ClaudeAccountReadAsk::SessionStart)
                 | (Some(_), ClaudeAccountReadAsk::Refresh) => false,
             };
             if is_joined {
-                return read.clone();
+                return held.read.clone();
             }
         }
         let task = tokio::spawn(read_account(
@@ -116,7 +128,13 @@ impl ClaudeAccountServerReads {
         }
         .boxed()
         .shared();
-        reads.insert(provider_account_id.clone(), read.clone());
+        reads.insert(
+            provider_account_id.clone(),
+            HeldRead {
+                read: read.clone(),
+                is_short_reread,
+            },
+        );
         read
     }
 }
@@ -186,7 +204,7 @@ mod tests {
     use sidekicks_platforms::CredentialStore;
     use sidekicks_std::mutex_lock::lock;
 
-    use super::{ClaudeAccountReadAsk, ClaudeAccountServerReads};
+    use super::{ClaudeAccountReadAsk, ClaudeAccountServerReads, HeldRead};
     use crate::driver::claude::account_credentials::ClaudeSignInReader;
     use crate::driver::claude::mcp::connectors::organization_mark::ClaudeOrganizationMarks;
     use crate::driver::claude::mcp::precedence::ClaudeMcpAccountServers;
@@ -236,8 +254,10 @@ mod tests {
     }
 
     // A failed read, and one that still lacked a connector its list holds, is kept for a plain
-    // list, which starts no process for it, until a session's start asks again. Killed by a plain
-    // list reading either again, and by a session's start joining either.
+    // list, which starts no process for it, until a session's start asks again; a short result's
+    // read again is marked so, whose own short result the next session's start then joins. Killed
+    // by a plain list reading either again, by a session's start joining either, and by the read
+    // again left unmarked.
     #[rstest]
     #[case::failed(false)]
     #[case::short_of_its_connector_list(true)]
@@ -269,7 +289,13 @@ mod tests {
                 "the account read failed".into(),
             )))
         };
-        lock(&reads.reads).insert(account.clone(), ready(kept).boxed().shared());
+        lock(&reads.reads).insert(
+            account.clone(),
+            HeldRead {
+                read: ready(kept).boxed().shared(),
+                is_short_reread: false,
+            },
+        );
 
         for _ in 0..2 {
             let read = reads.read(&account, ClaudeAccountReadAsk::List).await;
@@ -282,5 +308,48 @@ mod tests {
             .await;
         assert!(read.is_ok_and(|servers| !servers.lacks_listed_connectors));
         assert_eq!(fixture.starts.take_account_servers_read_count(), 1);
+        assert_eq!(lock(&reads.reads)[&account].is_short_reread, is_short);
+    }
+
+    // Two session starts after a short read run one read again: a short result that read brought
+    // is kept for the next session's start, and read again only on a refresh. Killed by a session's
+    // start reading such a result again.
+    #[tokio::test]
+    async fn a_short_result_read_again_once_is_kept_until_a_refresh() {
+        let fixture = ScriptedDriver::new();
+        let reads = ClaudeAccountServerReads::new(
+            fixture.starts.clone(),
+            Arc::clone(&fixture.driver.sources),
+            ClaudeOrganizationMarks::new(ClaudeSignInReader::with_keychain(
+                CredentialStore::in_memory(),
+            )),
+        );
+        let account = test_provider_account_id();
+        let short = Arc::new(ClaudeMcpAccountServers {
+            provider_account_id: account.clone(),
+            organization_servers: Vec::new(),
+            connectors: Vec::new(),
+            connector_readings: Vec::new(),
+            organization_readings: Vec::new(),
+            organization_entries: BTreeMap::new(),
+            lacks_listed_connectors: true,
+        });
+        lock(&reads.reads).insert(
+            account.clone(),
+            HeldRead {
+                read: ready(Ok(short)).boxed().shared(),
+                is_short_reread: true,
+            },
+        );
+
+        let read = reads
+            .read(&account, ClaudeAccountReadAsk::SessionStart)
+            .await;
+        assert!(read.is_ok_and(|servers| servers.lacks_listed_connectors));
+        assert_eq!(fixture.starts.take_account_servers_read_count(), 0);
+
+        drop(reads.read(&account, ClaudeAccountReadAsk::Refresh).await);
+        assert_eq!(fixture.starts.take_account_servers_read_count(), 1);
+        assert!(!lock(&reads.reads)[&account].is_short_reread);
     }
 }
