@@ -32,6 +32,20 @@ use crate::workflow::definition::item::WorkflowPinnedItem;
 /// over the id at that path, as the issue's `params`.
 pub const NODE_ID_DUPLICATE_MESSAGE: &str = "this node id is already used by an earlier node";
 
+/// The longest workflow name a document holds, in code points: a session's bound, since a run's
+/// name is drawn where a session's is.
+pub const WORKFLOW_NAME_MAX_LEN: usize = 256;
+
+/// The longest notice a Notify step posts, in code points: the bound of the smallest chat
+/// message the web address's receivers take, so the notice reaches them whole.
+pub const NOTIFY_NOTICE_MAX_LEN: usize = 2_000;
+
+/// A workflow's name: one to [`WORKFLOW_NAME_MAX_LEN`] code points.
+pub type WorkflowName = BoundedText<1, WORKFLOW_NAME_MAX_LEN>;
+
+/// A Notify step's notice: one to [`NOTIFY_NOTICE_MAX_LEN`] code points.
+pub type WorkflowNotifyNotice = BoundedText<1, NOTIFY_NOTICE_MAX_LEN>;
+
 ts_constants! {
     /// The document schema version this contract reads and writes.
     WORKFLOW_DOCUMENT_SCHEMA_VERSION = WorkflowDocumentSchemaVersion::Value;
@@ -509,8 +523,8 @@ macro_rules! workflow_document {
             #[schemars(description = "The document schema version; always \"2\".")]
             pub schema_version: WorkflowDocumentSchemaVersion,
             /// The workflow's name.
-            #[schemars(description = "The workflow's name.")]
-            pub name: NonEmptyText,
+            #[schemars(description = "The workflow's name; at most 256 characters.")]
+            pub name: WorkflowName,
             /// The workflow's description.
             #[serde(
                 default,
@@ -669,7 +683,7 @@ fn repeated_node_indices<'a>(
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowDocumentHashedBody {
     /// The workflow's name.
-    pub name: NonEmptyText,
+    pub name: WorkflowName,
     /// The workflow's description.
     #[serde(
         default,

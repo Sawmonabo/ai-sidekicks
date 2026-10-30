@@ -8,7 +8,7 @@ use sidekicks_contracts::workflow::definition::builder::{
     NewWorkflowDraftUpdateRequest, SavedWorkflowDraftUpdateRequest, WorkflowDraftUpdateRequest,
 };
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowDocument, WorkflowVersionId,
+    WORKFLOW_NAME_MAX_LEN, WorkflowDefinitionId, WorkflowDocument, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::methods::{
     WorkflowCreateOrigin, WorkflowDefinitionCreateRequest, WorkflowDefinitionCreateResponse,
@@ -250,12 +250,13 @@ fn definition_name(rows: &Connection, definition_id: WorkflowDefinitionId) -> St
     .expect("the test reads the workflow")
 }
 
-/// A Duplicate is named the first free `<name> copy`, then `<name> copy 2`; its first version
-/// keeps the copied version's package locks while its document is that version's, and none when it
-/// differs. One naming a version no row holds, or a version of a deleted workflow, is refused as
-/// that version not found, not as a held name, and writes no workflow. Mutations: carry the locks
+/// A Duplicate is named the first free `<name> copy`, then `<name> copy 2`, a name at its bound cut
+/// so the copy's fits; its first version keeps the copied version's package locks while its
+/// document is that version's, and none when it differs. One naming a version no row holds, or a
+/// version of a deleted workflow, is refused as that version not found, not as a held name, and
+/// writes no workflow. Mutations: carry the locks
 /// whatever the document; answer every refused create as a held name; drop the copied version's
-/// check, or its deleted workflow condition, from the write.
+/// check, or its deleted workflow condition, from the write; leave a copy's name uncut.
 #[tokio::test]
 async fn a_duplicate_takes_a_free_copy_name_and_its_source_locks_only_for_the_same_content() {
     let database = TestDatabase::new(schema_parts());
@@ -293,6 +294,33 @@ async fn a_duplicate_takes_a_free_copy_name_and_its_source_locks_only_for_the_sa
             .expect("the test reads the copy's locks");
         assert_eq!(copy_locks, expected_locks, "{expected_name}");
     }
+    // A source at the name's bound is cut so its copy fits it, never refused or a fault.
+    let longest = "n".repeat(WORKFLOW_NAME_MAX_LEN);
+    let longest_source = create_from(
+        &store,
+        &longest,
+        "notes.md",
+        WorkflowCreateOrigin::FileImport {},
+    )
+    .await
+    .expect("a name at the bound is saved");
+    for suffix in [" copy", " copy 2"] {
+        let copy = create_from(
+            &store,
+            &longest,
+            "notes.md",
+            duplicate_of(longest_source.workflow_version_id),
+        )
+        .await
+        .expect("the duplicate of a name at the bound commits");
+        assert_eq!(
+            definition_name(&rows, copy.definition_id),
+            format!(
+                "{}{suffix}",
+                &longest[..WORKFLOW_NAME_MAX_LEN - suffix.len()]
+            )
+        );
+    }
 
     let missing = WorkflowVersionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e59")
         .expect("the id is a version id");
@@ -327,5 +355,5 @@ async fn a_duplicate_takes_a_free_copy_name_and_its_source_locks_only_for_the_sa
             row.get(0)
         })
         .expect("the test counts the workflows");
-    assert_eq!(definition_count, 3);
+    assert_eq!(definition_count, 6, "the two sources and their four copies");
 }

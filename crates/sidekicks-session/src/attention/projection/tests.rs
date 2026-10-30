@@ -1,7 +1,6 @@
 use serde_json::json;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowNotifyNotice};
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_store::events::session::appender::SessionEventLinkage;
 
@@ -29,7 +28,7 @@ async fn muting_withdraws_raised_end_banners_and_keeps_waits_and_notices() {
         &WorkflowNodeId::new(NODE.to_owned()).expect("a test node id"),
         SafeInt::ZERO,
         "018f0000-0000-7000-8000-0000000000aa",
-        &NonEmptyText::new("Deployed".to_owned()).expect("a test notice"),
+        &WorkflowNotifyNotice::new("Deployed".to_owned()).expect("a test notice"),
         "2026-10-28T09:00:00.000Z",
     );
     harness
