@@ -7,7 +7,8 @@
 //! marked as its organization's connector list reads it. Budget: one such process of about 140 to
 //! 150 MB per account at a time, run at the account's first session after the daemon starts and
 //! again only on a refresh, never on a poll; while it reports fewer connectors than the list
-//! holds, one `mcp_status` a second on that process, up to the machine probe's ceiling.
+//! holds and more than at its last answer, one `mcp_status` a second on that process, up to the
+//! machine probe's ceiling.
 
 pub(crate) mod organization_mark;
 
@@ -72,8 +73,9 @@ const CONNECTOR_STATUS_INTERVAL: Duration = Duration::from_secs(1);
 /// Reads one account's answers on `channel`, its process that keeps nothing already initialized:
 /// the build's version, then the connector list `read_connector_list` reads for that version,
 /// then `mcp_status`, asked again on the same process once a second until it reports as many
-/// connectors as the list holds or `ceiling` passes, then `get_settings`. Where the list is not
-/// read, `mcp_status` is asked once. Fails as a request does, a refused request included.
+/// connectors as the list holds, reports as many as at its last answer, or `ceiling` passes, then
+/// `get_settings`. Where the list is not read, `mcp_status` is asked once. Fails as a request
+/// does, a refused request included.
 pub(crate) async fn read_claude_account_answers<ListRead>(
     channel: &dyn ClaudeProcessChannel,
     read_connector_list: impl FnOnce(Option<String>) -> ListRead,
@@ -91,6 +93,7 @@ where
     let listed_rows = marks
         .as_ref()
         .map_or(0, ClaudeConnectorMarks::listed_row_count);
+    let mut last_reported_rows = None;
     let (mcp_status, reported_rows) = loop {
         let answer = channel
             .send_control_request(ClaudeControlRequest::McpStatus {})
@@ -98,9 +101,15 @@ where
         let reply = ClaudeMcpStatusReply::read(answer.response.as_deref());
         let reported_rows = count_connector_rows(&reply);
         let now = Instant::now();
-        if reported_rows >= listed_rows || now >= deadline {
+        // A reply no longer growing settles the read, so a connector Claude Code never lists
+        // costs one more ask rather than the whole ceiling.
+        if reported_rows >= listed_rows
+            || last_reported_rows == Some(reported_rows)
+            || now >= deadline
+        {
             break (reply, reported_rows);
         }
+        last_reported_rows = Some(reported_rows);
         tokio::time::sleep_until((now + CONNECTOR_STATUS_INTERVAL).min(deadline)).await;
     };
     let settings = channel
@@ -277,50 +286,74 @@ mod tests {
         }
     }
 
-    // While the account's connector list holds a connector the first `mcp_status` reply lacks,
-    // `mcp_status` is asked again on the same process once a second, and the reply that lists it
-    // is the one kept; with no list read, one reply is taken as it is. Killed by the reply asked
-    // once with a list read, and by a short reply kept.
-    #[rstest]
-    #[case::list_read(true, 2)]
-    #[case::list_unread(false, 1)]
-    #[tokio::test(start_paused = true)]
-    async fn a_reply_short_of_the_connector_list_is_asked_again(
-        #[case] is_list_read: bool,
-        #[case] status_reads: usize,
-    ) {
-        let connector = json!({
-            "name": "claude.ai Notes",
+    // The `claudeai` row of the connector `name`, as `mcp_status` reports it.
+    fn connector_row(name: &str) -> serde_json::Value {
+        json!({
+            "name": format!("claude.ai {name}"),
             "status": "connected",
             "scope": "claudeai",
             "source": "claudeai",
-            "config": { "type": "claudeai-proxy", "url": "https://notes.example.com/mcp" }
-        });
+            "config": {
+                "type": "claudeai-proxy",
+                "url": format!("https://{}.example.com/mcp", name.to_lowercase())
+            }
+        })
+    }
+
+    // While the account's connector list holds a connector the `mcp_status` reply lacks and the
+    // reply grew since its last answer, `mcp_status` is asked again on the same process once a
+    // second; a reply that reaches the list, or answers as many connectors as the last, settles
+    // the read, a short one marked as lacking. With no list read, one reply is taken as it is.
+    // Killed by the reply asked once with a list read, by a reply settling while it grows, and
+    // by a reply that stops growing asked again until the ceiling.
+    #[rstest]
+    #[case::list_unread(None, &[&[][..], &["Notes"][..]], 1, 0, false)]
+    #[case::grows_to_the_list(
+        Some(&["Notes", "Mail"][..]),
+        &[&[][..], &["Notes"][..], &["Notes", "Mail"][..]],
+        3,
+        2,
+        false
+    )]
+    #[case::stops_growing(Some(&["Notes"][..]), &[&[][..], &[][..]], 2, 0, true)]
+    #[tokio::test(start_paused = true)]
+    async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list(
+        #[case] listed: Option<&[&str]>,
+        #[case] replies: &[&[&str]],
+        #[case] status_reads: usize,
+        #[case] kept_rows: usize,
+        #[case] lacks_listed_connectors: bool,
+    ) {
         let channel = ScriptedChannel::default();
         channel.answer(
             "get_binary_version",
             ScriptedAnswer::Reply(json!({ "version": "2.1.310" })),
         );
-        channel.answer(
-            "mcp_status",
-            ScriptedAnswer::Reply(json!({ "mcpServers": [] })),
-        );
-        channel.answer(
-            "mcp_status",
-            ScriptedAnswer::Reply(json!({ "mcpServers": [connector] })),
-        );
+        for reply in replies {
+            let rows: Vec<_> = reply.iter().map(|name| connector_row(name)).collect();
+            channel.answer(
+                "mcp_status",
+                ScriptedAnswer::Reply(json!({ "mcpServers": rows })),
+            );
+        }
+        let list = listed.map(|names| {
+            let data: Vec<_> = names
+                .iter()
+                .map(|name| {
+                    json!({
+                        "id": format!("mcpsrv_{}", name.to_lowercase()),
+                        "url": format!("https://{}.example.com/mcp", name.to_lowercase())
+                    })
+                })
+                .collect();
+            json!({ "data": data }).to_string()
+        });
 
         let (answers, _marks) = read_claude_account_answers(
             &channel,
             async |build_version: Option<String>| {
                 assert_eq!(build_version.as_deref(), Some("2.1.310"));
-                is_list_read
-                    .then(|| {
-                        read_connector_list(
-                            br#"{"data":[{"id":"mcpsrv_notes","url":"https://notes.example.com/mcp"}]}"#,
-                        )
-                    })
-                    .flatten()
+                read_connector_list(list.as_ref()?.as_bytes())
             },
             Duration::from_secs(35),
         )
@@ -333,13 +366,13 @@ mod tests {
             .filter(|request| request["subtype"] == "mcp_status")
             .count();
         assert_eq!(asked, status_reads);
-        let listed = answers
+        let kept = answers
             .mcp_status
             .servers
             .as_ref()
             .map_or(0, |rows| rows.0.len());
-        assert_eq!(listed, usize::from(is_list_read));
-        assert!(!answers.lacks_listed_connectors);
+        assert_eq!(kept, kept_rows);
+        assert_eq!(answers.lacks_listed_connectors, lacks_listed_connectors);
     }
 
     // A `claudeai` row becomes a read-only connector of the account under its display name, read
