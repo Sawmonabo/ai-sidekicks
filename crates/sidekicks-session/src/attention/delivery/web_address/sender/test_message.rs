@@ -1,6 +1,8 @@
 //! The test message the person asks for: one signed `POST` through the same path every moment's
-//! message takes, with no retry and no row written. While the switch reads off, the client it
-//! built goes with it.
+//! message takes, with no retry and no row written. While the switch reads off before the post, the
+//! client it built goes after it.
+
+use std::error::Error;
 
 use bytes::Bytes;
 use sidekicks_contracts::attention::{AttentionDeliveryOutcome, AttentionDeliveryTestResponse};
@@ -10,7 +12,7 @@ use uuid::Uuid;
 use super::secrets::{
     WebAddressCallError, address_not_configured, signing_secret_missing, store_unavailable,
 };
-use super::{SecretsReadError, WebAddressSender, outcome_of_post};
+use super::{SecretsReadError, WebAddressSender, end_of_post};
 use crate::attention::delivery::web_address::message::test_message_body;
 use crate::attention::delivery::web_address::post::WebAddressPost;
 
@@ -18,7 +20,7 @@ impl WebAddressSender {
     /// Sends one test message, `Test message from <machine>`, to the saved address and reports how
     /// it ended, with the messages given up on since the last delivery. Refuses with no address
     /// saved `attention.delivery.notConfigured`, and a keychain that could not be used, or an
-    /// address saved with no signing secret, `attention.delivery.storeUnavailable`.
+    /// address saved with no signing secret, `attention.delivery.storeUnavailable` with its cause.
     pub async fn test_web_address(
         &self,
     ) -> Result<AttentionDeliveryTestResponse, WebAddressCallError> {
@@ -42,7 +44,9 @@ impl WebAddressSender {
             reason = "a test message's id names one post and is kept in no row"
         )]
         let message_id = Uuid::now_v7().to_string();
-        let outcome = outcome_of_post(
+        // Read before the post, so the post's outcome is the answer whatever the read does.
+        let is_switched_on = self.is_switched_on().await;
+        let end = end_of_post(
             self.poster
                 .post(WebAddressPost {
                     address: &address,
@@ -53,20 +57,25 @@ impl WebAddressSender {
                 })
                 .await,
         );
-        if !self
-            .is_switched_on()
-            .await
-            .map_err(|error| WebAddressCallError::Settings(Box::new(error)))?
-        {
+        match is_switched_on {
+            Ok(true) => {}
             // No pass releases the client while the switch stays off.
-            self.poster.release();
+            Ok(false) => self.poster.release(),
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the machine's settings did not read for a test message, so its client goes"
+                );
+                self.poster.release();
+            }
         }
         let undelivered = self.read_outcomes().await?.web_address.undelivered;
         Ok(AttentionDeliveryTestResponse {
             outcome: AttentionDeliveryOutcome {
                 at,
-                result: outcome.result,
-                http_status: outcome.http_status,
+                result: end.outcome.result,
+                cause: end.cause,
+                http_status: end.outcome.http_status,
                 undelivered,
             },
         })

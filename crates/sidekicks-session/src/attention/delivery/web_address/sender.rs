@@ -1,9 +1,11 @@
 //! The web address's sender: one task that sends each pending delivery's message, one at a time,
 //! oldest due first.
 //!
-//! - **The pickup.** Each pass picks up the pending deliveries with no message queued, freezes
-//!   each one's body with the machine's name as it reads then, and queues it due at once; past
-//!   100 waiting, the oldest waiting gives up and counts as undelivered.
+//! - **The pickup.** Each pass picks up the pending deliveries with no message queued, drops
+//!   uncounted those whose moment no longer stands, whose entry is gone or that are a muted
+//!   session's end, freezes each other one's body with the machine's name as it reads then, and
+//!   queues it due at once; past 100 waiting, the oldest waiting gives up and counts as
+//!   undelivered.
 //! - **The switch.** Every pass reads the settings file first; while `Send to a web address` reads
 //!   off, every pending delivery and its message is dropped as undelivered, uncounted. The pass
 //!   runs at the start, at every attention change, at every settings change and when the timer
@@ -12,13 +14,16 @@
 //! - **An attempt.** A message whose moment no longer stands, whose entry is gone, or a muted
 //!   session's end, is dropped uncounted, and so is one with no address saved. The switch is read
 //!   from the settings file again before each attempt, and once more at each announced change while
-//!   it is in flight. The address and the signing secret are read under the secrets' lock; a locked
-//!   or unavailable keychain, or an address saved with no signing secret, is a `storeUnavailable`
-//!   try. Any 2xx is delivered; any other ending is a failed try, retried 5 s, 5 min and 30 min
-//!   after it ended, the fourth giving up and counting as undelivered. Every write that settles a delivery or counts a
-//!   try raises the counts, and the sender skips the wake its own write causes.
+//!   it is in flight, a read that fails there leaving the attempt to run. The address and the
+//!   signing secret are read under the secrets' lock; a locked or unavailable keychain, or an
+//!   address saved with a signing secret missing or unreadable, is a `storeUnavailable` try with
+//!   its cause. Any 2xx is delivered; any other ending is a failed try, retried 5 s, 5 min and
+//!   30 min after it ended, the fourth giving up and counting as undelivered. Every write that
+//!   settles a delivery or counts a try raises the counts, and the sender skips the wake its own
+//!   write causes.
 //! - **The timer.** One job on the wall clock's timer, armed at the earliest waiting message, only
-//!   wakes the sender; nothing is armed while nothing waits.
+//!   wakes the sender; nothing is armed while nothing waits. A failed pass is passed again a
+//!   minute later, whatever instant is armed.
 //!
 //! A stop or a removal of the address abandons the attempt in flight with nothing written, so its
 //! message is due again at once. The person's calls on the address and its secret, and the test
@@ -37,7 +42,8 @@ use jiff::{SignedDuration, Timestamp};
 use rusqlite::types::Value;
 use secrecy::{ExposeSecret as _, SecretString};
 use sidekicks_contracts::attention::{
-    AttentionDeliveryChannel, AttentionDeliveryResult, AttentionWebAddressState,
+    AttentionDeliveryChannel, AttentionDeliveryResult, AttentionDeliveryStoreUnavailableCause,
+    AttentionWebAddressState,
 };
 use sidekicks_contracts::machine::settings::MachineSettings;
 use sidekicks_contracts::web_address::WebAddress;
@@ -174,6 +180,24 @@ enum SecretsReadError {
     SigningSecretMissing,
 }
 
+impl SecretsReadError {
+    /// Why the secrets could not be used, as the outcome and the refusal name it.
+    fn cause(&self) -> AttentionDeliveryStoreUnavailableCause {
+        match self {
+            Self::Refused(refusal) => refusal.cause().into(),
+            Self::SigningSecretMissing => AttentionDeliveryStoreUnavailableCause::SecretMissing,
+        }
+    }
+}
+
+/// How a try ended: the post's outcome, and why the secret could not be used on a
+/// `storeUnavailable` one.
+#[derive(Clone, Copy)]
+struct TryEnd {
+    outcome: PostOutcome,
+    cause: Option<AttentionDeliveryStoreUnavailableCause>,
+}
+
 /// How an attempt step ended.
 enum Step {
     /// A message was settled or tried; the next one may be due.
@@ -187,12 +211,12 @@ enum Step {
 }
 
 /// What a pickup read: the messages waiting, the deliveries frozen to queue, those given up past
-/// the bound and those whose entry went.
+/// the bound and those dropped uncounted.
 struct Pickup {
     waiting: Vec<QueuedDelivery>,
     frozen: Vec<(QueuedDelivery, Vec<u8>)>,
     given_up: Vec<QueuedDelivery>,
-    gone: Vec<QueuedDelivery>,
+    dropped: Vec<QueuedDelivery>,
 }
 
 /// The machine's change count the task follows, and the version it has accounted for, its own
@@ -237,13 +261,13 @@ impl WebAddressSender {
 
     /// Holds the lock every change of the saved address or signing secret takes, which an attempt
     /// takes while it reads them.
-    pub async fn lock_secrets(&self) -> MutexGuard<'_, ()> {
+    pub(crate) async fn lock_secrets(&self) -> MutexGuard<'_, ()> {
         self.secrets.lock().await
     }
 
     /// Abandons the attempt in flight, if any, and returns once it ended with nothing written;
     /// `_held` proves the secrets' lock is held, so no attempt starts until it drops.
-    pub async fn abandon_attempt(&self, _held: &MutexGuard<'_, ()>) {
+    pub(crate) async fn abandon_attempt(&self, _held: &MutexGuard<'_, ()>) {
         lock(&self.attempt_cancel).cancel();
         drop(self.attempt.lock().await);
     }
@@ -268,7 +292,7 @@ impl WebAddressSender {
                     } else {
                         tracing::debug!(error, "the web address's messages still were not sent");
                     }
-                    ArmedInstant::schedule_retry_while_empty(&self);
+                    ArmedInstant::schedule_retry_after_failure(&self);
                 }
             }
             tokio::select! {
@@ -288,9 +312,9 @@ impl WebAddressSender {
         }
     }
 
-    // Reads the switch; while it is off drops every pending delivery, disarms the timer and lets the
-    // client and its connection go, and while it is on picks up, attempts every message due in turn
-    // and arms the timer for the next.
+    // Reads the switch; while it is off drops every pending delivery, disarms the timer and lets
+    // the client and its connection go, and while it is on picks up, attempts every message due in
+    // turn and arms the timer for the next, unless the sender is stopping.
     async fn pass(
         self: &Arc<Self>,
         follow: &mut ChangeFollow,
@@ -309,6 +333,7 @@ impl WebAddressSender {
             loop {
                 match self.attempt_next(follow, settings, stop).await? {
                     Step::Settled => {}
+                    Step::Idle if stop.is_cancelled() => return Ok(()),
                     Step::Idle => return self.arm_next().await,
                     Step::SwitchedOff => break,
                     Step::Stopped => return Ok(()),
@@ -341,8 +366,10 @@ impl WebAddressSender {
     }
 
     // Queues each pending delivery no message waits for, its body frozen with the machine's name
-    // as it reads now, due at once; past the bound the oldest waiting give up, counted. Only a
-    // message that stands counts toward the bound, and one given up is never frozen.
+    // as it reads now, due at once; past the bound the oldest waiting give up, counted. One whose
+    // moment no longer stands, whose entry is gone or that is a muted session's end is dropped
+    // uncounted first, so only a message that stands counts toward the bound, and one given up is
+    // never frozen.
     async fn pick_up(&self, follow: &mut ChangeFollow) -> Result<(), WebAddressSendError> {
         let unqueued = self
             .pool
@@ -364,11 +391,16 @@ impl WebAddressSender {
                     waiting: read_waiting(connection)?,
                     frozen: Vec::new(),
                     given_up: Vec::new(),
-                    gone: Vec::new(),
+                    dropped: Vec::new(),
                 };
                 // Newest first, so the newest that stand fill the bound and any older one past it
                 // gives up unfrozen.
-                for delivery in unqueued.into_iter().rev() {
+                for unqueued in unqueued.into_iter().rev() {
+                    let delivery = unqueued.delivery;
+                    if !unqueued.is_standing || unqueued.is_muted_end {
+                        pickup.dropped.push(delivery);
+                        continue;
+                    }
                     if pickup.frozen.len() == MAX_WAITING_MESSAGES {
                         pickup.given_up.push(delivery);
                         continue;
@@ -376,7 +408,7 @@ impl WebAddressSender {
                     match read_message_body(connection, &delivery.entry_id, &machine)? {
                         Some(body) => pickup.frozen.push((delivery, body)),
                         // Its entry went since the pickup read it, so there is nothing to send.
-                        None => pickup.gone.push(delivery),
+                        None => pickup.dropped.push(delivery),
                     }
                 }
                 Ok::<_, WebAddressSendError>(pickup)
@@ -394,7 +426,7 @@ impl WebAddressSender {
         {
             statements.extend(give_up_statements(delivery));
         }
-        statements.extend(pickup.gone.iter().flat_map(drop_statements));
+        statements.extend(pickup.dropped.iter().flat_map(drop_statements));
         for (delivery, body) in pickup.frozen.into_iter().rev() {
             statements.push(queue_statement(&delivery, body, &due_at));
         }
@@ -432,7 +464,7 @@ impl WebAddressSender {
         let cancel = stop.child_token();
         *lock(&self.attempt_cancel) = cancel.clone();
         drop(held);
-        let (attempted_at, outcome) = match secrets {
+        let (attempted_at, end) = match secrets {
             Ok(Some((address, signing_secret))) => {
                 let (attempted_at, attempted_instant) = self.now();
                 let post = self.poster.post(WebAddressPost {
@@ -448,12 +480,9 @@ impl WebAddressSender {
                     () = cancel.cancelled() => {
                         return Ok(if stop.is_cancelled() { Step::Stopped } else { Step::Settled });
                     }
-                    switched_off = self.switched_off(settings) => {
-                        switched_off?;
-                        return Ok(Step::SwitchedOff);
-                    }
+                    () = self.switched_off(settings) => return Ok(Step::SwitchedOff),
                 };
-                (attempted_instant, outcome_of_post(posted))
+                (attempted_instant, end_of_post(posted))
             }
             Ok(None) => {
                 self.write_own(drop_statements(&due.delivery), follow)
@@ -467,9 +496,12 @@ impl WebAddressSender {
                 );
                 (
                     self.now().1,
-                    PostOutcome {
-                        result: AttentionDeliveryResult::StoreUnavailable,
-                        http_status: None,
+                    TryEnd {
+                        outcome: PostOutcome {
+                            result: AttentionDeliveryResult::StoreUnavailable,
+                            http_status: None,
+                        },
+                        cause: Some(unread.cause()),
                     },
                 )
             }
@@ -477,7 +509,7 @@ impl WebAddressSender {
         // The retry waits its delay from the moment the try ended, not from when it began.
         let ended_at = self.now().1;
         self.write_own(
-            tried_statements(&due, &attempted_at, &ended_at, outcome),
+            tried_statements(&due, &attempted_at, &ended_at, end),
             follow,
         )
         .await?;
@@ -485,23 +517,25 @@ impl WebAddressSender {
     }
 
     // Returns once the settings file reads the switch off after an announced change, and never
-    // once the announcements end. Fails when the file does not read.
-    async fn switched_off(
-        &self,
-        settings: &mut watch::Receiver<MachineSettings>,
-    ) -> Result<(), WebAddressSendError> {
+    // once the announcements end. A read that fails is no change, so the attempt in flight runs.
+    async fn switched_off(&self, settings: &mut watch::Receiver<MachineSettings>) {
         loop {
             if settings.changed().await.is_err() {
                 std::future::pending::<()>().await;
             }
-            if !self.is_switched_on().await? {
-                return Ok(());
+            match self.is_switched_on().await {
+                Ok(true) => {}
+                Ok(false) => return,
+                Err(error) => tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the machine's settings did not read during an attempt, so it runs on"
+                ),
             }
         }
     }
 
     // The saved address and its signing secret, `None` with no address saved or the address not
-    // reading as one; an address held with no signing secret is a keychain that could not be used.
+    // reading as one; an address held with no signing secret is refused as a missing secret.
     async fn read_secrets(&self) -> Result<Option<(WebAddress, SecretString)>, SecretsReadError> {
         let Some(address) = self.keychain.read(WEB_ADDRESS_ACCOUNT).await? else {
             return Ok(None);
@@ -604,37 +638,52 @@ impl InstantJob for WebAddressSender {
     }
 }
 
-// An attempt that could not be made: a signing secret that does not read is the keychain's, and a
-// client that does not build reaches nothing.
-fn outcome_of_post(posted: Result<PostOutcome, PostError>) -> PostOutcome {
-    posted.unwrap_or_else(|error| {
-        tracing::warn!(
-            error = &error as &(dyn Error + 'static),
-            "no attempt was made to send to the web address"
-        );
-        PostOutcome {
-            result: match error {
-                PostError::SigningSecret(_) => AttentionDeliveryResult::StoreUnavailable,
-                PostError::Client(_) => AttentionDeliveryResult::Unreachable,
-            },
-            http_status: None,
+// How a post ended. An attempt that could not be made: a signing secret that does not read is a
+// missing one, and a client that does not build reaches nothing.
+fn end_of_post(posted: Result<PostOutcome, PostError>) -> TryEnd {
+    match posted {
+        Ok(outcome) => TryEnd {
+            outcome,
+            cause: None,
+        },
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "no attempt was made to send to the web address"
+            );
+            let (result, cause) = match error {
+                PostError::SigningSecret(_) => (
+                    AttentionDeliveryResult::StoreUnavailable,
+                    Some(AttentionDeliveryStoreUnavailableCause::SecretMissing),
+                ),
+                PostError::Client(_) => (AttentionDeliveryResult::Unreachable, None),
+            };
+            TryEnd {
+                outcome: PostOutcome {
+                    result,
+                    http_status: None,
+                },
+                cause,
+            }
         }
-    })
+    }
 }
 
-// The writes after `due`'s try made at `attempted_at` ended at `ended_at` as `outcome`: a delivery
+// The writes after `due`'s try made at `attempted_at` ended at `ended_at` as `end`: a delivery
 // settles it, any other ending retries it its delay after `ended_at`, the last one giving up,
 // counted.
 fn tried_statements(
     due: &DueMessage,
     attempted_at: &WireInstant,
     ended_at: &WireInstant,
-    outcome: PostOutcome,
+    end: TryEnd,
 ) -> Vec<WriteStatement> {
+    let outcome = end.outcome;
     let mut statements = vec![attempt_outcome_statement(
         AttentionDeliveryChannel::WebAddress,
         attempted_at,
         outcome.result,
+        end.cause,
         outcome.http_status,
     )];
     let failed_tries =

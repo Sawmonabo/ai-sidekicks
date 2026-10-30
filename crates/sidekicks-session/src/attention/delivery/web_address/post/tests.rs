@@ -73,9 +73,24 @@ fn address(text: &str) -> WebAddress {
 #[rstest]
 #[case::refused_over_http("http", "u:p", Some(b"u:p".as_slice()), AttentionDeliveryResult::Refused)]
 #[case::a_failed_handshake("https", "u:p", None, AttentionDeliveryResult::Unreachable)]
-#[case::a_user_not_in_utf8("http", "%FF:p", Some(b"\xff:p".as_slice()), AttentionDeliveryResult::Refused)]
-#[case::a_password_not_in_utf8("http", "u:%FF", Some(b"u:\xff".as_slice()), AttentionDeliveryResult::Refused)]
-#[case::only_a_password_not_in_utf8("http", ":%FF", Some(b":\xff".as_slice()), AttentionDeliveryResult::Refused)]
+#[case::a_user_not_in_utf8(
+    "http",
+    "%FF:p",
+    Some(b"\xff:p".as_slice()),
+    AttentionDeliveryResult::Refused
+)]
+#[case::a_password_not_in_utf8(
+    "http",
+    "u:%FF",
+    Some(b"u:\xff".as_slice()),
+    AttentionDeliveryResult::Refused
+)]
+#[case::only_a_password_not_in_utf8(
+    "http",
+    ":%FF",
+    Some(b":\xff".as_slice()),
+    AttentionDeliveryResult::Refused
+)]
 #[tokio::test]
 async fn nothing_past_the_scheme_and_host_leaves_and_user_info_moves_to_the_header(
     #[case] scheme: &str,

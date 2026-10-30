@@ -408,6 +408,7 @@ async fn a_removal_takes_the_address_its_secret_its_row_and_its_messages() {
                 &WireInstant::try_from("2026-10-29T09:00:00.000Z".to_owned()).expect("an instant"),
                 AttentionDeliveryResult::Refused,
                 None,
+                None,
             ),
         ])
         .await
@@ -561,19 +562,24 @@ async fn the_test_message_posts_once_and_writes_no_row() {
     );
 
     lock(&fixture.keychain.items).remove(SIGNING_SECRET_ACCOUNT);
-    let (code, detail) = refusal_of(
-        fixture
-            .sender
-            .test_web_address()
-            .await
-            .expect_err("the address has no signing secret"),
-    );
+    let WebAddressCallError::Refused(refusal) = fixture
+        .sender
+        .test_web_address()
+        .await
+        .expect_err("the address has no signing secret")
+    else {
+        panic!("the test is refused, not failed");
+    };
     assert_eq!(
-        (code, detail),
+        (refusal.code, refusal.detail.map(Value::Object)),
         (
             RefusalCode::AttentionDeliveryStoreUnavailable,
-            Some(json!({ "cause": "unavailable" }))
+            Some(json!({ "cause": "secretMissing" }))
         )
+    );
+    assert_eq!(
+        refusal.message,
+        "Nothing was sent: the signing secret is missing. Make a new secret."
     );
 }
 
@@ -587,7 +593,7 @@ const LIVE_ADDRESS_VARIABLES: [&str; 3] = [
 // One test message and one moment's message to each of the person's own Slack, Discord and ntfy
 // addresses, each answered with a 2xx, so each service takes the body as sent.
 #[tokio::test]
-#[ignore = "posts to the person's own Slack, Discord and ntfy addresses; needs them in the environment"]
+#[ignore = "posts to the person's own Slack, Discord and ntfy addresses, set in the environment"]
 async fn each_chat_service_takes_the_test_and_a_moment() {
     for variable in LIVE_ADDRESS_VARIABLES {
         let address = std::env::var(variable)

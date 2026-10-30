@@ -3,8 +3,9 @@
 //! and refers to that delivery, so whatever deletes the delivery, a session's purge or a workflow
 //! run's delete, takes the row with it. The writes are statement sets that settle a delivery, each
 //! raising the counts of the delivery's session while it is still pending, and the reads are what
-//! the sender works from. A row can outlive its entry, which a damaged history's rebuild deletes
-//! without its delivery; the sender reads such a row as due like any other and drops it.
+//! the sender works from. A row or a pending delivery can outlive its entry, which a damaged
+//! history's rebuild deletes without its delivery; the sender reads such a row as due like any
+//! other, and such a delivery at its pickup, and drops it.
 
 use std::sync::LazyLock;
 
@@ -29,16 +30,49 @@ pub(crate) const MAX_WAITING_MESSAGES: usize = 100;
 static PENDING_STATE: LazyLock<&'static str> =
     LazyLock::new(|| <&'static str>::from(AttentionWebAddressState::Pending));
 
-// The pending deliveries with no message in the queue yet, oldest moment first.
+// Whether a message's moment still stands: a final state and a Notify step always do; a wait does
+// while it is open and no later entry speaks for its moment; a message whose entry is gone never
+// does.
+static STANDING_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "entry.id IS NOT NULL
+      AND (entry.trigger IN ({final_states})
+           OR (entry.resolved_at IS NULL
+               AND NOT EXISTS (SELECT 1 FROM attention_entries AS later
+                                WHERE later.moment_id = entry.moment_id AND later.id <> entry.id
+                                  AND {later_sequence} > {entry_sequence})))",
+        final_states = trigger_list(&[
+            AttentionTrigger::RunCompleted,
+            AttentionTrigger::RunFailed,
+            AttentionTrigger::WorkflowNotify,
+        ]),
+        later_sequence = "(SELECT sequence FROM session_events WHERE id = later.source_event_id)",
+        entry_sequence = "(SELECT sequence FROM session_events WHERE id = entry.source_event_id)",
+    )
+});
+
+// Whether a message is the end of a session muted since it was decided.
+static MUTED_END_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "entry.id IS NOT NULL AND entry.trigger IN ({ends}) AND session_row.muted_at IS NOT NULL",
+        ends = trigger_list(&[AttentionTrigger::RunCompleted, AttentionTrigger::RunFailed]),
+    )
+});
+
+// The pending deliveries with no message in the queue yet, oldest moment first, with whether each
+// moment stands and is a muted session's end; one whose entry is gone reads with no session.
 static UNQUEUED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT delivery.entry_id, entry.session_id
+        "SELECT delivery.entry_id, entry.session_id, {standing}, {muted_end}
   FROM attention_deliveries AS delivery
-  JOIN attention_entries AS entry ON entry.id = delivery.entry_id
+  LEFT JOIN attention_entries AS entry ON entry.id = delivery.entry_id
+  LEFT JOIN sessions AS session_row ON session_row.id = entry.session_id
  WHERE delivery.web_address_state = '{pending}'
    AND NOT EXISTS (SELECT 1 FROM attention_web_address_sends AS send
                     WHERE send.entry_id = delivery.entry_id)
  ORDER BY entry.created_at, entry.id",
+        standing = *STANDING_SQL,
+        muted_end = *MUTED_END_SQL,
         pending = *PENDING_STATE,
     )
 });
@@ -50,19 +84,11 @@ const WAITING_SQL: &str = "SELECT send.entry_id, entry.session_id
  ORDER BY entry.created_at, entry.id";
 
 // The message due first at `@now`, with what its attempt reads of its moment: its attempts so far,
-// whether its moment still stands and whether it is a muted session's end. A final state and a
-// Notify step always stand; a wait stands while it is open and no later entry speaks for its
-// moment; a message whose entry is gone reads with no session and never stands.
+// whether its moment still stands and whether it is a muted session's end.
 static NEXT_DUE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT send.entry_id, entry.session_id, send.body, delivery.web_address_attempt_count,
-    entry.id IS NOT NULL
-      AND (entry.trigger IN ({final_states})
-           OR (entry.resolved_at IS NULL
-               AND NOT EXISTS (SELECT 1 FROM attention_entries AS later
-                                WHERE later.moment_id = entry.moment_id AND later.id <> entry.id
-                                  AND {later_sequence} > {entry_sequence}))),
-    entry.id IS NOT NULL AND entry.trigger IN ({ends}) AND session_row.muted_at IS NOT NULL
+    {standing}, {muted_end}
   FROM attention_web_address_sends AS send
   JOIN attention_deliveries AS delivery ON delivery.entry_id = send.entry_id
   LEFT JOIN attention_entries AS entry ON entry.id = send.entry_id
@@ -70,14 +96,8 @@ static NEXT_DUE_SQL: LazyLock<String> = LazyLock::new(|| {
  WHERE send.next_attempt_at <= @now
  ORDER BY send.next_attempt_at, entry.created_at, entry.id
  LIMIT 1",
-        final_states = trigger_list(&[
-            AttentionTrigger::RunCompleted,
-            AttentionTrigger::RunFailed,
-            AttentionTrigger::WorkflowNotify,
-        ]),
-        ends = trigger_list(&[AttentionTrigger::RunCompleted, AttentionTrigger::RunFailed]),
-        later_sequence = "(SELECT sequence FROM session_events WHERE id = later.source_event_id)",
-        entry_sequence = "(SELECT sequence FROM session_events WHERE id = entry.source_event_id)",
+        standing = *STANDING_SQL,
+        muted_end = *MUTED_END_SQL,
     )
 });
 
@@ -177,6 +197,16 @@ impl QueuedDelivery {
     }
 }
 
+/// A pending delivery no message waits for yet, with what its pickup reads of its moment.
+pub(crate) struct UnqueuedDelivery {
+    /// Its delivery.
+    pub(crate) delivery: QueuedDelivery,
+    /// Whether its moment still stands, as [`DueMessage::is_standing`] reads it.
+    pub(crate) is_standing: bool,
+    /// Whether it is the end of a session muted since it was decided.
+    pub(crate) is_muted_end: bool,
+}
+
 /// The message due first, with what its attempt reads of its moment.
 pub(crate) struct DueMessage {
     /// Its delivery.
@@ -192,9 +222,19 @@ pub(crate) struct DueMessage {
     pub(crate) is_muted_end: bool,
 }
 
-/// The pending deliveries no message waits for yet, oldest moment first.
-pub(crate) fn read_unqueued(reader: &Connection) -> rusqlite::Result<Vec<QueuedDelivery>> {
-    read_deliveries(reader, &UNQUEUED_SQL)
+/// The pending deliveries no message waits for yet, oldest moment first, with whether each is
+/// still to send.
+pub(crate) fn read_unqueued(reader: &Connection) -> rusqlite::Result<Vec<UnqueuedDelivery>> {
+    reader
+        .prepare_cached(&UNQUEUED_SQL)?
+        .query_map([], |row| {
+            Ok(UnqueuedDelivery {
+                delivery: QueuedDelivery::of_row(row)?,
+                is_standing: row.get(2)?,
+                is_muted_end: row.get(3)?,
+            })
+        })?
+        .collect()
 }
 
 /// The messages waiting, oldest moment first.

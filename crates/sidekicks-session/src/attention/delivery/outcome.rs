@@ -10,6 +10,7 @@ use rusqlite::types::Value;
 use rusqlite::{Connection, Row};
 use sidekicks_contracts::attention::{
     AttentionDeliveryChannel, AttentionDeliveryOutcome, AttentionDeliveryResult,
+    AttentionDeliveryStoreUnavailableCause,
 };
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::{BoundedInt, SafeInt};
@@ -26,11 +27,12 @@ use crate::attention::projection::{binding, statement};
 static RECORD_ATTEMPT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO attention_delivery_outcomes
-    (channel, attempted_at, result, http_status, undelivered)
-  VALUES (@channel, @attempted_at, @result, @http_status, 0)
+    (channel, attempted_at, result, cause, http_status, undelivered)
+  VALUES (@channel, @attempted_at, @result, @cause, @http_status, 0)
   ON CONFLICT (channel) DO UPDATE SET
     attempted_at = excluded.attempted_at,
     result = excluded.result,
+    cause = excluded.cause,
     http_status = excluded.http_status,
     undelivered = CASE WHEN excluded.result = '{delivered}' THEN 0 ELSE undelivered END",
         delivered = <&'static str>::from(AttentionDeliveryResult::Delivered),
@@ -44,36 +46,45 @@ const COUNT_UNDELIVERED_SQL: &str =
 
 const REMOVE_OUTCOME_SQL: &str = "DELETE FROM attention_delivery_outcomes WHERE channel = @channel";
 
-const READ_OUTCOMES_SQL: &str = "SELECT channel, attempted_at, result, http_status, undelivered FROM attention_delivery_outcomes";
+const READ_OUTCOMES_SQL: &str =
+    "SELECT channel, attempted_at, result, cause, http_status, undelivered
+  FROM attention_delivery_outcomes";
 
 /// The outcome table's schema part, one row per channel.
 pub(crate) fn delivery_outcome_schema_part() -> SchemaPart {
     let channels = sql_list_of_every::<AttentionDeliveryChannel>();
     let results = sql_list_of_every::<AttentionDeliveryResult>();
+    let causes = sql_list_of_every::<AttentionDeliveryStoreUnavailableCause>();
+    let store_unavailable = <&'static str>::from(AttentionDeliveryResult::StoreUnavailable);
     SchemaPart::new(
         "attention_delivery_outcomes",
         format!(
             "
--- Each delivery channel's last attempt and the messages given up on since its last delivery.
+-- Each delivery channel's last attempt, why its secret could not be used on a storeUnavailable
+-- one, and the messages given up on since its last delivery.
 CREATE TABLE attention_delivery_outcomes (
   channel       TEXT PRIMARY KEY CHECK(channel IN ({channels})),
   attempted_at  TEXT,
   result        TEXT CHECK(result IN ({results})),
+  cause         TEXT CHECK(cause IN ({causes})),
   http_status   INTEGER CHECK(http_status BETWEEN 100 AND 599),
   undelivered   INTEGER NOT NULL DEFAULT 0 CHECK(undelivered >= 0),
-  CHECK((attempted_at IS NULL) = (result IS NULL))
+  CHECK((attempted_at IS NULL) = (result IS NULL)),
+  CHECK((result IS '{store_unavailable}') = (cause IS NOT NULL))
 ) STRICT;
 "
         ),
     )
 }
 
-/// The write of `channel`'s attempt at `attempted_at`: how it ended and the address's HTTP status,
-/// if it answered; a delivery also clears the count of messages given up on.
+/// The write of `channel`'s attempt at `attempted_at`: how it ended, why the secret could not be
+/// used on a `storeUnavailable` one, and the address's HTTP status, if it answered; a delivery
+/// also clears the count of messages given up on.
 pub(crate) fn attempt_outcome_statement(
     channel: AttentionDeliveryChannel,
     attempted_at: &WireInstant,
     result: AttentionDeliveryResult,
+    cause: Option<AttentionDeliveryStoreUnavailableCause>,
     http_status: Option<BoundedInt<100, 599>>,
 ) -> WriteStatement {
     statement(
@@ -87,6 +98,10 @@ pub(crate) fn attempt_outcome_statement(
             binding(
                 "@result",
                 Value::Text(<&'static str>::from(result).to_owned()),
+            ),
+            binding(
+                "@cause",
+                Value::from(cause.map(|cause| <&'static str>::from(cause).to_owned())),
             ),
             binding(
                 "@http_status",
@@ -152,21 +167,22 @@ fn channel_outcome_of_row(
     row: &Row<'_>,
 ) -> rusqlite::Result<(AttentionDeliveryChannel, ChannelOutcome)> {
     let channel = text_column(row, 0, closed_word)?;
-    let undelivered = safe_int_column(row, 4)?;
+    let undelivered = safe_int_column(row, 5)?;
     let attempted_at: Option<WireInstant> = optional_text_column(row, 1, WireInstant::try_from)?;
     let last_outcome = match attempted_at {
         None => None,
         Some(at) => {
-            let http_status = match row.get::<_, Option<i64>>(3)? {
+            let http_status = match row.get::<_, Option<i64>>(4)? {
                 None => None,
                 Some(status) => Some(
                     BoundedInt::new(status)
-                        .ok_or(rusqlite::Error::IntegralValueOutOfRange(3, status))?,
+                        .ok_or(rusqlite::Error::IntegralValueOutOfRange(4, status))?,
                 ),
             };
             Some(AttentionDeliveryOutcome {
                 at,
                 result: text_column(row, 2, closed_word)?,
+                cause: optional_text_column(row, 3, closed_word)?,
                 http_status,
                 undelivered,
             })
@@ -192,6 +208,7 @@ fn channel_binding(channel: AttentionDeliveryChannel) -> (std::borrow::Cow<'stat
 mod tests {
     use sidekicks_contracts::attention::{
         AttentionDeliveryChannel, AttentionDeliveryOutcome, AttentionDeliveryResult,
+        AttentionDeliveryStoreUnavailableCause,
     };
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_contracts::wire::integer::{BoundedInt, SafeInt};
@@ -223,16 +240,20 @@ mod tests {
     }
 
     fn attempt(at: &str, result: AttentionDeliveryResult, status: Option<i64>) -> WriteStatement {
+        let cause = (result == AttentionDeliveryResult::StoreUnavailable)
+            .then_some(AttentionDeliveryStoreUnavailableCause::SecretMissing);
         attempt_outcome_statement(
             CHANNEL,
             &instant(at),
             result,
+            cause,
             status.map(|status| BoundedInt::new(status).expect("a test status")),
         )
     }
 
     /// Mutations: a give-up that needs an attempted row, a delivery that keeps the count, an
-    /// attempt that inserts beside the row instead of overwriting it, a removal that keeps it.
+    /// attempt that inserts beside the row instead of overwriting it, a cause neither written nor
+    /// read, a removal that keeps the row.
     #[tokio::test]
     async fn a_give_up_counts_before_any_attempt_an_attempt_overwrites_and_a_removal_deletes() {
         let log = AttentionTestLog::new().await;
@@ -262,7 +283,7 @@ mod tests {
             &log,
             vec![attempt(
                 "2026-10-29T09:00:05.000Z",
-                AttentionDeliveryResult::TimedOut,
+                AttentionDeliveryResult::StoreUnavailable,
                 None,
             )],
         )
@@ -273,7 +294,8 @@ mod tests {
             ChannelOutcome {
                 last_outcome: Some(AttentionDeliveryOutcome {
                     at: instant("2026-10-29T09:00:05.000Z"),
-                    result: AttentionDeliveryResult::TimedOut,
+                    result: AttentionDeliveryResult::StoreUnavailable,
+                    cause: Some(AttentionDeliveryStoreUnavailableCause::SecretMissing),
                     http_status: None,
                     undelivered: two,
                 }),

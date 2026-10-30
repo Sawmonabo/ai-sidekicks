@@ -49,11 +49,12 @@ const DECIDE_SENT_SQL: &str = "INSERT INTO attention_deliveries
     (entry_id, banner_state, web_address_state, web_address_attempt_count)
   VALUES (@entry_id, 'withheld', 'pending', 0)";
 
-/// The machine's settings as the test sets them, counting the sender's reads, and the
-/// announcement of each change.
+/// The machine's settings as the test sets them, counting the sender's reads, failing the next one
+/// when the test says so, and the announcement of each change.
 struct TestSettings {
     settings: Mutex<MachineSettings>,
     reads: AtomicUsize,
+    fails_next_read: AtomicBool,
     announce: watch::Sender<MachineSettings>,
 }
 
@@ -62,16 +63,20 @@ impl MachineSettingsReader for TestSettings {
         &self,
     ) -> BoxFuture<'_, Result<MachineSettings, Box<dyn Error + Send + Sync>>> {
         self.reads.fetch_add(1, Ordering::SeqCst);
-        let settings = lock(&self.settings).clone();
-        async move { Ok(settings) }.boxed()
+        let read = if self.fails_next_read.swap(false, Ordering::SeqCst) {
+            Err("the test's settings file does not read".into())
+        } else {
+            Ok(lock(&self.settings).clone())
+        };
+        async move { read }.boxed()
     }
 }
 
 /// The delivery a test reads: its state and its tries.
 type DeliveryRow = (Option<String>, Option<i64>);
 
-/// The web address's outcome row: its result, its status and the messages given up on.
-type OutcomeRow = (Option<String>, Option<i64>, i64);
+/// The web address's outcome row: its result, its cause, its status and the messages given up on.
+type OutcomeRow = (Option<String>, Option<String>, Option<i64>, i64);
 
 struct Fixture {
     log: AttentionTestLog,
@@ -110,6 +115,7 @@ impl Fixture {
         let settings = Arc::new(TestSettings {
             settings: Mutex::new(machine_settings.clone()),
             reads: AtomicUsize::new(0),
+            fails_next_read: AtomicBool::new(false),
             announce: watch::Sender::new(machine_settings),
         });
         let secrets_folder = tempfile::tempdir().expect("the test makes a temporary folder");
@@ -273,10 +279,10 @@ impl Fixture {
         self.read(|reader| {
             reader
                 .query_row(
-                    "SELECT result, http_status, undelivered FROM attention_delivery_outcomes
+                    "SELECT result, cause, http_status, undelivered FROM attention_delivery_outcomes
                       WHERE channel = 'webAddress'",
                     [],
-                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                 )
                 .optional()
         })
@@ -323,8 +329,18 @@ fn requests(received: &ReceivedRequests) -> usize {
     lock(received).len()
 }
 
-fn result_row(result: &str, status: Option<i64>, undelivered: i64) -> OutcomeRow {
-    (Some(result.to_owned()), status, undelivered)
+fn result_row(
+    result: &str,
+    cause: Option<&str>,
+    status: Option<i64>,
+    undelivered: i64,
+) -> OutcomeRow {
+    (
+        Some(result.to_owned()),
+        cause.map(str::to_owned),
+        status,
+        undelivered,
+    )
 }
 
 /// How the address answers each try in a case of the attempt table.
@@ -372,7 +388,9 @@ async fn each_try_ends_as_the_address_answers(
         }
     };
     let mut fixture = Fixture::new(port).await;
-    if matches!(address, Address::InALockedKeychain) {
+    // The test's store that does not open is one the keychain cannot use.
+    let cause = matches!(address, Address::InALockedKeychain).then_some("unavailable");
+    if cause.is_some() {
         fixture.store_opens.store(false, Ordering::SeqCst);
     }
     let (run_id, entry) = fixture.waiting().await;
@@ -396,7 +414,7 @@ async fn each_try_ends_as_the_address_answers(
         fixture.until_delivery(&entry, state, tried).await;
         assert_eq!(
             fixture.outcome(),
-            Some(result_row(result, status, i64::from(tried == 4)))
+            Some(result_row(result, cause, status, i64::from(tried == 4)))
         );
         if is_settled {
             assert_eq!(
@@ -485,7 +503,7 @@ async fn past_the_bound_the_oldest_waiting_gives_up_counted() {
         })
         .await;
     assert_eq!(fixture.waiting_count(), MAX_WAITING_MESSAGES);
-    assert_eq!(fixture.outcome().map(|outcome| outcome.2), Some(1));
+    assert_eq!(fixture.outcome().map(|outcome| outcome.3), Some(1));
 
     fixture.stop().await;
     let second = &entries[1];
@@ -588,62 +606,6 @@ async fn an_abandoned_attempt_writes_nothing_and_a_removed_address_drops_its_mes
     fixture.stop().await;
 }
 
-/// When the switch reads off against the messages waiting.
-#[derive(Clone, Copy, Debug)]
-enum SwitchedOff {
-    WhileTheyWait,
-    BeforeTheGateWrites,
-    AcrossARestart,
-}
-
-// The switch off drops every pending delivery and waiting message, uncounted: at its off edge,
-// for a delivery the gate writes after the edge, and at a start while it reads off; nothing is
-// sent after. Mutations: the drop left to the next due try; the drop counted; a delivery written
-// after the edge kept; a copy of the switch held in memory.
-#[rstest]
-#[case::while_they_wait(SwitchedOff::WhileTheyWait)]
-#[case::before_the_gate_writes(SwitchedOff::BeforeTheGateWrites)]
-#[case::across_a_restart(SwitchedOff::AcrossARestart)]
-#[tokio::test]
-async fn the_switch_off_drops_every_waiting_message_uncounted(#[case] when: SwitchedOff) {
-    let (port, received) =
-        serve_answers(vec![Answer::Status(StatusCode::INTERNAL_SERVER_ERROR)]).await;
-    let mut fixture = Fixture::new(port).await;
-    fixture.start().await;
-    let (_, waiting) = fixture.waiting().await;
-    fixture.until_delivery(&waiting, "pending", 1).await;
-
-    let mut dropped = vec![waiting];
-    match when {
-        SwitchedOff::WhileTheyWait => fixture.switch(false),
-        SwitchedOff::BeforeTheGateWrites => {
-            fixture.switch(false);
-            fixture.until_delivery(&dropped[0], "undelivered", 1).await;
-            dropped.push(fixture.waiting().await.1);
-        }
-        SwitchedOff::AcrossARestart => {
-            fixture.stop().await;
-            fixture.switch(false);
-            fixture.start().await;
-        }
-    }
-
-    fixture
-        .until("every pending delivery is dropped", |fixture| {
-            dropped.iter().all(|entry| {
-                fixture.delivery(entry).0.as_deref() == Some("undelivered")
-                    && fixture.send(entry).is_none()
-            })
-        })
-        .await;
-    assert_eq!(fixture.outcome(), Some(result_row("refused", Some(500), 0)));
-    fixture.switch(true);
-    fixture.advance(Duration::from_hours(1));
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(requests(&received), 1, "nothing dropped is sent");
-    fixture.stop().await;
-}
-
 // A retry whose moment a later state replaced, or whose wait was answered, is dropped uncounted,
 // and so is a muted session's end; a wait still open and an end are sent. Mutations: a replaced
 // or answered moment sent; a final state dropped; a muted end sent; the drop counted.
@@ -692,7 +654,7 @@ async fn a_retry_goes_only_while_its_moment_stands() {
     fixture.start().await;
     fixture.until_delivery(&muted_end, "undelivered", 0).await;
     assert_eq!(requests(&received), 5);
-    assert_eq!(fixture.outcome().map(|outcome| outcome.2), Some(0));
+    assert_eq!(fixture.outcome().map(|outcome| outcome.3), Some(0));
     fixture.stop().await;
 }
 
@@ -719,7 +681,7 @@ async fn a_waiting_message_whose_entry_went_is_dropped_uncounted() {
     assert_eq!(fixture.send(&entry), None);
     assert_eq!(
         fixture.outcome(),
-        Some(result_row("unreachable", None, 0)),
+        Some(result_row("unreachable", None, None, 0)),
         "the drop counts nothing"
     );
     fixture
@@ -727,30 +689,6 @@ async fn a_waiting_message_whose_entry_went_is_dropped_uncounted() {
             fixture.sender().timer.instant().is_none()
         })
         .await;
-    fixture.stop().await;
-}
-
-// The settings file decides the switch even while its announcement reads otherwise: one attempt
-// runs and the pass ends. Mutation: the attempt waiting on the announcement's current value, which
-// ends it at once and turns the pass again without end.
-#[tokio::test]
-async fn the_file_decides_the_switch_over_its_announcement() {
-    let (port, received) = serve_answers(vec![Answer::Status(StatusCode::OK)]).await;
-    let mut fixture = Fixture::new(port).await;
-    let mut announced = lock(&fixture.settings.settings).clone();
-    announced.notifications.web_address.enabled = false;
-    fixture.settings.announce.send_replace(announced);
-    let (_, entry) = fixture.waiting().await;
-    fixture.start().await;
-
-    fixture.until_delivery(&entry, "delivered", 1).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(requests(&received), 1);
-    assert_eq!(
-        fixture.settings.reads.load(Ordering::SeqCst),
-        2,
-        "one pass and its one attempt read the file"
-    );
     fixture.stop().await;
 }
 
@@ -833,8 +771,16 @@ async fn an_address_with_no_usable_signing_secret_tries_as_store_unavailable(
     fixture.until_delivery(&entry, "pending", 1).await;
     assert_eq!(
         fixture.outcome(),
-        Some(result_row("storeUnavailable", None, 0))
+        Some(result_row(
+            "storeUnavailable",
+            Some("secretMissing"),
+            None,
+            0
+        )),
+        "the try names the missing secret as its cause"
     );
     assert_eq!(requests(&received), 0, "nothing is sent");
     fixture.stop().await;
 }
+
+mod settings_reads;
