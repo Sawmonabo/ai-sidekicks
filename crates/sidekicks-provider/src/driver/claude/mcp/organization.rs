@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
@@ -42,7 +43,8 @@ pub(crate) async fn has_readable_managed_mcp_file(managed_settings_folder: Optio
 pub(crate) struct ClaudeOrganizationServers {
     /// The servers, each served with its address's host only.
     pub(crate) servers: Vec<ClaudeMcpServer>,
-    /// Each `managedMcpServers` entry a probe can send, by its server's name.
+    /// Each `managedMcpServers` entry a probe can send whole, by its server's name; a server with
+    /// none reads `unknown` unsent.
     pub(crate) entries: BTreeMap<McpServerName, ClaudeToolServerEntry>,
 }
 
@@ -138,9 +140,11 @@ pub(crate) fn remote_server_view(
     })
 }
 
-// An entry of `managedMcpServers`: its transport, address and headers, values included. It derives
-// no `Debug`, so nothing prints a value.
+// An entry of `managedMcpServers`, which takes the `.mcp.json` server shape (b:4021340): its
+// transport, address and headers, values included, and whether it fetches its headers from a
+// program or signs in itself. It derives no `Debug`, so nothing prints a value.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ClaudeManagedServerEntry {
     #[serde(rename = "type", default)]
     transport: Option<String>,
@@ -148,12 +152,19 @@ struct ClaudeManagedServerEntry {
     url: Option<String>,
     #[serde(default)]
     headers: Option<Value>,
+    #[serde(default)]
+    headers_helper: Option<IgnoredAny>,
+    #[serde(default)]
+    oauth: Option<IgnoredAny>,
 }
 
 // A `managedMcpServers` entry as `mcp_set_servers` takes it; `None` for one with no address, a
-// transport the set has no remote form for, or headers that are not all text, which a probe could
-// not send whole.
+// transport the set has no remote form for, headers that are not all text, or one that fetches its
+// headers or signs in itself, none of which a probe could send whole.
 fn compose_organization_entry(entry: ClaudeManagedServerEntry) -> Option<ClaudeToolServerEntry> {
+    if entry.headers_helper.is_some() || entry.oauth.is_some() {
+        return None;
+    }
     let url = entry.url?;
     let headers: BTreeMap<String, String> = match entry.headers {
         Some(headers) => serde_json::from_value(headers).ok()?,

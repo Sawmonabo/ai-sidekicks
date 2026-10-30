@@ -7,8 +7,8 @@
 //! marked as its organization's connector list reads it. Budget: one such process of about 140 to
 //! 150 MB per account at a time, run at the account's first session after the daemon starts and
 //! again only on a refresh, never on a poll; while it reports fewer connectors than the list
-//! holds and more than at its last answer, one `mcp_status` a second on that process, up to the
-//! machine probe's ceiling.
+//! holds, less those Claude Code suppresses as duplicates of a configured server, and more than at
+//! its last answer, one `mcp_status` a second on that process, up to the machine probe's ceiling.
 
 pub(crate) mod organization_mark;
 
@@ -35,10 +35,11 @@ use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeSettingsReply,
 };
 use crate::driver::claude::session::transport::mcp_status::{
-    ClaudeMcpServerStatusRow, ClaudeMcpStatusReply,
+    ClaudeMcpServerStatus, ClaudeMcpServerStatusRow, ClaudeMcpStatusReply,
 };
 use crate::driver::claude::tools::normalize_claude_mcp_status_reply;
 use crate::driver::claude::version::read_reported_version;
+use crate::driver::mcp_server::address::ServerAddressIdentity;
 use crate::driver::mcp_server::read::McpProbeReading;
 use crate::driver::mcp_server::status::McpServerStatusEmission;
 
@@ -73,9 +74,9 @@ const CONNECTOR_STATUS_INTERVAL: Duration = Duration::from_secs(1);
 /// Reads one account's answers on `channel`, its process that keeps nothing already initialized:
 /// the build's version, then the connector list `read_connector_list` reads for that version,
 /// then `mcp_status`, asked again on the same process once a second until it reports as many
-/// connectors as the list holds, reports as many as at its last answer, or `ceiling` passes, then
-/// `get_settings`. Where the list is not read, `mcp_status` is asked once. Fails as a request
-/// does, a refused request included.
+/// connectors as the list holds less those at the address of a server the reply shows configured,
+/// reports as many as at its last answer, or `ceiling` passes, then `get_settings`. Where the list
+/// is not read, `mcp_status` is asked once. Fails as a request does, a refused request included.
 pub(crate) async fn read_claude_account_answers<ListRead>(
     channel: &dyn ClaudeProcessChannel,
     read_connector_list: impl FnOnce(Option<String>) -> ListRead,
@@ -90,16 +91,16 @@ where
         .await?;
     let build_version = read_build_version(version.response.as_deref());
     let marks = read_connector_list(build_version).await;
-    let listed_rows = marks
-        .as_ref()
-        .map_or(0, ClaudeConnectorMarks::listed_row_count);
     let mut last_reported_rows = None;
-    let (mcp_status, reported_rows) = loop {
+    let (mcp_status, reported_rows, listed_rows) = loop {
         let answer = channel
             .send_control_request(ClaudeControlRequest::McpStatus {})
             .await?;
         let reply = ClaudeMcpStatusReply::read(answer.response.as_deref());
         let reported_rows = count_connector_rows(&reply);
+        let listed_rows = marks.as_ref().map_or(0, |marks| {
+            marks.listed_row_count(&read_configured_addresses(&reply))
+        });
         let now = Instant::now();
         // A reply no longer growing settles the read, so a connector Claude Code never lists
         // costs one more ask rather than the whole ceiling.
@@ -107,7 +108,7 @@ where
             || last_reported_rows == Some(reported_rows)
             || now >= deadline
         {
-            break (reply, reported_rows);
+            break (reply, reported_rows, listed_rows);
         }
         last_reported_rows = Some(reported_rows);
         tokio::time::sleep_until((now + CONNECTOR_STATUS_INTERVAL).min(deadline)).await;
@@ -169,6 +170,31 @@ fn count_connector_rows(reply: &ClaudeMcpStatusReply) -> usize {
     reply.servers.as_ref().map_or(0, |rows| {
         rows.0.iter().filter(|row| is_connector_row(row)).count()
     })
+}
+
+// The folded address of each server an `mcp_status` reply shows configured outside claude.ai and
+// the plugins, which Claude Code matches its connectors against to suppress duplicates (`m$t`,
+// b:21827999, as its print-mode caller passes them, b:28484035), less one switched off (`Io`,
+// b:21855527) or waiting for a sign-in (`cRe` and `uoi`, b:12356518), which suppresses none.
+fn read_configured_addresses(reply: &ClaudeMcpStatusReply) -> Vec<ServerAddressIdentity> {
+    let rows = reply
+        .servers
+        .as_ref()
+        .map_or(&[][..], |rows| rows.0.as_slice());
+    rows.iter()
+        .filter(|row| {
+            !is_connector_row(row)
+                && !row
+                    .name
+                    .as_deref()
+                    .is_some_and(|name| name.starts_with("plugin:"))
+                && !matches!(
+                    row.status,
+                    Some(ClaudeMcpServerStatus::Disabled | ClaudeMcpServerStatus::NeedsAuth)
+                )
+        })
+        .filter_map(|row| row.config.as_ref()?.address.as_ref()?.identity.clone())
+        .collect()
 }
 
 // Whether `row` is one of the account's claude.ai connectors.
@@ -303,23 +329,35 @@ mod tests {
     // While the account's connector list holds a connector the `mcp_status` reply lacks and the
     // reply grew since its last answer, `mcp_status` is asked again on the same process once a
     // second; a reply that reaches the list, or answers as many connectors as the last, settles
-    // the read, a short one marked as lacking. With no list read, one reply is taken as it is.
-    // Killed by the reply asked once with a list read, by a reply settling while it grows, and
-    // by a reply that stops growing asked again until the ceiling.
+    // the read, a short one marked as lacking. A listed connector at the address of a server the
+    // reply shows configured is one Claude Code suppresses, so it is not waited for. With no list
+    // read, one reply is taken as it is. Killed by the reply asked once with a list read, by a
+    // reply settling while it grows, by a reply that stops growing asked again until the ceiling,
+    // and by a suppressed connector counted as missing.
     #[rstest]
-    #[case::list_unread(None, &[&[][..], &["Notes"][..]], 1, 0, false)]
+    #[case::list_unread(None, &[&[][..], &["Notes"][..]], &[][..], 1, 0, false)]
     #[case::grows_to_the_list(
         Some(&["Notes", "Mail"][..]),
         &[&[][..], &["Notes"][..], &["Notes", "Mail"][..]],
+        &[][..],
         3,
         2,
         false
     )]
-    #[case::stops_growing(Some(&["Notes"][..]), &[&[][..], &[][..]], 2, 0, true)]
+    #[case::stops_growing(Some(&["Notes"][..]), &[&[][..], &[][..]], &[][..], 2, 0, true)]
+    #[case::duplicate_of_a_configured_server(
+        Some(&["Notes", "Mail"][..]),
+        &[&["Mail"][..]],
+        &["Notes"][..],
+        1,
+        2,
+        false
+    )]
     #[tokio::test(start_paused = true)]
     async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list(
         #[case] listed: Option<&[&str]>,
         #[case] replies: &[&[&str]],
+        #[case] configured: &[&str],
         #[case] status_reads: usize,
         #[case] kept_rows: usize,
         #[case] lacks_listed_connectors: bool,
@@ -330,7 +368,22 @@ mod tests {
             ScriptedAnswer::Reply(json!({ "version": "2.1.310" })),
         );
         for reply in replies {
-            let rows: Vec<_> = reply.iter().map(|name| connector_row(name)).collect();
+            let configured_rows = configured.iter().map(|name| {
+                json!({
+                    "name": name.to_lowercase(),
+                    "status": "connected",
+                    "scope": "user",
+                    "config": {
+                        "type": "http",
+                        "url": format!("https://{}.example.com/mcp/", name.to_lowercase())
+                    }
+                })
+            });
+            let rows: Vec<_> = reply
+                .iter()
+                .map(|name| connector_row(name))
+                .chain(configured_rows)
+                .collect();
             channel.answer(
                 "mcp_status",
                 ScriptedAnswer::Reply(json!({ "mcpServers": rows })),

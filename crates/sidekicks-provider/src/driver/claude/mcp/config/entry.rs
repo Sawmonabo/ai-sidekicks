@@ -1,11 +1,11 @@
 //! The read of single server entries as the person wrote them, values included, for a probe that
 //! sends each and drops it.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
-use tokio::sync::OnceCell;
 
 use super::{
     ClaudePersonConfigFiles, InstalledPluginRoot, SERVERS_FILE, plugin_server_files,
@@ -38,8 +38,8 @@ pub(crate) struct ClaudePluginFolders {
 pub(crate) struct ClaudeServerEntryReader<'sources> {
     person: &'sources ClaudePersonConfigFiles,
     plugin_home: &'sources Path,
-    // `.claude.json`, read on first use; `None` inside where the file is absent.
-    person_config: OnceCell<Option<Value>>,
+    // Each file read so far, by its path; `None` for one absent or unreadable.
+    files: HashMap<PathBuf, Option<Value>>,
     plugins: Option<Vec<InstalledPluginRoot>>,
 }
 
@@ -52,7 +52,7 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
         Self {
             person,
             plugin_home,
-            person_config: OnceCell::new(),
+            files: HashMap::new(),
             plugins: None,
         }
     }
@@ -70,9 +70,10 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
                 plugin_folders: None,
             })
         };
+        let person = self.person;
         match binding {
             McpServerBindingRef::User { server_name, .. } => Ok(declared(entry_at(
-                self.person_config().await?,
+                self.read_file(&person.person_config).await?,
                 &["mcpServers", server_name.as_str()],
             ))),
             McpServerBindingRef::Local {
@@ -80,7 +81,7 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
                 server_name,
                 ..
             } => Ok(declared(entry_at(
-                self.person_config().await?,
+                self.read_file(&person.person_config).await?,
                 &[
                     "projects",
                     scope_ref.as_str(),
@@ -93,9 +94,8 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
                 server_name,
                 ..
             } => Ok(declared(entry_at(
-                read_json_file(&Path::new(scope_ref.as_str()).join(SERVERS_FILE))
-                    .await?
-                    .as_ref(),
+                self.read_file(&Path::new(scope_ref.as_str()).join(SERVERS_FILE))
+                    .await?,
                 &["mcpServers", server_name.as_str()],
             ))),
             McpServerBindingRef::Plugin {
@@ -106,18 +106,25 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
                 if self.plugins.is_none() {
                     self.plugins = Some(read_installed_plugin_roots(self.plugin_home).await?);
                 }
-                let plugins = self.plugins.as_deref().unwrap_or_default();
-                for plugin in plugins.iter().filter(|plugin| plugin.name == *scope_ref) {
-                    for file in plugin_server_files(&plugin.root) {
-                        let file: Option<Value> = read_json_file(&file).await?;
-                        if let Some(entry) =
-                            entry_at(file.as_ref(), &["mcpServers", server_name.as_str()])
-                        {
+                let plugins: Vec<(PathBuf, String)> = self
+                    .plugins
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|plugin| plugin.name == *scope_ref)
+                    .map(|plugin| (plugin.root.clone(), plugin.id.clone()))
+                    .collect();
+                for (root, id) in plugins {
+                    for file in plugin_server_files(&root) {
+                        if let Some(entry) = entry_at(
+                            self.read_file(&file).await?,
+                            &["mcpServers", server_name.as_str()],
+                        ) {
                             return Ok(Some(ClaudeDeclaredEntry {
                                 entry,
                                 plugin_folders: Some(ClaudePluginFolders {
-                                    root: plugin.root.clone(),
-                                    data: plugin_data_folder(self.plugin_home, &plugin.id),
+                                    data: plugin_data_folder(self.plugin_home, &id),
+                                    root,
                                 }),
                             }));
                         }
@@ -129,13 +136,13 @@ impl<'sources> ClaudeServerEntryReader<'sources> {
         }
     }
 
-    // The person's `.claude.json`, read on first use.
-    async fn person_config(&mut self) -> Result<Option<&Value>, ClaudeSettingsReadError> {
-        let person_config = self
-            .person_config
-            .get_or_try_init(|| read_json_file(&self.person.person_config))
-            .await?;
-        Ok(person_config.as_ref())
+    // The JSON file at `path`, read on its first use in this probe.
+    async fn read_file(&mut self, path: &Path) -> Result<Option<&Value>, ClaudeSettingsReadError> {
+        if !self.files.contains_key(path) {
+            let file = read_json_file(path).await?;
+            self.files.insert(path.to_path_buf(), file);
+        }
+        Ok(self.files.get(path).and_then(Option::as_ref))
     }
 }
 

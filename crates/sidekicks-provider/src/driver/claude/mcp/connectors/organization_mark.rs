@@ -20,6 +20,7 @@ use tokio::time::Instant;
 use zeroize::Zeroizing;
 
 use crate::driver::claude::account_credentials::{ClaudeAiSignIn, ClaudeSignInReader};
+use crate::driver::mcp_server::address::{ServerAddressIdentity, read_server_address};
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
 
 #[cfg(test)]
@@ -87,18 +88,27 @@ pub(crate) struct ClaudeOrganizationMarks {
     http: OnceCell<reqwest::Client>,
 }
 
-/// The organization mark of each connector the list holds, by its normalized id, and how many
-/// connectors Claude Code lists from it.
+/// The organization mark of each connector the list holds, by its normalized id, and the folded
+/// address of each connector Claude Code lists from it, `None` for one whose address does not
+/// parse.
 pub(crate) struct ClaudeConnectorMarks {
     by_connector_id: HashMap<String, bool>,
-    listed_row_count: usize,
+    listed_rows: Vec<Option<ServerAddressIdentity>>,
 }
 
 impl ClaudeConnectorMarks {
-    /// How many connectors Claude Code lists from the list: one per address, and one per
-    /// additional account.
-    pub(crate) fn listed_row_count(&self) -> usize {
-        self.listed_row_count
+    /// How many connectors Claude Code lists from the list, one per address and one per additional
+    /// account, less those it suppresses as duplicates of a server configured at one of
+    /// `configured_addresses` (`m$t`, b:21827999, matching by `KF`'s address, b:21825786).
+    pub(crate) fn listed_row_count(&self, configured_addresses: &[ServerAddressIdentity]) -> usize {
+        self.listed_rows
+            .iter()
+            .filter(|address| {
+                address
+                    .as_ref()
+                    .is_none_or(|address| !configured_addresses.contains(address))
+            })
+            .count()
     }
 
     /// Whether the organization manages the connector `connector_id` names; `None` for a
@@ -412,13 +422,19 @@ lenient_object!(ConnectorListEntry);
 fn index_connector_marks(entries: &[ConnectorListEntry]) -> ClaudeConnectorMarks {
     let mut row_by_address: HashMap<String, bool> = HashMap::new();
     let mut by_connector_id: HashMap<String, bool> = HashMap::new();
-    let mut additional_rows = 0;
+    let mut listed_rows = Vec::new();
+    let listed_address = |entry: &ConnectorListEntry| {
+        entry
+            .url
+            .as_deref()
+            .and_then(|url| read_server_address(url).identity)
+    };
     for entry in entries {
         let mark = entry.enterprise_managed == Some(true);
         if entry.additional_install == Some(true) {
             if let Some(id) = &entry.id {
                 by_connector_id.insert(normalize_connector_id(id), mark);
-                additional_rows += 1;
+                listed_rows.push(listed_address(entry));
             }
             continue;
         }
@@ -430,6 +446,7 @@ fn index_connector_marks(entries: &[ConnectorListEntry]) -> ClaudeConnectorMarks
         }
         if let Some(address) = address {
             row_by_address.insert(address, mark);
+            listed_rows.push(listed_address(entry));
         }
         if let Some(id) = &entry.id {
             by_connector_id.insert(normalize_connector_id(id), mark);
@@ -452,7 +469,7 @@ fn index_connector_marks(entries: &[ConnectorListEntry]) -> ClaudeConnectorMarks
     }
     ClaudeConnectorMarks {
         by_connector_id,
-        listed_row_count: row_by_address.len() + additional_rows,
+        listed_rows,
     }
 }
 

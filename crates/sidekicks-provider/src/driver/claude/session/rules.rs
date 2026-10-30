@@ -382,10 +382,11 @@ pub(crate) async fn remove_claude_tool_server_rules(
     Ok(())
 }
 
-// A server's name as Claude Code writes it into its tools' names: each UTF-16 unit outside ASCII
-// letters, digits, `_` and `-` read as `_`, and a connector's name, which starts `claude.ai `, with
-// each run of `_` made one and the `_` at either end dropped.
-fn compose_claude_tool_server_name(server_name: &str) -> String {
+/// A server's name as Claude Code folds it (`En`, b:8720969), into its tools' names and to match
+/// one server name against another: each UTF-16 unit outside ASCII letters, digits, `_` and `-`
+/// read as `_`, and a connector's name, which starts `claude.ai `, with each run of `_` made one
+/// and the `_` at either end dropped.
+pub(crate) fn compose_claude_tool_server_name(server_name: &str) -> String {
     let mut name = String::with_capacity(server_name.len());
     for character in server_name.chars() {
         if character.is_ascii_alphanumeric() || character == '_' || character == '-' {

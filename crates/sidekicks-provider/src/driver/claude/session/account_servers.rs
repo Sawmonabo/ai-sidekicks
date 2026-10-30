@@ -3,9 +3,9 @@
 //! one read per account at a time, a second ask while one runs joining it, and the result kept for
 //! the account until a refresh, each connector marked from its organization's connector list.
 //! Budget: one Claude Code process of about 140 to 150 MB per account at a time, and none once the
-//! account's result is kept; a failed read is kept until the account's next session or refresh
-//! asks again, so a plain list starts no process for it, and a read that still lacked a connector
-//! its list holds is never kept, so the next ask reads again.
+//! account's result is kept; a failed read, or one that still lacked a connector its list holds,
+//! is kept for a plain list until the account's next session or refresh asks again, so a plain
+//! list never starts a process for an account read before.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -35,9 +35,9 @@ const CLAUDE_ACCOUNT_SERVERS_READ_FOLDER: &str = "account-mcp-read";
 /// Who asks for an account's read, which decides whether a kept failure is read again.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeAccountReadAsk {
-    /// A plain list, which joins a kept result or a kept failure.
+    /// A plain list, which joins a kept result, a short one included, or a kept failure.
     List,
-    /// A session's start, which reads again after a kept failure.
+    /// A session's start, which reads again after a kept failure or a kept short result.
     SessionStart,
     /// A refresh, which always reads again unless a read runs.
     Refresh,
@@ -77,10 +77,10 @@ impl ClaudeAccountServerReads {
         drop(self.read(provider_account_id, ClaudeAccountReadAsk::SessionStart));
     }
 
-    /// `provider_account_id`'s read for `ask`: the running one; else the kept result unless a
-    /// refresh asks or it lacked a listed connector; else the kept failure for a plain list; else
-    /// a new read started now, which runs to its end whether or not the caller awaits it. Resolves
-    /// to the account's servers, or the error the read failed with.
+    /// `provider_account_id`'s read for `ask`: the running one; else the kept result or failure
+    /// for a plain list; else the kept result for a session's start unless it lacked a listed
+    /// connector; else a new read started now, which runs to its end whether or not the caller
+    /// awaits it. Resolves to the account's servers, or the error the read failed with.
     pub(crate) fn read(
         &self,
         provider_account_id: &ProviderAccountId,
@@ -88,12 +88,13 @@ impl ClaudeAccountServerReads {
     ) -> ClaudeAccountServersRead {
         let mut reads = lock(&self.reads);
         if let Some(read) = reads.get(provider_account_id) {
-            let is_joined = match read.peek() {
-                None => true,
-                Some(Ok(servers)) => {
-                    ask != ClaudeAccountReadAsk::Refresh && !servers.lacks_listed_connectors
+            let is_joined = match (read.peek(), ask) {
+                (None, _) | (Some(_), ClaudeAccountReadAsk::List) => true,
+                (Some(Ok(servers)), ClaudeAccountReadAsk::SessionStart) => {
+                    !servers.lacks_listed_connectors
                 }
-                Some(Err(_)) => ask == ClaudeAccountReadAsk::List,
+                (Some(Err(_)), ClaudeAccountReadAsk::SessionStart)
+                | (Some(_), ClaudeAccountReadAsk::Refresh) => false,
             };
             if is_joined {
                 return read.clone();
@@ -170,18 +171,23 @@ async fn read_account(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::sync::Arc;
 
+    use futures::FutureExt;
+    use futures::future::ready;
+    use rstest::rstest;
     use serde_json::json;
     use sidekicks_contracts::mcp::server::McpServerBindingRef;
-
     use sidekicks_platforms::CredentialStore;
+    use sidekicks_std::mutex_lock::lock;
 
     use super::{ClaudeAccountReadAsk, ClaudeAccountServerReads};
     use crate::driver::claude::account_credentials::ClaudeSignInReader;
     use crate::driver::claude::mcp::connectors::organization_mark::ClaudeOrganizationMarks;
-    use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
+    use crate::driver::claude::mcp::precedence::ClaudeMcpAccountServers;
     use crate::driver::claude::session::scripted::driver::ScriptedDriver;
+    use crate::driver::contract::error::DriverError;
     use crate::runtime_binding::test_store::test_provider_account_id;
 
     // Two reads of one account asked while the first is held both get its result from one
@@ -225,15 +231,17 @@ mod tests {
         }
     }
 
-    // A failed read is kept for a plain list, which starts no process for it, until a session's
-    // start asks again. Killed by a plain list reading a kept failure again, and by a session's
-    // start joining it.
+    // A failed read, and one that still lacked a connector its list holds, is kept for a plain
+    // list, which starts no process for it, until a session's start asks again. Killed by a plain
+    // list reading either again, and by a session's start joining either.
+    #[rstest]
+    #[case::failed(false)]
+    #[case::short_of_its_connector_list(true)]
     #[tokio::test]
-    async fn a_kept_failure_is_read_again_only_when_a_session_starts() {
+    async fn a_kept_failure_or_short_read_is_read_again_only_when_a_session_starts(
+        #[case] is_short: bool,
+    ) {
         let fixture = ScriptedDriver::new();
-        let failing = Arc::new(ScriptedChannel::default());
-        failing.answer("get_binary_version", ScriptedAnswer::Refused);
-        fixture.starts.script_account_servers_read(failing);
         let reads = ClaudeAccountServerReads::new(
             fixture.starts.clone(),
             Arc::clone(&fixture.driver.sources),
@@ -242,25 +250,32 @@ mod tests {
             )),
         );
         let account = test_provider_account_id();
+        let kept = if is_short {
+            Ok(Arc::new(ClaudeMcpAccountServers {
+                provider_account_id: account.clone(),
+                organization_servers: Vec::new(),
+                connectors: Vec::new(),
+                connector_readings: Vec::new(),
+                organization_entries: BTreeMap::new(),
+                lacks_listed_connectors: true,
+            }))
+        } else {
+            Err(Arc::new(DriverError::Internal(
+                "the account read failed".into(),
+            )))
+        };
+        lock(&reads.reads).insert(account.clone(), ready(kept).boxed().shared());
 
-        assert!(
-            reads
-                .read(&account, ClaudeAccountReadAsk::List)
-                .await
-                .is_err()
-        );
-        assert!(
-            reads
-                .read(&account, ClaudeAccountReadAsk::List)
-                .await
-                .is_err()
-        );
-        assert_eq!(fixture.starts.take_account_servers_read_count(), 1);
+        for _ in 0..2 {
+            let read = reads.read(&account, ClaudeAccountReadAsk::List).await;
+            assert_eq!(read.is_ok(), is_short);
+        }
+        assert_eq!(fixture.starts.take_account_servers_read_count(), 0);
 
         let read = reads
             .read(&account, ClaudeAccountReadAsk::SessionStart)
             .await;
-        assert!(read.is_ok(), "the session's start reads again");
+        assert!(read.is_ok_and(|servers| !servers.lacks_listed_connectors));
         assert_eq!(fixture.starts.take_account_servers_read_count(), 1);
     }
 }

@@ -9,7 +9,9 @@ use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerBindingRef, Mcp
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
-use crate::driver::claude::mcp::config::{ClaudeMcpConfigReading, ClaudeMcpServer};
+use crate::driver::claude::mcp::config::{
+    ClaudeMcpConfigReading, ClaudeMcpServer, is_kept_out_server,
+};
 use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
 use crate::driver::mcp_server::read::{
     McpAccountServers, McpProbeReading, McpRootReading, McpServerDeclaration, McpServerToolDefaults,
@@ -273,7 +275,7 @@ fn is_withheld_project_server(
 ) -> bool {
     let name = server.binding.server_name();
     matches!(server.binding, McpServerBindingRef::Project { .. })
-        && sources.kept_out_server_names.contains(name)
+        && is_kept_out_server(sources.kept_out_server_names, name)
 }
 
 // Whether Claude Code's per-project switch turns the server off, which records it by the name
