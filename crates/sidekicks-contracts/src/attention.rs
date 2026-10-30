@@ -558,7 +558,7 @@ impl From<KeychainRefusalCause> for AttentionDeliveryStoreUnavailableCause {
         "properties": { "result": { "const": "storeUnavailable" } },
         "required": ["result"],
     },
-    "then" = { "type": "object", "required": ["cause"] },
+    "then" = { "type": "object", "properties": { "cause": true }, "required": ["cause"] },
     "else" = { "type": "object", "not": { "required": ["cause"] } },
 ))]
 pub struct AttentionDeliveryOutcome {
