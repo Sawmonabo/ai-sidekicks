@@ -2,6 +2,7 @@
 //! state, the moment, when it happened, this machine and the link that opens it, built from the
 //! entry's own name and state word and never from a word of a transcript. It is serialized once,
 //! when its send is first written, and those bytes are signed and sent unchanged at every attempt.
+//! A test message the person asks for names only itself, when and this machine.
 //!
 //! Its size is bounded by what it names: a session's, a workflow's and the machine's names at 256
 //! code points each and a Notify step's notice at 2,000.
@@ -10,6 +11,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 use sidekicks_contracts::app_link::{AppLinkTarget, compose_app_link};
 use sidekicks_contracts::attention::{AttentionItem, AttentionMomentTrigger};
+use sidekicks_contracts::wire::instant::WireInstant;
 
 use crate::attention::read::{AttentionReadError, read_attention_entry};
 
@@ -25,6 +27,8 @@ enum MessageKind {
     Failed,
     /// A workflow's Notify step.
     NotifyStep,
+    /// A test the person asked for.
+    Test,
 }
 
 /// Whether the subject is a session or a workflow run.
@@ -118,6 +122,30 @@ impl WebAddressMessage {
     fn to_body(&self) -> Vec<u8> {
         serde_json::to_vec(self).expect("a message of text members serializes")
     }
+}
+
+/// The test message the person asks for: what it says, when and from which machine, with
+/// `content` repeating `text` as every message's does.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct TestMessage<'message> {
+    text: String,
+    kind: MessageKind,
+    at: &'message str,
+    machine: &'message str,
+    content: String,
+}
+
+/// The body of the test message sent at `at` from the machine named `machine`.
+pub(crate) fn test_message_body(machine: &str, at: &WireInstant) -> Vec<u8> {
+    let text = format!("Test message from {machine}");
+    serde_json::to_vec(&TestMessage {
+        content: text.clone(),
+        text,
+        kind: MessageKind::Test,
+        at: at.as_str(),
+        machine,
+    })
+    .expect("a message of text members serializes")
 }
 
 /// The body of entry `entry_id`'s message, sent from the machine named `machine`, read on `reader`;

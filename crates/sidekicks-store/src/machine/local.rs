@@ -37,7 +37,7 @@ pub struct LocalMachine {
     pub machine_id: MachineId,
     /// Minted once at the first start; a hosted account signed in to later attaches to it.
     pub owner_user_id: UserId,
-    /// The machine's friendly name, read at the first start.
+    /// The machine's friendly name, read at the first start and following a rename.
     pub name: String,
 }
 

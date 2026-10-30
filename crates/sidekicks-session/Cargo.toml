@@ -56,6 +56,8 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
+# The test message's id, minted at the call and kept nowhere.
+uuid.workspace = true
 
 [dev-dependencies]
 # The web address's double on a loopback port.

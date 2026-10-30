@@ -3,3 +3,6 @@
 
 pub mod outcome;
 pub mod web_address;
+
+/// The delivery secrets' keychain account holding the email digest's mail password.
+pub const MAIL_PASSWORD_ACCOUNT: &str = "mail-password";

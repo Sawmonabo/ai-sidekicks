@@ -19,7 +19,11 @@
 //!   wakes the sender; nothing is armed while nothing waits.
 //!
 //! A stop or a removal of the address abandons the attempt in flight with nothing written, so its
-//! message is due again at once.
+//! message is due again at once. The person's calls on the address and its secret, and the test
+//! message, hold the same lock the attempt takes while it reads them.
+
+pub mod secrets;
+mod test_message;
 
 use std::error::Error;
 use std::sync::{Arc, Mutex};
