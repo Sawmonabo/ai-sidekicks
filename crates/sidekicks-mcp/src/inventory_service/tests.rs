@@ -664,3 +664,45 @@ async fn a_provider_whose_read_fails_is_named_beside_the_others_rows() {
         assert!(!cause.contains(secret), "{cause}");
     }
 }
+
+/// A provider one of whose stored accounts has an id that is not one takes only its own rows out
+/// of the list: the other provider's rows list, and that provider is named with the cause. Killed
+/// by the account's id failing the whole list.
+#[tokio::test]
+async fn a_provider_whose_stored_account_id_is_no_id_is_named_beside_the_others_rows() {
+    let inventory = open_inventory_over(vec![answering_at_once(), answering_at_once()]).await;
+    let (failed_provider, _driver) = inventory
+        .service
+        .sources
+        .providers
+        .drivers()
+        .nth(1)
+        .expect("a second provider");
+    let failed_provider = failed_provider.clone();
+    inventory
+        .database
+        .reader()
+        .execute(
+            "INSERT INTO provider_accounts (account_id, provider, credential_home_path,
+               billing_mode, created_at, updated_at)
+             VALUES ('', ?1, '/accounts/1', 'unknown', '2026-10-01T00:00:00Z',
+               '2026-10-01T00:00:00Z')",
+            params![failed_provider.as_str()],
+        )
+        .expect("the account is stored");
+
+    let listed = inventory
+        .service
+        .list(&PLAIN_LIST)
+        .await
+        .expect("the inventory lists");
+
+    assert_eq!(
+        docs_entry(listed.servers),
+        (McpServerStatus::Unknown, Vec::new())
+    );
+    let [failure] = <[_; 1]>::try_from(listed.failed_providers).expect("one failed provider");
+    assert_eq!(failure.provider, failed_provider);
+    let cause = failure.cause.as_str();
+    assert!(cause.contains("is not an account id"), "{cause}");
+}

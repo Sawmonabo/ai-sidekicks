@@ -139,7 +139,7 @@ pub struct McpInventorySources {
 }
 
 /// Why the inventory did not answer: a binding it does not hold, or a source that could not be
-/// read. A list fails only with a source's failure.
+/// read. A list fails only with the failure of a source every provider shares.
 #[derive(Debug, thiserror::Error)]
 pub enum McpInventoryError {
     /// No provider declares the binding asked for.
@@ -154,9 +154,12 @@ pub enum McpInventoryError {
     /// The provider accounts could not be read.
     #[error("the provider accounts could not be read")]
     Accounts(#[source] AccountHomesReadError),
-    /// A stored provider account's id is not an account id.
-    #[error("a stored provider account's id is not an account id")]
-    AccountId,
+    /// A stored account of the provider has an id that is not an account id.
+    #[error("a stored {} account's id is not an account id", .provider.as_str())]
+    AccountId {
+        /// The provider.
+        provider: ProviderId,
+    },
     /// A provider's driver could not read its MCP servers.
     #[error("the {} driver could not read its MCP servers", .provider.as_str())]
     Driver {
@@ -193,7 +196,8 @@ impl McpInventoryService {
     }
 
     /// Every binding each provider declares, in the providers' order, each provider read on its
-    /// own: a provider whose driver's read fails is named with its cause beside the others' rows.
+    /// own: a provider whose driver's read fails, or one of whose stored accounts has an id that is
+    /// not one, is named with its cause beside the others' rows.
     /// A refresh has each driver read again what it keeps between reads and probe every binding
     /// it can, one probe per provider at a time: a refresh that finds its provider's probe running
     /// waits for it and reads what it recorded. Fails as a source every provider shares cannot be
@@ -214,23 +218,19 @@ impl McpInventoryService {
             match rows {
                 Ok(rows) => servers.extend(rows.into_iter().map(|(_key, entry)| entry)),
                 Err(McpInventoryError::Driver { provider, source }) => {
-                    tracing::warn!(
-                        error = &source as &(dyn std::error::Error + 'static),
-                        provider = provider.as_str(),
-                        "the provider's MCP servers could not be read, so the list names it \
-                         without its rows"
-                    );
-                    failed_providers.push(McpProviderReadFailure {
-                        provider,
-                        cause: read_failure_cause(&source),
-                    });
+                    failed_providers.push(name_failed_provider(provider, &source));
+                }
+                Err(McpInventoryError::AccountId { provider }) => {
+                    let error = McpInventoryError::AccountId {
+                        provider: provider.clone(),
+                    };
+                    failed_providers.push(name_failed_provider(provider, &error));
                 }
                 Err(
                     error @ (McpInventoryError::Refused(_)
                     | McpInventoryError::Projects(_)
                     | McpInventoryError::ProjectRoot(_)
-                    | McpInventoryError::Accounts(_)
-                    | McpInventoryError::AccountId),
+                    | McpInventoryError::Accounts(_)),
                 ) => return Err(error),
             }
         }
@@ -381,13 +381,16 @@ impl McpInventoryService {
 
     /// Reads `provider`'s bindings through `driver`, asking it to probe the bindings `probe`
     /// names, the store's `local` bindings among them, and, on `is_refresh`, to read again what it
-    /// keeps; this is the one read a probe trigger calls. Each row is keyed by its binding. The
-    /// attribution table takes the provider's reading unless a later read already replaced it, a
-    /// refresh then has the driver ask its live sessions again, each probe reading the driver
-    /// answers lands in [`Self::keep_probe_readings`], and, where this read is the newest, the
-    /// tracker forgets the probe reading of every binding of the provider the rows no longer hold. Fails as the driver's read fails; a store that does
-    /// not answer gives each row the store-unavailable arm and forgets no probe reading, since
-    /// without it the emulated `local` rows are not listed.
+    /// keeps, for each of the provider's stored accounts; this is the one read a probe trigger
+    /// calls. Each row is keyed by its binding. The attribution table takes the provider's reading
+    /// unless a later read already replaced it, a refresh then has the driver ask its live
+    /// sessions again, each probe reading the driver answers lands in
+    /// [`Self::keep_probe_readings`], and, where this read is the newest, the tracker forgets the
+    /// probe reading of every binding of the provider the rows no longer hold. Fails with
+    /// [`McpInventoryError::AccountId`] where a stored account of the provider has an id that is
+    /// not one, and as the driver's read fails; a store that does not answer gives each row the
+    /// store-unavailable arm and forgets no probe reading, since without it the emulated `local`
+    /// rows are not listed.
     async fn read_provider_rows(
         &self,
         provider: &ProviderId,
@@ -401,8 +404,11 @@ impl McpInventoryService {
             .iter()
             .filter(|account| account.provider == provider.as_str())
             .map(|account| {
-                ProviderAccountId::new(account.account_id.clone())
-                    .ok_or(McpInventoryError::AccountId)
+                ProviderAccountId::new(account.account_id.clone()).ok_or_else(|| {
+                    McpInventoryError::AccountId {
+                        provider: provider.clone(),
+                    }
+                })
             })
             .collect::<Result<_, _>>()?;
         // The store is read first, since the driver probes the `local` bindings it keeps.
@@ -570,13 +576,29 @@ impl McpInventoryService {
     }
 }
 
-/// Whether a declaration's own config leaves its server on: its `enabled` member, on where it
-/// sets none, as every provider reads an entry without one.
+// `provider`, whose read failed with `error`, as the list names it, the failure logged.
+fn name_failed_provider(
+    provider: ProviderId,
+    error: &(dyn std::error::Error + 'static),
+) -> McpProviderReadFailure {
+    tracing::warn!(
+        error,
+        provider = provider.as_str(),
+        "the provider's MCP servers could not be read, so the list names it without its rows"
+    );
+    McpProviderReadFailure {
+        provider,
+        cause: read_failure_cause(error),
+    }
+}
+
 // Why a provider's read failed, as the list names it: the error and its causes, with no
 // credential, address query or file path, cut to the cap.
-fn read_failure_cause(error: &DriverError) -> FreeFormText<ERROR_MESSAGE_MAX_LEN> {
+fn read_failure_cause(
+    error: &(dyn std::error::Error + 'static),
+) -> FreeFormText<ERROR_MESSAGE_MAX_LEN> {
     let mut text = error.to_string();
-    let mut source = std::error::Error::source(error);
+    let mut source = error.source();
     while let Some(cause) = source {
         text.push_str(": ");
         text.push_str(&cause.to_string());
@@ -592,6 +614,8 @@ fn read_failure_cause(error: &DriverError) -> FreeFormText<ERROR_MESSAGE_MAX_LEN
     })
 }
 
+/// Whether a declaration's own config leaves its server on: its `enabled` member, on where it
+/// sets none, as every provider reads an entry without one.
 fn config_enabled(config: &McpServerConfigView) -> bool {
     match config {
         McpServerConfigView::Stdio { enabled, .. }
