@@ -60,8 +60,8 @@ pub(crate) struct ClaudeAccountServersReadRequest {
 }
 
 /// What one account's process answered: its `mcp_status` reply, read once, and its
-/// `get_settings` reply unread, which can carry headers and whole addresses, so it lives only
-/// until it is read.
+/// `get_settings` reply as it came, which can carry headers and whole addresses, so it lives only
+/// until the account's servers are read from it.
 pub(crate) struct ClaudeAccountServerAnswers {
     /// The `mcp_status` reply, read.
     pub(crate) mcp_status: ClaudeMcpStatusReply,
