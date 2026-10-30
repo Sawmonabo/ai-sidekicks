@@ -193,9 +193,10 @@ interface AttentionWebAddressUpdateResponse {
 interface AttentionWebAddressSecretRotateResponse {
   signingSecret: string; // shown once
 }
-// `attention.webAddress.delete` waits for the attempt in flight, then removes the address, its
-// signing secret and the channel's outcome row, and drops every waiting message, uncounted.
-// Refusals: `attention.delivery.storeUnavailable` (`cause: locked | unavailable | secretMissing`),
+// `attention.webAddress.delete` waits for the attempt in flight, then removes the channel's outcome
+// row and drops every waiting message, uncounted, then removes the address and its signing secret.
+// Refusals: `attention.delivery.storeUnavailable` (`cause: locked | unavailable | secretMissing`,
+// the last for a test send to an address saved with no signing secret),
 // `attention.delivery.notConfigured` (`missing: address | password`; also `secret.rotate` with no
 // address saved) and `attention.webAddress.notAnAddress` (`update` on text that is no address).
 ```

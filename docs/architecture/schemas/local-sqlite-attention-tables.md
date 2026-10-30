@@ -40,9 +40,9 @@ CREATE TABLE attention_entries (
 CREATE INDEX idx_attention_entries_session ON attention_entries(session_id, resolved_at);
 CREATE INDEX idx_attention_entries_workflow_run ON attention_entries(workflow_run_id)
   WHERE workflow_run_id IS NOT NULL;
--- The open entries of a moment, which the moment's next state resolves.
-CREATE INDEX idx_attention_entries_open_moment ON attention_entries(moment_id)
-  WHERE resolved_at IS NULL;
+-- A moment's entries: the open ones its next state resolves, and the later ones that tell whether
+-- a waiting web-address message still stands.
+CREATE INDEX idx_attention_entries_moment ON attention_entries(moment_id);
 
 -- Owner: Plan-016 (T2.3)
 -- What became of an entry's banner and web-address message; no row, or a NULL banner_state, is an
