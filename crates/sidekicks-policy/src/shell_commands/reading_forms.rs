@@ -222,20 +222,18 @@ impl ReadingForms {
         builder.truncate(mark);
         let word_text = &line[start.start_byte()..word_end];
         // The parser compares a delimiter's characters with the line's as single bytes, so one past
-        // ASCII never ends its body; bash ends `$"EOF"` at `EOF`, zsh at `$EOF`; zsh reads a quote
-        // inside a `$(…)`, a `${…}` or backquotes in the start as nested, bash as the word's own.
+        // ASCII never ends its body; the shells take apart every other `$` form and backquotes in a
+        // start, reading a quote inside one as nested or as the word's own.
         if !word_text.is_ascii()
-            || word_text.contains("$\"")
-            || word_text.contains("$(")
-            || word_text.contains("${")
             || word_text.contains('`')
+            || !holds_only_plain_parameters(word_text)
         {
             return false;
         }
         // The parser ends a body at a line that only starts with the delimiter after blanks, and
         // reads a quote or a substitution in an expanded body across the line the shell ends at.
         let ends_as_the_shell_ends = || {
-            shell_here_document_span(line, word_end, &delimiter, strips_tabs)
+            shell_here_document_span(line, word_end, end.start_byte(), &delimiter, strips_tabs)
                 .is_some_and(|shell| occupies_the_shells_span(line, body, end, &shell))
         };
         if !word_text.contains(['\'', '"', '\\']) {
@@ -266,36 +264,48 @@ impl ReadingForms {
 
 // Where the shell reads a here-document's body and end, by text: the body from the line after the
 // start's, which ends at the first newline past `start_end`, up to the first line that is the
-// delimiter, after its leading tabs for `<<-`. `None` when no line ends the body.
+// delimiter, after its leading tabs for `<<-`. Only the lines up to the one the parser ends the
+// body on, which holds `parser_end`, are read: `None` when an earlier line is the delimiter or
+// that line is not, since the parser's end then differs from the shell's.
 fn shell_here_document_span(
     line: &str,
     start_end: usize,
+    parser_end: usize,
     delimiter: &str,
     strips_tabs: bool,
 ) -> Option<ShellHereDocumentSpan> {
     let bytes = line.as_bytes();
     let body_start = start_end + memchr::memchr(b'\n', &bytes[start_end..])? + 1;
-    let mut line_start = body_start;
-    loop {
-        let line_end = memchr::memchr(b'\n', &bytes[line_start..])
-            .map_or(bytes.len(), |offset| line_start + offset);
+    let end_line_start =
+        memchr::memrchr(b'\n', &bytes[..parser_end]).map_or(0, |offset| offset + 1);
+    if end_line_start < body_start {
+        return None;
+    }
+    let delimiter_text = |line_start: usize, line_end: usize| {
         let text = &line[line_start..line_end];
-        let end_text = if strips_tabs {
+        if strips_tabs {
             text.trim_start_matches('\t')
         } else {
             text
-        };
-        if end_text == delimiter {
-            return Some(ShellHereDocumentSpan {
-                body_start,
-                end: line_end - end_text.len()..line_end,
-            });
         }
-        if line_end == bytes.len() {
+    };
+    let mut line_start = body_start;
+    while line_start < end_line_start {
+        let line_end = line_start
+            + memchr::memchr(b'\n', &bytes[line_start..end_line_start])
+                .expect("a newline ends each line before the parser's end line");
+        if delimiter_text(line_start, line_end) == delimiter {
             return None;
         }
         line_start = line_end + 1;
     }
+    let line_end = memchr::memchr(b'\n', &bytes[end_line_start..])
+        .map_or(bytes.len(), |offset| end_line_start + offset);
+    let end_text = delimiter_text(end_line_start, line_end);
+    (end_text == delimiter).then(|| ShellHereDocumentSpan {
+        body_start,
+        end: line_end - end_text.len()..line_end,
+    })
 }
 
 // Where the shell reads a here-document's body to begin and its delimiter on the line that ends it.
@@ -364,6 +374,19 @@ fn has_parameter_subscript(text: &str) -> bool {
             Some(_) | None => {}
         }
         (position > parameter_start || flag_count > 0) && bytes.get(position) == Some(&b'[')
+    })
+}
+
+// Whether every `$` in a here-document's start is a plain parameter: `$` and a run of letters,
+// digits and `_`, not followed by `[`. The three shells read every other `$` form in a start apart.
+fn holds_only_plain_parameters(word: &str) -> bool {
+    let bytes = word.as_bytes();
+    memchr::memchr_iter(b'$', bytes).all(|dollar| {
+        let name_length = bytes[dollar + 1..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'_')
+            .count();
+        name_length > 0 && bytes.get(dollar + 1 + name_length) != Some(&b'[')
     })
 }
 

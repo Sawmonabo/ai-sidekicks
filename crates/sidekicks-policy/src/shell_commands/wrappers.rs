@@ -335,7 +335,17 @@ pub(super) fn take_wrapper_words(
         let is_option = !have_options_ended
             && view.starts_with("-")
             && (!view.is("-") || wrapper.is_lone_dash_an_option);
-        if !view.is_decided() {
+        // A split string attached to its decided option, as in `-S"git $X"`, is split as env
+        // splits it, its expansions left to the run.
+        let splits_an_attached_value = !view.is_decided()
+            && is_option
+            && !words.is_front_split()
+            && matches!(
+                wrapper.option_word(view),
+                OptionWord::Value { splits: true, attached_from: Some(bytes) }
+                    if view.is_decided_through(bytes)
+            );
+        if !view.is_decided() && !splits_an_attached_value {
             if words.is_front_split() || (is_option && wrapper.takes_values()) {
                 return WrapperRead::WrapperIsProgram;
             }

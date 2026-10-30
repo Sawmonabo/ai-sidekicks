@@ -29,6 +29,9 @@ use super::reads_only;
 #[case::rg_backquote_echo_i_backquote_foo("rg `echo -i` foo", false)]
 #[case::rg_star_foo("rg -* foo", false)]
 #[case::rg_backslash_newline_pre_eq_sh("rg --\\\npre=sh .", false)]
+// zsh drops the backslash of an escape it does not know inside `$'…'`, bash keeps it.
+#[case::rg_dollar_squote_unknown_escapes(r"rg $'\-\-pre=sh' foo", false)]
+#[case::find_dollar_squote_unknown_escape(r"find sub $'\-delete'", false)]
 #[case::rg_e_carriage_return_pre_eq_sh("rg -e\r --pre=sh .", false)]
 #[case::rg_e_foo("rg -e foo .", true)]
 #[case::rg_e_dquote_dollar_x_dquote("rg -e \"$x\" .", false)]

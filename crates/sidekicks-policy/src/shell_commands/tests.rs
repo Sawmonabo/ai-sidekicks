@@ -214,22 +214,6 @@ fn assert_unread(reading: &ShellLineReading) {
 )]
 #[case::escaped_program(r"g\it push -f", vec![command("git", &["push", "-f"], &[])], true)]
 #[case::ansi_c_program(r"$'\147it' push -f", vec![command("git", &["push", "-f"], &[])], true)]
-#[case::ansi_c_nul_ends_its_part(
-    r"$'gi\0zz't push -f",
-    vec![command("git", &["push", "-f"], &[])],
-    true
-)]
-#[case::ansi_c_hex_nul_ends_its_part(
-    r"$'gi\x00zz't push -f",
-    vec![command("git", &["push", "-f"], &[])],
-    true
-)]
-#[case::ansi_c_control_nul_ends_its_part(
-    r"$'gi\c@zz't push -f",
-    vec![command("git", &["push", "-f"], &[])],
-    true
-)]
-#[case::ansi_c_nul_keeps_later_parts(r"$'a\0b'c", vec![command("ac", &[], &[])], true)]
 #[case::quoted_program_part(
     r#""gi"t push -f"#,
     vec![command("git", &["push", "-f"], &[])],
@@ -385,43 +369,47 @@ fn a_string_read_again_costs_nothing_and_reads_the_same() {
 #[rstest]
 #[case::provider_wrapper(
     r#"/bin/zsh -lc "rm -rf 'my build' && echo done""#,
-    None,
+    &[],
     "rm -rf 'my build' && echo done"
 )]
-#[case::operator_outside_the_argv("bash -lc 'x' && y", None, "bash -lc 'x' && y")]
-#[case::wrapper_before_the_shell("env bash -lc 'x'", None, "env bash -lc 'x'")]
-#[case::wrapper_before_a_joined_argv("env bash -lc 'x y'", None, "env bash -lc 'x y'")]
-// A shell outside `/bin` and `/usr/bin` is the provider's only when it is the one it starts with.
+#[case::operator_outside_the_argv("bash -lc 'x' && y", &[], "bash -lc 'x' && y")]
+#[case::wrapper_before_the_shell("env bash -lc 'x'", &[], "env bash -lc 'x'")]
+#[case::wrapper_before_a_joined_argv("env bash -lc 'x y'", &[], "env bash -lc 'x y'")]
+// A shell outside `/bin` and `/usr/bin` is the provider's only when it is one it starts lines with.
 #[case::provider_shell_path(
     "/opt/homebrew/bin/zsh -lc 'ls -la'",
-    Some("/opt/homebrew/bin/zsh"),
+    &["/opt/homebrew/bin/zsh"],
+    "ls -la"
+)]
+#[case::shell_of_another_kind_the_provider_runs(
+    "/opt/homebrew/bin/bash -lc 'ls -la'",
+    &["/opt/homebrew/bin/zsh", "/opt/homebrew/bin/bash"],
     "ls -la"
 )]
 #[case::other_shell_path(
     "/opt/homebrew/bin/zsh -lc 'ls -la'",
-    None,
+    &[],
     "/opt/homebrew/bin/zsh -lc 'ls -la'"
 )]
 #[case::shell_path_not_the_providers(
     "/tmp/x/zsh -lc 'ls -la'",
-    Some("/opt/homebrew/bin/zsh"),
+    &["/opt/homebrew/bin/zsh"],
     "/tmp/x/zsh -lc 'ls -la'"
 )]
 // A provider's shell whose kind is no line shell is never unwrapped.
 #[case::provider_shell_of_another_kind(
     "fish -lc 'ls -la'",
-    Some("/opt/homebrew/bin/fish"),
+    &["/opt/homebrew/bin/fish"],
     "fish -lc 'ls -la'"
 )]
 fn unwraps_only_a_shell_handed_its_whole_line(
     #[case] line: &str,
-    #[case] provider_shell: Option<&str>,
+    #[case] provider_shells: &[&str],
     #[case] expected: &str,
 ) {
-    assert_eq!(
-        unwrap_shell_command_line(line, provider_shell.map(Path::new)),
-        expected
-    );
+    let provider_shells: Vec<&Path> = provider_shells.iter().map(Path::new).collect();
+
+    assert_eq!(unwrap_shell_command_line(line, &provider_shells), expected);
 }
 
 // Words the parser or the reader reads as more than a program's name.

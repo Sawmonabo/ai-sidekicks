@@ -19,20 +19,20 @@ use crate::shell_commands::{
 };
 
 /// Whether `line`, a provider's command line, only reads: it holds at most 10,000 characters and,
-/// after any `<shell> -lc '…'` wrapper is taken off, `provider_shell` being the shell the provider
-/// starts its lines with, reads whole on `reader` as the shell reads it, holds only forms a reading
-/// line may hold, runs no `git` beside a `cd`, and runs only listed programs, through listed
-/// wrappers, each named without a folder and given only decided words where its options could
-/// write or run something, with listed options.
+/// after any `<shell> -lc '…'` wrapper is taken off, `provider_shells` being the shells the
+/// provider may start its lines with, reads whole on `reader` as the shell reads it, holds only
+/// forms a reading line may hold, runs no `git` beside a `cd`, and runs only listed programs,
+/// through listed wrappers, each named without a folder and given only decided words where its
+/// options could write or run something, with listed options.
 pub fn is_read_only_command(
     reader: &mut ShellLineReader,
     line: &str,
-    provider_shell: Option<&Path>,
+    provider_shells: &[impl AsRef<Path>],
 ) -> bool {
     if line.chars().nth(MAX_LINE_CHARACTERS).is_some() {
         return false;
     }
-    let unwrapped = unwrap_shell_command_line(line, provider_shell);
+    let unwrapped = unwrap_shell_command_line(line, provider_shells);
     let Some(line) = line_as_the_shell_reads(&unwrapped) else {
         return false;
     };

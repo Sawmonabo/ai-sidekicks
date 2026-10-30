@@ -284,6 +284,15 @@ mod tests {
     #[case::expanded_option_word("git -$X --force", true)]
     #[case::expanded_option_word_after_its_value("X=\"C . push\"; git -$X --force", true)]
     #[case::quoted_folder_value("git -C \"$D\" log", false)]
+    // env splits a split string again after the shell expanded it, quoted or not.
+    #[case::quoted_parameter_inside_a_split_string(
+        "X=\". push\"; env -S\"git -C $X --force\"",
+        true
+    )]
+    // A NUL ends bash's value of an ANSI-C string and stays in zsh's word.
+    #[case::ansi_c_nul_in_the_program(r"$'gi\0zz't push -f", true)]
+    // zsh drops the backslash of an escape it does not know, so this word is `push` there.
+    #[case::unknown_ansi_c_escape(r"git $'\push' --force", true)]
     // A program only the run decides may be git.
     #[case::expanded_program("G=git; $G push --force", true)]
     #[case::dry_run("git push --dry-run origin main", false)]

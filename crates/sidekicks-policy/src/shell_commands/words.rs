@@ -313,8 +313,20 @@ impl<'r> ShellWord<'r> {
         self.pieces.iter().all(|piece| !piece.kind.is_expansion())
     }
 
-    /// Whether the word is one parameter alone inside double quotes, `"$name"` or `"${name}"`:
-    /// the run decides its text, but the shell passes it as one word, never several.
+    /// Whether the word's first `bytes` bytes are passed as read here, none of them made by an
+    /// expansion, a substitution or a pattern.
+    pub(crate) fn is_decided_through(self, bytes: usize) -> bool {
+        let mut start = 0;
+        self.pieces.iter().all(|piece| {
+            let is_decided = start >= bytes || !piece.kind.is_expansion();
+            start += (piece.end - piece.start) as usize;
+            is_decided
+        })
+    }
+
+    /// Whether the word is one parameter alone inside double quotes, `"$name"`, `"${name}"` or a
+    /// positional one, `"$1"` or `"${10}"`: the run decides its text, but the shell passes it as
+    /// one word, never several.
     pub fn is_one_quoted_parameter(self) -> bool {
         let [piece] = self.pieces else {
             return false;
@@ -573,8 +585,7 @@ impl<'s> WordBuilder<'s> {
                 }
                 b'$' if bytes.get(position + 1) == Some(&b'\'') => {
                     let close = quoted_text_end(bytes, position + 2, b'\'');
-                    let body = &line[position + 2..close];
-                    self.push_decoded(|value| decode_ansi_c(body, value));
+                    self.push_ansi_c(position..(close + 1).min(bytes.len()));
                     position = close + 1;
                 }
                 byte if WORD_ENDING_BYTES.contains(&byte) => break,
@@ -656,6 +667,26 @@ impl<'s> WordBuilder<'s> {
         push_piece(&mut self.pieces, start, end, PieceKind::Decoded);
     }
 
+    // An ANSI-C string, `$'…'` at `range` of the line: decoded where bash and zsh decode it alike,
+    // else kept as its source text, which only the shell running the line decides.
+    fn push_ansi_c(&mut self, range: std::ops::Range<usize>) {
+        let line = self.line;
+        let body = &line[range.start + 2..range.end];
+        let decoded_mark = self.decoded.len();
+        if decode_ansi_c(body, &mut self.decoded) {
+            let start = offset(decoded_mark);
+            push_piece(
+                &mut self.pieces,
+                start,
+                offset(self.decoded.len()),
+                PieceKind::Decoded,
+            );
+        } else {
+            self.decoded.truncate(decoded_mark);
+            self.push_line(range, PieceKind::Expansion);
+        }
+    }
+
     fn push_part(&mut self, node: Node<'_>) {
         // A node the parser supplied for a missing token spans nothing.
         if node.is_missing() {
@@ -675,10 +706,7 @@ impl<'s> WordBuilder<'s> {
             "raw_string" if text.len() >= 2 && text.starts_with('\'') && text.ends_with('\'') => {
                 self.push_line(range.start + 1..range.end - 1, PieceKind::Literal);
             }
-            "ansi_c_string" => {
-                let body = text.strip_prefix("$'").unwrap_or(text);
-                self.push_decoded(|value| decode_ansi_c(body, value));
-            }
+            "ansi_c_string" => self.push_ansi_c(range),
             "string" => self.push_double_quoted(node),
             // `$"…"` is a double-quoted string translated by the locale, which is not applied here.
             "translated_string" => match node.named_child(0) {

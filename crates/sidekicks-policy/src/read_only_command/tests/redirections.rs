@@ -85,6 +85,22 @@ use super::reads_only;
 // bash and zsh end `$'EOF'` at `EOF`; bash ends `$"EOF"` there too and zsh at `$EOF`.
 #[case::ansi_c_delimiter("cat <<$'EOF'\nx\nEOF\ntouch made\n$EOF", false)]
 #[case::translated_delimiter("cat <<$\"EOF\"\nx\nEOF\ntouch made\n$EOF", false)]
+// bash 3.2 keeps `\u` as written in a start, bash 5.3 and zsh decode it.
+#[case::unicode_escape_in_an_ansi_c_delimiter(
+    "cat <<$'l\\u0073'\nl\\u0073\ntouch made\nls\ncat <<'Z'\n$'lu0073'\nZ",
+    false
+)]
+#[case::ansi_c_delimiter_ended_early("cat <<$'x'\nx\ntouch made\nx", false)]
+// A plain parameter in a start is its own text in every shell.
+#[case::parameter_in_a_delimiter("cat <<$X\n$HOME\n$X", true)]
+#[case::quoted_parameter_in_a_delimiter("cat <<\"$X\"\n$(touch f)\n$X", true)]
+// bash 5.3 and zsh read a quote inside `$[…]` in a start as nested, and zsh inside `"…"` too.
+#[case::arithmetic_in_a_delimiter("cat <<a$[b\"c\"]\na$[b\"c\"]\ntouch made\na$[bc]", false)]
+#[case::arithmetic_alone_in_a_delimiter("cat <<$['x']\n$['x']\ntouch made\n$[x]", false)]
+#[case::arithmetic_in_a_quoted_delimiter(
+    "cat <<\"$[ \"1\" ]\"\n$[ \"1\" ]\ntouch made\n$[ 1 ]",
+    false
+)]
 // zsh reads a quote inside a `$(…)` or backquotes in a start as nested, bash as the word's own.
 #[case::substitution_in_a_delimiter(
     "cat <<\"$(echo \"x\")\"\n$(echo \"x\")\ntouch made\n$(echo x)",

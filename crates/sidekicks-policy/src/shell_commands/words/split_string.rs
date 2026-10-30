@@ -77,7 +77,11 @@ impl WordBuilder<'_> {
         while let Some(&part) = parts.get(index) {
             index += 1;
             let (character, piece) = match part {
-                ValuePart::Expansion(piece) => {
+                // env splits the expanded text again, so a quoted expansion can split as well.
+                ValuePart::Expansion(mut piece) => {
+                    if piece.kind == PieceKind::QuotedExpansion {
+                        piece.kind = PieceKind::Expansion;
+                    }
                     word_start.get_or_insert(self.pieces.len());
                     self.pieces.push(piece);
                     continue;
