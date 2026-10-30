@@ -363,7 +363,7 @@ mod tests {
     )]
     #[case::expansion_ending_a_split_string("X='git push --force #'; env -S\"$X'\"", true)]
     #[case::nested_split_past_the_line("env -S'-S \"git push --force\"'", true)]
-    #[case::split_chain_past_the_line("env -S-S-S-Sgit push --force", true)]
+    #[case::nested_split_chain("env -S-S-S-Sgit push --force", true)]
     #[case::line_break_in_a_split_string("env -S'A=1\ngit push --force'", true)]
     #[case::vertical_tab_in_a_split_string("env -S'git\u{b}push\u{b}--force'", true)]
     // An expansion the shell splits in a program's folder can be the program; a quoted folder
