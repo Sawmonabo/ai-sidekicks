@@ -1,7 +1,8 @@
 //! When each account's connectors and organization servers are read, and what is kept between
-//! reads: an account is read at its first read after the daemon starts and again on a refresh, one
-//! read per account at a time, a second ask while one runs joining it, and the result kept for the
-//! account until a refresh, each connector marked from its organization's connector list.
+//! reads: an account is read when it is first asked for after the daemon starts, again on a
+//! refresh, and at a session's start after a failed or short read, one read per account at a time,
+//! a second ask while one runs joining it, and the result kept for the account until a refresh,
+//! each connector marked from its organization's connector list.
 //! Budget: one Claude Code process of about 140 to 150 MB per account at a time, and none once the
 //! account's result is kept; a failed read, or one that still lacked a connector its list holds,
 //! is kept for a plain list until the account's next session or refresh asks again, so a plain

@@ -395,7 +395,7 @@ mod tests {
     // Killed by ranking a scope above the organization, by matching a connector on its stripped
     // address, which drops the query that keeps the second connector apart, by not folding the
     // address's case, default port and trailing slash, by a `project` server the root keeps out
-    // taking a `user` server's name, that kept-out name matched only exactly (`my server` keeps
+    // taking a `user` server's name, by that kept-out name matched only exactly (`my server` keeps
     // out `my_server`), by the person's servers left loadable under a managed file, and by a name
     // the organization's server loads kept out.
     #[test]
