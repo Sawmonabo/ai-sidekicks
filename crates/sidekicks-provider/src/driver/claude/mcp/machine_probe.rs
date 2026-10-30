@@ -414,8 +414,8 @@ async fn run_probe_process(
     Ok(read?)
 }
 
-// `target`'s reading from what the probe read of it; one the status never named reads `starting`
-// with no tools.
+// `target`'s reading from what the probe read of it; one nothing named, where no answer carried a
+// list, reads `starting` with no tools.
 fn read_target(target: &McpProbeTarget, status: Option<ProbeStatus>) -> McpProbeReading {
     let status = status.unwrap_or(ProbeStatus {
         reading: McpServerReading::Observed(McpServerStatus::Starting),
