@@ -3,11 +3,15 @@
 //! ends, and the one mapping from a run's failure to its ending.
 
 use std::io;
+use std::time::Duration;
 
 use sidekicks_client::error::ClientError;
+use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
+use sidekicks_platforms::ChildExit;
 
+use crate::commands::daemon::status::describe_cannot_start;
 use crate::confirmation::ConfirmationUnavailableError;
 
 /// A process exit code the command line returns.
@@ -84,9 +88,58 @@ pub(crate) struct UnmappedExitCodeError {
     pub(crate) code: i64,
 }
 
+/// A failure the command line finds itself, with no daemon number to carry it: each kind names its
+/// cause, and its text is the line `error:` prints.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum CommandFailure {
+    /// The started daemon did not answer the handshake within the wait, so it was ended.
+    #[error(
+        "The background service did not answer within {} ms of its start, so it was stopped",
+        waited.as_millis()
+    )]
+    StartTimedOut {
+        /// How long the start waited.
+        waited: Duration,
+        /// The last handshake's failure.
+        #[source]
+        last_failure: ClientError,
+    },
+    /// The started daemon exited before it answered the handshake, and no other daemon answers.
+    #[error("{}", describe_daemon_exit(exit, cannot_start.as_ref()))]
+    DaemonExited {
+        /// How the daemon's process ended.
+        exit: ChildExit,
+        /// Why its start failed, where its status file says.
+        cannot_start: Option<DaemonCannotStart>,
+    },
+}
+
+impl CommandFailure {
+    /// The exit code the failure ends the run with.
+    const fn exit_code(&self) -> ExitCode {
+        match self {
+            Self::StartTimedOut { .. } | Self::DaemonExited { .. } => ExitCode::Unavailable,
+        }
+    }
+}
+
+/// The started daemon's exit, then the status file's title and line under it where it has them.
+fn describe_daemon_exit(exit: &ChildExit, cannot_start: Option<&DaemonCannotStart>) -> String {
+    let ended = match &exit.signal_name {
+        Some(signal_name) => format!("on {signal_name}"),
+        None => format!("with exit code {}", exit.exit_code),
+    };
+    let line = format!("The background service ended as it started, {ended}");
+    match cannot_start {
+        Some(cannot_start) => format!("{line}\n{}", describe_cannot_start(cannot_start).trim_end()),
+        None => line,
+    }
+}
+
 /// How a failed run ends, from the first cause in its chain that names an ending: an argument
-/// refusal or a confirmation no one can answer, a daemon that is not answering, a closed output pipe, the daemon's error by its number
-/// (a domain refusal by its category), a call canceled after a Ctrl-C; any other failure is a
+/// refusal or a confirmation no one can answer, a failure the command line found itself by its
+/// kind, a daemon that is not answering, a closed output pipe, the daemon's error by its number (a
+/// domain refusal by its category), a call canceled after a Ctrl-C; any other failure is a
 /// software error. Fails with [`UnmappedExitCodeError`] for a daemon number with no exit code.
 pub(crate) fn exit_code_for_failure(
     failure: &anyhow::Error,
@@ -94,6 +147,9 @@ pub(crate) fn exit_code_for_failure(
     for cause in failure.chain() {
         if cause.is::<clap::Error>() || cause.is::<ConfirmationUnavailableError>() {
             return Ok(ProcessEnding::Exit(ExitCode::Usage));
+        }
+        if let Some(command_failure) = cause.downcast_ref::<CommandFailure>() {
+            return Ok(ProcessEnding::Exit(command_failure.exit_code()));
         }
         if let Some(client_error) = cause.downcast_ref::<ClientError>() {
             return exit_code_for_client_error(client_error);
@@ -170,6 +226,7 @@ fn exit_code_for_category(category: &RefusalCategory) -> ProcessEnding {
 #[cfg(test)]
 mod tests {
     use std::io;
+    use std::time::Duration;
 
     use anyhow::anyhow;
     use clap::CommandFactory as _;
@@ -179,8 +236,9 @@ mod tests {
     use sidekicks_contracts::jsonrpc::message::{ConnectionUnavailableReason, JsonRpcErrorData};
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
+    use sidekicks_platforms::ChildExit;
 
-    use super::{ExitCode, ProcessEnding, exit_code_for_failure};
+    use super::{CommandFailure, ExitCode, ProcessEnding, exit_code_for_failure};
     use crate::confirmation::ConfirmationUnavailableError;
     use crate::program::Cli;
 
@@ -353,6 +411,20 @@ mod tests {
     #[case::other_io(
         io::Error::from(io::ErrorKind::PermissionDenied).into(),
         ProcessEnding::Exit(ExitCode::Software)
+    )]
+    #[case::start_timed_out(
+        CommandFailure::StartTimedOut {
+            waited: Duration::from_millis(200),
+            last_failure: ClientError::link_down(LinkFault::PeerClosed),
+        }.into(),
+        ProcessEnding::Exit(ExitCode::Unavailable)
+    )]
+    #[case::daemon_exited(
+        anyhow::Error::from(CommandFailure::DaemonExited {
+            exit: ChildExit { exit_code: 1, signal_number: None, signal_name: None },
+            cannot_start: None,
+        }).context("could not read why the background service cannot start"),
+        ProcessEnding::Exit(ExitCode::Unavailable)
     )]
     #[case::anything_else(anyhow!("failed"), ProcessEnding::Exit(ExitCode::Software))]
     fn a_failure_ends_the_run_as_its_cause_names(

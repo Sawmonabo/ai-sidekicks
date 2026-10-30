@@ -9,6 +9,7 @@ mod command_context;
 mod commands;
 mod confirmation;
 mod connected_command;
+mod daemon_program;
 mod exit_codes;
 mod local_time;
 mod program;

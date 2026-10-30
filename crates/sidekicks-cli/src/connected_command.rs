@@ -16,13 +16,7 @@ use tokio_util::sync::CancellationToken;
 pub(crate) fn run_connected<T>(
     body: impl AsyncFnOnce(&DaemonConnection, &CancellationToken) -> anyhow::Result<T>,
 ) -> anyhow::Result<T> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("could not start the command's runtime")?;
-    runtime.block_on(async {
-        // Taken first, so a Ctrl-C from here on reaches the command instead of ending it.
-        let mut ctrl_c = ctrl_c().context("could not listen for Ctrl-C")?;
+    run_listening_for_ctrl_c(async |ctrl_c| {
         let endpoint = DaemonEndpoint::this_machine()
             .context("could not find where the background service listens")?;
         let connection = tokio::select! {
@@ -32,10 +26,26 @@ pub(crate) fn run_connected<T>(
         let cancel = CancellationToken::new();
         let outcome = tokio::select! {
             outcome = body(&connection, &cancel) => outcome,
-            () = cancel_on_ctrl_c(&mut ctrl_c, &cancel) => Err(ClientError::Canceled.into()),
+            () = cancel_on_ctrl_c(ctrl_c, &cancel) => Err(ClientError::Canceled.into()),
         };
         connection.close().await;
         outcome
+    })
+}
+
+/// Runs `body` on the command's own runtime with the person's Ctrl-C taken first, so a Ctrl-C
+/// from then on reaches `body` through the listener instead of ending the process. Fails as the
+/// runtime's start, the listener or `body` does.
+pub(crate) fn run_listening_for_ctrl_c<T>(
+    body: impl AsyncFnOnce(&mut CtrlCListener) -> anyhow::Result<T>,
+) -> anyhow::Result<T> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("could not start the command's runtime")?;
+    runtime.block_on(async {
+        let mut ctrl_c = ctrl_c().context("could not listen for Ctrl-C")?;
+        body(&mut ctrl_c).await
     })
 }
 

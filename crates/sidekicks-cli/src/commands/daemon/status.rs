@@ -192,7 +192,7 @@ fn report_cannot_start<Output: Write, ErrorOutput: Write>(
 }
 
 /// Why the service's last start failed, from its status file; `None` where it wrote none.
-fn read_cannot_start() -> anyhow::Result<Option<DaemonCannotStart>> {
+pub(crate) fn read_cannot_start() -> anyhow::Result<Option<DaemonCannotStart>> {
     let run_folder = daemon_run_folder()
         .context("could not find where the background service records why it cannot start")?;
     let path = &run_folder.status_path;
@@ -218,7 +218,7 @@ fn read_cannot_start() -> anyhow::Result<Option<DaemonCannotStart>> {
 }
 
 /// The reason's lines, each ended by a newline: one sentence, or a title over one line.
-fn describe_cannot_start(cannot_start: &DaemonCannotStart) -> String {
+pub(crate) fn describe_cannot_start(cannot_start: &DaemonCannotStart) -> String {
     let lines = match cannot_start {
         DaemonCannotStart::ConnectionNameTaken {} => vec![
             "The background service cannot start because another program on this computer is \

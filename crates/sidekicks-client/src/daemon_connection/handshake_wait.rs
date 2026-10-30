@@ -33,10 +33,11 @@ pub enum HandshakeWaitEnd<T> {
 
 /// Connects through `connector` again and again until the daemon answers the handshake, while
 /// `deadline` has not passed since the wait began or since the daemon's latest `daemon.repairing`
-/// answer (`HANDSHAKE_DEADLINE` where the caller sets none); hands each such answer's details to `on_repairing` once, and ends as soon as
-/// `ended_early` finishes. Fails at the deadline with the last attempt's failure, or with
-/// `ClientError::Unavailable` when no attempt finished; fails at once on a failure no starting
-/// daemon gives, such as a run folder that is not this account's alone.
+/// answer (`HANDSHAKE_DEADLINE` where the caller sets none); hands each such answer's details to
+/// `on_repairing` once, and ends as soon as `ended_early` finishes. Fails at the deadline with the
+/// last attempt's failure, or with `ClientError::Unavailable` when no attempt finished; fails at
+/// once on a failure no starting daemon gives, such as a run folder that is not this account's
+/// alone.
 pub async fn wait_for_handshake<C, F>(
     connector: C,
     deadline: Duration,
@@ -79,8 +80,9 @@ where
 }
 
 /// Whether `failure` is one a daemon still starting gives: no socket yet, a handshake unanswered,
-/// a token not yet written, or a token refused while the daemon writes its new one.
-fn is_not_ready_yet(failure: &ClientError) -> bool {
+/// a token not yet written, or a token refused while the daemon writes its new one. A wait that
+/// fails with such a failure ran to its deadline; any other failure ended it at once.
+pub fn is_not_ready_yet(failure: &ClientError) -> bool {
     match failure {
         ClientError::Unavailable { .. } => true,
         ClientError::Token { source, .. } => source.kind() == io::ErrorKind::NotFound,

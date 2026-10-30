@@ -142,8 +142,7 @@ pub async fn end_daemon<C: DaemonConnector>(
         let Some(process) = process else {
             return Ok(DaemonEnd::ProcessNotFound);
         };
-        let grace = terms.drain_bound + terms.kill_grace;
-        return end_process(terms, process, grace)
+        return end_unanswered_process(terms, process)
             .await
             .map(DaemonEnd::Ended);
     }
@@ -240,6 +239,16 @@ async fn send(client: &JsonRpcClient, verb: DaemonEndingVerb) -> Result<(), Clie
         DaemonEndingVerb::Restart => Either::Right(client.call::<DaemonRestart>(&EmptyPayload {})),
     };
     answer.await.map(|_accepted| ())
+}
+
+/// Ends `process`, a daemon that never answered, through `terms`' ending at once, with a grace that
+/// still covers the drain it may be running; answers the end that took effect. Fails as
+/// [`DaemonEndingError::End`] and [`DaemonEndingError::EndTask`] name.
+pub async fn end_unanswered_process(
+    terms: &DaemonEndingTerms,
+    process: PinnedProcess,
+) -> Result<ChildEnd, DaemonEndingError> {
+    end_process(terms, process, terms.drain_bound + terms.kill_grace).await
 }
 
 /// Ends `process` with `grace` through `terms`' ending, on the blocking pool.

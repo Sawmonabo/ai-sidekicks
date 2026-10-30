@@ -8401,6 +8401,7 @@ dependencies = [
  "sidekicks-client",
  "sidekicks-contracts",
  "sidekicks-platforms",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",

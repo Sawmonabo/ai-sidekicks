@@ -16,7 +16,7 @@ use icu_decimal::options::DecimalFormatterOptions;
 use icu_locale_core::Locale;
 use sidekicks_client::error::ClientError;
 use sidekicks_contracts::daemon::recovery::{
-    DaemonRepairingLinePart, describe_daemon_repairing_line,
+    DaemonRepairingDetails, DaemonRepairingLinePart, describe_daemon_repairing_line,
 };
 use sidekicks_platforms::{LocaleCategory, end_as_ctrl_c, system_locale};
 
@@ -144,23 +144,31 @@ pub(crate) fn report_failure<Output: Write, ErrorOutput: Write>(
 /// The failure's message: the repair's line when the daemon refused as `daemon.repairing`, its
 /// counts in the person's number format, else every cause in the failure's chain.
 fn describe_failure(failure: &anyhow::Error) -> String {
-    match repairing_line_parts(failure) {
-        Some(parts) => write_repairing_line(parts, system_locale(LocaleCategory::Number).as_ref()),
+    match repairing_details(failure) {
+        Some(details) => describe_repairing(details),
         None => format!("{failure:#}"),
     }
 }
 
-/// The repair's line in parts when the failure's first client error is the `daemon.repairing`
-/// refusal; a detail that does not read as the refusal's reads as no count.
-fn repairing_line_parts(failure: &anyhow::Error) -> Option<Vec<DaemonRepairingLinePart>> {
+/// The repair's details when the failure's first client error is the `daemon.repairing` refusal;
+/// a detail that does not read as the refusal's reads as no count.
+fn repairing_details(failure: &anyhow::Error) -> Option<DaemonRepairingDetails> {
     let client_error = failure
         .chain()
         .find_map(|cause| cause.downcast_ref::<ClientError>())?;
     let ClientError::Remote(remote) = client_error else {
         return None;
     };
-    let details = remote.repairing_details()?;
-    Some(describe_daemon_repairing_line(details.progress))
+    remote.repairing_details()
+}
+
+/// The line naming a daemon repairing its database file, in the words the app shows, its counts
+/// in the person's number format.
+pub(crate) fn describe_repairing(details: DaemonRepairingDetails) -> String {
+    write_repairing_line(
+        describe_daemon_repairing_line(details.progress),
+        system_locale(LocaleCategory::Number).as_ref(),
+    )
 }
 
 /// The repair's line from its parts, each count grouped as `locale` writes numbers, and in plain

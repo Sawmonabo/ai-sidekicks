@@ -1,5 +1,6 @@
 //! The `daemon` commands, which read and drive the background service itself.
 
+pub(crate) mod start;
 pub(crate) mod status;
 
 use std::io::Write;
@@ -7,12 +8,15 @@ use std::io::Write;
 use clap::Subcommand;
 
 use crate::command_context::CommandContext;
+use crate::commands::daemon::start::{StartArgs, start};
 use crate::commands::daemon::status::{StatusArgs, show_status};
 use crate::exit_codes::ExitCode;
 
 /// The `daemon` commands.
 #[derive(Debug, Subcommand)]
 pub(crate) enum DaemonCommand {
+    /// Start the background service unless it is running, and wait until it answers.
+    Start(StartArgs),
     /// Show whether the background service is running, and how it stands.
     Status(StatusArgs),
 }
@@ -23,6 +27,7 @@ pub(crate) fn run_daemon_command<Output: Write, ErrorOutput: Write>(
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
     match command {
+        DaemonCommand::Start(args) => start(args, context),
         DaemonCommand::Status(args) => show_status(args, context),
     }
 }
