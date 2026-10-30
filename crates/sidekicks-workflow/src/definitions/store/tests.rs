@@ -254,9 +254,9 @@ fn definition_name(rows: &Connection, definition_id: WorkflowDefinitionId) -> St
 /// so the copy's fits; its first version keeps the copied version's package locks while its
 /// document is that version's, and none when it differs. One naming a version no row holds, or a
 /// version of a deleted workflow, is refused as that version not found, not as a held name, and
-/// writes no workflow. Mutations: carry the locks
-/// whatever the document; answer every refused create as a held name; drop the copied version's
-/// check, or its deleted workflow condition, from the write; leave a copy's name uncut.
+/// writes no workflow. Mutations: carry the locks whatever the document; answer every refused
+/// create as a held name; drop the copied version's check, or its deleted workflow condition, from
+/// the write; leave a copy's name uncut.
 #[tokio::test]
 async fn a_duplicate_takes_a_free_copy_name_and_its_source_locks_only_for_the_same_content() {
     let database = TestDatabase::new(schema_parts());
