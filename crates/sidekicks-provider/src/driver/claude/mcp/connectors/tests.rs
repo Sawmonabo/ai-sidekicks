@@ -228,7 +228,7 @@ enum ConfiguredServer {
     false
 )]
 #[case::api_key_in_a_remote_session(
-    with_variables(&[("ANTHROPIC_API_KEY", "key"), ("CLAUDE_CODE_REMOTE", "1")]),
+    with_variables(&[("ANTHROPIC_API_KEY", "key"), ("CLAUDE_CODE_REMOTE", " TRUE ")]),
     &[&[][..]],
     &[][..],
     29,
@@ -331,9 +331,10 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
 // Where the account's Claude Code fetches no connector list, the list is not read and the first
 // reply settles the read whole: its connectors switched off by the variable or a settings source,
 // safe mode, another provider or a gateway, bare mode, a socket with no token, a credential ahead
-// of the sign-in, a key's file descriptor among them, no sign-in, or one short of a scope the
-// fetch needs, the environment's token and a file descriptor's with the scopes Claude Code gives
-// them. Killed by any of these not read, which leaves the read waiting for the fetch's end.
+// of the sign-in, a key's file descriptor among them and one beside a remote-session variable
+// Claude Code reads as off, no sign-in, or one short of a scope the fetch needs, the environment's
+// token and a file descriptor's with the scopes Claude Code gives them. Killed by any of these not
+// read, which leaves the read waiting for the fetch's end.
 #[rstest]
 #[case::no_sign_in(with_sign_in(StoredSignIn::Absent))]
 #[case::connectors_switched_off(with_variables(&[("ENABLE_CLAUDEAI_MCP_SERVERS", " Off ")]))]
@@ -344,6 +345,9 @@ async fn mcp_status_is_asked_again_only_while_it_grows_toward_the_connector_list
 #[case::a_socket_with_no_token(with_variables(&[("ANTHROPIC_UNIX_SOCKET", "/run/api.sock")]))]
 #[case::an_auth_token_ahead(with_variables(&[("ANTHROPIC_AUTH_TOKEN", "token")]))]
 #[case::an_api_key_ahead(with_variables(&[("ANTHROPIC_API_KEY", "key")]))]
+#[case::an_api_key_ahead_of_a_remote_session_switched_off(
+    with_variables(&[("ANTHROPIC_API_KEY", "key"), ("CLAUDE_CODE_REMOTE", "0")])
+)]
 #[case::an_api_key_helper_ahead(with_setting(FetchSetting::ApiKeyHelper))]
 #[case::a_sign_in_short_of_inference(with_sign_in(StoredSignIn::Scopes(&["user:mcp_servers"])))]
 #[case::a_sign_in_short_of_the_list_scope(with_sign_in(StoredSignIn::Scopes(&["user:inference"])))]

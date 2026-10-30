@@ -45,7 +45,7 @@ const PRECEDING_CREDENTIAL_VARIABLES: [&str; 3] = [
 ];
 
 /// The variable of a remote session, where those credentials can stand aside for the sign-in
-/// (`xr`, b:12053815; `j_e`, b:12058162).
+/// (`xr`, b:12053815; `j_e`, b:12058162), read as a switch (`FS=D.bool()`, b:8981426).
 const REMOTE_SESSION_VARIABLE: &str = "CLAUDE_CODE_REMOTE";
 
 /// The variable naming the app that started Claude Code, and the apps under which, as in a remote
@@ -120,11 +120,7 @@ pub(crate) fn skips_connector_fetch(
     let is_gateway = is_on(CLAUDE_GATEWAY_SWITCH_VARIABLE)
         && is_set(GATEWAY_ADDRESS_VARIABLE)
         && is_set(GATEWAY_TOKEN_VARIABLE);
-    // Any remote-session value, read or not as Claude Code reads it, counts as one, so the read
-    // waits rather than settling early.
-    let can_sign_in_stand_ahead = PathRules::NATIVE
-        .environment_value(environment, REMOTE_SESSION_VARIABLE)
-        .is_some()
+    let can_sign_in_stand_ahead = is_on(REMOTE_SESSION_VARIABLE)
         || claude_text_variable(environment, ENTRYPOINT_VARIABLE)
             .is_some_and(|entrypoint| DESKTOP_ENTRYPOINTS.contains(&entrypoint));
     let has_preceding_credential = !is_set(UNIX_SOCKET_VARIABLE)
