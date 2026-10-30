@@ -684,6 +684,7 @@ pub(crate) async fn register_method_inputs(
             machine_folders: Arc::new(FolderListService::new(home_folder.to_path_buf(), git)),
             presence: Arc::clone(&presence),
             attention: Arc::clone(&attention),
+            web_address_sender: Arc::clone(&web_address_sender),
             repo_mounts: workspace.repo_mounts,
             workspaces: roots.workspaces,
             execution_roots: roots.execution_roots,

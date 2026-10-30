@@ -13,6 +13,7 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_recovery::damaged_history::DamagedHistory;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::write_gate::RecoveryWriteGate;
+use sidekicks_session::attention::delivery::web_address::sender::WebAddressSender;
 use sidekicks_session::attention::service::AttentionService;
 use sidekicks_session::changes::SessionChanges;
 use sidekicks_session::convert::SessionConversion;
@@ -180,6 +181,8 @@ pub(crate) struct MethodTableServices {
     pub(crate) presence: Arc<PresenceRegister>,
     /// The attention entries' projection, banner settles and seen marks.
     pub(crate) attention: Arc<AttentionService>,
+    /// The web address's sender, which the delivery methods run on.
+    pub(crate) web_address_sender: Arc<WebAddressSender>,
     /// The repository mount methods' inputs.
     pub(crate) repo_mounts: RepoMountMethods,
     /// The workspace lifecycle, which binds a session to a mount and lists its workspaces.
@@ -249,7 +252,7 @@ pub(crate) fn register_method_tables(
     register_session_groups(builder, services.session_groups)?;
     register_session_links(builder, services.links, services.related_ranking)?;
     register_session_recovery_methods(builder, services.damaged_history)?;
-    register_attention_methods(builder, services.attention)?;
+    register_attention_methods(builder, services.attention, services.web_address_sender)?;
     register_question_resolve(builder, services.questions)?;
     register_highlight_read(builder, services.highlighter)?;
     register_terminal_write(builder, services.shells.input_lookup())?;
