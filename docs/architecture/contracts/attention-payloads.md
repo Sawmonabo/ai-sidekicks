@@ -140,7 +140,7 @@ interface AttentionSeenSubject {
 // that reads nothing back answers `EmptyPayload`.
 interface AttentionDeliveryOutcome {
   at: string;
-  // notAnAddress: a test of saved web-address text with no scheme and host; nothing was sent.
+  // storeUnavailable: the keychain was locked or unavailable, so nothing was sent.
   result:
     | "delivered"
     | "refused"
@@ -148,11 +148,12 @@ interface AttentionDeliveryOutcome {
     | "timedOut"
     | "signInRefused"
     | "notEncrypted"
-    | "notAnAddress";
+    | "storeUnavailable";
   httpStatus: number | null; // null where the address gave no answer
   undelivered: number;
 }
 interface AttentionDeliveryListResponse {
+  // `host`: the saved address's scheme and host, null exactly when nothing is saved.
   webAddress: { saved: boolean; host: string | null; lastOutcome: AttentionDeliveryOutcome | null };
   // `knownMailDomains`: the service's mail-server table's keys, aliases and domains, so the page
   // draws `Mail server`, `Port` and `User name` only when the address's domain, as it is typed, is
@@ -166,6 +167,9 @@ interface AttentionDeliveryListResponse {
 interface AttentionDeliveryTestRequest {
   channel: "webAddress" | "emailDigest";
 }
+// The web address's test posts `{text: "Test message from <machine>", kind: "test", at, machine,
+// content}`, `content` equal to `text`, once, with no retry and no outcome row written; its
+// outcome's `undelivered` is the channel's current count.
 interface AttentionDeliveryTestResponse {
   outcome: AttentionDeliveryOutcome;
 }
@@ -173,18 +177,20 @@ interface AttentionMailPasswordUpdateRequest {
   password: string; // write-only: sealed in the credential store or secrets.json, never read back
 }
 interface AttentionWebAddressUpdateRequest {
-  address: string;
+  address: string; // an http or https address with a host; any other text is refused
 }
 interface AttentionWebAddressUpdateResponse {
-  host: string | null; // null for saved text with no scheme and host, which reads masked
+  host: string; // the saved address's scheme and host
   signingSecret: string | null; // minted by the first save and shown once; null on every later save
 }
 interface AttentionWebAddressSecretRotateResponse {
   signingSecret: string; // shown once
 }
-// `attention.webAddress.delete` removes the address and its signing secret.
-// Refusals: `attention.delivery.storeUnavailable` (`cause: locked | unavailable`) and
-// `attention.delivery.notConfigured` (`missing: address | password`).
+// `attention.webAddress.delete` waits for the attempt in flight, then removes the address, its
+// signing secret and the channel's outcome row, and drops every waiting message, uncounted.
+// Refusals: `attention.delivery.storeUnavailable` (`cause: locked | unavailable`),
+// `attention.delivery.notConfigured` (`missing: address | password`; also `secret.rotate` with no
+// address saved) and `attention.webAddress.notAnAddress` (`update` on text that is no address).
 ```
 
 > **Scope and aggregate carrier (Plan-016 D-016-2).** `runId` is the scope discriminator: an item carrying it is run-scoped, an item omitting it is the session-scoped aggregate that [Spec-017 §Required Behavior](../../specs/017-notifications-and-attention-model.md#required-behavior) requires alongside run scope. There is no separate aggregate type and no aggregate-only field. On an aggregate, `severity` carries the aggregation over its contributors, the session's unresolved waiting entries and its informational entries not yet seen — `actionable` while **any** contributor is actionable, `informational` only when every contributor is — per [Spec-017 §Default Behavior](../../specs/017-notifications-and-attention-model.md#default-behavior), while `trigger` and `sourceEventId` are taken from one deterministically selected representative contributor: highest severity first (`actionable` before `informational`), then earliest `createdAt`, then lexicographically smallest `id`. Because the representative is a real contributor rather than a synthesized placeholder, `sourceEventId` always resolves on an aggregate and stays non-optional. Aggregates are read-projection-only: `attention.subscribe` returns them and no delivery carries one — a banner, a web-address message or an email line speaks for the single canonical trigger that caused it, so no aggregate is ever delivered and no per-contributor fan-out is inferred from one. Canonical statement: [Plan-016 §API And Transport Changes](../../plans/016-notifications-and-attention-model.md#api-and-transport-changes) and [Plan-016](../../plans/016-notifications-and-attention-model.md) D-016-2.
@@ -210,4 +216,4 @@ Plan-016's attention surface is exposed as the `attention.*` methods below, all 
 
 **The preferences are the machine's settings file's.** No `attention.*` verb carries a notification preference, and the daemon keeps none of its own. `Notify me outside the app`, the four kinds beneath it (`Waiting on you`, `Finished`, `Failed`, `Notify steps`, each on by default), the web address's switch and kinds, and the email digest's settings other than its password are this device's, kept in the machine's settings file (settings-payloads.md §Settings Surface Reads And Writes); the daemon reads them, with the session's mute, each time it writes an entry, and no preference gates a withdrawal.
 
-**Delivery off this screen is the machine's own.** `Email me what I have not seen` is off by default. When on, the service sends at most one email per period — an hour, four hours or a day, a day by default — through the person's own mail account, sent through `lettre` over TLS only (TLS from the start where the server's entry is marked secure, else STARTTLS, required, on its port or 587), so a server that will not encrypt is refused before the password is written; the map from an address's domain to its mail server is Nodemailer's maintained well-known services list (MIT-0), carried as data. It lists each `Waiting on you` still unresolved and each `Finished`, `Failed` or Notify-step moment whose session or run has not been opened since, each once, never a muted session's `Finished` or `Failed`, and names each session or run, its state, its time and its `sidekicks://` address, never what was said. `Send to a web address` is off by default. When on, the service sends one Standard Webhooks-signed JSON `POST` per moment of the kinds picked for it (`text`, `kind`, `state`, `subject`, `momentId`, `at`, `machine`, `link`; never what was said), never for a muted session's `Finished` or `Failed` and nothing for a withdrawal, and only while no console window is in front on any device, except that a workflow's Notify step always sends. The address is whatever the person typed; success is a 2xx answer within 15 s and a redirect is a failure; a failed send is retried at 5 s, 5 min and 30 min, with at most 100 waiting, the oldest dropped and counted past that. The mail password, the address and its signing secret are sealed in the operating system's credential store, or in the daemon's `secrets.json` file on Linux and on a Mac whose secrets are in it; the address is shown back as its host only, and text with no scheme and host, saved as typed like any other, reads masked with no host while each message to it fails and counts as undelivered. A push to another of the person's devices is sealed on this machine and sent through `device.push.send` ([Spec-027](../../specs/027-remote-control.md)); the control plane keeps no notification queue, filter or preference. The Rust types live in `crates/sidekicks-contracts/src/attention.rs`; the generated TypeScript keeps `packages/contracts/src/attention.ts`, per the api-payload-contracts.md §Source-of-Truth Policy.
+**Delivery off this screen is the machine's own.** `Email me what I have not seen` is off by default. When on, the service sends at most one email per period — an hour, four hours or a day, a day by default — through the person's own mail account, sent through `lettre` over TLS only (TLS from the start where the server's entry is marked secure, else STARTTLS, required, on its port or 587), so a server that will not encrypt is refused before the password is written; the map from an address's domain to its mail server is Nodemailer's maintained well-known services list (MIT-0), carried as data. It lists each `Waiting on you` still unresolved and each `Finished`, `Failed` or Notify-step moment whose session or run has not been opened since, each once, never a muted session's `Finished` or `Failed`, and names each session or run, its state, its time and its `sidekicks://` address, never what was said. `Send to a web address` is off by default. When on, the service sends one Standard Webhooks-signed JSON `POST` per moment of the kinds picked for it (`text`, `kind`, `state`, `subject`, `momentId`, `at`, `machine`, `link` and `content`, equal to `text`; never what was said), never for a muted session's `Finished` or `Failed` and nothing for a withdrawal, and only while no console window is in front on any device, except that a workflow's Notify step always sends. The address is saved only with an `http` or `https` scheme and a host; success is a 2xx answer within 15 s and a redirect is a failure; a failed send is retried at 5 s, 5 min and 30 min, a try the keychain refuses counting as `storeUnavailable`, with at most 100 waiting, the oldest dropped and counted past that, and turning the switch off drops what waits without counting it. The mail password, the address and its signing secret are sealed in the operating system's credential store, or in the daemon's `secrets.json` file on Linux and on a Mac whose secrets are in it; the address is shown back as its scheme and host only. A push to another of the person's devices is sealed on this machine and sent through `device.push.send` ([Spec-027](../../specs/027-remote-control.md)); the control plane keeps no notification queue, filter or preference. The Rust types live in `crates/sidekicks-contracts/src/attention.rs`; the generated TypeScript keeps `packages/contracts/src/attention.ts`, per the api-payload-contracts.md §Source-of-Truth Policy.
