@@ -131,6 +131,15 @@ impl ArmedInstant {
         }
     }
 
+    /// Schedules the retry after a failure its owner logged itself, while nothing is armed; an
+    /// armed job needs none.
+    pub fn schedule_retry_while_empty<Owner: InstantJob>(owner: &Arc<Owner>) {
+        let mut state = lock(&owner.armed_instant().state);
+        if state.armed.is_none() {
+            schedule_retry(owner, &mut state);
+        }
+    }
+
     // Empties the slot while it still holds arm number `arm`.
     fn disarm(&self, arm: u64) {
         let mut state = lock(&self.state);
