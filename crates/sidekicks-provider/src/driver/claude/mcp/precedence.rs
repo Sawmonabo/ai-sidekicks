@@ -59,8 +59,6 @@ pub(crate) struct ClaudeMcpRootSources<'servers> {
     pub(crate) switched_off_server_names: &'servers [McpServerName],
     /// The names of `project` servers the root refuses.
     pub(crate) kept_out_server_names: &'servers [McpServerName],
-    /// The names of `project` servers the root never approved.
-    pub(crate) unapproved_server_names: &'servers [McpServerName],
 }
 
 /// The read's declarations, its roots and each account's servers, after Claude Code's precedence.
@@ -108,7 +106,6 @@ pub(crate) fn rank_claude_mcp_servers(
                 connector,
                 switched_off_server_names: &root.switched_off_server_names,
                 kept_out_server_names: &root.kept_out_server_names,
-                unapproved_server_names: &root.unapproved_server_names,
             };
             for server in find_superseded_claude_mcp_servers(&sources) {
                 let entry = (&server.binding, &root.root);
@@ -268,16 +265,15 @@ fn is_enabled(server: &ClaudeMcpServer, sources: &ClaudeMcpRootSources<'_>) -> b
         && !is_switched_off(&server.binding, sources.switched_off_server_names)
 }
 
-// Whether a `project` server is one the root keeps out or never approved, which Claude Code drops
-// before it ranks the rest.
+// Whether a `project` server is one the root keeps out, which Claude Code drops before it ranks
+// the rest.
 fn is_withheld_project_server(
     server: &ClaudeMcpServer,
     sources: &ClaudeMcpRootSources<'_>,
 ) -> bool {
     let name = server.binding.server_name();
     matches!(server.binding, McpServerBindingRef::Project { .. })
-        && (sources.kept_out_server_names.contains(name)
-            || sources.unapproved_server_names.contains(name))
+        && sources.kept_out_server_names.contains(name)
 }
 
 // Whether Claude Code's per-project switch turns the server off, which records it by the name
@@ -393,7 +389,7 @@ mod tests {
     // Killed by ranking a scope above the organization, by matching a connector on its stripped
     // address, which drops the query that keeps the second connector apart, by not folding the
     // address's case, default port and trailing slash, by a `project` server the root keeps out
-    // or never approved taking a `user` server's name, by the person's servers left loadable
+    // taking a `user` server's name, by the person's servers left loadable
     // under a managed file, and by a name the organization's server loads kept out.
     #[test]
     fn the_organization_outranks_every_scope_and_a_connector_yields_only_at_its_folded_address() {
@@ -433,13 +429,12 @@ mod tests {
             roots: vec![ClaudeMcpRootConfig {
                 root: root.clone(),
                 local_servers: Vec::new(),
-                project_servers: vec![
-                    remote_server(project("docs"), "https://kept-out.example.com/mcp"),
-                    remote_server(project("notes"), "https://unapproved.example.com/mcp"),
-                ],
+                project_servers: vec![remote_server(
+                    project("docs"),
+                    "https://kept-out.example.com/mcp",
+                )],
                 kept_out_server_names: vec![server_name("docs")],
                 switched_off_server_names: Vec::new(),
-                unapproved_server_names: vec![server_name("notes")],
             }],
             server_policy: McpServerPolicy::default(),
         };

@@ -114,9 +114,10 @@ pub(crate) enum ClaudeProbePlan {
 }
 
 /// What the probe does with `binding` at the roots `roots` reads: a `project` binding its root
-/// keeps out, or a `project` or `local` binding switched off there, reads switched off, and a
-/// `project` binding never approved there reads `unknown`, neither run; every other binding is
-/// probed. `None` for a connector, which its account's own process reports.
+/// keeps out, or a `project` or `local` binding switched off there, reads switched off unrun, as
+/// Claude Code holds it back; every other binding is probed, a `project` one the folder never
+/// approved included, since Claude Code loads it in every process the daemon starts. `None` for a
+/// connector, which its account's own process reports.
 pub(crate) fn plan_claude_probe(
     binding: &McpServerBindingRef,
     roots: &[ClaudeMcpRootConfig],
@@ -138,15 +139,11 @@ pub(crate) fn plan_claude_probe(
             server_name,
             ..
         } => {
-            if let Some(root) = at_root(scope_ref) {
-                if root.kept_out_server_names.contains(server_name)
+            if at_root(scope_ref).is_some_and(|root| {
+                root.kept_out_server_names.contains(server_name)
                     || root.switched_off_server_names.contains(server_name)
-                {
-                    return withheld(McpServerReading::SwitchedOff);
-                }
-                if root.unapproved_server_names.contains(server_name) {
-                    return withheld(McpServerReading::Observed(McpServerStatus::Unknown));
-                }
+            }) {
+                return withheld(McpServerReading::SwitchedOff);
             }
         }
         McpServerBindingRef::Local {
