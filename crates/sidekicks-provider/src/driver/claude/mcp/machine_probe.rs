@@ -38,9 +38,6 @@ use crate::driver::claude::mcp::config::{
     ClaudeMcpRootConfig, ClaudePersonConfigFiles, ClaudePluginRoot, ClaudeServerEntryReader,
     is_kept_out_server,
 };
-use crate::driver::claude::mcp::connectors::list_fetch::{
-    is_claude_bare_mode, is_claude_safe_mode,
-};
 use crate::driver::claude::mcp::precedence::claude_reported_server_name;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::process::ClaudeStreamFrame;
@@ -74,10 +71,8 @@ const PROBE_STATUS_INTERVAL: Duration = Duration::from_secs(1);
 const PLUGIN_NOT_LOADED_TEXT: &str = "Claude Code did not load the plugin.";
 // The failure text of a server the probe sent that no status answer named by the ceiling.
 const SERVER_NOT_REPORTED_TEXT: &str = "Claude Code did not report the server.";
-// Claude Code's notices for a session that connects no plugin's server: safe mode, bare mode and
-// a deployed managed MCP file (`Nl`, b:43558700).
-const SAFE_MODE_TEXT: &str = "This session runs in safe mode, which connects no plugin servers.";
-const BARE_MODE_TEXT: &str = "This session runs with --bare, which connects no plugin servers.";
+// Claude Code's notice where a deployed managed MCP file connects no plugin's server (`Nl`,
+// b:43558700).
 const MANAGED_MCP_FILE_TEXT: &str = concat!(
     "Your organization's managed MCP config has exclusive control over MCP servers in this ",
     "session."
@@ -217,8 +212,8 @@ pub(crate) fn plan_claude_probe(
 /// its managed settings declare it, and every other declaration is re-read from the person's
 /// config or its plugin's files, each file once. A plugin's server is sent only where Claude Code
 /// loaded its plugin, and reads `failed` with Claude Code's own words otherwise, or with Claude
-/// Code's notice, unsent, where safe mode, bare mode or a deployed managed MCP file connects no
-/// plugin's server. A target whose entry or plugin is gone gets no reading; one whose entry the
+/// Code's notice, unsent, where a deployed managed MCP file connects no plugin's server. A target
+/// whose entry or plugin is gone gets no reading; one whose entry the
 /// set cannot carry whole, an organization's server with no sendable entry among them, reads
 /// `unknown` unsent; a sent one no status answer names by the ceiling reads `failed`. Fails as the
 /// config read, a start or a request does, the process then closed.
@@ -227,7 +222,6 @@ pub(crate) async fn probe_claude_mcp_servers(
     targets: &[McpProbeTarget],
 ) -> Result<Vec<McpProbeReading>, DriverError> {
     let ceiling = probe_ceiling(&sources.environment);
-    let plugin_servers_notice = read_plugin_servers_notice(sources);
     let mut entries = ClaudeServerEntryReader::new(sources.person, sources.plugin_home);
     let mut readings = Vec::with_capacity(targets.len());
     for batch in batch_targets(sources.attached_roots, sources.plugin_roots, targets) {
@@ -236,15 +230,6 @@ pub(crate) async fn probe_claude_mcp_servers(
         let mut asked: Vec<(&McpProbeTarget, String)> = Vec::new();
         for (target, name) in batch.targets {
             let sent = match &target.binding {
-                McpServerBindingRef::Plugin { .. } if plugin_servers_notice.is_some() => {
-                    readings.push(McpProbeReading {
-                        binding: target.binding.clone(),
-                        reading: McpServerReading::Observed(McpServerStatus::Failed),
-                        failure_text: plugin_servers_notice.map(str::to_owned),
-                        tool_names: Vec::new(),
-                    });
-                    continue;
-                }
                 McpServerBindingRef::Managed { server_name, .. } => Some((
                     sources
                         .organization_entries
@@ -280,6 +265,15 @@ pub(crate) async fn probe_claude_mcp_servers(
                             else {
                                 continue;
                             };
+                            if sources.has_managed_mcp_file {
+                                readings.push(McpProbeReading {
+                                    binding: target.binding.clone(),
+                                    reading: McpServerReading::Observed(McpServerStatus::Failed),
+                                    failure_text: Some(MANAGED_MCP_FILE_TEXT.to_owned()),
+                                    tool_names: Vec::new(),
+                                });
+                                continue;
+                            }
                             Some(plugin)
                         }
                         None => None,
@@ -351,20 +345,6 @@ pub(crate) async fn probe_claude_mcp_servers(
         );
     }
     Ok(readings)
-}
-
-// Claude Code's notice where the account's process connects no plugin's server: safe mode, bare
-// mode, or a deployed managed MCP file, in the order Claude Code checks them.
-fn read_plugin_servers_notice(sources: &ClaudeMcpProbeSources<'_>) -> Option<&'static str> {
-    if is_claude_safe_mode(&sources.environment) {
-        Some(SAFE_MODE_TEXT)
-    } else if is_claude_bare_mode(&sources.environment) {
-        Some(BARE_MODE_TEXT)
-    } else if sources.has_managed_mcp_file {
-        Some(MANAGED_MCP_FILE_TEXT)
-    } else {
-        None
-    }
 }
 
 // A plugin's server the probe sends where Claude Code loads its plugin: the name it is sent and
@@ -523,8 +503,9 @@ fn target_root(binding: &McpServerBindingRef) -> Option<PlacedPath> {
 // lists as loaded joins `servers`, and the rest read `failed` with their plugin's load error, else
 // the plain line. Then `servers` are sent: one the set's reply names in its errors reads `failed`
 // with that text, and the rest are asked `mcp_status` until each is past `pending` or `ceiling`
-// passes from the send, a row of a `system/init` frame standing for a server no answer has named
-// yet. A sent server no answer names by then reads `failed`. Fails as a request does.
+// passes from the send, a row of a `system/init` frame written after the send standing for a
+// server no answer has named yet. A sent server no answer names by then reads `failed`. Fails as a
+// request does.
 async fn read_probe_statuses(
     probe: &mut ClaudeMcpProbeProcess,
     mut servers: BTreeMap<String, ClaudeToolServerEntry>,
@@ -534,9 +515,8 @@ async fn read_probe_statuses(
 ) -> Result<BTreeMap<String, ProbeStatus>, ClaudeSessionError> {
     let mut statuses: BTreeMap<String, ProbeStatus> = BTreeMap::new();
     if !plugin_servers.is_empty() {
-        let init = wait_for_init_frame(&mut probe.arrivals, Instant::now() + ceiling).await;
-        let report = init
-            .as_ref()
+        let report = wait_for_init_frame(&mut probe.arrivals, Instant::now() + ceiling)
+            .await
             .map(|frame| PluginLoadReport::read(&frame.text));
         for server in plugin_servers {
             let message = match report.as_ref().map(|report| report.load_of(server.plugin)) {
@@ -553,12 +533,6 @@ async fn read_probe_statuses(
                 })
                 .unwrap_or_else(|| PLUGIN_NOT_LOADED_TEXT.to_owned());
             statuses.insert(server.name, failed_status(failure_text));
-        }
-        if let Some(rows) = init
-            .as_ref()
-            .and_then(|frame| frame.observation.handshake.as_ref()?.mcp_servers.as_ref())
-        {
-            record_init_rows(rows, names, &mut statuses);
         }
     }
     let sent_names: Vec<String> = servers.keys().cloned().collect();
