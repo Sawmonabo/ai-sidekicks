@@ -177,6 +177,20 @@ pub(crate) fn bound_mcp_server_status_emission(
         })
 }
 
+/// `error` and each of its causes, joined by `: ` and sanitized as a provider's error text is,
+/// so it can stand as a server's failure text; it never quotes a credential, a URL's query or an
+/// absolute path.
+pub(crate) fn sanitize_failure_chain(error: &(dyn std::error::Error + 'static)) -> String {
+    let mut text = error.to_string();
+    let mut source = error.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    sanitize_failure_reason(&text, FAILURE_TEXT_MAX_CODE_POINTS)
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};

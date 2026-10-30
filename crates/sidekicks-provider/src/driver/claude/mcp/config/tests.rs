@@ -93,7 +93,7 @@ async fn a_kept_out_name_reaches_only_the_roots_its_file_covers(
     );
 
     let reading = read_claude_mcp_config(&ClaudeMcpConfigSources {
-        person: &ClaudePersonConfigFiles::resolve(&[], &home),
+        person: &ClaudePersonConfigFiles::resolve(&[], &home).await,
         managed_settings_folder: Some(&managed),
         plugin_home: &scratch.path().join("plugin-home"),
         roots: &roots,
@@ -144,7 +144,7 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
     );
 
     let reading = read_claude_mcp_config(&ClaudeMcpConfigSources {
-        person: &ClaudePersonConfigFiles::resolve(&[], &home),
+        person: &ClaudePersonConfigFiles::resolve(&[], &home).await,
         managed_settings_folder: None,
         plugin_home: &scratch.path().join("plugin-home"),
         roots: &[],
@@ -234,7 +234,7 @@ async fn the_person_config_is_read_in_the_folder_claude_config_dir_names() {
     )];
 
     let reading = read_claude_mcp_config(&ClaudeMcpConfigSources {
-        person: &ClaudePersonConfigFiles::resolve(&environment, &home),
+        person: &ClaudePersonConfigFiles::resolve(&environment, &home).await,
         managed_settings_folder: None,
         plugin_home: &scratch.path().join("plugin-home"),
         roots: std::slice::from_ref(&root),
@@ -252,4 +252,45 @@ async fn the_person_config_is_read_in_the_folder_claude_config_dir_names() {
         reading.roots[0].kept_out_server_names,
         [server_name("kept")]
     );
+}
+
+// A legacy `.config.json` in the config folder that holds anything is read in place of
+// `.claude.json`, as Claude Code picks it, and an empty one is passed over. Killed by the legacy
+// file never read, and by an empty one read in place of `.claude.json`.
+#[rstest]
+#[case::legacy_written(
+    json!({ "mcpServers": { "legacy-server": { "command": "legacy" } } }).to_string(),
+    "legacy-server"
+)]
+#[case::legacy_empty(String::new(), "home-server")]
+#[tokio::test]
+async fn a_legacy_config_that_holds_anything_is_read_in_place_of_claude_json(
+    #[case] legacy_config: String,
+    #[case] read_server: &str,
+) {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let home = scratch.path().join("home");
+    write_json(
+        &home.join(".claude.json"),
+        &json!({ "mcpServers": { "home-server": { "command": "home" } } }),
+    );
+    fs::create_dir_all(home.join(".claude")).expect("the config folder is made");
+    fs::write(home.join(".claude").join(".config.json"), legacy_config)
+        .expect("the legacy config is written");
+
+    let reading = read_claude_mcp_config(&ClaudeMcpConfigSources {
+        person: &ClaudePersonConfigFiles::resolve(&[], &home).await,
+        managed_settings_folder: None,
+        plugin_home: &scratch.path().join("plugin-home"),
+        roots: &[],
+    })
+    .await
+    .expect("the config reads");
+
+    let names: Vec<&str> = reading
+        .user_servers
+        .iter()
+        .map(|server| server.binding.server_name().as_str())
+        .collect();
+    assert_eq!(names, [read_server]);
 }

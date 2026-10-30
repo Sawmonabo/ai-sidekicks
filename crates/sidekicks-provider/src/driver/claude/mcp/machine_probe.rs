@@ -5,7 +5,7 @@
 //! load, and dropped once sent, then asked `mcp_status` until every server is past `pending` or
 //! the ceiling passes, and closed. No turn is sent. An entry the set cannot carry whole, one that
 //! fetches its headers or signs in itself, or one over a transport the set has no form for, is not
-//! sent and reads `unknown`.
+//! sent and reads `unknown`, an organization's server included.
 //! Budget: one such process of about 140 to 150 MB at a time, run only when a refresh asks for a
 //! probe, each closed once its servers settle or its ceiling passes; nothing polls between probes.
 
@@ -29,6 +29,7 @@ use tokio::time::Instant;
 use self::variables::{ClaudePluginPlaceholders, expand_entry_variables};
 use crate::driver::claude::mcp::config::{
     ClaudeDeclaredEntry, ClaudeMcpRootConfig, ClaudePersonConfigFiles, ClaudeServerEntryReader,
+    is_kept_out_server,
 };
 use crate::driver::claude::mcp::precedence::claude_reported_server_name;
 use crate::driver::claude::session::errors::ClaudeSessionError;
@@ -84,7 +85,8 @@ pub(crate) struct ClaudeMcpProbeSources<'sources> {
     pub(crate) plugin_home: &'sources Path,
     /// The attached project roots, in the order the probe goes through them.
     pub(crate) attached_roots: &'sources [PlacedPath],
-    /// Each organization server of the account as `mcp_set_servers` takes it, by its name.
+    /// Each organization server of the account as `mcp_set_servers` takes it, by its name; one
+    /// with no entry here cannot be sent whole.
     pub(crate) organization_entries: &'sources BTreeMap<McpServerName, ClaudeToolServerEntry>,
 }
 
@@ -140,7 +142,7 @@ pub(crate) fn plan_claude_probe(
             ..
         } => {
             if at_root(scope_ref).is_some_and(|root| {
-                root.kept_out_server_names.contains(server_name)
+                is_kept_out_server(&root.kept_out_server_names, server_name)
                     || root.switched_off_server_names.contains(server_name)
             }) {
                 return withheld(McpServerReading::SwitchedOff);
@@ -171,8 +173,9 @@ pub(crate) fn plan_claude_probe(
 /// `local` binding at its own root, every other binding at the first attached root. An
 /// organization's server is sent as its managed settings declare it, and every other declaration
 /// is re-read from the person's config, each file once. A target sent with its declaration whose
-/// entry is gone gets no reading; one whose entry the set cannot carry whole reads `unknown`
-/// unsent; one the status never names reads `starting` with no tools. Fails as the config read, a
+/// entry is gone gets no reading; one whose entry the set cannot carry whole, an organization's
+/// server with no sendable entry among them, reads `unknown` unsent; one the status never names
+/// reads `starting` with no tools. Fails as the config read, a
 /// start or a request does, the process then closed.
 pub(crate) async fn probe_claude_mcp_servers(
     sources: &ClaudeMcpProbeSources<'_>,
@@ -187,12 +190,19 @@ pub(crate) async fn probe_claude_mcp_servers(
         for (target, name) in batch.targets {
             if target.start != McpProbeStart::LoadedByProvider {
                 let sent = match &target.binding {
-                    McpServerBindingRef::Managed { server_name, .. } => sources
-                        .organization_entries
-                        .get(server_name)
-                        .cloned()
-                        .map(|entry| expand_entry_variables(entry, &sources.environment, None))
-                        .map(SentEntry::Sent),
+                    McpServerBindingRef::Managed { server_name, .. } => Some(
+                        sources
+                            .organization_entries
+                            .get(server_name)
+                            .cloned()
+                            .map_or(SentEntry::Unsendable, |entry| {
+                                SentEntry::Sent(expand_entry_variables(
+                                    entry,
+                                    &sources.environment,
+                                    None,
+                                ))
+                            }),
+                    ),
                     binding @ (McpServerBindingRef::User { .. }
                     | McpServerBindingRef::Project { .. }
                     | McpServerBindingRef::Local { .. }

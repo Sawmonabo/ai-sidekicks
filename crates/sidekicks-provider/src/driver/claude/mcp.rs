@@ -29,7 +29,7 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::mcp_server::read::{
     McpProbeReading, McpProbeTarget, McpServersReadRequest, ProviderMcpServersReading,
 };
-use crate::driver::mcp_server::status::McpServerReading;
+use crate::driver::mcp_server::status::{McpServerReading, sanitize_failure_chain};
 
 /// Answers which MCP servers Claude Code declares and loads on this computer for `request`: the
 /// person's config ranked under each requested account's connectors and organization servers, a
@@ -39,7 +39,8 @@ use crate::driver::mcp_server::status::McpServerReading;
 /// recorded where the read ran. A connector is never probed, since its account's process already
 /// reports it; an organization's server is probed under the first account that brings it, and
 /// every other binding under the first account that answered; with no such account no Claude Code
-/// process can run, so each target reads `unknown`.
+/// process can run, so each target reads `unknown`, carrying the first account's failure as its
+/// failure text where accounts were asked.
 /// Fails as the config read or the probe does.
 pub(crate) async fn read_claude_mcp_servers(
     driver: &ClaudeDriver,
@@ -58,7 +59,8 @@ pub(crate) async fn read_claude_mcp_servers(
             folder: PathBuf::from(root.path.as_str()),
         })
         .collect();
-    let person = ClaudePersonConfigFiles::resolve(&sources.base_environment, &sources.home_folder);
+    let person =
+        ClaudePersonConfigFiles::resolve(&sources.base_environment, &sources.home_folder).await;
     let config_sources = ClaudeMcpConfigSources {
         person: &person,
         managed_settings_folder: managed_settings_folder.as_deref(),
@@ -76,13 +78,16 @@ pub(crate) async fn read_claude_mcp_servers(
     let (reading, account_reads) =
         tokio::join!(read_claude_mcp_config(&config_sources), account_reads);
     let reading = reading.map_err(|error| DriverError::Internal(Box::new(error)))?;
-    let accounts: Vec<ClaudeMcpAccountServers> = account_reads
-        .into_iter()
-        .filter_map(|read| {
-            read.ok()
-                .map(|servers| ClaudeMcpAccountServers::clone(&servers))
-        })
-        .collect();
+    let mut account_failure = None;
+    let mut accounts: Vec<ClaudeMcpAccountServers> = Vec::new();
+    for read in account_reads {
+        match read {
+            Ok(servers) => accounts.push(ClaudeMcpAccountServers::clone(&servers)),
+            Err(error) => {
+                account_failure.get_or_insert_with(|| sanitize_failure_chain(&*error));
+            }
+        }
+    }
     let ranking = rank_claude_mcp_servers(&reading, &accounts, has_managed_mcp_file);
     let mut probe_readings: Vec<McpProbeReading> = if request.is_refresh {
         accounts
@@ -129,7 +134,7 @@ pub(crate) async fn read_claude_mcp_servers(
         probe_readings.extend(targets.map(|target| McpProbeReading {
             binding: target.binding,
             reading: McpServerReading::Observed(McpServerStatus::Unknown),
-            failure_text: None,
+            failure_text: account_failure.clone(),
             tool_names: Vec::new(),
         }));
     } else {
@@ -170,4 +175,64 @@ pub(crate) async fn reread_claude_live_mcp_statuses(driver: &ClaudeDriver) {
         .map(|parts| parts.slots().live_sessions())
         .unwrap_or_default();
     join_all(live_sessions.iter().map(|live| live.read_mcp_status())).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
+
+    use super::read_claude_mcp_servers;
+    use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
+    use crate::driver::claude::session::scripted::driver::ScriptedDriver;
+    use crate::driver::mcp_server::read::{McpProbeScope, McpServersReadRequest};
+    use crate::driver::mcp_server::status::McpServerReading;
+    use crate::runtime_binding::test_store::test_provider_account_id;
+
+    // With every asked account's read failing, no Claude Code process can run a probe, so a
+    // personal server reads `unknown` with the account's failure as its failure text. Killed by
+    // the reading left without a cause.
+    #[tokio::test]
+    async fn an_unprobed_server_names_the_failed_account_read() {
+        let fixture = ScriptedDriver::new();
+        let home = &fixture.driver.sources.home_folder;
+        std::fs::create_dir_all(home).expect("the home folder is made");
+        std::fs::write(
+            home.join(".claude.json"),
+            json!({ "mcpServers": { "notes": { "command": "notes-server" } } }).to_string(),
+        )
+        .expect("the config is written");
+        let failing = Arc::new(ScriptedChannel::default());
+        failing.answer("get_binary_version", ScriptedAnswer::Refused);
+        fixture.starts.script_account_servers_read(failing);
+
+        let reading = read_claude_mcp_servers(
+            &fixture.driver,
+            McpServersReadRequest {
+                attached_roots: Vec::new(),
+                provider_account_ids: vec![test_provider_account_id()],
+                is_refresh: true,
+                probe: McpProbeScope::EveryBinding,
+                emulated_local_bindings: Vec::new(),
+            },
+        )
+        .await
+        .expect("the read answers");
+
+        let [notes] = reading.probe_readings.as_slice() else {
+            panic!("one reading: {:?}", reading.probe_readings);
+        };
+        assert!(matches!(&notes.binding, McpServerBindingRef::User { .. }));
+        assert_eq!(
+            notes.reading,
+            McpServerReading::Observed(McpServerStatus::Unknown)
+        );
+        let failure_text = notes.failure_text.as_deref().unwrap_or_default();
+        assert!(
+            failure_text.contains("get_binary_version"),
+            "{failure_text}"
+        );
+    }
 }

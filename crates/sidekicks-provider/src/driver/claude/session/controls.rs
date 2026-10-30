@@ -574,7 +574,6 @@ pub(crate) fn one_turn_legs(
         advisor: settings.advisor,
         output_style: settings.output_style,
         working_directory: working_directory.unwrap_or_else(|| legs.working_directory.clone()),
-        // A one-turn process reports on no leg of the session's.
         on_mcp_server_status: None,
         ..legs.clone()
     }

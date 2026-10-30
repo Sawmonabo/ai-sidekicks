@@ -28,6 +28,7 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::ignored_settings::{
     ClaudeSettingsReadError, find_claude_setting, list_managed_settings_files,
 };
+use crate::driver::claude::session::rules::compose_claude_tool_server_name;
 use crate::driver::claude::session::settings_file::{
     is_unreadable_path, read_claude_settings_file,
 };
@@ -41,6 +42,9 @@ const DISABLED_MCPJSON_SERVERS_KEY: &str = "disabledMcpjsonServers";
 // there, holding the `user` and per-project servers.
 const CONFIG_FOLDER_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
 const PERSON_CONFIG_FILE: &str = ".claude.json";
+// The legacy config file in the config folder, read in place of `.claude.json` where it holds
+// anything.
+const LEGACY_PERSON_CONFIG_FILE: &str = ".config.json";
 // A project's or a plugin's file of servers.
 const SERVERS_FILE: &str = ".mcp.json";
 
@@ -56,7 +60,8 @@ pub(crate) struct ClaudeMcpRoot {
 
 /// Where the person's own Claude Code config sits: `.claude.json` and `settings.json` in the
 /// folder `CLAUDE_CONFIG_DIR` names where the person's environment sets it, as Claude Code reads
-/// them, else `.claude.json` in the home folder and `settings.json` in its `.claude` folder.
+/// them, else `.claude.json` in the home folder and `settings.json` in its `.claude` folder; a
+/// non-empty legacy `.config.json` in that config folder is read in place of `.claude.json`.
 #[derive(Clone, Debug)]
 pub(crate) struct ClaudePersonConfigFiles {
     /// The file of the `user` and per-project servers.
@@ -66,20 +71,31 @@ pub(crate) struct ClaudePersonConfigFiles {
 }
 
 impl ClaudePersonConfigFiles {
-    /// The person's files as a Claude Code process started in `environment` on `home` reads them.
-    pub(crate) fn resolve(environment: &[(String, String)], home: &Path) -> Self {
-        match PathRules::NATIVE
+    /// The person's files as a Claude Code process started in `environment` on `home` reads them:
+    /// the config file as `y_` (b:8961710) picks it, a non-empty `.config.json` in the config
+    /// folder (`Le`, b:8610329) over `Flr`'s (b:8961898) `.claude.json`.
+    pub(crate) async fn resolve(environment: &[(String, String)], home: &Path) -> Self {
+        let (config_folder, person_config) = match PathRules::NATIVE
             .environment_value(environment, CONFIG_FOLDER_VARIABLE)
             .filter(|folder| !folder.is_empty())
         {
-            Some(folder) => Self {
-                person_config: Path::new(folder).join(PERSON_CONFIG_FILE),
-                user_settings: Path::new(folder).join("settings.json"),
+            Some(folder) => (
+                Path::new(folder).to_path_buf(),
+                Path::new(folder).join(PERSON_CONFIG_FILE),
+            ),
+            None => (home.join(".claude"), home.join(PERSON_CONFIG_FILE)),
+        };
+        let legacy_config = config_folder.join(LEGACY_PERSON_CONFIG_FILE);
+        let is_legacy_read = tokio::fs::metadata(&legacy_config)
+            .await
+            .is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0);
+        Self {
+            person_config: if is_legacy_read {
+                legacy_config
+            } else {
+                person_config
             },
-            None => Self {
-                person_config: home.join(PERSON_CONFIG_FILE),
-                user_settings: home.join(".claude").join("settings.json"),
-            },
+            user_settings: config_folder.join("settings.json"),
         }
     }
 }
@@ -143,6 +159,25 @@ pub(crate) struct ClaudeMcpRootConfig {
     pub(crate) kept_out_server_names: Vec<McpServerName>,
     /// The names Claude Code's own per-project switch turns off at the root.
     pub(crate) switched_off_server_names: Vec<McpServerName>,
+}
+
+/// Whether `kept_out_server_names` names `server_name`, matched as Claude Code's `e4t`
+/// (b:8799138) matches them: a `plugin:` name exactly, any other after the fold of each character
+/// outside ASCII letters, digits, `_` and `-` to `_`, so `my server` keeps out `my_server`.
+pub(crate) fn is_kept_out_server(
+    kept_out_server_names: &[McpServerName],
+    server_name: &McpServerName,
+) -> bool {
+    let server_name = server_name.as_str();
+    kept_out_server_names.iter().any(|kept_out| {
+        let kept_out = kept_out.as_str();
+        if kept_out.starts_with("plugin:") || server_name.starts_with("plugin:") {
+            kept_out == server_name
+        } else {
+            compose_claude_tool_server_name(kept_out)
+                == compose_claude_tool_server_name(server_name)
+        }
+    })
 }
 
 /// The person's Claude Code MCP config as the read found it.
@@ -555,15 +590,24 @@ async fn read_plugin_servers(
     Ok(servers)
 }
 
-// One plugin `installed_plugins.json` lists: its name, the id's part before the marketplace, its
-// whole id and the root of its first install.
+// One plugin `installed_plugins.json` lists: its name, its whole id and the root of its first
+// install.
 struct InstalledPluginRoot {
     name: PluginToken,
     id: String,
     root: PathBuf,
 }
 
-// Each plugin `installed_plugins.json` lists in the plugin home.
+// A plugin's manifest, by the one member that names the plugin.
+#[derive(Deserialize)]
+struct ClaudePluginManifest {
+    name: String,
+}
+
+// Each plugin `installed_plugins.json` lists in the plugin home, named as Claude Code names it
+// in its servers' `plugin:<name>:<server>`: by its manifest's `name` (`$le`, b:22533235), else by
+// its id's part before the marketplace (`VJ`, b:22522351; `On`, b:9256803), which for a built-in
+// npm marketplace id such as `@team/db.tools@npm` is the scoped package name.
 async fn read_installed_plugin_roots(
     plugin_home: &Path,
 ) -> Result<Vec<InstalledPluginRoot>, ClaudeSettingsReadError> {
@@ -571,35 +615,44 @@ async fn read_installed_plugin_roots(
         read_json_file(&plugin_home.join("plugins").join("installed_plugins.json"))
             .await?
             .unwrap_or_default();
-    Ok(installed
-        .plugins
-        .read()
-        .into_iter()
-        .flatten()
-        .filter_map(|(plugin_id, installs)| {
-            let name = plugin_id
+    let mut plugins = Vec::new();
+    for (plugin_id, installs) in installed.plugins.read().into_iter().flatten() {
+        let Some(install) = installs
+            .read()
+            .and_then(|installs| installs.iter().find_map(Tolerated::read))
+        else {
+            continue;
+        };
+        let manifest: Option<ClaudePluginManifest> =
+            read_json_file(&plugin_manifest_file(&install.install_path)).await?;
+        let name = match manifest {
+            Some(manifest) => manifest.name,
+            None => plugin_id
                 .rsplit_once('@')
-                .map_or(plugin_id.as_str(), |(name, _)| name);
-            let name = PluginToken::new(name.to_owned()).ok()?;
-            let install = installs
-                .read()
-                .and_then(|installs| installs.iter().find_map(Tolerated::read))?;
-            Some(InstalledPluginRoot {
-                name,
-                id: plugin_id.clone(),
-                root: install.install_path.clone(),
-            })
-        })
-        .collect())
+                .map_or(plugin_id.as_str(), |(name, _)| name)
+                .to_owned(),
+        };
+        let Ok(name) = PluginToken::new(name) else {
+            continue;
+        };
+        plugins.push(InstalledPluginRoot {
+            name,
+            id: plugin_id.clone(),
+            root: install.install_path.clone(),
+        });
+    }
+    Ok(plugins)
+}
+
+// A plugin's manifest under its install root.
+fn plugin_manifest_file(root: &Path) -> PathBuf {
+    root.join(".claude-plugin").join("plugin.json")
 }
 
 // The files a plugin declares its servers in, in the order Claude Code reads them: its root's
 // `.mcp.json`, then its manifest.
 fn plugin_server_files(root: &Path) -> [PathBuf; 2] {
-    [
-        root.join(SERVERS_FILE),
-        root.join(".claude-plugin").join("plugin.json"),
-    ]
+    [root.join(SERVERS_FILE), plugin_manifest_file(root)]
 }
 
 #[cfg(test)]

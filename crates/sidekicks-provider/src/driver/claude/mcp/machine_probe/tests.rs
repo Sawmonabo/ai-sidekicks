@@ -22,8 +22,10 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::mcp::config::{
     ClaudeMcpConfigSources, ClaudeMcpRoot, ClaudePersonConfigFiles, read_claude_mcp_config,
 };
+use crate::driver::claude::mcp::organization::read_claude_organization_servers;
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
 use crate::driver::claude::session::scripted::starts::ScriptedStarts;
+use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
 use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeInstalledBuild, ClaudeProcessStarts,
@@ -57,13 +59,15 @@ fn user_target(name: &str) -> McpProbeTarget {
     }
 }
 
-// Probes `targets` declared in `home` with no root attached, through `starts`.
+// Probes `targets` declared in `home`, or among `organization_entries`, with no root attached,
+// through `starts`.
 async fn probe(
     starts: &dyn ClaudeProcessStarts,
     home: &Path,
     environment: Vec<(String, String)>,
     has_managed_mcp_file: bool,
     targets: &[McpProbeTarget],
+    organization_entries: &BTreeMap<McpServerName, ClaudeToolServerEntry>,
 ) -> Result<Vec<McpProbeReading>, DriverError> {
     probe_claude_mcp_servers(
         &ClaudeMcpProbeSources {
@@ -71,10 +75,10 @@ async fn probe(
             environment,
             provider_account_id: test_provider_account_id(),
             has_managed_mcp_file,
-            person: &ClaudePersonConfigFiles::resolve(&[], home),
+            person: &ClaudePersonConfigFiles::resolve(&[], home).await,
             plugin_home: &home.join("plugin-home"),
             attached_roots: &[],
-            organization_entries: &BTreeMap::new(),
+            organization_entries,
         },
         targets,
     )
@@ -109,6 +113,7 @@ async fn the_probe_is_strict_only_where_no_managed_mcp_file_is_deployed(
         Vec::new(),
         has_managed_mcp_file,
         &[user_target("notes")],
+        &BTreeMap::new(),
     )
     .await
     .expect("the probe reads");
@@ -163,6 +168,7 @@ async fn a_set_error_reads_failed_with_its_credentials_scrubbed() {
         Vec::new(),
         false,
         &[user_target("tracker")],
+        &BTreeMap::new(),
     )
     .await
     .expect("the probe reads");
@@ -253,6 +259,7 @@ async fn a_sent_entry_carries_its_variables_filled_and_no_credential_reaches_a_r
         environment,
         false,
         &[user_target("tracker"), user_target("builder")],
+        &BTreeMap::new(),
     )
     .await
     .expect("the probe reads");
@@ -280,7 +287,9 @@ async fn a_sent_entry_carries_its_variables_filled_and_no_credential_reaches_a_r
 
 // An entry that fetches its headers from a program or signs in itself is not sent, since the set
 // cannot carry either, nor one over a WebSocket, which the set has no form for, and each reads
-// `unknown`. Killed by either sent cut down and by a WebSocket entry sent or read otherwise.
+// `unknown`, an organization's `managedMcpServers` entry as the person's own. Killed by either
+// sent cut down, the organization's included, by an organization entry left out of the set read
+// nothing, and by a WebSocket entry sent or read otherwise.
 #[tokio::test]
 async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
     let home = home_declaring(&json!({
@@ -304,18 +313,41 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
         ScriptedAnswer::Reply(json!({"mcpServers": [{"name": "plain", "status": "connected"}]})),
     );
     starts.script_mcp_probe(Arc::clone(&channel));
+    let organization = read_claude_organization_servers(
+        &[],
+        Some(&json!({ "managedMcpServers": {
+            "org-helper": {
+                "type": "http",
+                "url": "https://org-helper.example.com/mcp",
+                "headersHelper": "./print-headers.sh"
+            },
+            "org-signed": {
+                "type": "sse",
+                "url": "https://org-signed.example.com/sse",
+                "oauth": { "clientId": "client" }
+            }
+        } })),
+    );
+    let mut targets = vec![
+        user_target("helper"),
+        user_target("signed"),
+        user_target("socket"),
+        user_target("plain"),
+    ];
+    for server in &organization.servers {
+        match plan_claude_probe(&server.binding, &[]) {
+            Some(ClaudeProbePlan::Probe(target)) => targets.push(target),
+            Some(ClaudeProbePlan::Withheld(_)) | None => panic!("an organization server is probed"),
+        }
+    }
 
     let readings = probe(
         &starts,
         home.path(),
         Vec::new(),
         false,
-        &[
-            user_target("helper"),
-            user_target("signed"),
-            user_target("socket"),
-            user_target("plain"),
-        ],
+        &targets,
+        &organization.entries,
     )
     .await
     .expect("the probe reads");
@@ -327,7 +359,7 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
         "{sent}"
     );
     assert!(sent.get("plain").is_some(), "{sent}");
-    for name in ["helper", "signed", "socket"] {
+    for name in ["helper", "signed", "socket", "org-helper", "org-signed"] {
         let reading = readings
             .iter()
             .find(|reading| reading.binding.server_name().as_str() == name)
@@ -340,17 +372,31 @@ async fn an_entry_the_set_cannot_carry_whole_reads_unknown_unsent() {
     }
 }
 
-// A plugin's server is sent with `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` filled with
-// its install root and its data folder, both also handed to its program's environment; a plugin
-// of the built-in npm marketplace has its data folder named from its escaped package name. Killed
-// by either placeholder sent as written, by the environment left without them, and by the npm
-// plugin's folder named as any other plugin's.
+// A plugin's server is sent under `plugin:<name>:<server>`, the plugin named by its manifest's
+// `name` where it has one and else by its id's part before the marketplace, with
+// `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PLUGIN_DATA}` filled with its install root and its data
+// folder, both also handed to its program's environment; a plugin of the built-in npm marketplace
+// has its data folder named from its escaped package name. Killed by either placeholder sent as
+// written, by the environment left without them, by the npm plugin's folder named as any other
+// plugin's, and by a plugin named by its id over its manifest.
 #[rstest]
-#[case::marketplace("db-tools@team.market", "db-tools", "db-tools-team-market")]
-#[case::npm("@team/db.tools@npm", "@team/db.tools", "_40team_2fdb_2etools-npm")]
+#[case::marketplace("db-tools@team.market", None, "db-tools", "db-tools-team-market")]
+#[case::npm(
+    "@team/db.tools@npm",
+    None,
+    "@team/db.tools",
+    "_40team_2fdb_2etools-npm"
+)]
+#[case::npm_named_by_its_manifest(
+    "@team/db.tools@npm",
+    Some("team-db-tools"),
+    "team-db-tools",
+    "_40team_2fdb_2etools-npm"
+)]
 #[tokio::test]
 async fn a_plugin_server_is_sent_with_its_placeholders_filled(
     #[case] plugin_id: &str,
+    #[case] manifest_name: Option<&str>,
     #[case] plugin_name: &str,
     #[case] data_folder: &str,
 ) {
@@ -373,6 +419,15 @@ async fn a_plugin_server_is_sent_with_its_placeholders_filled(
         .to_string(),
     )
     .expect("the plugin's servers are written");
+    if let Some(manifest_name) = manifest_name {
+        std::fs::create_dir_all(install.join(".claude-plugin"))
+            .expect("the manifest folder is made");
+        std::fs::write(
+            install.join(".claude-plugin").join("plugin.json"),
+            json!({ "name": manifest_name }).to_string(),
+        )
+        .expect("the manifest is written");
+    }
     let starts = ScriptedStarts::default();
     let channel = Arc::new(ScriptedChannel::default());
     let reported_name = format!("plugin:{plugin_name}:db");
@@ -398,7 +453,7 @@ async fn a_plugin_server_is_sent_with_its_placeholders_filled(
             environment: Vec::new(),
             provider_account_id: test_provider_account_id(),
             has_managed_mcp_file: false,
-            person: &ClaudePersonConfigFiles::resolve(&[], home.path()),
+            person: &ClaudePersonConfigFiles::resolve(&[], home.path()).await,
             plugin_home: &plugin_home,
             attached_roots: &[],
             organization_entries: &BTreeMap::new(),
@@ -427,9 +482,10 @@ async fn a_plugin_server_is_sent_with_its_placeholders_filled(
 }
 
 // A project server that `disabledMcpjsonServers` names in the project's own or its local
-// settings is never sent to the probe and reads switched off, while one no settings approve, in a
-// folder never trusted, is sent, as Claude Code loads it in a process that is not interactive.
-// Killed by an unapproved server withheld, and by either rejected server sent.
+// settings is never sent to the probe and reads switched off, a name written `my server` keeping
+// out `my_server` as Claude Code's name fold does, while one no settings approve, in a folder
+// never trusted, is sent, as Claude Code loads it in a process that is not interactive. Killed by
+// an unapproved server withheld, by either rejected server sent, and by names matched unfolded.
 #[tokio::test]
 async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
     let scratch = tempfile::tempdir().expect("a scratch folder");
@@ -442,6 +498,7 @@ async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
         json!({ "mcpServers": {
             "rejected": { "command": "./scripts/setup.sh" },
             "refused": { "command": "./scripts/refused.sh" },
+            "my_server": { "command": "./scripts/mine.sh" },
             "pending": { "command": "pending-server" }
         } })
         .to_string(),
@@ -449,7 +506,7 @@ async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
     .expect("the project's servers are written");
     std::fs::write(
         folder.join(".claude").join("settings.local.json"),
-        json!({ "disabledMcpjsonServers": ["rejected"] }).to_string(),
+        json!({ "disabledMcpjsonServers": ["rejected", "my server"] }).to_string(),
     )
     .expect("the project's local settings are written");
     std::fs::write(
@@ -461,7 +518,7 @@ async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
         path: FilesystemPath::new(folder.to_string_lossy().into_owned()).expect("a root path"),
         place: None,
     };
-    let person = ClaudePersonConfigFiles::resolve(&[], &home);
+    let person = ClaudePersonConfigFiles::resolve(&[], &home).await;
     let plugin_home = scratch.path().join("plugin-home");
     let reading = read_claude_mcp_config(&ClaudeMcpConfigSources {
         person: &person,
@@ -522,6 +579,7 @@ async fn a_project_server_is_withheld_only_where_its_settings_reject_it() {
     };
     assert_eq!(reading_of("rejected"), Some(McpServerReading::SwitchedOff));
     assert_eq!(reading_of("refused"), Some(McpServerReading::SwitchedOff));
+    assert_eq!(reading_of("my_server"), Some(McpServerReading::SwitchedOff));
     assert_eq!(reading_of("pending"), None);
     assert_eq!(
         probed
@@ -565,6 +623,7 @@ async fn a_server_pending_at_the_ceiling_reads_starting(
         environment,
         false,
         &[user_target("notes")],
+        &BTreeMap::new(),
     )
     .await
     .expect("the probe reads");
@@ -640,6 +699,7 @@ async fn a_real_claude_code_probe_reads_a_sent_server_connected_with_its_tools()
         environment,
         false,
         &[user_target("reachable"), user_target("unreachable")],
+        &BTreeMap::new(),
     )
     .await
     .expect("the probe reads");
