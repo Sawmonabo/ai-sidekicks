@@ -3,6 +3,7 @@
 //! hands its shell.
 
 use std::borrow::Cow;
+use std::path::Path;
 
 use super::words::{PositionedByte, WordText, long_option_named, short_option_named};
 
@@ -14,12 +15,13 @@ pub const PROVIDER_LINE_SHELLS: [&str; 3] = ["zsh", "bash", "sh"];
 const PROVIDER_SHELL_FOLDERS: [&str; 2] = ["/bin/", "/usr/bin/"];
 
 /// The command line `line` runs when it is a provider's argv joined by `shlex`: one of
-/// `PROVIDER_LINE_SHELLS`, named alone or from `/bin` or `/usr/bin`, handed its whole line with
-/// `-c`, `-lc`, `-cl` or `-l -c`, as a provider wraps a command in `/bin/zsh -lc '…'`. Any other
-/// line is returned as it is: one with an operator outside the quotes, one with words after the
-/// string, one whose shell another folder names, and one whose shell takes any other option, which
-/// can run or write a file first. No tree is built for the outer line, so no cap applies to it.
-pub fn unwrap_shell_command_line(line: &str) -> Cow<'_, str> {
+/// `PROVIDER_LINE_SHELLS`, named alone or from `/bin` or `/usr/bin`, or `provider_shell`, the exact
+/// path the provider starts its lines with, handed its whole line with `-c`, `-lc`, `-cl` or
+/// `-l -c`, as a provider wraps a command in `/bin/zsh -lc '…'`. Any other line is returned as it
+/// is: one with an operator outside the quotes, one with words after the string, one whose shell
+/// another folder names, and one whose shell takes any other option, which can run or write a file
+/// first. No tree is built for the outer line, so no cap applies to it.
+pub fn unwrap_shell_command_line<'l>(line: &'l str, provider_shell: Option<&Path>) -> Cow<'l, str> {
     let Some(words) = shlex::split(line) else {
         return Cow::Borrowed(line);
     };
@@ -38,7 +40,14 @@ pub fn unwrap_shell_command_line(line: &str) -> Cow<'_, str> {
         .iter()
         .find_map(|folder| shell.strip_prefix(folder))
         .unwrap_or(shell);
-    if !PROVIDER_LINE_SHELLS.contains(&name) {
+    let is_providers_shell = provider_shell.is_some_and(|provider_shell| {
+        provider_shell.to_str() == Some(shell.as_str())
+            && provider_shell
+                .file_name()
+                .and_then(|file_name| file_name.to_str())
+                .is_some_and(|file_name| PROVIDER_LINE_SHELLS.contains(&file_name))
+    });
+    if !PROVIDER_LINE_SHELLS.contains(&name) && !is_providers_shell {
         return Cow::Borrowed(line);
     }
     match rest.split_last() {
@@ -84,7 +93,7 @@ pub(super) fn command_string_words<W: WordText>(
     match shell_line_program(program) {
         None => Vec::new(),
         Some(ShellLineProgram::Eval) => vec![CommandStringWords::Every],
-        Some(ShellLineProgram::Su) => su_command_strings(argument_words),
+        Some(ShellLineProgram::Su) => su_command_strings(&argument_words),
         Some(ShellLineProgram::Shell(options_with_value)) => {
             shell_command_string_index(argument_words, options_with_value)
                 .map(|index| CommandStringWords::One {
@@ -191,7 +200,7 @@ const SU_OPTIONS_WITH_VALUE: &[&str] = &[
 // the shell itself finds in the words su hands it, those after the user, as macOS's su hands them
 // all, or after `--`.
 fn su_command_strings<W: WordText>(
-    argument_words: impl Iterator<Item = W> + Clone,
+    argument_words: &(impl Iterator<Item = W> + Clone),
 ) -> Vec<CommandStringWords> {
     let options = || {
         let commands = SU_COMMAND_OPTIONS.iter().map(|&option| (option, true));

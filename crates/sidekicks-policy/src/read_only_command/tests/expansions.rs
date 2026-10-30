@@ -9,6 +9,8 @@ use super::reads_only;
 #[case::ls_star_paren_e_colon_squote_touch_f_squote("ls *(e:'touch f':)", false)]
 #[case::cat_eq_paren_ls("cat =(ls)", false)]
 #[case::cat_eq_ls("cat =ls", true)]
+// zsh reads `~[name]` as a named directory a function of the person's makes.
+#[case::zsh_dynamic_named_directory("cat ~[x]/a", false)]
 #[case::echo_dollar_x_bracket_1("echo $x[1]", false)]
 #[case::echo_dollar_hash_x_bracket_1("echo $#x[1]", false)]
 #[case::echo_dollar_brace_x_hash_a("echo ${x#a}", true)]

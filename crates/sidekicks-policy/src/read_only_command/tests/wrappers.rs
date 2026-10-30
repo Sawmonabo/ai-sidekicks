@@ -9,6 +9,8 @@ use super::reads_only;
 #[case::command_ls_la("command ls -la", true)]
 #[case::command_p_ls("command -p ls", true)]
 #[case::command_v_ls("command -v ls", true)]
+// `-v` only looks the name up, so it runs no program off the list either.
+#[case::command_v_rm("command -v rm", true)]
 #[case::command_upper_v_ls("command -V ls", true)]
 #[case::command_double_dash_ls("command -- ls", true)]
 #[case::command("command", true)]

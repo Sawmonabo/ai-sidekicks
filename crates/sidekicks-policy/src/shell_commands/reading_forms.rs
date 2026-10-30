@@ -2,6 +2,8 @@
 //! nodes, each with the check its own text needs, so any form the list does not name refuses the
 //! line. The walk that reads a line's commands notes each node here as it passes it.
 
+use std::collections::HashSet;
+
 use tree_sitter::Node;
 
 use super::words::{WordBuilder, WordText, node_text};
@@ -12,13 +14,16 @@ use super::{continues_variable_name, starts_variable_name, visit_redirect_argume
 pub(super) struct ReadingForms {
     is_reading: bool,
     // The redirects whose words past their own a simple command takes as its arguments.
-    command_redirects: Vec<usize>,
+    command_redirects: HashSet<usize>,
     // The here-document bodies the shell passes as text, whose parts run nothing.
-    literal_bodies: Vec<usize>,
-    // The first quoted here-document start whose delimiter the parser reads otherwise than the
-    // shell: its byte range and the shell's delimiter in single quotes, which the shell reads
-    // the same way and the parser reads as the shell does.
-    delimiter_requote: Option<(usize, usize, String)>,
+    literal_bodies: HashSet<usize>,
+    // Each quoted here-document start the parser reads otherwise than the shell, in the line's
+    // order: its byte range and the shell's delimiter in single quotes, which the shell reads the
+    // same way and the parser reads as the shell does.
+    delimiter_requotes: Vec<(usize, usize, String)>,
+    // Where the furthest body of the here-documents noted so far begins: a here-document that
+    // starts before it shares a start's line with another.
+    here_document_bodies_start: usize,
 }
 
 impl ReadingForms {
@@ -26,9 +31,10 @@ impl ReadingForms {
     pub(super) fn new() -> Self {
         Self {
             is_reading: true,
-            command_redirects: Vec::new(),
-            literal_bodies: Vec::new(),
-            delimiter_requote: None,
+            command_redirects: HashSet::new(),
+            literal_bodies: HashSet::new(),
+            delimiter_requotes: Vec::new(),
+            here_document_bodies_start: 0,
         }
     }
 
@@ -37,21 +43,36 @@ impl ReadingForms {
         self.is_reading
     }
 
-    /// `line` with its first here-document start the parser misreads put in single quotes, the
-    /// start the shell reads the same way and the parser reads as the shell does; `None` when no
-    /// start needs it.
-    pub(super) fn requote_delimiter(&self, line: &str) -> Option<Box<str>> {
-        let (start, end, quoted) = self.delimiter_requote.as_ref()?;
-        Some(
-            [&line[..*start], quoted, &line[*end..]]
-                .concat()
-                .into_boxed_str(),
-        )
+    /// `line` with every here-document start the parser misreads put in single quotes, each start
+    /// the shell reads the same way and the parser reads as the shell does, built in one pass from
+    /// the line's own offsets; `None` when no start needs it.
+    pub(super) fn requote_delimiters(&self, line: &str) -> Option<Box<str>> {
+        if self.delimiter_requotes.is_empty() {
+            return None;
+        }
+        let mut requoted = String::with_capacity(line.len() + 2 * self.delimiter_requotes.len());
+        let mut kept_from = 0;
+        for (start, end, quoted) in &self.delimiter_requotes {
+            requoted.push_str(&line[kept_from..*start]);
+            requoted.push_str(quoted);
+            kept_from = *end;
+        }
+        requoted.push_str(&line[kept_from..]);
+        Some(requoted.into_boxed_str())
     }
 
-    /// Notes `node`, and answers whether the walk reads the nodes inside it: false only for a
-    /// here-document body the shell passes as text.
-    pub(super) fn note(&mut self, node: Node<'_>, builder: &mut WordBuilder<'_>) -> bool {
+    /// Notes `node`, the walk's `previous_sibling` beside it, and answers whether the walk reads
+    /// the nodes inside it: false only for a here-document body the shell passes as text.
+    pub(super) fn note(
+        &mut self,
+        node: Node<'_>,
+        previous_sibling: Option<Node<'_>>,
+        builder: &mut WordBuilder<'_>,
+    ) -> bool {
+        if previous_sibling.is_some_and(|previous| is_zsh_subscript(previous, node, builder.line()))
+        {
+            self.is_reading = false;
+        }
         if node.kind() == "heredoc_body" {
             return !self.literal_bodies.contains(&node.id());
         }
@@ -94,6 +115,7 @@ impl ReadingForms {
             | "brace_expression"
             | "extglob_pattern"
             | "variable_name"
+            | "simple_expansion"
             | "special_variable_name"
             | "test_operator"
             | "file_descriptor"
@@ -101,13 +123,16 @@ impl ReadingForms {
             | "heredoc_start"
             | "heredoc_content"
             | "heredoc_end" => true,
-            "word" | "concatenation" => !is_descriptor_name(node, line),
+            "word" | "concatenation" => {
+                // zsh reads `~[name]` as a named directory a function of the person's makes.
+                !is_descriptor_name(node, line) && !node_text(node, line).starts_with("~[")
+            }
             "redirected_statement" => self.note_redirected_statement(node),
             "file_redirect" => {
                 self.takes_its_arguments(node) && !redirect_writes_file(node, builder)
             }
             "heredoc_redirect" => {
-                self.takes_its_arguments(node) && self.note_here_document(node, line)
+                self.takes_its_arguments(node) && self.note_here_document(node, builder)
             }
             // `(( … ))` is arithmetic, which can set a variable and run a `$(…)` in a subscript.
             "compound_statement" => node.child(0).is_none_or(|open| open.kind() != "(("),
@@ -124,7 +149,6 @@ impl ReadingForms {
                 .is_some_and(|operator| {
                     node_text(operator, line) == "!" || operator.kind() == "test_operator"
                 }),
-            "simple_expansion" => !is_zsh_subscript(node, line),
             "expansion" => is_reading_expansion(node, line),
             "command_substitution" => is_reading_substitution(node, line),
             // `>(…)` hands its command the line's output to write anywhere.
@@ -145,7 +169,7 @@ impl ReadingForms {
         if body.kind() == "command" {
             let mut cursor = statement.walk();
             for redirect in statement.children_by_field_name("redirect", &mut cursor) {
-                self.command_redirects.push(redirect.id());
+                self.command_redirects.insert(redirect.id());
                 let mut inner = redirect.walk();
                 self.command_redirects.extend(
                     redirect
@@ -164,101 +188,106 @@ impl ReadingForms {
         !has_arguments || self.command_redirects.contains(&redirect.id())
     }
 
-    // A here-document whose delimiter the parser read as the shell reads it. A quoted delimiter
-    // makes the body text; an unquoted one expands it, so the body holds no backquote, backslash
-    // or arithmetic, which the parser does not read in a body. A quoted start the parser reads
-    // otherwise is noted for a second read with the start requoted.
-    fn note_here_document(&mut self, redirect: Node<'_>, line: &str) -> bool {
-        let mut start = None;
-        let mut body = None;
+    // A here-document whose delimiter the parser read as the shell reads it, alone on its start's
+    // line, since the parser reads two bodies from one line last first and the shell in order. A
+    // quoted delimiter makes the body text; an unquoted one expands it, so the body holds no
+    // backquote, backslash, arithmetic or zsh subscript, which the parser does not read in a body.
+    // A quoted start the parser reads otherwise is noted to be requoted for a second read.
+    fn note_here_document(&mut self, redirect: Node<'_>, builder: &mut WordBuilder<'_>) -> bool {
+        let line = builder.line();
+        let (mut start, mut body, mut end) = (None, None, None);
         let mut cursor = redirect.walk();
         for child in redirect.children(&mut cursor) {
             match child.kind() {
                 "heredoc_start" => start = Some(child),
                 "heredoc_body" => body = Some(child),
+                "heredoc_end" => end = Some(child),
                 _ => {}
             }
         }
-        let Some(start) = start else {
+        let (Some(start), Some(body), Some(end)) = (start, body, end) else {
             return false;
         };
-        let start_text = node_text(start, line);
-        // The parser ends the delimiter at a blank only, the shell at `;`, `|` or `)` too.
-        if shell_word_end(line, start.start_byte()) != start.end_byte() {
+        let shares_a_line = start.start_byte() < self.here_document_bodies_start;
+        self.here_document_bodies_start = self.here_document_bodies_start.max(body.start_byte());
+        if shares_a_line {
             return false;
         }
-        if !start_text.contains(['\'', '"', '\\']) {
-            return body.is_some_and(|body| {
-                let text = node_text(body, line);
-                !(text.contains(['`', '\\']) || text.contains("$((") || text.contains("$["))
-            });
+        let mark = builder.piece_count();
+        let (word, word_end) = builder.push_unexpanded_word(start.start_byte());
+        let delimiter = builder.view(word).to_string();
+        builder.truncate(mark);
+        let word_text = &line[start.start_byte()..word_end];
+        // The parser compares a delimiter's characters with the line's as single bytes, so one past
+        // ASCII never ends its body; bash ends `$"EOF"` at `EOF`, zsh at `$EOF`.
+        if !word_text.is_ascii() || word_text.contains("$\"") {
+            return false;
         }
-        let delimiter = shell_delimiter(start_text);
-        if delimiter != parser_delimiter(start_text) {
+        // Past the body the end holds what the parser read to the line's end, which no check reads.
+        let ends_as_the_shell_ends = node_text(end, line) == delimiter;
+        if !word_text.contains(['\'', '"', '\\']) {
+            // The parser ends the delimiter at a blank only, the shell at `;`, `|` or `)` too.
+            return word_end == start.end_byte()
+                && ends_as_the_shell_ends
+                && is_reading_expanded_body(node_text(body, line));
+        }
+        // The parser reads a body as text only after a start that opens with a quote or `\`.
+        let is_read_as_text = word_text.starts_with(['\'', '"', '\\'])
+            && word_end == start.end_byte()
+            && parser_delimiter(word_text) == delimiter;
+        if !is_read_as_text {
             // A delimiter holding a quote or a newline has no single-quoted form.
-            if self.delimiter_requote.is_none() && !delimiter.contains(['\'', '\n']) {
-                self.delimiter_requote = Some((
+            if !delimiter.contains(['\'', '\n']) {
+                self.delimiter_requotes.push((
                     start.start_byte(),
-                    start.end_byte(),
+                    word_end,
                     format!("'{delimiter}'"),
                 ));
             }
             return false;
         }
-        let Some(body) = body else {
-            return false;
-        };
-        self.literal_bodies.push(body.id());
-        true
+        self.literal_bodies.insert(body.id());
+        ends_as_the_shell_ends
     }
 }
 
-// Where the shell word that starts at `start` ends: at a blank, a newline or a metacharacter
-// outside quotes.
-fn shell_word_end(line: &str, start: usize) -> usize {
-    let bytes = line.as_bytes();
-    let mut position = start;
-    let mut quote = None;
-    while let Some(&byte) = bytes.get(position) {
-        match quote {
-            Some(open) if byte == open => quote = None,
-            Some(b'"') if byte == b'\\' => position += 1,
-            Some(_) => {}
-            None => match byte {
-                b'\'' | b'"' => quote = Some(byte),
-                b'\\' => position += 1,
-                b' ' | b'\t' | b'\n' | b';' | b'&' | b'|' | b'<' | b'>' | b'(' | b')' => break,
-                _ => {}
-            },
-        }
-        position += 1;
-    }
-    position.min(bytes.len())
+// Whether an expanded here-document body holds only what the parser reads in one: no backquote,
+// backslash or arithmetic, and no zsh subscript after a parameter the parser leaves as text.
+fn is_reading_expanded_body(text: &str) -> bool {
+    !(text.contains(['`', '\\'])
+        || text.contains("$((")
+        || text.contains("$[")
+        || has_parameter_subscript(text))
 }
 
-// A here-document's delimiter as the shell reads its word: quotes removed and backslash escapes
-// undone.
-fn shell_delimiter(word: &str) -> String {
-    let mut delimiter = String::new();
-    let mut characters = word.chars();
-    let mut quote = None;
-    while let Some(character) = characters.next() {
-        match (quote, character) {
-            (Some(open), _) if character == open => quote = None,
-            (None, '\'' | '"') => quote = Some(character),
-            (None, '\\') => delimiter.extend(characters.next()),
-            (Some('"'), '\\') => match characters.next() {
-                Some(escaped @ ('$' | '`' | '"' | '\\')) => delimiter.push(escaped),
-                Some(escaped) => {
-                    delimiter.push('\\');
-                    delimiter.push(escaped);
-                }
-                None => delimiter.push('\\'),
-            },
-            (_, character) => delimiter.push(character),
+// Whether text holds `$`, an optional `#`, then a name, digits or one special parameter, and then
+// `[`: zsh's subscript, which is arithmetic. In a body the parser leaves a `$` before `#`, a digit
+// or a special parameter as text.
+fn has_parameter_subscript(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    memchr::memchr_iter(b'$', bytes).any(|dollar| {
+        let mut position = dollar + 1;
+        let is_length = bytes.get(position) == Some(&b'#');
+        position += usize::from(is_length);
+        let parameter_start = position;
+        match bytes.get(position) {
+            Some(byte) if byte.is_ascii_digit() => {
+                position += bytes[position..]
+                    .iter()
+                    .take_while(|byte| byte.is_ascii_digit())
+                    .count();
+            }
+            Some(b'@' | b'*' | b'!' | b'$' | b'?' | b'-') => position += 1,
+            Some(&byte) if starts_variable_name(char::from(byte)) => {
+                position += bytes[position..]
+                    .iter()
+                    .take_while(|&&byte| continues_variable_name(char::from(byte)))
+                    .count();
+            }
+            Some(_) | None => {}
         }
-    }
-    delimiter
+        (position > parameter_start || is_length) && bytes.get(position) == Some(&b'[')
+    })
 }
 
 // A here-document's delimiter as the parser reads its start: a leading quote's text up to its
@@ -311,15 +340,14 @@ fn is_reading_substitution(substitution: Node<'_>, line: &str) -> bool {
         })
 }
 
-// zsh reads `[…]` right after `$name` as its subscript, and `$#name[…]` as the length of a
-// subscripted name, which the parser reads as `$#` and then a separate name; a subscript is
-// arithmetic.
-fn is_zsh_subscript(node: Node<'_>, line: &str) -> bool {
-    let is_length = node_text(node, line) == "$#";
-    node.next_sibling().is_some_and(|next| {
-        next.start_byte() == node.end_byte()
-            && (node_text(next, line).starts_with('[') || (is_length && next.is_named()))
-    })
+// Whether `next`, the node right after `previous`, makes it a zsh subscript: zsh reads `[…]` right
+// after `$name` as its subscript, and `$#name[…]` as the length of a subscripted name, which the
+// parser reads as `$#` and then a separate name; a subscript is arithmetic.
+fn is_zsh_subscript(previous: Node<'_>, next: Node<'_>, line: &str) -> bool {
+    previous.kind() == "simple_expansion"
+        && next.start_byte() == previous.end_byte()
+        && (node_text(next, line).starts_with('[')
+            || (node_text(previous, line) == "$#" && next.is_named()))
 }
 
 // The `[[ … ]]` operators whose operands bash evaluates as arithmetic.

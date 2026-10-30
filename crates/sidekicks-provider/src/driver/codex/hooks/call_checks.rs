@@ -11,6 +11,7 @@
 //!   run or refuses it.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt;
@@ -95,6 +96,9 @@ pub(crate) struct CodexCallChecksDependencies {
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
     /// Every provider's background work, which no call's command line may start.
     pub(crate) background_work: Arc<BackgroundWorkForms>,
+    /// The shell Codex starts a command's line with, whose `-lc` wrapper a call's line is read
+    /// without; `None` where its environment names none.
+    pub(crate) command_shell: Option<Arc<Path>>,
     /// The run each call belongs to, and its limits.
     pub(crate) runs: Arc<dyn CodexCallRuns>,
     /// The driver's tasks, which its shutdown waits for; a held call's card is taken back on one.
@@ -203,7 +207,8 @@ impl CodexCallChecks {
                 | Value::Object(_) => None,
             })
             .filter(|command| !command.is_empty());
-        let Some(action) = read_hook_action(input, command.as_deref()) else {
+        let command_shell = self.dependencies.command_shell.as_deref();
+        let Some(action) = read_hook_action(input, command.as_deref(), command_shell) else {
             return Ok(None);
         };
         if let (ProviderAskAction::Command { .. }, Some(line)) = (&action, command)
@@ -408,13 +413,18 @@ struct HookToolInput {
     command: Option<Value>,
 }
 
-// What a hooked call would do: a command as the line its shell runs, a patch's files resolved
-// against the call's folder, or a tool server's tool by its hook name; any other tool is not held.
-fn read_hook_action(input: &CodexHookInput, command: Option<&str>) -> Option<ProviderAskAction> {
+// What a hooked call would do: a command as the line its shell runs, past the `-lc` wrapper of
+// `command_shell` or a system shell, a patch's files resolved against the call's folder, or a tool
+// server's tool by its hook name; any other tool is not held.
+fn read_hook_action(
+    input: &CodexHookInput,
+    command: Option<&str>,
+    command_shell: Option<&Path>,
+) -> Option<ProviderAskAction> {
     let tool_name = input.tool_name.as_deref()?;
     if tool_name == CODEX_HOOK_SHELL_TOOL {
         return command.map(|command| ProviderAskAction::Command {
-            command: unwrap_shell_command_line(command).into_owned(),
+            command: unwrap_shell_command_line(command, command_shell).into_owned(),
         });
     }
     if tool_name == CODEX_HOOK_PATCH_TOOL {
@@ -589,6 +599,7 @@ mod tests {
             session_rules,
             shell_lines: Arc::new(ShellLineReadingBound::new(4096)),
             background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
+            command_shell: None,
             runs: Arc::new(OneRun(CodexHookCallRun { session_id, run_id })),
             tasks: TaskTracker::new(),
         }));

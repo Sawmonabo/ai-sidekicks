@@ -15,11 +15,12 @@ mod tests;
 mod views;
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::data_folder::{program_link_folder, service_log_folder};
@@ -103,6 +104,8 @@ pub(crate) struct CodexDriver {
     runtime_bindings: Arc<dyn RuntimeBindingWriter>,
     shell_lines: Arc<sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound>,
     background_work: Arc<BackgroundWorkForms>,
+    // The shell Codex runs a command's line with, `SHELL` in the environment it starts from.
+    command_shell: Option<Arc<Path>>,
     pending_compactions: PendingCompactionRegistry,
     /// The helpers stopped at their token limit, whose later turns are interrupted at their start.
     pub(crate) limit_stopped_helpers: Arc<CodexLimitStoppedHelpers>,
@@ -132,6 +135,15 @@ pub(crate) struct CodexDriver {
     tasks: TaskTracker,
     link: Arc<CodexDriverLink>,
     parts: OnceLock<Arc<CodexDriverParts>>,
+}
+
+// The shell Codex starts a command's line with: the `SHELL` of the environment it starts from,
+// where that names one.
+fn read_command_shell(base_environment: &[(String, String)]) -> Option<Arc<Path>> {
+    PathRules::NATIVE
+        .environment_value(base_environment, "SHELL")
+        .filter(|shell| !shell.is_empty())
+        .map(|shell| Arc::from(Path::new(shell)))
 }
 
 /// What every session shares once the daemon's run engine is registered; each session's task
@@ -245,6 +257,7 @@ impl CodexDriver {
             runtime_bindings: Arc::clone(&services.runtime_bindings),
             shell_lines: Arc::clone(&services.shell_lines),
             background_work: Arc::clone(&services.background_work),
+            command_shell: read_command_shell(&services.base_environment),
             pending_compactions: services.pending_compactions.clone(),
             limit_stopped_helpers: Arc::new(CodexLimitStoppedHelpers::new(tasks.clone())),
             processes: Arc::clone(&services.processes),
@@ -318,6 +331,7 @@ impl CodexDriver {
             },
             shell_lines: Arc::clone(&self.shell_lines),
             background_work: Arc::clone(&self.background_work),
+            command_shell: self.command_shell.clone(),
             project_rules: Arc::clone(&self.project_rules) as _,
             tasks: self.tasks.clone(),
         }));

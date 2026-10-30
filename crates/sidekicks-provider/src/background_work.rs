@@ -121,10 +121,11 @@ fn background_work_refusal(
     if !provider.command_names.iter().any(|name| program.is(name)) {
         return None;
     }
+    // A word only the run decides can turn into any subcommand or flag.
     let is_background = names_background_subcommand(work, command)
         || command
             .argument_words()
-            .any(|word| work.flags.iter().any(|flag| is_option(word, flag)));
+            .any(|word| !word.is_decided() || work.flags.iter().any(|flag| is_option(word, flag)));
     is_background.then_some(work.refusal)
 }
 
@@ -189,6 +190,8 @@ mod tests {
     #[case::split_string_inside_the_word("env -S'claude --bg x'", true)]
     #[case::option_inside_a_split_string("env -S'-u HOME claude --bg x'", true)]
     #[case::sleep_assertion_wrapper("caffeinate claude --bg x", true)]
+    #[case::brace_alternatives(r"claude {--bg,x}", true)]
+    #[case::expanded_flag("X=--bg; claude $X x", true)]
     #[case::prompt_naming_a_subcommand(r#"claude "list the agents""#, false)]
     #[case::subcommand_after_the_prompt(r#"claude "explain" agents"#, false)]
     #[case::session_listing("claude attach 7c5dcf5d", false)]

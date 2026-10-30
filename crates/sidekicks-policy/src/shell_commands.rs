@@ -79,9 +79,9 @@ impl ShellLineReading {
         self.holds_only_reading_forms
     }
 
-    /// The line with its first here-document start the parser misreads put in single quotes,
-    /// which the shell reads the same way, so the line's forms are judged on that line's reading;
-    /// `None` when no start needs it.
+    /// The line with every here-document start the parser misreads put in single quotes, which
+    /// the shell reads the same way, so the line's forms are judged on that line's reading; `None`
+    /// when no start needs it.
     pub(crate) fn requoted_line(&self) -> Option<&str> {
         self.requoted_line.as_deref()
     }
@@ -111,7 +111,7 @@ impl ShellLineReading {
         // The tree goes before the arrays shrink to their length, so the two never meet.
         drop(tree);
         let (decoded, pieces, positions) = builder.finish();
-        let requoted_line = forms.requote_delimiter(&line);
+        let requoted_line = forms.requote_delimiters(&line);
         Self {
             line,
             decoded,
@@ -194,10 +194,11 @@ impl<'r> ShellCommand<'r> {
     }
 }
 
-/// Reads the shell lines of one ask: its line and every `-c` or `eval` string a check rereads from
-/// it. A string longer than `limit` bytes, a bound no argument a program starts with reaches, is
-/// not parsed; in all the reader parses at most twice `limit`, each distinct string once, and
-/// hands a repeat its kept reading, so a string past what is left reads not whole with no command.
+/// Reads the shell lines of one ask: its line, at most one reading of it with its here-document
+/// starts requoted, and every `-c` or `eval` string a check rereads from it. A string longer than
+/// `limit` bytes, a bound no argument a program starts with reaches, is not parsed; in all the
+/// reader parses at most twice `limit`, each distinct string once, and hands a repeat its kept
+/// reading, so a string past what is left reads not whole with no command.
 /// Reading blocks the thread for the parse, so every ask reads through `ShellLineReadingBound`.
 pub struct ShellLineReader {
     parser: Parser,
@@ -271,8 +272,8 @@ impl ShellLineReader {
 // Every simple command in the tree, nested ones included: those in a pipeline, a chain, a subshell
 // or a loop, those a substitution runs, inside double quotes, an assignment or a here-document
 // too, and those the parser read before a syntax error; and whether every form of the line is one
-// a reading line may hold, as the forms noted. A here-document body the shell passes as text is not read. The cursor
-// keeps its own stack, so no nesting depth reaches this thread's.
+// a reading line may hold, as the forms noted. A here-document body the shell passes as text is
+// not read. The cursor keeps its own stack, so no nesting depth reaches this thread's.
 fn commands_in(
     root: Node<'_>,
     builder: &mut WordBuilder<'_>,
@@ -282,19 +283,26 @@ fn commands_in(
     let mut forms = ReadingForms::new();
     let mut pending = VecDeque::new();
     let mut read_body = None;
+    let mut previous_sibling = None;
     let mut cursor = root.walk();
     loop {
         let node = cursor.node();
-        let reads_inside = forms.note(node, builder);
+        let reads_inside = forms.note(node, previous_sibling, builder);
         if push_command_words(node, builder, &mut pending, &mut read_body)
             && let Some(command) = resolve_command(builder, &mut pending, &mut words)
         {
             commands.push(command);
         }
         if reads_inside && cursor.goto_first_child() {
+            previous_sibling = None;
             continue;
         }
-        while !cursor.goto_next_sibling() {
+        loop {
+            let left = cursor.node();
+            if cursor.goto_next_sibling() {
+                previous_sibling = Some(left);
+                break;
+            }
             if !cursor.goto_parent() {
                 return (words, commands, forms);
             }

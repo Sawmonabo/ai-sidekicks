@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use proptest::prelude::*;
 use rstest::rstest;
 
@@ -383,13 +385,37 @@ fn a_string_read_again_costs_nothing_and_reads_the_same() {
 #[rstest]
 #[case::provider_wrapper(
     r#"/bin/zsh -lc "rm -rf 'my build' && echo done""#,
+    None,
     "rm -rf 'my build' && echo done"
 )]
-#[case::operator_outside_the_argv("bash -lc 'x' && y", "bash -lc 'x' && y")]
-#[case::wrapper_before_the_shell("env bash -lc 'x'", "env bash -lc 'x'")]
-#[case::wrapper_before_a_joined_argv("env bash -lc 'x y'", "env bash -lc 'x y'")]
-fn unwraps_only_a_shell_handed_its_whole_line(#[case] line: &str, #[case] expected: &str) {
-    assert_eq!(unwrap_shell_command_line(line), expected);
+#[case::operator_outside_the_argv("bash -lc 'x' && y", None, "bash -lc 'x' && y")]
+#[case::wrapper_before_the_shell("env bash -lc 'x'", None, "env bash -lc 'x'")]
+#[case::wrapper_before_a_joined_argv("env bash -lc 'x y'", None, "env bash -lc 'x y'")]
+// A shell outside `/bin` and `/usr/bin` is the provider's only when it is the one it starts with.
+#[case::provider_shell_path(
+    "/opt/homebrew/bin/zsh -lc 'ls -la'",
+    Some("/opt/homebrew/bin/zsh"),
+    "ls -la"
+)]
+#[case::other_shell_path(
+    "/opt/homebrew/bin/zsh -lc 'ls -la'",
+    None,
+    "/opt/homebrew/bin/zsh -lc 'ls -la'"
+)]
+#[case::shell_path_not_the_providers(
+    "/tmp/x/zsh -lc 'ls -la'",
+    Some("/opt/homebrew/bin/zsh"),
+    "/tmp/x/zsh -lc 'ls -la'"
+)]
+fn unwraps_only_a_shell_handed_its_whole_line(
+    #[case] line: &str,
+    #[case] provider_shell: Option<&str>,
+    #[case] expected: &str,
+) {
+    assert_eq!(
+        unwrap_shell_command_line(line, provider_shell.map(Path::new)),
+        expected
+    );
 }
 
 // Words the parser or the reader reads as more than a program's name.

@@ -68,6 +68,23 @@ use super::reads_only;
 #[case::descriptor_element("echo hi {a[PATH=0]}>/dev/null; ls", false)]
 // zsh evaluates `[…]` right after `$name` in a here-document's body too.
 #[case::zsh_subscript_in_a_here_document("cat <<EOF\n$a[PATH=0]\nEOF\nls", false)]
+// The parser leaves `$` before `#`, a digit or a special parameter as text in a body.
+#[case::zsh_length_subscript_in_a_here_document("cat <<EOF\n$#a[PATH=0]\nEOF\nls", false)]
+#[case::zsh_positional_subscript_in_a_here_document("cat <<EOF\n$1[PATH=0]\nEOF", false)]
+// The parser reads two bodies from one line last first, the shell in order.
+#[case::two_quoted_here_documents_piped("cat <<'A' | cat <<'B'\nx\nA\ny\nB\ntouch made\nA", false)]
+#[case::two_here_documents_piped("cat <<A | cat <<B\nx\nA\ny\nB\ntouch made\nA", false)]
+#[case::two_here_documents_chained("cat <<'A' && cat <<'B'\nx\nA\ny\nB\ntouch made\nA", false)]
+// The parser never ends a body at a delimiter past ASCII, and reads on to the line's end.
+#[case::delimiter_past_ascii("cat <<\u{20ac}\n$HOME\n\u{20ac}\ntouch made\n", false)]
+// Only a start that opens with a quote or `\` makes the parser read its body as text.
+#[case::escaped_letter_in_a_delimiter("cat <<E\\OF\n$(\nEOF\ntouch made\nexit\n)", false)]
+#[case::escaped_blank_in_a_delimiter("cat <<E\\ X\n$(\nE X\ntouch made\nexit\n)", false)]
+#[case::escaped_quote_in_a_delimiter("cat <<E\\'OF\n$(\nE'OF\ntouch made\nexit\n)", false)]
+#[case::double_quotes_inside_a_delimiter("cat <<E\"OF\"\n$HOME\nEOF", true)]
+// bash and zsh end `$'EOF'` at `EOF`; bash ends `$"EOF"` there too and zsh at `$EOF`.
+#[case::ansi_c_delimiter("cat <<$'EOF'\nx\nEOF\ntouch made\n$EOF", false)]
+#[case::translated_delimiter("cat <<$\"EOF\"\nx\nEOF\ntouch made\n$EOF", false)]
 fn a_redirect_reads_only_when_it_writes_no_file(#[case] line: &str, #[case] is_read_only: bool) {
     assert_eq!(reads_only(line), is_read_only, "{line:?}");
 }

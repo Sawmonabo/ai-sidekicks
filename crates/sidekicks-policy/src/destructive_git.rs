@@ -115,18 +115,33 @@ fn holds_destructive_git(
     false
 }
 
-// A push that forces or deletes, or a branch delete.
+// A push that forces or deletes, or a branch delete. A word only the run decides, which can turn
+// into any word or several, counts as a match wherever a decided word is read: as the subcommand,
+// as an option of git's own, which can make the next word its value, and after `push` or `branch`.
 fn is_destructive_git(command: ShellCommand<'_>) -> bool {
     if !command.program().is("git") {
         return false;
     }
     let mut rest = command.argument_words();
+    let word_count = rest.len();
     let Some(subcommand) = take_git_subcommand(&mut rest).subcommand else {
         return false;
     };
+    let subcommand_count = word_count - rest.len();
+    let names_an_undecided_subcommand = command
+        .argument_words()
+        .take(subcommand_count)
+        .enumerate()
+        .any(|(index, word)| {
+            !word.is_decided() && (index + 1 == subcommand_count || word.starts_with("-"))
+        });
+    if names_an_undecided_subcommand {
+        return true;
+    }
     if subcommand.is("push") {
         return rest.any(|word| {
-            is_short_option_cluster_with(word, PUSH_DESTRUCTIVE_LETTERS)
+            !word.is_decided()
+                || is_short_option_cluster_with(word, PUSH_DESTRUCTIVE_LETTERS)
                 || PUSH_DESTRUCTIVE_OPTIONS
                     .iter()
                     .any(|option| is_option(word, option))
@@ -137,7 +152,9 @@ fn is_destructive_git(command: ShellCommand<'_>) -> bool {
     }
     if subcommand.is("branch") {
         return rest.any(|word| {
-            word.is("--delete") || is_short_option_cluster_with(word, BRANCH_DELETE_LETTERS)
+            !word.is_decided()
+                || word.is("--delete")
+                || is_short_option_cluster_with(word, BRANCH_DELETE_LETTERS)
         });
     }
     false
@@ -249,6 +266,13 @@ mod tests {
     #[case::shell_string_after_the_user("su root -sc 'git push --force'", true)]
     // A priority only the run decides is still `chrt`'s priority.
     #[case::undecided_priority("chrt $P git push --force", true)]
+    // A word only the run decides may be the subcommand or any option of a push.
+    #[case::brace_alternatives_of_a_push("git push {--force,origin}", true)]
+    #[case::brace_alternatives_of_one_option("git push --{force,force}", true)]
+    #[case::pattern_of_an_option("git push --forc?", true)]
+    #[case::expanded_subcommand("X=push; git $X -f", true)]
+    #[case::braced_expansion_subcommand("git ${X} --force", true)]
+    #[case::expansion_after_a_reading_subcommand("git log --since=$DATE", false)]
     #[case::dry_run("git push --dry-run origin main", false)]
     #[case::branch_long_option_with_d("git branch --edit-description", false)]
     fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool) {

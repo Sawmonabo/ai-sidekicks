@@ -8,6 +8,8 @@
 //! the shell, read once on the ask's own shell-line reader for every check, and a tool server's
 //! call is named as Codex's pre-tool hook names it.
 
+use std::path::Path;
+
 use serde_json::{Map, Value};
 use sidekicks_contracts::approval::RememberedScopeKind;
 use sidekicks_policy::shell_commands::{ShellLineReader, unwrap_shell_command_line};
@@ -49,17 +51,21 @@ pub(crate) struct CodexAskReading {
 /// file itself; `called_tool` is the tool of the one tool call in flight on the ask's thread for
 /// its server, where there is exactly one, since Codex's own ask before a tool call names no tool.
 /// No other ask reads them. A command's line is read on `reader`, the ask's own, which runs on the
-/// daemon-wide shell-line bound's blocking thread.
+/// daemon-wide shell-line bound's blocking thread, and shown without the `-lc` wrapper of
+/// `command_shell`, the shell Codex starts its lines with, as well as a system shell's.
 pub(crate) fn read_codex_ask_action(
     method: &str,
     params: &Map<String, Value>,
     changed_paths: &[String],
     called_tool: Option<&str>,
     background_work: &BackgroundWorkForms,
+    command_shell: Option<&Path>,
     reader: &mut ShellLineReader,
 ) -> CodexAskReading {
     match method {
-        CODEX_COMMAND_APPROVAL_METHOD => read_command_ask(params, background_work, reader),
+        CODEX_COMMAND_APPROVAL_METHOD => {
+            read_command_ask(params, background_work, command_shell, reader)
+        }
         CODEX_FILE_CHANGE_APPROVAL_METHOD => CodexAskReading {
             action: ProviderAskAction::FileChange {
                 paths: changed_paths.to_vec(),
@@ -85,6 +91,7 @@ pub(crate) fn read_codex_ask_action(
 fn read_command_ask(
     params: &Map<String, Value>,
     background_work: &BackgroundWorkForms,
+    command_shell: Option<&Path>,
     reader: &mut ShellLineReader,
 ) -> CodexAskReading {
     let command = read_non_empty_string(params, "command").unwrap_or_default();
@@ -128,7 +135,7 @@ fn read_command_ask(
         let reading = reader.read(command);
         (
             ProviderAskAction::Command {
-                command: unwrap_shell_command_line(command).into_owned(),
+                command: unwrap_shell_command_line(command, command_shell).into_owned(),
             },
             refuse_background_work(background_work, reader, &reading),
         )
@@ -191,6 +198,8 @@ fn read_tool_server_ask(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use rstest::rstest;
     use serde_json::{Value, json};
     use sidekicks_contracts::approval::RememberedScopeKind;
@@ -203,6 +212,9 @@ mod tests {
 
     const BOTH_SCOPES: [RememberedScopeKind; 2] =
         [RememberedScopeKind::Session, RememberedScopeKind::Project];
+
+    // The shell Codex starts its lines with, outside the system's folders.
+    const COMMAND_SHELL: &str = "/opt/homebrew/bin/zsh";
 
     #[rstest]
     #[case::input_is_the_last_word(
@@ -228,6 +240,15 @@ mod tests {
     #[case::a_wrapped_command_offering_the_session(
         "item/commandExecution/requestApproval",
         json!({"command": "/bin/zsh -lc 'npm test'"}),
+        &[],
+        None,
+        ProviderAskAction::Command { command: "npm test".to_owned() },
+        &BOTH_SCOPES,
+        false
+    )]
+    #[case::a_command_wrapped_in_codexs_own_shell(
+        "item/commandExecution/requestApproval",
+        json!({"command": "/opt/homebrew/bin/zsh -lc 'npm test'"}),
         &[],
         None,
         ProviderAskAction::Command { command: "npm test".to_owned() },
@@ -337,6 +358,7 @@ mod tests {
             &changed_paths,
             called_tool,
             &BackgroundWorkForms::of_providers(PROVIDERS),
+            Some(Path::new(COMMAND_SHELL)),
             &mut reader,
         );
 

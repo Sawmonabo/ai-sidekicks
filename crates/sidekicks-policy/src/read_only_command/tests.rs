@@ -15,5 +15,5 @@ use super::*;
 const LIMIT: usize = 64 * 1024;
 
 fn reads_only(line: &str) -> bool {
-    is_read_only_command(&mut ShellLineReader::new(LIMIT), line)
+    is_read_only_command(&mut ShellLineReader::new(LIMIT), line, None)
 }

@@ -4,6 +4,7 @@
 //! or alternatives kept as its source text in the line. A word is never copied out of its pieces,
 //! and each query on it costs the pieces it reads.
 
+mod quote_removal;
 mod split_string;
 
 use std::fmt;
@@ -11,6 +12,8 @@ use std::sync::{Arc, OnceLock};
 
 use memchr::{memchr, memchr_iter, memrchr};
 use tree_sitter::Node;
+
+use self::quote_removal::{decode_ansi_c, unescape_bare, unescape_double_quoted};
 
 /// `count` as a reading's offset or count: its line is within the reader's limit, a system's
 /// argument bound far below 4 GiB, and its pieces and words are a small multiple of the line.
@@ -299,7 +302,7 @@ impl<'r> ShellWord<'r> {
     /// Whether the shell passes the word as read here: false when an expansion, a substitution or
     /// a pattern makes its text, which only the line's run decides and which can split it into
     /// several words, any of them an option.
-    pub(crate) fn is_decided(self) -> bool {
+    pub fn is_decided(self) -> bool {
         self.pieces.iter().all(|piece| !piece.kind.is_expansion())
     }
 }
@@ -521,6 +524,61 @@ impl<'s> WordBuilder<'s> {
         word_from(&self.pieces, first_piece)
     }
 
+    /// Reads the shell word that starts at byte `start` of the line as the shell reads a word it
+    /// expands nothing in, as a here-document's delimiter: up to a blank, a newline or a
+    /// metacharacter outside quotes, its quotes removed, its escapes undone and its ANSI-C strings
+    /// decoded. Returns the word and the byte its text ends at.
+    pub(super) fn push_unexpanded_word(&mut self, start: usize) -> (Word, usize) {
+        let line = self.line;
+        let bytes = line.as_bytes();
+        let first_piece = self.pieces.len();
+        let mut position = start;
+        while let Some(&byte) = bytes.get(position) {
+            match byte {
+                b'\'' => {
+                    let close = memchr(b'\'', &bytes[position + 1..])
+                        .map_or(bytes.len(), |offset| position + 1 + offset);
+                    self.push_line(position + 1..close, PieceKind::Literal);
+                    position = close + 1;
+                }
+                b'"' => {
+                    let close = quoted_text_end(bytes, position + 1, b'"');
+                    self.push_double_quoted_text(position + 1..close);
+                    position = close + 1;
+                }
+                b'$' if bytes.get(position + 1) == Some(&b'\'') => {
+                    let close = quoted_text_end(bytes, position + 2, b'\'');
+                    let body = &line[position + 2..close];
+                    self.push_decoded(|value| decode_ansi_c(body, value));
+                    position = close + 1;
+                }
+                byte if WORD_ENDING_BYTES.contains(&byte) => break,
+                _ => {
+                    let run_start = position;
+                    while let Some(&byte) = bytes.get(position) {
+                        let opens_ansi_c = byte == b'$' && bytes.get(position + 1) == Some(&b'\'');
+                        if matches!(byte, b'\'' | b'"')
+                            || opens_ansi_c
+                            || WORD_ENDING_BYTES.contains(&byte)
+                        {
+                            break;
+                        }
+                        position += if byte == b'\\' { 2 } else { 1 };
+                    }
+                    position = position.min(bytes.len());
+                    let text = &line[run_start..position];
+                    if memchr(b'\\', text.as_bytes()).is_some() {
+                        self.push_decoded(|value| unescape_bare(text, value));
+                    } else {
+                        self.push_line(run_start..position, PieceKind::Literal);
+                    }
+                }
+            }
+        }
+        let end = position.min(bytes.len());
+        (word_from(&self.pieces, first_piece), end)
+    }
+
     /// The word's name without its folder, the text past its last `/`; `None` when the word has
     /// no `/`, so names no folder.
     pub(super) fn basename(&mut self, word: Word) -> Option<Word> {
@@ -666,6 +724,22 @@ fn word_from(pieces: &[Piece], first_piece: usize) -> Word {
     }
 }
 
+// The bytes that end an unquoted shell word: blanks, a newline and the metacharacters.
+const WORD_ENDING_BYTES: &[u8] = b" \t\n;&|<>()";
+
+// Where quoted text that starts at `from` ends: at its closing `quote`, each backslash taking the
+// byte after it, or at the line's end when no quote closes it.
+fn quoted_text_end(bytes: &[u8], from: usize, quote: u8) -> usize {
+    let mut position = from;
+    while let Some(&byte) = bytes.get(position) {
+        if byte == quote {
+            return position;
+        }
+        position += if byte == b'\\' { 2 } else { 1 };
+    }
+    bytes.len()
+}
+
 // A piece of the range, unless it is empty: no piece is.
 fn push_piece(pieces: &mut Vec<Piece>, start: u32, end: u32, kind: PieceKind) {
     if start < end {
@@ -687,165 +761,4 @@ fn has_unescaped_pattern(text: &str) -> bool {
         }
     }
     false
-}
-
-// An unquoted word: each backslash keeps the character after it, a backslash and a line break go
-// together, and a backslash ending the word stays.
-fn unescape_bare(text: &str, value: &mut String) {
-    let mut characters = text.chars();
-    while let Some(character) = characters.next() {
-        if character != '\\' {
-            value.push(character);
-            continue;
-        }
-        match characters.next() {
-            None => value.push('\\'),
-            Some('\n') => {}
-            Some(escaped) => value.push(escaped),
-        }
-    }
-}
-
-// Text inside double quotes: a backslash before `$`, `` ` ``, `"` or another backslash keeps that
-// character, a backslash and a line break go together, any other backslash stays, and one ending
-// the text is dropped.
-fn unescape_double_quoted(text: &str, value: &mut String) {
-    let mut characters = text.chars();
-    while let Some(character) = characters.next() {
-        if character != '\\' {
-            value.push(character);
-            continue;
-        }
-        match characters.next() {
-            None | Some('\n') => {}
-            Some(escaped @ ('$' | '`' | '"' | '\\')) => value.push(escaped),
-            Some(escaped) => {
-                value.push('\\');
-                value.push(escaped);
-            }
-        }
-    }
-}
-
-// An ANSI-C quoted string's body, `$'` already taken off, decoded as bash decodes it up to its
-// closing quote. A decoded NUL ends the string's value there, as it ends bash's C string; the
-// parts of a word after the string still join.
-fn decode_ansi_c(body: &str, value: &mut String) {
-    let characters: Vec<char> = body.chars().collect();
-    let limit = characters.len();
-    let mut position = 0;
-    while position < limit && characters[position] != '\'' {
-        if characters[position] != '\\' || position + 1 >= limit {
-            // A run of plain characters; a backslash at the end has nothing to escape.
-            while position < limit {
-                let character = characters[position];
-                if character == '\'' || (character == '\\' && position + 1 < limit) {
-                    break;
-                }
-                value.push(character);
-                position += 1;
-            }
-            continue;
-        }
-        let escape_start = position;
-        let escaped = characters[position + 1];
-        position += 2;
-        match escaped {
-            'a' => value.push('\u{7}'),
-            'b' => value.push('\u{8}'),
-            'e' | 'E' => value.push('\u{1b}'),
-            'f' => value.push('\u{c}'),
-            'n' => value.push('\n'),
-            'r' => value.push('\r'),
-            't' => value.push('\t'),
-            'v' => value.push('\u{b}'),
-            '\\' | '\'' | '"' | '?' => value.push(escaped),
-            '\n' => {}
-            'c' => match decode_control(&characters, position, value) {
-                Some(next) => position = next,
-                None => return,
-            },
-            'x' | 'u' | 'U' => {
-                let most_digits = match escaped {
-                    'x' => 2,
-                    'u' => 4,
-                    _ => 8,
-                };
-                let digits_start = position;
-                let mut code = 0_u32;
-                while position < limit && position - digits_start < most_digits {
-                    let Some(digit) = characters[position].to_digit(16) else {
-                        break;
-                    };
-                    code = code * 16 + digit;
-                    position += 1;
-                }
-                if position == digits_start {
-                    value.push('\\');
-                    value.push(escaped);
-                } else if code == 0 {
-                    return;
-                } else if let Some(decoded) = char::from_u32(code) {
-                    value.push(decoded);
-                } else {
-                    // A code no character has stays as it was written.
-                    value.extend(&characters[escape_start..position]);
-                }
-            }
-            '0'..='7' => {
-                let mut code = escaped.to_digit(8).expect("an octal digit");
-                while position < limit && position - escape_start - 1 < 3 {
-                    let Some(digit) = characters[position].to_digit(8) else {
-                        break;
-                    };
-                    code = code * 8 + digit;
-                    position += 1;
-                }
-                let byte = u8::try_from(code & 0xFF).expect("a value masked to one byte");
-                if byte == 0 {
-                    return;
-                }
-                value.push(char::from(byte));
-            }
-            _ => {
-                value.push('\\');
-                value.push(escaped);
-            }
-        }
-    }
-}
-
-// `\c` and its operand from `position`: the control character the operand names, `\c` as written
-// when the closing quote or the end follows. Returns the position past what it read, or `None`
-// when the operand names NUL, which ends the string's value.
-fn decode_control(characters: &[char], mut position: usize, value: &mut String) -> Option<usize> {
-    let limit = characters.len();
-    let Some(&operand) = characters.get(position).filter(|&&operand| operand != '\'') else {
-        value.push_str("\\c");
-        return Some(position);
-    };
-    position += 1;
-    if operand == '\\' {
-        // Bash writes a backslash operand as the pair `\c\\`; a lone backslash still decodes and
-        // leaves the character after it as written.
-        let is_pair = characters.get(position) == Some(&'\\');
-        value.push('\u{1c}');
-        if is_pair {
-            position += 1;
-        } else if position < limit {
-            value.push(characters[position]);
-            position += 1;
-        }
-        return Some(position);
-    }
-    let code = if operand == '?' {
-        0x7F
-    } else {
-        u32::from(operand) & 0x1F
-    };
-    if code == 0 {
-        return None;
-    }
-    value.push(char::from_u32(code).expect("a code below 0x80 is a character"));
-    Some(position)
 }
