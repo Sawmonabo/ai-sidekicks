@@ -30,7 +30,7 @@ use crate::driver::test_registry::{new_session_id, test_driver_services};
 use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::run::posture::compose_execution_posture;
-use crate::runtime_binding::resume::{ResumeFunctionLegs, compose_resume_session_params};
+use crate::runtime_binding::resume::compose_resume_session_params;
 use crate::runtime_binding::store::{
     RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStore, mint_runtime_binding_id,
     read_binding,
@@ -71,7 +71,6 @@ fn resume_params(session_id: SessionId, binding: &RuntimeBinding) -> ResumeSessi
         ),
         Vec::new(),
         ProviderRowValues::default(),
-        ResumeFunctionLegs::default(),
         Vec::new(),
     )
     .expect("the binding resumes")
