@@ -15,11 +15,11 @@
     clippy::enum_variant_names,
     reason = "the generator copies the schema's descriptions and names as Codex writes them"
 )]
-// A test build checks no docs, so only the other builds would warn.
+// Clippy checks no docs in a test build, so only the other builds would warn.
 #![cfg_attr(
     not(test),
     expect(
-        missing_docs,
+        clippy::missing_docs_in_private_items,
         reason = "the file is generated from Codex's protocol schema and carries no docs"
     )
 )]
