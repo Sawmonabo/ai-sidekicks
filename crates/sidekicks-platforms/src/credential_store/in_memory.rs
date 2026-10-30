@@ -1,12 +1,13 @@
 //! A credential store for tests held in this process's memory alone: keyring-core's mock store,
-//! listed as every system store lists, naming only the items written.
+//! listed as every system store lists, naming only the items written, and otherwise the mock
+//! itself.
 
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, PoisonError};
 
 use keyring_core::Entry;
-use keyring_core::api::CredentialStoreApi;
+use keyring_core::api::{CredentialPersistence, CredentialStoreApi};
 use keyring_core::mock::{Cred, Store};
 
 /// keyring-core's mock store, whose own search also names every entry only built on it, behind a
@@ -51,6 +52,14 @@ impl CredentialStoreApi for InMemoryCredentialStore {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn persistence(&self) -> CredentialPersistence {
+        self.store.persistence()
+    }
+
+    fn debug_fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.store.debug_fmt(formatter)
     }
 }
 
