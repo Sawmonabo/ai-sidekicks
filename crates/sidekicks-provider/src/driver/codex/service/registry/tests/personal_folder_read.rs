@@ -4,8 +4,11 @@ use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::json;
+use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use tempfile::TempDir;
 
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::mcp::read_codex_mcp_servers;
 use crate::driver::codex::mcp::requirements::CodexRequirementsSources;
 use crate::driver::codex::service::command_line::{
@@ -192,19 +195,35 @@ async fn the_probe_gets_a_service_of_its_own_only_off_the_terminal_service(
     }
 }
 
-// A refresh's read that finds no server to probe reads the config on the joined service there and
-// takes no service of its own. Killed by the read taking a probe's service before it knows its
-// targets, and by a probe taken with no target: either starts a transient service, whose start
-// fails here since the test's program does not exist.
+// A refresh's read that finds no server to probe, or only a target no place loads, reads the
+// config on the joined service there and takes no service of its own: here an emulated `local`
+// binding of a root that is not attached, switched on by name from the person's server that is off
+// by default. Killed by the read taking a probe's service before it knows its targets, by a probe
+// taken with no target, and by one taken with targets but no place to probe them: each starts a
+// transient service, whose start fails here since the test's program does not exist.
+#[rstest]
+#[case::no_target(json!({}), Vec::new())]
+#[case::a_target_no_place_loads(
+    json!({"db": {"command": "db-server", "enabled": false}}),
+    vec![McpServerBindingRef::Local {
+        provider: DESCRIPTOR.provider_id(),
+        scope_ref: FilesystemPath::new("/work/unattached".to_owned()).expect("a root path"),
+        place: None,
+        server_name: McpServerName::new("db".to_owned()).expect("a server name"),
+    }]
+)]
 #[tokio::test]
-async fn a_probing_read_with_no_target_takes_no_service_of_its_own() {
+async fn a_probing_read_with_nothing_to_probe_takes_no_service_of_its_own(
+    #[case] servers: serde_json::Value,
+    #[case] emulated_local_bindings: Vec<McpServerBindingRef>,
+) {
     let mut holding = hold_folder(CodexServiceKind::Joined);
     let request = McpServersReadRequest {
         attached_roots: Vec::new(),
         provider_account_ids: Vec::new(),
         is_refresh: true,
         probe: McpProbeScope::EveryBinding,
-        emulated_local_bindings: Vec::new(),
+        emulated_local_bindings,
     };
     // The scratch folder holds no requirements, and the host's own Codex policy is never read.
     let requirements = CodexRequirementsSources {
@@ -217,7 +236,15 @@ async fn a_probing_read_with_no_target_takes_no_service_of_its_own() {
         assert_eq!(config_read["method"], "config/read", "{config_read}");
         script.answer(
             &config_read,
-            &json!({"config": {}, "origins": {}, "layers": []}),
+            &json!({
+                "config": {"mcp_servers": servers},
+                "origins": {},
+                "layers": [{
+                    "name": {"type": "user", "file": "/home/person/.codex/config.toml"},
+                    "version": "1",
+                    "config": {"mcp_servers": servers},
+                }],
+            }),
         );
     };
 

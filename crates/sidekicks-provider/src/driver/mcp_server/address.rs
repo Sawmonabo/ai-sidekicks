@@ -65,11 +65,16 @@ pub(crate) fn read_server_address(address: &str) -> ServerAddressReading {
 
 // `address`, which parses as a web address with a host, as the config writes it with its user name,
 // password, query and fragment cut out and any credential left in its path scrubbed, so a `${VAR}`
-// in its path reads back as written. The cuts sit where the WHATWG parse finds them: the query or
-// fragment at the first `?` or `#`, the authority after `scheme:` and any run of `/` or `\` up to
-// the next `/` or `\`, and the user name and password before the authority's last `@`.
+// in its path reads back as written. The cuts sit where the WHATWG parse finds them, once every tab
+// and line break is removed, as the parse removes them: the query or fragment at the first `?` or
+// `#`, the authority after `scheme:` and any run of `/` or `\` up to the next `/` or `\`, and the
+// user name and password before the authority's last `@`.
 fn strip_written_address(address: &str) -> String {
-    let written = address.trim_matches(|character: char| character <= ' ');
+    let written: String = address
+        .trim_matches(|character: char| character <= ' ')
+        .chars()
+        .filter(|character| !matches!(character, '\t' | '\n' | '\r'))
+        .collect();
     let addressed = &written[..written.find(['?', '#']).unwrap_or(written.len())];
     let (scheme, rest) = addressed
         .split_once(':')
@@ -92,9 +97,10 @@ mod tests {
     // The stripped address keeps what the config wrote, a `${VAR}` in its path and the case of its
     // host among it, and loses its user name, password, query, fragment and any token in its path,
     // its authority found as the WHATWG parse finds it with no `//`, a `\\` or three slashes before
-    // it. Killed by the address taken from the parse's serialization (`$%7BTENANT%7D`, a folded
-    // host), by a cut that leaves the user name or the query in, by an authority looked for only
-    // after `://`, and by the scrub dropped.
+    // it or a tab among its slashes. Killed by the address taken from the parse's serialization
+    // (`$%7BTENANT%7D`, a folded host), by a cut that leaves the user name or the query in, by an
+    // authority looked for only after `://`, by a tab left in the slashes, and by the scrub
+    // dropped.
     #[rstest]
     #[case::variable_path(
         "https://mcp.example.com/${TENANT}/mcp?key=secret",
@@ -108,6 +114,7 @@ mod tests {
     #[case::no_slashes("https:user:pw@host.example/mcp", "https:host.example/mcp")]
     #[case::backslashes(r"https:\\user:pw@host.example/mcp", r"https:\\host.example/mcp")]
     #[case::three_slashes("https:///user:pw@host.example/mcp", "https:///host.example/mcp")]
+    #[case::tab_in_the_slashes("https:/\t/user:pw@host.example/mcp", "https://host.example/mcp")]
     #[case::path_token(
         "https://host.example/mcp/sk-ant-abcdefgh12345",
         "https://host.example/mcp/***"

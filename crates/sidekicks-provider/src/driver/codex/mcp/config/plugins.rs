@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::plugin::PluginToken;
+use sidekicks_platforms::PathRules;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::mcp::config::server_entry::{
@@ -267,11 +268,16 @@ fn read_server_map(file: Value) -> Option<Map<String, Value>> {
 }
 
 // The file a manifest's `./`-relative path names in `plugin_root`; `None` for a path Codex
-// refuses: one without the prefix, one naming the folder itself, one that climbs out, and one that
-// joins outside the folder, by a rooted or absolute part.
+// refuses: one without the prefix, one naming the folder itself, one that climbs out by a `..`
+// between the system's own separators, and one that joins outside the folder, by a rooted or
+// absolute part.
 fn resolve_manifest_path(plugin_root: &Path, path: &str) -> Option<PathBuf> {
     let relative = path.strip_prefix(MANIFEST_PATH_PREFIX)?;
-    if relative.is_empty() || relative.split(['/', '\\']).any(|part| part == "..") {
+    if relative.is_empty()
+        || relative
+            .split(|character: char| PathRules::NATIVE.is_separator(character))
+            .any(|part| part == "..")
+    {
         return None;
     }
     let file = plugin_root.join(relative);
