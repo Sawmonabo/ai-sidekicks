@@ -252,8 +252,9 @@ impl WebAddressSender {
         }
     }
 
-    // Reads the switch; while it is off drops every pending delivery and disarms the timer, and
-    // while it is on picks up, attempts every message due in turn and arms the timer for the next.
+    // Reads the switch; while it is off drops every pending delivery, disarms the timer and lets the
+    // client and its connection go, and while it is on picks up, attempts every message due in turn
+    // and arms the timer for the next.
     async fn pass(
         self: &Arc<Self>,
         follow: &mut ChangeFollow,
@@ -265,6 +266,7 @@ impl WebAddressSender {
             if !self.is_switched_on().await? {
                 self.drop_pending(follow).await?;
                 ArmedInstant::arm(self, None);
+                self.poster.release();
                 return Ok(());
             }
             self.pick_up(follow).await?;

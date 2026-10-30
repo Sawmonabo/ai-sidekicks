@@ -4,6 +4,7 @@
 //! drops its address before it is kept or logged, and the answer's body is never read.
 
 use std::error::Error;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -18,8 +19,8 @@ use secrecy::zeroize::Zeroizing;
 use sidekicks_contracts::attention::AttentionDeliveryResult;
 use sidekicks_contracts::web_address::WebAddress;
 use sidekicks_contracts::wire::integer::BoundedInt;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::outbound_http::outbound_client_builder;
-use tokio::sync::OnceCell;
 
 use crate::attention::delivery::web_address::signature::{UnreadableSigningSecret, sign_message};
 
@@ -29,10 +30,11 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(15);
 /// The idle connections kept to the address: the one a sequential sender reuses.
 const IDLE_CONNECTIONS_PER_HOST: usize = 1;
 
-/// The web address's HTTP client, built at its first post and kept; it follows no redirect.
+/// The web address's HTTP client, built at its first post and kept until it is released; it
+/// follows no redirect.
 #[derive(Default)]
 pub(crate) struct WebAddressPoster {
-    client: OnceCell<Client>,
+    client: Mutex<Option<Client>>,
 }
 
 /// One attempt to send a message: where, signed with what, its id, its frozen body and the
@@ -72,19 +74,30 @@ pub(crate) enum PostError {
 }
 
 impl WebAddressPoster {
+    /// Drops the client and, with it, the idle connection it keeps, once nothing is sent.
+    pub(crate) fn release(&self) {
+        lock(&self.client).take();
+    }
+
+    // The kept client, built when none is.
+    fn client(&self) -> Result<Client, PostError> {
+        let mut kept = lock(&self.client);
+        if let Some(client) = kept.as_ref() {
+            return Ok(client.clone());
+        }
+        let client = outbound_client_builder(IDLE_CONNECTIONS_PER_HOST)
+            .redirect(Policy::none())
+            .build()
+            .map_err(|error| PostError::Client(error.without_url()))?;
+        *kept = Some(client.clone());
+        Ok(client)
+    }
+
     /// Sends `post`'s body once and reports how it ended: a 2xx answer within 15 s `delivered`,
     /// any other answer, a redirect among them, `refused`, no answer in time `timedOut`, and no
     /// answer at all `unreachable`. Fails with [`PostError`] when no attempt could be made.
     pub(crate) async fn post(&self, post: WebAddressPost<'_>) -> Result<PostOutcome, PostError> {
-        let client = self
-            .client
-            .get_or_try_init(|| async {
-                outbound_client_builder(IDLE_CONNECTIONS_PER_HOST)
-                    .redirect(Policy::none())
-                    .build()
-                    .map_err(|error| PostError::Client(error.without_url()))
-            })
-            .await?;
+        let client = self.client()?;
         let timestamp = post.attempted_at.as_second();
         let signature = sign_message(post.signing_secret, post.message_id, timestamp, post.body)?;
         let (url, authorization) = moved_user_info(post.address);
