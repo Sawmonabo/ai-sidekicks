@@ -1,14 +1,12 @@
 //! The programs that run the command after their own options and operands, such as `env -i`,
 //! `sudo -u` or `timeout 5`, how each reads its own words before the command's, and what those
-//! words leave for the run to decide about the command.
+//! words hand the command from the wrapper's input.
 
 use std::collections::VecDeque;
 
 use super::command_string::{CommandStringWords, LineOptions, command_string_words};
 use super::is_variable_assignment;
-use super::words::{
-    ShellWord, SplitString, Word, WordBuilder, WordText, long_option_named, short_option_named,
-};
+use super::words::{ShellWord, Word, WordBuilder, WordText, long_option_named, short_option_named};
 
 /// How a program that runs the command after it reads its own words first: its options that take
 /// a value (the rest of the short option's cluster, after a long option's `=`, or the next word);
@@ -19,7 +17,8 @@ use super::words::{
 /// whose value stands where the leading operand would; those whose optional value inside their own
 /// word ends its input in place of `--`; the letters whose optional value is only the rest of
 /// their cluster; whether it reads its short options in clusters and `-` alone as an option; the
-/// operand it takes before the command; and whether it appends its input's words to the command.
+/// operand it takes before the command; whether it appends its input's words to the command; and
+/// when, given no command, it runs a shell that reads its input.
 #[derive(Clone, Copy)]
 pub(super) struct CommandWrapper {
     options_with_value: &'static [&'static str],
@@ -36,15 +35,15 @@ pub(super) struct CommandWrapper {
     is_lone_dash_an_option: bool,
     leading_operand: LeadingOperand,
     appends_input_words: bool,
+    shell_with_no_command: ShellWithNoCommand,
 }
 
-/// What the words before a command's program leave for the run to decide: whether the program
-/// itself, and the strings a wrapper replaces with its input's words, if one does.
+/// What the words before a command's program hand it from a wrapper's input, and whether the last
+/// wrapper read, left with no command, runs a shell that reads its input.
 #[derive(Default)]
 pub(super) struct WrapperRegion {
-    /// Whether a word before the program, or the program word, lets only the run decide which
-    /// program runs.
-    pub(super) is_program_undecided: bool,
+    /// Whether the last wrapper read runs a shell reading its input when no command follows it.
+    pub(super) runs_a_shell_with_no_command: bool,
     // Whether a wrapper appends its input's words to the command.
     appends_input_words: bool,
     // The strings a wrapper replaces with its input's words; `None` for one the run decides.
@@ -65,6 +64,15 @@ enum LeadingOperand {
     // The input words up to and including the word that ends them, `--` unless an option names
     // another, as zsh's `zargs` reads them; with no such word there is no command.
     InputUpToItsEnd,
+}
+
+// When a wrapper given no command runs a shell that reads its input: never, always, as `chroot`
+// and `script` do, or with one of these options, as `sudo -s` does.
+#[derive(Clone, Copy)]
+enum ShellWithNoCommand {
+    Never,
+    Always,
+    WithOption(&'static [&'static str]),
 }
 
 // The word that ends a wrapper's input words before its command, as `zargs` reads it.
@@ -164,6 +172,7 @@ impl CommandWrapper {
             is_lone_dash_an_option: false,
             leading_operand: LeadingOperand::Absent,
             appends_input_words: false,
+            shell_with_no_command: ShellWithNoCommand::Never,
         }
     }
 
@@ -201,6 +210,45 @@ impl CommandWrapper {
             || !self.split_string_options.is_empty()
             || !self.replacement_options.is_empty()
             || !self.options_replacing_operand.is_empty()
+    }
+
+    // Whether the option word `word` names one of the options with which the wrapper, given no
+    // command, runs a shell: a long one by its name or a prefix of it alone, or a letter of a short
+    // cluster before the first that takes a value.
+    fn names_a_shell_option(self, word: ShellWord<'_>) -> bool {
+        let ShellWithNoCommand::WithOption(shell_options) = self.shell_with_no_command else {
+            return false;
+        };
+        if word.starts_with("--") {
+            let shell = shell_options.iter().map(|&option| (option, true));
+            let other = self
+                .options()
+                .filter(|(option, _)| !shell_options.contains(option))
+                .map(|(option, _)| (option, false));
+            return long_option_named(word, shell.chain(other))
+                .is_some_and(|(is_shell, _)| is_shell);
+        }
+        let names_letter = |options: &[&str], letter: char| {
+            options.iter().any(|option| {
+                let mut characters = option.chars();
+                characters.next() == Some('-')
+                    && characters.next() == Some(letter)
+                    && characters.next().is_none()
+            })
+        };
+        for letter in word.chars().skip(1) {
+            if names_letter(shell_options, letter) {
+                return true;
+            }
+            let takes_value = self.letters_with_attached_value.contains(letter)
+                || self.options().any(|(option, kind)| {
+                    !matches!(kind, OptionKind::Flag) && names_letter(&[option], letter)
+                });
+            if takes_value {
+                return false;
+            }
+        }
+        false
     }
 
     // What the option word `word` holds, as getopt reads it: a long option by its whole name or by
@@ -304,6 +352,10 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
     (
         "sudo",
         CommandWrapper {
+            // `-s` and `-i` with no command run the target user's shell, which reads its input.
+            shell_with_no_command: ShellWithNoCommand::WithOption(&[
+                "-s", "--shell", "-i", "--login",
+            ]),
             // The long options that take no value, so `--login` is not read as `--login-class`.
             flag_options: &[
                 "--login",
@@ -354,7 +406,13 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
             ])
         },
     ),
-    ("doas", CommandWrapper::new(&["-a", "-C", "-u"])),
+    (
+        "doas",
+        CommandWrapper {
+            shell_with_no_command: ShellWithNoCommand::WithOption(&["-s"]),
+            ..CommandWrapper::new(&["-a", "-C", "-u"])
+        },
+    ),
     (
         "xargs",
         CommandWrapper {
@@ -477,8 +535,9 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
     (
         "chroot",
         CommandWrapper {
-            // The new root comes before the command.
+            // The new root comes before the command; with none after it, a shell runs there.
             leading_operand: LeadingOperand::AnyWord,
+            shell_with_no_command: ShellWithNoCommand::Always,
             ..CommandWrapper::new(&["-G", "-g", "-u", "--groups", "--userspec"])
         },
     ),
@@ -494,6 +553,8 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
             options_running_nothing: &["-p"],
             options_handing_a_line: &["-c", "--command"],
             leading_operand: LeadingOperand::AnyWord,
+            // With no command or line, a shell runs under the recording.
+            shell_with_no_command: ShellWithNoCommand::Always,
             ..CommandWrapper::new(&[
                 "-t",
                 "-T",
@@ -546,10 +607,9 @@ pub(super) fn command_wrapper(program: impl WordText) -> Option<CommandWrapper> 
 /// leading operand. `env -S` puts the words its value splits into in their place, whether the value
 /// is the next word or attached, as in `-S'…'`, `-vS'…'` or `--split-string=…`, and reads them
 /// again as its own arguments, assignments among them. Each word taken off is pushed on `taken`.
-/// The program stays decided only while each word taken is a decided literal, an assignment or an
-/// option's value whose only undecided parts are double-quoted, or a decided option with such a
-/// value attached; any other word only the run decides, a leading operand quoted or not among them,
-/// sets `region.is_program_undecided`, and so does a split string only the run decides.
+/// A word only the run decides where an option that may take a value is read, or where a split
+/// string's word is, leaves the wrapper the program, as does a split string env refuses or only
+/// the run decides. `region` keeps whether the wrapper, left with no command, runs a shell.
 pub(super) fn take_wrapper_words(
     builder: &mut WordBuilder<'_>,
     wrapper: CommandWrapper,
@@ -565,11 +625,11 @@ pub(super) fn take_wrapper_words(
     let mut have_options_ended = false;
     let mut is_operand_replaced = false;
     let mut input_end = Some(DEFAULT_INPUT_END.to_owned());
+    let mut runs_a_shell = false;
     while let Some(word) = words.front() {
         let view = builder.view(word);
         // env reads a split string's assignments before its program, and no option after one.
         if words.is_front_split() && is_variable_assignment(view) {
-            region.is_program_undecided |= view.holds_unquoted_expansion();
             words.pop_front();
             have_options_ended = true;
             continue;
@@ -589,9 +649,7 @@ pub(super) fn take_wrapper_words(
                     if view.is_decided_through(bytes)
             );
         if !view.is_decided() && !is_option_with_quoted_value {
-            // Any other word is an assignment, the leading operand or the program, each of which
-            // its own reading marks.
-            region.is_program_undecided |= is_option || words.is_front_split();
+            // Any other word is an assignment, the leading operand or the program.
             if words.is_front_split() || (is_option && wrapper.takes_values()) {
                 return WrapperRead::WrapperIsProgram;
             }
@@ -611,6 +669,7 @@ pub(super) fn take_wrapper_words(
             continue;
         }
         let option_word = wrapper.option_word(view);
+        runs_a_shell |= wrapper.names_a_shell_option(view);
         if matches!(
             option_word,
             OptionWord::RunsNothing | OptionWord::HandsALine
@@ -622,10 +681,8 @@ pub(super) fn take_wrapper_words(
             OptionWord::RunsNothing | OptionWord::HandsALine | OptionWord::Flags => continue,
             OptionWord::OperandValue { attached_from } => {
                 is_operand_replaced = true;
-                if attached_from.is_none()
-                    && let Some(value) = words.pop_front()
-                {
-                    region.is_program_undecided |= builder.view(value).holds_unquoted_expansion();
+                if attached_from.is_none() {
+                    words.pop_front();
                 }
                 continue;
             }
@@ -661,7 +718,6 @@ pub(super) fn take_wrapper_words(
                     continue;
                 };
                 let value_view = builder.view(value);
-                region.is_program_undecided |= value_view.holds_unquoted_expansion();
                 if role == ValueRole::Replaces {
                     let replacement = value_view.is_decided().then(|| value_view.to_string());
                     region.replacements.push(replacement);
@@ -673,12 +729,8 @@ pub(super) fn take_wrapper_words(
             continue;
         };
         match builder.split_string(value) {
-            SplitString::Words(split_words) => words.push_split(split_words),
-            SplitString::Refused => return WrapperRead::WrapperIsProgram,
-            SplitString::Undecided => {
-                region.is_program_undecided = true;
-                return WrapperRead::WrapperIsProgram;
-            }
+            Some(split_words) => words.push_split(split_words),
+            None => return WrapperRead::WrapperIsProgram,
         }
     }
     let operand_words = match wrapper.leading_operand {
@@ -700,9 +752,7 @@ pub(super) fn take_wrapper_words(
         }
     };
     for _ in 0..operand_words {
-        if let Some(operand) = words.pop_front() {
-            region.is_program_undecided |= !builder.view(operand).is_decided();
-        }
+        words.pop_front();
     }
     // A line option after the operand, as `flock <file> -c <line>` takes it.
     if let Some(word) = words.front() {
@@ -712,6 +762,11 @@ pub(super) fn take_wrapper_words(
         }
     }
     region.appends_input_words |= wrapper.appends_input_words;
+    region.runs_a_shell_with_no_command = match wrapper.shell_with_no_command {
+        ShellWithNoCommand::Never => false,
+        ShellWithNoCommand::Always => true,
+        ShellWithNoCommand::WithOption(_) => runs_a_shell,
+    };
     WrapperRead::CommandFollows
 }
 
@@ -724,16 +779,16 @@ impl WrapperRegion {
     /// Reads into the command whose program is `words[program]`, its arguments the words after
     /// it, what a wrapper before it takes from its input: each word holding a string the wrapper
     /// replaces becomes one only the run decides, as every word does when the run decides that
-    /// string, and the words it appends are one more such word. The program is then undecided
-    /// when the run decides its word, or a line it hands a shell holds the input's words.
+    /// string, and the words it appends are one more such word. Answers whether a line the
+    /// command hands a shell holds the input's words.
     pub(super) fn read_input_words(
-        &mut self,
+        &self,
         builder: &mut WordBuilder<'_>,
         words: &mut Vec<Word>,
         program: usize,
-    ) {
+    ) -> bool {
         if !self.takes_input_words() {
-            return;
+            return false;
         }
         for word in &mut words[program..] {
             let text = builder.view(*word).to_string();
@@ -752,17 +807,16 @@ impl WrapperRegion {
         let arguments = &words[program + 1..];
         let program = builder.view(words[program]);
         let argument_words = || arguments.iter().map(|&word| builder.view(word));
-        self.is_program_undecided |= !program.is_decided()
-            || command_string_words(program, argument_words())
-                .into_iter()
-                .any(|string| match string {
-                    CommandStringWords::Joined { from } => {
-                        argument_words().skip(from).any(|word| !word.is_decided())
-                    }
-                    CommandStringWords::One { index, .. } => {
-                        !builder.view(arguments[index]).is_decided()
-                    }
-                });
+        command_string_words(program, argument_words())
+            .into_iter()
+            .any(|string| match string {
+                CommandStringWords::Joined { from } => {
+                    argument_words().skip(from).any(|word| !word.is_decided())
+                }
+                CommandStringWords::One { index, .. } => {
+                    !builder.view(arguments[index]).is_decided()
+                }
+            })
     }
 }
 

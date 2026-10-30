@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use sidekicks_policy::destructive_git::read_git_aliases;
+use sidekicks_policy::destructive_git::read_git_run_settings;
 use sidekicks_policy::shell_commands::{ShellLineReader, ShellLineReading, WordText, is_option};
 
 use crate::driver::{BackgroundWork, ProviderDescriptor};
@@ -43,8 +43,8 @@ impl BackgroundWorkForms {
 
 /// The reason the agent reads when the line `reading` holds starts background work of one of
 /// `forms`' providers, or `None` when it starts none. The `-c` and `eval` strings its shells run
-/// and the lines its git aliases run are reread on `reader` and judged as the line is; a line not
-/// read whole is also judged by the words it still shows.
+/// and the lines its git settings hand a shell are reread on `reader` and judged as the line is;
+/// a line not read whole is also judged by the words it still shows.
 pub fn refuse_background_work(
     forms: &BackgroundWorkForms,
     reader: &mut ShellLineReader,
@@ -83,7 +83,7 @@ pub(crate) fn plain_background_work_forms(forms: &BackgroundWorkForms) -> Vec<St
 }
 
 // The refusal for a command of `reading` that starts background work, or for the words a line
-// not read whole still shows; each string a command hands a shell, or a git alias of its runs, is
+// not read whole still shows; each string a command hands a shell, or its git settings do, is
 // read and left in `rereads` to be judged in its place. A command is read by the words its text
 // spells, so one whose program only the run decides is judged by those words alone.
 fn refusal_in(
@@ -109,8 +109,8 @@ fn refusal_in(
     }
     for command in reading.commands() {
         rereads.extend(reader.read_command_strings(command));
-        let aliases = read_git_aliases(reading, command);
-        rereads.extend(aliases.shell_lines().map(|line| reader.read(line)));
+        let settings = read_git_run_settings(reading, command);
+        rereads.extend(settings.shell_lines().map(|line| reader.read(line)));
         let arguments = command.argument_words();
         if let Some(refusal) = forms
             .providers

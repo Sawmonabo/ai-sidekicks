@@ -14,16 +14,6 @@ struct ReadCommand {
     program: String,
     argument_words: Vec<String>,
     wrapper_words: Vec<String>,
-    is_program_undecided: bool,
-}
-
-impl ReadCommand {
-    fn with_undecided_program(self) -> Self {
-        Self {
-            is_program_undecided: true,
-            ..self
-        }
-    }
 }
 
 impl From<ShellCommand<'_>> for ReadCommand {
@@ -38,7 +28,6 @@ impl From<ShellCommand<'_>> for ReadCommand {
                 .wrapper_words()
                 .map(|word| word.to_string())
                 .collect(),
-            is_program_undecided: command.is_program_undecided(),
         }
     }
 }
@@ -48,7 +37,6 @@ fn command(program: &str, argument_words: &[&str], wrapper_words: &[&str]) -> Re
         program: program.to_owned(),
         argument_words: argument_words.iter().map(|&word| word.to_owned()).collect(),
         wrapper_words: wrapper_words.iter().map(|&word| word.to_owned()).collect(),
-        is_program_undecided: false,
     }
 }
 
@@ -133,19 +121,18 @@ fn assert_unread(reading: &ShellLineReading) {
     true
 )]
 // A word only the run decides where a wrapper reads an option that may take a value leaves the
-// wrapper the program, which the run decides, and so does env's split string; a string env
-// refuses whatever the run supplies leaves env the program it is.
+// wrapper the program, and so does env's split string or one env refuses whatever the run
+// supplies.
 #[case::undecided_option_of_a_wrapper(
     "sudo -$o root git push --force",
     vec![
         command("sudo", &["-$o", "root", "git", "push", "--force"], &[])
-            .with_undecided_program(),
     ],
     true
 )]
 #[case::undecided_program_of_a_split_string(
     "env -S'${P} push -f'",
-    vec![command("env", &["${P}", "push", "-f"], &[]).with_undecided_program()],
+    vec![command("env", &["${P}", "push", "-f"], &[])],
     true
 )]
 #[case::split_string_env_refuses(
@@ -163,12 +150,12 @@ fn assert_unread(reading: &ShellLineReading) {
     )],
     true
 )]
-// Splits nested in splits read no more bytes in all than the line holds, and what env makes of
-// the rest only the run decides.
+// Splits nested in splits read no more bytes in all than the line holds; past that, env is left
+// the program of the rest and the line reads not whole.
 #[case::split_strings_past_the_line(
     "env -S-S-S-Sx",
-    vec![command("env", &[], &[]).with_undecided_program()],
-    true
+    vec![command("env", &[], &[])],
+    false
 )]
 // xargs appends the words it reads from its input to the command.
 #[case::xargs_appends_its_input(
@@ -176,10 +163,11 @@ fn assert_unread(reading: &ShellLineReading) {
     vec![command("git", &["log", "{}"], &["xargs", "-0"])],
     true
 )]
-// A split string's assignments come before its program, which here only the run decides.
+// A split string's assignments come before its program, which here only the run decides, so env
+// is left the program.
 #[case::undecided_program_after_a_split_assignment(
     "env -S'A=1 ${P} push'",
-    vec![command("env", &["${P}", "push"], &[]).with_undecided_program()],
+    vec![command("env", &["${P}", "push"], &[])],
     true
 )]
 #[case::assignments_only("FOO=1 BAR=2", vec![], true)]
@@ -299,13 +287,18 @@ fn reads_the_commands_of_a_line(
 }
 
 // A line of nested levels built to the test's limit, read on a thread with the stack of
-// tokio's blocking threads; the line's memory and time must grow with its length alone.
+// tokio's blocking threads; the line's memory and time must grow with its length alone. Nested
+// splits stop at the bound on what they read, so that line reads not whole.
 #[rstest]
-#[case::an_escape_at_every_level(r#""\$x$("#, r#")""#)]
-#[case::env_split_strings(r#"env -S "$("#, r#")""#)]
-#[case::evals("eval $(", ")")]
-#[case::substitutions("$(", ")")]
-fn reads_a_line_nested_to_the_limit(#[case] open: &str, #[case] close: &str) {
+#[case::an_escape_at_every_level(r#""\$x$("#, r#")""#, true)]
+#[case::env_split_strings(r#"env -S "$("#, r#")""#, false)]
+#[case::evals("eval $(", ")", true)]
+#[case::substitutions("$(", ")", true)]
+fn reads_a_line_nested_to_the_limit(
+    #[case] open: &str,
+    #[case] close: &str,
+    #[case] is_whole: bool,
+) {
     const NEST_LIMIT: usize = 1 << 20;
     let levels = (NEST_LIMIT - 1) / (open.len() + close.len());
     let line = format!("{}x{}", open.repeat(levels), close.repeat(levels));
@@ -317,7 +310,7 @@ fn reads_a_line_nested_to_the_limit(#[case] open: &str, #[case] close: &str) {
         .join()
         .expect("the read ends without a panic");
 
-    assert!(reading.is_whole());
+    assert_eq!(reading.is_whole(), is_whole);
     assert_eq!(reading.commands().len(), levels + 1);
     let innermost = reading.commands().last().expect("the line runs commands");
     assert_eq!(ReadCommand::from(innermost), command("x", &[], &[]));
@@ -510,7 +503,6 @@ proptest! {
                 program,
                 argument_words,
                 wrapper_words: Vec::new(),
-                is_program_undecided: false,
             }]
         );
     }

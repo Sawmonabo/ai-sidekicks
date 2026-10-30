@@ -1,7 +1,7 @@
 //! Which git commands are destructive, a force push or a branch delete, read wherever a line runs
-//! them, the strings its shells run and the aliases a git command defines included; the
-//! subcommand a git command runs, past git's own options; the aliases it defines for its own run;
-//! and which standing rules a provider keeps as a prefix that would also let a destructive
+//! them, the strings its shells run and the lines a git command's settings run included; the
+//! subcommand a git command runs, past git's own options; what its settings for its own run make
+//! it run; and which standing rules a provider keeps as a prefix that would also let a destructive
 //! one through, which no provider can narrow and so is never handed to one.
 
 use std::sync::Arc;
@@ -58,10 +58,11 @@ const PUSH_DESTRUCTIVE_LETTERS: &[char] = &['f', 'd'];
 const BRANCH_DELETE_LETTERS: &[char] = &['d', 'D'];
 
 /// Whether the line `reading` holds runs a force push or a branch delete anywhere, the `-c` and
-/// `eval` strings its shells run and the lines its git aliases run included, each reread on
-/// `reader`. A command whose program only the run decides counts as one; a line not read whole
-/// counts as one when the words it still shows name one; a string the reader leaves unread holds
-/// no command, so it reads as no destructive git.
+/// `eval` strings its shells run and the lines its git settings hand a shell included, each
+/// reread on `reader`. Each command is read by the words its text spells, so one whose program
+/// only the run decides counts as none; a command that runs a line it reads from its input counts
+/// as one; a line not read whole counts as one when the words it still shows name one; a string
+/// the reader leaves unread holds no command, so it reads as no destructive git.
 pub fn runs_destructive_git(reader: &mut ShellLineReader, reading: &ShellLineReading) -> bool {
     // The strings still to judge, so a nesting depth costs a list entry and never a stack frame.
     let mut rereads = Vec::new();
@@ -99,9 +100,9 @@ pub fn covers_destructive_git(rule: &ProviderAskRule) -> bool {
         && subcommand.is_none_or(|subcommand| DESTRUCTIVE_GIT_SUBCOMMANDS.contains(&subcommand))
 }
 
-// Whether a command of `reading` whose program only the run decides, or any other command, is a
-// destructive git command, or a line not read whole shows one; each string a command hands a
-// shell, or a git alias of its runs, is read and left in `rereads` to be judged in its place.
+// Whether a command of `reading` is a destructive git command or runs a line it reads from its
+// input, or a line not read whole shows one; each string a command hands a shell, or its git
+// settings do, is read and left in `rereads` to be judged in its place.
 fn holds_destructive_git(
     reader: &mut ShellLineReader,
     reading: &ShellLineReading,
@@ -116,13 +117,13 @@ fn holds_destructive_git(
         return true;
     }
     for command in reading.commands() {
-        if command.is_program_undecided() {
+        if command.runs_a_line_from_its_input() {
             return true;
         }
         rereads.extend(reader.read_command_strings(command));
-        let aliases = read_git_aliases(reading, command);
-        rereads.extend(aliases.shell_lines().map(|line| reader.read(line)));
-        if is_destructive_git(command, &aliases) {
+        let settings = read_git_run_settings(reading, command);
+        rereads.extend(settings.shell_lines().map(|line| reader.read(line)));
+        if is_destructive_git(command, &settings) {
             return true;
         }
     }
@@ -138,13 +139,14 @@ fn runs_git_words(run: &[String]) -> bool {
     })
 }
 
-// A push that forces or deletes, or a branch delete, of a git command whose program is decided,
-// its aliases' words put in place of the subcommand each names, as git runs them.
-fn is_destructive_git(command: ShellCommand<'_>, aliases: &GitAliases) -> bool {
+// A push that forces or deletes, or a branch delete, of a git command, its aliases' words put in
+// place of the subcommand each names, as git runs them.
+fn is_destructive_git(command: ShellCommand<'_>, settings: &GitRunSettings) -> bool {
     if !command.program().is("git") {
         return false;
     }
-    if aliases.aliases.is_empty() {
+    let aliases = &settings.aliases;
+    if aliases.is_empty() {
         return is_destructive_git_arguments(command.argument_words());
     }
     let mut arguments: Vec<GitArgumentWord<'_>> = command
@@ -152,7 +154,7 @@ fn is_destructive_git(command: ShellCommand<'_>, aliases: &GitAliases) -> bool {
         .map(GitArgumentWord::Read)
         .collect();
     // Each alias stands in once, as git refuses an alias that names itself again.
-    let mut is_expanded = vec![false; aliases.aliases.len()];
+    let mut is_expanded = vec![false; aliases.len()];
     loop {
         if is_destructive_git_arguments(arguments.iter().copied()) {
             return true;
@@ -169,20 +171,14 @@ fn is_destructive_git(command: ShellCommand<'_>, aliases: &GitAliases) -> bool {
             name.eq(alias.name.chars())
         };
         let alias = aliases
-            .aliases
             .iter()
             .enumerate()
-            .find_map(|(index, alias)| match &alias.value {
-                GitAliasValue::Words(words) if !is_expanded[index] && named(alias) => {
-                    Some((index, words))
-                }
-                GitAliasValue::Words(_) | GitAliasValue::ShellLine(_) => None,
-            });
-        let Some((index, words)) = alias else {
+            .find(|&(index, alias)| !is_expanded[index] && named(alias));
+        let Some((index, alias)) = alias else {
             return false;
         };
         is_expanded[index] = true;
-        let words = words.iter().map(|word| GitArgumentWord::Alias(word));
+        let words = alias.words.iter().map(|word| GitArgumentWord::Alias(word));
         arguments.splice(taken - 1..taken, words);
     }
 }
@@ -227,48 +223,70 @@ fn is_destructive_git_arguments<W: GitArgument>(arguments: impl Iterator<Item = 
     false
 }
 
-/// The aliases a git command defines for its own run, through its `-c alias.<name>=<value>`
-/// options or the line's `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` assignments, with those
-/// the values of these aliases define in turn.
-pub struct GitAliases {
+/// What a git command's settings for its own run make it run: the aliases it defines, through
+/// its `-c` options, the line's `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` pairs or its
+/// `GIT_CONFIG_PARAMETERS`, with those the values of these aliases define in turn; and the shell
+/// lines those settings and the line's `GIT_PAGER`, `GIT_EDITOR` and their kin hand a shell.
+pub struct GitRunSettings {
     aliases: Vec<GitAlias>,
+    shell_lines: Vec<String>,
 }
 
-// One alias: its name in lower case, as git compares configuration names, and what it runs.
+// One alias of git's own words: its name in lower case, as git compares configuration names, and
+// its value split as git splits it.
 struct GitAlias {
     name: String,
-    value: GitAliasValue,
+    words: Vec<String>,
 }
 
-// What an alias runs: the shell line after a leading `!`, or else git's own words, split as git
-// splits them.
-enum GitAliasValue {
-    ShellLine(String),
-    Words(Vec<String>),
-}
-
-impl GitAliases {
-    /// The lines the aliases whose value starts with `!` hand a shell, whether or not the command
-    /// names them.
+impl GitRunSettings {
+    /// The lines the settings hand a shell, whether or not the command names or reaches them: an
+    /// alias's value after its leading `!`, a pager, an editor, an SSH command, an external diff,
+    /// and a credential helper's value after its leading `!`.
     pub fn shell_lines(&self) -> impl Iterator<Item = &str> {
-        self.aliases.iter().filter_map(|alias| match &alias.value {
-            GitAliasValue::ShellLine(line) => Some(line.as_str()),
-            GitAliasValue::Words(_) => None,
-        })
+        self.shell_lines.iter().map(String::as_str)
     }
 }
 
 // The configuration name of an alias, before its name.
 const ALIAS_SECTION: &str = "alias.";
 
-/// The aliases `command` of `reading` defines for its run when its program is git, none for any
+// The settings whose value git hands a shell as a line, compared in lower case.
+const SHELL_LINE_SETTINGS: &[&str] = &[
+    "core.pager",
+    "core.editor",
+    "sequence.editor",
+    "core.sshcommand",
+    "diff.external",
+];
+
+// The environment names whose value git hands a shell as a line.
+const SHELL_LINE_ENVIRONMENT: &[&str] = &[
+    "GIT_PAGER",
+    "GIT_EDITOR",
+    "GIT_SEQUENCE_EDITOR",
+    "GIT_SSH_COMMAND",
+    "GIT_EXTERNAL_DIFF",
+];
+
+// The environment name whose value holds the `-c` settings git hands the git programs it runs.
+const CONFIG_PARAMETERS: &str = "GIT_CONFIG_PARAMETERS";
+
+/// The settings `command` of `reading` gives its own run when its program is git, none for any
 /// other: from git's own `-c` options, the `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` pairs
-/// the line or the command's wrappers assign, and the `-c` options of each alias's own words. A
-/// setting only the run decides is not read.
-pub fn read_git_aliases(reading: &ShellLineReading, command: ShellCommand<'_>) -> GitAliases {
-    let mut aliases = Vec::new();
+/// and the `GIT_CONFIG_PARAMETERS` the line or the command's wrappers assign, the `-c` options of
+/// each alias's own words, and the environment names whose value is a shell line. A setting only
+/// the run decides is not read.
+pub fn read_git_run_settings(
+    reading: &ShellLineReading,
+    command: ShellCommand<'_>,
+) -> GitRunSettings {
+    let mut run_settings = GitRunSettings {
+        aliases: Vec::new(),
+        shell_lines: Vec::new(),
+    };
     if !command.program().is("git") {
-        return GitAliases { aliases };
+        return run_settings;
     }
     let mut settings = Vec::new();
     push_config_options(command.argument_words(), &mut settings);
@@ -286,6 +304,10 @@ pub fn read_git_aliases(reading: &ShellLineReading, command: ShellCommand<'_>) -
             keys.push((number.to_owned(), value.to_owned()));
         } else if let Some(number) = name.strip_prefix("GIT_CONFIG_VALUE_") {
             values.push((number.to_owned(), value.to_owned()));
+        } else if name == CONFIG_PARAMETERS {
+            push_config_parameters(value, &mut settings);
+        } else if SHELL_LINE_ENVIRONMENT.contains(&name) {
+            run_settings.shell_lines.push(value.to_owned());
         }
     }
     for (number, key) in keys {
@@ -301,27 +323,87 @@ pub fn read_git_aliases(reading: &ShellLineReading, command: ShellCommand<'_>) -
         let Some((key, value)) = setting.split_once('=') else {
             continue;
         };
-        let Some(name) = key
-            .get(..ALIAS_SECTION.len())
-            .filter(|section| section.eq_ignore_ascii_case(ALIAS_SECTION))
-            .map(|_| &key[ALIAS_SECTION.len()..])
-        else {
+        let key = key.to_ascii_lowercase();
+        if let Some(line) = shell_line_of_setting(&key, value) {
+            run_settings.shell_lines.push(line.to_owned());
+            continue;
+        }
+        let Some(name) = key.strip_prefix(ALIAS_SECTION) else {
             continue;
         };
-        let value = if let Some(line) = value.strip_prefix('!') {
-            GitAliasValue::ShellLine(line.to_owned())
-        } else {
-            // git refuses a value with an open quote, running nothing.
-            let words = shlex::split(value).unwrap_or_default();
-            push_config_options(words.iter().map(String::as_str), &mut settings);
-            GitAliasValue::Words(words)
-        };
-        aliases.push(GitAlias {
-            name: name.to_ascii_lowercase(),
-            value,
+        if let Some(line) = value.strip_prefix('!') {
+            run_settings.shell_lines.push(line.to_owned());
+            continue;
+        }
+        // git refuses a value with an open quote, running nothing.
+        let words = shlex::split(value).unwrap_or_default();
+        push_config_options(words.iter().map(String::as_str), &mut settings);
+        run_settings.aliases.push(GitAlias {
+            name: name.to_owned(),
+            words,
         });
     }
-    GitAliases { aliases }
+    run_settings
+}
+
+// The line the setting `key`, in lower case, hands a shell with `value`: the whole value of a
+// pager, an editor, an SSH command or an external diff, and a credential helper's after its `!`.
+fn shell_line_of_setting<'v>(key: &str, value: &'v str) -> Option<&'v str> {
+    if SHELL_LINE_SETTINGS.contains(&key) {
+        return Some(value);
+    }
+    let is_credential_helper = key.starts_with("credential.") && key.ends_with(".helper");
+    is_credential_helper
+        .then(|| value.strip_prefix('!'))
+        .flatten()
+}
+
+// Pushes each `<key>=<value>` setting of a `GIT_CONFIG_PARAMETERS` value, items single-quoted as
+// a shell quotes them and parted by blanks, each `'<key>=<value>'` or `'<key>'='<value>'`, as
+// git's own `-c` writes them; git stops at the first item it cannot read.
+fn push_config_parameters(value: &str, settings: &mut Vec<String>) {
+    let mut rest = value.trim_start();
+    while !rest.is_empty() {
+        let Some((key, after_key)) = single_quoted_step(rest) else {
+            return;
+        };
+        let (setting, after_item) = match after_key.strip_prefix('=') {
+            Some(after_equals) if after_equals.starts_with('\'') => {
+                let Some((value, after_value)) = single_quoted_step(after_equals) else {
+                    return;
+                };
+                (format!("{key}={value}"), after_value)
+            }
+            Some(after_equals) => (format!("{key}="), after_equals),
+            None => (key, after_key),
+        };
+        if !after_item.is_empty() && !after_item.starts_with(char::is_whitespace) {
+            return;
+        }
+        settings.push(setting);
+        rest = after_item.trim_start();
+    }
+}
+
+// The text of the single-quoted run at the start of `text`, quoted runs joined across a `\'` or
+// `\!` between them as git reads them, and the text after it; `None` when `text` starts with no
+// quote or a quote is left open.
+fn single_quoted_step(text: &str) -> Option<(String, &str)> {
+    let mut rest = text.strip_prefix('\'')?;
+    let mut dequoted = String::new();
+    loop {
+        let close = rest.find('\'')?;
+        dequoted.push_str(&rest[..close]);
+        rest = &rest[close + 1..];
+        let mut escape = rest.chars();
+        match (escape.next(), escape.next(), escape.next()) {
+            (Some('\\'), Some(escaped @ ('\'' | '!')), Some('\'')) => {
+                dequoted.push(escaped);
+                rest = &rest[3..];
+            }
+            _ => return Some((dequoted, rest)),
+        }
+    }
 }
 
 // Pushes the `<name>=<value>` setting of each `-c` option among git's own options in `words`, of
@@ -541,37 +623,11 @@ mod tests {
         "X=\". push\"; env -S\"git -C $X --force\"",
         true
     )]
-    // A NUL ends bash's value of an ANSI-C string and stays in zsh's word.
-    #[case::ansi_c_nul_in_the_program(r"$'gi\0zz't push -f", true)]
     // zsh drops the backslash of an escape it does not know, so this word is `push` there.
     #[case::unknown_ansi_c_escape(r"git $'\push' --force", true)]
-    // A program only the run decides may be git.
-    #[case::expanded_program("G=git; $G push --force", true)]
-    // A wrapper's option word only the run decides sets which later word is the program.
-    #[case::expanded_option_of_a_wrapper("X=i; env -$X git push --force", true)]
-    #[case::quoted_expanded_option_of_a_wrapper("env \"-$X\" git push --force", true)]
-    #[case::expanded_option_before_a_value("sudo -$o root git push --force", true)]
-    // The shell splits a wrapper's unquoted value or assignment into the program and its words;
-    // a quoted one stays one word, which leaves the program read.
-    #[case::split_value_of_a_wrapper("env -u $U main", true)]
-    #[case::split_value_of_nice("nice -n $N main", true)]
-    #[case::split_operand_of_a_wrapper("timeout $D main", true)]
-    #[case::split_assignment_of_a_wrapper("env A=$X main", true)]
-    #[case::quoted_value_of_a_wrapper("env -u \"$U\" main", false)]
-    #[case::attached_quoted_value_of_a_wrapper("env -u\"$U\" main", false)]
-    #[case::quoted_assignment_of_a_wrapper("env \"A=$X\" main", false)]
-    // A wrapper's operand only the run decides, quoted or not, may be an option that moves the
-    // program, as `--foreground` before timeout's duration is.
-    #[case::quoted_operand_of_a_wrapper("timeout \"$D\" main", true)]
-    #[case::quoted_operand_before_the_duration("timeout \"$D\" 5 git push --force", true)]
-    #[case::quoted_operand_before_the_priority("chrt \"$P\" 5 git push --force", true)]
-    // A marked command is judged before the string it hands a shell, which the run may make an
-    // argument of another program.
-    #[case::split_value_before_a_shell_string("env -u $U sh -c 'echo hi'", true)]
-    #[case::split_folder_of_a_shell("$D/sh -c 'echo hi'", true)]
-    #[case::expanded_option_before_a_shell_string("command -$v sh -c x", true)]
-    #[case::split_assignment_before_a_shell_string("env A=$X bash -c x", true)]
-    #[case::split_operand_before_a_shell_string("timeout $D sh -c x", true)]
+    // A program the text does not spell is read by the words it does spell.
+    #[case::expanded_program("G=git; $G push --force", false)]
+    #[case::undecided_operand_before_another_program("timeout \"$T\" cargo test", false)]
     // Programs that run the words after them, and zsh's `=name`, which names a program's path.
     #[case::builtin_eval("builtin eval 'git push --force'", true)]
     #[case::noglob_modifier("noglob git push --force", true)]
@@ -580,55 +636,40 @@ mod tests {
     // xargs appends its input's words to the command, and puts them where the command holds the
     // string it replaces.
     #[case::xargs_appended_words("echo --force | xargs git push origin main", true)]
-    #[case::xargs_replaced_program("echo git | xargs -J % % push --force", true)]
     #[case::xargs_replaced_argument("echo --force | xargs -I% git push origin %", true)]
     #[case::xargs_replaced_shell_string("echo 'git push -f' | xargs -I% sh -c %", true)]
     #[case::xargs_appended_shell_string("echo 'git push -f' | xargs sh -c", true)]
     #[case::xargs_appended_words_after_a_reading_subcommand("echo x | xargs git status", false)]
     // A shell handed no `-c` string and no script reads its line from its input, and `source`
-    // reads one from anything but a regular file.
+    // reads one from anything but a regular file, its path's `.` and `..` folded.
     #[case::here_string_to_a_shell("sh <<< 'git push --force'", true)]
     #[case::pipe_into_a_shell("echo 'git push --force' | sh", true)]
     #[case::shell_reading_its_input("sh -s <<< x", true)]
     #[case::source_of_the_input("source /dev/stdin <<< x", true)]
     #[case::source_of_a_substitution(". <(echo x)", true)]
+    #[case::climb_to_the_input("sh ../../dev/stdin <<< x", true)]
+    #[case::source_through_a_device_folder("source /dev/fd/../stdin <<< x", true)]
     #[case::shell_running_a_script("sh ./script.sh", false)]
     #[case::source_of_a_script("source ./x.sh", false)]
+    // `su` handed no command, and a wrapper left with none that runs a shell, run a shell reading
+    // its input, as does a wrapper that xargs hands its input's words.
+    #[case::su_reading_its_input("echo 'git push --force' | su root", true)]
+    #[case::sudo_shell_reading_its_input("echo 'git push --force' | sudo -s", true)]
+    #[case::sudo_login_shell_in_a_cluster("echo 'git push --force' | sudo -Ei", true)]
+    #[case::doas_shell_reading_its_input("echo 'git push --force' | doas -s", true)]
+    #[case::chroot_shell_reading_its_input("echo 'git push --force' | chroot /x", true)]
+    #[case::script_shell_reading_its_input("echo 'git push --force' | script -q /dev/null", true)]
+    #[case::xargs_handing_sudo_its_input("echo 'git push --force' | xargs sudo -s", true)]
+    #[case::xargs_handing_a_wrapper_its_input("echo 'git push --force' | xargs nohup", true)]
+    #[case::sudo_user_named_s("echo 'git push --force' | sudo -us", false)]
     // The words of an alias a line defines run where the line uses it.
     #[case::alias_value("shopt -s expand_aliases\nalias g='git push --force'\ng", true)]
-    // env splits its split string again after the shell expanded it, so an expansion in its
-    // program or assignment word can be any program, and env's own `${name}` counts as one
-    // however the line spells it.
-    #[case::split_assignment_inside_a_split_string("env -S \"A=$X main\"", true)]
-    #[case::expanded_split_string("env -S \"$X\"", true)]
-    #[case::env_expanded_program_of_a_split_string("env -S'${P} push -f'", true)]
-    #[case::env_expanded_value_of_a_split_string("env -S'-u ${X} main'", true)]
-    #[case::escaped_env_expanded_value_of_a_split_string("env -S\"-u \\${X} main\"", true)]
-    // Where an expansion decides whether env refuses its split string, or the split spends the
-    // line's bytes, only the run decides what env runs; a line break or vertical tab is a blank.
-    #[case::expansion_closing_a_split_quote("X=\"'A=1 git push --force\"; env -S\"'$X\"", true)]
-    #[case::expansion_after_a_split_escape("X='_git push --force'; env -S\"\\\\$X\"", true)]
-    #[case::expansion_after_a_split_dollar(
-        "X='{P}'; P=git; export P; env -S'$'\"$X push --force\"",
-        true
-    )]
-    #[case::expansion_ending_a_split_string("X='git push --force #'; env -S\"$X'\"", true)]
+    // A split string's split strings are read in turn, and past the bound on what they read the
+    // line is judged by the words it shows; a line break or vertical tab is a blank.
     #[case::nested_split_past_the_line("env -S'-S \"git push --force\"'", true)]
     #[case::nested_split_chain("env -S-S-S-Sgit push --force", true)]
     #[case::line_break_in_a_split_string("env -S'A=1\ngit push --force'", true)]
     #[case::vertical_tab_in_a_split_string("env -S'git\u{b}push\u{b}--force'", true)]
-    // An expansion the shell splits in a program's folder can be the program; a quoted folder
-    // cannot split, so its file is the program.
-    #[case::split_folder_of_the_program("G=\"git push --force origin main -o\"; $G/x", true)]
-    #[case::expanded_home_folder("$HOME/bin/tool x", true)]
-    #[case::substituted_folder("$(printf 'git push -f -o')/x", true)]
-    // A pattern or a brace in a folder changes no name.
-    #[case::brace_folder("{a,b}/x", false)]
-    #[case::pattern_folder("g?t/x", false)]
-    #[case::quoted_substituted_folder(
-        "\"$(git rev-parse --show-toplevel)/tools/x.sh\" notes.md",
-        false
-    )]
     // Programs that run their words as a command, or hand a shell a line.
     #[case::trap_line("trap 'git push --force' EXIT", true)]
     #[case::find_exec("find . -exec git push --force \\;", true)]
@@ -658,6 +699,17 @@ mod tests {
         "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.x GIT_CONFIG_VALUE_0='!git push --force' git x",
         true
     )]
+    // git's settings whose value it hands a shell, from `-c`, the environment or its parameters.
+    #[case::git_pager_setting("git -c core.pager='git push --force' log", true)]
+    #[case::git_pager_environment("GIT_PAGER='git push --force' git log", true)]
+    #[case::git_credential_helper_line("git -c credential.helper='!git push --force' fetch", true)]
+    #[case::git_parameters_alias("GIT_CONFIG_PARAMETERS=\"'alias.x'='push --force'\" git x", true)]
+    #[case::git_parameters_pager(
+        "GIT_CONFIG_PARAMETERS=\"'core.pager=git push -f'\" git log",
+        true
+    )]
+    #[case::git_hooks_folder("git -c core.hooksPath=/x status", false)]
+    #[case::git_alias_from_the_environment("git --config-env=alias.x=A x", false)]
     #[case::git_environment_alias_through_env(
         "env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0=push git p --force",
         true
@@ -668,9 +720,9 @@ mod tests {
     // A line the parser does not read whole is judged by the words it still shows.
     #[case::zsh_short_loop("for x in 1; git push --force", true)]
     #[case::zsh_short_loop_of_a_reading_command("for x in 1; git status", false)]
+    #[case::zsh_short_loop_with_a_comment("for x in 1; git push origin #--force", false)]
     #[case::nocorrect_modifier("nocorrect git push --force", true)]
     #[case::here_document_to_a_shell("sh <<E\ngit push --force\nE", true)]
-    #[case::quoted_mask_of_taskset("taskset \"$M\" 0x1 git push --force", true)]
     #[case::dry_run("git push --dry-run origin main", false)]
     #[case::branch_long_option_with_d("git branch --edit-description", false)]
     fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool) {

@@ -32,7 +32,8 @@ use self::wrappers::{WrapperRead, WrapperRegion, command_wrapper, take_wrapper_w
 
 /// The simple commands of one line, nested ones included, in the order they appear, outer ones
 /// before those nested in them; `is_whole` is false when the parser could not read some of the
-/// line, or the line was past the reader's bound, and what it could not read is not among them.
+/// line, the line was past the reader's bound, or an `env -S` split was past the bound on what
+/// the splits read, and what was not read is not among them.
 pub struct ShellLineReading {
     line: Arc<str>,
     decoded: Box<str>,
@@ -49,7 +50,8 @@ pub struct ShellLineReading {
 
 // A command's words in the reading, by index: each wrapper's name and its own words from `first`
 // to `program`, then the program, then its arguments up to `end`; whether a folder named the
-// program or a wrapper; and whether the run may decide which program runs.
+// program or a wrapper; whether the text leaves the program's name to the run; and whether the
+// command runs a line it reads from its input.
 #[derive(Clone, Copy)]
 struct CommandEntry {
     first: u32,
@@ -57,6 +59,7 @@ struct CommandEntry {
     end: u32,
     is_named_by_path: bool,
     is_program_undecided: bool,
+    runs_a_line_from_its_input: bool,
 }
 
 impl ShellLineReading {
@@ -83,18 +86,41 @@ impl ShellLineReading {
 
     /// The line's words as the parser left them unread, split at blanks and at the shell's
     /// operators into the runs between those operators, each word with its quotes and
-    /// backslashes dropped; what a line not read whole still shows of its commands.
+    /// backslashes dropped, and a comment's words, from a `#` that starts a word outside quotes
+    /// to the line's end, left out; what a line not read whole still shows of its commands.
     pub fn unread_word_runs(&self) -> Vec<Vec<String>> {
         let mut runs = vec![Vec::new()];
         let mut word = String::new();
+        let mut quote = None;
+        let mut is_escaped = false;
+        let mut is_word_start = true;
+        let mut is_comment = false;
         for character in self.line.chars() {
+            if is_comment && character != '\n' {
+                continue;
+            }
+            is_comment = false;
+            let was_escaped = std::mem::take(&mut is_escaped);
+            let was_word_start = std::mem::replace(&mut is_word_start, false);
             match character {
+                '#' if quote.is_none() && !was_escaped && was_word_start => is_comment = true,
                 ';' | '&' | '|' | '(' | ')' | '<' | '>' | '`' | '\n' => {
                     end_unread_word(&mut runs, &mut word);
                     runs.push(Vec::new());
+                    is_word_start = quote.is_none();
                 }
-                '\'' | '"' | '\\' => {}
-                blank if blank.is_whitespace() => end_unread_word(&mut runs, &mut word),
+                '\'' | '"' if !was_escaped => {
+                    quote = match quote {
+                        None => Some(character),
+                        Some(open) if open == character => None,
+                        open => open,
+                    };
+                }
+                '\\' => is_escaped = !was_escaped && quote != Some('\''),
+                blank if blank.is_whitespace() => {
+                    end_unread_word(&mut runs, &mut word);
+                    is_word_start = quote.is_none();
+                }
                 other => word.push(other),
             }
         }
@@ -138,12 +164,12 @@ impl ShellLineReading {
             .parse(&*line, None)
             .expect("a parser with its language set and no cancellation always returns a tree");
         let root = tree.root_node();
-        let is_whole = !root.has_error();
+        let has_error = root.has_error();
         let mut builder = WordBuilder::new(&line);
         let (words, commands, assignments, forms) = commands_in(root, &mut builder);
         // The tree goes before the arrays shrink to their length, so the two never meet.
         drop(tree);
-        let (decoded, pieces, positions) = builder.finish();
+        let (decoded, pieces, positions, is_split_past_bound) = builder.finish();
         let requoted_line = forms.requote_delimiters(&line);
         Self {
             line,
@@ -155,7 +181,7 @@ impl ShellLineReading {
             assignments: assignments.into_boxed_slice(),
             holds_only_reading_forms: forms.is_reading(),
             requoted_line,
-            is_whole,
+            is_whole: !has_error && !is_split_past_bound,
         }
     }
 
@@ -183,17 +209,20 @@ impl<'r> ShellCommand<'r> {
         self.reading.word(self.entry.program)
     }
 
-    /// Whether only the line's run decides which program runs or what it runs. The program is
-    /// decided only when every word before it is a decided literal, an assignment or a wrapper's
-    /// option value whose only undecided parts are double-quoted, or a decided option with such a
-    /// value attached; its name is decided and its folder holds no `$` expansion outside double
-    /// quotes (a parameter, a substitution or an arithmetic expansion; a pattern or a brace there
-    /// changes no name); env decides its split strings whatever the run supplies; no line it runs
-    /// comes from its input, as a shell's or `source`'s with no `-c` string or script does; and
-    /// no line it hands a shell holds the words xargs reads from its input. The program read is
-    /// otherwise no ground for any verdict on what runs.
+    /// Whether the text leaves the program's name to the run: its word holds an expansion, a
+    /// substitution or a pattern, or its folder a `$` expansion outside double quotes that the
+    /// shell can split into another program and its words.
     pub fn is_program_undecided(self) -> bool {
         self.entry.is_program_undecided
+    }
+
+    /// Whether the command runs a line it reads from its input rather than its words: a shell, or
+    /// `su`, handed neither a `-c` string nor a script it names with a regular path; `source` or
+    /// `.` of anything else; a wrapper left with no command that runs a shell, as `sudo -s`,
+    /// `chroot <dir>` and `script` do; a command a wrapper before it hands its input's words, as
+    /// `xargs sudo -s` does; or a shell's line holding the words xargs reads from its input.
+    pub fn runs_a_line_from_its_input(self) -> bool {
+        self.entry.runs_a_line_from_its_input
     }
 
     /// The words after the program.
@@ -593,6 +622,7 @@ fn resolve_command(
     let first_word = words.len();
     let piece_mark = builder.piece_count();
     let mut is_named_by_path = false;
+    let mut can_folder_split = false;
     let mut region = WrapperRegion::default();
     let mut last_wrapper = None;
     // Whether a wrapper before the last one hands the command after it its input's words.
@@ -601,16 +631,15 @@ fn resolve_command(
         while let Some(assignment) =
             pending.pop_front_if(|word| is_variable_assignment(builder.view(*word)))
         {
-            // One after a wrapper is the wrapper's own, as env reads it, and the shell splits an
-            // expansion in it; one before is the shell's, which it never splits.
+            // One after a wrapper is the wrapper's own, as env reads it; one before is the shell's.
             if last_wrapper.is_some() {
-                region.is_program_undecided |= builder.view(assignment).holds_unquoted_expansion();
                 words.push(assignment);
             }
         }
         let Some(name) = pending.pop_front() else {
-            // A wrapper whose own words use up the command is its program, as `sudo -s` is, and
-            // the input's words a wrapper before it appends are its own words too.
+            // A wrapper whose own words use up the command is its program, as `sudo -s` is, which
+            // runs a shell reading its input, and the input's words a wrapper before it appends
+            // are its own words too.
             let Some(program) = last_wrapper else {
                 builder.truncate(piece_mark);
                 return None;
@@ -621,17 +650,16 @@ fn resolve_command(
                 program: offset(program),
                 end: offset(program + 1),
                 is_named_by_path,
-                is_program_undecided: region.is_program_undecided || is_last_wrapper_given_input,
+                is_program_undecided: can_folder_split
+                    || !builder.view(words[program]).is_decided(),
+                runs_a_line_from_its_input: region.runs_a_shell_with_no_command
+                    || is_last_wrapper_given_input,
             });
         };
-        let program = match builder.basename(name) {
-            Some((without_folder, can_folder_split)) => {
-                is_named_by_path = true;
-                region.is_program_undecided |= can_folder_split;
-                without_folder
-            }
-            None => name,
-        };
+        let basename = builder.basename(name);
+        is_named_by_path |= basename.is_some();
+        can_folder_split = basename.is_some_and(|(_, can_this_folder_split)| can_this_folder_split);
+        let program = basename.map_or(name, |(without_folder, _)| without_folder);
         let wrapper = command_wrapper(builder.view(program));
         words.push(program);
         let name_index = words.len() - 1;
@@ -646,19 +674,19 @@ fn resolve_command(
         if is_program {
             words.truncate(name_index + 1);
             words.extend(pending.drain(..));
-            region.read_input_words(builder, words, name_index);
+            let hands_a_shell_its_input = region.read_input_words(builder, words, name_index);
             let program = builder.view(words[name_index]);
             let argument_words = words[name_index + 1..]
                 .iter()
                 .map(|&word| builder.view(word));
-            region.is_program_undecided |=
-                !program.is_decided() || reads_its_line_from_input(program, argument_words);
             return Some(CommandEntry {
                 first: offset(first_word),
                 program: offset(name_index),
                 end: offset(words.len()),
                 is_named_by_path,
-                is_program_undecided: region.is_program_undecided,
+                is_program_undecided: can_folder_split || !program.is_decided(),
+                runs_a_line_from_its_input: hands_a_shell_its_input
+                    || reads_its_line_from_input(program, argument_words),
             });
         }
         last_wrapper = Some(name_index);

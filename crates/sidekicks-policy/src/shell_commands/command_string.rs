@@ -139,10 +139,10 @@ pub(super) fn command_string_words<W: WordText>(
     }
 }
 
-/// Whether `program` reads the line it runs from somewhere other than its words, which only the
-/// run decides: a shell handed neither a `-c` string nor a script it names with a decided regular
-/// path, so it reads its standard input, a here-string, a here-document or a pipe; or `source` or
-/// `.` given anything but a decided regular path.
+/// Whether `program` reads the line it runs from its input rather than its words: a shell handed
+/// neither a `-c` string nor a script it names with a decided regular path, so it reads its
+/// standard input, a here-string, a here-document or a pipe; `su` handed no command, whose target
+/// shell reads the same; or `source` or `.` given anything but a decided regular path.
 pub(super) fn reads_its_line_from_input<'r>(
     program: ShellWord<'r>,
     mut argument_words: impl Iterator<Item = ShellWord<'r>> + Clone,
@@ -151,8 +151,10 @@ pub(super) fn reads_its_line_from_input<'r>(
         let mut words = argument_words.skip_while(|word| word.is("--"));
         return !words.next().is_some_and(is_regular_script_path);
     }
-    let Some(ShellLineProgram::Shell(options_with_value)) = shell_line_program(program) else {
-        return false;
+    let options_with_value = match shell_line_program(program) {
+        Some(ShellLineProgram::Shell(options_with_value)) => options_with_value,
+        Some(ShellLineProgram::Su) => return su_command_strings(&argument_words).is_empty(),
+        Some(_) | None => return false,
     };
     match shell_operand(argument_words.clone(), options_with_value) {
         ShellOperand::CommandString(_) | ShellOperand::MissingCommandString => false,
@@ -166,7 +168,28 @@ pub(super) fn reads_its_line_from_input<'r>(
 // Whether `word` is a path the run cannot change that names a regular file, as a script is: never
 // one of the system's device or process folders, through which a file reads a stream.
 fn is_regular_script_path(word: ShellWord<'_>) -> bool {
-    word.is_decided() && !word.starts_with("/dev/") && !word.starts_with("/proc/")
+    word.is_decided() && !names_a_stream_folder(&word.to_string())
+}
+
+// Whether `path`, its `.` and `..` segments and repeated slashes folded lexically, is under `/dev`
+// or `/proc`: from the root, or from a relative path whose `..` climb past its start, which the
+// root's folders are as far up as the run's folder may be.
+fn names_a_stream_folder(path: &str) -> bool {
+    let is_absolute = path.starts_with('/');
+    let mut climbs_past_start = false;
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in path.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                if segments.pop().is_none() && !is_absolute {
+                    climbs_past_start = true;
+                }
+            }
+            other => segments.push(other),
+        }
+    }
+    (is_absolute || climbs_past_start) && matches!(segments.first(), Some(&("dev" | "proc")))
 }
 
 // A program that hands a shell a line, and how its words make it.

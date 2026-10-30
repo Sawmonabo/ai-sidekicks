@@ -13,18 +13,6 @@ enum ValuePart {
     Expansion(Piece),
 }
 
-/// What `env -S` makes of its value.
-pub(in crate::shell_commands) enum SplitString {
-    /// The words env reads in the value's place.
-    Words(Vec<Word>),
-    /// env refuses the value whatever the run supplies, and so runs nothing.
-    Refused,
-    /// Only the run decides whether env refuses the value or what it splits it into: an
-    /// expansion the shell made in a refused value can supply the text env refuses or ends the
-    /// string at, or the reading's splits have read as many bytes as its line holds.
-    Undecided,
-}
-
 // The quotes the split is inside.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Quote {
@@ -33,33 +21,29 @@ enum Quote {
 }
 
 impl WordBuilder<'_> {
-    /// What `env -S` makes of `word`. env refuses a quote left open, a backslash before a
-    /// character it lists no escape for or ending the string, a `$` that does not start `${name}`,
-    /// and `\c` inside double quotes; a line break, vertical tab, form feed or carriage return
-    /// outside quotes is a blank, as a space is, to GNU and macOS env alike. Once the reading's
-    /// splits, nested ones included, would read more bytes in all than its line holds, the split is
-    /// undecided, so a reading's time grows with its line.
-    pub(in crate::shell_commands) fn split_string(&mut self, word: Word) -> SplitString {
+    /// The words env reads in place of `word`, its `-S` value; `None` when env refuses the value,
+    /// or an expansion the shell made in it may make env refuse it, so no split is read. env
+    /// refuses a quote left open, a backslash before a character it lists no escape for or ending
+    /// the string, a `$` that does not start `${name}`, and `\c` inside double quotes; a line
+    /// break, vertical tab, form feed or carriage return outside quotes is a blank, as a space is,
+    /// to GNU and macOS env alike. Once the reading's splits, nested ones included, would read
+    /// more bytes in all than its line holds, no further split is read, so a reading's time grows
+    /// with its line, and the reading is not whole.
+    pub(in crate::shell_commands) fn split_string(&mut self, word: Word) -> Option<Vec<Word>> {
         let length = self.view(word).len();
         let Some(bytes_left) = self.split_bytes_left.checked_sub(length) else {
-            return SplitString::Undecided;
+            self.is_split_past_bound = true;
+            return None;
         };
         self.split_bytes_left = bytes_left;
         let parts = self.value_parts(word);
         let (piece_mark, decoded_mark) = (self.pieces.len(), self.decoded.len());
-        if let Some(words) = self.split_parts(&parts) {
-            return SplitString::Words(words);
+        let words = self.split_parts(&parts);
+        if words.is_none() {
+            self.pieces.truncate(piece_mark);
+            self.decoded.truncate(decoded_mark);
         }
-        self.pieces.truncate(piece_mark);
-        self.decoded.truncate(decoded_mark);
-        if parts
-            .iter()
-            .any(|part| matches!(part, ValuePart::Expansion(_)))
-        {
-            SplitString::Undecided
-        } else {
-            SplitString::Refused
-        }
+        words
     }
 
     fn value_parts(&self, word: Word) -> Vec<ValuePart> {

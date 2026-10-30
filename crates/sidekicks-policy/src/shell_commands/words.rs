@@ -17,7 +17,6 @@ use tree_sitter::Node;
 pub use self::options::is_option;
 pub(super) use self::options::{long_option_named, short_option_named};
 use self::quote_removal::{decode_ansi_c, unescape_bare, unescape_double_quoted};
-pub(super) use self::split_string::SplitString;
 use super::{continues_variable_name, starts_variable_name};
 
 /// `count` as a reading's offset or count: its line is within the reader's limit, a system's
@@ -450,8 +449,10 @@ pub(super) struct WordBuilder<'s> {
     decoded: String,
     pieces: Vec<Piece>,
     positions: BytePositions,
-    // The bytes `env -S` splits may still read, the line's length at the start.
+    // The bytes `env -S` splits may still read, the line's length at the start, and whether a
+    // split was left unread for want of them.
     split_bytes_left: usize,
+    is_split_past_bound: bool,
 }
 
 impl<'s> WordBuilder<'s> {
@@ -463,6 +464,7 @@ impl<'s> WordBuilder<'s> {
             pieces: Vec::new(),
             positions: BytePositions::default(),
             split_bytes_left: line.len(),
+            is_split_past_bound: false,
         }
     }
 
@@ -471,12 +473,14 @@ impl<'s> WordBuilder<'s> {
         self.line
     }
 
-    /// The decoded buffer, the pieces and the byte positions, for the reading to own.
-    pub(super) fn finish(self) -> (Box<str>, Box<[Piece]>, BytePositions) {
+    /// The decoded buffer, the pieces and the byte positions, for the reading to own, and
+    /// whether an `env -S` split was left unread past the bound on what the splits read.
+    pub(super) fn finish(self) -> (Box<str>, Box<[Piece]>, BytePositions, bool) {
         (
             self.decoded.into_boxed_str(),
             self.pieces.into_boxed_slice(),
             self.positions,
+            self.is_split_past_bound,
         )
     }
 
@@ -627,14 +631,32 @@ impl<'s> WordBuilder<'s> {
     /// holds a `$` expansion outside double quotes, a parameter, a substitution or an arithmetic
     /// expansion, which the shell can split into a program and its words; a pattern or a brace in
     /// the folder changes no name, and a name past a pattern's last `/` holding no pattern itself
-    /// is decided. `None` when the word has no `/`, so names no folder.
+    /// is decided. zsh's `=name` names the path of the program `name`, so its name is the text
+    /// past the `=`. `None` when the word names no folder.
     pub(super) fn basename(&mut self, word: Word) -> Option<(Word, bool)> {
         let texts = PieceTexts::new(self.line, &self.decoded, &self.positions);
-        let (index, slash) = word.pieces().rev().find_map(|index| {
+        let Some((index, slash)) = word.pieces().rev().find_map(|index| {
             texts
                 .last_position(self.pieces[index], PositionedByte::Slash)
                 .map(|slash| (index, slash))
-        })?;
+        }) else {
+            let first = word.first_piece as usize;
+            let piece = *self
+                .pieces
+                .get(first)
+                .filter(|_| first < word.end_piece as usize)?;
+            let name = texts.text(piece).strip_prefix('=')?;
+            let is_equals_name = piece.kind == PieceKind::Expansion
+                && !name
+                    .bytes()
+                    .any(|byte| NAME_UNDECIDING_BYTES.contains(&byte));
+            return is_equals_name.then(|| {
+                (
+                    self.word_from_inside(word, first, piece.start + 1, PieceKind::Literal),
+                    false,
+                )
+            });
+        };
         let can_folder_split = self.pieces[word.first_piece as usize..index]
             .iter()
             .any(|&piece| is_dollar_expansion(texts, piece));
