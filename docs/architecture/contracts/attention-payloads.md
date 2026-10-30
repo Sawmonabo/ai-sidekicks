@@ -169,7 +169,10 @@ interface AttentionDeliveryTestRequest {
 }
 // The web address's test posts `{text: "Test message from <machine>", kind: "test", at, machine,
 // content}`, `content` equal to `text`, once, with no retry and no outcome row written; its
-// outcome's `undelivered` is the channel's current count.
+// outcome's `undelivered` is the channel's current count. The page settles on its result:
+// `delivered` `Sent. The address answered 200.`, `refused` `The address answered <status>.`,
+// `timedOut` `The address did not answer in 15 seconds.`, `unreachable` `The address could not be
+// reached.` and `storeUnavailable` `Nothing was sent: the keychain is locked.`
 interface AttentionDeliveryTestResponse {
   outcome: AttentionDeliveryOutcome;
 }
