@@ -52,8 +52,8 @@ pub(super) fn read_server_policy(
     McpServerPolicy { allowed, denied }
 }
 
-// One allow or deny entry: `{"serverName": …}`, `{"serverCommand": […]}` or `{"serverUrl": …}`,
-// an address pattern kept as written, its credentials scrubbed.
+// One allow or deny entry: `{"serverName": …}`, `{"serverCommand": […]}` or
+// `{"serverUrl": …}`, an address pattern kept as written, its credentials scrubbed.
 fn read_policy_entry(entry: &Value) -> Option<McpServerPolicyEntry> {
     if let Some(name) = entry.get("serverName").and_then(Value::as_str) {
         return McpServerName::new(name.to_owned())

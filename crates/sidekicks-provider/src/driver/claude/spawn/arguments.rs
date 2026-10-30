@@ -216,7 +216,14 @@ mod tests {
         true,
         Some(9),
         Some("/tmp/cc-socks/a0.sock"),
-        &["--resume", "s1", "--max-turns", "10", "--messaging-socket-path", "/tmp/cc-socks/a0.sock"],
+        &[
+            "--resume",
+            "s1",
+            "--max-turns",
+            "10",
+            "--messaging-socket-path",
+            "/tmp/cc-socks/a0.sock",
+        ],
     )]
     #[case::unkept_new(
         ClaudeConversationStart::Unkept { resume_handle: None },

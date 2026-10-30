@@ -419,7 +419,12 @@ mod tests {
         let folder = tempfile::tempdir().expect("a test folder");
         let credentials = folder.path().join(".credentials.json");
         let planted = format!(
-            r#"{{"claudeAiOauth":{{"accessToken":"{PLANTED_TOKEN}","refreshToken":"{PLANTED_TOKEN}-r","expiresAt":1767225600000,"scopes":["user:inference","user:mcp_servers"],"subscriptionType":"max"}}}}"#
+            concat!(
+                r#"{{"claudeAiOauth":{{"accessToken":"{PLANTED_TOKEN}","#,
+                r#""refreshToken":"{PLANTED_TOKEN}-r","expiresAt":1767225600000,"#,
+                r#""scopes":["user:inference","user:mcp_servers"],"subscriptionType":"max"}}}}"#,
+            ),
+            PLANTED_TOKEN = PLANTED_TOKEN,
         );
         std::fs::write(&credentials, &planted).expect("the file is planted");
         let environment = vec![
