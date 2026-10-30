@@ -258,9 +258,7 @@ pub(super) fn store_unavailable(refusal: KeychainRefusal) -> DomainError {
     DomainError::keychain_refused(
         refusal,
         RefusalCode::AttentionDeliveryStoreUnavailable,
-        |cause| AttentionDeliveryStoreUnavailableDetails {
-            cause: cause.into(),
-        },
+        |cause| AttentionDeliveryStoreUnavailableDetails { cause },
     )
 }
 

@@ -715,12 +715,12 @@ pub struct AttentionWebAddressSecretRotateResponse {
 }
 
 /// The `attention.delivery.storeUnavailable` refusal's details: why the keychain holding the
-/// delivery secrets could not be used, or the web address's signing secret is missing from it.
+/// delivery secrets could not be used.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AttentionDeliveryStoreUnavailableDetails {
     /// Why.
-    pub cause: AttentionDeliveryStoreUnavailableCause,
+    pub cause: KeychainRefusalCause,
 }
 
 /// What a channel asked to test is missing: the web address, or the mail password.
