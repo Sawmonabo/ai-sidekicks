@@ -440,7 +440,7 @@ fn is_secret_name(name: &str) -> bool {
         .expect("the secret word pattern compiles")
     });
     static CONNECTION_STRING: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"CONN(?:ECT(?:ION)?)?_?STR(?:ING)?S?(?:$|[_0-9])")
+        Regex::new(r"(?:CONNECT(?:ION)?|CONN)_?STR(?:ING)?S?(?:$|[_0-9])")
             .expect("the connection string pattern compiles")
     });
     static GIT_CONFIG_KEY: LazyLock<Regex> = LazyLock::new(|| {

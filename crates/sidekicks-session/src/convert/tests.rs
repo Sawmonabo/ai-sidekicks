@@ -275,7 +275,7 @@ fn copy_name() -> String {
 // Kills a rename in place of the publish that never replaces: the repository's own `a.txt` would
 // take the chat's bytes.
 #[tokio::test]
-async fn a_convert_copies_the_chats_files_and_leaves_the_repositorys_own_untouched() {
+async fn a_convert_copies_the_chats_files_and_leaves_its_repository_untouched() {
     let fixture = Fixture::new().await;
     write(&fixture.workspace.join("a.txt"), "chat a");
     write(&fixture.workspace.join("nested/b.txt"), "chat b");
