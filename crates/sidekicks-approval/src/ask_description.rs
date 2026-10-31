@@ -183,8 +183,12 @@ fn command_subject_of(command: ShellCommand<'_>) -> Option<String> {
     {
         return None;
     }
-    // The program as written, so a rule on `cargo test` never answers `./cargo test`.
+    // The program as written, so a rule on `cargo test` never answers `./cargo test`. A quoted
+    // word that is empty or holds a blank would be split by the providers into other words.
     let program = command.written_program();
+    if program.chars().next().is_none() || program.chars().any(is_ecmascript_whitespace) {
+        return None;
+    }
     let mut arguments = command.argument_words();
     match command.standing_rule() {
         StandingRule::Withheld => None,
@@ -203,10 +207,13 @@ fn command_subject_of(command: ShellCommand<'_>) -> Option<String> {
             Some(format!("{program} {subcommand}"))
         }
         StandingRule::RunnerScript { script_word_index } => {
-            // The runner's words through its script word, and the script it names after them.
+            // The runner's words through its script word, and the script it names after them:
+            // package names before the script word, which is never an option, then script names.
             let words: Vec<_> = arguments.take(script_word_index + 2).collect();
-            if words.len() < script_word_index + 2
-                || !words.iter().all(|&word| is_script_name_word(word))
+            let (package_words, script_words) = words.split_at_checked(script_word_index)?;
+            if script_words.len() < 2
+                || !package_words.iter().all(|&word| is_package_name_word(word))
+                || !script_words.iter().all(|&word| is_script_name_word(word))
             {
                 return None;
             }
@@ -286,9 +293,9 @@ fn is_subcommand_word(word: impl WordText) -> bool {
         })
 }
 
-// A word that reads as a package script's name, or a word a runner reads before it: a letter or a
-// digit, then letters of either case, digits, `-`, `_`, `.` and `:`, never an option, a path or
-// a shell's own character.
+// A word that reads as a package script's name or a runner's script word: a letter or a digit,
+// then letters of either case, digits, `-`, `_`, `.` and `:`, never an option, a path or a
+// shell's own character.
 fn is_script_name_word(word: impl WordText) -> bool {
     let mut characters = word.chars();
     characters
@@ -296,6 +303,17 @@ fn is_script_name_word(word: impl WordText) -> bool {
         .is_some_and(|first| first.is_ascii_alphanumeric())
         && characters.all(|character| {
             character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | ':')
+        })
+}
+
+// A word a runner reads before its script word, as a package's name (`@app/web`): letters of either
+// case, digits, `-`, `_`, `.`, `@` and `/`, never a first `-` (an option), a blank, a pattern, a
+// quote or a shell's own character.
+fn is_package_name_word(word: impl WordText) -> bool {
+    let mut characters = word.chars().peekable();
+    characters.peek().is_some_and(|&first| first != '-')
+        && characters.all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | '@' | '/')
         })
 }
 
@@ -575,8 +593,9 @@ mod tests {
     #[case::program_named_by_a_path("./cargo test", Some("./cargo test"))]
     #[case::git_named_by_a_path("./git status", Some("./git status"))]
     // A runner's script word is `run` or one of npm's aliases of it, and an option before it
-    // leaves where it stands unread. Killed by the aliases dropped, by the subject spelling `run`
-    // for an alias, and by the options before the script word skipped.
+    // withholds the subject. Killed by the aliases dropped, by the subject spelling `run` for an
+    // alias, and by a word before the script word read as a package's name though it begins
+    // with `-`.
     #[case::npm_script_alias("npm run-script deploy", Some("npm run-script deploy"))]
     #[case::runner_option_before_its_script("npm --prefix x run build", None)]
     #[case::runner_subcommand_before_the_word_run("npm install run", Some("npm install"))]
@@ -589,18 +608,31 @@ mod tests {
     // read as a lower-case subcommand word.
     #[case::script_name_with_a_colon("npm run test:unit", Some("npm run test:unit"))]
     #[case::pnpm_script_name_with_a_colon("pnpm run build:web", Some("pnpm run build:web"))]
-    // A runner's subject runs through its script when only plain words come before the script
-    // word; an option anywhere before it withholds one, and a runner subcommand that names a
-    // program keeps two words. Killed by the subject cut at the runner's first word, by the
-    // option check reading only the word before the script word, and by `exec` read as a script
-    // word.
+    // A runner's subject runs through its script when the words before the script word read as
+    // package names, a scoped one among them; an option or a word holding a blank before it
+    // withholds one, and a runner subcommand that names a program keeps two words. Killed by the
+    // subject cut at the runner's first word, by the option `-A` read as a package's name, by a
+    // package's name held to a script's characters, by a word holding a blank read as a
+    // package's name, and by `exec` read as a script word.
     #[case::workspace_script("yarn workspace web run build", Some("yarn workspace web run build"))]
     #[case::workspaces_foreach_script(
         "yarn workspaces foreach run build",
         Some("yarn workspaces foreach run build")
     )]
     #[case::workspaces_option_before_the_script("yarn workspaces foreach -A run build", None)]
+    #[case::scoped_workspace_script(
+        "yarn workspace @app/web run build",
+        Some("yarn workspace @app/web run build")
+    )]
+    #[case::workspace_name_holding_a_blank("yarn workspace 'a b' run build", None)]
     #[case::runner_program_subcommand("npm exec prettier", Some("npm exec"))]
+    // The script word is the last one with a word after it. Killed by the first script word
+    // taken, and by the last script word taken though no word follows it.
+    #[case::workspace_named_like_the_script_word(
+        "yarn workspace run run build",
+        Some("yarn workspace run run build")
+    )]
+    #[case::script_word_after_the_script("npm run build run", Some("npm run build"))]
     // zsh's `=name` keeps its `=` in the subject, the program as written. Killed by the subject
     // read off the program's name.
     #[case::zsh_path_of_a_program("=cargo test", Some("=cargo test"))]
@@ -609,11 +641,25 @@ mod tests {
     #[case::single_quoted_program("'git' status", Some("git status"))]
     #[case::double_quoted_program(r#""git" status"#, Some("git status"))]
     #[case::escaped_program(r"g\it status", Some("git status"))]
+    // An ANSI-C string is the text the shells decode it to. Killed by the program word written as
+    // its source text.
+    #[case::ansi_c_program("$'git' status", Some("git status"))]
+    // A program word that is empty or holds a blank would reach the providers as several words, a
+    // prefix over other commands. Killed by a subject built from a program word holding a blank,
+    // and by one built from an empty program word.
+    #[case::quoted_program_holding_a_space(r#""git push" origin main"#, None)]
+    #[case::quoted_path_holding_a_space(r#""/usr/bin/git push" origin main"#, None)]
+    #[case::ansi_c_program_holding_a_tab(r"$'git\tpush' origin main", None)]
+    #[case::quoted_shell_with_its_option("'sh -c' \"$X\"", None)]
+    #[case::empty_program("'' push", None)]
     // bun's `run` runs a package script, as npm's does; its other forms run its own code. Killed
     // by bun read as an interpreter alone, and by bun read as a plain runner.
     #[case::bun_script("bun run build", Some("bun run build"))]
     #[case::bun_runner_alone("bun run", None)]
     #[case::bun_file("bun file.ts", None)]
+    // bun's versioned name is the interpreter's too. Killed by a versioned name read only for an
+    // interpreter that runs no scripts.
+    #[case::versioned_bun("bun1.2 -e 'x'", None)]
     fn a_command_offers_its_standing_allow(#[case] line: &str, #[case] offered: Option<&str>) {
         let action = ProviderAskAction::Command {
             command: line.to_owned(),
