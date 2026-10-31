@@ -332,6 +332,20 @@ const LIMIT: usize = 4096;
 #[case::yarn_script("yarn run test", false)]
 #[case::runner_alone("npm run", false)]
 #[case::npm_subcommand("npm test", false)]
+// git reads a long option of a push or a branch by any prefix of its name, and a program named by
+// a path as the program its last segment names. Killed by push's or branch's options read only
+// by their whole names, and by a path's folder left on the program the list matches.
+#[case::push_delete_by_prefix("git push --dele origin main", true)]
+#[case::push_mirror_by_prefix("git push --mirr origin", true)]
+#[case::branch_delete_by_prefix("git branch --dele x", true)]
+#[case::git_named_by_a_relative_path("./git push --force", true)]
+#[case::git_named_by_an_absolute_path("/usr/bin/git push --force", true)]
+// A here-string on xargs's statement is xargs's own input, the words it appends, never the line
+// of the shell it runs; a here-string a `<` file redirect follows stays the shell's line, as zsh
+// feeds it both. Killed by the shell xargs runs handed the here-string, and by a later file
+// redirect clearing it.
+#[case::here_string_into_xargs("xargs sh <<< 'git push --force'", false)]
+#[case::here_string_before_a_file_redirect("sh <<< 'git push --force' < f", true)]
 fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool) {
     let mut reader = ShellLineReader::new(LIMIT);
     let reading = reader.read(line);

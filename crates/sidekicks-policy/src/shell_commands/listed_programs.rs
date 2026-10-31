@@ -33,15 +33,15 @@ pub(super) enum ListedProgram {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StandingRule {
     /// None: the program is a shell, hands a shell a line, runs the command after it, runs code
-    /// or a file no rule can see, deletes what its words name, or is `find` with a command
-    /// primary or an action.
+    /// or a file no rule can see, deletes what its words name, is `find` with a command primary
+    /// or an action, or is a runner with an option before its script word.
     Withheld,
     /// The program, with its first word where that reads as a subcommand.
     Program,
     /// `git` with the subcommand past its own options; `git` alone takes none.
     GitSubcommand,
-    /// A runner, `run` and the script it names, as `npm run build`; the runner and `run` alone
-    /// take none.
+    /// A runner, its script word (`run`, or npm's `run-script`, `rum` or `urn`) and the script it
+    /// names, as `npm run build`; the runner and its script word alone take none.
     RunnerScript,
 }
 
@@ -51,8 +51,8 @@ pub(super) const FIND_COMMAND_PRIMARIES: &[&str] = &["-exec", "-execdir", "-ok",
 // The primaries of `find` that delete or write files, or read the paths it walks from a file.
 const FIND_FILE_ACTIONS: &[&str] = &["-delete", "-rm", "-fprint", "-files0-from"];
 
-// The word of a package-script runner that runs a script.
-const RUNNER_SCRIPT_WORD: &str = "run";
+// The words of a package-script runner that run a script: `run`, and npm's own aliases of it.
+const RUNNER_SCRIPT_WORDS: &[&str] = &["run", "run-script", "rum", "urn"];
 
 /// The entry `program` names, by its whole name; an interpreter's versioned name is read only by
 /// [`standing_rule_of`].
@@ -112,14 +112,23 @@ pub(super) fn standing_rule_of<W: WordText>(
             }
         }
         ListedProgram::ScriptRunner => {
-            if argument_words
-                .next()
-                .is_some_and(|word| word.is(RUNNER_SCRIPT_WORD))
-            {
-                StandingRule::RunnerScript
-            } else {
-                StandingRule::Program
+            // An option before the script word may take a value, so where the script word stands
+            // past one is not read.
+            let mut follows_an_option = false;
+            for (index, word) in argument_words.enumerate() {
+                if RUNNER_SCRIPT_WORDS
+                    .iter()
+                    .any(|script_word| word.is(script_word))
+                {
+                    return match (index, follows_an_option) {
+                        (0, _) => StandingRule::RunnerScript,
+                        (_, true) => StandingRule::Withheld,
+                        (_, false) => StandingRule::Program,
+                    };
+                }
+                follows_an_option |= word.starts_with("-");
             }
+            StandingRule::Program
         }
     }
 }
@@ -245,6 +254,8 @@ const LISTED_PROGRAMS: &[(&str, ListedProgram)] = &[
         ListedProgram::Wrapper(CommandWrapper {
             // GNU's `-i`, `-e` and `-l` take an optional value inside their own word.
             letters_with_attached_value: "eil",
+            // xargs reads the words it appends from its input.
+            consumes_its_input: true,
             ..CommandWrapper::new(&[
                 "-I",
                 "-J",

@@ -15,7 +15,8 @@ use super::words::{ShellWord, Word, WordBuilder, WordText, long_option_named, sh
 /// those with which it hands a shell a line in place of a command; those whose value stands where
 /// the leading operand would; the letters whose optional value is only the rest of their cluster;
 /// whether it reads its short options in clusters and `-` alone as an option; the operand it takes
-/// before the command; when, given no command, it runs a shell that reads its input; and whether a
+/// before the command; when, given no command, it runs a shell that reads its input; whether it
+/// reads its statement's input itself, so the command it runs is handed none of it; and whether a
 /// `{` after its operand opens a list it runs in place of a command.
 #[derive(Clone, Copy)]
 pub(super) struct CommandWrapper {
@@ -30,6 +31,7 @@ pub(super) struct CommandWrapper {
     pub(super) is_lone_dash_an_option: bool,
     pub(super) leading_operand: LeadingOperand,
     pub(super) shell_with_no_command: ShellWithNoCommand,
+    pub(super) consumes_its_input: bool,
 }
 
 /// The operand a wrapper takes after its options and before the command.
@@ -146,6 +148,7 @@ impl CommandWrapper {
             is_lone_dash_an_option: false,
             leading_operand: LeadingOperand::Absent,
             shell_with_no_command: ShellWithNoCommand::Never,
+            consumes_its_input: false,
         }
     }
 

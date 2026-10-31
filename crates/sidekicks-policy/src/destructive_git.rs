@@ -42,7 +42,7 @@ const GIT_OPTIONS_CHANGING_WHAT_RUNS: &[&str] = &["-c", "--config-env", "--exec-
 // The subcommands that can push with force, delete a remote branch or delete a local one.
 const DESTRUCTIVE_GIT_SUBCOMMANDS: &[&str] = &["push", "branch"];
 
-// The long options of `git push` that force or delete, alone or with `=<value>`.
+// The long options of `git push` that force or delete, by any prefix, alone or with `=<value>`.
 const PUSH_DESTRUCTIVE_OPTIONS: &[&str] = &[
     "--force",
     "--force-with-lease",
@@ -52,9 +52,11 @@ const PUSH_DESTRUCTIVE_OPTIONS: &[&str] = &[
     "--prune",
 ];
 
-// The short options of `git push` that force (`f`) or delete (`d`), and of `git branch` that
-// delete (`d`, `D`), alone or in a cluster.
+// The short options of `git push` that force (`f`) or delete (`d`), alone or in a cluster.
 const PUSH_DESTRUCTIVE_LETTERS: &[char] = &['f', 'd'];
+
+// The long option of `git branch` that deletes, and its short ones (`d`, `D`).
+const BRANCH_DELETE_OPTIONS: &[&str] = &["--delete"];
 const BRANCH_DELETE_LETTERS: &[char] = &['d', 'D'];
 
 /// Whether the line `reading` holds runs a force push or a branch delete anywhere, the lines its
@@ -100,6 +102,35 @@ pub fn covers_destructive_git(rule: &ProviderAskRule) -> bool {
     program == Some("git")
         && words.next().is_none()
         && subcommand.is_none_or(|subcommand| DESTRUCTIVE_GIT_SUBCOMMANDS.contains(&subcommand))
+}
+
+/// Whether `word` names one of a git subcommand's options as git's own option parser reads it: a
+/// `--` word whose name, up to any `=`, begins one of `long_options`, each written with its `--`
+/// (git takes a unique prefix, and an ambiguous one, which git refuses, counts too), or a `-`
+/// cluster holding one of `short_letters` before its first character that is neither a letter nor
+/// a digit, where an attached value starts. git's own options before the subcommand take no prefix.
+pub fn is_git_option_among(
+    word: impl WordText,
+    long_options: &[&str],
+    short_letters: &[char],
+) -> bool {
+    if word.starts_with("--") {
+        let name = || {
+            word.chars()
+                .skip(2)
+                .take_while(|&character| character != '=')
+        };
+        return name().next().is_some()
+            && long_options.iter().any(|option| {
+                let mut option_characters = option.chars().skip(2);
+                name().all(|character| option_characters.next() == Some(character))
+            });
+    }
+    let mut characters = word.chars();
+    characters.next() == Some('-')
+        && characters
+            .take_while(char::is_ascii_alphanumeric)
+            .any(|letter| short_letters.contains(&letter))
 }
 
 // Whether a command of `reading` is a destructive git command, or a line not read whole shows
@@ -202,10 +233,7 @@ fn is_destructive_git_arguments<W: WordText>(arguments: impl Iterator<Item = W>)
     if subcommand.is("push") {
         return rest.any(|word| {
             word.spells_alternatives()
-                || is_short_option_cluster_with(word, PUSH_DESTRUCTIVE_LETTERS)
-                || PUSH_DESTRUCTIVE_OPTIONS
-                    .iter()
-                    .any(|option| is_option(word, option))
+                || is_git_option_among(word, PUSH_DESTRUCTIVE_OPTIONS, PUSH_DESTRUCTIVE_LETTERS)
                 // A refspec that forces (`+main`) or deletes (`:main`) the branch it names.
                 || word.starts_with("+")
                 || word.starts_with(":")
@@ -214,8 +242,7 @@ fn is_destructive_git_arguments<W: WordText>(arguments: impl Iterator<Item = W>)
     if subcommand.is("branch") {
         return rest.any(|word| {
             word.spells_alternatives()
-                || word.is("--delete")
-                || is_short_option_cluster_with(word, BRANCH_DELETE_LETTERS)
+                || is_git_option_among(word, BRANCH_DELETE_OPTIONS, BRANCH_DELETE_LETTERS)
         });
     }
     false
@@ -504,22 +531,6 @@ fn take_git_subcommand<W: WordText>(
         subcommand: None,
         changes_what_runs,
     }
-}
-
-// Whether `word` is a `-` and then only ASCII letters, at least one of them among `letters`.
-fn is_short_option_cluster_with(word: impl WordText, letters: &[char]) -> bool {
-    let mut characters = word.chars();
-    if characters.next() != Some('-') {
-        return false;
-    }
-    let mut has_letter = false;
-    for character in characters {
-        if !character.is_ascii_alphabetic() {
-            return false;
-        }
-        has_letter |= letters.contains(&character);
-    }
-    has_letter
 }
 
 #[cfg(test)]

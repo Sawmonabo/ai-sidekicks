@@ -53,15 +53,17 @@ pub struct ShellLineReading {
 }
 
 // A command's words in the reading, by index: each wrapper's name and its own words from `first`
-// to `program`, then the program, then its arguments up to `end`; the word of the line it reads
-// from its input on its own statement, a here-document's body or a here-string; whether a folder
-// named the program or a wrapper; whether the text leaves the program's name to the run; and
-// whether assignments come before it.
+// to `program`, then the program, then its arguments up to `end`; the program's word as the text
+// writes it, its folder included; the word of the line it reads from its input on its own
+// statement, a here-document's body or a here-string; whether a folder named the program or a
+// wrapper; whether the text leaves the program's name to the run; and whether assignments come
+// before it.
 #[derive(Clone, Copy)]
 struct CommandEntry {
     first: u32,
     program: u32,
     end: u32,
+    written_program: u32,
     input_line: Option<u32>,
     is_named_by_path: bool,
     is_program_undecided: bool,
@@ -168,6 +170,11 @@ impl<'r> ShellCommand<'r> {
     /// The program's name, without its folder.
     pub fn program(self) -> ShellWord<'r> {
         self.reading.word(self.entry.program)
+    }
+
+    /// The program as the text writes it, its folder included, as `./cargo` is.
+    pub fn written_program(self) -> ShellWord<'r> {
+        self.reading.word(self.entry.written_program)
     }
 
     /// Whether the text leaves the program's name to the run: its word holds an expansion, a
@@ -687,6 +694,8 @@ fn resolve_command(
     let mut can_folder_split = false;
     let mut last_wrapper = None;
     let mut runs_a_shell_with_no_command = false;
+    // A wrapper that reads the statement's input itself, as xargs does, hands the command none.
+    let mut is_input_consumed = false;
     loop {
         while let Some(assignment) =
             pending.pop_front_if(|word| is_variable_assignment(builder.view(*word)))
@@ -699,7 +708,7 @@ fn resolve_command(
         let Some(name) = pending.pop_front() else {
             // A wrapper whose own words use up the command is its program, as `sudo -s` is, which
             // runs a shell reading its input.
-            let Some(program) = last_wrapper else {
+            let Some((program, written_name)) = last_wrapper else {
                 builder.truncate(piece_mark);
                 return None;
             };
@@ -708,17 +717,19 @@ fn resolve_command(
                 first: offset(first_word),
                 program: offset(program),
                 end: offset(program + 1),
+                written_program: push_written_name(words, written_name, program),
                 input_line: None,
                 is_named_by_path,
                 is_program_undecided: can_folder_split
                     || !builder.view(words[program]).is_decided(),
                 has_leading_assignments: false,
             };
-            return Some((entry, runs_a_shell_with_no_command));
+            return Some((entry, runs_a_shell_with_no_command && !is_input_consumed));
         };
         let basename = builder.basename(name);
         is_named_by_path |= basename.is_some();
         can_folder_split = basename.is_some_and(|(_, can_this_folder_split)| can_this_folder_split);
+        let written_name = basename.is_some().then_some(name);
         let program = basename.map_or(name, |(without_folder, _)| without_folder);
         let wrapper = command_wrapper(builder.view(program));
         words.push(program);
@@ -735,25 +746,47 @@ fn resolve_command(
             },
             None => true,
         };
+        if let Some(wrapper) = wrapper {
+            is_input_consumed |= wrapper.consumes_its_input;
+        }
         if is_program {
             words.truncate(name_index + 1);
             words.extend(pending.drain(..));
-            let program = builder.view(words[name_index]);
-            let argument_words = words[name_index + 1..]
-                .iter()
-                .map(|&word| builder.view(word));
+            let end = words.len();
+            let reads_its_input = !is_input_consumed && {
+                let program = builder.view(words[name_index]);
+                let argument_words = words[name_index + 1..]
+                    .iter()
+                    .map(|&word| builder.view(word));
+                reads_its_line_from_input(program, argument_words)
+            };
+            let is_program_undecided =
+                can_folder_split || !builder.view(words[name_index]).is_decided();
             let entry = CommandEntry {
                 first: offset(first_word),
                 program: offset(name_index),
-                end: offset(words.len()),
+                end: offset(end),
+                written_program: push_written_name(words, written_name, name_index),
                 input_line: None,
                 is_named_by_path,
-                is_program_undecided: can_folder_split || !program.is_decided(),
+                is_program_undecided,
                 has_leading_assignments: false,
             };
-            return Some((entry, reads_its_line_from_input(program, argument_words)));
+            return Some((entry, reads_its_input));
         }
-        last_wrapper = Some(name_index);
+        last_wrapper = Some((name_index, written_name));
+    }
+}
+
+// The index of the program's word as the text writes it: `written_name`, the word that named it with
+// its folder, pushed past the command's words, or the program's own word at `program`.
+fn push_written_name(words: &mut Vec<Word>, written_name: Option<Word>, program: usize) -> u32 {
+    match written_name {
+        Some(name) => {
+            words.push(name);
+            offset(words.len() - 1)
+        }
+        None => offset(program),
     }
 }
 
