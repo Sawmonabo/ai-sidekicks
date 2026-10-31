@@ -16,7 +16,7 @@ use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::Spawner;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
-use sidekicks_workspace::git::process::NO_PROMPT_ENVIRONMENT;
+use sidekicks_workspace::git::process::environment::NO_PROMPT_ENVIRONMENT;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, DuplexStream, Lines};
 use tokio::runtime::Handle;
 use tokio_tungstenite::tungstenite::Message;

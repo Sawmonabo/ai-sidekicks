@@ -14,7 +14,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
-use sidekicks_workspace::git::process::GIT_TERMINAL_PROMPT_OFF;
+use sidekicks_workspace::git::process::environment::GIT_TERMINAL_PROMPT_OFF;
 
 use crate::background_work::BackgroundWorkForms;
 use crate::callback_tools::host::{

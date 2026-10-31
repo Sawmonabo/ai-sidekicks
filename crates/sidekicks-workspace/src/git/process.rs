@@ -43,19 +43,6 @@ pub(crate) const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 pub(crate) const SHUTDOWN_STOP_GRACE: Duration =
     Duration::from_millis(DAEMON_STOP_TERMINAL_DRAIN_MS);
 
-/// The variable that keeps git from asking on a terminal, and its value.
-pub const GIT_TERMINAL_PROMPT_OFF: (&str, &str) = ("GIT_TERMINAL_PROMPT", "0");
-
-/// The environment that keeps git and ssh from asking anyone for a credential: no askpass
-/// program, no credential manager dialog, no ssh askpass and no terminal prompt, so a question
-/// fails at once instead of waiting.
-pub const NO_PROMPT_ENVIRONMENT: [(&str, &str); 4] = [
-    ("GIT_ASKPASS", ""),
-    ("GCM_INTERACTIVE", "never"),
-    ("SSH_ASKPASS_REQUIRE", "never"),
-    GIT_TERMINAL_PROMPT_OFF,
-];
-
 /// The setting that turns git's file watch off for one call, so neither its built-in daemon nor a
 /// helper program the repository names starts for it.
 const FILE_WATCH_OFF_SETTING: &str = "core.fsmonitor=false";

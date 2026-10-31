@@ -1,13 +1,24 @@
 //! The environment every git call runs with: the login shell's, cleared of the variables that point
-//! git at another repository and pinned to English messages and no prompt, and the git program
-//! found along its search path.
+//! git at another repository and pinned to English messages and no prompt; the variables that keep
+//! git and ssh from asking for a credential; and the git program found along its search path.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use sidekicks_platforms::find_executables;
 
-use super::GIT_TERMINAL_PROMPT_OFF;
+/// The variable that keeps git from asking on a terminal, and its value.
+pub const GIT_TERMINAL_PROMPT_OFF: (&str, &str) = ("GIT_TERMINAL_PROMPT", "0");
+
+/// The environment that keeps git and ssh from asking anyone for a credential: no askpass
+/// program, no credential manager dialog, no ssh askpass and no terminal prompt, so a question
+/// fails at once instead of waiting.
+pub const NO_PROMPT_ENVIRONMENT: [(&str, &str); 4] = [
+    ("GIT_ASKPASS", ""),
+    ("GCM_INTERACTIVE", "never"),
+    ("SSH_ASKPASS_REQUIRE", "never"),
+    GIT_TERMINAL_PROMPT_OFF,
+];
 
 /// The variables git reads as this repository's own (`git rev-parse --local-env-vars`), and three
 /// more that move where it looks for one; an inherited one would point a call at another

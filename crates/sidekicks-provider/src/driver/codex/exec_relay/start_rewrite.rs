@@ -16,7 +16,9 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
 use sidekicks_policy::shell_commands::PROVIDER_LINE_SHELLS;
-use sidekicks_workspace::git::process::{GIT_TERMINAL_PROMPT_OFF, NO_PROMPT_ENVIRONMENT};
+use sidekicks_workspace::git::process::environment::{
+    GIT_TERMINAL_PROMPT_OFF, NO_PROMPT_ENVIRONMENT,
+};
 
 use crate::command::askpass::command_prompt_environment;
 use crate::driver::codex::exec_relay::executor::CodexExecutor;
