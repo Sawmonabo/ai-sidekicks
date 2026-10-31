@@ -50,7 +50,8 @@ pub enum StandingRule {
     /// name, never an option, and the script word and the script read as script names.
     RunnerScript {
         /// Where the script word stands among the command's argument words: the last one with a
-        /// word after it, or the first word when that is one with none after it.
+        /// word after it before the runner's first option past a script word, or the first word
+        /// when that is one with none after it.
         script_word_index: usize,
     },
 }
@@ -100,7 +101,7 @@ pub(super) fn standing_rule_of<W: WordText>(
         return standing_rule_of_listed(listed, argument_words);
     }
     let name: String = program.chars().collect();
-    if let Some(listed) = versioned_interpreter(&name) {
+    if let Some(listed) = versioned_interpreter(&name, |stem| listed_program(stem)) {
         standing_rule_of_listed(listed, argument_words)
     } else if is_listed_when_folded(&name) {
         StandingRule::Withheld
@@ -109,8 +110,9 @@ pub(super) fn standing_rule_of<W: WordText>(
     }
 }
 
-/// A program's name as the list's names would match it on a file system that ignores case or on
-/// Windows: ASCII case folded and a trailing `.exe`, in any case, taken off.
+/// A name as a file system that ignores case, or Windows, reads it: ASCII case folded and a
+/// trailing `.exe`, in any case, taken off. Two names that fold alike run one program there, so a
+/// folded compare folds both of its sides through this one function.
 pub(crate) fn folded_program_name(name: &str) -> String {
     let folded = name.to_ascii_lowercase();
     match folded.strip_suffix(".exe") {
@@ -119,10 +121,19 @@ pub(crate) fn folded_program_name(name: &str) -> String {
     }
 }
 
-// Whether `name`, folded, is a listed name or an interpreter's versioned one.
+// Whether `name`, folded, is a listed name folded or an interpreter's versioned one.
 fn is_listed_when_folded(name: &str) -> bool {
     let folded = folded_program_name(name);
-    listed_program(folded.as_str()).is_some() || versioned_interpreter(&folded).is_some()
+    listed_program_when_folded(&folded).is_some()
+        || versioned_interpreter(&folded, listed_program_when_folded).is_some()
+}
+
+// The entry whose name, folded, is `folded`.
+fn listed_program_when_folded(folded: &str) -> Option<ListedProgram> {
+    LISTED_PROGRAMS
+        .iter()
+        .find(|(name, _)| folded_program_name(name) == folded)
+        .map(|&(_, listed)| listed)
 }
 
 // What a standing rule on a command of the program `listed` names, with `argument_words`, may name.
@@ -186,14 +197,17 @@ fn standing_rule_of_listed<W: WordText>(
 }
 
 // The entry of the interpreter `name` names with a version of digits and dots after its stem, as
-// `python3.12` names `python`'s.
-fn versioned_interpreter(name: &str) -> Option<ListedProgram> {
+// `python3.12` names `python`'s, its stem looked up by `entry_of`.
+fn versioned_interpreter(
+    name: &str,
+    entry_of: impl Fn(&str) -> Option<ListedProgram>,
+) -> Option<ListedProgram> {
     let stem =
         name.trim_end_matches(|character: char| character.is_ascii_digit() || character == '.');
     if stem.len() == name.len() {
         return None;
     }
-    listed_program(stem).filter(|listed| {
+    entry_of(stem).filter(|listed| {
         matches!(
             listed,
             ListedProgram::Interpreter | ListedProgram::ScriptRunningInterpreter
@@ -221,6 +235,46 @@ const MAPFILE_OPTIONS: LineOptions = LineOptions {
     letters_with_attached_value: "",
     reads_past_operands: false,
 };
+
+/// The reserved words of bash and zsh, each as the shells read it, unquoted and first in a command:
+/// the union of `man bash`'s RESERVED WORDS and `man zshmisc`'s Reserved Words. Written unquoted
+/// into a rule, such a word is grammar, as `coproc` or `if` running the words after it, not the
+/// name of a program.
+pub const SHELL_RESERVED_WORDS: &[&str] = &[
+    "!",
+    "case",
+    "coproc",
+    "do",
+    "done",
+    "elif",
+    "else",
+    "esac",
+    "fi",
+    "for",
+    "function",
+    "if",
+    "in",
+    "select",
+    "then",
+    "until",
+    "while",
+    "{",
+    "}",
+    "time",
+    "[[",
+    "]]",
+    "repeat",
+    "nocorrect",
+    "foreach",
+    "end",
+    "declare",
+    "export",
+    "float",
+    "integer",
+    "local",
+    "readonly",
+    "typeset",
+];
 
 // The list, by each name its program runs under.
 const LISTED_PROGRAMS: &[(&str, ListedProgram)] = &[

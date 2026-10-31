@@ -25,9 +25,9 @@ use self::command_string::{
     CommandStringWords, command_string_words, reads_its_line_from_input, runs_its_words_as_a_line,
 };
 pub use self::command_string::{PROVIDER_LINE_SHELLS, unwrap_shell_command_line};
-pub use self::listed_programs::StandingRule;
 pub(crate) use self::listed_programs::folded_program_name;
 use self::listed_programs::{FIND_COMMAND_PRIMARIES, command_wrapper, standing_rule_of};
+pub use self::listed_programs::{SHELL_RESERVED_WORDS, StandingRule};
 use self::reading_forms::ReadingForms;
 use self::words::{
     BytePositions, JoinedWords, Piece, PieceTexts, ShellText, Word, WordBuilder, node_text, offset,
@@ -191,7 +191,8 @@ impl<'r> ShellCommand<'r> {
     }
 
     /// What a standing rule on this command may name, as the list's entry for its program gives
-    /// it; a program off the list takes its name and its first subcommand word.
+    /// it; a program off the list takes its name and its first subcommand word, unless its name
+    /// folds to a listed one.
     pub fn standing_rule(self) -> StandingRule {
         standing_rule_of(self.program(), self.argument_words())
     }
