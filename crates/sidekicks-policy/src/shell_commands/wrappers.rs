@@ -16,8 +16,10 @@ use super::words::{ShellWord, Word, WordBuilder, WordText, long_option_named, sh
 /// the leading operand would; the letters whose optional value is only the rest of their cluster;
 /// whether it reads its short options in clusters and `-` alone as an option; the operand it takes
 /// before the command; when, given no command, it runs a shell that reads its input; whether it
-/// reads its statement's input itself, so the command it runs is handed none of it; and whether a
-/// `{` after its operand opens a list it runs in place of a command.
+/// reads its statement's input itself, so the command it runs is handed none of it, and the
+/// options that take a value with which it reads its own words from a file instead, leaving that
+/// input to the command; and whether a `{` after its operand opens a list it runs in place of a
+/// command.
 #[derive(Clone, Copy)]
 pub(super) struct CommandWrapper {
     pub(super) options_with_value: &'static [&'static str],
@@ -32,6 +34,7 @@ pub(super) struct CommandWrapper {
     pub(super) leading_operand: LeadingOperand,
     pub(super) shell_with_no_command: ShellWithNoCommand,
     pub(super) consumes_its_input: bool,
+    pub(super) options_leaving_its_input: &'static [&'static str],
 }
 
 /// The operand a wrapper takes after its options and before the command.
@@ -71,6 +74,7 @@ enum OptionKind {
     RunsNothing,
     HandsALine,
     ReplacesOperand,
+    LeavesInput,
 }
 
 // What an option word holds, as getopt reads it.
@@ -78,10 +82,12 @@ enum OptionWord {
     // Options that take no value, or one only the rest of their cluster holds.
     Flags,
     // An option whose value starts at this byte offset in the word, or is the next word when
-    // `None`, and whether the wrapper splits it into the command's words.
+    // `None`, whether the wrapper splits it into the command's words, and whether with it the
+    // wrapper leaves its statement's input to the command.
     Value {
         splits: bool,
         attached_from: Option<usize>,
+        leaves_input: bool,
     },
     // An option with which the wrapper runs no command.
     RunsNothing,
@@ -97,8 +103,13 @@ enum OptionWord {
 /// Where a wrapper's own words leave the command it runs.
 pub(super) enum WrapperRead {
     /// The command's program is the next word left, if any; with none left, the wrapper is the
-    /// program, and runs a shell reading its input when `runs_a_shell_with_no_command` holds.
-    CommandFollows { runs_a_shell_with_no_command: bool },
+    /// program, and runs a shell reading its input when `runs_a_shell_with_no_command` holds. With
+    /// `leaves_its_input`, an option taken leaves the statement's input to the command, as
+    /// `xargs -a <file>` does.
+    CommandFollows {
+        runs_a_shell_with_no_command: bool,
+        leaves_its_input: bool,
+    },
     /// The wrapper itself is the program and the words left are its arguments: one of its
     /// options runs no command or hands a shell a line in its place, a `{` after its operand opens
     /// the list it runs, env refuses its split string or only the run decides what env makes of
@@ -127,6 +138,7 @@ impl CommandWrapper {
             OptionWord::Value {
                 splits,
                 attached_from,
+                ..
             } => Some((attached_from, splits)),
             OptionWord::OperandValue { attached_from } => Some((attached_from, false)),
             OptionWord::Flags | OptionWord::RunsNothing | OptionWord::HandsALine => None,
@@ -149,6 +161,7 @@ impl CommandWrapper {
             leading_operand: LeadingOperand::Absent,
             shell_with_no_command: ShellWithNoCommand::Never,
             consumes_its_input: false,
+            options_leaving_its_input: &[],
         }
     }
 
@@ -171,6 +184,10 @@ impl CommandWrapper {
                 self.options_replacing_operand,
                 OptionKind::ReplacesOperand,
             ))
+            .chain(with_kind(
+                self.options_leaving_its_input,
+                OptionKind::LeavesInput,
+            ))
     }
 
     /// Whether a `{` word after the wrapper's operand opens a list it runs, up to the matching `}`,
@@ -185,6 +202,7 @@ impl CommandWrapper {
         !self.options_with_value.is_empty()
             || !self.split_string_options.is_empty()
             || !self.options_replacing_operand.is_empty()
+            || !self.options_leaving_its_input.is_empty()
     }
 
     // Whether the option word `word` names one of the options with which the wrapper, given no
@@ -256,15 +274,22 @@ impl OptionKind {
             Self::TakesValue => OptionWord::Value {
                 splits: false,
                 attached_from,
+                leaves_input: false,
             },
             Self::Flag => OptionWord::Flags,
             Self::SplitsValue => OptionWord::Value {
                 splits: true,
                 attached_from,
+                leaves_input: false,
             },
             Self::RunsNothing => OptionWord::RunsNothing,
             Self::HandsALine => OptionWord::HandsALine,
             Self::ReplacesOperand => OptionWord::OperandValue { attached_from },
+            Self::LeavesInput => OptionWord::Value {
+                splits: false,
+                attached_from,
+                leaves_input: true,
+            },
         }
     }
 }
@@ -290,6 +315,7 @@ pub(super) fn take_wrapper_words(
     let mut have_options_ended = false;
     let mut is_operand_replaced = false;
     let mut runs_a_shell = false;
+    let mut leaves_its_input = false;
     while let Some(word) = words.front() {
         let view = builder.view(word);
         // env reads a split string's assignments before its program, and no option after one.
@@ -352,7 +378,11 @@ pub(super) fn take_wrapper_words(
             OptionWord::Value {
                 splits,
                 attached_from,
-            } => (splits, attached_from),
+                leaves_input,
+            } => {
+                leaves_its_input |= leaves_input;
+                (splits, attached_from)
+            }
         };
         words.pop_front();
         let value = match attached_from {
@@ -406,6 +436,7 @@ pub(super) fn take_wrapper_words(
             ShellWithNoCommand::Always => true,
             ShellWithNoCommand::WithOption(_) => runs_a_shell,
         },
+        leaves_its_input,
     }
 }
 

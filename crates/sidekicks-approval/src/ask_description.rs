@@ -28,7 +28,7 @@ use sidekicks_contracts::approval::{ApprovalCategory, ApprovalScope, RememberedS
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::wire::text::{NonEmptyText, TextError, is_ecmascript_whitespace};
 use sidekicks_policy::destructive_git::{
-    is_git_option_among, read_git_subcommand, runs_destructive_git,
+    git_value_letters, is_git_option_among, read_git_subcommand, runs_destructive_git,
 };
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_policy::shell_commands::{
@@ -202,12 +202,18 @@ fn command_subject_of(command: ShellCommand<'_>) -> Option<String> {
             }
             Some(format!("{program} {subcommand}"))
         }
-        StandingRule::RunnerScript => {
-            let script_word = arguments.next()?;
-            let script = arguments
-                .next()
-                .filter(|&script| is_subcommand_word(script))?;
-            Some(format!("{program} {script_word} {script}"))
+        StandingRule::RunnerScript { script_word_index } => {
+            // The runner's words through its script word, and the script it names after them.
+            let words: Vec<_> = arguments.take(script_word_index + 2).collect();
+            if words.len() < script_word_index + 2
+                || !words.iter().all(|&word| is_script_name_word(word))
+            {
+                return None;
+            }
+            let subject: Vec<String> = std::iter::once(program.to_string())
+                .chain(words.iter().map(ToString::to_string))
+                .collect();
+            Some(subject.join(" "))
         }
     }
 }
@@ -232,12 +238,13 @@ const GIT_LINE_SUBCOMMAND_WORDS: &[(&str, &str)] = &[("bisect", "run"), ("submod
 
 // Whether git's `subcommand` with the words after it, `arguments`, runs a line of its own: an
 // option that runs one or a remote program's option, read as git reads options (a long one by any
-// prefix, a short one anywhere in a cluster), `bisect run`, `submodule foreach` or a
-// `filter-branch` filter.
+// prefix, a short one in a cluster up to the first letter that takes a value), `bisect run`,
+// `submodule foreach` or a `filter-branch` filter.
 fn runs_a_line_of_its_own<W: WordText>(
     subcommand: W,
     mut arguments: impl Iterator<Item = W>,
 ) -> bool {
+    let value_letters = git_value_letters(subcommand);
     let options: Vec<(&[&str], &[char])> = GIT_LINE_OPTIONS
         .iter()
         .filter(|(name, ..)| subcommand.is(name))
@@ -253,7 +260,7 @@ fn runs_a_line_of_its_own<W: WordText>(
     arguments.any(|word| {
         line_words.iter().any(|line_word| word.is(line_word))
             || options.iter().any(|&(long_options, short_letters)| {
-                is_git_option_among(word, long_options, short_letters)
+                is_git_option_among(word, long_options, short_letters, value_letters)
             })
             || (is_filter_branch && is_filter_option(word))
     })
@@ -276,6 +283,19 @@ fn is_subcommand_word(word: impl WordText) -> bool {
         .is_some_and(|first| first.is_ascii_lowercase())
         && characters.all(|character| {
             character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+        })
+}
+
+// A word that reads as a package script's name, or a word a runner reads before it: a letter or a
+// digit, then letters of either case, digits, `-`, `_`, `.` and `:`, never an option, a path or
+// a shell's own character.
+fn is_script_name_word(word: impl WordText) -> bool {
+    let mut characters = word.chars();
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphanumeric())
+        && characters.all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | ':')
         })
 }
 
@@ -447,7 +467,6 @@ mod tests {
     #[case::osascript_code(r#"osascript -e 'do shell script "git push --force"'"#, None)]
     #[case::python_script("python3 manage.py test", None)]
     #[case::node_version("node --version", None)]
-    #[case::bun_script("bun run build", None)]
     #[case::deno_eval("deno eval 'console.log(1)'", None)]
     #[case::interpreter_through_a_wrapper("timeout 5 python3 -c 'print(1)'", None)]
     #[case::interpreter_in_a_shell_string(r#"sh -c 'python3 -c "import os"'"#, None)]
@@ -561,6 +580,40 @@ mod tests {
     #[case::npm_script_alias("npm run-script deploy", Some("npm run-script deploy"))]
     #[case::runner_option_before_its_script("npm --prefix x run build", None)]
     #[case::runner_subcommand_before_the_word_run("npm install run", Some("npm install"))]
+    // A short option that takes a value ends its cluster: rebase's `-X` value holds no `-x`, and
+    // grep's `-O` both runs a pager and takes its value. Killed by letters compared without their
+    // case, and by a cluster stopped before its value letter is read.
+    #[case::rebase_strategy_option_value("git rebase -Xours HEAD~1", Some("git rebase"))]
+    #[case::grep_pager_with_its_value("git grep -Oless -e a", None)]
+    // A script's name may hold either case, digits, `-`, `_`, `.` and `:`. Killed by the script
+    // read as a lower-case subcommand word.
+    #[case::script_name_with_a_colon("npm run test:unit", Some("npm run test:unit"))]
+    #[case::pnpm_script_name_with_a_colon("pnpm run build:web", Some("pnpm run build:web"))]
+    // A runner's subject runs through its script when only plain words come before the script
+    // word; an option anywhere before it withholds one, and a runner subcommand that names a
+    // program keeps two words. Killed by the subject cut at the runner's first word, by the
+    // option check reading only the word before the script word, and by `exec` read as a script
+    // word.
+    #[case::workspace_script("yarn workspace web run build", Some("yarn workspace web run build"))]
+    #[case::workspaces_foreach_script(
+        "yarn workspaces foreach run build",
+        Some("yarn workspaces foreach run build")
+    )]
+    #[case::workspaces_option_before_the_script("yarn workspaces foreach -A run build", None)]
+    #[case::runner_program_subcommand("npm exec prettier", Some("npm exec"))]
+    // zsh's `=name` keeps its `=` in the subject, the program as written. Killed by the subject
+    // read off the program's name.
+    #[case::zsh_path_of_a_program("=cargo test", Some("=cargo test"))]
+    // A quoted or escaped program word is the word the shell reads. Killed by the subject spelling
+    // the word's quotes or backslash.
+    #[case::single_quoted_program("'git' status", Some("git status"))]
+    #[case::double_quoted_program(r#""git" status"#, Some("git status"))]
+    #[case::escaped_program(r"g\it status", Some("git status"))]
+    // bun's `run` runs a package script, as npm's does; its other forms run its own code. Killed
+    // by bun read as an interpreter alone, and by bun read as a plain runner.
+    #[case::bun_script("bun run build", Some("bun run build"))]
+    #[case::bun_runner_alone("bun run", None)]
+    #[case::bun_file("bun file.ts", None)]
     fn a_command_offers_its_standing_allow(#[case] line: &str, #[case] offered: Option<&str>) {
         let action = ProviderAskAction::Command {
             command: line.to_owned(),

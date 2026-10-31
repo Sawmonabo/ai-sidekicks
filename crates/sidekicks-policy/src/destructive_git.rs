@@ -89,30 +89,61 @@ pub fn read_git_subcommand<W: WordText>(
 }
 
 /// Whether a provider keeping `rule` as a prefix over its subject's words would also let a force
-/// push or a branch delete through: a command allow on `git` alone, `git push` or `git branch`.
-/// Such a rule is the daemon's alone, which answers each ask it covers and sends a destructive one
-/// to the card.
+/// push or a branch delete through: a command allow on `git` alone, `git push` or `git branch`,
+/// git named by its name, a path ending in it (`./git`) or zsh's `=git`. Such a rule is the
+/// daemon's alone, which answers each ask it covers and sends a destructive one to the card.
 pub fn covers_destructive_git(rule: &ProviderAskRule) -> bool {
     if rule.action != ProviderAskActionKind::Command || rule.sense != RememberedRuleSense::Allow {
         return false;
     }
     let mut words = rule.subject.split(' ');
-    let program = words.next();
+    let program = words.next().map(program_name_of);
     let subcommand = words.next();
     program == Some("git")
         && words.next().is_none()
         && subcommand.is_none_or(|subcommand| DESTRUCTIVE_GIT_SUBCOMMANDS.contains(&subcommand))
 }
 
+// The name of the program a subject's first word, as written, runs, as the list matches it: the
+// text past its last `/`, or with no `/` the name zsh's `=name` names.
+fn program_name_of(written: &str) -> &str {
+    match written.rsplit_once('/') {
+        Some((_, name)) => name,
+        None => written.strip_prefix('=').unwrap_or(written),
+    }
+}
+
+// The short options of git's subcommands that take a value, as git's `-h` option tables and its
+// manual pages list them: in a cluster, the rest of the word past such a letter is its value.
+const GIT_VALUE_LETTERS: &[(&str, &[char])] = &[
+    ("push", &['o']),
+    ("branch", &['u']),
+    ("rebase", &['x', 'X', 's', 'S', 'C']),
+    ("grep", &['e', 'f', 'm', 'A', 'B', 'C', 'O']),
+    ("difftool", &['x', 't']),
+    ("clone", &['o', 'b', 'u', 'c', 'j']),
+];
+
+/// The short options of git's `subcommand` that take a value, read from git's `-h` option tables
+/// and manual pages; none for a subcommand whose values these readers never reach.
+pub fn git_value_letters(subcommand: impl WordText) -> &'static [char] {
+    GIT_VALUE_LETTERS
+        .iter()
+        .find(|(name, _)| subcommand.is(name))
+        .map_or(&[], |&(_, letters)| letters)
+}
+
 /// Whether `word` names one of a git subcommand's options as git's own option parser reads it: a
 /// `--` word whose name, up to any `=`, begins one of `long_options`, each written with its `--`
 /// (git takes a unique prefix, and an ambiguous one, which git refuses, counts too), or a `-`
-/// cluster holding one of `short_letters` before its first character that is neither a letter nor
-/// a digit, where an attached value starts. git's own options before the subcommand take no prefix.
+/// cluster holding one of `short_letters` read letter by letter up to and including the first of
+/// `value_letters`, the subcommand's letters that take a value, whose value is the rest of the
+/// word. git's own options before the subcommand take no prefix.
 pub fn is_git_option_among(
     word: impl WordText,
     long_options: &[&str],
     short_letters: &[char],
+    value_letters: &[char],
 ) -> bool {
     if word.starts_with("--") {
         let name = || {
@@ -127,10 +158,18 @@ pub fn is_git_option_among(
             });
     }
     let mut characters = word.chars();
-    characters.next() == Some('-')
-        && characters
-            .take_while(char::is_ascii_alphanumeric)
-            .any(|letter| short_letters.contains(&letter))
+    if characters.next() != Some('-') {
+        return false;
+    }
+    for letter in characters {
+        if short_letters.contains(&letter) {
+            return true;
+        }
+        if value_letters.contains(&letter) {
+            return false;
+        }
+    }
+    false
 }
 
 // Whether a command of `reading` is a destructive git command, or a line not read whole shows
@@ -233,7 +272,12 @@ fn is_destructive_git_arguments<W: WordText>(arguments: impl Iterator<Item = W>)
     if subcommand.is("push") {
         return rest.any(|word| {
             word.spells_alternatives()
-                || is_git_option_among(word, PUSH_DESTRUCTIVE_OPTIONS, PUSH_DESTRUCTIVE_LETTERS)
+                || is_git_option_among(
+                    word,
+                    PUSH_DESTRUCTIVE_OPTIONS,
+                    PUSH_DESTRUCTIVE_LETTERS,
+                    git_value_letters("push"),
+                )
                 // A refspec that forces (`+main`) or deletes (`:main`) the branch it names.
                 || word.starts_with("+")
                 || word.starts_with(":")
@@ -242,7 +286,12 @@ fn is_destructive_git_arguments<W: WordText>(arguments: impl Iterator<Item = W>)
     if subcommand.is("branch") {
         return rest.any(|word| {
             word.spells_alternatives()
-                || is_git_option_among(word, BRANCH_DELETE_OPTIONS, BRANCH_DELETE_LETTERS)
+                || is_git_option_among(
+                    word,
+                    BRANCH_DELETE_OPTIONS,
+                    BRANCH_DELETE_LETTERS,
+                    git_value_letters("branch"),
+                )
         });
     }
     false

@@ -346,6 +346,15 @@ const LIMIT: usize = 4096;
 // redirect clearing it.
 #[case::here_string_into_xargs("xargs sh <<< 'git push --force'", false)]
 #[case::here_string_before_a_file_redirect("sh <<< 'git push --force' < f", true)]
+// A short option that takes a value ends its cluster, the rest of the word being its value.
+// Killed by the letters past a value letter read as options, and by the cluster read no further
+// than its first letter.
+#[case::branch_upstream_value_holding_d("git branch -udev", false)]
+#[case::push_option_value_holding_d("git push -odeploy", false)]
+#[case::branch_delete_before_a_value_letter("git branch -du dev", true)]
+// GNU xargs's `-a <file>` reads its words from the file, so the here-string is the line of the
+// shell it runs. Killed by `-a` left an ordinary option that takes a value.
+#[case::here_string_past_xargs_arg_file("xargs -a f sh <<< 'git push --force'", true)]
 fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool) {
     let mut reader = ShellLineReader::new(LIMIT);
     let reading = reader.read(line);
@@ -394,6 +403,33 @@ fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool
     RememberedRuleSense::Allow,
     ProviderAskActionKind::FileChange,
     "git",
+    false
+)]
+// git named by a path or zsh's `=git` is git; a name that only ends in `git` is another program.
+// Killed by the subject's first word compared with `git` as written, and by a name read by its
+// ending.
+#[case::git_by_a_relative_path(
+    RememberedRuleSense::Allow,
+    ProviderAskActionKind::Command,
+    "./git push",
+    true
+)]
+#[case::git_by_an_absolute_path(
+    RememberedRuleSense::Allow,
+    ProviderAskActionKind::Command,
+    "/usr/bin/git branch",
+    true
+)]
+#[case::git_by_its_zsh_path(
+    RememberedRuleSense::Allow,
+    ProviderAskActionKind::Command,
+    "=git push",
+    true
+)]
+#[case::program_ending_in_git(
+    RememberedRuleSense::Allow,
+    ProviderAskActionKind::Command,
+    "git-lfs push",
     false
 )]
 fn a_rule_covers_destructive_git(

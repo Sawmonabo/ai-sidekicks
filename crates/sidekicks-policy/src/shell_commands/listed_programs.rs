@@ -21,6 +21,9 @@ pub(super) enum ListedProgram {
     Find,
     /// An interpreter, none of whose words is read: its code is its own language's.
     Interpreter,
+    /// An interpreter that is also a package-script runner, as `bun` is: its `run` as its first
+    /// word runs a script its project's file holds, and any other form is its own language's code.
+    ScriptRunningInterpreter,
     /// `git`, whose own forms are read as the destructive-git reader reads them.
     Git,
     /// `rm`, which runs no words and deletes whatever its words name.
@@ -40,9 +43,13 @@ pub enum StandingRule {
     Program,
     /// `git` with the subcommand past its own options; `git` alone takes none.
     GitSubcommand,
-    /// A runner, its script word (`run`, or npm's `run-script`, `rum` or `urn`) and the script it
-    /// names, as `npm run build`; the runner and its script word alone take none.
-    RunnerScript,
+    /// A runner, the plain words before its script word, the script word (`run`, or npm's
+    /// `run-script`, `rum` or `urn`) and the script it names, as `npm run build` or `yarn workspace
+    /// web run build`; the runner and its script word alone take none.
+    RunnerScript {
+        /// Where the script word stands among the command's argument words.
+        script_word_index: usize,
+    },
 }
 
 /// The primaries of `find` that run the words after them as a command.
@@ -71,6 +78,7 @@ pub(super) fn command_wrapper(program: impl WordText) -> Option<CommandWrapper> 
         | ListedProgram::LineProgram(_)
         | ListedProgram::Find
         | ListedProgram::Interpreter
+        | ListedProgram::ScriptRunningInterpreter
         | ListedProgram::Git
         | ListedProgram::FileRemover
         | ListedProgram::ScriptRunner => None,
@@ -98,6 +106,15 @@ pub(super) fn standing_rule_of<W: WordText>(
         | ListedProgram::Interpreter
         | ListedProgram::FileRemover => StandingRule::Withheld,
         ListedProgram::Git => StandingRule::GitSubcommand,
+        ListedProgram::ScriptRunningInterpreter => {
+            if argument_words.next().is_some_and(|word| word.is("run")) {
+                StandingRule::RunnerScript {
+                    script_word_index: 0,
+                }
+            } else {
+                StandingRule::Withheld
+            }
+        }
         ListedProgram::Find => {
             let acts = argument_words.any(|word| {
                 FIND_COMMAND_PRIMARIES
@@ -113,17 +130,21 @@ pub(super) fn standing_rule_of<W: WordText>(
         }
         ListedProgram::ScriptRunner => {
             // An option before the script word may take a value, so where the script word stands
-            // past one is not read.
+            // past one is not read. A script word past plain words with no word after it is a
+            // plain word itself, as in `npm install run`.
             let mut follows_an_option = false;
-            for (index, word) in argument_words.enumerate() {
-                if RUNNER_SCRIPT_WORDS
+            let mut argument_words = argument_words.enumerate().peekable();
+            while let Some((index, word)) = argument_words.next() {
+                let is_script_word = RUNNER_SCRIPT_WORDS
                     .iter()
-                    .any(|script_word| word.is(script_word))
-                {
-                    return match (index, follows_an_option) {
-                        (0, _) => StandingRule::RunnerScript,
-                        (_, true) => StandingRule::Withheld,
-                        (_, false) => StandingRule::Program,
+                    .any(|script_word| word.is(script_word));
+                if is_script_word && (index == 0 || argument_words.peek().is_some()) {
+                    return if follows_an_option {
+                        StandingRule::Withheld
+                    } else {
+                        StandingRule::RunnerScript {
+                            script_word_index: index,
+                        }
                     };
                 }
                 follows_an_option |= word.starts_with("-");
@@ -254,8 +275,10 @@ const LISTED_PROGRAMS: &[(&str, ListedProgram)] = &[
         ListedProgram::Wrapper(CommandWrapper {
             // GNU's `-i`, `-e` and `-l` take an optional value inside their own word.
             letters_with_attached_value: "eil",
-            // xargs reads the words it appends from its input.
+            // xargs reads the words it appends from its input, or with GNU's `-a <file>` from
+            // the file, leaving its input to the command it runs.
             consumes_its_input: true,
+            options_leaving_its_input: &["-a", "--arg-file"],
             ..CommandWrapper::new(&[
                 "-I",
                 "-J",
@@ -270,8 +293,6 @@ const LISTED_PROGRAMS: &[(&str, ListedProgram)] = &[
                 "-d",
                 "--delimiter",
                 "-E",
-                "-a",
-                "--arg-file",
                 "-R",
                 "-S",
             ])
@@ -525,7 +546,7 @@ const LISTED_PROGRAMS: &[(&str, ListedProgram)] = &[
     ("julia", ListedProgram::Interpreter),
     ("Rscript", ListedProgram::Interpreter),
     ("deno", ListedProgram::Interpreter),
-    ("bun", ListedProgram::Interpreter),
+    ("bun", ListedProgram::ScriptRunningInterpreter),
     ("osascript", ListedProgram::Interpreter),
     ("awk", ListedProgram::Interpreter),
     ("gawk", ListedProgram::Interpreter),

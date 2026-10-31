@@ -694,7 +694,8 @@ fn resolve_command(
     let mut can_folder_split = false;
     let mut last_wrapper = None;
     let mut runs_a_shell_with_no_command = false;
-    // A wrapper that reads the statement's input itself, as xargs does, hands the command none.
+    // A wrapper that reads the statement's input itself, as xargs does, hands the command none,
+    // unless an option of its leaves the input to the command, as `xargs -a <file>` does.
     let mut is_input_consumed = false;
     loop {
         while let Some(assignment) =
@@ -736,19 +737,21 @@ fn resolve_command(
         let name_index = words.len() - 1;
         let is_program = match wrapper {
             Some(wrapper) => match take_wrapper_words(builder, wrapper, pending, words) {
-                WrapperRead::WrapperIsProgram => true,
+                WrapperRead::WrapperIsProgram => {
+                    is_input_consumed |= wrapper.consumes_its_input;
+                    true
+                }
                 WrapperRead::CommandFollows {
                     runs_a_shell_with_no_command: runs_a_shell,
+                    leaves_its_input,
                 } => {
                     runs_a_shell_with_no_command = runs_a_shell;
+                    is_input_consumed |= wrapper.consumes_its_input && !leaves_its_input;
                     false
                 }
             },
             None => true,
         };
-        if let Some(wrapper) = wrapper {
-            is_input_consumed |= wrapper.consumes_its_input;
-        }
         if is_program {
             words.truncate(name_index + 1);
             words.extend(pending.drain(..));
@@ -778,8 +781,8 @@ fn resolve_command(
     }
 }
 
-// The index of the program's word as the text writes it: `written_name`, the word that named it with
-// its folder, pushed past the command's words, or the program's own word at `program`.
+// The index of the program's word as the text writes it: `written_name`, the word that named it
+// with its folder, pushed past the command's words, or the program's own word at `program`.
 fn push_written_name(words: &mut Vec<Word>, written_name: Option<Word>, program: usize) -> u32 {
     match written_name {
         Some(name) => {

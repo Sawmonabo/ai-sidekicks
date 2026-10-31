@@ -315,6 +315,7 @@ fn line_handing(program: impl WordText) -> Option<LineHanding> {
         },
         ListedProgram::Find
         | ListedProgram::Interpreter
+        | ListedProgram::ScriptRunningInterpreter
         | ListedProgram::Git
         | ListedProgram::FileRemover
         | ListedProgram::ScriptRunner => None,
