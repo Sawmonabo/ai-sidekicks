@@ -345,7 +345,7 @@ impl RunSetupGate for ExecutionPostureService {
     /// the one the run was requested with, and keeps it for `resolved_posture_for`; a rejection
     /// fails the gate, which ends the run `failed` before its provider starts it, and so do a
     /// failed read of the stored level and a level that moves during each of the gate's
-    /// [`GATE_ROUNDS`] reads.
+    /// `GATE_ROUNDS` reads.
     fn assert_run_ready<'a>(
         &'a self,
         context: &'a RunSetupContext,
