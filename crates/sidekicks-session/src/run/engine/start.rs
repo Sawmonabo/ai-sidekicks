@@ -95,7 +95,7 @@ impl RunEngine {
                 let standard = self
                     .providers
                     .descriptor(&provider)
-                    .map_err(|refusal| RunEngineError::Provider(Box::new(refusal)))?
+                    .map_err(RunEngineError::Provider)?
                     .standard_output_speed;
                 (speed.as_str() != standard).then_some(speed)
             }

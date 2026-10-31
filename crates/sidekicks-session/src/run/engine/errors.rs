@@ -82,7 +82,7 @@ pub enum RunEngineError {
     },
     /// No registered driver answers the run's provider (`provider.notFound`).
     #[error(transparent)]
-    Provider(Box<DomainError>),
+    Provider(DomainError),
     /// The daemon turn's run was not queued.
     #[error(transparent)]
     DaemonTurn(Box<DaemonTurnQueueError>),
