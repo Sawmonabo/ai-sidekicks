@@ -194,7 +194,9 @@ mod tests {
         };
         assert_eq!(refusal.code, RefusalCode::TranscriptRowNotFound);
         assert_eq!(
-            refusal.detail.map(serde_json::Value::Object),
+            refusal
+                .detail
+                .map(|detail| serde_json::Value::Object(*detail)),
             Some(json!({ "rowId": "no-such-row" }))
         );
     }

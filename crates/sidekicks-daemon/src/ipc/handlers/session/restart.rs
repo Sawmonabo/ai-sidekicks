@@ -187,7 +187,7 @@ mod tests {
 
         assert_eq!(refusal.code, code, "{failure:?}");
         assert_eq!(
-            Value::Object(refusal.detail.expect("the refusal carries fields")),
+            Value::Object(*refusal.detail.expect("the refusal carries fields")),
             fields,
             "{failure:?}"
         );

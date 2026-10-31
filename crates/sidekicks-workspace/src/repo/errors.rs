@@ -270,7 +270,7 @@ impl From<RepoRefusal> for DomainError {
         DomainError {
             message,
             code,
-            detail,
+            detail: detail.map(Box::new),
             source: None,
         }
     }

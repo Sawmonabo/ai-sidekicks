@@ -369,10 +369,10 @@ async fn a_run_that_starts_after_the_checks_refuses_the_write_naming_its_agent()
     assert_eq!(refused.code, RefusalCode::RepoMountReattachConflict);
     assert_eq!(
         refused.detail,
-        Some(refusal_fields(RepoMountReattachConflictDetails {
+        Some(Box::new(refusal_fields(RepoMountReattachConflictDetails {
             running_session_id: SessionId::new(SESSION_ID).expect("the id is a UUID"),
             running_agent_id: AgentId::new(RUNNING_AGENT_ID).expect("the id is a UUID"),
-        }))
+        })))
     );
     assert_eq!(fixture.written(), before);
 }

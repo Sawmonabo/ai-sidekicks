@@ -162,7 +162,10 @@ fn map_dispatch_error(error: DispatchError) -> JsonRpcError {
             json_rpc_error(
                 refusal.code.json_rpc_code(),
                 &message,
-                Some(refusal_data(refusal.code, refusal.detail)),
+                Some(refusal_data(
+                    refusal.code,
+                    refusal.detail.map(|detail| *detail),
+                )),
             )
         }
         DispatchError::Canceled => JsonRpcError::request_canceled(),

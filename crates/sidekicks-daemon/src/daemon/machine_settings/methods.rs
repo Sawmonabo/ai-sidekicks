@@ -242,7 +242,9 @@ mod tests {
         };
         assert_eq!(refusal.code, RefusalCode::RepoMountRootResolutionFailed);
         assert_eq!(
-            refusal.detail.map(serde_json::Value::Object),
+            refusal
+                .detail
+                .map(|detail| serde_json::Value::Object(*detail)),
             Some(json!({ "reason": "notAbsolute" })),
             "the reason alone, with no detail"
         );

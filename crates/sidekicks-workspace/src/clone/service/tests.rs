@@ -401,7 +401,9 @@ async fn a_relative_parent_folder_is_refused_as_naming_no_complete_location_and_
     let refusal = DomainError::from(refusal);
     assert_eq!(refusal.code, RefusalCode::RepoMountRootResolutionFailed);
     assert_eq!(
-        refusal.detail.map(serde_json::Value::Object),
+        refusal
+            .detail
+            .map(|detail| serde_json::Value::Object(*detail)),
         Some(json!({ "reason": "notAbsolute" })),
         "the reason alone, with no detail"
     );
