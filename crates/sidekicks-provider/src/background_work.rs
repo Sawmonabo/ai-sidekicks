@@ -271,6 +271,9 @@ mod tests {
     // A here-string on xargs's statement is the words xargs appends, never the line of the shell
     // it runs. Killed by the shell xargs runs handed the here-string as its line.
     #[case::here_string_into_xargs("xargs sh <<< 'claude --bg x'", false)]
+    // GNU xargs's `-a <file>` reads its words from the file, so the here-string is the line of the
+    // shell it runs. Killed by `-a` left an ordinary option that takes a value.
+    #[case::here_string_past_xargs_arg_file("xargs -a f sh <<< 'claude --bg x'", true)]
     fn a_line_starts_background_work(#[case] line: &str, #[case] is_refused: bool) {
         let mut reader = ShellLineReader::new(LIMIT);
         let reading = reader.read(line);
