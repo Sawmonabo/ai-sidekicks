@@ -2,6 +2,7 @@
 //! line, the programs that run the command after their own words, the interpreters, `find`, `git`,
 //! `rm` and the package-script runners. Each entry says what of its words a reading reads, and so
 //! what a standing rule on a command of it may name; a program off the list is read as plain words.
+//! Beside it sit the reserved words of bash and zsh, which no standing rule may take as a program.
 
 use super::command_string::{LineOptions, ShellGrammar, ShellLineProgram};
 use super::words::WordText;
@@ -128,7 +129,7 @@ fn is_listed_when_folded(name: &str) -> bool {
         || versioned_interpreter(&folded, listed_program_when_folded).is_some()
 }
 
-// The entry whose name, folded, is `folded`.
+// The first entry whose name, folded, is `folded`; the names that fold alike are one kind.
 fn listed_program_when_folded(folded: &str) -> Option<ListedProgram> {
     LISTED_PROGRAMS
         .iter()
@@ -236,10 +237,11 @@ const MAPFILE_OPTIONS: LineOptions = LineOptions {
     reads_past_operands: false,
 };
 
-/// The reserved words of bash and zsh, each as the shells read it, unquoted and first in a command:
-/// the union of `man bash`'s RESERVED WORDS and `man zshmisc`'s Reserved Words. Written unquoted
-/// into a rule, such a word is grammar, as `coproc` or `if` running the words after it, not the
-/// name of a program.
+/// The reserved words of bash and zsh, the words the shells read as grammar when unquoted, as the
+/// first word of a command among other places (bash reads `in` and `do` as the third word of
+/// `case`, `select` and `for`; zsh reads `}` in any position): the union of `man bash`'s RESERVED
+/// WORDS and `man zshmisc`'s Reserved Words. Written unquoted into a rule, such a word is grammar,
+/// as `coproc` or `if` running the words after it, not the name of a program.
 pub const SHELL_RESERVED_WORDS: &[&str] = &[
     "!",
     "case",
