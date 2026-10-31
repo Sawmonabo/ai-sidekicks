@@ -5,7 +5,7 @@
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { McpToolReading } from "@ai-sidekicks/contracts/mcp/server";
+import type { McpToolReading } from "@ai-sidekicks/contracts/mcp/tool-settings";
 import { ManualClock } from "#renderer/lib/clock.js";
 import { IDLE_MCP_MUTATION } from "../mutation.js";
 import { ToolSettingList } from "./ToolSettingList.js";

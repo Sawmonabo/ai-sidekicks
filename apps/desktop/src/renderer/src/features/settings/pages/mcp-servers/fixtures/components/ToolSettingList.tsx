@@ -10,7 +10,7 @@ import {
   type McpToolOverrideFacet,
   type McpToolReading,
   type McpToolSetting,
-} from "@ai-sidekicks/contracts/mcp/server";
+} from "@ai-sidekicks/contracts/mcp/tool-settings";
 import { IDEMPOTENCY_CLASSES } from "@ai-sidekicks/contracts/provider/driver/tools";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import {
