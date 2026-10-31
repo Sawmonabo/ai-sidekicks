@@ -15,6 +15,7 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
+use sidekicks_policy::shell_commands::PROVIDER_LINE_SHELLS;
 use sidekicks_workspace::git::process::{GIT_TERMINAL_PROMPT_OFF, NO_PROMPT_ENVIRONMENT};
 
 use crate::command::askpass::command_prompt_environment;
@@ -31,9 +32,6 @@ const WORDS_SEPARATOR: &str = "--";
 /// The flag of a login shell's line, and the one its non-login run takes.
 const LOGIN_LINE_FLAG: &str = "-lc";
 const LINE_FLAG: &str = "-c";
-
-/// The shells whose login line runs non-login, by file name, as Codex derives their starts.
-const LOGIN_LINE_SHELLS: [&str; 3] = ["zsh", "bash", "sh"];
 
 // The members of a start the relay reads.
 #[derive(Deserialize)]
@@ -277,7 +275,7 @@ impl CodexExecRelay {
     }
 }
 
-// Turns `[shell, "-lc", line, ...]` for a shell Codex derives a login line for into
+// Turns `[shell, "-lc", line, ...]` for a shell Codex derives a login line for, by file name, into
 // `[shell, "-c", line, ...]`; any other start is left as it is.
 fn run_login_line_without_login(words: &mut [String]) {
     let [shell, flag, _line, ..] = words else {
@@ -286,7 +284,7 @@ fn run_login_line_without_login(words: &mut [String]) {
     let is_login_shell = Path::new(shell.as_str())
         .file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| LOGIN_LINE_SHELLS.contains(&name));
+        .is_some_and(|name| PROVIDER_LINE_SHELLS.contains(&name));
     if is_login_shell && flag == LOGIN_LINE_FLAG {
         LINE_FLAG.clone_into(flag);
     }

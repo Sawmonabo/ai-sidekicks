@@ -63,6 +63,7 @@ use crate::driver::codex::session::errors::{
 };
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::session::state::CODEX_THREAD_FRAME_ROUTER_CONFIG;
+use crate::driver::codex::shells::CodexShellKind;
 use crate::driver::codex::transport::connection::{
     CODEX_REQUEST_TIMEOUT, CodexAppServerConnection, CodexConnectionEvents,
     CodexConnectionHandlers, open_codex_connection, read_codex_object,
@@ -120,6 +121,9 @@ pub(crate) struct CodexServiceDependencies {
     /// Whether the daemon's program runs the hook mode a hook command starts, so the terminal
     /// service is started with the daemon's hooks.
     pub(crate) dispatches_hook_mode: bool,
+    /// The kind of shell Codex runs the terminal service's hook commands in, which they are
+    /// quoted for.
+    pub(crate) session_shell_kind: CodexShellKind,
     /// The session's recovery, told of exits, recoveries, crash loops and planned restarts.
     pub(crate) events: Arc<dyn CodexServiceEvents>,
     /// The conversations sessions moved off, which see each of their frames first.

@@ -104,6 +104,7 @@ mod run;
 mod server_requests;
 mod service;
 mod session;
+mod shells;
 mod thread;
 mod token_usage;
 mod tools;

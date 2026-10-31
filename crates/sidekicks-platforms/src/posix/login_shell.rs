@@ -73,3 +73,15 @@ fn read_configuration_text(name: libc::c_int) -> io::Result<String> {
     buffer.truncate(written - 1);
     String::from_utf8(buffer).map_err(io::Error::other)
 }
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::login_shell;
+
+    #[test]
+    fn the_account_names_a_login_shell_by_its_full_path() {
+        let shell = login_shell().expect("the user database answers");
+
+        assert!(shell.is_some_and(|shell| shell.is_absolute()));
+    }
+}

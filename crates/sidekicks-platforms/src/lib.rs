@@ -92,6 +92,7 @@ mod pinned_process;
 mod pipe_reader;
 #[cfg(unix)]
 mod posix;
+mod powershell_literal;
 mod process_containment;
 mod process_identity;
 mod process_start;
@@ -420,6 +421,7 @@ pub use posix::thread_cpu_time::thread_cpu_time;
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
+pub use powershell_literal::quote_powershell_literal;
 #[cfg(any(test, feature = "test-support"))]
 pub use process_containment::CAN_TAKE_IN_ORPHANS;
 pub use process_containment::{
@@ -442,7 +444,10 @@ pub use session_child::SessionCommand;
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
 pub use shell_folder_start::ShellFolderStart;
-pub use shell_line_command::{command_shell, shell_line_command};
+pub use shell_line_command::{
+    FALLBACK_LINE_SHELLS, LINE_SHELL_PROGRAMS, LineShellProgram, ULTIMATE_FALLBACK_LINE_SHELL,
+    command_shell, shell_line_command,
+};
 pub use shell_start::{DOES_SHELL_MODE_KEEP_ITS_FOLDER, SHELL_START_CONFIRMATION};
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
 pub use socket::connection::found_no_listener;
