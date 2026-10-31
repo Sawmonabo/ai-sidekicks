@@ -183,10 +183,9 @@ fn command_subject_of(command: ShellCommand<'_>) -> Option<String> {
     {
         return None;
     }
-    // The program as written, so a rule on `cargo test` never answers `./cargo test`. A quoted
-    // word that is empty or holds a blank would be split by the providers into other words.
+    // The program as written, so a rule on `cargo test` never answers `./cargo test`.
     let program = command.written_program();
-    if program.chars().next().is_none() || program.chars().any(is_ecmascript_whitespace) {
+    if !is_program_name_word(program) {
         return None;
     }
     let mut arguments = command.argument_words();
@@ -210,7 +209,7 @@ fn command_subject_of(command: ShellCommand<'_>) -> Option<String> {
             // The runner's words through its script word, and the script it names after them:
             // package names before the script word, which is never an option, then script names.
             let words: Vec<_> = arguments.take(script_word_index + 2).collect();
-            let (package_words, script_words) = words.split_at_checked(script_word_index)?;
+            let (package_words, script_words) = words.split_at(script_word_index);
             if script_words.len() < 2
                 || !package_words.iter().all(|&word| is_package_name_word(word))
                 || !script_words.iter().all(|&word| is_script_name_word(word))
@@ -279,6 +278,28 @@ fn is_filter_option(word: impl WordText) -> bool {
     let text: String = word.chars().collect();
     let name = text.split_once('=').map_or(text.as_str(), |(name, _)| name);
     name.starts_with("--") && name.ends_with("-filter")
+}
+
+// A program word a subject may carry, its decoded text: letters, digits, `-`, `_`, `.`, `/`, `+`,
+// `@`, `%`, `,` and `:`, with `=` or `~` first only. Every subject word is drawn from this one
+// alphabet, none of whose characters the shell reads as syntax, so Claude Code's compare of the
+// rule's raw text and Codex's split words read the same subject. `=` and `~` lead only, where the
+// shell reads them as zsh's `=name` and a home folder and the guard reads the name past them;
+// further in, `=` makes the word an assignment and `~` after `=` or `:` expands.
+fn is_program_name_word(word: impl WordText) -> bool {
+    let mut characters = word.chars();
+    characters
+        .next()
+        .is_some_and(|first| matches!(first, '=' | '~') || is_program_name_character(first))
+        && characters.all(is_program_name_character)
+}
+
+fn is_program_name_character(character: char) -> bool {
+    character.is_ascii_alphanumeric()
+        || matches!(
+            character,
+            '-' | '_' | '.' | '/' | '+' | '@' | '%' | ',' | ':'
+        )
 }
 
 // A word that reads as a subcommand: a lower-case letter, then lower-case letters, digits and
@@ -633,6 +654,12 @@ mod tests {
         Some("yarn workspace run run build")
     )]
     #[case::script_word_after_the_script("npm run build run", Some("npm run build"))]
+    // Past its script word a runner reads no option of its own. Killed by the walk read past the
+    // runner's `--`.
+    #[case::script_word_past_the_runners_end_of_options(
+        "pnpm run test -- run src/",
+        Some("pnpm run test")
+    )]
     // zsh's `=name` keeps its `=` in the subject, the program as written. Killed by the subject
     // read off the program's name.
     #[case::zsh_path_of_a_program("=cargo test", Some("=cargo test"))]
@@ -644,6 +671,25 @@ mod tests {
     // An ANSI-C string is the text the shells decode it to. Killed by the program word written as
     // its source text.
     #[case::ansi_c_program("$'git' status", Some("git status"))]
+    #[case::single_quoted_git_push("'git' push origin", Some("git push"))]
+    // A program word holding a character the shell reads as syntax is, as text, another command
+    // that runs git, which a provider comparing a rule as written would answer. Killed by a
+    // subject built from a program word holding a character the shell reads as syntax.
+    #[case::program_holding_double_quotes(r#"'"git"' push origin"#, None)]
+    #[case::program_holding_a_backslash(r"'g\it' push origin", None)]
+    #[case::program_holding_a_brace_expansion("'{git,}' push origin", None)]
+    #[case::program_holding_a_dollar("'$G' push origin", None)]
+    // A program under the home folder keeps its `~` first. Killed by `~` refused as the program
+    // word's first character.
+    #[case::program_under_the_home_folder("~/bin/cargo test", Some("~/bin/cargo test"))]
+    // A name off the list that folds to a listed one runs that program on a file system that
+    // ignores case or on Windows, so it takes no standing rule. Killed by the fold left to the
+    // guard alone.
+    #[case::git_in_capitals("GIT push origin main", None)]
+    #[case::git_with_its_windows_extension("git.exe push origin main", None)]
+    #[case::shell_in_capitals("SH -c 'ls'", None)]
+    #[case::shell_with_its_windows_extension("Bash.exe -c 'ls'", None)]
+    #[case::interpreter_in_capitals("PYTHON3 x.py", None)]
     // A program word that is empty or holds a blank would reach the providers as several words, a
     // prefix over other commands. Killed by a subject built from a program word holding a blank,
     // and by one built from an empty program word.
@@ -660,6 +706,9 @@ mod tests {
     // bun's versioned name is the interpreter's too. Killed by a versioned name read only for an
     // interpreter that runs no scripts.
     #[case::versioned_bun("bun1.2 -e 'x'", None)]
+    // A versioned name is read through its stem's entry. Killed by a versioned name read as taking
+    // no rule whatever its words.
+    #[case::versioned_bun_script("bun1.2 run build", Some("bun1.2 run build"))]
     fn a_command_offers_its_standing_allow(#[case] line: &str, #[case] offered: Option<&str>) {
         let action = ProviderAskAction::Command {
             command: line.to_owned(),
