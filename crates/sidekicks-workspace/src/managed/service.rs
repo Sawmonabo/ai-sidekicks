@@ -34,8 +34,8 @@ use tokio::sync::oneshot::{self, error::TryRecvError};
 use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
+use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
-use crate::git::worktree::reads::GIT_FILE_NAME;
 use crate::managed::write_watcher::{ManagedWorkspaceReport, ManagedWorkspaceWriteWatcher};
 use crate::repo::mount::service::{RepoMountService, RepoMountServiceError};
 
@@ -438,7 +438,7 @@ fn count_files(folder: &Path) -> io::Result<Option<u64>> {
     let walk = WalkBuilder::new(folder)
         .standard_filters(false)
         .follow_links(false)
-        .filter_entry(|entry| entry.depth() != 1 || entry.file_name() != OsStr::new(GIT_FILE_NAME))
+        .filter_entry(|entry| entry.depth() != 1 || entry.file_name() != OsStr::new(GIT_ENTRY_NAME))
         .build();
     let mut count = 0;
     for walked in walk {

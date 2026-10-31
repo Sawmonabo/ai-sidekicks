@@ -12,9 +12,8 @@ use sidekicks_platforms::path_from_program_output;
 use sidekicks_std::file::real_location::resolve_real_path;
 use sidekicks_std::missing_entry::{MissingEntry, is_missing_entry};
 
-use crate::git::GITLINK_MODE;
 use crate::git::process::{GitCall, GitError, GitRunner, background_read};
-use crate::git::worktree::reads::GIT_FILE_NAME;
+use crate::git::{GIT_ENTRY_NAME, GITLINK_MODE};
 
 /// The four filter settings `git lfs install` writes, exactly as Git LFS writes them, passed to
 /// the clone as `-c` options so its checkout fetches large files; the clone's own config gets them
@@ -149,7 +148,7 @@ fn gitlink_path(entry: &[u8]) -> Option<&[u8]> {
 // Whether `folder` has its `.git` entry, which git writes when it checks a submodule out; a
 // dangling `.git` link counts as none, as it does for git.
 async fn is_checked_out(folder: &Path) -> io::Result<bool> {
-    match tokio::fs::metadata(folder.join(GIT_FILE_NAME)).await {
+    match tokio::fs::metadata(folder.join(GIT_ENTRY_NAME)).await {
         Ok(_) => Ok(true),
         Err(error) if is_missing_entry(&error) => Ok(false),
         Err(error) => Err(error),

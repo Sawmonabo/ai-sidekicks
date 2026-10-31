@@ -12,6 +12,7 @@ use sidekicks_platforms::{PathRules, real_path, relative_path};
 use tokio::task::JoinError;
 
 use super::{PutBackBranch, PutBackFailure, PutBackStepError, PutBackTools, at};
+use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{
     CONFIG_UNSET_EXIT_CODE, GitCall, GitError, GitRunner, background_read, in_folder,
 };
@@ -21,7 +22,7 @@ use crate::git::worktree::kept_copy::saved_state::{
     RefStorePayload, read_rebase_folder, write_back_ref_store,
 };
 use crate::git::worktree::reads::{
-    BRANCH_REF_PREFIX, GIT_FILE_NAME, LINKED_RECORDS_FOLDER_NAME, RECORD_COMMONDIR_FILE_NAME,
+    BRANCH_REF_PREFIX, LINKED_RECORDS_FOLDER_NAME, RECORD_COMMONDIR_FILE_NAME,
     RECORD_GITDIR_FILE_NAME, RECORD_LOCK_FILE_NAME,
 };
 use crate::git::worktree::tree_records::hold_records;
@@ -253,7 +254,7 @@ pub(super) async fn prepare_linking_files(
     if !settings.is_relative {
         return Ok(LinkingFiles {
             tree_git_file: format!("gitdir: {}\n", record.display()),
-            record_gitdir: format!("{}\n", tree.join(GIT_FILE_NAME).display()),
+            record_gitdir: format!("{}\n", tree.join(GIT_ENTRY_NAME).display()),
         });
     }
     if !settings.has_relative_extension {
@@ -285,7 +286,7 @@ pub(super) async fn prepare_linking_files(
             relative_path(PathRules::NATIVE, &record_text, &tree_text)
         ),
         record_gitdir: format!(
-            "{}/{GIT_FILE_NAME}\n",
+            "{}/{GIT_ENTRY_NAME}\n",
             relative_path(PathRules::NATIVE, &tree_text, &record_text)
         ),
     })

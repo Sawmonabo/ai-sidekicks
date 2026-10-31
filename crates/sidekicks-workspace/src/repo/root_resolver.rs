@@ -26,11 +26,12 @@ use sidekicks_std::file::real_location::resolve_real_path;
 use sidekicks_std::missing_entry::is_missing_entry;
 use sidekicks_std::text_cut::cut_to_code_points;
 
+use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{
     GIT_FATAL_EXIT_CODE, GitCall, GitError, GitRunner, background_read, read_git_common_folder,
     strip_line_end,
 };
-use crate::git::worktree::reads::{GIT_FILE_NAME, ListedWorktree, read_listed_worktrees};
+use crate::git::worktree::reads::{ListedWorktree, read_listed_worktrees};
 use crate::repo::errors::RepoRefusal;
 use crate::trust_envelope::{components_equal, is_contained_within};
 
@@ -488,7 +489,7 @@ async fn resolve_listed_tree(record: &ListedWorktree) -> Result<Option<PathBuf>,
 // but `NotFound`, so a `.git` git cannot read still counts, and a dangling `.git` link counts as
 // none, as it does for git. A look the file system does not answer in time is `notReadable`.
 async fn has_visible_git_entry(folder: &Path) -> Result<bool, RepoRefusal> {
-    let looked = read_within_ceiling(&folder.join(GIT_FILE_NAME), |entry| {
+    let looked = read_within_ceiling(&folder.join(GIT_ENTRY_NAME), |entry| {
         Ok(std::fs::metadata(entry).map(drop))
     })
     .await

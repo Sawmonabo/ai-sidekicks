@@ -41,6 +41,7 @@ use self::record::{
     read_linking_settings, take_record_folder, write_record,
 };
 use self::undo::{PutBackUndoError, undo_put_back};
+use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{GitCall, GitError, GitRunner, background_read, in_folder};
 use crate::git::worktree::claims::{KeptCopyClaims, KeptCopyClaimsReadError};
 use crate::git::worktree::copy::TreeCopyError;
@@ -54,9 +55,7 @@ use crate::git::worktree::kept_copy::{
     KEPT_RECORD_ENTRY, KEPT_TREE_ENTRY, KeptCopyTools, RowWriteError,
 };
 use crate::git::worktree::naming::read_taken_branch_line;
-use crate::git::worktree::reads::{
-    GIT_FILE_NAME, RECORD_LOCK_FILE_NAME, has_branch, read_record_named_by,
-};
+use crate::git::worktree::reads::{RECORD_LOCK_FILE_NAME, has_branch, read_record_named_by};
 use crate::git::worktree::stale_record::StaleRecordTools;
 
 const PUTTING_THE_WORKTREE_BACK: &str = "putting the worktree back";
@@ -742,7 +741,7 @@ async fn place_tree(
     )
     .await
     .map_err(PutBackStepError::Move)?;
-    let git_file = input.target_folder.join(GIT_FILE_NAME);
+    let git_file = input.target_folder.join(GIT_ENTRY_NAME);
     tokio::fs::write(&git_file, &linking.tree_git_file)
         .await
         .map_err(at(&git_file))?;
@@ -790,7 +789,7 @@ pub(crate) async fn require_sound_restored_tree(
         folder: tree_folder.to_path_buf(),
         source,
     };
-    let named_record = read_record_named_by(&tree_folder.join(GIT_FILE_NAME))
+    let named_record = read_record_named_by(&tree_folder.join(GIT_ENTRY_NAME))
         .await
         .map_err(read_failure)?;
     let has_record = match &named_record {

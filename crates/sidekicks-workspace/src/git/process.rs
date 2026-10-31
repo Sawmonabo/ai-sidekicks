@@ -728,7 +728,7 @@ pub async fn write_link(git: &GitRunner, scratch: &Path, folder: &Path, link: &s
         OsString::from("-c"),
         "core.symlinks=true".into(),
         "--git-dir".into(),
-        scratch.join(".git").into(),
+        scratch.join(crate::git::GIT_ENTRY_NAME).into(),
         "--work-tree".into(),
         folder.to_path_buf().into(),
     ];
