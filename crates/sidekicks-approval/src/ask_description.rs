@@ -32,7 +32,7 @@ use sidekicks_policy::destructive_git::{
 };
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_policy::shell_commands::{
-    ShellCommand, ShellLineReader, ShellLineReading, StandingRule, WordText,
+    SHELL_RESERVED_WORDS, ShellCommand, ShellLineReader, ShellLineReading, StandingRule, WordText,
 };
 use sidekicks_provider::port::permission_ask::{ProviderAskAction, ProviderPermissionAsk};
 use sidekicks_std::text_cut::cut_to_code_points;
@@ -183,9 +183,11 @@ fn command_subject_of(command: ShellCommand<'_>) -> Option<String> {
     {
         return None;
     }
-    // The program as written, so a rule on `cargo test` never answers `./cargo test`.
+    // The program as written, so a rule on `cargo test` never answers `./cargo test`. A quoted
+    // reserved word is a program's name to the shell, but written unquoted into a rule it is
+    // grammar that runs the words after it (`coproc git push --force`), so it takes no rule.
     let program = command.written_program();
-    if !is_program_name_word(program) {
+    if !is_program_name_word(program) || SHELL_RESERVED_WORDS.iter().any(|&word| program.is(word)) {
         return None;
     }
     let mut arguments = command.argument_words();
@@ -285,7 +287,7 @@ fn is_filter_option(word: impl WordText) -> bool {
 // alphabet, none of whose characters the shell reads as syntax, so Claude Code's compare of the
 // rule's raw text and Codex's split words read the same subject. `=` and `~` lead only, where the
 // shell reads them as zsh's `=name` and a home folder and the guard reads the name past them;
-// further in, `=` makes the word an assignment and `~` after `=` or `:` expands.
+// further in, `=` makes the word an assignment, where `~` after `=` or `:` expands.
 fn is_program_name_word(word: impl WordText) -> bool {
     let mut characters = word.chars();
     characters
@@ -666,12 +668,12 @@ mod tests {
     // A quoted or escaped program word is the word the shell reads. Killed by the subject spelling
     // the word's quotes or backslash.
     #[case::single_quoted_program("'git' status", Some("git status"))]
+    #[case::single_quoted_git_push("'git' push origin", Some("git push"))]
     #[case::double_quoted_program(r#""git" status"#, Some("git status"))]
     #[case::escaped_program(r"g\it status", Some("git status"))]
     // An ANSI-C string is the text the shells decode it to. Killed by the program word written as
     // its source text.
     #[case::ansi_c_program("$'git' status", Some("git status"))]
-    #[case::single_quoted_git_push("'git' push origin", Some("git push"))]
     // A program word holding a character the shell reads as syntax is, as text, another command
     // that runs git, which a provider comparing a rule as written would answer. Killed by a
     // subject built from a program word holding a character the shell reads as syntax.
@@ -679,6 +681,14 @@ mod tests {
     #[case::program_holding_a_backslash(r"'g\it' push origin", None)]
     #[case::program_holding_a_brace_expansion("'{git,}' push origin", None)]
     #[case::program_holding_a_dollar("'$G' push origin", None)]
+    // A quoted reserved word is a program's name to the shell, but written unquoted into a rule
+    // it runs the words after it. Killed by a reserved word taken as a program's name; `time` is
+    // also a listed wrapper, so its row dies only with both walls gone.
+    #[case::quoted_coproc("'coproc' git push origin", None)]
+    #[case::quoted_if("'if' git push origin", None)]
+    #[case::quoted_while("'while' git push origin", None)]
+    #[case::quoted_export("'export' git push origin", None)]
+    #[case::quoted_time("'time' git push origin", None)]
     // A program under the home folder keeps its `~` first. Killed by `~` refused as the program
     // word's first character.
     #[case::program_under_the_home_folder("~/bin/cargo test", Some("~/bin/cargo test"))]
@@ -690,6 +700,15 @@ mod tests {
     #[case::shell_in_capitals("SH -c 'ls'", None)]
     #[case::shell_with_its_windows_extension("Bash.exe -c 'ls'", None)]
     #[case::interpreter_in_capitals("PYTHON3 x.py", None)]
+    // A versioned interpreter's name folds as its stem does. Killed by a versioned name left out
+    // of the fold.
+    #[case::versioned_interpreter_in_capitals("PYTHON3.12 x.py", None)]
+    // A listed name holding a capital is folded too before the compare, so its other spellings
+    // reach its entry, an interpreter's, as its listed spelling does. Killed, on the lower-case
+    // and the Windows spelling, by the list's names compared unfolded.
+    #[case::listed_interpreter("Rscript x.R", None)]
+    #[case::listed_interpreter_in_lower_case("rscript x.R", None)]
+    #[case::listed_interpreter_with_its_windows_extension("Rscript.exe x.R", None)]
     // A program word that is empty or holds a blank would reach the providers as several words, a
     // prefix over other commands. Killed by a subject built from a program word holding a blank,
     // and by one built from an empty program word.
