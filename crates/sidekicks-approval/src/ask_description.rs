@@ -6,8 +6,9 @@
 //!   reads as one, its first subcommand (`cargo test`, `./cargo test`, `xcrun git`); git's own
 //!   options are read past to its subcommand, and a package-script runner names its script
 //!   (`npm run build`). Only a line read whole, of one plain command whose program the text spells
-//!   and before which the shell assigns nothing, has one, and only where the list of programs that
-//!   run their words gives one: a rule over a line of several, over a program only the run decides
+//!   as a plain name of the closed alphabet that is no reserved word of bash or zsh, and before
+//!   which the shell assigns nothing, has one, and only where the list of programs that run their
+//!   words gives one: a rule over a line of several, over a program only the run decides
 //!   (`$TOOL build`), over a shell, a program that hands a shell a line (`su`, `eval`), an
 //!   interpreter (`python3`), `rm`, `find` with an action, `git` alone, a runner alone or with an
 //!   option before its script word, over a command run through another (`sudo`, `env`, `xargs`),
@@ -184,7 +185,7 @@ fn command_subject_of(command: ShellCommand<'_>) -> Option<String> {
         return None;
     }
     // The program as written, so a rule on `cargo test` never answers `./cargo test`. A quoted
-    // reserved word is a program's name to the shell, but written unquoted into a rule it is
+    // reserved word is a command's name to the shell, but written unquoted into a rule it is
     // grammar that runs the words after it (`coproc git push --force`), so it takes no rule.
     let program = command.written_program();
     if !is_program_name_word(program) || SHELL_RESERVED_WORDS.iter().any(|&word| program.is(word)) {
@@ -709,6 +710,9 @@ mod tests {
     #[case::listed_interpreter("Rscript x.R", None)]
     #[case::listed_interpreter_in_lower_case("rscript x.R", None)]
     #[case::listed_interpreter_with_its_windows_extension("Rscript.exe x.R", None)]
+    // A versioned name whose stem is a listed name only once folded reaches that entry too. Killed
+    // by a versioned stem looked up unfolded on the folded path.
+    #[case::versioned_listed_interpreter_in_lower_case("rscript4.3 x.R", None)]
     // A program word that is empty or holds a blank would reach the providers as several words, a
     // prefix over other commands. Killed by a subject built from a program word holding a blank,
     // and by one built from an empty program word.
