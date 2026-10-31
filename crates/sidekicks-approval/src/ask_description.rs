@@ -2,15 +2,16 @@
 //! category, the target as free text, and the subject a standing rule names, derived here once so
 //! the card's button, the answer's check and the provider's rule all read the same words.
 //!
-//! - A command's subject is its program and, where the word right after it reads as one, its
-//!   first subcommand (`cargo test`, `xcrun git`); git's own options are read past to its
-//!   subcommand, and a package-script runner names its script (`npm run build`). Only a line read
-//!   whole, of one plain command whose program the text spells and before which the shell assigns
-//!   nothing, has one, and only where the list of programs that run their words gives one: a rule
-//!   over a line of several, over a program only the run decides (`$TOOL build`), over a shell, a
-//!   program that hands a shell a line (`su`, `eval`), an interpreter (`python3`), `rm`, `find`
-//!   with an action, `git` or a runner alone, over a command run through another (`sudo`, `env`,
-//!   `xargs`), or over a git command whose options change what it runs or run a line of their own
+//! - A command's subject is its program as the text writes it and, where the word right after it
+//!   reads as one, its first subcommand (`cargo test`, `./cargo test`, `xcrun git`); git's own
+//!   options are read past to its subcommand, and a package-script runner names its script
+//!   (`npm run build`). Only a line read whole, of one plain command whose program the text spells
+//!   and before which the shell assigns nothing, has one, and only where the list of programs that
+//!   run their words gives one: a rule over a line of several, over a program only the run decides
+//!   (`$TOOL build`), over a shell, a program that hands a shell a line (`su`, `eval`), an
+//!   interpreter (`python3`), `rm`, `find` with an action, `git` alone, a runner alone or with an
+//!   option before its script word, over a command run through another (`sudo`, `env`, `xargs`),
+//!   or over a git command whose options change what it runs or run a line of their own
 //!   (`git -c …`, `git rebase -x …`), would answer commands the card never named.
 //! - A force push or a branch delete, wherever the line runs it, is `destructiveGit` and takes no
 //!   standing allow, and no rule in force answers it: it always reaches the card. So does an ask
@@ -26,10 +27,12 @@ use std::borrow::Cow;
 use sidekicks_contracts::approval::{ApprovalCategory, ApprovalScope, RememberedScopeKind};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::wire::text::{NonEmptyText, TextError, is_ecmascript_whitespace};
-use sidekicks_policy::destructive_git::{read_git_subcommand, runs_destructive_git};
+use sidekicks_policy::destructive_git::{
+    is_git_option_among, read_git_subcommand, runs_destructive_git,
+};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_policy::shell_commands::{
-    ShellCommand, ShellLineReader, ShellLineReading, StandingRule, WordText, is_option,
+    ShellCommand, ShellLineReader, ShellLineReading, StandingRule, WordText,
 };
 use sidekicks_provider::port::permission_ask::{ProviderAskAction, ProviderPermissionAsk};
 use sidekicks_std::text_cut::cut_to_code_points;
@@ -180,7 +183,8 @@ fn command_subject_of(command: ShellCommand<'_>) -> Option<String> {
     {
         return None;
     }
-    let program = command.program();
+    // The program as written, so a rule on `cargo test` never answers `./cargo test`.
+    let program = command.written_program();
     let mut arguments = command.argument_words();
     match command.standing_rule() {
         StandingRule::Withheld => None,
@@ -199,19 +203,24 @@ fn command_subject_of(command: ShellCommand<'_>) -> Option<String> {
             Some(format!("{program} {subcommand}"))
         }
         StandingRule::RunnerScript => {
+            let script_word = arguments.next()?;
             let script = arguments
-                .nth(1)
+                .next()
                 .filter(|&script| is_subcommand_word(script))?;
-            Some(format!("{program} run {script}"))
+            Some(format!("{program} {script_word} {script}"))
         }
     }
 }
 
-// The options of a git subcommand that run a line of their own, alone or with their value.
-const GIT_LINE_OPTIONS: &[(&str, &[&str])] = &[
-    ("rebase", &["-x", "--exec"]),
-    ("difftool", &["-x", "--extcmd"]),
-    ("grep", &["-O", "--open-files-in-pager"]),
+// The options of a git subcommand that run a line of their own, alone or with their value: its long
+// options and its short letters. push's `--exec` and clone's `-u` name the program git runs at the
+// other end, as `--receive-pack` and `--upload-pack` do.
+const GIT_LINE_OPTIONS: &[(&str, &[&str], &[char])] = &[
+    ("rebase", &["--exec"], &['x']),
+    ("difftool", &["--extcmd"], &['x']),
+    ("grep", &["--open-files-in-pager"], &['O']),
+    ("push", &["--exec"], &[]),
+    ("clone", &[], &['u']),
 ];
 
 // The options of any git subcommand that name the program git runs at the other end.
@@ -222,36 +231,36 @@ const GIT_REMOTE_PROGRAM_OPTIONS: &[&str] = &["--upload-pack", "--receive-pack"]
 const GIT_LINE_SUBCOMMAND_WORDS: &[(&str, &str)] = &[("bisect", "run"), ("submodule", "foreach")];
 
 // Whether git's `subcommand` with the words after it, `arguments`, runs a line of its own: an
-// option that runs one, a remote program's option, `bisect run`, `submodule foreach` or a
+// option that runs one or a remote program's option, read as git reads options (a long one by any
+// prefix, a short one anywhere in a cluster), `bisect run`, `submodule foreach` or a
 // `filter-branch` filter.
 fn runs_a_line_of_its_own<W: WordText>(
     subcommand: W,
     mut arguments: impl Iterator<Item = W>,
 ) -> bool {
-    let line_options = GIT_LINE_OPTIONS
+    let options: Vec<(&[&str], &[char])> = GIT_LINE_OPTIONS
         .iter()
-        .filter(|(name, _)| subcommand.is(name))
-        .flat_map(|(_, options)| options.iter());
+        .filter(|(name, ..)| subcommand.is(name))
+        .map(|&(_, long_options, short_letters)| (long_options, short_letters))
+        .chain([(GIT_REMOTE_PROGRAM_OPTIONS, &[][..])])
+        .collect();
     let line_words: Vec<&str> = GIT_LINE_SUBCOMMAND_WORDS
         .iter()
         .filter(|(name, _)| subcommand.is(name))
         .map(|&(_, word)| word)
         .collect();
     let is_filter_branch = subcommand.is("filter-branch");
-    let options: Vec<&str> = line_options
-        .chain(GIT_REMOTE_PROGRAM_OPTIONS)
-        .copied()
-        .collect();
     arguments.any(|word| {
         line_words.iter().any(|line_word| word.is(line_word))
-            || options.iter().any(|option| {
-                is_option(word, option) || (!option.starts_with("--") && word.starts_with(option))
+            || options.iter().any(|&(long_options, short_letters)| {
+                is_git_option_among(word, long_options, short_letters)
             })
             || (is_filter_branch && is_filter_option(word))
     })
 }
 
-// Whether `word` is a `filter-branch` filter, `--<kind>-filter`, alone or with its value.
+// Whether `word` is a `filter-branch` filter, `--<kind>-filter`, alone or with its value; the
+// script reads each by its whole name.
 fn is_filter_option(word: impl WordText) -> bool {
     let text: String = word.chars().collect();
     let name = text.split_once('=').map_or(text.as_str(), |(name, _)| name);
@@ -528,6 +537,30 @@ mod tests {
         None
     )]
     #[case::provider_rebase_exec("git rebase --exec 'claude --bg x' HEAD~1", None)]
+    // git reads a subcommand's long option by any prefix and a short one anywhere in a cluster,
+    // and push's `--exec` and clone's `-u` name the program at the other end; push's own `-u`
+    // runs nothing. Killed by the options read only by their whole names or as a cluster's first
+    // letter, by push's `--exec` or clone's `-u` dropped, and by clone's `-u` read on a push.
+    #[case::rebase_exec_in_a_cluster("git rebase -ix 'touch x' HEAD~1", None)]
+    #[case::rebase_exec_by_prefix("git rebase --exe 'touch x' HEAD~1", None)]
+    #[case::clone_upload_pack_letter("git clone -u 'touch x; git-upload-pack' file:///r d", None)]
+    #[case::push_exec("git push --exec='touch x; git-receive-pack' origin", None)]
+    #[case::push_receive_pack_by_prefix(
+        "git push --receive-p='touch x; git-receive-pack' origin",
+        None
+    )]
+    #[case::grep_pager_by_prefix("git grep --open-files=true -e a", None)]
+    #[case::push_set_upstream("git push -u origin main", Some("git push"))]
+    // A program named by a path keeps its folder in the subject. Killed by the subject read off
+    // the program's name without its folder.
+    #[case::program_named_by_a_path("./cargo test", Some("./cargo test"))]
+    #[case::git_named_by_a_path("./git status", Some("./git status"))]
+    // A runner's script word is `run` or one of npm's aliases of it, and an option before it
+    // leaves where it stands unread. Killed by the aliases dropped, by the subject spelling `run`
+    // for an alias, and by the options before the script word skipped.
+    #[case::npm_script_alias("npm run-script deploy", Some("npm run-script deploy"))]
+    #[case::runner_option_before_its_script("npm --prefix x run build", None)]
+    #[case::runner_subcommand_before_the_word_run("npm install run", Some("npm install"))]
     fn a_command_offers_its_standing_allow(#[case] line: &str, #[case] offered: Option<&str>) {
         let action = ProviderAskAction::Command {
             command: line.to_owned(),
