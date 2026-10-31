@@ -7,6 +7,8 @@
 use std::error::Error;
 use std::sync::Arc;
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::json;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -24,9 +26,9 @@ use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError, is_ecmascript_whitespace};
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::CloseSessionParams;
 use sidekicks_std::keyed_lock::KeyedLock;
@@ -44,10 +46,10 @@ use sidekicks_store::events::session::appender::{
     SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_workspace::project::service::ForgottenProjectSessions;
 use tokio_util::task::TaskTracker;
 
 use crate::run::ids::read_session_run_ids;
-use crate::run::state_change::refused_statement_index;
 
 /// The statements the session changes prepare on a read connection: the session's facts, its
 /// runs, and the providers their bindings name.
@@ -168,14 +170,7 @@ impl SessionChanges {
 
     /// Settles once every push of a new name to the providers under way has ended; a rename after
     /// it pushes nothing the stop waits for.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's stop waits for the session name pushes"
-        )
-    )]
-    pub(crate) async fn stop(&self) {
+    pub async fn stop(&self) {
         self.name_pushes.close();
         self.name_pushes.wait().await;
     }
@@ -200,14 +195,7 @@ impl SessionChanges {
     /// provider that ran the session on a task of its own, a failed telling logged once and never
     /// failing the rename. Refused as [`SessionChangeError::Refused`] says; fails with the read or
     /// append that failed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session rename handler answers a person's rename through it"
-        )
-    )]
-    pub(crate) async fn rename(
+    pub async fn rename(
         &self,
         request: SessionRenameRequest,
     ) -> Result<SessionRenameResponse, SessionChangeError> {
@@ -288,26 +276,8 @@ impl SessionChanges {
     /// Moves an active session into the archived ones, leaving its provider process as it was.
     /// Refuses a session still `provisioning` with `session.changeRefused`, else as
     /// [`SessionChangeError::Refused`] says.
-    #[expect(
-        dead_code,
-        reason = "the session archive handler answers a person's archive through it"
-    )]
-    pub(crate) async fn archive(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+    pub async fn archive(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         self.archive_in_state(session_id, false).await
-    }
-
-    /// Archives a session of a project being forgotten: an active one as
-    /// [`SessionChanges::archive`] does, and one still `provisioning`, whose bind can never come
-    /// now. Refuses a closed or purging session as [`SessionChangeError::Refused`] says.
-    #[expect(
-        dead_code,
-        reason = "forgetting a project archives each of its sessions through it"
-    )]
-    pub(crate) async fn archive_of_forgotten_project(
-        &self,
-        session_id: SessionId,
-    ) -> Result<(), SessionChangeError> {
-        self.archive_in_state(session_id, true).await
     }
 
     async fn archive_in_state(
@@ -336,11 +306,7 @@ impl SessionChanges {
 
     /// Returns an archived session to the live list; any other session it leaves as it is.
     /// Refused as [`SessionChangeError::Refused`] says.
-    #[expect(
-        dead_code,
-        reason = "the session reactivate handler answers a person's reactivate through it"
-    )]
-    pub(crate) async fn reactivate(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+    pub async fn reactivate(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         let _hold = self.lock.acquire(session_id).await;
         self.change(session_id, None, |facts| {
             refuse_unchangeable_session(&session_id, facts.state)?;
@@ -403,41 +369,22 @@ impl SessionChanges {
 
     /// Pins the session to the top of its group; a pinned session keeps its first pin time.
     /// Refused as [`SessionChangeError::Refused`] says.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session pin handler answers a person's pin through it"
-        )
-    )]
-    pub(crate) async fn pin(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+    pub async fn pin(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         self.set_mark(session_id, SessionMark::Pin, true).await
     }
 
     /// Unpins the session. Refused as [`SessionChangeError::Refused`] says.
-    #[expect(
-        dead_code,
-        reason = "the session unpin handler answers a person's unpin through it"
-    )]
-    pub(crate) async fn unpin(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+    pub async fn unpin(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         self.set_mark(session_id, SessionMark::Pin, false).await
     }
 
     /// Mutes the session's notifications. Refused as [`SessionChangeError::Refused`] says.
-    #[expect(
-        dead_code,
-        reason = "the session mute handler answers a person's mute through it"
-    )]
-    pub(crate) async fn mute(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+    pub async fn mute(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         self.set_mark(session_id, SessionMark::Mute, true).await
     }
 
     /// Unmutes the session's notifications. Refused as [`SessionChangeError::Refused`] says.
-    #[expect(
-        dead_code,
-        reason = "the session unmute handler answers a person's unmute through it"
-    )]
-    pub(crate) async fn unmute(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+    pub async fn unmute(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         self.set_mark(session_id, SessionMark::Mute, false).await
     }
 
@@ -495,7 +442,7 @@ impl SessionChanges {
             };
             match self.appender.append(draft, linkage).await {
                 Ok(_receipt) => return Ok(true),
-                Err(error) if refused_statement_index(&error) == Some(FACTS_GUARD_INDEX) => {}
+                Err(error) if error.refused_statement_index() == Some(FACTS_GUARD_INDEX) => {}
                 Err(error) => return Err(error.into()),
             }
         }
@@ -503,6 +450,23 @@ impl SessionChanges {
 
     async fn read_facts(&self, session_id: SessionId) -> Result<SessionFacts, SessionChangeError> {
         read_session_facts(&self.pool, session_id).await
+    }
+}
+
+impl ForgottenProjectSessions for SessionChanges {
+    /// Archives a session of a project being forgotten: an active one as
+    /// [`SessionChanges::archive`] does, and one still `provisioning`, whose bind can never come
+    /// now; a closed or purging session is refused as [`SessionChangeError::Refused`] says.
+    fn archive_of_forgotten_project(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.archive_in_state(session_id, true)
+                .await
+                .map_err(Into::into)
+        }
+        .boxed()
     }
 }
 
@@ -595,7 +559,7 @@ async fn tell_providers_name(
                     .tell_session_name(session_id, name.as_str().to_owned())
                     .await
             }
-            Err(refusal) => Err(DriverError::Refused(refusal)),
+            Err(refusal) => Err(DriverError::from(refusal)),
         };
         if let Err(error) = told {
             tracing::warn!(

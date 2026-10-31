@@ -1,9 +1,6 @@
 //! The hand-over brief's one send into each target: a coordinator keeps a target to one brief and
 //! settles what happened, held in memory only, since nothing records a send.
-#![cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the provider switch's hand-over brief")
-)]
+#![expect(dead_code, reason = "the provider switch's hand-over brief")]
 
 use std::collections::HashMap;
 use std::error::Error;

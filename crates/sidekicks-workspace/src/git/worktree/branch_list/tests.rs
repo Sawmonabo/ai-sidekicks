@@ -10,6 +10,7 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::open_log;
 
 use super::{BranchListError, BranchListReader};
+use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
 use crate::git::worktree::schema::schema_parts;
 use crate::repo::errors::RepoRefusal;
@@ -20,49 +21,36 @@ const READ_STATEMENT_CAPACITY: usize = 16;
 // A listed branch's name, and the name and id of the tree holding it.
 type ListedRow<'a> = (&'a str, Option<(&'a str, Option<WorktreeId>)>);
 
-async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str], committed_at: &str) {
-    git.run(
-        None,
-        GitCall::read(in_folder(folder, arguments))
-            .with_environment("GIT_COMMITTER_DATE", committed_at)
-            .with_environment("GIT_AUTHOR_DATE", committed_at),
-    )
-    .await
-    .expect("git runs in the test repository");
-}
-
 // A commit on a new branch `branch` from `main`, made at `committed_at`.
 async fn branch_with_commit(git: &GitRunner, repository: &Path, branch: &str, committed_at: &str) {
     git_in(
         git,
         repository,
         &["switch", "--quiet", "-c", branch, "main"],
-        committed_at,
     )
     .await;
     commit(git, repository, committed_at).await;
 }
 
+// An empty commit on the checked-out branch, made at `committed_at`.
 async fn commit(git: &GitRunner, repository: &Path, committed_at: &str) {
-    git_in(
-        git,
-        repository,
-        &[
-            "-c",
-            "user.name=Test",
-            "-c",
-            "user.email=test@example.invalid",
-            "-c",
-            "commit.gpgSign=false",
-            "commit",
-            "--quiet",
-            "--allow-empty",
-            "-m",
-            "work",
-        ],
-        committed_at,
+    let arguments = [
+        "-c",
+        "commit.gpgSign=false",
+        "commit",
+        "--quiet",
+        "--allow-empty",
+        "-m",
+        "work",
+    ];
+    git.run(
+        None,
+        GitCall::read(in_folder(repository, &arguments))
+            .with_environment("GIT_COMMITTER_DATE", committed_at)
+            .with_environment("GIT_AUTHOR_DATE", committed_at),
     )
-    .await;
+    .await
+    .expect("git commits in the test repository");
 }
 
 // A tree this daemon made at `folder` on the mount in `state`, cut from `base` at `picked_at`.
@@ -130,27 +118,14 @@ async fn branches_list_default_then_recent_bases_then_newest_commit_with_their_h
     let _log = open_log(&database, None).await;
     let scratch = tempfile::tempdir().expect("a scratch folder");
     let git = test_git_runner();
-    let repository = scratch.path().join("app");
-    git_in(
-        &git,
-        scratch.path(),
-        &["init", "--quiet", "--initial-branch=main", "app"],
-        "2026-01-01T00:00:00Z",
-    )
-    .await;
+    let repository = make_test_repository(&git, scratch.path(), "app").await;
     // The default branch has the oldest commit, and the older recent base the newest.
     commit(&git, &repository, "2026-01-01T00:00:00Z").await;
     branch_with_commit(&git, &repository, "older-base", "2026-09-01T00:00:00Z").await;
     branch_with_commit(&git, &repository, "newer-base", "2026-02-01T00:00:00Z").await;
     branch_with_commit(&git, &repository, "live-tree", "2026-06-01T00:00:00Z").await;
     branch_with_commit(&git, &repository, "retired-tree", "2026-05-01T00:00:00Z").await;
-    git_in(
-        &git,
-        &repository,
-        &["switch", "--quiet", "main"],
-        "2026-01-01T00:00:00Z",
-    )
-    .await;
+    git_in(&git, &repository, &["switch", "--quiet", "main"]).await;
     let live_folder = scratch.path().join("live");
     let retired_folder = scratch.path().join("retired");
     for (folder, branch) in [
@@ -167,7 +142,6 @@ async fn branches_list_default_then_recent_bases_then_newest_commit_with_their_h
                 &folder.to_string_lossy(),
                 branch,
             ],
-            "2026-01-01T00:00:00Z",
         )
         .await;
     }

@@ -4,15 +4,17 @@
 //! event at a time and carries out each answer whole; what it starts, dials and waits on reports
 //! back as events, each under its own ticket. A process that exits is a crash, restarted on the
 //! crash window's waits; a connection that drops is redialed on a wait that grows and never gives
-//! up; a service draining toward its exit refuses new work while its turns run on.
+//! up; a service the daemon started that answers nothing for two minutes is ended as a crash; a
+//! service draining toward its exit refuses new work while its turns run on.
 
+pub(crate) mod connection_events;
 pub(crate) mod drain;
 pub(crate) mod events;
 mod reconnect;
 pub(crate) mod routing;
 mod runner;
 pub(crate) mod start;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) mod test_service;
 #[cfg(test)]
 mod tests;
@@ -21,8 +23,8 @@ mod transition;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
-use std::time::{Duration, SystemTime};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::time::Duration;
 
 use futures::future::{BoxFuture, join_all};
 use serde::Deserialize;
@@ -35,10 +37,13 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use crate::driver::child_records::DaemonChildRecords;
+use crate::driver::codex::exec_relay::{CodexExecRelay, CodexExecRelayDependencies};
 use crate::driver::codex::server_requests::CodexServerRequestResponder;
 use crate::driver::codex::service::asks::CodexServiceAsks;
 use crate::driver::codex::service::home::{CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::record::LastingServiceRecordFile;
+use crate::driver::codex::service::supervisor::connection_events::ServiceConnectionEvents;
 use crate::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::driver::codex::service::supervisor::events::CodexServiceEvents;
 use crate::driver::codex::service::supervisor::routing::{
@@ -46,8 +51,10 @@ use crate::driver::codex::service::supervisor::routing::{
 };
 use crate::driver::codex::service::supervisor::runner::{RunnerInput, ServiceRunner};
 use crate::driver::codex::service::supervisor::start::read_codex_loaded_threads;
+use crate::driver::codex::service::supervisor::transition::event::SupervisorEvent;
+use crate::driver::codex::service::supervisor::transition::state::SupervisorState;
 use crate::driver::codex::service::supervisor::transition::{
-    CodexServiceAvailability, Supervision, SupervisorEvent, SupervisorState,
+    CodexServiceAvailability, Supervision,
 };
 use crate::driver::codex::service::threads::{CodexServiceThreads, ThreadClaim};
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
@@ -56,15 +63,16 @@ use crate::driver::codex::session::errors::{
 };
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::session::state::CODEX_THREAD_FRAME_ROUTER_CONFIG;
+use crate::driver::codex::shells::CodexShellKind;
 use crate::driver::codex::transport::connection::{
-    CodexAppServerConnection, CodexConnectionEvents, CodexConnectionHandlers,
-    CodexForgottenRequest, open_codex_connection, read_codex_object,
+    CODEX_REQUEST_TIMEOUT, CodexAppServerConnection, CodexConnectionEvents,
+    CodexConnectionHandlers, open_codex_connection, read_codex_object,
 };
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_service_socket};
 use crate::driver::codex::usage_limit_signal::CodexRateLimitObservation;
 use crate::driver::codex::version::CODEX_CLIENT_NAME;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
@@ -72,6 +80,10 @@ use crate::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionR
 
 /// The ask that reads whether the service may run a sandboxed command on Windows.
 const WINDOWS_SANDBOX_READINESS_METHOD: &str = "windowsSandbox/readiness";
+
+/// How long a resume waits for a conversation to unload from a service: the one it leaves for a
+/// new build, or the one closing it.
+pub(crate) const CODEX_UNLOAD_TIMEOUT: Duration = CODEX_REQUEST_TIMEOUT;
 
 /// Resolves the configured Codex command again at every start, so a restart runs what the command
 /// names now.
@@ -92,12 +104,15 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) provider_services: Arc<ProviderServiceProcesses>,
     /// The daemon's provider processes, whose one spawn count each process pinned draws from.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
+    /// The daemon's record of its own children, which the capability read's service is recorded
+    /// in; a lasting service keeps its own record and never enters it.
+    pub(crate) child_records: Arc<dyn DaemonChildRecords>,
     /// Resolves the Codex command at each start.
     pub(crate) program: Arc<dyn CodexProgramResolver>,
-    /// The daemon's data folder, where the lasting service's record and the services' working
+    /// The daemon's data folder, where the lasting services' records and the services' working
     /// folder live.
     pub(crate) data_folder: PathBuf,
-    /// The daemon's logs folder, where the lasting service writes its log.
+    /// The daemon's logs folder, where each lasting service writes its log.
     pub(crate) logs_folder: PathBuf,
     /// More `key=value` switches every service the daemon starts runs with.
     pub(crate) additional_config_overrides: Vec<String>,
@@ -106,6 +121,9 @@ pub(crate) struct CodexServiceDependencies {
     /// Whether the daemon's program runs the hook mode a hook command starts, so the terminal
     /// service is started with the daemon's hooks.
     pub(crate) dispatches_hook_mode: bool,
+    /// The kind of shell Codex runs the terminal service's hook commands in, which they are
+    /// quoted for.
+    pub(crate) session_shell_kind: CodexShellKind,
     /// The session's recovery, told of exits, recoveries, crash loops and planned restarts.
     pub(crate) events: Arc<dyn CodexServiceEvents>,
     /// The conversations sessions moved off, which see each of their frames first.
@@ -116,6 +134,8 @@ pub(crate) struct CodexServiceDependencies {
     /// The driver's tracked tasks, which the driver's shutdown waits for: a switch-off's wait to
     /// retire a service, and a joined service's check that Codex's managed daemon is free.
     pub(crate) tasks: TaskTracker,
+    /// What the account services' executor relays start and report through.
+    pub(crate) exec_relay: Arc<CodexExecRelayDependencies>,
 }
 
 /// The socket one service listens on.
@@ -175,6 +195,8 @@ pub(crate) struct CodexService {
     home: CodexServiceHome,
     socket: CodexServiceSocket,
     dependencies: Arc<CodexServiceDependencies>,
+    // The `-c` switches this service alone starts with, after the driver's.
+    config_overrides: Vec<String>,
     supervision: Mutex<Supervision>,
     inputs: mpsc::UnboundedSender<RunnerInput>,
     availability: watch::Sender<CodexServiceAvailability>,
@@ -194,16 +216,20 @@ pub(crate) struct CodexService {
     routed_dial: AtomicU64,
     threads: Arc<Mutex<CodexServiceThreads>>,
     routing: Mutex<CodexServiceRouting>,
+    // The executor relay its first account start made; a terminal service never has one.
+    exec_relay: OnceLock<Arc<CodexExecRelay>>,
 }
 
 impl CodexService {
-    /// A stopped service of `kind` on `home` listening on `socket`; its runner runs until the
-    /// service is let go of. Must be called within the daemon's runtime.
+    /// A stopped service of `kind` on `home` listening on `socket`, started with `config_overrides`
+    /// after the driver's own switches; its runner runs until the service is let go of. Must be
+    /// called within the daemon's runtime.
     pub(crate) fn new(
         home: CodexServiceHome,
         socket: CodexServiceSocket,
         kind: CodexServiceKind,
         dependencies: Arc<CodexServiceDependencies>,
+        config_overrides: Vec<String>,
     ) -> Arc<Self> {
         let (inputs, received) = mpsc::unbounded_channel();
         let service = Arc::new(Self {
@@ -211,6 +237,7 @@ impl CodexService {
             home,
             socket,
             dependencies,
+            config_overrides,
             supervision: Mutex::new(Supervision::new(kind)),
             inputs,
             availability: watch::Sender::new(CodexServiceAvailability::Stopped),
@@ -233,6 +260,7 @@ impl CodexService {
                 }),
             ))),
             routing: Mutex::default(),
+            exec_relay: OnceLock::new(),
         });
         tokio::spawn(ServiceRunner::new(Arc::downgrade(&service), received).run());
         service
@@ -292,6 +320,17 @@ impl CodexService {
         self.send(SupervisorEvent::Replaced);
     }
 
+    /// The `-c` switches a launch of the service carries past the ones every service shares: the
+    /// driver's, then the service's own, so its own win where both set a key.
+    pub(crate) fn launch_config_overrides(&self) -> Vec<String> {
+        self.dependencies
+            .additional_config_overrides
+            .iter()
+            .chain(&self.config_overrides)
+            .cloned()
+            .collect()
+    }
+
     /// The kind of service it is, as its last start found it; a session's recovery and a
     /// conversation's purge read it.
     pub(crate) fn kind(&self) -> CodexServiceKind {
@@ -299,6 +338,7 @@ impl CodexService {
     }
 
     /// The process the daemon started or re-pinned, while it runs.
+    #[cfg(test)]
     pub(crate) fn process_id(&self) -> Option<u32> {
         self.process_identity().map(|identity| identity.process_id)
     }
@@ -473,13 +513,20 @@ impl CodexService {
 
     /// Whether the service is up or on its way back up: starting, reconnecting or restarting.
     pub(crate) fn is_serving(&self) -> bool {
-        matches!(
-            *self.availability.borrow(),
-            CodexServiceAvailability::Up
-                | CodexServiceAvailability::Starting
-                | CodexServiceAvailability::Reconnecting
-                | CodexServiceAvailability::Restarting
-        )
+        let is_up = matches!(*self.availability.borrow(), CodexServiceAvailability::Up);
+        is_up || self.is_coming_back()
+    }
+
+    /// Whether the service is on its way back up: starting, reconnecting or restarting, after which
+    /// its conversations resume at the settings their records hold.
+    pub(crate) fn is_coming_back(&self) -> bool {
+        self.availability.borrow().is_coming_back()
+    }
+
+    /// Answers once the service is no longer on its way back up: up, or ended, stopped or down.
+    pub(crate) async fn when_back(&self) {
+        self.wait_for(|availability| !availability.is_coming_back())
+            .await;
     }
 
     /// Answers once the service is shut down for good with the daemon.
@@ -586,6 +633,13 @@ impl CodexService {
         }
     }
 
+    /// Records a side question's read-only copy as the session's, marked so its commands are
+    /// given no way to ask the person anything.
+    pub(crate) fn register_side_question_thread(&self, thread_id: String, session_id: SessionId) {
+        self.lock_threads().mark_side_question(thread_id.clone());
+        self.register_thread(thread_id, session_id);
+    }
+
     /// Forgets one conversation.
     pub(crate) fn release_thread(&self, thread_id: &str) {
         self.lock_threads().release(thread_id);
@@ -607,6 +661,46 @@ impl CodexService {
     /// first; dropping it stops the wait.
     pub(crate) fn wait_for_thread_closed(&self, thread_id: String) -> oneshot::Receiver<()> {
         self.lock_routing().wait_for_closed(thread_id)
+    }
+
+    /// Waits until the service no longer holds `thread_id` loaded: each `thread/closed` is
+    /// confirmed by reading the loaded conversations, since a close can be stale. `false` once
+    /// `deadline` passed.
+    pub(crate) async fn await_unloaded(
+        &self,
+        thread_id: &str,
+        deadline: tokio::time::Instant,
+    ) -> bool {
+        loop {
+            // Armed before the read, so a close between the two is not missed.
+            let closed = self.wait_for_thread_closed(thread_id.to_owned());
+            if self.is_unloaded(thread_id).await {
+                return true;
+            }
+            if tokio::time::timeout_at(deadline, closed).await.is_err() {
+                return false;
+            }
+        }
+    }
+
+    // Whether the service no longer holds `thread_id` loaded; a read that fails leaves it to the
+    // resume, which Codex refuses while the conversation is still written elsewhere.
+    async fn is_unloaded(&self, thread_id: &str) -> bool {
+        let Ok(connection) = self.connection() else {
+            // A service that stopped holds nothing loaded.
+            return true;
+        };
+        match read_codex_loaded_threads(&connection).await {
+            Ok(loaded) => !loaded.iter().any(|loaded| loaded == thread_id),
+            Err(error) => {
+                CodexTransportDiagnostic::ConversationUnloadUnconfirmed {
+                    thread_id: thread_id.to_owned(),
+                    error: Box::new(error),
+                }
+                .report();
+                true
+            }
+        }
     }
 
     /// The conversations started in a terminal that the service has loaded: every loaded one less
@@ -705,6 +799,19 @@ impl CodexService {
         &self.dependencies
     }
 
+    /// The service's executor relay, once its first account start made it.
+    pub(crate) fn exec_relay(&self) -> Option<Arc<CodexExecRelay>> {
+        self.exec_relay.get().cloned()
+    }
+
+    /// The service's executor relay, made by `make` at the first ask.
+    pub(crate) fn exec_relay_or_insert_with(
+        &self,
+        make: impl FnOnce() -> Arc<CodexExecRelay>,
+    ) -> Arc<CodexExecRelay> {
+        Arc::clone(self.exec_relay.get_or_init(make))
+    }
+
     fn is_routed_dial(&self, dial: u64) -> bool {
         self.routed_dial.load(Ordering::Acquire) == dial
     }
@@ -785,74 +892,4 @@ fn shut_down_refusal() -> CodexError {
         detail: "The Codex service was shut down with the daemon.".to_owned(),
         cause: None,
     }
-}
-
-/// What a service's connection hands its service: frames routed on the reader, its drop, the
-/// asks a close let go of and Codex's drain.
-struct ServiceConnectionEvents {
-    service: Weak<CodexService>,
-    dial: u64,
-}
-
-impl CodexConnectionEvents for ServiceConnectionEvents {
-    fn notification(&self, method: &str, params: Box<RawValue>) {
-        if let Some(service) = self.service.upgrade() {
-            service.route(self.dial, method, params);
-        }
-    }
-
-    fn dropped(&self, reason: &str) {
-        if let Some(service) = self.service.upgrade() {
-            if service.is_routed_dial(self.dial) {
-                CodexTransportDiagnostic::ServiceConnectionDropped {
-                    codex_home: service.home.codex_home.clone(),
-                    reason: reason.to_owned(),
-                }
-                .report();
-            }
-            service.send(SupervisorEvent::Dropped {
-                dial: self.dial,
-                at: std::time::Instant::now(),
-                wall_at: SystemTime::now(),
-                is_unwaited_process_gone: false,
-            });
-        }
-    }
-
-    fn held_requests_dropped(&self, dropped: Vec<CodexForgottenRequest>) {
-        if let Some(service) = self.service.upgrade() {
-            CodexServiceAsks::new(Arc::downgrade(&service)).withdraw(dropped);
-        }
-    }
-
-    fn service_draining(&self, message: &str) {
-        if let Some(service) = self.service.upgrade() {
-            service.send(SupervisorEvent::Draining {
-                dial: self.dial,
-                message: message.to_owned(),
-            });
-        }
-    }
-}
-
-/// The events of a detached connection that starts no conversation: nothing on it belongs to a
-/// session.
-pub(crate) struct DetachedConnectionEvents;
-
-impl CodexConnectionEvents for DetachedConnectionEvents {
-    fn notification(&self, method: &str, _params: Box<RawValue>) {
-        CodexTransportDiagnostic::UnconsumedServerNotification {
-            method: method.to_owned(),
-        }
-        .report();
-    }
-
-    // A drop fails the reads in flight on it, which is all it carries.
-    fn dropped(&self, _reason: &str) {}
-
-    // It starts no conversation, so Codex holds no ask on it.
-    fn held_requests_dropped(&self, _dropped: Vec<CodexForgottenRequest>) {}
-
-    // Its read fails with Codex's own words.
-    fn service_draining(&self, _message: &str) {}
 }

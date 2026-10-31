@@ -7,13 +7,16 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Notify, SetOnce, SetOnceError};
 
 use crate::run::engine::turns::StepCount;
+use crate::run::engine::usage_tallies::RunUsageTallySlot;
 use crate::run::restart::outranking_limit;
 
 /// A run no driver has yet, from `starting` until the driver has it or the run ends. It is
@@ -121,6 +124,11 @@ pub(super) struct LiveRuns {
     pub(super) step_interrupts_in_flight: HashSet<RunId>,
     /// The wake of each run someone waits on to read `running` again, while anyone waits.
     pub(super) running_waits: HashMap<RunId, Arc<Notify>>,
+    /// Each live run's usage tally, from its first usage report until it ends.
+    pub(super) usage_tallies: HashMap<RunId, RunUsageTallySlot>,
+    /// Each live helper's own run by the binding its readings come on and its provider's id, from
+    /// its first usage report until the run ends.
+    pub(super) helper_runs: HashMap<(RuntimeBindingId, SubagentId), RunId>,
     /// The identity the next limit stop's cut takes.
     pub(super) next_stop_id: AtomicU64,
 }

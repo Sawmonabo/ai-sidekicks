@@ -31,6 +31,7 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::database::schema::session_directory::read_session_state;
 use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
 use sidekicks_workspace::git::process::GitRunner;
@@ -46,7 +47,9 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::review_note::diff_line::NotedLineReader;
-use crate::review_note::store::{ReviewNoteFolderError, ReviewNoteFolders, WorkingFolderDetach};
+use crate::review_note::store::{
+    ReviewNoteFolderError, ReviewNoteFolders, SessionReviewNoteStore, WorkingFolderDetach,
+};
 
 // The events after which a session may work somewhere else, or stop or start being live.
 const SYNCING_EVENT_TYPES: [SessionEventType; 8] = [
@@ -281,6 +284,21 @@ impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
     fn lock_due(&self) -> MutexGuard<'_, HashSet<SessionId>> {
         // The set holds no invariant a panicking holder could break.
         lock(&self.due)
+    }
+}
+
+impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
+    /// The review note store writing through `writer` and reading and following each session's
+    /// working folder through these folders.
+    pub fn review_note_store(
+        self: &Arc<Self>,
+        writer: Arc<DatabaseWriter>,
+    ) -> SessionReviewNoteStore {
+        SessionReviewNoteStore::new(
+            Arc::clone(&self.deps.reads),
+            writer,
+            Arc::clone(self) as Arc<dyn ReviewNoteFolders>,
+        )
     }
 }
 

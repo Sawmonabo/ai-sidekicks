@@ -3,13 +3,17 @@
 //! It also starts the runs of the turns the daemon starts on a session itself and of a provider's
 //! own subagents, continues an interrupted run on its next turn, resumes a paused run once its
 //! driver took the resume, numbers and ends each turn, counts a turn's steps against its step
-//! bound, stops a run at a limit, records the markers a provider reports on a live run, and tells
-//! a session when a run's provider does not run it at the fast output level it carried.
+//! bound, stops a run at a limit, records the markers a provider reports on a live run, tells a
+//! session when a run's provider does not run it at the fast output level it carried, and re-arms
+//! and finalizes the live runs a restart's resume found again.
 
 mod ending;
+pub mod errors;
 mod host;
 mod limits;
 mod live;
+mod provider_started;
+mod resumed;
 mod running_wait;
 mod settle;
 mod start;
@@ -19,8 +23,8 @@ pub mod test_fixture;
 pub(crate) mod tests;
 pub(crate) mod turns;
 mod unresolved_interventions;
+pub(crate) mod usage_tallies;
 
-use std::error::Error;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, Weak};
 
@@ -35,61 +39,70 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::run::delivery::RunMarker;
+use sidekicks_provider::run::delivery::{RunMarker, RunSetupRefusal};
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use sidekicks_std::mutex_lock::lock;
 #[cfg(any(test, feature = "test-support"))]
 use sidekicks_std::pause_point::PausePoint;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
-use sidekicks_store::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::log_service::{EventLogAppendReceipt, EventLogService};
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{
-    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
-    SessionEventLinkage,
+    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
-use sidekicks_workspace::run_setup_gates::{
-    RunSetupGate, RunSetupGateError, RunSetupGates, RunTerminalReleaseError,
-};
+use sidekicks_workspace::run_setup_gates::{RunSetupGate, RunSetupGates};
 use tokio::sync::{SetOnce, SetOnceError};
 
-use crate::interventions::interrupt_queue::{InterruptQueue, InterruptQueueError};
+use crate::interventions::interrupt_queue::InterruptQueue;
 use crate::interventions::store::run_at_version_statement;
 use crate::plan_holds::PlanHolds;
-use crate::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError};
-use crate::run::daemon_turn::DaemonTurnQueueError;
+use crate::run::agent::RUN_AGENT_STATEMENT_CAPACITY;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::live::{ContinuingRun, LiveRuns, ProviderChangeGuard, StartingRun};
 use crate::run::engine::turns::{TurnEnd, WriteWithResend};
-use crate::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
-use crate::run::read::{RunRead, read_run_through, safe_run_version};
+use crate::run::limit_interrupter::LimitInterrupter;
+use crate::run::provider_choice::held::HeldChoiceAnswers;
+use crate::run::read::{RunRead, RunStateReader, read_run_through, safe_run_version};
 use crate::run::refusals::{RunRefusal, ended_run_refusal};
-use crate::run::state_change::{
-    RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateChangeWriter,
-    refused_statement_index,
-};
+use crate::run::session_posture::SessionPostureSource;
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeWriter};
 
 /// The statements the engine's reads prepare on a pooled connection: the run's row, the live
 /// provider subagents beneath a run, the ended runs with an open turn, a run's pending interrupts
 /// and whether its interrupt at one limit is pending, the limit its log still owes, its open turns'
 /// cuts and the queued messages waiting for it, the number a run's next turn takes, its newest open
-/// turn and every open turn, its provider, whether it ended since a version, its interventions with
-/// no outcome and one session's ended runs still holding one, the two agent reads, and the run
-/// end's reads of its held questions open or waiting for it (`UNSETTLED_HELD_OF_RUN_SQL`), its
-/// plans still holding a request (its plan holds' read) and its open choices (the newest
-/// request of each dialog and whether it was settled since), and a driver's read of a session's
-/// stored leg (the session's runs and their bindings).
-pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 21 + RUN_AGENT_STATEMENT_CAPACITY;
+/// turn and every open turn, its provider, whether it is a provider subagent, whether it ended
+/// since a version, its interventions with no outcome and one session's ended runs still holding
+/// one, the two agent reads, and the run end's reads of its held questions open or waiting for it
+/// (`UNSETTLED_HELD_OF_RUN_SQL`), its plans still holding a request (its plan holds' read) and its
+/// open choices (the newest request of each dialog and whether it was settled since), a driver's
+/// read of a session's stored leg (the session's runs and their bindings), whether a run ended at
+/// its setup, and a restart's re-arm of a live run (its newest open turn with its steps, and the
+/// session's step bound).
+pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 25 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
 
 // The guard on the version a live append was built from is the first statement of its write.
 const LIVE_APPEND_VERSION_GUARD_INDEX: usize = 0;
+
+/// How the start of a run its provider started beneath a live parent went: running at its
+/// session's posture, or refused at its setup and ended `failed`, the subagent left for its driver
+/// to stop.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SubagentRunStart {
+    /// The run is `running`, stamped with the posture its gates resolved.
+    Running(RunId),
+    /// A setup gate refused the run, which ended `failed` with no posture stamped, for the
+    /// refusal its failure cause records.
+    Refused(RunId, RunSetupRefusal),
+}
 
 /// Where an interrupt of a run goes: claimed by the engine for a run no driver has, whose end is
 /// left to the interrupt's own outcome; to the driver, which has the run to stop; or nowhere, the
@@ -102,133 +115,6 @@ pub(crate) enum InterruptRoute {
     Driver,
     /// The run has ended.
     Ended,
-}
-
-/// Why the run engine did not do what it was asked; what each step wrote before the failure is
-/// kept, and the failure says which step failed.
-#[derive(Debug, thiserror::Error)]
-pub enum RunEngineError {
-    /// The run is unknown, has ended, or may not make the move asked of it.
-    #[error(transparent)]
-    Refused(RunRefusal),
-    /// A run state change was not written for a reason other than a refusal of the run.
-    #[error("the run state change was not written")]
-    Change(#[source] RunStateChangeError),
-    /// A terminal hook failed after the run ended; the end is kept.
-    #[error(transparent)]
-    Released(#[from] RunTerminalReleaseError),
-    /// A setup gate refused the run.
-    #[error("a setup gate refused run {run_id}")]
-    Gate {
-        /// The run.
-        run_id: RunId,
-        /// The gate's failure.
-        #[source]
-        source: RunSetupGateError,
-    },
-    /// The run passed its gates with no posture resolved for it.
-    #[error("run {run_id} passed its gates with no resolved posture")]
-    NoResolvedPosture {
-        /// The run.
-        run_id: RunId,
-    },
-    /// The driver's start of the run or of its turn, or its interrupt of that turn, failed.
-    #[error("the provider's driver failed for run {run_id}")]
-    Driver {
-        /// The run.
-        run_id: RunId,
-        /// The driver's failure.
-        #[source]
-        source: Box<dyn Error + Send + Sync>,
-    },
-    /// The interventions service was never handed to the engine or has shut down, so the run the
-    /// daemon stopped at a limit was not interrupted.
-    #[error("no interventions service interrupts run {run_id}, stopped at a limit")]
-    LimitInterrupterGone {
-        /// The run.
-        run_id: RunId,
-    },
-    /// The interventions service did not interrupt the run the daemon stopped at a limit; the
-    /// limit's reached event stands, so the stop's retry sends the interrupt alone, and the cut of
-    /// the run's turn stands only while the failure left the interrupt's row pending.
-    #[error("run {run_id}, stopped at a limit, was not interrupted")]
-    LimitInterrupt {
-        /// The run.
-        run_id: RunId,
-        /// The service's failure.
-        #[source]
-        source: LimitInterruptFailure,
-    },
-    /// No registered driver answers the run's provider (`provider.notFound`).
-    #[error(transparent)]
-    Provider(DomainError),
-    /// The daemon turn's run was not queued.
-    #[error(transparent)]
-    DaemonTurn(#[from] DaemonTurnQueueError),
-    /// The run's agent could not be read from its session's log.
-    #[error("the run's agent could not be read")]
-    Agent(#[from] RunAgentReadError),
-    /// An event breaks a check of its type.
-    #[error("the run's event could not be drafted")]
-    Draft(#[from] SessionEventDraftError),
-    /// The event log did not keep an append, or a guard in its write refused it.
-    #[error("the run's event was not appended")]
-    Append(#[from] SessionEventAppendError),
-    /// SQLite refused a read, or a stored column does not read as its type.
-    #[error("the run could not be read")]
-    Read(#[from] rusqlite::Error),
-    /// The read pool did not run a read.
-    #[error("the read pool did not run the run's read")]
-    Pool(#[from] DatabaseReadError),
-    /// The run's end or a turn's end landed with the settle of a person's interrupt, and letting go
-    /// the run queue's hold of that interrupt failed; the end is kept.
-    #[error("run {run_id} settled an interrupt, and its queue hold was not let go")]
-    InterruptRelease {
-        /// The run.
-        run_id: RunId,
-        /// The queue's failure.
-        #[source]
-        source: InterruptQueueError,
-    },
-    /// A step failed and so did the cleanup after it, every failure kept, the step's own first.
-    #[error(transparent)]
-    Several(Box<SettleFailures<RunEngineError>>),
-}
-
-/// Why a resume of a paused run did not move it to `running`; only [`RunResumeError::Change`]
-/// comes after the driver took the resume.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum RunResumeError<DriverFailure> {
-    /// The run was refused, or its read failed, before the driver was asked: another continue or
-    /// a resume holds it, its version is not the one the caller read, or its state is not one a
-    /// resume leaves.
-    #[error(transparent)]
-    Unstarted(RunEngineError),
-    /// The driver's resume failed; nothing was written.
-    #[error("the provider's driver did not take the resume")]
-    Driver(#[source] DriverFailure),
-    /// The driver took the resume, and the move to `running` was refused or failed.
-    #[error("the provider took the run's resume, and its move to running was not written")]
-    Change(#[source] RunEngineError),
-}
-
-impl From<RunRefusal> for RunEngineError {
-    fn from(refusal: RunRefusal) -> Self {
-        Self::Refused(refusal)
-    }
-}
-
-impl From<RunStateChangeError> for RunEngineError {
-    fn from(error: RunStateChangeError) -> Self {
-        match error {
-            RunStateChangeError::Refused(refusal) => Self::Refused(refusal),
-            other @ (RunStateChangeError::CompanionRefused { .. }
-            | RunStateChangeError::Draft(_)
-            | RunStateChangeError::Append(_)
-            | RunStateChangeError::Database(_)
-            | RunStateChangeError::Pool(_)) => Self::Change(other),
-        }
-    }
 }
 
 /// What the run engine reads and writes through.
@@ -244,6 +130,9 @@ pub struct RunEngineDeps {
     pub providers: Arc<ProviderRegistry>,
     /// The plans a run's end reopens as it lets their held requests go.
     pub plan_holds: Arc<dyn PlanHolds>,
+    /// The answers to a provider's choice that got no reply back, which the run's choice resolver
+    /// holds and a run's end writes as its choice's settlement once a report showed one taken.
+    pub held_choice_answers: Arc<HeldChoiceAnswers>,
 }
 
 // An interrupt that waits before it is routed: for a continue to settle, or for a start past its
@@ -271,12 +160,16 @@ pub struct RunEngine {
     execution_postures: Arc<ExecutionPostureService>,
     providers: Arc<ProviderRegistry>,
     plan_holds: Arc<dyn PlanHolds>,
+    held_choice_answers: Arc<HeldChoiceAnswers>,
     // The interventions service, which carries out the interrupt of each limit stop. It holds the
     // engine, so the engine holds it weakly.
     limit_interrupter: SetOnce<Weak<dyn LimitInterrupter>>,
     // The run queue, whose hold of a person's interrupt a run's end or a turn's end lets go once it
     // settles that interrupt; held weakly, as the queue holds the engine.
     interrupt_queue: SetOnce<Weak<dyn InterruptQueue>>,
+    // Where a run its provider started reads the posture its session's open process runs at; held
+    // weakly, as that source reaches the engine through the drivers' ports.
+    session_postures: SetOnce<Weak<dyn SessionPostureSource>>,
     live: Mutex<LiveRuns>,
     // Where a test holds a limit stop once its cut is in and before it reads whether its turn is
     // still open.
@@ -303,6 +196,7 @@ impl RunEngine {
             execution_postures,
             providers,
             plan_holds,
+            held_choice_answers,
         } = deps;
         let appender = Arc::new(SessionEventAppender::new(
             event_log,
@@ -318,8 +212,10 @@ impl RunEngine {
             execution_postures,
             providers,
             plan_holds,
+            held_choice_answers,
             limit_interrupter: SetOnce::new(),
             interrupt_queue: SetOnce::new(),
+            session_postures: SetOnce::new(),
             live: Mutex::new(LiveRuns::default()),
             #[cfg(test)]
             cut_pause: PausePoint::default(),
@@ -350,6 +246,23 @@ impl RunEngine {
         &self.restart_facts_pause
     }
 
+    /// The held answers this engine's run ends read, for a test's resolver to hold its answers in.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn held_choice_answers(&self) -> &Arc<HeldChoiceAnswers> {
+        &self.held_choice_answers
+    }
+
+    /// The limit turn `turn_number` of `run_id` ends with by the cuts the engine holds of it, if
+    /// any, so a test reads what a cut or a re-arm left.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn held_cut_limit(
+        &self,
+        run_id: RunId,
+        turn_number: sidekicks_contracts::wire::integer::SafeInt<1>,
+    ) -> Option<sidekicks_contracts::run::intervention::RunLimit> {
+        lock(&self.live).current_limit(&(run_id, turn_number))
+    }
+
     /// Hands the engine the interventions service that carries out each limit stop's interrupt,
     /// once, while the daemon wires its services and before any run can reach a limit. Fails with
     /// the handle when one was handed already.
@@ -358,6 +271,16 @@ impl RunEngine {
         limit_interrupter: Weak<dyn LimitInterrupter>,
     ) -> Result<(), SetOnceError<Weak<dyn LimitInterrupter>>> {
         self.limit_interrupter.set(limit_interrupter)
+    }
+
+    /// Hands the engine the source of each open session's posture, which a run its provider starts
+    /// is gated at, once, while the daemon wires its services and before any provider runs. Fails
+    /// with the handle when one was handed already.
+    pub fn set_session_postures(
+        &self,
+        session_postures: Weak<dyn SessionPostureSource>,
+    ) -> Result<(), SetOnceError<Weak<dyn SessionPostureSource>>> {
+        self.session_postures.set(session_postures)
     }
 
     /// Adds a setup gate after those already registered; its terminal hook runs before theirs.
@@ -687,7 +610,7 @@ impl RunEngine {
                 Ok(receipt) => return Ok(Some((run, receipt))),
                 Err(error)
                     if attempt < LIVE_APPEND_ATTEMPTS
-                        && refused_statement_index(&error)
+                        && error.refused_statement_index()
                             == Some(LIVE_APPEND_VERSION_GUARD_INDEX) => {}
                 Err(error) => return Err(error.into()),
             }
@@ -695,9 +618,10 @@ impl RunEngine {
         }
     }
 
-    // One append of `draft` after `preceding_events`, with `transactional_prelude` in its write,
-    // under `hold` where the caller holds the session.
-    async fn append(
+    /// One append of `draft` after `preceding_events`, with `transactional_prelude` in its write,
+    /// under `hold` where the caller holds the session. Fails as the write fails or a statement of
+    /// the prelude refuses it.
+    pub(crate) async fn append(
         &self,
         draft: SessionEventDraft,
         transactional_prelude: Vec<WriteStatement>,
@@ -717,6 +641,21 @@ impl RunEngine {
 
     async fn read_run(&self, run_id: RunId) -> Result<Option<RunRead>, RunEngineError> {
         read_run_through(&self.pool, run_id).await
+    }
+
+    /// Whether `run_id` ended `failed` at its setup, before its provider started it, as a helper
+    /// the daemon refused after its provider started it does; `false` for a run with no row. Fails
+    /// as the read does.
+    pub(crate) async fn is_failed_at_setup(&self, run_id: RunId) -> Result<bool, RunEngineError> {
+        self.pool
+            .read(ReadLength::Short, move |reader| {
+                let runs = RunStateReader::new(reader);
+                let Some(run) = runs.read_run(&run_id)? else {
+                    return Ok(false);
+                };
+                Ok::<_, RunEngineError>(runs.is_failed_at_setup(&run.session_id, &run_id)?)
+            })
+            .await
     }
 
     /// The run `run_id` as it reads now; fails with [`RunRefusal::NotFound`] when it has no row,

@@ -34,8 +34,8 @@ struct CompactedFrame {
 pub(crate) struct CodexCompactionTarget<'target> {
     /// The session.
     pub(crate) session_id: SessionId,
-    /// The account the service runs on; `None` on the machine's default home.
-    pub(crate) provider_account_id: Option<&'target ProviderAccountId>,
+    /// The account the service runs on.
+    pub(crate) provider_account_id: &'target ProviderAccountId,
     /// The session's conversation.
     pub(crate) thread_id: &'target str,
     /// The wait's key for that conversation, as the frame routing settles it.
@@ -95,7 +95,7 @@ pub(crate) fn read_codex_compaction_boundary_position(params: &RawValue) -> Opti
 fn report_compaction_end(target: &CodexCompactionTarget<'_>, detail: &str, terminal: &str) {
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: target.provider_account_id.cloned(),
+        provider_account_id: Some(target.provider_account_id.clone()),
         kind: DriverDiagnosticKind::CompactionWaitTerminal,
         raw_wire_type: Some(CODEX_THREAD_COMPACT_START_METHOD.to_owned()),
         disposition_reason: detail.to_owned(),

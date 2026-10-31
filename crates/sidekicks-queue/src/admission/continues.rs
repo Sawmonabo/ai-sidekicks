@@ -1,5 +1,7 @@
 //! The continue of an interrupted run: its place at the gate again, its opening taken under the
-//! session's lock, and what a continue that failed leaves for the run's messages.
+//! session's lock, and what a continue that failed leaves for the run's messages. A review is
+//! never a continue's opening: one left waiting for the run with no message beside it goes on to a
+//! next run of its own.
 
 use std::sync::Arc;
 
@@ -9,16 +11,21 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_provider::driver::contract::ProviderDriver;
-use sidekicks_session::queue_store::QueueItemReader;
 use sidekicks_session::queue_store::summary::summary_of;
-use sidekicks_session::run::engine::RunEngineError;
+use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
+use sidekicks_session::run::agent::read_lead_agent_through;
+use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::read::read_run_through;
 use sidekicks_session::run::start_request::RunContinueRequest;
+use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use super::{Placed, QueueAdmission, is_invalid_transition, is_waiting, log_failure};
 use crate::error::QueueError;
+use crate::recorder::lead_run_queued;
 
 impl QueueAdmission {
     pub(super) async fn continue_interrupted(
@@ -26,11 +33,12 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
-        let (provider, provider_account_id, driver) = self.read_session_driver(session_id).await?;
+        let (provider, provider_account_id, driver) =
+            self.read_run_driver(session_id, run_id).await?;
         if !self
             .admit_continue(
                 &provider,
-                provider_account_id,
+                provider_account_id.clone(),
                 driver.as_ref(),
                 session_id,
                 run_id,
@@ -42,30 +50,46 @@ impl QueueAdmission {
         let execution_posture = self
             .deps
             .provider_sessions
-            .read_execution_posture(session_id)
+            .read_execution_posture(session_id, provider_account_id.clone())
             .await?;
         // Taken under the lock, so a removal either lands first or finds the opening taken.
-        let opening = {
-            let _hold = self.deps.session_lock.hold_session(session_id).await;
+        let (opening, reviews_run_id) = {
+            let hold = self.deps.session_lock.hold_session(session_id).await;
             let is_interrupted = read_run_through::<QueueError>(&self.deps.pool, run_id)
                 .await?
                 .is_some_and(|run| run.state == RunState::Interrupted);
-            let head = if is_interrupted {
+            let lead_waiting: Vec<QueueItemRecord> = if is_interrupted {
                 self.read_waiting(run_id)
                     .await?
                     .into_iter()
-                    .find(|item| item.child_handle.is_none())
+                    .filter(|item| item.child_handle.is_none())
+                    .collect()
             } else {
-                None
+                Vec::new()
             };
+            let (messages, reviews): (Vec<_>, Vec<_>) = lead_waiting
+                .into_iter()
+                .partition(|item| item.body.as_message().is_some());
+            let head = messages.into_iter().next();
             if let Some(head) = &head {
                 self.deps.openings.insert(run_id, head.clone());
             }
-            head
+            let reviews_run_id = if head.is_none() && !reviews.is_empty() {
+                Some(
+                    self.queue_reviews_run(&hold, &reviews, provider_account_id)
+                        .await?,
+                )
+            } else {
+                None
+            };
+            (head, reviews_run_id)
         };
         let Some(opening) = opening else {
             // Nothing is left to continue the run with, so it rests holding no place.
             self.release(run_id);
+            if let Some(reviews_run_id) = reviews_run_id {
+                self.start(session_id, reviews_run_id);
+            }
             return Ok(());
         };
         let continued = self
@@ -173,6 +197,36 @@ impl QueueAdmission {
         }
     }
 
+    // Queues the session's next lead run for the `reviews` left waiting for its interrupted lead
+    // run, pointing each at it, on `provider_account_id`'s account, the one the interrupted run ran
+    // on, and answers its id. Called under `hold`; fails as the read or the write fails.
+    async fn queue_reviews_run(
+        &self,
+        hold: &KeyHold<'_, SessionId>,
+        reviews: &[QueueItemRecord],
+        provider_account_id: ProviderAccountId,
+    ) -> Result<RunId, QueueError> {
+        let session_id = *hold.key();
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        let agent_id = read_lead_agent_through::<QueueError>(&self.deps.pool, session_id).await?;
+        let run_config = self.lead_run_config(session_id)?;
+        self.deps
+            .recorder
+            .record_next_run(
+                lead_run_queued(
+                    session_id,
+                    run_id,
+                    agent_id,
+                    provider_account_id,
+                    run_config,
+                ),
+                reviews,
+                &WireInstant::now(),
+            )
+            .await?;
+        Ok(run_id)
+    }
+
     // The lead messages a newer lead run took over from the given-up continue of `run_id` go to
     // that run now that the continue's opening is no longer one.
     async fn hand_taken_over(
@@ -204,7 +258,7 @@ impl QueueAdmission {
     async fn admit_continue(
         &self,
         provider: &ProviderId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         driver: &dyn ProviderDriver,
         session_id: SessionId,
         run_id: RunId,

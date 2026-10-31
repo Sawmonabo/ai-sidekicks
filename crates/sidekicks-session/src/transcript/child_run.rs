@@ -10,7 +10,6 @@ use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, named_params};
 use serde_json::json;
-use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_one_frame};
@@ -39,9 +38,12 @@ use sidekicks_store::events::session::read::{
 use sidekicks_store::transcript::rejoin::{row_condition_sql, stored_patch_part_sql};
 
 use crate::run::refusals::RunRefusal;
+use crate::service::ProviderDriverLookup;
 use crate::transcript::block_cut::BlockParse;
 use crate::transcript::projector::project_window;
-use crate::transcript::window::{TranscriptReadError, read_transcript_head};
+use crate::transcript::window::{
+    PASSED_OVER_STRETCHES_MAX, TranscriptReadError, read_transcript_head,
+};
 
 /// The payload member of an `agent.run.queued` that names the run it is a child of.
 const PARENT_RUN_ID_PAYLOAD_KEY: &str = "parentRunId";
@@ -115,8 +117,8 @@ impl ChildCount {
     }
 }
 
-/// Stamps every child-creation row of `rows`, projected from `events`, with its child's summary
-/// through `head`, read on `reader`: a child whose events cannot all be read, because its session
+/// Stamps every child-creation row of `rows` with its child's summary through `head`, read on
+/// `reader`: a child whose events cannot all be read, because its session
 /// skipped or cannot yet read some of them or its count failed, is marked incomplete as of
 /// `observed_at` with the count the log can read, and its row is kept. Fails when SQLite refuses
 /// the children's states as well as their count.
@@ -125,27 +127,29 @@ pub(crate) fn stamp_child_run_summaries<DamagedFrom>(
     read_damaged_from_sequence: &DamagedFrom,
     session_id: &SessionId,
     rows: &mut [TranscriptReadRow],
-    events: &[EventEnvelope],
     head: i64,
     observed_at: &WireInstant,
 ) -> rusqlite::Result<()>
 where
     DamagedFrom: Fn(&SessionId) -> Option<i64> + ?Sized,
 {
-    let parents: Vec<(usize, RunId, RunId)> = events
+    let parents: Vec<(usize, RunId, RunId)> = rows
         .iter()
         .enumerate()
-        .filter(|(_, event)| {
-            event.event_type.0.as_str() == SessionEventType::AgentRunQueued.as_str()
-        })
-        .filter_map(|(index, event)| {
-            let parent_run_id = event
+        .filter_map(|(index, row)| {
+            // A child's creation names its run, so it stands on the run's arm.
+            let TranscriptReadRow::Run(row) = row else {
+                return None;
+            };
+            if row.event_type.as_str() != SessionEventType::AgentRunQueued.as_str() {
+                return None;
+            }
+            let parent_run_id = row
                 .payload
                 .get(PARENT_RUN_ID_PAYLOAD_KEY)?
                 .as_str()
                 .and_then(|text| RunId::new(text).ok())?;
-            let run_id = *rows[index].run_id()?;
-            (run_id != parent_run_id).then_some((index, run_id, parent_run_id))
+            (row.run_id != parent_run_id).then_some((index, row.run_id, parent_run_id))
         })
         .collect();
     if parents.is_empty() {
@@ -271,7 +275,8 @@ struct ExpandedRun {
 }
 
 /// Reads one page of `request`'s child run's rows on `reader`, oldest first, each child-creation
-/// row among them summarized as of `observed_at` and each reply cut into blocks by `parse`;
+/// row among them summarized as of `observed_at`, each reply cut into blocks by `parse` and each
+/// task-list call the driver `driver_of` answers for the session's provider reads as one left out;
 /// `read_damaged_from_sequence` answers where a damaged session's reads stop. Fails with
 /// [`TranscriptReadError::Refused`] for a run this daemon does not hold (`agent.run.notFound`)
 /// or one with no parent (`agent.run.notChild`), and with
@@ -279,6 +284,7 @@ struct ExpandedRun {
 pub(crate) fn expand_child_run<DamagedFrom>(
     reader: &Connection,
     read_damaged_from_sequence: &DamagedFrom,
+    driver_of: &ProviderDriverLookup,
     request: &TranscriptChildRunExpandRequest,
     observed_at: &WireInstant,
     parse: BlockParse,
@@ -317,34 +323,50 @@ where
             },
         ));
     };
-    let candidates = reads.read_envelopes(
-        &RUN_ROWS_AFTER_SQL,
-        named_params! {
-            "@session_id": session_id.text().as_str(),
-            "@run_id": run_id.text().as_str(),
-            "@after_position": after_position,
-            "@read_bound": reads.read_bound(&session_id, None),
-            "@limit": count_bound(TRANSCRIPT_READ_LIMIT_MAX + 1),
-        },
-    )?;
-    let stretch = &candidates[..TRANSCRIPT_READ_LIMIT_MAX.min(candidates.len())];
-    let mut rows = project_window(
-        reader,
-        read_damaged_from_sequence,
-        &session_id,
-        stretch,
-        head,
-        parse,
-    )?;
+    // A stretch whose every event stands as no row is passed over while more follow, so a page
+    // that continues holds a row, up to the request's cap.
+    let mut stretch_after = after_position;
+    let mut stretches = 0;
+    let (stretch, mut rows, has_later) = loop {
+        stretches += 1;
+        let mut stretch = reads.read_envelopes(
+            &RUN_ROWS_AFTER_SQL,
+            named_params! {
+                "@session_id": session_id.text().as_str(),
+                "@run_id": run_id.text().as_str(),
+                "@after_position": stretch_after,
+                "@read_bound": reads.read_bound(&session_id, None),
+                "@limit": count_bound(TRANSCRIPT_READ_LIMIT_MAX + 1),
+            },
+        )?;
+        let has_later = stretch.len() > TRANSCRIPT_READ_LIMIT_MAX;
+        stretch.truncate(TRANSCRIPT_READ_LIMIT_MAX);
+        let rows = project_window(
+            reader,
+            read_damaged_from_sequence,
+            driver_of,
+            &session_id,
+            &stretch,
+            head,
+            parse,
+        )?;
+        let Some(newest) = stretch
+            .last()
+            .filter(|_| rows.is_empty() && has_later && stretches < PASSED_OVER_STRETCHES_MAX)
+        else {
+            break (stretch, rows, has_later);
+        };
+        stretch_after = i64::from(newest.sequence);
+    };
     stamp_child_run_summaries(
         reader,
         read_damaged_from_sequence,
         &session_id,
         &mut rows,
-        stretch,
         head,
         observed_at,
     )?;
+    let projected_count = rows.len();
     let page_count = count_entries_fitting_one_frame(
         &rows,
         TRANSCRIPT_READ_LIMIT_MAX,
@@ -355,16 +377,24 @@ where
     rows.truncate(page_count);
     snapshot.commit()?;
     let joined_through = cursor_at(head);
-    if page_count < candidates.len() {
+    if page_count < projected_count || has_later {
+        // A budget cut continues after the newest row kept, else after the whole stretch.
+        let continues_after = if page_count < projected_count {
+            rows[page_count - 1].sequence()
+        } else {
+            stretch
+                .last()
+                .expect("a stretch with more after it is read")
+                .sequence
+        };
         return Ok(TranscriptChildRunExpandResponse::Continuing(
             TranscriptChildRunExpandContinuing {
                 run_id,
                 parent_run_id,
                 state: run.state,
-                entries: ReadEntries::new(rows)
-                    .expect("a page that leaves more holds 1 to limit rows"),
+                entries: ReadEntries::new(rows).expect("a page holds at most limit rows"),
                 has_more: True::default(),
-                next_cursor: cursor_at(i64::from(stretch[page_count - 1].sequence)),
+                next_cursor: cursor_at(i64::from(continues_after)),
                 joined_through,
             },
         ));
@@ -431,6 +461,7 @@ mod tests {
         expand_child_run(
             &log.session_log.reader(),
             &|_: &SessionId| None,
+            &|_| None,
             &request,
             &WireInstant::now(),
             MARKDOWN_PARSE,
@@ -444,6 +475,7 @@ mod tests {
         let page = read_transcript_window(
             &log.session_log.reader(),
             &|_: &SessionId| None,
+            &|_| None,
             &request,
             MARKDOWN_PARSE,
         )
@@ -530,7 +562,13 @@ mod tests {
                     }
                 }))
                 .expect("the test sets its authorizer");
-            read_transcript_window(&reader, &|_: &SessionId| None, &request, MARKDOWN_PARSE)
+            read_transcript_window(
+                &reader,
+                &|_: &SessionId| None,
+                &|_| None,
+                &request,
+                MARKDOWN_PARSE,
+            )
         };
         let refused = read_refusing(true);
         assert!(

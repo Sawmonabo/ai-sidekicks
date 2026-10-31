@@ -1,7 +1,7 @@
 //! What a run's end leaves of its place at the memory gate and of the lead's messages still
 //! waiting for it: the place parked for an interrupted run that rests for its continue, else
 //! released, and the messages moved on to the run before it resting again, the lead run live, else
-//! a next run queued for them.
+//! a next run queued for them on the account the ended run was admitted against.
 
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_session::queue_store::{CurrentLeadRun, QueueItemReader, QueueItemRecord};
-use sidekicks_session::run::agent::read_lead_agent_through;
+use sidekicks_session::run::agent::{RunAgentReader, read_lead_agent_through};
 use sidekicks_session::run::read::read_run_through;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::ReadLength;
@@ -136,9 +136,26 @@ impl QueueRunLifecycle {
         }
         let next_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         let agent_id = read_lead_agent_through::<QueueError>(&self.deps.pool, session_id).await?;
+        // The messages go on in the session the ended run ran in, so on the account it ran on.
+        let provider_account_id = self
+            .deps
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, QueueError>(
+                    RunAgentReader::new(reader).read_admitted_account(&session_id, &run_id)?,
+                )
+            })
+            .await?;
+        let run_config = self.deps.admission.lead_run_config(session_id)?;
         recorder
             .record_next_run(
-                lead_run_queued(session_id, next_run_id, agent_id),
+                lead_run_queued(
+                    session_id,
+                    next_run_id,
+                    agent_id,
+                    provider_account_id,
+                    run_config,
+                ),
                 &waiting,
                 &now,
             )

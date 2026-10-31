@@ -92,6 +92,9 @@ pub enum DriverDiagnosticKind {
     /// A provider command entry broke the contract's bounds; it is dropped and its siblings are
     /// unaffected.
     ProviderCommandEntryRejected,
+    /// A tool server's status the provider reported broke the bound its reader puts it through,
+    /// so the server's row keeps its last reading.
+    McpServerStatusRejected,
     /// A declared output-speed state broke the bounds, so the binding reads as unobserved until
     /// the provider declares another. Details carry the field and lengths, never untrusted values.
     OutputSpeedStateRejected,
@@ -145,6 +148,12 @@ pub enum DriverDiagnosticKind {
     /// The provider cut a response short after some of its blocks were streamed: what still
     /// waited is dropped, and the pieces already stored stay.
     StreamedBlocksAbandoned,
+    /// A session's inbox could not be bound, or a frame it received could not be passed on; its
+    /// sender gets no answer.
+    SessionInboxFailed,
+    /// The provider reported a permission mode the driver does not know, which is not taken as a
+    /// mode.
+    PermissionModeUnknown,
 }
 
 impl DriverDiagnosticKind {
@@ -185,6 +194,7 @@ impl DriverDiagnosticKind {
             Self::SupersededRunReportFailed => "driver.session.supersededRunReportFailed",
             Self::CompactionWaitTerminal => "driver.compaction.waitTerminal",
             Self::ProviderCommandEntryRejected => "driver.providerCommands.entryRejected",
+            Self::McpServerStatusRejected => "driver.mcpServerStatus.rejected",
             Self::OutputSpeedStateRejected => "driver.outputSpeed.stateRejected",
             Self::OutputSpeedApplyRefused => "driver.outputSpeed.applyRefused",
             Self::McpTaskHandleWriteRefused => "driver.mcpTaskHandle.writeRefused",
@@ -203,6 +213,8 @@ impl DriverDiagnosticKind {
             Self::ModelCatalogMemberUnreadable => "driver.modelCatalog.memberUnreadable",
             Self::StreamedTextDiverged => "driver.streamedText.diverged",
             Self::StreamedBlocksAbandoned => "driver.streamedText.blocksAbandoned",
+            Self::SessionInboxFailed => "driver.sessionInbox.failed",
+            Self::PermissionModeUnknown => "driver.permissionMode.unknown",
         }
     }
 }
@@ -213,8 +225,8 @@ impl DriverDiagnosticKind {
 pub struct DriverDiagnosticRecord {
     /// The provider the record is about.
     pub provider: ProviderId,
-    /// The account the record is about, which its counter is also counted by; `None` on the
-    /// machine's default home.
+    /// The account the record is about, which its counter is also counted by; `None` for a record
+    /// no account owns, such as one of the service on the person's own provider folder.
     pub provider_account_id: Option<ProviderAccountId>,
     /// What happened.
     pub kind: DriverDiagnosticKind,
@@ -331,7 +343,8 @@ mod recorded_events {
             tracing::subscriber::set_default(tracing_subscriber::registry().with(self.clone()))
         }
 
-        /// The counter of each diagnostic recorded, in order.
+        /// The counter of each diagnostic recorded, in order; only this crate's own tests read it.
+        #[cfg(test)]
         pub(crate) fn counters(&self) -> Vec<String> {
             self.fields_where(|_fields| true, "counter")
         }

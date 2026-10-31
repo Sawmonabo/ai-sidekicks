@@ -94,7 +94,7 @@ enum StreamPlace {
 }
 
 /// One subscription's view of one shell's output, as the feed its subscribe call answers.
-pub(crate) struct ShellOutputStream {
+pub struct ShellOutputStream {
     source: Arc<dyn ShellOutputSource>,
     subscription_id: SubscriptionId,
     transport_id: TransportId,

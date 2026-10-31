@@ -21,18 +21,14 @@ pub struct DaemonTurnStartRequest {
     pub session_id: SessionId,
     /// The provider the turn runs on.
     pub provider: ProviderId,
-    /// The account the session's process was admitted against, or `None` for none.
-    pub admitted_provider_account_id: Option<ProviderAccountId>,
+    /// The account the session's process was admitted against.
+    pub admitted_provider_account_id: ProviderAccountId,
     /// The session's current level and roots, which the turn runs at like any run.
     pub execution_posture: ExecutionPosture,
     /// Whether the provider started the turn itself: its run takes over, in its `running` write,
     /// the lead messages waiting for an interrupted run. A turn the daemon starts waits for the
     /// continue of an interrupted run the session holds its turn for.
     pub is_provider_started: bool,
-    /// Whether the turn runs in a process of its own apart from the session's, such as a review a
-    /// provider runs in a process of its own: it takes no turn of the session's process, so its
-    /// run is no lead run and nothing the session's turn waits for holds it back.
-    pub is_apart: bool,
     /// The driver's start of the turn under the new run's id: it binds the run and writes the
     /// turn's opening, and settles once it is written. A failure ends the run `failed`.
     pub start_turn: Box<dyn Fn(RunId) -> DriverStep + Send + Sync>,

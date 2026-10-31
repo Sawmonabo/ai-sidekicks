@@ -3,7 +3,7 @@
 //! that read whether a command waits for input.
 
 pub mod askpass;
-pub(crate) mod channel;
+pub mod channel;
 pub mod running_set;
-pub(crate) mod waiting_checks;
+pub mod waiting_checks;
 pub mod wrapper;

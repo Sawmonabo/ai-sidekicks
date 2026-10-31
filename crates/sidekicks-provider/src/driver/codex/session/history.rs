@@ -73,32 +73,12 @@ pub(crate) async fn read_codex_turns(
     let mut newest_first = Vec::new();
     let mut cursor = None;
     loop {
-        let params = ThreadTurnsListParams {
-            cursor,
-            items_view: None,
-            limit: Some(CODEX_TURNS_PAGE_LIMIT),
-            sort_direction: None,
-            thread_id: thread_id.to_owned(),
+        let Some(page) =
+            read_turns_page(connection, thread_id, cursor, CODEX_TURNS_PAGE_LIMIT).await?
+        else {
+            return Ok(Vec::new());
         };
-        let reply = match connection.request(THREAD_TURNS_LIST_METHOD, &params).await {
-            Ok(reply) => reply,
-            Err(CodexError::ProviderRequest { message, .. })
-                if message.contains(CODEX_NOT_MATERIALIZED_MESSAGE) =>
-            {
-                return Ok(Vec::new());
-            }
-            Err(error) => return Err(error),
-        };
-        let page = read_page(THREAD_TURNS_LIST_METHOD, &reply, "turns")?;
-        for turn in page.data {
-            // An entry with no id is skipped: a placeholder would shift every later position.
-            let id = read_codex_object::<ListedTurnId>(turn.get())
-                .and_then(|listed| listed.id)
-                .filter(|id| !id.is_empty());
-            if let Some(id) = id {
-                newest_first.push(CodexListedTurn { id, turn });
-            }
-        }
+        newest_first.extend(page.data.into_iter().filter_map(read_listed_turn));
         cursor = page.next_cursor.filter(|next| !next.is_empty());
         if cursor.is_none() {
             break;
@@ -107,6 +87,54 @@ pub(crate) async fn read_codex_turns(
     // Pages come newest first, the default order.
     newest_first.reverse();
     Ok(newest_first)
+}
+
+/// The newest turn of `thread_id`, `None` for a conversation no message has reached yet. Fails
+/// as [`read_codex_turns`] does.
+pub(crate) async fn read_codex_newest_turn(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+) -> Result<Option<CodexListedTurn>, CodexError> {
+    let Some(page) = read_turns_page(connection, thread_id, None, 1).await? else {
+        return Ok(None);
+    };
+    Ok(page.data.into_iter().find_map(read_listed_turn))
+}
+
+// One page of `thread_id`'s turns, newest first, from `cursor`; `None` for a conversation no
+// message has reached yet.
+async fn read_turns_page(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+    cursor: Option<String>,
+    limit: u32,
+) -> Result<Option<CodexPage>, CodexError> {
+    let params = ThreadTurnsListParams {
+        cursor,
+        items_view: None,
+        limit: Some(limit),
+        sort_direction: None,
+        thread_id: thread_id.to_owned(),
+    };
+    let reply = match connection.request(THREAD_TURNS_LIST_METHOD, &params).await {
+        Ok(reply) => reply,
+        Err(CodexError::ProviderRequest { message, .. })
+            if message.contains(CODEX_NOT_MATERIALIZED_MESSAGE) =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
+    };
+    read_page(THREAD_TURNS_LIST_METHOD, &reply, "turns").map(Some)
+}
+
+// A listed turn with its id; an entry with no id is skipped, since a placeholder would shift every
+// later position.
+fn read_listed_turn(turn: Box<RawValue>) -> Option<CodexListedTurn> {
+    let id = read_codex_object::<ListedTurnId>(turn.get())
+        .and_then(|listed| listed.id)
+        .filter(|id| !id.is_empty())?;
+    Some(CodexListedTurn { id, turn })
 }
 
 /// The turn each of the person's messages started on `thread_id`, by the message's id, read from

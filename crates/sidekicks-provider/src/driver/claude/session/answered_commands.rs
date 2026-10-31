@@ -360,3 +360,68 @@ fn read_advisor_choices(advisor: &ClaudeLocalCommandReply) -> ClaudeAdvisorChoic
         },
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{ClaudeOutputStyleDescriptions, read_claude_command_choices};
+    use crate::driver::claude::session::transport::readings::{
+        ClaudeCreationFiguresReading, ClaudeLocalCommandReply, ClaudeReplyReserveReads,
+    };
+
+    fn figures(output_style: ClaudeLocalCommandReply) -> ClaudeCreationFiguresReading {
+        ClaudeCreationFiguresReading {
+            output_style_names: vec!["Explanatory".to_owned(), "Learning: Deep".to_owned()],
+            output_style,
+            advisor: ClaudeLocalCommandReply {
+                is_listed: false,
+                text: None,
+                outcome: None,
+            },
+            reply_reserve_reads: ClaudeReplyReserveReads::Refused {
+                detail: "not read".to_owned(),
+            },
+            context_reads: Vec::new(),
+        }
+    }
+
+    // Fails when a colon inside a style's name or description moves the split between them, or
+    // when a build that no longer lists `/output-style` reads as printing no descriptions rather
+    // than as the version fault it is. Mutations: in `read_output_style_descriptions`, split each
+    // row at its first `": "`; in `read_claude_command_choices`, the unlisted arm read as `Listed`
+    // of nothing.
+    #[test]
+    fn style_descriptions_keep_their_colons_and_an_unlisted_command_is_a_version_fault() {
+        let listed = read_claude_command_choices(&figures(ClaudeLocalCommandReply {
+            is_listed: true,
+            text: Some(
+                "- Explanatory (current): Explains choices: why, then how\n\
+                 - Learning: Deep: Asks you"
+                    .to_owned(),
+            ),
+            outcome: None,
+        }));
+        let unlisted = read_claude_command_choices(&figures(ClaudeLocalCommandReply {
+            is_listed: false,
+            text: None,
+            outcome: None,
+        }));
+
+        let ClaudeOutputStyleDescriptions::Listed(descriptions) = listed.output_styles else {
+            panic!("the descriptions are listed");
+        };
+        assert_eq!(
+            descriptions.get("Explanatory").map(String::as_str),
+            Some("Explains choices: why, then how")
+        );
+        assert_eq!(
+            descriptions.get("Learning: Deep").map(String::as_str),
+            Some("Asks you")
+        );
+        assert_eq!(
+            unlisted.output_styles,
+            ClaudeOutputStyleDescriptions::Unlisted {
+                line: "This Claude Code build does not list style descriptions.".to_owned(),
+            }
+        );
+    }
+}

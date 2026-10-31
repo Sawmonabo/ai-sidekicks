@@ -14,8 +14,8 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_workspace::project::records::session_project_sql;
 
-use crate::directory::lookups::session_project_sql;
 use crate::directory::run_activity::session_activity_sql;
 use crate::plan_holds::PlanHolds;
 

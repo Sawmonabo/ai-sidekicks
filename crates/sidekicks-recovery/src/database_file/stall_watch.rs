@@ -11,6 +11,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use sidekicks_platforms::process_table;
 use sidekicks_std::mutex_lock::lock;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::time::{Instant, Sleep};
@@ -98,10 +99,8 @@ pub(crate) struct ShellProcessorTimeReader {
 impl ShellProcessorTimeReader {
     /// A reader with an empty process table, which keeps no process file open between readings.
     pub(crate) fn new() -> Self {
-        // On Linux the process table would otherwise keep each process's `stat` file open.
-        sysinfo::set_open_files_limit(0);
         Self {
-            system: Arc::new(Mutex::new(System::new())),
+            system: Arc::new(Mutex::new(process_table())),
         }
     }
 

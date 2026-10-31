@@ -9,6 +9,7 @@
 //! thread per copy; what it could not do goes to the daemon as a record, and on standard error
 //! where it changes how the command runs.
 
+use std::env::consts::EXE_SUFFIX;
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -35,16 +36,17 @@ use crate::driver::shell_prefix_command_of;
 /// The name of the link a provider runs every shell command through, which reaches this mode.
 pub const COMMAND_WRAPPER_PROGRAM_NAME: &str = "sidekicks-command-wrapper";
 
+/// The command wrapper's link in `program_link_folder`, the folder of the daemon's mode links.
+pub fn command_wrapper_program_path(program_link_folder: &Path) -> PathBuf {
+    program_link_folder.join(format!("{COMMAND_WRAPPER_PROGRAM_NAME}{EXE_SUFFIX}"))
+}
+
 /// The variable naming the provider whose shell prefix the wrapper serves, so it reads that
 /// provider's line shape.
 pub(crate) const COMMAND_PROVIDER_VARIABLE: &str = "SIDEKICKS_COMMAND_PROVIDER";
 
 /// How long the wrapper waits for the daemon's `go` before it runs the command uncovered.
 const GO_WAIT: Duration = Duration::from_secs(10);
-
-/// The variables the wrapper and its terminal add, which the command never sees: the party's
-/// secret descriptor, and the two `alacritty_terminal` sets on the program it starts.
-const OWN_VARIABLES: [&str; 3] = [PARTY_SECRET_VARIABLE, "ALACRITTY_WINDOW_ID", "WINDOWID"];
 
 /// The flags the relay writes ahead of a relayed command's own words, and the inner mode's flag.
 const CONVERSATION_FLAG: &str = "--conversation";
@@ -130,15 +132,21 @@ fn read_form(arguments: &[OsString]) -> Option<WrapperForm> {
 /// with.
 pub fn run_command_wrapper() -> ExitCode {
     let process_arguments: Vec<OsString> = std::env::args_os().collect();
-    run_command_wrapper_with(&process_arguments, own_arguments(&process_arguments))
+    run_command_wrapper_with(
+        &process_arguments,
+        own_arguments(&process_arguments),
+        std::env::current_exe,
+    )
 }
 
 /// Runs the wrapper over `own_arguments`, the arguments its form is read from, restarting through
-/// `process_arguments`, all of this process's own; answers the exit code the command ended with,
-/// `64` for arguments of no form and `126` for a command that could not start.
+/// `process_arguments`, all of this process's own, and through the program `inner_program` reads
+/// for the inner form in a command's terminal; answers the exit code the command ended with, `64`
+/// for arguments of no form and `126` for a command that could not start.
 pub(crate) fn run_command_wrapper_with(
     process_arguments: &[OsString],
     own_arguments: &[OsString],
+    inner_program: fn() -> io::Result<PathBuf>,
 ) -> ExitCode {
     let Some(form) = read_form(own_arguments) else {
         write_error_line(
@@ -172,7 +180,14 @@ pub(crate) fn run_command_wrapper_with(
             arg0,
             is_tty,
             words,
-        } => run_relayed_command(process_arguments, &process, arg0.as_deref(), is_tty, &words),
+        } => run_relayed_command(
+            process_arguments,
+            inner_program,
+            &process,
+            arg0.as_deref(),
+            is_tty,
+            &words,
+        ),
         WrapperForm::Inner { arg0, words } => {
             match run_foreground_job(&mut word_command(arg0.as_deref(), &words)) {
                 Ok(status) => end_as_command_ended(status),
@@ -199,7 +214,7 @@ fn named_shell(variable: &str) -> PathBuf {
     }
 }
 
-/// `<shell> -c <line>`, run under the shell's file name, without the wrapper's own variables.
+/// `<shell> -c <line>`, run under the shell's file name, without the party's secret variable.
 fn shell_line(shell: &Path, line: &OsStr) -> Command {
     let mut command = Command::new(shell);
     if let Some(name) = shell.file_name()
@@ -210,11 +225,11 @@ fn shell_line(shell: &Path, line: &OsStr) -> Command {
         ));
     }
     command.arg("-c").arg(line);
-    without_own_variables(command)
+    without_party_secret(command)
 }
 
-/// The command `words` name, run under `arg0` where it is given, without the wrapper's own
-/// variables.
+/// The command `words` name, run under `arg0` where it is given, without the party's secret
+/// variable.
 fn word_command(arg0: Option<&OsStr>, words: &[OsString]) -> Command {
     let (program, arguments) = words
         .split_first()
@@ -228,13 +243,13 @@ fn word_command(arg0: Option<&OsStr>, words: &[OsString]) -> Command {
         ));
     }
     command.args(arguments);
-    without_own_variables(command)
+    without_party_secret(command)
 }
 
-fn without_own_variables(mut command: Command) -> Command {
-    for name in OWN_VARIABLES {
-        command.env_remove(name);
-    }
+/// `command` without the variable naming the party's secret descriptor, which only the wrapper
+/// reads and the command never sees.
+fn without_party_secret(mut command: Command) -> Command {
+    command.env_remove(PARTY_SECRET_VARIABLE);
     command
 }
 
@@ -473,6 +488,7 @@ fn run_child(
 /// child or, with a terminal, in a terminal of its own; the daemon's stop ends it.
 fn run_relayed_command(
     process_arguments: &[OsString],
+    inner_program: fn() -> io::Result<PathBuf>,
     process: &str,
     arg0: Option<&OsStr>,
     is_tty: bool,
@@ -496,7 +512,15 @@ fn run_relayed_command(
         },
     );
     if is_tty {
-        return run_in_terminal(process_arguments, arg0, words, &state, &records, requests);
+        return run_in_terminal(
+            process_arguments,
+            inner_program,
+            arg0,
+            words,
+            &state,
+            &records,
+            requests,
+        );
     }
     run_child(word_command(arg0, words), &state, &records, requests)
 }

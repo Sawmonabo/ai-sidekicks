@@ -72,8 +72,6 @@ pub struct WriteStatement {
 pub struct StatementResult {
     /// The rows changed, or returned when it reads.
     pub row_count: usize,
-    /// The names of the returned columns, in order; empty when it returns no rows.
-    pub(crate) column_names: Vec<String>,
-    /// Each returned row's values, in `column_names`' order.
+    /// Each returned row's values, in the statement's column order.
     pub rows: Vec<Vec<Value>>,
 }

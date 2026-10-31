@@ -130,11 +130,13 @@ static ACCOUNT_WAITS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// Reads the runs-needing-you section that the Runs tab and `Next waiting` walk, on one of the
 /// daemon's read connections.
+#[expect(dead_code, reason = "the workflow.run.attention.list handler")]
 pub(crate) struct WorkflowRunAttentionList<'connection> {
     /// A read-only connection.
     reader: &'connection Connection,
 }
 
+#[expect(dead_code, reason = "the workflow.run.attention.list handler")]
 impl<'connection> WorkflowRunAttentionList<'connection> {
     /// A list reading through `reader`, one of the daemon's read-only connections.
     pub(crate) fn new(reader: &'connection Connection) -> Self {

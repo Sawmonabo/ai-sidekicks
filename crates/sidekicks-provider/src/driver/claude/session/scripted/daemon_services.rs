@@ -1,6 +1,6 @@
 //! The daemon services a scripted session reaches: approval ports and a queue intake that record
-//! what reaches them, files whose read takes a set time, the bindings of daemon turns and a machine
-//! with no repositories.
+//! what reaches them, files whose read takes a set time, the bindings of daemon turns, a binding
+//! store that takes every write and a machine with no repositories.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -10,6 +10,8 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::future::ready;
+use serde_json::{Map, Value};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -34,7 +36,7 @@ use crate::driver::attachments::{
 };
 use crate::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::ports::{DriverPorts, MessageTakenListener};
+use crate::driver::ports::{DriverPorts, MessageTakenListener, ProcessGoneListener};
 use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
 };
@@ -43,8 +45,10 @@ use crate::port::permission_ask::{
 };
 use crate::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
-use crate::port::usage_sink::{ProviderQuotaWindow, UsageSink};
-use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
+use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
+use crate::runtime_binding::store::RuntimeBindingRebind;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// What reached the approval ports, in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,6 +61,8 @@ pub(crate) enum PortCall {
     Denial(RunId),
     /// The held presses of an ended process's binding, released.
     PressesReleased(RuntimeBindingId),
+    /// A session's process told gone, once a test registers the recorder for it.
+    ProcessGone(SessionId),
 }
 
 /// Approval ports and the queue's intake of taken messages, each recording what reaches it.
@@ -112,6 +118,12 @@ impl ReviewerDenialPort for RecordingPorts {
     }
 }
 
+impl ProcessGoneListener for RecordingPorts {
+    fn process_gone(&self, session_id: SessionId) {
+        lock(&self.calls).push(PortCall::ProcessGone(session_id));
+    }
+}
+
 impl MessageTakenListener for RecordingPorts {
     fn message_taken(&self, _session_id: SessionId, message_id: &str, run_id: RunId) {
         lock(&self.taken).push((message_id.to_owned(), run_id));
@@ -148,8 +160,8 @@ pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<Recor
 #[derive(Default)]
 pub(crate) struct RecordingUsage {
     reported: Mutex<UsageAxisCounts>,
-    metered: Mutex<Vec<(SessionId, MeteredUsageDelta)>>,
-    quota_windows: Mutex<Vec<(Option<ProviderAccountId>, Vec<ProviderQuotaWindow>)>>,
+    metered: Mutex<Vec<MeteredUsage>>,
+    quota_windows: Mutex<Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)>>,
 }
 
 impl RecordingUsage {
@@ -159,38 +171,41 @@ impl RecordingUsage {
     }
 
     /// Every set of quota windows taken so far, with its account, in order.
-    pub(crate) fn quota_windows(
-        &self,
-    ) -> Vec<(Option<ProviderAccountId>, Vec<ProviderQuotaWindow>)> {
+    pub(crate) fn quota_windows(&self) -> Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)> {
         lock(&self.quota_windows).clone()
     }
 
-    /// Every delta metered so far, with its session, in order.
-    pub(crate) fn metered(&self) -> Vec<(SessionId, MeteredUsageDelta)> {
+    /// Every delta metered so far, with where it came from, in order.
+    pub(crate) fn metered(&self) -> Vec<MeteredUsage> {
         lock(&self.metered).clone()
     }
 }
 
 impl UsageSink for RecordingUsage {
-    fn record_metered(&self, session_id: SessionId, delta: MeteredUsageDelta) {
-        lock(&self.metered).push((session_id, delta));
+    fn record_metered(
+        &self,
+        metered: MeteredUsage,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        lock(&self.metered).push(metered);
+        ready(Ok(())).boxed()
     }
 
     fn read_prior_emitted(
         &self,
         _session_id: SessionId,
-        _thread_id: &str,
-    ) -> Result<UsageAxisCounts, Box<dyn Error + Send + Sync>> {
-        Ok(*lock(&self.reported))
+        _thread_id: String,
+    ) -> BoxFuture<'_, Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>> {
+        ready(Ok(*lock(&self.reported))).boxed()
     }
 
     fn record_quota_windows(
         &self,
         _provider: ProviderId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         windows: Vec<ProviderQuotaWindow>,
-    ) {
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         lock(&self.quota_windows).push((provider_account_id, windows));
+        ready(Ok(())).boxed()
     }
 }
 
@@ -333,5 +348,25 @@ impl CallbackToolActivitySink for NoCallbackTools {
         _record: &'a CallbackToolActivityRecord,
     ) -> BoxFuture<'a, Result<(), CallbackToolPortError>> {
         async { Ok(()) }.boxed()
+    }
+}
+
+/// A binding store that takes every write, so a rewind's fork is adopted.
+pub(crate) struct TakenBindingWrites;
+
+impl RuntimeBindingWriter for TakenBindingWrites {
+    fn rebind(
+        &self,
+        _rebind: RuntimeBindingRebind,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        ready(Ok(())).boxed()
+    }
+
+    fn keep_recovery_data(
+        &self,
+        _binding_id: RuntimeBindingId,
+        _runtime_metadata: Map<String, Value>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        ready(Ok(())).boxed()
     }
 }

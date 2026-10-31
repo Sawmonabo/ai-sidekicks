@@ -3,9 +3,17 @@
 //! and a driver on a Codex folder of a test's own, with a service of the test's listening there.
 
 mod caller_check;
+mod capability_read;
+mod commands;
+mod controls;
 mod intake;
+mod resume;
+mod rule_revoke;
 mod sessions;
+mod skill_picks;
+mod status_legs;
 mod terminal_reach;
+mod usage;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -20,6 +28,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::bind_socket_listener;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::CodexDriver;
@@ -28,15 +37,16 @@ use crate::driver::DriverServices;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::run::routes::CodexRunBinding;
-use crate::driver::codex::service::registry::home_socket_path;
+use crate::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, answer_as_codex_service, start_scripted_codex_service,
     write_failing_codex,
 };
+use crate::driver::codex::session::context_reading::CodexFixedStart;
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
 use crate::driver::codex::session::test_fixture::{
-    TEST_THREAD, TestDaemonTurnBindings, open_test_record, turn_completed,
+    OneFolder, TEST_THREAD, TestDaemonTurnBindings, open_test_record, turn_completed,
 };
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::schema::schema_parts;
@@ -45,9 +55,10 @@ use crate::driver::test_registry::{
 };
 use crate::port::question::QuestionPort;
 use crate::port::run_host::test_host::RecordingRunEngine;
-use crate::runtime_binding::store::RuntimeBindingSpawnConfig;
-use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
-use sidekicks_std::port_registration::PortRegistration;
+use crate::run::posture::ExecutionPostureService;
+use crate::runtime_binding::test_store::{
+    binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
+};
 
 /// The live turn the session's run is on.
 pub(super) const TEST_TURN: &str = "turn-1";
@@ -65,7 +76,8 @@ pub(super) struct LiveCodexSession {
     pub(super) questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
     /// The run engine and its dispatch, which record each call the driver makes.
     pub(super) engine: Arc<RecordingRunEngine>,
-    _database: TestDatabase,
+    /// The database the binding store writes.
+    pub(super) database: TestDatabase,
 }
 
 impl LiveCodexSession {
@@ -130,7 +142,7 @@ impl LiveCodexSession {
         let run_id = new_run_id();
         let binding_id = bindings
             .create(binding_input(
-                RuntimeBindingSpawnConfig::default(),
+                spawn_config_on(test_provider_account_id()),
                 spawned_build("0.130.0", "/opt/codex/bin"),
             ))
             .await
@@ -205,7 +217,12 @@ impl LiveCodexSession {
                     .await,
             );
         }
-        let intake = CodexSessionIntake::new(record, routing, Arc::clone(&parts));
+        let intake = CodexSessionIntake::new(
+            record,
+            routing,
+            Arc::clone(&parts),
+            CodexFixedStart::FirstRequest,
+        );
         driver.tasks.spawn(intake.run(receiver, routed));
         Self {
             driver,
@@ -216,7 +233,7 @@ impl LiveCodexSession {
             queue,
             questions,
             engine,
-            _database: database,
+            database,
         }
     }
 }
@@ -259,9 +276,44 @@ pub(super) fn listen_on_codex_folder(folder: &Path) {
     let listener = bind_socket_listener(&socket).expect("the test service listens");
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
-            tokio::spawn(answer_as_codex_service(stream));
+            tokio::spawn(answer_as_codex_service(stream, None, |_request| {}));
         }
     });
+}
+
+/// The composed driver on the test's one account whose registry holds `scripted`'s service, every
+/// session running in `folder`'s `work`, its runs on a recording engine.
+pub(super) fn driver_holding(scripted: &ScriptedCodexService, folder: &Path) -> CodexDriver {
+    let engine = Arc::new(RecordingRunEngine::default());
+    let mut services = test_driver_services();
+    let one_folder = Arc::new(OneFolder(folder.join("work")));
+    services
+        .ports
+        .spawn_contexts
+        .register(Arc::clone(&one_folder) as _)
+        .expect("the spawn contexts register once");
+    services
+        .ports
+        .provider_accounts
+        .register(one_folder)
+        .expect("the provider accounts register once");
+    services.execution_postures = Arc::new(ExecutionPostureService::new(
+        folder,
+        folder.join("session-token"),
+    ));
+    let ports = &services.ports;
+    assert!(ports.run_engine.register(Arc::clone(&engine) as _).is_ok());
+    assert!(ports.inbound_dispatch.register(engine as _).is_ok());
+    let agent_id = AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
+    assert!(
+        ports
+            .daemon_turn_bindings
+            .register(Arc::new(TestDaemonTurnBindings::new(agent_id)))
+            .is_ok()
+    );
+    let mut driver = CodexDriver::new(&services);
+    driver.registry = CodexServiceRegistry::holding(scripted);
+    driver
 }
 
 /// Answers what stopping a turn sends, a close's or an interrupt's: an interrupt, with the end of

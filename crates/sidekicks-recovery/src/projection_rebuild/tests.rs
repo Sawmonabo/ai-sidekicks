@@ -2,6 +2,7 @@
 //! from the log against the rows its live writes wrote.
 
 mod approvals;
+mod attention;
 mod plans;
 mod questions;
 
@@ -14,6 +15,7 @@ use rusqlite::types::Value;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -61,7 +63,11 @@ fn rebuild_service(
     ProjectionRebuildService::new(
         Arc::clone(&pool),
         writer,
-        Arc::new(SessionService::new(pool, reads_whole)),
+        Arc::new(SessionService::new(
+            pool,
+            reads_whole,
+            Arc::new(|_: &ProviderId| None),
+        )),
         Arc::new(DatabaseDamageWatch::new()),
         projections,
     )

@@ -13,7 +13,7 @@ use std::sync::{Arc, OnceLock};
 
 use flexi_logger::writers::ArcFileLogWriter;
 use jiff::Timestamp;
-use sidekicks_ipc::redaction::scrub_credentials;
+use sidekicks_ipc::redaction::{scrub_credentials, strip_url_queries};
 use sidekicks_platforms::{LeftoverSweep, create_private_folder, replace_file_atomically};
 use sidekicks_std::standard_error::write_error_line;
 
@@ -50,13 +50,13 @@ pub(crate) fn install_panic_hook(data_folder: &Path, log_file: Option<ArcFileLog
     let crash_reports = data_folder.join(CRASH_REPORTS_FOLDER_NAME);
     std::panic::set_hook(Box::new(move |panic| {
         let (message, place) = panic_message_and_place(panic);
-        let report = scrub_credentials(&describe_panic(&message, &place));
+        let report = strip_url_queries(&scrub_credentials(&describe_panic(&message, &place)));
         tracing::error!(report = %report, "the background service panicked and stops");
         if let Some(monitor) = CRASH_MONITOR.get()
             && let Err(error) = send_panic_record(
                 monitor,
                 &PanicRecord {
-                    message: scrub_credentials(&message),
+                    message: strip_url_queries(&scrub_credentials(&message)),
                     location: place,
                 },
             )

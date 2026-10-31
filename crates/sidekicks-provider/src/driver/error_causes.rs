@@ -1,7 +1,8 @@
 //! The typed causes a driver error carries where its caller acts on more than a code: a provider
 //! command that names no runnable build, a request the provider got with no answer back, a model
 //! catalog that cannot be read, and a provider axis set to a value the provider does not offer;
-//! and the refusal every driver answers a provider's own failure with.
+//! the refusals every driver answers a provider's own failure, a refused side question and a run
+//! on a session whose process is not running with.
 
 use std::error::Error;
 use std::io;
@@ -10,15 +11,19 @@ use std::sync::LazyLock;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::declaration::{ProviderOptionSettings, ProviderSessionOption};
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::run::failure_cause::RunFailureCause;
+use sidekicks_contracts::session::controls::methods::SideQuestionId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::error_description::describe_error;
 
 #[cfg(any(test, feature = "test-support"))]
-use crate::driver::contract::DriverError;
-use crate::driver::contract::bound_failure_detail;
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::error::bound_failure_detail;
 
 /// Stands in for a provider failure whose words are blank once bounded.
 pub(crate) static UNSPECIFIED_PROVIDER_FAILURE_DETAIL: LazyLock<
@@ -46,6 +51,34 @@ pub(crate) fn provider_failure_refusal(
             "providerFailureDetail": provider_failure_detail.as_str(),
         }))
         .with_source(error)
+}
+
+/// The refusal of a run on a session whose provider process is down, or did not come back within
+/// the bound its caller set: `provider.unavailable`, which a later send may clear.
+pub fn session_process_unavailable(session_id: SessionId) -> DomainError {
+    DomainError::new(
+        "The session's provider process is not running",
+        RefusalCode::ProviderUnavailable,
+    )
+    .with_detail(json!({ "sessionId": session_id }))
+}
+
+/// The refusal of a side question the model refused: `session.sideQuestion.refused`, naming the
+/// session and the question, with the refusal as the driver read it as `cause`.
+pub(crate) fn side_question_refusal(
+    session_id: SessionId,
+    side_question_id: SideQuestionId,
+    cause: &RunFailureCause,
+) -> DomainError {
+    DomainError::new(
+        "The model refused the side question",
+        RefusalCode::SessionSideQuestionRefused,
+    )
+    .with_detail(json!({
+        "sessionId": session_id,
+        "sideQuestionId": side_question_id,
+        "cause": cause,
+    }))
 }
 
 /// The configured provider command names no runnable build, or one whose real path cannot be
@@ -96,41 +129,82 @@ pub struct ProviderAxisInvalid {
     pub(crate) value: Value,
 }
 
+impl ProviderAxisInvalid {
+    /// The refusal of a binding that names `provider`, which no registered driver answers, for
+    /// the agent `agent_id`.
+    pub fn provider_not_registered(agent_id: AgentId, provider: &ProviderId) -> Self {
+        Self {
+            agent_id,
+            axis: ProviderAxis::ProviderName,
+            value: json!(provider.as_str()),
+        }
+    }
+
+    /// Checks a binding's session options against `options`, the ones its driver declares:
+    /// refuses the first option the driver does not declare, or whose value its declaration
+    /// refuses.
+    pub(crate) fn check_options(
+        agent_id: AgentId,
+        option_settings: Option<&ProviderOptionSettings>,
+        options: &[ProviderSessionOption],
+    ) -> Result<(), Self> {
+        for setting in option_settings.map_or(&[][..], ProviderOptionSettings::as_slice) {
+            let is_offered = options
+                .iter()
+                .find(|option| option.id == setting.id)
+                .is_some_and(|option| option.check_value(&setting.value).is_ok());
+            if !is_offered {
+                return Err(Self {
+                    agent_id,
+                    axis: ProviderAxis::Options,
+                    value: json!(setting),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Checks a binding's `effort` against `effort_levels`, the levels the provider lists for the
+    /// binding's model, `None` for a model with no effort axis, which takes none.
+    pub(crate) fn check_effort<Level: AsRef<str>>(
+        agent_id: AgentId,
+        effort: &str,
+        effort_levels: Option<&[Level]>,
+    ) -> Result<(), Self> {
+        if effort_levels.is_some_and(|levels| levels.iter().any(|level| level.as_ref() == effort)) {
+            return Ok(());
+        }
+        Err(Self {
+            agent_id,
+            axis: ProviderAxis::Effort,
+            value: json!(effort),
+        })
+    }
+}
+
 /// The request members that set a provider axis, named as the request names them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, strum::Display, strum::IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum ProviderAxis {
     /// The provider.
-    #[expect(
-        dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
-    )]
     ProviderName,
     /// The model.
     ModelId,
     /// The model's larger context window.
     #[expect(
         dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
+        reason = "the binding check of an agent's provider switch names it"
     )]
     LargerWindow,
     /// The reasoning effort.
-    #[expect(
-        dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
-    )]
     Effort,
     /// The output speed.
     #[expect(
         dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
+        reason = "the binding check of an agent's provider switch names it"
     )]
     OutputSpeed,
     /// A session option.
-    #[expect(
-        dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
-    )]
     Options,
 }
 
@@ -179,7 +253,7 @@ pub struct RequestUnanswered {
 /// The driver's answer when the request went out and no answer came, as tests hand it back.
 #[cfg(any(test, feature = "test-support"))]
 pub fn unanswered() -> DriverError {
-    DriverError::Unanswered(RequestUnanswered {
+    DriverError::from(RequestUnanswered {
         refusal: DomainError::new("the provider did not answer", RefusalCode::ProviderTimeout),
     })
 }
@@ -192,12 +266,12 @@ mod tests {
     use sidekicks_ipc::registry::HandlerError;
 
     use super::{ProviderAxis, ProviderAxisInvalid};
-    use crate::driver::contract::DriverError;
+    use crate::driver::contract::error::DriverError;
 
     #[test]
     fn an_axis_refusal_names_the_agent_the_axis_and_the_value() {
         let agent_id = AgentId::new("0190f3a2-7b4c-7d1e-8f00-000000000002").expect("an agent id");
-        let refusal = HandlerError::from(DriverError::ProviderAxisInvalid(ProviderAxisInvalid {
+        let refusal = HandlerError::from(DriverError::from(ProviderAxisInvalid {
             agent_id,
             axis: ProviderAxis::ModelId,
             value: json!("gpt-retired"),
@@ -208,7 +282,7 @@ mod tests {
         };
         assert_eq!(refusal.code, RefusalCode::AgentProviderAxisInvalid);
         assert_eq!(
-            refusal.detail.map(Value::Object),
+            refusal.detail.map(|detail| Value::Object(*detail)),
             Some(json!({
                 "agentId": "0190f3a2-7b4c-7d1e-8f00-000000000002",
                 "axis": "modelId",

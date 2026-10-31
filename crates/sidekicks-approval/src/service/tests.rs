@@ -28,6 +28,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::test_fixture::{stored_run_state, test_engine};
 use sidekicks_session::run::projection::insert_queued_run_statement;
@@ -166,10 +167,9 @@ impl ApprovalFixture {
             resolved_agent: None,
             parent_run_id: None,
             reached_by: None,
-            is_apart: None,
             effective_run_config: None,
             admitted_model_family: None,
-            admitted_provider_account_id: None,
+            admitted_provider_account_id: test_provider_account_id(),
         });
         let insert_run = insert_queued_run_statement(&queued);
         events
@@ -550,6 +550,7 @@ fn an_answer_that_does_not_fit_names_the_first_check_it_breaks(
             "editable": fit.is_editable,
         })),
         ask_id: None,
+        tool_call_id: None,
         state: ApprovalState::Pending,
         created_at: WireInstant::now(),
         updated_at: WireInstant::now(),

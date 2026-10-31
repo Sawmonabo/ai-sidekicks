@@ -33,8 +33,9 @@ export type WorktreeSetupStepState = (typeof WORKTREE_SETUP_STEP_STATES)[number]
 
 /**
  * One step of the setup card, in run order. `label` names the step (the command,
- * for a project step); `error` and `output` are present on a failed step, and
- * `elapsedMs` once the step has run.
+ * for a project step); `error` and `output` are present on a failed step,
+ * `output` also on a made tree's step whose checkout hook failed, and `elapsedMs`
+ * once the step has run.
  */
 export interface WorktreeSetupStep {
   stage: WorktreeSetupStage;

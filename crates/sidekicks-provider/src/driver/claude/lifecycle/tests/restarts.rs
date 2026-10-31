@@ -3,6 +3,7 @@
 
 use std::pin::pin;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use rstest::rstest;
@@ -12,6 +13,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderRowValues};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValueText};
+use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -25,13 +27,16 @@ use crate::driver::claude::session::scripted::channel::{ScriptedChannel, Scripte
 use crate::driver::claude::session::scripted::daemon_services::PortCall;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
 use crate::driver::claude::session::scripted::{binding_id, settle};
+use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, ProviderBuildChange,
-    ResumeSessionParams,
+    ResumeSessionParams, UpdateSessionModeParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Killed by restarting past a full crash window: the fifth exit inside it reports the loop and
 // starts nothing.
@@ -52,6 +57,20 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
         .script_session(Arc::new(ScriptedChannel::default()));
 
     ScriptedDriver::exit(&current);
+    // The loop's notice comes from the session's task, which load can delay past any fixed sleep.
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        fixture.engine.wait_until(|_| {
+            fixture
+                .engine
+                .deliveries()
+                .iter()
+                .any(|delivery| delivery.kind == "sessionNotice")
+                .then_some(())
+        }),
+    )
+    .await
+    .expect("the crash loop is reported");
     tokio::time::sleep(RESTART_WAITS_PASSED).await;
 
     assert!(fixture.starts.take_started().is_empty());
@@ -62,6 +81,14 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
             |(reported_session, binding)| *reported_session == session_id && binding.is_some()
         )
     );
+    // Each relaunch resumed under the binding it had opened first.
+    let opened: Vec<_> = fixture
+        .relaunches
+        .opened()
+        .into_iter()
+        .map(|(opened_session, binding)| (opened_session, Some(binding)))
+        .collect();
+    assert_eq!(opened, reported);
     let notices = fixture
         .engine
         .deliveries()
@@ -69,6 +96,74 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
         .filter(|delivery| delivery.kind == "sessionNotice")
         .count();
     assert_eq!(notices, 1);
+}
+
+// Killed by a relaunch that starts its process after its binding could not be opened: the
+// relaunch is reported failed and nothing starts.
+#[tokio::test(start_paused = true)]
+async fn a_relaunch_whose_binding_cannot_open_starts_nothing() {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    fixture
+        .relaunches
+        .is_open_refused
+        .store(true, Ordering::SeqCst);
+
+    ScriptedDriver::exit(&first);
+
+    assert_eq!(
+        fixture.relaunches.reported(1).await,
+        [(session_id, None)],
+        "the relaunch is reported failed"
+    );
+    assert_eq!(fixture.relaunches.opened().len(), 1);
+    assert!(fixture.starts.take_started().is_empty());
+}
+
+// Killed by a restart whose record is refused leaving the process it started running: that process
+// is retired and the queue told it is gone, after the exit that started the restart told it once.
+#[tokio::test(start_paused = true)]
+async fn a_restart_whose_record_is_refused_retires_its_process() {
+    let fixture = ScriptedDriver::new();
+    fixture
+        .services
+        .ports
+        .process_gone
+        .register(Arc::clone(&fixture.ports) as _)
+        .expect("the process-gone intake registers once");
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    fixture
+        .relaunches
+        .is_relaunch_refused
+        .store(true, Ordering::SeqCst);
+
+    ScriptedDriver::exit(&first);
+    fixture.next_start().await;
+    fixture.relaunches.reported(1).await;
+    settle().await;
+
+    let gone = fixture
+        .ports
+        .calls()
+        .into_iter()
+        .filter(|call| *call == PortCall::ProcessGone(session_id))
+        .count();
+    assert_eq!(
+        gone, 2,
+        "the exit and the retired restart each tell the queue"
+    );
+    assert_eq!(
+        fixture.driver.session_process_state(session_id),
+        SessionProcessState::Down
+    );
 }
 
 // Killed by a waited restart that resumes a session a create or resume took meanwhile: it would
@@ -109,6 +204,126 @@ async fn a_restart_whose_slot_was_taken_during_its_wait_does_nothing() {
         [(reported_session, Some(_))] if *reported_session == session_id
     ));
     assert!(!fixture.driver.starts_process(session_id));
+}
+
+// Killed by refusing a move while the session waits out its crash wait, by a move that reaches
+// only the ended process, and by a relaunch composed from settings the move never wrote.
+#[tokio::test(start_paused = true)]
+async fn a_mode_move_during_the_crash_wait_is_the_relaunched_process_mode() {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    ScriptedDriver::exit(&first);
+    // The first restart waits nothing; the second waits a second, which the move lands in.
+    let second = fixture.next_start().await;
+    fixture.relaunches.reported(1).await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    ScriptedDriver::exit(&second);
+    settle().await;
+    assert_eq!(
+        fixture.driver.session_process_state(session_id),
+        SessionProcessState::Restarting
+    );
+
+    fixture
+        .driver
+        .update_session_mode(UpdateSessionModeParams {
+            session_id,
+            mode: SessionMode::Plan,
+            is_provider_reported: false,
+        })
+        .await
+        .expect("the move is taken while the session restarts");
+    tokio::time::sleep(RESTART_WAITS_PASSED).await;
+
+    let relaunch = fixture.next_start().await;
+    assert_eq!(relaunch.permission_mode, Some(ClaudePermissionMode::Plan));
+}
+
+// Killed by a settle that does not wait for the process a crash wait brings back: it answers
+// before the relaunch, which leaves the run's start no live process.
+#[tokio::test(start_paused = true)]
+async fn a_settle_during_the_crash_wait_answers_once_the_restart_relaunched() {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    ScriptedDriver::exit(&first);
+    // The first restart waits nothing; the second waits a second, which the settle starts in.
+    let second = fixture.next_start().await;
+    fixture.relaunches.reported(1).await;
+    let relaunched = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&relaunched));
+    ScriptedDriver::exit(&second);
+    settle().await;
+    assert_eq!(
+        fixture.driver.session_process_state(session_id),
+        SessionProcessState::Restarting
+    );
+
+    let mut settling = pin!(fixture.driver.settle_session(session_id));
+    let early = tokio::time::timeout(Duration::from_millis(100), &mut settling).await;
+    assert!(
+        early.is_err(),
+        "the settle waits out the crash wait: {early:?}"
+    );
+    tokio::time::sleep(RESTART_WAITS_PASSED).await;
+    settling
+        .await
+        .expect("the session settles on the relaunched process");
+
+    fixture
+        .driver
+        .start_run(start_params(session_id, new_run_id()))
+        .await
+        .expect("the run starts on the relaunched process");
+    assert_eq!(relaunched.user_frames().len(), 1);
+}
+
+// Killed by a failed relaunch that leaves the queue untold: its next run would open the kept
+// entry of a process that never came back. The exit tells it once, the failed relaunch again.
+#[tokio::test(start_paused = true)]
+async fn a_restart_whose_relaunch_fails_tells_the_queue_the_process_is_gone() {
+    let fixture = ScriptedDriver::new();
+    fixture
+        .services
+        .ports
+        .process_gone
+        .register(Arc::clone(&fixture.ports) as _)
+        .expect("the process-gone intake registers once");
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    fixture
+        .starts
+        .script_failed_session("the relaunch is refused");
+
+    ScriptedDriver::exit(&first);
+    fixture.relaunches.reported(1).await;
+
+    let gone: Vec<PortCall> = fixture
+        .ports
+        .calls()
+        .into_iter()
+        .filter(|call| matches!(call, PortCall::ProcessGone(_)))
+        .collect();
+    assert_eq!(
+        gone,
+        [
+            PortCall::ProcessGone(session_id),
+            PortCall::ProcessGone(session_id)
+        ]
+    );
+    assert_eq!(
+        fixture.driver.session_process_state(session_id),
+        SessionProcessState::Down
+    );
 }
 
 // What a resume arriving during a restart's relaunch asks for, beside the relaunched process.
@@ -200,12 +415,12 @@ async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked
         },
         provider_account_id: match ask {
             RelaunchResume::OtherAccount => {
-                Some(ProviderAccountId::new("other".to_owned()).expect("an account id"))
+                ProviderAccountId::new("other".to_owned()).expect("an account id")
             }
             RelaunchResume::Same
             | RelaunchResume::OtherConversation
             | RelaunchResume::OtherLevel
-            | RelaunchResume::OwnStyle => None,
+            | RelaunchResume::OwnStyle => test_provider_account_id(),
         },
         row_values,
         ..resume_params(session_id)

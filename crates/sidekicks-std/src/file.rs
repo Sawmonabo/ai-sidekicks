@@ -4,5 +4,5 @@
 pub mod atomic_write;
 pub mod bounded_read;
 pub mod clone_or_copy;
-pub(crate) mod publish_without_replacing;
+pub mod publish_without_replacing;
 pub mod real_location;

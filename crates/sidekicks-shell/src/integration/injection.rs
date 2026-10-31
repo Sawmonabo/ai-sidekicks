@@ -48,7 +48,7 @@ const NONCE_FOLDER_NAME: &str = "shell-nonces";
 
 /// Why a shell's startup files or nonce could not be put in place.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ShellStartupError {
+pub enum ShellStartupError {
     /// A startup folder could not be made private or cleared.
     #[error("a shell startup folder could not be made")]
     Folder(#[source] io::Error),
@@ -69,11 +69,11 @@ pub(crate) enum ShellStartupError {
 
 /// The folders every shell's start reads from.
 #[derive(Clone, Debug)]
-pub(crate) struct ShellStartupFolders {
+pub struct ShellStartupFolders {
     /// The folder the scripts are written in, which only this account may open.
-    pub(crate) startup_folder: PathBuf,
+    pub startup_folder: PathBuf,
     /// The folder each shell's nonce file is written in, which only this account may open.
-    pub(crate) nonce_folder: PathBuf,
+    pub nonce_folder: PathBuf,
 }
 
 /// The nonce a shell's marks carry and the file the shell reads it from.
@@ -99,11 +99,7 @@ pub(crate) struct ShellLaunch {
 /// Prepares the folders every shell's start reads from, inside `startup_folder`: an empty nonce
 /// folder only this account may open, so no nonce file an earlier start left behind outlives this
 /// start. Fails with [`ShellStartupError::Folder`] when a folder cannot be cleared or made.
-#[expect(
-    dead_code,
-    reason = "the daemon's start prepares the shells' startup folders in its run folder"
-)]
-pub(crate) fn prepare_shell_startup_folders(
+pub fn prepare_shell_startup_folders(
     startup_folder: &Path,
 ) -> Result<ShellStartupFolders, ShellStartupError> {
     let nonce_folder = startup_folder.join(NONCE_FOLDER_NAME);

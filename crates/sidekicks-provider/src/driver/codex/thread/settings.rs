@@ -2,12 +2,14 @@
 //! permission level and profile, base instructions, and a `config` carrying its model's window, the
 //! features it runs with, its tool servers, its connectors' defaults, its commands' environment,
 //! its helper limit and its helpers' role files. A resume and a fork send them all again, so a
-//! conversation never falls back to what Codex persisted. Also the `turn/start` and
+//! conversation never falls back to what Codex persisted; a resume that joins a conversation the
+//! service holds loaded sends none, since Codex applies none there. A start and every turn select
+//! the daemon's executor relay as the conversation's environment. Also the `turn/start` and
 //! `thread/settings/update` params, whose members carry absent, `null` and a value as three
 //! meanings, the Build or Plan collaboration mode they carry, and the item-injection method a
 //! loaded conversation takes changed instructions through.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -16,8 +18,9 @@ use sidekicks_contracts::session::id::SessionId;
 
 use crate::driver::codex::app_server_protocol::{
     ApprovalsReviewer, AskForApproval, CollaborationMode, ModeKind, ReasoningEffort, Settings,
-    ThreadForkParams, ThreadResumeParams, ThreadStartParams, UserInput,
+    ThreadForkParams, ThreadResumeParams, ThreadStartParams, TurnEnvironmentParams, UserInput,
 };
+use crate::driver::codex::exec_relay::CODEX_RELAY_ENVIRONMENT_ID;
 use crate::driver::codex::permission_level::{
     CodexApprovalPolicy, CodexApprovalsReviewer, CodexProfileFolders,
     compose_codex_connector_defaults, compose_codex_level_settings,
@@ -27,6 +30,9 @@ use crate::driver::codex::session::helper_roles::CodexHelperRole;
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
+
+/// The config table of the MCP servers, by name.
+pub(crate) const MCP_SERVERS_KEY: &str = "mcp_servers";
 
 /// Seconds Codex waits on one call to the daemon's tool server: Codex's own default, above the
 /// route's own bound, so the route answers first.
@@ -75,13 +81,17 @@ struct CodexThreadMembers {
 }
 
 /// The `thread/start` params for `settings`, without the output speed, which the caller sets per
-/// request. With no tool-server route registered yet, the conversation reaches no tool server.
+/// request, the conversation's commands running on the daemon's relay. With no tool-server route
+/// registered yet, the conversation reaches no tool server.
 pub(crate) fn compose_codex_thread_start_params(
     settings: &CodexThreadSettings,
     route: Option<&dyn ToolServerRoute>,
 ) -> ThreadStartParams {
     let members = compose_thread_members(settings, route);
     ThreadStartParams {
+        environments: Some(compose_codex_relay_environments(
+            &settings.working_directory,
+        )),
         cwd: Some(members.cwd),
         model: Some(members.model),
         permissions: Some(members.permissions),
@@ -123,6 +133,31 @@ pub(crate) fn compose_codex_thread_resume_params(
     }
 }
 
+/// The `thread/resume` params that load `thread_id` as it stands, with no setting, its turns left
+/// out of the reply.
+pub(crate) fn compose_codex_bare_thread_resume_params(thread_id: String) -> ThreadResumeParams {
+    ThreadResumeParams {
+        approval_policy: None,
+        approvals_reviewer: None,
+        base_instructions: None,
+        config: None,
+        cwd: None,
+        developer_instructions: None,
+        exclude_turns: Some(true),
+        history: None,
+        initial_turns_page: None,
+        model: None,
+        model_provider: None,
+        path: None,
+        permissions: None,
+        personality: None,
+        runtime_workspace_roots: None,
+        sandbox: None,
+        service_tier: None,
+        thread_id,
+    }
+}
+
 /// The `thread/fork` params that fork `thread_id` under `settings`, without the output speed,
 /// which the caller sets per request, or the turn the fork keeps up to.
 pub(crate) fn compose_codex_thread_fork_params(
@@ -154,6 +189,19 @@ pub(crate) fn compose_codex_thread_fork_params(
         service_tier: None,
         thread_source: None,
     }
+}
+
+/// The environments a `thread/start` or `turn/start` selects: the daemon's executor relay alone,
+/// in `working_directory`. A resume and a fork carry none, so a conversation's next turn selects
+/// it again.
+pub(crate) fn compose_codex_relay_environments(
+    working_directory: &Path,
+) -> Vec<TurnEnvironmentParams> {
+    vec![TurnEnvironmentParams {
+        cwd: working_directory.to_string_lossy().into_owned().into(),
+        environment_id: CODEX_RELAY_ENVIRONMENT_ID.to_owned(),
+        runtime_workspace_roots: None,
+    }]
 }
 
 /// The `config` members a level sets, which only a start, resume or fork carries, so a level move
@@ -216,6 +264,9 @@ pub(crate) struct CodexTurnStartParams {
     /// The service tier of this turn alone, leaving the thread's as it is; `default` is standard.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) service_tier_for_turn: Option<String>,
+    /// The environments the turn's commands run in, from this turn on; an empty list runs none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) environments: Option<Vec<TurnEnvironmentParams>>,
 }
 
 /// The `thread/settings/update` params the daemon sends, each member changing the thread from its
@@ -337,7 +388,7 @@ fn compose_thread_config(
         config.insert("agents".to_owned(), roles);
     }
     config.insert(
-        "mcp_servers".to_owned(),
+        MCP_SERVERS_KEY.to_owned(),
         Value::Object(compose_tool_servers(settings, route)),
     );
     config.insert(
@@ -451,7 +502,7 @@ fn into_object(members: &impl Serialize) -> Map<String, Value> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use rstest::rstest;
     use serde_json::{Value, json};
@@ -463,8 +514,9 @@ mod tests {
     use super::{
         ApprovalsReviewer, AskForApproval, CodexServiceTierChange, CodexThreadSettings,
         CodexThreadSettingsUpdateParams, CodexTurnStartParams, CollaborationMode, ThreadForkParams,
-        ThreadResumeParams, ThreadStartParams, UserInput, compose_codex_thread_fork_params,
-        compose_codex_thread_resume_params, compose_codex_thread_start_params,
+        ThreadResumeParams, ThreadStartParams, UserInput, compose_codex_relay_environments,
+        compose_codex_thread_fork_params, compose_codex_thread_resume_params,
+        compose_codex_thread_start_params,
     };
     use crate::driver::PROVIDERS;
     use crate::driver::codex::DESCRIPTOR;
@@ -489,6 +541,7 @@ mod tests {
                 working_directory: PathBuf::from("/work/repository"),
                 git_common_folder: None,
                 deny_paths: Vec::new(),
+                command_channel_folder: PathBuf::from("/data/command-channels/session"),
             },
             command_environment: Vec::new(),
             subagent_policy,
@@ -622,6 +675,7 @@ mod tests {
                 effort: None,
                 service_tier,
                 service_tier_for_turn: None,
+                environments: None,
             }),
         };
         params
@@ -678,6 +732,7 @@ mod tests {
                 effort: Some("low".parse().expect("low is an effort")),
                 service_tier: Some(Some("fast".to_owned())),
                 service_tier_for_turn: Some("fast".to_owned()),
+                environments: Some(compose_codex_relay_environments(Path::new("/work"))),
             }),
             "ThreadSettingsUpdateParams" => serde_json::to_value(CodexThreadSettingsUpdateParams {
                 thread_id: "thread".to_owned(),

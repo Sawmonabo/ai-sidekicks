@@ -37,7 +37,9 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::BoundedText;
-use sidekicks_ipc::redaction::{DRIVE_PATH, UNC_PATH, UNIX_PATH, scrub_credentials};
+use sidekicks_ipc::redaction::{
+    DRIVE_PATH, UNC_PATH, UNIX_PATH, scrub_credentials, strip_url_queries,
+};
 use sidekicks_platforms::{
     LeftoverSweep, atomic_write_target_of, create_file_atomically, is_held,
     remove_atomic_write_leftovers, remove_unless_held, replace_file_atomically,
@@ -628,10 +630,10 @@ fn crashing_stack(
     BoundedVec::new(frames)
 }
 
-// `text` with every credential scrubbed, every path cut to its file name and every UUID replaced by
-// its keyed hash.
+// `text` with every credential and URL query scrubbed, every path cut to its file name and every
+// UUID replaced by its keyed hash.
 fn strip(text: &str, key: &[u8; REPORT_KEY_LENGTH]) -> String {
-    let scrubbed = scrub_credentials(text);
+    let scrubbed = strip_url_queries(&scrub_credentials(text));
     let cut = UNIX_PATH.replace_all(&scrubbed, |captures: &Captures<'_>| {
         let boundary = &captures[1];
         let path = &captures[0][boundary.len()..];

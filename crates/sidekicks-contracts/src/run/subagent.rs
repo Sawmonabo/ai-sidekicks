@@ -12,13 +12,19 @@ use crate::provider::tool_call::ToolCallId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::text::FreeFormText;
+use crate::wire::text::branded_free_form_text;
+
+branded_free_form_text! {
+    /// A provider's own id of one helper, unique within its provider's run.
+    pub struct SubagentId(PROVIDER_WIRE_HANDLE_MAX_LEN);
+}
 
 /// The `agent.subagent.started` and `agent.subagent.completed` payload: a helper the provider
 /// started under the run `run_id`, by the provider's own id, and the tool call it was opened under
-/// where the provider names one. `subagent_id` is unique only within its provider's run, so a
-/// completion pairs to its start on `run_id`, `provider` and `subagent_id` together. It takes the
-/// epoch stamp: `source_epoch` and `source_position` come together.
+/// where the provider names one, and the helper's own run where one was started. `subagent_id` is
+/// unique only within its provider's run, so a completion pairs to its start on `run_id`,
+/// `provider` and `subagent_id` together. It takes the epoch stamp: `source_epoch` and
+/// `source_position` come together.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -31,7 +37,15 @@ pub struct SubagentLifecyclePayload {
     /// The provider.
     pub provider: ProviderId,
     /// The provider's own id for the helper.
-    pub subagent_id: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
+    pub subagent_id: SubagentId,
+    /// The helper's own run, which its usage is counted toward, where the daemon started one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "RunId")]
+    pub child_run_id: Option<RunId>,
     /// The tool call the helper was opened under, where the provider names one.
     #[serde(
         default,
@@ -65,7 +79,10 @@ pub struct SubagentLifecyclePayload {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/subagent",
     doc: "The payload of a provider's own subagent starting and finishing under a run.",
-    definitions: &[Definition::read::<SubagentLifecyclePayload>().checked()],
+    definitions: &[
+        Definition::read::<SubagentId>(),
+        Definition::read::<SubagentLifecyclePayload>().checked(),
+    ],
     constants: &[],
     method_tables: &[],
 };

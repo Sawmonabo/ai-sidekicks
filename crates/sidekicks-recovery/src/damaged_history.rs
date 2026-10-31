@@ -4,6 +4,7 @@
 //! through that point and it opens there, read-only, until the person continues it from there or
 //! deletes it. The damaged rows are never moved, rewritten or deleted; a continue skips them.
 
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::sync::{Arc, LazyLock};
 
@@ -47,7 +48,7 @@ use crate::projection_rebuild::{
     ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService, REBUILD_PAGE_SIZE,
     mark_stale_statement,
 };
-use crate::restart_settle::{RestartSettle, RestartSettleError};
+use crate::restart_settle::{RESTART_FAILURE_DETAIL, RestartSettle, RestartSettleError};
 use crate::status::{LastGoodPoint, RecoveryStatusTracker};
 
 /// The statements damaged history's own reads run: the last event before a damaged one, and
@@ -79,23 +80,23 @@ pub trait DamagedSessionPurge: Send + Sync {
 }
 
 /// What damaged history reads, writes and rebuilds through.
-pub(crate) struct DamagedHistoryDeps {
+pub struct DamagedHistoryDeps {
     /// The reads of a session's last good point and of its row.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// The pages of a session's log, read for its first unreadable event.
-    pub(crate) session_events: Arc<SessionService>,
+    pub session_events: Arc<SessionService>,
     /// The append of the skip a continue writes.
-    pub(crate) appender: Arc<SessionEventAppender>,
+    pub appender: Arc<SessionEventAppender>,
     /// The writer a continue flushes before it reads the head, and marks a cursor stale through.
-    pub(crate) writer: Arc<DatabaseWriter>,
+    pub writer: Arc<DatabaseWriter>,
     /// The rebuilds through a last good point, and past the skip.
-    pub(crate) projection_rebuild: Arc<ProjectionRebuildService>,
+    pub projection_rebuild: Arc<ProjectionRebuildService>,
     /// What the restart left in a continued session, settled.
-    pub(crate) restart_settle: Arc<RestartSettle>,
+    pub restart_settle: Arc<RestartSettle>,
     /// The purge `Delete session` runs.
-    pub(crate) purge: Arc<dyn DamagedSessionPurge>,
+    pub purge: Arc<dyn DamagedSessionPurge>,
     /// The recovery state that says which sessions are damaged.
-    pub(crate) status: Arc<RecoveryStatusTracker>,
+    pub status: Arc<RecoveryStatusTracker>,
 }
 
 /// Finds a damaged session's last good point and rebuilds its projections through it, and runs
@@ -198,8 +199,7 @@ pub(crate) enum DamagedHistoryError {
 
 impl DamagedHistory {
     /// Damaged history over `deps`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-    pub(crate) fn new(deps: DamagedHistoryDeps) -> Self {
+    pub fn new(deps: DamagedHistoryDeps) -> Self {
         Self {
             deps,
             recovery_actions: KeyedLock::new(),
@@ -317,7 +317,13 @@ impl DamagedHistory {
             .await?;
         self.deps
             .restart_settle
-            .settle_live(session_id, Some(hold), None)
+            .settle_live(
+                session_id,
+                &BTreeSet::new(),
+                RESTART_FAILURE_DETAIL,
+                Some(hold),
+                None,
+            )
             .await?;
         Ok(())
     }

@@ -33,9 +33,13 @@ interface TranscriptReadRequest {
 // §Interfaces And Contracts, "cursor-based continuation"). The terminal arm PERMITS one and never
 // requires it — the two members answer different questions, and a client that has just read to the
 // end and now resumes session.event.subscribe from exactly there needs that position. The
-// continuing arm additionally requires entries to be NON-EMPTY (Plan-010 Phase 1): a page promising
-// more and delivering none advances no cursor while reading like progress, so the client re-asks
-// from the same position and loops. The terminal arm keeps no floor — an empty final page is the
+// continuing arm's nextCursor must ADVANCE past the request's cursor (Plan-010 Phase 1): a page
+// promising more that moves no cursor reads like progress while the client re-asks from the same
+// position and loops. So a continuing page holds at least one row, with one exception: an event
+// that stands as no row (a task-list call) is passed over, and a read passes over at most a fixed
+// number of stretches of them, each its limit long, so one request never projects the whole log;
+// past that cap the page continues EMPTY, its nextCursor after the last event it passed over, and
+// the client reads on from there. The terminal arm keeps no floor — an empty final page is the
 // honest answer to an exhausted continuation and to a filtered read that matched nothing. entries
 // is additionally bounded by PAGE_MAX_BYTES less the bytes of runs (see this section's opening
 // note). runs carries the facts of each run the entries name, folded over the whole log, one per
@@ -186,6 +190,13 @@ type RunScopedTranscriptEntry = TranscriptEventRowBase & {
   // TranscriptRead and on live delivery, rows delivered after a boundary arriving with the marker
   // already projection-computed — per Spec-011 §Required Behavior
   superseded?: { targetPosition: number };
+  // present exactly when the row is a step the provider's own record never kept, drawn `not in the
+  // agent's context` — projection-computed beside `superseded` from the run's
+  // agent.run.recoverySteps.unseen events: a row of this run whose sequence lies from an event's
+  // fromSequence up to that event carries that event's fromSequence, a row after the event does
+  // not, and a superseded row inside the range carries both markers; identical on TranscriptRead
+  // and on live delivery
+  unseen?: { fromSequence: number };
   // Where a projection echoes canonical keys into payload, they must AGREE with the outer triple
   // (Plan-010 Phase 1 — I-010-3's no-second-source rule reaching the payload): payload run identity
   // under either spelling (runId, targetRunId) must equal this row's runId, and payload sourceEpoch
@@ -239,17 +250,18 @@ type TranscriptEventRow = TranscriptRollbackBoundary | RunScopedTranscriptEntry 
 type TranscriptReadRow = TranscriptEventRow & { content: TranscriptRowContent };
 
 // The run stamp a session.event.subscribe change carries for an event of a run (Plan-010 T2.4): the
-// same position, epoch and superseded marker the event's transcript.read row carries, because the
-// daemon computes both from one projection fold. A client marks the rows it already holds when a
-// agent.run.rolledBack boundary arrives: a held row of that run at the rollback's epoch or an
-// earlier one is superseded above the lowest cut of every rollback of the run at its epoch or
-// later, the rule the daemon's fold applies (on clients `addSupersedingCut` in
+// same position, epoch, superseded marker and unseen marker the event's transcript.read row
+// carries, because the daemon computes both from one projection fold. A client marks the rows it
+// already holds when a agent.run.rolledBack boundary arrives: a held row of that run at the
+// rollback's epoch or an earlier one is superseded above the lowest cut of every rollback of the
+// run at its epoch or later, the rule the daemon's fold applies (on clients `addSupersedingCut` in
 // `packages/contracts/src/transcript/turn-attribution.ts`, hand-written TypeScript held to the
 // daemon's Rust fold by one shared case table).
 type TranscriptRunStamp = {
   position: number;
   epoch: number;
   superseded?: { targetPosition: number };
+  unseen?: { fromSequence: number };
 };
 
 // The incompleteness marker (Plan-010 T1.2). Spec-011 §Fallback Behavior requires that a child run
@@ -361,9 +373,9 @@ interface TranscriptChildRunExpandRequest {
 // Discriminated on hasMore exactly as TranscriptReadResponse is, and for the same reason: a child
 // run is not inherently smaller than a session window — a long-running subagent produces more rows
 // than fit one frame — so the expansion needs the same continuation, on the same two arms, with the
-// same rule about which of them may carry a cursor — and the same non-empty floor on the continuing
-// arm, for the same reason: a child run's expansion loops a client on a repeated cursor exactly as
-// a session read does. Two further rules the schema enforces (Plan-010 Phase 1): every entry that
+// same rule about which of them may carry a cursor — and the same advancing cursor on the
+// continuing arm, empty only past the same cap of stretches passed over, for the same reason: a
+// child run's expansion loops a client on a repeated cursor exactly as a session read does. Two further rules the schema enforces (Plan-010 Phase 1): every entry that
 // carries a run identity must carry THIS run's (the general arm is exempt, having none — a
 // session-scoped row inside a child's window is context, not misattribution), and runId !==
 // parentRunId, since a run that is its own parent makes the lineage graph cyclic and every walk of
@@ -541,6 +553,10 @@ interface QuestionAskedPayload {
   // `Waiting for the run`, and opens in the order the run's questions came once the run reads
   // running. A workflow step's question is open at once and carries none.
   state?: "open" | "waitingForRun";
+  // On a run's question only: the provider's own id of the request the question came on, by which
+  // a request the provider sends again after the daemon's restart finds this open record, with no
+  // second record; absent where the id is longer than a provider handle.
+  providerRequestId?: string;
   // False only on a question the agent does not wait for (Codex's `agentMessage` item carrying
   // `questions` with `delivery: "async"`): the run keeps running and no card of its own is raised.
   isAgentWaiting: boolean;

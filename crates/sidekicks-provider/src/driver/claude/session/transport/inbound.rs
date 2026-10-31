@@ -231,7 +231,8 @@ pub(crate) struct ClaudeControlFrameReader {
 }
 
 impl ClaudeControlFrameReader {
-    /// A reader for the process running `provider_session_id` on `provider_account_id`'s home.
+    /// A reader for the process running `provider_session_id` on `provider_account_id`'s home,
+    /// `None` for a short read that names no account.
     pub(crate) fn new(
         provider_account_id: Option<ProviderAccountId>,
         provider_session_id: String,

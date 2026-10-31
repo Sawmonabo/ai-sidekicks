@@ -40,19 +40,11 @@ const INGEST_BYTES_PER_PIXEL: u64 = 9;
 
 /// A quick Code step's thread beyond its interpreter's budget, the gate's
 /// [`MemoryGateFigures::quick_thread_bytes`].
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the memory gate's figures"
-)]
-pub(crate) const QUICK_THREAD_BYTES: u64 = 32 * MEBIBYTE;
+pub const QUICK_THREAD_BYTES: u64 = 32 * MEBIBYTE;
 
 /// An ingest worker's own memory beyond the file it reads and the picture it draws, the gate's
 /// [`MemoryGateFigures::ingest_worker_bytes`].
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the memory gate's figures"
-)]
-pub(crate) const INGEST_WORKER_BYTES: u64 = 128 * MEBIBYTE;
+pub const INGEST_WORKER_BYTES: u64 = 128 * MEBIBYTE;
 
 /// Reads the bytes the system can give now; blocking, so the gate calls it off the runtime.
 pub(crate) type AvailableMemoryRead = Arc<dyn Fn() -> io::Result<u64> + Send + Sync>;
@@ -106,6 +98,7 @@ impl ProviderStartEstimate {
 }
 
 /// The interpreter a script step runs in.
+#[expect(dead_code, reason = "the workflow engine's bun and Python steps")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ScriptRuntime {
     /// Bun.
@@ -119,6 +112,10 @@ pub(crate) enum ScriptRuntime {
 /// quick Code step reserves its budget, replaced by its node's interpreter peak, plus its thread,
 /// its input and its output; an ingest worker reserves its file, its picture and its own memory.
 /// `workflow_node_key` names the workflow node an entry runs, unique across workflows.
+#[expect(
+    dead_code,
+    reason = "the workflow engine's script and quick Code steps and the ingest worker"
+)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AdmissionWork {
     /// A provider process.
@@ -345,7 +342,7 @@ impl MemoryGate {
     }
 }
 
-/// One entry's place in the gate, from joining the line until it is released or dropped.
+/// One entry's place in the gate, from joining the line until it is dropped.
 pub(crate) struct MemoryAdmission {
     shared: Arc<GateShared>,
     id: EntryId,
@@ -386,6 +383,10 @@ impl MemoryAdmission {
 
     /// Keeps a quick step's interpreter peak, in bytes, for the release to learn. Refused unless
     /// admitted or parked.
+    #[expect(
+        dead_code,
+        reason = "the workflow step runner reports a quick Code step's interpreter peak here"
+    )]
     pub(crate) fn observe_interpreter_peak(
         &self,
         peak_bytes: u64,
@@ -429,12 +430,6 @@ impl MemoryAdmission {
         drop(state);
         self.shared.changed.notify_one();
         Ok(())
-    }
-
-    /// Ends the entry, as dropping it does: a waiting one leaves the line, its wait reading
-    /// `Withdrawn`; an admitted one frees its reservation; an observed peak is learned.
-    pub(crate) fn release(self) {
-        drop(self);
     }
 
     fn require(

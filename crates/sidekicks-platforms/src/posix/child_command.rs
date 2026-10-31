@@ -23,11 +23,11 @@ use crate::child_command::ChildEnd;
 use crate::lasting_child::{LastingChild, LastingCommand};
 #[cfg(target_os = "macos")]
 use crate::macos::lasting_child::spawn_lasting_child_process;
-#[cfg(target_os = "macos")]
-use crate::macos::posix_spawn::{end_spawned_child, reap_ended_child};
 use crate::pin_child_process;
 #[cfg(target_os = "linux")]
 use crate::posix::shell_start::arm_parent_death;
+#[cfg(target_os = "macos")]
+use crate::posix::spawn::{end_spawned_child, reap_ended_child};
 #[cfg(test)]
 use crate::session_child::SessionCommand;
 
@@ -72,6 +72,17 @@ pub fn wrap_child_command(mut command: Command, daemon_pid: u32) -> CommandWrap 
     let mut wrap = CommandWrap::from(command);
     wrap.wrap(KillOnDrop);
     wrap
+}
+
+/// Wraps `command` as a child of the daemon `daemon_pid` leading a process group of its own, so a
+/// later start's sweep of the daemon's leftover children ends what it started with it, while the
+/// daemon's own stop still reaches the child alone: prepared as [`prepare_child_command`] prepares
+/// it, the group set through the spawn itself, and `signal`, `start_kill` and a dropped handle
+/// reach only the child. The caller spawns it on the daemon's spawner thread; the spawn fails as
+/// [`prepare_child_command`] says.
+pub fn wrap_leading_child_command(mut command: Command, daemon_pid: u32) -> CommandWrap {
+    command.process_group(0);
+    wrap_child_command(command, daemon_pid)
 }
 
 /// Wraps `command` as a child of the daemon `daemon_pid` leading a process group of its own, so
@@ -225,22 +236,23 @@ impl StandInChild {
         let (id, process) = {
             use std::os::fd::AsFd as _;
 
-            use crate::macos::posix_spawn::{
-                SessionLeaderSpawn, SpawnStream, spawn_session_leader,
+            use crate::posix::spawn::{
+                SessionLeaderSpawn, SpawnStream, inherited_environment, spawn_session_leader,
             };
-            use crate::macos::session_child::inherited_environment;
 
             let id = spawn_session_leader(&SessionLeaderSpawn {
                 program: &command.program,
                 argument_zero: &command.argument_zero,
                 arguments: &command.arguments,
                 environment: inherited_environment(&command.added_environment),
-                working_folder: &command.working_folder,
+                working_folder: Some(&command.working_folder),
                 streams: [
                     SpawnStream::Descriptor(input_reader.as_fd()),
                     SpawnStream::Descriptor(output_writer.as_fd()),
                     SpawnStream::NullDevice,
                 ],
+                inherited: None,
+                default_signals: &[nix::sys::signal::Signal::SIGPIPE],
             })?;
             (id, StandInProcess::Spawned)
         };
@@ -298,7 +310,7 @@ impl StandInChild {
         match &mut self.process {
             StandInProcess::Child(child) => child.wait(),
             #[cfg(target_os = "macos")]
-            StandInProcess::Spawned => crate::macos::posix_spawn::reap_spawned_child(self.id),
+            StandInProcess::Spawned => crate::posix::spawn::reap_spawned_child(self.id),
         }
     }
 }

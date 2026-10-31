@@ -32,7 +32,7 @@ pub struct CallbackToolInvocation {
 /// The daemon's answer to a callback-tool call: only a completed call carries output, and only a
 /// denied or failed one an error.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CallbackToolResult {
+pub enum CallbackToolResult {
     /// The tool ran.
     Completed {
         /// What it returned.

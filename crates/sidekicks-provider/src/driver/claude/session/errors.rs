@@ -10,12 +10,13 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::error_description::describe_error;
 
 use crate::driver::capabilities::DriverCapabilityFlag;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::transport::control::ClaudeControlSubtype;
-use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -24,15 +25,6 @@ use crate::driver::error_causes::{
     provider_failure_refusal,
 };
 use crate::driver::registry::provider_capability_refused;
-
-/// The detail an authentication probe records once the provider answered it, naming the evidence
-/// and never a credential source the probe did not report.
-#[expect(
-    dead_code,
-    reason = "the Claude Code authentication probe records it on a reached handshake"
-)]
-pub(crate) const CLAUDE_AUTH_PROBE_REACHED_DETAIL: &str =
-    "the provider answered the zero-turn auth probe";
 
 /// Why the driver cannot carry out a session or run operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,8 +49,6 @@ pub(crate) enum ClaudeSessionUnavailableReason {
     ProcessExited,
     /// The session holds no execution posture, so a turn the daemon starts has no level to run at.
     ExecutionPostureAbsent,
-    /// Claude Code cannot run the session at that permission level.
-    PermissionLevelUnavailable,
     /// The installed Claude Code lists no code-review skill for the session.
     ReviewSkillAbsent,
     /// Claude Code's model id names its window, so a session takes no larger-window figure.
@@ -99,9 +89,6 @@ impl ClaudeSessionUnavailableReason {
             Self::ExecutionPostureAbsent => {
                 "The Claude session holds no execution posture, so a turn the daemon starts has \
                  no level to run at."
-            }
-            Self::PermissionLevelUnavailable => {
-                "Claude Code cannot run this session at that permission level."
             }
             Self::ReviewSkillAbsent => {
                 "The installed Claude Code lists no code-review skill for this session."
@@ -211,6 +198,30 @@ fn detail_suffix(detail: Option<&str>) -> String {
 }
 
 impl ClaudeSessionError {
+    /// The refusal `code` that Claude Code's own refusal of a control request answers as, with
+    /// `message` and Claude Code's words as `providerFailureDetail`; any other failure comes back
+    /// as it is.
+    pub(crate) fn into_refusal_as(
+        self,
+        code: RefusalCode,
+        message: &str,
+    ) -> Result<DomainError, Self> {
+        match self {
+            Self::ControlRequestRefused { .. } => Ok(provider_failure_refusal(
+                &DESCRIPTOR.provider_id(),
+                message,
+                code,
+                self,
+            )),
+            error @ (Self::Unavailable { .. }
+            | Self::InputUnwritable(_)
+            | Self::AuthenticationRequired { .. }
+            | Self::Unanswered { .. }
+            | Self::ModelNotOffered { .. }
+            | Self::SessionAlreadyLive { .. }) => Err(error),
+        }
+    }
+
     /// The recovery condition the failure leaves the session in: sign in again after a refused
     /// sign-in, recover after anything else.
     pub(crate) fn recovery_condition(&self) -> RecoveryCondition {
@@ -239,7 +250,7 @@ impl From<ClaudeSessionError> for DriverError {
         let provider = DESCRIPTOR.provider_id();
         match &error {
             ClaudeSessionError::Unavailable { .. } | ClaudeSessionError::InputUnwritable(_) => {
-                Self::Refused(provider_failure_refusal(
+                Self::from(provider_failure_refusal(
                     &provider,
                     "The Claude Code process is unavailable",
                     RefusalCode::ProviderUnavailable,
@@ -247,7 +258,7 @@ impl From<ClaudeSessionError> for DriverError {
                 ))
             }
             ClaudeSessionError::AuthenticationRequired { .. } => {
-                Self::Refused(provider_failure_refusal(
+                Self::from(provider_failure_refusal(
                     &provider,
                     "The account's Claude Code sign-in is gone or refused",
                     RefusalCode::ProviderAccountNotAuthenticated,
@@ -265,7 +276,7 @@ impl From<ClaudeSessionError> for DriverError {
                         RefusalCode::ProviderUnavailable,
                     ),
                 };
-                Self::Unanswered(RequestUnanswered {
+                Self::from(RequestUnanswered {
                     refusal: provider_failure_refusal(&provider, message, code, error),
                 })
             }
@@ -278,7 +289,7 @@ impl From<ClaudeSessionError> for DriverError {
                         provider_error,
                         UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
                     );
-                    Self::Refused(
+                    Self::from(
                         provider_capability_refused(&provider, flag, &detail).with_source(error),
                     )
                 }
@@ -286,7 +297,7 @@ impl From<ClaudeSessionError> for DriverError {
             },
             ClaudeSessionError::ModelNotOffered {
                 agent_id, model, ..
-            } => Self::ProviderAxisInvalid(ProviderAxisInvalid {
+            } => Self::from(ProviderAxisInvalid {
                 agent_id: *agent_id,
                 axis: ProviderAxis::ModelId,
                 value: Value::String(model.clone()),
@@ -310,7 +321,9 @@ fn missing_capability(subtype: ClaudeControlSubtype) -> Option<DriverCapabilityF
         | ClaudeControlSubtype::SetPermissionMode
         | ClaudeControlSubtype::SetMaxThinkingTokens
         | ClaudeControlSubtype::GetSettings
+        | ClaudeControlSubtype::McpStatus
         | ClaudeControlSubtype::GetContextUsage
+        | ClaudeControlSubtype::StopTask
         | ClaudeControlSubtype::SetModel
         | ClaudeControlSubtype::GetBinaryVersion
         | ClaudeControlSubtype::McpMessage
@@ -351,7 +364,7 @@ mod tests {
     use sidekicks_ipc::registry::HandlerError;
 
     use super::{ClaudeControlSubtype, ClaudeSessionError, ClaudeUnansweredCause};
-    use crate::driver::contract::DriverError;
+    use crate::driver::contract::error::DriverError;
 
     // The refusal's code a driver error answers a call with; `None` for a failure that is none.
     fn refusal_code(error: DriverError) -> Option<RefusalCode> {

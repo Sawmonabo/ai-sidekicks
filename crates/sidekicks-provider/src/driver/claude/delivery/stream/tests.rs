@@ -2,20 +2,27 @@ use jiff::Timestamp;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::usage::{ApiRetryErrorKind, UsageApiRequestRetriedPayload};
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_std::mutex_lock::lock;
 
 use super::daemon_ends::ClaudeDaemonEndSettlement;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
+    SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
 };
 use crate::driver::diagnostics::RecordedEvents;
+use crate::driver::run_control::HelperStopReason;
 use crate::port::run_host::test_host::EngineCall;
-use crate::port::usage_sink::ProviderQuotaWindow;
+use crate::port::usage_sink::{MeteredUsageOwner, ProviderQuotaWindow};
 use crate::run::delivery::LateAppendableRow;
+use crate::run::delivery::RunSetupRefusal;
+use crate::run::posture::compose_execution_posture;
 use crate::run::state_entry::RunStateEntry;
 use crate::run::turn_end::TurnOutcome;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 fn init() -> Value {
     json!({
@@ -360,7 +367,7 @@ async fn a_rate_limit_event_hands_the_accounts_quota_windows_to_the_usage_record
     assert_eq!(
         session.usage.quota_windows(),
         [(
-            None,
+            test_provider_account_id(),
             vec![
                 ProviderQuotaWindow {
                     limit_id: "session".to_owned(),
@@ -523,5 +530,290 @@ async fn a_result_of_an_unlisted_subtype_or_none_fails_its_run_once_and_is_repor
     assert_eq!(
         recorded.field_on("driver.normalize.unmappedWireKind", "raw_wire_type"),
         [raw_wire_type]
+    );
+}
+
+fn usage_message(message_id: &str, agent_id: Option<&str>, input: u64, output: u64) -> Value {
+    let mut frame = json!({
+        "type": "assistant",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "message": {
+            "id": message_id,
+            "role": "assistant",
+            "content": [{"type": "text", "text": "working"}],
+            "usage": {"input_tokens": input, "output_tokens": output},
+        },
+    });
+    if let (Some(frame), Some(agent_id)) = (frame.as_object_mut(), agent_id) {
+        frame.insert("agent_id".to_owned(), Value::from(agent_id));
+    }
+    frame
+}
+
+fn helper_started(task_id: &str, task_type: &str, tool_use_id: &str) -> Value {
+    json!({
+        "type": "system",
+        "subtype": "task_started",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "task_id": task_id,
+        "task_type": task_type,
+        "tool_use_id": tool_use_id,
+    })
+}
+
+// Fails when a helper's spend is recorded as the lead's, when a message read twice counts twice,
+// when the lead's `result` does not raise its turn to the turn's own `usage`, or when the
+// process-wide `modelUsage` is metered. Mutations: `record_metered` dropping the helper's id;
+// `observe_message` adding each reading of one message; `confirm_turn` skipped; the `result`
+// reading `modelUsage`.
+#[tokio::test(start_paused = true)]
+async fn a_helpers_usage_records_on_the_helper_and_the_lead_result_confirms_the_lead() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+
+    session.frame(&init());
+    session.frame(&helper_started("helper", "local_agent", "call-1"));
+    session.frame(&usage_message("helper-message", Some("helper"), 100, 20));
+    session.frame(&usage_message("lead-message", None, 10, 5));
+    session.frame(&usage_message("lead-message", None, 10, 5));
+    session.frame(&result(&json!({
+        "usage": {"input_tokens": 10, "output_tokens": 8},
+        "modelUsage": {"opus": {"inputTokens": 9_999, "outputTokens": 9_999}},
+    })));
+    settle().await;
+
+    let metered: Vec<_> = session
+        .usage
+        .metered()
+        .into_iter()
+        .map(|metered| {
+            (
+                match metered.owner {
+                    MeteredUsageOwner::Helper(subagent_id) => Some(subagent_id.as_str().to_owned()),
+                    MeteredUsageOwner::Run | MeteredUsageOwner::SideQuestion => None,
+                },
+                metered.binding_id,
+                metered.delta.axis_deltas.input.unwrap_or(0),
+                metered.delta.axis_deltas.output.unwrap_or(0),
+            )
+        })
+        .collect();
+    assert_eq!(
+        metered,
+        [
+            (Some("helper".to_owned()), binding_id("lead"), 100, 20),
+            (None, binding_id("lead"), 10, 5),
+            (None, binding_id("lead"), 0, 3),
+        ]
+    );
+}
+
+// Fails when a turn too long for the window files no row, or files one carrying counts. Mutation:
+// the `is_too_long_for_window` check dropped or inverted.
+#[tokio::test(start_paused = true)]
+async fn a_turn_too_long_for_the_window_files_an_exceeded_row_with_no_counts() {
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+
+    session.frame(&init());
+    session.frame(&result(&json!({
+        "subtype": "error_during_execution",
+        "is_error": true,
+        "terminal_reason": "prompt_too_long",
+    })));
+    settle().await;
+
+    let windows: Vec<_> = session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter_map(|delivery| match delivery.row {
+            Some(LateAppendableRow::UsageContextWindowUpdated(window)) => Some(window),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(windows.len(), 1);
+    let window = &windows[0];
+    assert!(window.exceeded);
+    assert_eq!(window.run_id, Some(run_id));
+    assert_eq!(
+        (window.window_used_tokens, window.window_max_tokens),
+        (None, None)
+    );
+}
+
+// Fails when a tool server's background call closes on the stand-in result Claude Code sends at
+// once rather than on its task's notification, or when the call, or another task running no
+// command that the background set lists, does not hold the session awake while it runs.
+// Mutations: `user` passing no held calls; `take_task_frame` not releasing the held call;
+// `background_work` leaving out the held calls or the listed tasks.
+#[tokio::test(start_paused = true)]
+async fn a_tool_servers_background_call_closes_on_its_task_notification() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    let closed_calls = |session: &ScriptedSession| {
+        session
+            .engine
+            .deliveries()
+            .into_iter()
+            .filter(|delivery| {
+                matches!(
+                    delivery.row,
+                    Some(
+                        LateAppendableRow::AgentToolCallCompleted(_)
+                            | LateAppendableRow::AgentToolCallFailed(_)
+                    )
+                )
+            })
+            .count()
+    };
+
+    session.frame(&init());
+    session.frame(&json!({
+        "type": "assistant",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "message": {
+            "id": "message-1",
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": "call-1", "name": "mcp__files__export", "input": {}},
+            ],
+        },
+    }));
+    session.frame(&helper_started("task-1", "mcp_task", "call-1"));
+    session.frame(&json!({
+        "type": "user",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "message": {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "call-1", "content": "Running in the background"},
+            ],
+        },
+    }));
+    session.frame(&json!({
+        "type": "system",
+        "subtype": "background_tasks_changed",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "tasks": [
+            {"task_id": "task-1", "task_type": "mcp_task"},
+            {"task_id": "workflow-1", "task_type": "local_workflow"},
+        ],
+    }));
+    settle().await;
+    assert_eq!(closed_calls(&session), 0);
+    assert_eq!(session.stream.background_work(), 3);
+
+    session.frame(&json!({
+        "type": "system",
+        "subtype": "task_notification",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "task_id": "task-1",
+        "tool_use_id": "call-1",
+        "status": "completed",
+        "summary": "Exported",
+    }));
+    session.frame(&json!({
+        "type": "system",
+        "subtype": "background_tasks_changed",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "tasks": [],
+    }));
+    settle().await;
+    assert_eq!(closed_calls(&session), 1);
+    assert_eq!(session.stream.background_work(), 0);
+}
+
+// A `tool_name` call's pre-tool hook, the helper `agent_id`'s or, with none, the lead's.
+fn before_tool(tool_name: &str, agent_id: Option<&str>) -> Value {
+    let mut input = json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": tool_name,
+        "tool_use_id": "call-2",
+        "tool_input": {"command": "ls"},
+    });
+    if let (Some(input), Some(agent_id)) = (input.as_object_mut(), agent_id) {
+        input.insert("agent_id".to_owned(), json!(agent_id));
+    }
+    json!({
+        "subtype": "hook_callback",
+        "callback_id": "sidekicks-pause-before-tool",
+        "input": input,
+    })
+}
+
+// A helper whose run the daemon refused after Claude Code started it stays bound to that ended run
+// and is denied its next tool use with the refusal's sentence, which names the setup's own cause,
+// while the lead's next call passes. Killed by leaving the refused helper's route unbound, by not
+// recording its stop, by stopping it with the token limit's sentence, and by a sentence that drops
+// the setup's cause.
+#[tokio::test(start_paused = true)]
+async fn a_refused_helper_is_denied_its_next_tool_use_and_the_lead_goes_on() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    let refusal = RunSetupRefusal {
+        cause: "the writable root '/gone/repo.git' could not be resolved".to_owned(),
+        is_posture_rejection: true,
+    };
+    let refused = session.engine.refuse_next_child_run(refusal.clone());
+
+    session.frame(&init());
+    session.frame(&helper_started("helper", "local_agent", "call-1"));
+    settle().await;
+    session.request("helper-tool", &before_tool("Bash", Some("helper")));
+    session.request("lead-tool", &before_tool("Bash", None));
+
+    assert_eq!(
+        session
+            .start
+            .routes
+            .child_run_for(session.session_id, "helper"),
+        Some(refused),
+        "the refused helper's frames reach its ended run"
+    );
+    let helper_answer = session.channel.answer_to("helper-tool").await.to_string();
+    assert!(helper_answer.contains(r#""permissionDecision":"deny""#));
+    assert!(helper_answer.contains(&HelperStopReason::SetupRefused { refusal }.sentence()));
+    assert!(helper_answer.contains("/gone/repo.git"));
+    assert!(!helper_answer.contains(&HelperStopReason::TokenLimit.sentence()));
+    assert!(
+        !session
+            .channel
+            .answer_to("lead-tool")
+            .await
+            .to_string()
+            .contains("deny")
+    );
+}
+
+// A helper start, the lead's or a helper's, is checked against the live session's own posture:
+// denied with the refusal's cause while its writable root is gone, passed once the root is back.
+// Killed by checking no posture in the session's task, and by not taking the checked route.
+#[tokio::test(start_paused = true)]
+async fn a_helper_start_is_checked_against_the_live_posture() {
+    let session = ScriptedSession::new().await;
+    let folder = tempfile::tempdir().expect("a temporary folder");
+    let root = folder.path().join("repo");
+    let sandboxed_over_root = compose_execution_posture(
+        PermissionLevel::Sandboxed,
+        FilesystemPath::new(root.to_string_lossy().into_owned()).expect("a valid path"),
+    );
+    lock(&session.live.settings).execution_posture = Some(sandboxed_over_root);
+    session.frame(&init());
+
+    session.request("gone-start", &before_tool("Agent", None));
+    let refused = session.channel.answer_to("gone-start").await.to_string();
+    assert!(refused.contains(r#""permissionDecision":"deny""#));
+    assert!(refused.contains("Not started: this session's permission level cannot run right now"));
+
+    std::fs::create_dir(&root).expect("the root is made");
+    session.request("back-start", &before_tool("Agent", Some("helper")));
+    assert!(
+        !session
+            .channel
+            .answer_to("back-start")
+            .await
+            .to_string()
+            .contains("deny")
     );
 }

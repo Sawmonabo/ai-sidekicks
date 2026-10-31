@@ -1,7 +1,5 @@
 //! The terminal-reach switch: its row read from the folder's terminal service, its value applied.
 
-use std::sync::atomic::Ordering;
-
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::place::{Place, WindowsPlace};
@@ -12,8 +10,8 @@ use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, short_socket_folder};
 
 use super::super::CodexDriver;
 use super::{driver_on_codex_folder, listen_on_codex_folder};
-use crate::driver::codex::service::home::CodexHomeKind;
-use crate::driver::contract::{ApplyRowValueParams, DriverError};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::ApplyRowValueParams;
 use crate::driver::daemon_stop::DaemonStopIntent;
 
 // The switch's value turned to `is_on` on the computer's one place.
@@ -42,33 +40,6 @@ fn reads_on(driver: &CodexDriver) -> bool {
     };
     assert_eq!(switch.place, None);
     switch.enabled
-}
-
-// Killed by storing the switch's value before the start answers: the failed start would leave the
-// folder's next service the terminal one while the row reads off.
-#[tokio::test]
-async fn a_failed_switch_on_reads_off_and_leaves_the_folder_s_service_off() {
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let (driver, _services) = driver_on_codex_folder(folder.path());
-
-    let applied = driver.apply_row_value(switched(true)).await;
-    let is_on = reads_on(&driver);
-    let next = driver
-        .registry
-        .service_for(None)
-        .await
-        .expect("the folder's service is made");
-    driver.shutdown(DaemonStopIntent::Stop).await;
-
-    assert!(applied.is_err());
-    assert!(!is_on);
-    assert!(!driver.is_terminal_reach_on.load(Ordering::Acquire));
-    assert_eq!(
-        next.home().kind,
-        CodexHomeKind::PersonalFolder {
-            is_terminal_reach_on: false
-        }
-    );
 }
 
 // Killed by dropping the check of the value already on: the second switch-on would retire the

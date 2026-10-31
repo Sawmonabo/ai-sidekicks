@@ -116,15 +116,20 @@ fn read_codex_spent_window_reset_epoch_seconds(window: Option<&Value>) -> Option
 }
 
 /// `resetsAt` read as seconds since the epoch, as Codex documents it (read as milliseconds, every
-/// boundary would land decades early), cut to whole milliseconds, as the wire's instant holds them.
-/// `None` outside the range a wire instant holds.
+/// boundary would land decades early), cut to whole milliseconds. `None` outside the range a
+/// timestamp holds.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "the milliseconds are whole, and a value past i64 saturates to one jiff refuses"
 )]
+pub(crate) fn read_codex_epoch_seconds(epoch_seconds: f64) -> Option<Timestamp> {
+    Timestamp::from_millisecond((epoch_seconds * 1000.0).trunc() as i64).ok()
+}
+
+/// `resetsAt` as [`read_codex_epoch_seconds`] reads it, as a wire instant; `None` outside the
+/// range a wire instant holds.
 pub(crate) fn codex_epoch_seconds_to_wire_instant(epoch_seconds: f64) -> Option<WireInstant> {
-    let epoch_milliseconds = (epoch_seconds * 1000.0).trunc() as i64;
-    WireInstant::from_timestamp(Timestamp::from_millisecond(epoch_milliseconds).ok()?)
+    WireInstant::from_timestamp(read_codex_epoch_seconds(epoch_seconds)?)
 }
 
 /// The observation an `account/rateLimits/read` reply gives: the whole set, read from

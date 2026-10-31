@@ -1,7 +1,8 @@
-//! The session read and subscribe shapes, the frame a session's stream sends, the verbs called on
-//! one session (rename, archive, reactivate, close, pin, mute, restart, and the two actions of a
-//! session whose history is damaged), the two searches and the read of a conversion's skipped
-//! files. The events those verbs append are in `session::events`.
+//! The session read and subscribe shapes, the names an untitled session shows, the frame a
+//! session's stream sends, the verbs called on one session (rename, archive, reactivate, close,
+//! pin, mute, restart, and the two actions of a session whose history is damaged), the two searches
+//! and the read of a conversion's skipped files. The events those verbs append are in
+//! `session::events`.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,7 @@ use crate::place::Place;
 use crate::provider::account::record::ProviderAccountId;
 use crate::run::id::RunId;
 use crate::run::state::RunState;
+use crate::session::controls::methods::{PermissionLevel, SessionMode};
 use crate::session::convert::{
     SessionConversionSkippedFileListRequest, SessionConversionSkippedFileListResponse,
 };
@@ -33,7 +35,7 @@ use crate::tag::TagList;
 use crate::transcript::child_run_summary::ChildRunSummary;
 use crate::transcript::content::{BlockCutFailure, BlockStarts, TranscriptRowContent};
 use crate::transcript::row::TranscriptRunStamp;
-use crate::typescript::{Definition, TypeScriptModule};
+use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{BoundedInt, SafeInt, count_bound};
 use crate::wire::list::{BoundedVec, ListKey, UniqueList};
@@ -92,6 +94,13 @@ pub enum SessionShape {
     Chat,
     /// An attached repository.
     Project,
+}
+
+ts_constants! {
+    /// The words a chat with no name reads by where no first message stands in for one.
+    pub const UNTITLED_CHAT_NAME: &str = "New chat";
+    /// The words a project session with no name reads by where no first message stands in for one.
+    pub const UNTITLED_PROJECT_NAME: &str = "New session";
 }
 
 /// The working-folder move a session's next run boundary applies.
@@ -155,6 +164,10 @@ pub struct SessionRecord {
     )]
     #[schemars(with = "SafeInt<1>")]
     pub max_steps_per_turn: Option<SafeInt<1>>,
+    /// The level it runs at, as the level control reads it.
+    pub permission_level: PermissionLevel,
+    /// Whether its next turns plan or build, as the mode control reads it.
+    pub session_mode: SessionMode,
     /// The addresses another session writes to when it messages this one: an inbox the daemon
     /// holds for it in each place where a provider that messages other sessions is installed, the
     /// session's own place first, each stable for its whole life.
@@ -219,14 +232,6 @@ pub struct SessionLiveRun {
     )]
     #[schemars(with = "RunId")]
     pub parent_run_id: Option<RunId>,
-    /// Present on a run whose turn runs in a process of its own, which is never the lead run.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "True")]
-    pub is_apart: Option<True>,
     /// Its state now.
     pub state: RunState,
     /// Its record's version.
@@ -242,13 +247,7 @@ pub struct SessionLiveRun {
     #[schemars(with = "FreeFormText<EVENT_FIELD_MAX_LEN>")]
     pub actor: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
     /// The account the run was admitted under, as its creation named it.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "ProviderAccountId")]
-    pub admitted_provider_account_id: Option<ProviderAccountId>,
+    pub admitted_provider_account_id: ProviderAccountId,
     /// When the run's newest `runLifecycle` event occurred.
     #[garde(dive)]
     pub touched_at: WireInstant,
@@ -867,6 +866,6 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionFileSearchEntry>(),
         Definition::read::<SessionFileSearchResponse>().checked(),
     ],
-    constants: &[],
+    constants: TS_CONSTANTS,
     method_tables: &[&SESSION_METHOD_DESCRIPTORS],
 };

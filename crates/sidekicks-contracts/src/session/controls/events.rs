@@ -1,7 +1,7 @@
 //! A session's notices and flow rows: the rows its controls write, the notices about its provider
-//! (its build, its restarts, its warnings, its ignored settings, a level an account lacks) and
-//! about the WSL 2 distribution it runs in, the flag from a provider's own reviewer, and the live
-//! frame of a provider's safety hold on a turn.
+//! (its build, its restarts, its warnings, its ignored settings, a level that cannot run here), the
+//! moves of its level and mode, the notices about the WSL 2 distribution it runs in, the flag from
+//! a provider's own reviewer, and the live frame of a provider's safety hold on a turn.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -14,10 +14,10 @@ use crate::place::{DistroName, Place};
 use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::{PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN};
 use crate::provider::id::ProviderId;
-use crate::provider::settings::PROVIDER_VERSION_MAX_LEN;
+use crate::provider::settings::ProviderVersion;
 use crate::run::id::RunId;
 use crate::session::controls::methods::{
-    PermissionLevel, SessionReviewTarget, SideQuestionId, SideQuestionText,
+    PermissionLevel, SessionMode, SessionReviewTarget, SideQuestionId, SideQuestionText,
 };
 use crate::session::cost::{TokensPerRun, UsdMicros};
 use crate::session::id::SessionId;
@@ -245,13 +245,25 @@ pub enum SessionNotice {
         #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
         details: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
     },
-    /// An account switch moved the session onto an account that cannot run the level it left, so
-    /// it runs at `ask`; `level` is the level it left.
+    /// A level the session cannot run here: an account switch moved it onto an account that
+    /// cannot run the level it left, so it runs at `ask`, or the provider reported running a level
+    /// whose sandbox cannot start here, so its commands fail rather than run unsandboxed.
     LevelUnavailable {
         /// The session.
         session_id: SessionId,
-        /// The level it left.
+        /// The level that cannot run.
         level: PermissionLevel,
+    },
+    /// The session's level or mode moved, by the person or by a mode its provider reported; it
+    /// carries both as they now stand, so every client's controls read one source, and draws no
+    /// row.
+    LevelMoved {
+        /// The session.
+        session_id: SessionId,
+        /// The level it runs at.
+        level: PermissionLevel,
+        /// Whether its next turns plan or build.
+        session_mode: SessionMode,
     },
     /// The session moved to the provider's new build, both versions as the provider reports them;
     /// drawn as a faint line above the composer until the next message is sent, never a row.
@@ -261,9 +273,9 @@ pub enum SessionNotice {
         /// The provider.
         provider: ProviderId,
         /// The version it left.
-        from_version: FreeFormText<PROVIDER_VERSION_MAX_LEN>,
+        from_version: ProviderVersion,
         /// The version it runs.
-        to_version: FreeFormText<PROVIDER_VERSION_MAX_LEN>,
+        to_version: ProviderVersion,
     },
     /// The person's restart brought back a provider the crash loop stopped; it ends the crash
     /// loop's banner and draws no row, and the daemon's own restarts write none.
@@ -273,12 +285,14 @@ pub enum SessionNotice {
         /// The provider.
         provider: ProviderId,
     },
-    /// The provider process ended on its own too many times in a short window and the daemon
-    /// stopped restarting it, with the exit code or the signal it ended on, or, where the daemon
-    /// read no ending, the failure its last restart gave, exactly one of them; drawn as a banner.
+    /// The provider process ended too many times in a short window and the daemon stopped
+    /// restarting it, with the exit code or the signal it ended on, the seconds it answered
+    /// nothing before the daemon ended it, or, where the daemon read no ending, the failure its
+    /// last restart gave, exactly one of them; drawn as a banner.
     #[schemars(extend("oneOf" = [
         { "required": ["exitCode"] },
         { "required": ["signal"] },
+        { "required": ["silentSeconds"] },
         { "required": ["startFailure"] },
     ]))]
     ProviderCrashLoop {
@@ -302,6 +316,15 @@ pub enum SessionNotice {
         )]
         #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
         signal: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+        /// How long it answered nothing before the daemon ended it, in seconds, where that ended
+        /// it.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "SafeInt<1>")]
+        silent_seconds: Option<SafeInt<1>>,
         /// The failure its last restart gave, word for word, where no ending was read.
         #[serde(
             default,
@@ -377,26 +400,30 @@ pub enum SessionNotice {
 
 impl SessionNotice {
     /// Holds a crash loop to exactly one cause: the exit code or the signal its process ended on,
-    /// or its last restart's failure; every other kind names none.
+    /// the silence the daemon ended it for, or its last restart's failure; every other kind names
+    /// none.
     fn names_one_crash_loop_cause(&self) -> garde::Result {
         match self {
             Self::ProviderCrashLoop {
                 exit_code,
                 signal,
+                silent_seconds,
                 start_failure,
                 ..
             } => {
                 let named = [
                     exit_code.is_some(),
                     signal.is_some(),
+                    silent_seconds.is_some(),
                     start_failure.is_some(),
                 ];
                 if named.iter().filter(|is_named| **is_named).count() == 1 {
                     Ok(())
                 } else {
-                    Err(garde::Error::new(
-                        "a crash loop names exactly one of exitCode, signal and startFailure",
-                    ))
+                    Err(garde::Error::new(concat!(
+                        "a crash loop names exactly one of exitCode, signal, silentSeconds and ",
+                        "startFailure"
+                    )))
                 }
             }
             Self::ConversationReloaded { .. }
@@ -406,6 +433,7 @@ impl SessionNotice {
             | Self::GoalCheckUnfinished { .. }
             | Self::ProviderWarning { .. }
             | Self::LevelUnavailable { .. }
+            | Self::LevelMoved { .. }
             | Self::ProviderUpdated { .. }
             | Self::ProviderRestarted { .. }
             | Self::FastOutputUnavailable { .. }

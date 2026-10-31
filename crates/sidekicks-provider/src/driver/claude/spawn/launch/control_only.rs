@@ -1,14 +1,16 @@
 //! The Claude Code processes that keep nothing: brought up only to answer control requests, with
 //! no hooks and no conversation kept, for the sign-in probe, the model catalog and the build's
-//! version, each in the daemon's own empty folder unless a read needs the session's. Each is
-//! closed once its reads are done, as a session closes.
+//! version, an account's MCP servers and the MCP server probe, each in the daemon's own empty
+//! folder unless a read needs another. Each is closed once its reads are done, as a session closes.
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::sync::{Mutex, mpsc};
 
@@ -19,14 +21,17 @@ use crate::driver::claude::session::process::{
     ClaudeStreamFrame,
 };
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::driver::claude::session::transport::control::ClaudeControlRequest;
+use crate::driver::claude::session::transport::control::{
+    ClaudeContextUsageDetail, ClaudeControlRequest,
+};
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
 use crate::driver::claude::session::transport::readings::ClaudeModelCatalogReading;
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::driver::claude::spawn::system_prompt::claude_appended_system_prompt_arguments;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The command line of a process that keeps nothing.
-const CLAUDE_CONTROL_ONLY_ARGUMENTS: [&str; 7] = [
+pub(crate) const CLAUDE_CONTROL_ONLY_ARGUMENTS: [&str; 7] = [
     "-p",
     "--input-format",
     "stream-json",
@@ -35,6 +40,20 @@ const CLAUDE_CONTROL_ONLY_ARGUMENTS: [&str; 7] = [
     "--verbose",
     "--no-session-persistence",
 ];
+
+/// The command line of a process that keeps nothing, with the daemon's appended system prompt,
+/// on `model` where given.
+pub(crate) fn compose_claude_control_only_arguments(model: Option<&str>) -> Vec<String> {
+    let mut arguments: Vec<String> = CLAUDE_CONTROL_ONLY_ARGUMENTS
+        .into_iter()
+        .chain(claude_appended_system_prompt_arguments())
+        .map(str::to_owned)
+        .collect();
+    if let Some(model) = model {
+        arguments.extend(["--model".to_owned(), model.to_owned()]);
+    }
+    arguments
+}
 
 /// What one short process wrote, in the order read.
 pub(crate) enum ClaudeShortProcessArrival {
@@ -46,8 +65,11 @@ pub(crate) enum ClaudeShortProcessArrival {
     Exit,
 }
 
-/// Hands each arrival of a short process to the one reading it.
-pub(super) struct ForwardedArrivals(mpsc::UnboundedSender<ClaudeShortProcessArrival>);
+/// Hands each arrival of a short process to the one reading it, until that reader is gone.
+pub(super) struct ForwardedArrivals {
+    sender: mpsc::UnboundedSender<ClaudeShortProcessArrival>,
+    is_reader_gone: AtomicBool,
+}
 
 impl ForwardedArrivals {
     /// A listener forwarding to the receiver it comes with.
@@ -56,12 +78,24 @@ impl ForwardedArrivals {
         mpsc::UnboundedReceiver<ClaudeShortProcessArrival>,
     ) {
         let (sender, arrivals) = mpsc::unbounded_channel();
-        (Arc::new(Self(sender)), arrivals)
+        let forwarded = Self {
+            sender,
+            is_reader_gone: AtomicBool::new(false),
+        };
+        (Arc::new(forwarded), arrivals)
     }
 
+    // Hands `arrival` on; once the reader is gone, says so once and drops every later arrival.
     fn forward(&self, arrival: ClaudeShortProcessArrival) {
-        if self.0.send(arrival).is_err() {
-            tracing::debug!("a short Claude Code process wrote after its reads ended");
+        if self.is_reader_gone.load(Ordering::Relaxed) {
+            return;
+        }
+        if self.sender.send(arrival).is_err() && !self.is_reader_gone.swap(true, Ordering::Relaxed)
+        {
+            tracing::debug!(
+                "a short Claude Code process wrote after its reads ended; its later output is \
+                 dropped"
+            );
         }
     }
 }
@@ -93,13 +127,14 @@ pub(crate) struct ClaudeShortProcess {
 }
 
 impl ClaudeShortProcess {
-    /// Starts `executable` with `arguments` in `working_folder`. Fails as the launcher's start
-    /// does.
+    /// Starts `executable` with `arguments` in `working_folder`, under `provider_account_id`'s
+    /// account where given. Fails as the launcher's start does.
     pub(crate) async fn start(
         launcher: &ClaudeProcessLauncher,
         executable: &ResolvedProviderExecutable,
         arguments: Vec<String>,
         working_folder: PathBuf,
+        provider_account_id: Option<ProviderAccountId>,
     ) -> Result<Self, ClaudeLaunchError> {
         let (listener, arrivals) = ForwardedArrivals::open();
         let process = launcher
@@ -110,7 +145,7 @@ impl ClaudeShortProcess {
                     environment: executable.environment.clone(),
                     working_folder,
                     provider_session_id: mint_uuid_v7().to_string(),
-                    provider_account_id: None,
+                    provider_account_id,
                 },
                 listener,
                 None,
@@ -123,22 +158,27 @@ impl ClaudeShortProcess {
     }
 
     /// Starts a process that keeps nothing in `working_folder`, the daemon's empty folder where
-    /// `None`, on `model` where given. Fails as the launcher's start does.
+    /// `None`, on `model` and under `provider_account_id`'s account where given. Fails as the
+    /// launcher's start does.
     pub(crate) async fn start_control_only(
         launcher: &ClaudeProcessLauncher,
         executable: &ResolvedProviderExecutable,
         working_folder: Option<PathBuf>,
         model: Option<&str>,
+        provider_account_id: Option<ProviderAccountId>,
     ) -> Result<Self, ClaudeLaunchError> {
         let working_folder = match working_folder {
             Some(folder) => folder,
             None => launcher.control_only_folder().await?,
         };
-        let mut arguments: Vec<String> = CLAUDE_CONTROL_ONLY_ARGUMENTS.map(str::to_owned).into();
-        if let Some(model) = model {
-            arguments.extend(["--model".to_owned(), model.to_owned()]);
-        }
-        Self::start(launcher, executable, arguments, working_folder).await
+        Self::start(
+            launcher,
+            executable,
+            compose_claude_control_only_arguments(model),
+            working_folder,
+            provider_account_id,
+        )
+        .await
     }
 
     /// Sends `initialize` with no hooks and answers its reply. Fails as `send_initialize` does.
@@ -157,7 +197,9 @@ impl ClaudeShortProcess {
     ) -> Result<Option<Box<RawValue>>, ClaudeSessionError> {
         match self
             .process
-            .send_control_request(ClaudeControlRequest::GetContextUsage {})
+            .send_control_request(ClaudeControlRequest::GetContextUsage {
+                detail: ClaudeContextUsageDetail::Summary,
+            })
             .await
         {
             Ok(answer) => Ok(answer.response),
@@ -195,7 +237,8 @@ pub(crate) async fn probe_claude_sign_in(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,
 ) -> Result<String, ClaudeLaunchError> {
-    let short = ClaudeShortProcess::start_control_only(launcher, executable, None, None).await?;
+    let short =
+        ClaudeShortProcess::start_control_only(launcher, executable, None, None, None).await?;
     let reply = short.initialize().await;
     short.close().await;
     let sources = reply?
@@ -227,7 +270,8 @@ pub(crate) async fn read_claude_model_catalog(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,
 ) -> Result<ClaudeModelCatalogReading, ClaudeLaunchError> {
-    let short = ClaudeShortProcess::start_control_only(launcher, executable, None, None).await?;
+    let short =
+        ClaudeShortProcess::start_control_only(launcher, executable, None, None, None).await?;
     let read = async {
         Ok::<_, ClaudeSessionError>(ClaudeModelCatalogReading {
             initialize: short.initialize().await?,

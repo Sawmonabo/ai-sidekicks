@@ -14,7 +14,7 @@ use crate::missing_entry::MissingEntry;
 
 /// How a publish ended: the file has the target's name, or another file had it already.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PublishOutcome {
+pub enum PublishOutcome {
     /// The file now has the target's name.
     Published,
     /// Another file had the name, which was left as it was.
@@ -25,7 +25,7 @@ pub(crate) enum PublishOutcome {
 /// A file already at `target_path` is never replaced, but for one made there, on a volume with no
 /// hard links, between the name check and the rename. A failure is returned once `temporary_path`
 /// is removed, with the removal's own failure beside it when that fails too.
-pub(crate) async fn publish_without_replacing(
+pub async fn publish_without_replacing(
     temporary_path: &Path,
     target_path: &Path,
 ) -> Result<PublishOutcome, CleanupFailures<io::Error>> {

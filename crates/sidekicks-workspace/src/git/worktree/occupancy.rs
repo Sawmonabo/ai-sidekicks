@@ -81,7 +81,7 @@ pub(crate) struct MountOccupancy {
 
 /// Why a mount's occupancy could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum OccupancyReadError {
+pub enum OccupancyReadError {
     /// The read did not reach a connection.
     #[error("the occupancy read did not reach the database")]
     Pool(#[from] DatabaseReadError),

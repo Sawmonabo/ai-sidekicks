@@ -1,16 +1,16 @@
 //! A session child's start on macOS, through `posix_spawn` with its own session, its output read
 //! through a pipe and its reap, since no runtime reaps a child it did not spawn.
 
-use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::fd::{AsFd as _, OwnedFd};
 
+use nix::sys::signal::Signal;
 use tokio::net::unix::pipe::Receiver;
 
-use crate::macos::posix_spawn::{
-    SessionLeaderSpawn, SpawnStream, end_spawned_child, spawn_session_leader,
-};
 use crate::posix::process::group;
+use crate::posix::spawn::{
+    SessionLeaderSpawn, SpawnStream, end_spawned_child, inherited_environment, spawn_session_leader,
+};
 use crate::session_child::SessionCommand;
 
 /// A started session child: its output and an end for its whole group. Dropped, it kills the
@@ -33,12 +33,14 @@ pub fn start_session_child(command: &SessionCommand, _daemon_pid: u32) -> io::Re
         argument_zero: &command.argument_zero,
         arguments: &command.arguments,
         environment: inherited_environment(&command.added_environment),
-        working_folder: &command.working_folder,
+        working_folder: Some(&command.working_folder),
         streams: [
             SpawnStream::NullDevice,
             SpawnStream::Descriptor(writer.as_fd()),
             SpawnStream::NullDevice,
         ],
+        inherited: None,
+        default_signals: &[Signal::SIGPIPE],
     })?;
     // The child holds its own copy, so the output ends once it and what it started have ended.
     drop(writer);
@@ -70,26 +72,4 @@ impl Drop for SessionChild {
             );
         }
     }
-}
-
-/// The daemon's own environment as `NAME=VALUE` entries, each of `added` set over it.
-pub(crate) fn inherited_environment(added: &[(String, String)]) -> Vec<OsString> {
-    let inherited = std::env::vars_os().filter(|(name, _)| {
-        !added
-            .iter()
-            .any(|(added_name, _)| OsStr::new(added_name) == name)
-    });
-    let added = added
-        .iter()
-        .map(|(name, value)| (OsString::from(name), OsString::from(value)));
-    inherited
-        .chain(added)
-        .map(|(name, value)| {
-            let mut entry = OsString::with_capacity(name.len() + value.len() + 1);
-            entry.push(name);
-            entry.push("=");
-            entry.push(value);
-            entry
-        })
-        .collect()
 }

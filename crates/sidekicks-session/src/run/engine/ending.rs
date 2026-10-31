@@ -11,8 +11,9 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_workspace::run_setup_gates::RunTerminalContext;
 use tokio::sync::SetOnce;
 
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::live::{EndingWrite, LiveRuns, settle};
-use crate::run::engine::{RunEngine, RunEngineError, settled};
+use crate::run::engine::{RunEngine, settled};
 use crate::run::read::RunRead;
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
@@ -97,6 +98,9 @@ impl RunEngine {
         let mut live = lock(&self.live);
         live.carried_output_speeds.remove(run_id);
         live.step_counts.remove(run_id);
+        live.usage_tallies.remove(run_id);
+        live.helper_runs
+            .retain(|_, helper_run_id| helper_run_id != run_id);
         live.reached_limits
             .retain(|(reached_run_id, _)| reached_run_id != run_id);
         live.mark_starting_run_ended(run_id);

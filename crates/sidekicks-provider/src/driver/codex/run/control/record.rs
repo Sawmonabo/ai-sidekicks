@@ -16,7 +16,7 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::state::{CodexSessionRecord, CodexWaitingContinue};
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::ResumeRunParams;
 
 /// One call of run control on a session's record.

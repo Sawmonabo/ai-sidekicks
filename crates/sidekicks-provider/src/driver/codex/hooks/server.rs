@@ -16,7 +16,7 @@ use sidekicks_std::error_description::describe_error;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::bound_failure_detail;
+use crate::driver::contract::error::bound_failure_detail;
 
 /// The sentence a pre-tool call is denied with when its input cannot be read; the model reads it.
 /// It never quotes the input, which holds the tool's arguments.

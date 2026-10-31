@@ -156,11 +156,22 @@ static LIST_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// Reads runs and their steps for the run page and the runs list, on one of the daemon's read
 /// connections, which sees each write once it has committed.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow.run.read and workflow.run.list handlers"
+    )
+)]
 pub(crate) struct WorkflowRunStore<'connection> {
     /// A read-only connection.
     reader: &'connection Connection,
 }
 
+#[expect(
+    dead_code,
+    reason = "the workflow.run.read and workflow.run.list handlers"
+)]
 impl<'connection> WorkflowRunStore<'connection> {
     /// A store reading through `reader`, one of the daemon's read-only connections.
     pub(crate) fn new(reader: &'connection Connection) -> Self {

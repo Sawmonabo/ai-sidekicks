@@ -22,6 +22,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio_util::task::TaskTracker;
 
 use crate::driver::attachments::AttachmentResolver;
@@ -49,7 +50,7 @@ use crate::driver::codex::session::inbound::{
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::driver::run_control::{
     InterruptRunRequest, PauseRunParams, ResumeRunParams, SteerTurnEndedError, WaitingMessage,
@@ -58,7 +59,6 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_pause::{ContinuedMessages, RunPauses};
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
-use sidekicks_std::port_registration::PortRegistration;
 
 /// What run control acts through.
 pub(crate) struct CodexRunControlDependencies {
@@ -278,11 +278,7 @@ impl CodexRunControl {
 
     // Reports the run `run_id` paused, its pause's interrupted turn ended; a run with no binding
     // left is already ended.
-    async fn report_run_paused(
-        &self,
-        run_id: RunId,
-        provider_account_id: Option<ProviderAccountId>,
-    ) {
+    async fn report_run_paused(&self, run_id: RunId, provider_account_id: ProviderAccountId) {
         let Some(binding) = self.dependencies.run_routes.binding_for(run_id) else {
             return;
         };
@@ -294,7 +290,7 @@ impl CodexRunControl {
             &*self.dependencies.dispatch,
             DeliveryOrigin {
                 provider: DESCRIPTOR.provider_id(),
-                provider_account_id,
+                provider_account_id: Some(provider_account_id),
                 raw_wire_type: Some("turn/completed"),
             },
             InboundDelivery::RunLifecycle {

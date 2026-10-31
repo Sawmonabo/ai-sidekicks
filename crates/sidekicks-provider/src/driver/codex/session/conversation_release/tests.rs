@@ -20,7 +20,7 @@ use crate::driver::codex::session::inbound::{
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::test_registry::new_session_id;
 
 const THREAD: &str = "thread-1";

@@ -11,6 +11,7 @@ use sidekicks_platforms::{
 use tokio::time::Instant;
 
 use super::locked_down_config;
+use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::lifecycle::naming::{
     CODEX_NAMING_DEADLINE, CODEX_SERVER_LIST_DEADLINE, name_in_one_shot,
 };
@@ -21,6 +22,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
 use crate::driver::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // A stand-in for Codex's program in `folder`: `codex mcp list --json` prints `listing` and exits
 // with `list_exit`; any other call records its arguments in `arguments` and fails.
@@ -57,13 +59,13 @@ fn service_running(folder: &Path, program: PathBuf) -> (Arc<CodexService>, Scrip
             environment: Vec::new(),
         }),
         Arc::new(UnheardEvents),
+        Arc::new(UnrecordedChildren),
     );
     let socket = folder.join("codex.sock");
     script_codex_service(
         CodexServiceHome {
             codex_home: folder.join("home"),
-            provider_account_id: None,
-            kind: CodexHomeKind::Account,
+            kind: CodexHomeKind::Account(test_provider_account_id()),
         },
         CodexServiceSocket {
             path: socket.clone(),

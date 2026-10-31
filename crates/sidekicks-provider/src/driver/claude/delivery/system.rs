@@ -1,8 +1,7 @@
 //! What Claude Code's `system` frames say about a run, in the daemon's words: a model switch, the
 //! refusal no other model took, a retried request, a warning, the coarse status, the worker's
-//! shutdown reason and a helper's end; and the refusal an `assistant` message ends on. The frames
-//! are untrusted, so each member is narrowed, and a frame that reads as nothing known reads as
-//! `None`.
+//! shutdown reason and a helper's end. The frames are untrusted, so each member is narrowed, and a
+//! frame that reads as nothing known reads as `None`.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::{
@@ -10,9 +9,7 @@ use sidekicks_contracts::event::usage::{
     UsageApiRequestRetriedPayload,
 };
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
-use sidekicks_contracts::provider::driver::methods::{
-    PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN,
-};
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
 use sidekicks_contracts::run::id::RunId;
@@ -22,6 +19,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::text_cut::cut_to_code_points;
 
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
 use crate::record_readers::{read_count, read_non_empty_string};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
 
@@ -113,29 +111,6 @@ pub(crate) fn read_claude_refusal_without_fallback(
     })
 }
 
-/// The refusal an `assistant` frame's message ends on (`stop_reason` `refusal`), with the model
-/// that refused and its check's category and explanation; Claude Code sends it whether or not a
-/// `model_refusal_no_fallback` frame follows.
-pub(crate) fn read_claude_assistant_refusal(frame: &Map<String, Value>) -> Option<RunFailureCause> {
-    let message = frame.get("message")?.as_object()?;
-    if message.get("stop_reason").and_then(Value::as_str) != Some("refusal") {
-        return None;
-    }
-    let model = read_text::<PROVIDER_WIRE_HANDLE_MAX_LEN>(message, "model")?;
-    let empty = Map::new();
-    let details = message
-        .get("stop_details")
-        .and_then(Value::as_object)
-        .unwrap_or(&empty);
-    Some(RunFailureCause::Refused {
-        origin: RunRefusedOrigin::Provider,
-        model,
-        sentence: None,
-        explanation: read_words(details, "explanation"),
-        safety_category: read_text(details, "category"),
-    })
-}
-
 /// The words of an `informational` frame Claude Code sent at level `warning`.
 pub(crate) fn read_claude_warning(frame: &Map<String, Value>) -> Option<ClaudeProviderWords> {
     (frame.get("level").and_then(Value::as_str) == Some("warning"))
@@ -195,17 +170,17 @@ pub(crate) fn read_claude_worker_shutdown_reason(
 /// The move a helper's child run makes on its `task_notification`: `completed` and `failed`
 /// end it as such, `stopped` stops it; any other status reads as `None`.
 pub(crate) fn read_claude_helper_end(
-    frame: &Map<String, Value>,
+    task: &ClaudeTaskFrame,
     child_run_id: RunId,
 ) -> Option<RunStateReport> {
-    let entry = match frame.get("status").and_then(Value::as_str)? {
+    let entry = match task.status()? {
         "completed" => RunStateEntry::Completed {
             intended_close: None,
         },
         "failed" => RunStateEntry::Failed {
             intended_close: None,
             failure_cause: None,
-            provider_failure_detail: read_words(frame, "summary"),
+            provider_failure_detail: task.summary().and_then(read_provider_words),
             process_exit: None,
         },
         "stopped" => RunStateEntry::Stopped {

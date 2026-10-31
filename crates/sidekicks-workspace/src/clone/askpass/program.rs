@@ -14,7 +14,7 @@ use interprocess::local_socket::{GenericFilePath, Stream, ToFsName};
 
 use super::broker::AskpassRequest;
 
-/// The file name git and ssh run the askpass mode by, beside the daemon's own program.
+/// The file name git and ssh run the askpass mode by, a link to the daemon's own program.
 pub const GIT_ASKPASS_PROGRAM_NAME: &str = "sidekicks-git-askpass";
 
 /// The environment variable naming the broker's socket to the askpass mode.
@@ -23,10 +23,10 @@ pub(crate) const ASKPASS_SOCKET_VARIABLE: &str = "SIDEKICKS_ASKPASS_SOCKET";
 /// The environment variable naming a question's owner to the askpass mode.
 pub(crate) const ASKPASS_OWNER_VARIABLE: &str = "SIDEKICKS_ASKPASS_OWNER";
 
-/// The askpass mode's path, beside `daemon_program`, the running daemon's own program, with the
-/// system's program suffix.
-pub fn git_askpass_program_path(daemon_program: &Path) -> PathBuf {
-    daemon_program.with_file_name(format!("{GIT_ASKPASS_PROGRAM_NAME}{EXE_SUFFIX}"))
+/// The askpass mode's link in `program_link_folder`, the folder of the daemon's mode links, with
+/// the system's program suffix.
+pub fn git_askpass_program_path(program_link_folder: &Path) -> PathBuf {
+    program_link_folder.join(format!("{GIT_ASKPASS_PROGRAM_NAME}{EXE_SUFFIX}"))
 }
 
 /// Runs the askpass mode: the question is git's or ssh's first argument, the socket and owner come

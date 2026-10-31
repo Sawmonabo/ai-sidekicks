@@ -3,7 +3,11 @@
 
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, Weak};
+use std::time::SystemTime;
 
+use futures::future::BoxFuture;
+
+use futures::FutureExt as _;
 use sidekicks_artifact::admission::UploadAdmission;
 use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_artifact::plans::store::StoredPlanHolds;
@@ -17,24 +21,36 @@ use sidekicks_contracts::session::id::{SessionId, UserId};
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
+use sidekicks_mcp::status::McpServerStatusTracker;
+use sidekicks_mcp::status::notices::McpNoticeBoard;
 use sidekicks_platforms::{Spawner, WallClockTimer};
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::background_work::BackgroundWorkForms;
-use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
-use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+use sidekicks_provider::driver::test_registry::{
+    registered_test_accounts, registry_of_first_provider,
+};
+use sidekicks_provider::driver::{CurrentProviderAccount, PROVIDERS};
 use sidekicks_provider::process_identity::{ProviderProcessIdentity, ProviderProcessIds};
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_provider::runtime_binding::store::CreateRuntimeBindingInput;
-use sidekicks_provider::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
-use sidekicks_provider::runtime_binding::test_store::{binding_input, spawned_build};
+use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
+use sidekicks_provider::runtime_binding::test_store::{
+    binding_input, spawn_config_on, spawned_build, test_provider_account_id,
+};
 use sidekicks_queue::memory_gate::{MemoryGate, MemoryGateFigures};
-use sidekicks_queue::provider_session::test_opening::test_opening_composer;
+use sidekicks_queue::provider_session::test_opening::{
+    test_git_folder_reader, test_opening_composer,
+};
+use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::plan_holds::PlanHolds;
+use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_session::run::epochs::ExecutionEpochs;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -46,19 +62,26 @@ use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_workspace::git::process::{GitLimits, GitRunner};
+use sidekicks_workspace::git::worktree::naming::worktrees_folder;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::managed::service::{ManagedWorkspaceService, managed_workspaces_folder};
 use sidekicks_workspace::managed::write_watcher::{
-    ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
+    ManagedWorkspaceReport, ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
 };
+use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate, RunSetupGateError};
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    SessionServiceStart, SessionServices, build_session_services, start_session_attachments,
+    SessionServiceStart, SessionServices, build_session_services, follow_binding_cursors,
+    start_session_attachments,
 };
-use crate::daemon::process::repo_services::{RepoServiceStart, RepoServices, build_repo_services};
+use crate::daemon::configuration::ConfigurationStore;
+use crate::daemon::process::repo_services::{
+    ManagedWritesWatermarkFile, RepoServiceStart, RepoServices, build_repo_services,
+    managed_writes_watermark_path,
+};
 use crate::daemon::schema::schema_parts;
 
 // The statements the tests' read pool prepares, every reader's together.
@@ -73,6 +96,18 @@ impl ProviderProcessIds for NoProcess {
     }
 }
 
+// A run setup gate that lets every run start, in the place of the execution roots' gate.
+struct PassingGate;
+
+impl RunSetupGate for PassingGate {
+    fn assert_run_ready<'a>(
+        &'a self,
+        _context: &'a RunSetupContext,
+    ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
+        Box::pin(std::future::ready(Ok(())))
+    }
+}
+
 /// The repository and session services built over a test database on a temporary home.
 struct Fixture {
     database: TestDatabase,
@@ -81,7 +116,7 @@ struct Fixture {
     folder_watch: Arc<WorkingFolderWatcher>,
     workspaces: Arc<ManagedWorkspaceService>,
     // Stands in for the workspaces' watch as the sender of the chats' writes.
-    writes: Option<mpsc::Sender<ManagedWorkspaceWrite>>,
+    writes: Option<mpsc::Sender<ManagedWorkspaceReport>>,
     session: SessionServices,
     home: TempDir,
 }
@@ -119,15 +154,17 @@ async fn fixture() -> Fixture {
     let repo = build_repo_services(RepoServiceStart {
         home_folder: home.path().to_path_buf(),
         run_folder: home.path().join("run"),
-        daemon_program: daemon_program.clone(),
+        program_link_folder: home.path().join("bin"),
         git: git.clone(),
         reads: Arc::clone(&reads),
         writer: Arc::clone(&log.writer),
         event_log: Arc::clone(&log.service),
         machine_id: machine.machine_id.clone(),
-        scheduler,
+        scheduler: Arc::clone(&scheduler),
         list_feed: Arc::clone(&list_feed),
         stop: CancellationToken::new(),
+        worktrees_folder: worktrees_folder(home.path()),
+        missed_since: SystemTime::now(),
     })
     .expect("the repository services build");
     let RepoServices {
@@ -157,6 +194,18 @@ async fn fixture() -> Fixture {
     )));
     let read_damaged_from_sequence: Arc<DamagedFromSequenceReader> =
         Arc::new(|_: &SessionId| None::<i64>);
+    let configuration = ConfigurationStore::open(Arc::clone(&log.writer), &reads)
+        .await
+        .expect("the configuration opens");
+    let token_limits = PortRegistration::new("run token limits");
+    token_limits
+        .register(Arc::new(configuration) as Arc<dyn RunTokenLimitReader>)
+        .expect("a new registration takes its port");
+    let token_limits = Arc::new(token_limits);
+    let (first_observations, mcp_first_observations) = open_first_observation_drain(
+        McpBindingStore::new(Arc::clone(&log.writer), Arc::clone(&reads)),
+    )
+    .await;
     let session = build_session_services(SessionServiceStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&log.writer),
@@ -170,9 +219,15 @@ async fn fixture() -> Fixture {
             home.path(),
             home.path().join("session-token"),
         )),
-        runtime_bindings: Arc::new(RuntimeBindingStore::new(reads, Arc::clone(&log.writer))),
+        execution_root_gate: Arc::new(PassingGate),
+        binding_cursors: Arc::new(RunBindingCursors::new(
+            Arc::clone(&reads),
+            Arc::new(RuntimeBindingStore::new(reads, Arc::clone(&log.writer))),
+            Arc::clone(&epochs),
+        )),
         epochs: Arc::clone(&epochs),
         compose_opening: test_opening_composer(),
+        read_git_folder: test_git_folder_reader(),
         processes: Arc::new(NoProcess),
         memory_gate: Arc::new(MemoryGate::new(
             MemoryGateFigures {
@@ -197,9 +252,22 @@ async fn fixture() -> Fixture {
         spool_folder,
         workspaces_folder: managed_workspaces_folder(home.path()),
         workspace_writes,
+        managed_writes_watermark: Arc::new(ManagedWritesWatermarkFile {
+            path: managed_writes_watermark_path(home.path()),
+        }),
         clock,
         spawner,
         daemon_program,
+        provider_accounts: registered_test_accounts(CurrentProviderAccount::Current(
+            test_provider_account_id(),
+        )),
+        token_limits,
+        scheduler,
+        mcp_status: Arc::new(McpServerStatusTracker::new(
+            Arc::new(McpNoticeBoard::default()),
+            first_observations,
+        )),
+        mcp_first_observations: mcp_first_observations.boxed(),
     })
     .expect("the session services build");
     Fixture {
@@ -222,13 +290,16 @@ impl Fixture {
         let binding = self
             .session
             .binding_cursors
-            .create(CreateRuntimeBindingInput {
-                run_id,
-                ..binding_input(
-                    RuntimeBindingSpawnConfig::default(),
-                    spawned_build("2.0.0", "/opt/provider/bin"),
-                )
-            })
+            .create(
+                session_id,
+                CreateRuntimeBindingInput {
+                    run_id,
+                    ..binding_input(
+                        spawn_config_on(test_provider_account_id()),
+                        spawned_build("2.0.0", "/opt/provider/bin"),
+                    )
+                },
+            )
             .await
             .expect("the binding is recorded");
         binding.id
@@ -251,13 +322,16 @@ impl Fixture {
     }
 }
 
-// Killed by deleting the binding cursors' follow from the start's attachments: a live run's
-// cursor then outlives its session's close.
+// Killed by deleting the binding cursors' follow: a live run's cursor then outlives its session's
+// close.
 #[tokio::test]
 async fn the_started_follows_drop_a_closed_sessions_cursors() {
     let mut fixture = fixture().await;
     let followers = Arc::clone(&fixture.log.followers);
-    let attachments = start_session_attachments(&fixture.session, &followers);
+    let binding_cursors = follow_binding_cursors(&fixture.session, &followers);
+    let attachments = start_session_attachments(&fixture.session, &followers, binding_cursors)
+        .await
+        .expect("the attachments start");
     let session_id = test_session_id();
     let live_binding = fixture.bind_new_run(session_id).await;
     assert!(fixture.is_open(&live_binding));
@@ -307,17 +381,20 @@ async fn the_stop_records_every_write_sent_before_it() {
         std::fs::write(workspace.join(&name), format!("note {index}"))
             .expect("the test writes a file");
         writes
-            .send(ManagedWorkspaceWrite {
+            .send(ManagedWorkspaceReport::Write(ManagedWorkspaceWrite {
                 session_id,
                 relative_path: name.into(),
                 kind: ManagedWorkspaceWriteKind::File,
-            })
+            }))
             .await
             .expect("the recording reads the writes");
     }
     drop(writes);
     let followers = Arc::clone(&fixture.log.followers);
-    let attachments = start_session_attachments(&fixture.session, &followers);
+    let binding_cursors = follow_binding_cursors(&fixture.session, &followers);
+    let attachments = start_session_attachments(&fixture.session, &followers, binding_cursors)
+        .await
+        .expect("the attachments start");
 
     let failures = attachments
         .stop(&mut fixture.session, &fixture.workspaces)

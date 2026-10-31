@@ -15,10 +15,11 @@
 //!   then read again once, since the hold keeps any new append out. The writer's connection runs
 //!   with `secure_delete` on, so a freed page is overwritten.
 //! - After the commit the recovery state forgets the session's damage, the session reads let go of
-//!   its block cuts, the project's other sessions are handed their rules again, the live list
-//!   loses the session, and each stored payload no surviving manifest names is unlinked. Once
-//!   every session is done the sessions they were linked to are scored again, and the
-//!   write-ahead log is truncated, tried again until it succeeds, even when nothing was deleted.
+//!   its block cuts, the runs' postures forget its level moves, the project's other sessions are
+//!   handed their rules again, the live list loses the session, the project list counts it no
+//!   more, and each stored payload no surviving manifest names is unlinked. Once every session is
+//!   done the sessions they were linked to are scored again, and the write-ahead log is truncated,
+//!   tried again until it succeeds, even when nothing was deleted.
 
 pub(crate) mod rows;
 #[cfg(test)]
@@ -47,10 +48,13 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::damaged_history::DamagedSessionPurge;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_session::conversation_purge::{ConversationPurge, ConversationPurgeError};
 use sidekicks_session::directory::list_feed::SessionListFeed;
+use sidekicks_session::readings::context::ContextReadings;
+use sidekicks_session::readings::turn::TurnReadings;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::service::SessionService;
 use sidekicks_shell::table::ShellTable;
@@ -75,6 +79,7 @@ use sidekicks_workspace::git::turn_snapshot::service::{
     TurnSnapshotPruneFailure, TurnSnapshotPruneOutcome, TurnSnapshotService,
 };
 use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorkspaceService};
+use sidekicks_workspace::project::list_feed::ProjectListFeed;
 
 use crate::data_acts::purge::rows::{
     MARKED_GUARD_INDEX, PurgeCaller, PurgeReadError, UPPER_BOUND_GUARD_INDEX, gone_worktree_ids,
@@ -142,13 +147,6 @@ pub(crate) enum SessionPurgeError {
 
 /// What the purge did to one session.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the retention handler and `session.recovery.delete` read what the purge did"
-    )
-)]
 pub(crate) enum SessionPurgeOutcome {
     /// Every row naming the session is gone; `hand_out_failure` is why the project's other sessions
     /// were not handed their rules again, when they were not.
@@ -160,21 +158,11 @@ pub(crate) enum SessionPurgeOutcome {
     Refused(SessionPurgeError),
 }
 
-/// What one purge did: each session's outcome, in the order asked, and whether the write-ahead
-/// log's truncation still runs.
+/// What one purge did: each session's outcome, in the order asked.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the retention handler and `session.recovery.delete` read what the purge did"
-    )
-)]
 pub(crate) struct SessionPurgeReport {
     /// Each session asked for, with its outcome.
     pub(crate) outcomes: Vec<(SessionId, SessionPurgeOutcome)>,
-    /// Whether the truncation runs; false only once the daemon's stop ended it.
-    pub(crate) is_truncation_running: bool,
 }
 
 /// What the purge deletes through.
@@ -201,6 +189,9 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) project_rules: Arc<ApprovalRules>,
     /// The live sessions list, told of each session marked and removed.
     pub(crate) list_feed: Arc<SessionListFeed>,
+    /// The project list, told of each session marked and removed, whose project it holds from
+    /// its last read once the session's rows are gone.
+    pub(crate) project_list_feed: Arc<ProjectListFeed>,
     /// Scores again the related lists of the sessions a purged one was linked to.
     pub(crate) ranking: Arc<SessionRelatedRanking>,
     /// The stored payloads a purged session's manifests named.
@@ -211,6 +202,12 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) recovery: Arc<RecoveryStatusTracker>,
     /// The session reads, which let go of the block cuts they kept for a purged session.
     pub(crate) sessions: Arc<SessionService>,
+    /// The latest context readings, which forget a purged session they kept as closed.
+    pub(crate) context_readings: Arc<ContextReadings>,
+    /// The latest turn readings, which forget a purged session they kept as closed.
+    pub(crate) turn_readings: Arc<TurnReadings>,
+    /// The runs' postures, which forget the level moves they kept for a purged session.
+    pub(crate) execution_postures: Arc<ExecutionPostureService>,
 }
 
 /// Deletes whole sessions.
@@ -226,10 +223,6 @@ pub(crate) struct SessionPurge {
 
 impl SessionPurge {
     /// The purge over `deps`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start builds the purge")
-    )]
     pub(crate) fn new(deps: SessionPurgeDeps) -> Self {
         Self {
             deps,
@@ -275,10 +268,8 @@ impl SessionPurge {
             }
         }
         self.deps.ranking.rescore_around(formerly_linked);
-        SessionPurgeReport {
-            outcomes,
-            is_truncation_running: self.deps.truncation.request(),
-        }
+        self.deps.truncation.request();
+        SessionPurgeReport { outcomes }
     }
 
     async fn purge_session(
@@ -292,6 +283,7 @@ impl SessionPurge {
         let _transition = deps.transition_lock.acquire(session_id).await;
         self.mark(session_id, caller).await?;
         deps.list_feed.refresh([session_id]);
+        deps.project_list_feed.refresh_sessions(&[session_id]);
         let targets = deps
             .reads
             .read(ReadLength::Long, move |connection| {
@@ -336,9 +328,13 @@ impl SessionPurge {
         let linked_session_ids = self
             .delete_rows(session_id, &targets.workflow_run_ids, operation_id)
             .await?;
-        deps.recovery.mark_session_healthy(&session_id);
+        deps.recovery.mark_session_deleted(&session_id);
         deps.sessions.forget_session_block_cuts(&session_id);
+        deps.context_readings.forget_purged_session(session_id);
+        deps.turn_readings.forget_purged_session(session_id);
+        deps.execution_postures.forget_session(&session_id);
         deps.list_feed.refresh([session_id]);
+        deps.project_list_feed.refresh_sessions(&[session_id]);
         let hand_out_failure = deps
             .project_rules
             .hand_out_after_purge(withdrawn)

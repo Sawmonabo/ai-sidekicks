@@ -77,6 +77,23 @@ impl ClaudeSessionSlots {
         }
     }
 
+    /// The session's live process once no transition holds its slot, waiting out each one in
+    /// flight, such as a restart's bring-up; `None` where none runs or it refuses to die.
+    pub(crate) async fn live_after_transitions(
+        &self,
+        session_id: SessionId,
+    ) -> Option<Arc<LiveClaudeSession>> {
+        loop {
+            let settled = match lock(&self.table).by_session.get(&session_id)? {
+                ClaudeSessionSlot::Live { session } => return Some(Arc::clone(session)),
+                ClaudeSessionSlot::Establishing { settled, .. }
+                | ClaudeSessionSlot::Closing { settled, .. } => Arc::clone(settled),
+                ClaudeSessionSlot::Quarantined { .. } => return None,
+            };
+            settled.wait().await;
+        }
+    }
+
     /// Every session whose process is live now.
     pub(crate) fn live_sessions(&self) -> Vec<Arc<LiveClaudeSession>> {
         lock(&self.table)
@@ -94,6 +111,16 @@ impl ClaudeSessionSlots {
     /// Every session holding a slot, in any state.
     pub(crate) fn session_ids(&self) -> Vec<SessionId> {
         lock(&self.table).by_session.keys().copied().collect()
+    }
+
+    /// The settle cell of the bring-up holding the session's slot; `None` unless one is in flight.
+    pub(crate) fn establishing_settled(&self, session_id: SessionId) -> Option<ClaudeSlotSettled> {
+        match lock(&self.table).by_session.get(&session_id)? {
+            ClaudeSessionSlot::Establishing { settled, .. } => Some(Arc::clone(settled)),
+            ClaudeSessionSlot::Live { .. }
+            | ClaudeSessionSlot::Closing { .. }
+            | ClaudeSessionSlot::Quarantined { .. } => None,
+        }
     }
 
     /// Whether the session holds a slot, in any state.
@@ -403,9 +430,10 @@ impl ClaudeSlotClose {
         self.is_disposed = true;
     }
 
-    /// Closes the process for a bring-up that follows at once, keeping its runs bound for the next
-    /// process: closes its channel, retires its run routes after it, empties the slot, releases
-    /// the reviewer presses it served and tells the queue the process is gone.
+    /// Closes the process for a bring-up that follows, at once or at the session's wake, keeping
+    /// its runs bound for the next process: closes its channel, retires its run routes after it,
+    /// empties the slot, releases the reviewer presses it served and tells the queue the process
+    /// is gone.
     pub(crate) async fn retire_for_bring_up(self, routes: &ClaudeRunRoutes, ports: &DriverPorts) {
         let live = Arc::clone(&self.session);
         self.close_channel().await;

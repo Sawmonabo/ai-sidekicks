@@ -25,6 +25,8 @@ use crate::driver::codex::service::supervisor::test_service::{
 };
 use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
 use crate::run::posture::compose_execution_posture;
+use crate::runtime_binding::store::mint_runtime_binding_id;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The resting session's stored conversation.
 pub(crate) const STORED_THREAD: &str = "stored-thread";
@@ -38,14 +40,16 @@ pub(crate) const COPY_TURN: &str = "copy-turn";
 /// The copy's answer.
 pub(super) const ANSWER: &str = "It reads the worktree.";
 
-/// The resume material of `session_id` at rest in `folder` on the person's own sign-in.
+/// The resume material of `session_id` at rest in `folder` on the test's account.
 pub(crate) fn resting_session(session_id: SessionId, folder: &Path) -> ResumeSessionParams {
     ResumeSessionParams {
         session_id,
+        binding_id: mint_runtime_binding_id(),
         agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
         resume_handle: STORED_THREAD.to_owned(),
         model: ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),
         larger_window: None,
+        runtime_metadata: Map::new(),
         mode: SessionMode::Build,
         execution_posture: Some(compose_execution_posture(
             PermissionLevel::Ask,
@@ -58,16 +62,19 @@ pub(crate) fn resting_session(session_id: SessionId, folder: &Path) -> ResumeSes
         subagent_policy: None,
         tool_servers: None,
         output_schema: None,
-        provider_account_id: None,
+        provider_account_id: test_provider_account_id(),
         on_mcp_server_status: None,
+        kept_schedules: Vec::new(),
+        live_runs: Vec::new(),
     }
 }
 
 /// A side question asked on `session_id` at rest in `folder`, its stored conversation
-/// `stored-thread`, at Ask on the person's own sign-in.
+/// `stored-thread`, at Ask on the test's account.
 pub(crate) fn resting_question(session_id: SessionId, folder: &Path) -> AskSideQuestionParams {
     AskSideQuestionParams {
         session_id,
+        binding_id: mint_runtime_binding_id(),
         side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
         question: "What does this read?".to_owned(),
         resume: Some(resting_session(session_id, folder)),
@@ -82,6 +89,7 @@ pub(crate) fn read_only_profile(folder: &Path) -> String {
             working_directory: folder.join("work"),
             git_common_folder: None,
             deny_paths: Vec::new(),
+            command_channel_folder: folder.join("command-channel"),
         },
     )
 }
@@ -138,29 +146,60 @@ async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<Strin
     (socket, fork)
 }
 
+/// How the copy's one turn ends.
+pub(crate) enum CopyTurnEnding {
+    /// Completed with [`ANSWER`].
+    Answered,
+    /// Failed, Codex's policy having refused it.
+    RefusedByPolicy,
+}
+
+/// The words Codex refuses a turn under its policy with.
+pub(crate) const POLICY_REFUSAL: &str = "This request was flagged by the cyber policy.";
+
 /// Serves the copy's connection as Codex: its start, a fork of the stored conversation under
-/// `profile`, one turn and its answer; answers the fork's params once the daemon let the
+/// `profile`, one turn ending as `ending` says; answers the fork's params once the daemon let the
 /// connection go.
-pub(super) async fn serve_copy(listener: Listener, profile: String) -> Map<String, Value> {
+pub(crate) async fn serve_copy(
+    listener: Listener,
+    profile: String,
+    ending: CopyTurnEnding,
+) -> Map<String, Value> {
     let (mut socket, fork) = open_copy(&listener, &profile).await;
-    send_on_socket(
-        &mut socket,
-        json!({"jsonrpc": "2.0", "method": "item/completed", "params": {
-            "threadId": COPY_THREAD,
-            "turnId": COPY_TURN,
-            "item": {"type": "agentMessage", "id": "item-1", "text": ANSWER},
-        }}),
-    )
-    .await;
+    let turn = match ending {
+        CopyTurnEnding::Answered => {
+            send_on_socket(
+                &mut socket,
+                json!({"jsonrpc": "2.0", "method": "item/completed", "params": {
+                    "threadId": COPY_THREAD,
+                    "turnId": COPY_TURN,
+                    "item": {"type": "agentMessage", "id": "item-1", "text": ANSWER},
+                }}),
+            )
+            .await;
+            json!({"id": COPY_TURN, "items": [], "status": "completed"})
+        }
+        CopyTurnEnding::RefusedByPolicy => json!({
+            "id": COPY_TURN,
+            "items": [],
+            "status": "failed",
+            "error": {
+                "message": POLICY_REFUSAL,
+                "codexErrorInfo": "cyberPolicy",
+                "additionalDetails": null,
+                "misalignment": null,
+            },
+        }),
+    };
     send_on_socket(
         &mut socket,
         json!({"jsonrpc": "2.0", "method": "turn/completed", "params": {
             "threadId": COPY_THREAD,
-            "turn": {"id": COPY_TURN, "items": [], "status": "completed"},
+            "turn": turn,
         }}),
     )
     .await;
-    // The copy is let go with its connection once it answered.
+    // The copy is let go with its connection once its turn ended.
     while let Some(Ok(_message)) = socket.next().await {}
     fork
 }

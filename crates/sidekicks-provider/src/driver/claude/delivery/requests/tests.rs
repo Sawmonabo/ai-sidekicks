@@ -11,7 +11,7 @@ use crate::driver::claude::session::scripted::channel::ScriptedWrite;
 use crate::driver::claude::session::scripted::daemon_services::PortCall;
 use crate::driver::claude::session::scripted::{ScriptedSession, settle};
 use crate::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
-use crate::driver::contract::ProviderRequestAnswer;
+use crate::driver::contract::params_and_results::ProviderRequestAnswer;
 use crate::port::question::QuestionPort;
 use crate::port::question::test_card::QuestionCard;
 

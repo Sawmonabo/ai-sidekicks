@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
-use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
+use sidekicks_contracts::provider::driver::capabilities::{ProviderModel, find_provider_model_row};
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -22,7 +22,8 @@ use super::tools::codex_tool_metadata;
 use super::transport::connection::CodexAppServerConnection;
 use crate::capability::probe::{CapabilityProbeExchange, read_provider_capabilities};
 use crate::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
-use crate::driver::contract::{DriverError, GetCapabilitiesResult, bound_failure_detail};
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
+use crate::driver::contract::params_and_results::GetCapabilitiesResult;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
@@ -366,7 +367,7 @@ impl CodexModelCatalogReader {
     // The whole catalog's fault, naming the row, the cursor or the counts in `detail`, which is
     // bounded, since a cursor or an id is the service's own text.
     fn unreadable(&self, detail: &str) -> DriverError {
-        DriverError::ModelCatalogUnreadable(ModelCatalogUnreadable {
+        DriverError::from(ModelCatalogUnreadable {
             provider: self.provider.clone(),
             reply_name: CODEX_MODEL_LIST_METHOD,
             detail: bound_failure_detail(detail, CATALOG_FAULT_FALLBACK.clone()),
@@ -428,6 +429,15 @@ pub(crate) async fn read_codex_service_model_catalog(
     .await
 }
 
+/// `model`'s row in a Codex catalog, `None` for a model it does not list. `model/list` lists each
+/// model once, on its default row, and its effort levels and tiers hold on either window.
+pub(crate) fn find_codex_model_row<'catalog>(
+    catalog: &'catalog [ProviderModel],
+    model: &str,
+) -> Option<&'catalog ProviderModel> {
+    find_provider_model_row(catalog, model, false)
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::VecDeque;
@@ -436,7 +446,7 @@ mod tests {
     use serde_json::value::RawValue;
 
     use super::read_codex_model_catalog;
-    use crate::driver::contract::DriverError;
+    use crate::driver::contract::error::DriverError;
     use crate::driver::diagnostics::OnceReportedDiagnostics;
 
     // Answers each scripted page in turn, recording the cursor each was asked with; a request

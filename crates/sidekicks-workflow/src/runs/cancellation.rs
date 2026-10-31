@@ -16,6 +16,13 @@ use sidekicks_store::database::statement::{
 use crate::runs::record::{GOING_RUN_STATUSES_SQL, parked_failed_run_condition};
 
 /// A cancel as the run's rows record it.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the run engine's cancel, which writes them with the run's canceled event"
+    )
+)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct WorkflowRunCancellation {
     /// The run canceled.
@@ -68,6 +75,13 @@ static CANCEL_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
 /// still running, waiting or held by the memory gate reads `canceled` with the same end, and no
 /// step of the run keeps a wait cause, wait start, resume instant, deadline or spent account. The
 /// write is refused, changing nothing, unless the run is still going or parked on a failed step.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the run engine's cancel, which writes them with the run's canceled event"
+    )
+)]
 pub(crate) fn workflow_run_cancellation_statements(
     cancellation: &WorkflowRunCancellation,
 ) -> [WriteStatement; 2] {

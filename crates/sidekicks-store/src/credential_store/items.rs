@@ -129,14 +129,6 @@ enum Check {
     Refused(KeychainRefusal),
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "each feature takes its keychain and the status read its file, and the erase and \
-                  the relink call them"
-    )
-)]
 impl SecretItems {
     /// The secret items of the data folder and offer `start` names, nothing picked or checked
     /// yet. Fails with the random source's error when it gives no bytes for the probe account.
@@ -694,10 +686,7 @@ fn cannot_open(cause: DaemonSecretsFileUnopened) -> KeychainRefusal {
         DaemonSecretsFileUnopened::ChipUnavailable => "the security chip cannot be used",
         DaemonSecretsFileUnopened::KeyChanged => "the key they were sealed with is gone",
     };
-    KeychainRefusal::new(
-        KeychainRefusalCause::Unavailable,
-        format!("the sealed secrets cannot be opened: {why}"),
-    )
+    KeychainRefusal::of_unopened_secrets_file(format!("the sealed secrets cannot be opened: {why}"))
 }
 
 fn seal_refused(failure: SealFailure) -> KeychainRefusal {

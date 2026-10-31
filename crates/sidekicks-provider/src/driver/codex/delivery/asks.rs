@@ -18,7 +18,7 @@ pub(crate) mod attribution;
 pub(crate) mod questions;
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
@@ -34,6 +34,7 @@ use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_policy::destructive_git::covers_destructive_git;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -52,7 +53,8 @@ use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
-use crate::driver::contract::{DriverError, ProviderRequestAnswer, RespondToRequestParams};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{ProviderRequestAnswer, RespondToRequestParams};
 use crate::driver::question_answers::QUESTION_UNSHOWN_REASON;
 use crate::inbound_json::decode_inbound_json;
 use crate::port::permission_ask::{
@@ -67,7 +69,6 @@ use crate::project_rule_folders::write_into_project_folders;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::DeliveryOperation;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
-use sidekicks_std::port_registration::PortRegistration;
 
 /// The two owners an admitted ask goes to, each registered at runtime.
 pub(crate) struct CodexAskOwners {
@@ -80,17 +81,20 @@ pub(crate) struct CodexAskOwners {
 /// Writes a project's rule into, or takes it back out of, one of the project's working folders,
 /// reading the rule files Codex reads there.
 pub(crate) trait CodexProjectRules: Send + Sync {
-    /// Writes `rule` into `project_folder`'s own rule file. Fails as the write fails or Codex
-    /// would refuse the rule.
+    /// Writes `rule` into `project_folder`'s own rule file, read beside the rules of `codex_home`,
+    /// the session's. Fails as the write fails or Codex would refuse the rule.
     fn write<'call>(
         &'call self,
+        codex_home: &'call Path,
         project_folder: &'call Path,
         rule: &'call ProviderAskRule,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>>;
 
-    /// Takes `rule` back out of `project_folder`'s own rule file. Fails as the removal fails.
+    /// Takes `rule` back out of `project_folder`'s own rule file, read beside the rules of
+    /// `codex_home`, the session's. Fails as the removal fails.
     fn remove<'call>(
         &'call self,
+        codex_home: &'call Path,
         project_folder: &'call Path,
         rule: &'call ProviderAskRule,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>>;
@@ -106,6 +110,9 @@ pub(crate) struct CodexAskHandOffDependencies {
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
     /// Every provider's background work, which no command ask may start.
     pub(crate) background_work: Arc<BackgroundWorkForms>,
+    /// The shells Codex may start a command's line with, whose `-lc` wrapper an ask's line is
+    /// read without.
+    pub(crate) line_shells: Arc<[PathBuf]>,
     /// How a project rule is written into one working folder.
     pub(crate) project_rules: Arc<dyn CodexProjectRules>,
     /// The driver's tasks, which its shutdown waits for; each card is raised and taken back on
@@ -281,16 +288,25 @@ impl CodexAskHandOff {
             && made_rule.rule.kind == RememberedScopeKind::Project
         {
             let project_rules = &self.dependencies.project_rules;
+            let codex_home = &service.home().codex_home;
             write_into_project_folders(
                 &made_rule.project_folders,
                 &made_rule.rule,
                 |project_folder, rule| {
                     let project_rules = Arc::clone(project_rules);
-                    async move { project_rules.write(project_folder, rule).await }.boxed()
+                    let codex_home = codex_home.clone();
+                    async move { project_rules.write(&codex_home, project_folder, rule).await }
+                        .boxed()
                 },
                 |project_folder, rule| {
                     let project_rules = Arc::clone(project_rules);
-                    async move { project_rules.remove(project_folder, rule).await }.boxed()
+                    let codex_home = codex_home.clone();
+                    async move {
+                        project_rules
+                            .remove(&codex_home, project_folder, rule)
+                            .await
+                    }
+                    .boxed()
                 },
                 &[],
             )
@@ -310,7 +326,7 @@ impl CodexAskHandOff {
     pub(crate) fn withdraw(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         request_id: &str,
         ask_kind: CodexAskKind,
     ) {
@@ -380,6 +396,7 @@ impl CodexAskHandOff {
         let method = request.method.method();
         let read_params = params.clone();
         let background_work = Arc::clone(&self.dependencies.background_work);
+        let line_shells = Arc::clone(&self.dependencies.line_shells);
         // The tool server's call in flight is not tracked, so its approval names the server.
         let reading = self
             .dependencies
@@ -391,6 +408,7 @@ impl CodexAskHandOff {
                     &changed_paths,
                     None,
                     &background_work,
+                    &line_shells,
                     reader,
                 )
             })
@@ -470,7 +488,7 @@ impl CodexAskHandOff {
             tasks.spawn(async move {
                 if let Err(error) = port.take_ask(ask).await {
                     report_owner_failure(
-                        provider_account_id,
+                        Some(provider_account_id),
                         CodexDeliveryPort::PermissionAsk,
                         session_id,
                         error,
@@ -561,7 +579,7 @@ impl CodexAskHandOff {
                 let is_still_held =
                     matches!(error, QuestionTurnError::Take { .. }) && !let_go.is_cancelled();
                 report_owner_failure(
-                    provider_account_id.clone(),
+                    Some(provider_account_id.clone()),
                     CodexDeliveryPort::Question,
                     session_id,
                     Box::new(error),
@@ -581,7 +599,7 @@ impl CodexAskHandOff {
                     };
                     if let Err(error) = refused {
                         report_owner_failure(
-                            provider_account_id,
+                            Some(provider_account_id),
                             CodexDeliveryPort::Question,
                             session_id,
                             Box::new(error),
@@ -656,7 +674,7 @@ impl CodexAskHandOff {
     fn withdraw_approval_card(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         request_id: String,
     ) {
         let Some(port) = self.dependencies.owners.permission_asks.port().cloned() else {
@@ -669,7 +687,7 @@ impl CodexAskHandOff {
             };
             if let Err(error) = port.withdraw_ask(withdrawal).await {
                 report_owner_failure(
-                    provider_account_id,
+                    Some(provider_account_id),
                     CodexDeliveryPort::PermissionAsk,
                     session_id,
                     error,
@@ -681,7 +699,7 @@ impl CodexAskHandOff {
     fn withdraw_question_card(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         request_id: String,
     ) {
         let Some(port) = self.dependencies.owners.questions.port().cloned() else {
@@ -694,7 +712,7 @@ impl CodexAskHandOff {
             };
             if let Err(error) = port.withdraw_question(withdrawal).await {
                 report_owner_failure(
-                    provider_account_id,
+                    Some(provider_account_id),
                     CodexDeliveryPort::Question,
                     session_id,
                     error,

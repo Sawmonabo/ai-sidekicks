@@ -55,10 +55,6 @@ const DIFF_FLAGS: [&str; 8] = [
 ];
 
 /// The members of a note that name its line in its comparison.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the note store names each note's line through it")
-)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NoteLocation<'a> {
     /// The comparison the note was left in.
@@ -76,7 +72,7 @@ pub(crate) struct NoteLocation<'a> {
 
 /// Why a noted line could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum NotedLineError {
+pub enum NotedLineError {
     /// git failed for a reason other than finding no commit or a difference.
     #[error("git could not read the noted file")]
     Git(#[from] GitError),
@@ -130,13 +126,6 @@ impl NotedLineReader {
     /// Fails with `Git` when git fails otherwise (`WslPlace` for a project in a WSL 2
     /// distribution), `Path` when the path cannot be resolved, `File` when the working file's
     /// entry cannot be read, and `Patch` when git's diff does not parse.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the note store quotes and checks each note's line through it"
-        )
-    )]
     pub(crate) async fn read(
         &mut self,
         location: &NoteLocation<'_>,
@@ -468,7 +457,6 @@ fn line_text_of(line: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
 
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::repo::git_reads::GitObjectId;
@@ -477,18 +465,10 @@ mod tests {
     };
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::wire::text::NonEmptyText;
-    use sidekicks_workspace::git::process::{
-        GitCall, GitError, GitRunner, in_folder, test_git_runner,
-    };
+    use sidekicks_workspace::git::process::test_repository::git_in;
+    use sidekicks_workspace::git::process::{GitError, test_git_runner};
 
     use super::{NoteLocation, NotedLineError, NotedLineReader, lines_of_refused_diff};
-
-    // Runs `arguments` in `repository`; a read, so no hook of the person's runs in the test.
-    async fn git_in(git: &GitRunner, repository: &Path, arguments: &[&str]) {
-        git.run(None, GitCall::read(in_folder(repository, arguments)))
-            .await
-            .expect("the git call succeeds");
-    }
 
     fn file_path(path: &str) -> FilesystemPath {
         FilesystemPath::new(path.to_owned()).expect("the path is a filesystem path")

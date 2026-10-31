@@ -7,7 +7,7 @@ use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause
 use crate::driver::codex::service::supervisor::transition::CodexServiceAvailability;
 use crate::driver::codex::session::errors::CodexError;
 
-/// What a stop does with the lasting process of a terminal service, which outlives the daemon.
+/// What a stop does with a lasting service's process, which outlives the daemon.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum LastingServiceEnd {
     /// It is only disconnected and keeps running in its record, as under a daemon restart.
@@ -87,6 +87,23 @@ pub(crate) enum SupervisorAction {
     ReportRecovered(CodexServiceRecoveryCause),
     /// Tells the session's recovery the process ended on its own.
     ReportProcessExited,
+    /// Tells the session's recovery the daemon ended the process for answering nothing for the
+    /// whole silence limit.
+    ReportSilentEnd {
+        /// How long the service had answered nothing when the watch ran out.
+        silent_for: Duration,
+    },
+    /// Watches the service's silence under `ticket`, `silent_for` into the limit already,
+    /// reporting `SilenceElapsed` once the limit passes; a watch already running is ended.
+    WatchSilence {
+        /// The watch's ticket.
+        ticket: u64,
+        /// How long the service has answered nothing so far.
+        silent_for: Duration,
+    },
+    /// Ends the silence watch running, the service having answered or left the state that
+    /// watched it.
+    ClearSilence,
     /// Reports the crash loop, which leaves the service down, with the failure of the restart
     /// that filled the crash window where a failed restart did.
     ReportCrashLoop(Option<Arc<CodexError>>),
@@ -97,6 +114,9 @@ pub(crate) enum SupervisorAction {
     ReportDropped,
     /// Reports a start that failed after a crash.
     ReportStartFailed(Arc<CodexError>),
+    /// Tells the session's recovery the service stays stopped after a start that failed with no
+    /// crash to count, the failure already published.
+    ReportStoppedOnFailedStart,
     /// Publishes how the service stands to the callers waiting on it.
     Publish(CodexServiceAvailability),
 }

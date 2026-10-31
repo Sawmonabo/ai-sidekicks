@@ -18,6 +18,7 @@ use sidekicks_contracts::run::events::{
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::transcript::turn_attribution::TURN_END_EVENT_TYPES;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
 use sidekicks_std::mutex_lock::lock;
@@ -29,11 +30,11 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 
 use crate::interventions::store::run_at_version_statement;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::limits::LimitStop;
 use crate::run::engine::live::LiveRuns;
 use crate::run::engine::{
-    LIVE_APPEND_VERSION_GUARD_INDEX, RunEngine, RunEngineError, refused_statement_index,
-    safe_run_version, with_cleanup_failures,
+    LIVE_APPEND_VERSION_GUARD_INDEX, RunEngine, safe_run_version, with_cleanup_failures,
 };
 use crate::run::read::RunRead;
 use crate::run::restart::{TurnCut, limit_turn_cause, read_turn_cuts};
@@ -131,11 +132,22 @@ pub(super) struct StepCount {
 impl StepCount {
     /// The count of `turn_number` at its start, bounded at `bound` steps.
     pub(super) fn new(turn_number: SafeInt<1>, bound: SafeInt<1>) -> Self {
+        Self::counted(turn_number, bound, 0, false)
+    }
+
+    /// The count of `turn_number` as its log shows it after a restart: `steps` taken against
+    /// `bound`, and whether the turn's step limit was reached.
+    pub(super) fn counted(
+        turn_number: SafeInt<1>,
+        bound: SafeInt<1>,
+        steps: u64,
+        is_reached: bool,
+    ) -> Self {
         Self {
             turn_number,
             bound,
-            steps: 0,
-            is_reached: false,
+            steps,
+            is_reached,
         }
     }
 }
@@ -227,12 +239,14 @@ impl RunEngine {
     /// a start that lost its number to another numbered again, and returns its number; `None` with
     /// nothing written once the run has ended. `step_bound` is the turn's effective `Max steps per
     /// turn`, which the caller resolves when the turn opens; the engine counts the turn's steps
-    /// against it, whatever the provider. Fails with `RunRefusal::NotFound` for an unknown run and
-    /// with the append's failure.
+    /// against it, whatever the provider. `provider_turn_id` is the provider's own id of the turn,
+    /// recorded on its start, where the provider reports one. Fails with `RunRefusal::NotFound`
+    /// for an unknown run and with the append's failure.
     pub(crate) async fn start_turn(
         &self,
         run_id: RunId,
         position: Option<SourcePosition>,
+        provider_turn_id: Option<ProviderTurnId>,
         step_bound: Option<SafeInt<1>>,
     ) -> Result<Option<StartedTurn>, RunEngineError> {
         self.wait_while_continuing(&run_id).await;
@@ -251,7 +265,7 @@ impl RunEngine {
                     run_version: safe_run_version(run.version),
                     turn_number,
                     position,
-                    provider_turn_id: None,
+                    provider_turn_id: provider_turn_id.clone(),
                 }),
             )?;
             let transactional_prelude = vec![
@@ -271,7 +285,7 @@ impl RunEngine {
                 Err(error)
                     if attempt < TURN_START_ATTEMPTS
                         && matches!(
-                            refused_statement_index(&error),
+                            error.refused_statement_index(),
                             Some(LIVE_APPEND_VERSION_GUARD_INDEX | TURN_START_GUARD_INDEX)
                         ) => {}
                 Err(error) => return Err(error.into()),
@@ -517,7 +531,7 @@ impl RunEngine {
             .await;
         let is_written = match appended {
             Ok(_receipt) => true,
-            Err(error) if refused_statement_index(&error) == Some(LONE_TURN_END_GUARD_INDEX) => {
+            Err(error) if error.refused_statement_index() == Some(LONE_TURN_END_GUARD_INDEX) => {
                 false
             }
             Err(error) => return Err(error.into()),

@@ -21,13 +21,25 @@ interface SessionNoticeProviderWarning {
   details?: string; // a deprecation's details; absent on a warning
 }
 
-// session.notice.posted of kind `levelUnavailable`: an account switch moved the session onto an
-// account that cannot run the level it was at, so it runs at `Ask`. One flow row, `Reviewed isn't
-// available on this Claude Code account`, naming the level it left.
+// session.notice.posted of kind `levelUnavailable`: a level the session cannot run here. Either an
+// account switch moved the session onto an account that cannot run the level it was at, so it runs
+// at `Ask`, or the provider reported running `Sandboxed` where its sandbox cannot start here, so the
+// level moves and its commands fail rather than run unsandboxed. One flow row naming the level, such
+// as `Reviewed isn't available on this Claude Code account`.
 interface SessionNoticeLevelUnavailable {
   sessionId: SessionId;
   kind: "levelUnavailable";
-  level: PermissionLevel; // the level it left
+  level: PermissionLevel; // the level that cannot run
+}
+
+// session.notice.posted of kind `levelMoved`: the session's level or mode moved, by the person or by
+// a mode its provider reported running, whether a process was open or not. It carries both as they
+// now stand, so every client's level and mode controls read one source, and draws no row.
+interface SessionNoticeLevelMoved {
+  sessionId: SessionId;
+  kind: "levelMoved";
+  level: PermissionLevel;
+  sessionMode: SessionMode;
 }
 
 // session.notice.posted of kind `providerUpdated`: the session moved to the provider's new build,
@@ -57,22 +69,29 @@ type SessionNoticeSettingsIgnored = {
 // A provider process that ends on its own is restarted silently: the daemon restarts it at once,
 // then after 1 s, 2 s, 4 s and so on, with no notice and no flow row, the working line reading
 // `Reconnecting…` meanwhile. A crash during a turn ends that turn as the run's failed row
-// (`agent.run.failed`'s `processExit`); a crash while idle shows nothing.
+// (`agent.run.failed`'s `processExit`); a crash while idle shows nothing. A Codex service the
+// daemon started that stays alive but answers nothing for 2 minutes is ended by the daemon and
+// restarted the same way as a crash, the turn it cut reading `Turn ended · Codex stopped
+// answering · no reply for 2 minutes`; a service the daemon only joined is never ended.
 
 // session.notice.posted of kind `providerCrashLoop`: the provider process crashed for the fifth
-// time within three minutes and the daemon stopped restarting it. It draws the banner `Claude Code
-// ended unexpectedly · exit code 137 · Restart ×` and no flow row, or, for a lasting Codex service
-// whose five crashes were all failed starts, `Codex could not start · <the start's failure, one
-// line> · Restart ×`. It carries exactly one of the exit code, the signal and the start's failure
-// the daemon observed; the first two as `agent.run.failed`'s `processExit` does.
+// time within three minutes, or a Codex service the daemon ended for its silence was ended so for
+// the fifth time within thirty minutes, and the daemon stopped restarting it. It draws the banner
+// `Claude Code ended unexpectedly · exit code 137 · Restart ×` and no flow row, or, for a lasting
+// Codex service whose five crashes were all failed starts, `Codex could not start · <the start's
+// failure, one line> · Restart ×`, or, for a silent service, `Codex stopped answering · no reply
+// for 2 minutes · Restart ×`. It carries exactly one of the exit code, the signal, the seconds the
+// service answered nothing and the start's failure the daemon observed; the first three as
+// `agent.run.failed`'s `processExit` does.
 type SessionNoticeProviderCrashLoop = {
   sessionId: SessionId;
   kind: "providerCrashLoop";
   provider: ProviderId;
 } & (
-  | { exitCode: number; signal?: never; startFailure?: never }
-  | { signal: string; exitCode?: never; startFailure?: never }
-  | { startFailure: string; exitCode?: never; signal?: never }
+  | { exitCode: number; signal?: never; silentSeconds?: never; startFailure?: never }
+  | { signal: string; exitCode?: never; silentSeconds?: never; startFailure?: never }
+  | { silentSeconds: number; exitCode?: never; signal?: never; startFailure?: never }
+  | { startFailure: string; exitCode?: never; signal?: never; silentSeconds?: never }
 );
 
 // session.notice.posted of kind `providerRestarted`: the person's `Restart` brought back a provider

@@ -1,6 +1,4 @@
-//! The machine's settings: the file, its three methods, and the refusals a saved list or
-//! pattern meets.
+//! The machine's settings: the file and its three methods.
 
 pub(crate) mod file;
 pub(crate) mod methods;
-pub(crate) mod refusals;

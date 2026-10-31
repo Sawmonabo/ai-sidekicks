@@ -239,19 +239,6 @@ impl ShellPastes {
         }
     }
 
-    /// What closes the paste `paste_id`, which closes; none when it is not open.
-    pub(crate) fn close_paste(&mut self, paste_id: &ClientUuid) -> Option<PasteInput> {
-        if self
-            .open
-            .as_ref()
-            .is_some_and(|open| open.paste_id == *paste_id)
-        {
-            self.close_all()
-        } else {
-            None
-        }
-    }
-
     /// What closes the open paste, whichever pane it came through; none when none is open or it
     /// has no marks.
     pub(crate) fn close_all(&mut self) -> Option<PasteInput> {

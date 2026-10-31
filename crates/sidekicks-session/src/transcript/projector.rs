@@ -6,7 +6,8 @@
 //! patched files is one row the same way. Every row carries its body, read for the whole
 //! window in one statement; a large body is read as its size alone, so a page of large outputs
 //! costs no more than their lengths. A reply drawn as markdown carries its block starts, only
-//! those no later text can move while it is still arriving, or why its cut failed.
+//! those no later text can move while it is still arriving, or why its cut failed. A row of a tool
+//! call the session's driver reads as a change to the agent's task list stands as no row.
 
 use rusqlite::Connection;
 use sidekicks_contracts::event::envelope::EventEnvelope;
@@ -23,12 +24,15 @@ use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_contracts::wire::integer::count_bound;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_store::events::session::read::{
-    MalformedStoredEventError, MalformedStoredEventFault, SessionEventReads,
+    MalformedStoredEventError, MalformedStoredEventFault, SessionEventReads, session_read_bound,
 };
 use sidekicks_store::transcript::rejoin::{RowReads, joined_body_of, joined_row_content_of};
 use sidekicks_store::transcript::whole_patch::OMITTED_PATCHES_PAYLOAD_KEY;
 
+use crate::run::agent::read_session_lead;
+use crate::service::ProviderDriverLookup;
 use crate::transcript::block_cut::{BlockParse, prose_body_of, with_block_starts};
+use crate::transcript::task_list_call::is_task_list_call;
 use crate::transcript::turn_attribution::{
     RunEventAttribution, RunTurnReads, SessionTurnAttribution, TurnAttributionError,
 };
@@ -66,14 +70,17 @@ pub enum TranscriptProjectionError {
 /// One row per event of `rows`, events of `session_id`'s log that each stand as a row, in
 /// ascending order, each stamped and carrying its body joined through `head`, read on `reader`, a
 /// reply's cut into blocks by `parse`; `read_damaged_from_sequence` answers where a damaged
-/// session's reads stop. Fails with
-/// [`TranscriptProjectionError::Attribution`] on an `agent.run.rolledBack` that does not match its
-/// contract or a seed read that fails, with [`TranscriptProjectionError::Database`] when the
-/// bodies' read fails, and with [`TranscriptProjectionError::Malformed`] on a tool completion whose
-/// list of left-out files does not read.
+/// session's reads stop. An event of a tool call the driver `driver_of` answers for the session's
+/// provider reads as a task-list change stands as no row; a session whose provider no driver
+/// answers keeps every row. Fails with [`TranscriptProjectionError::Attribution`] on an
+/// `agent.run.rolledBack` that does not match its contract or a seed read that fails, with
+/// [`TranscriptProjectionError::Database`] when the bodies' or the session's provider's read
+/// fails, and with [`TranscriptProjectionError::Malformed`] on a tool completion whose list of
+/// left-out files does not read.
 pub(crate) fn project_window<DamagedFrom>(
     reader: &Connection,
     read_damaged_from_sequence: DamagedFrom,
+    driver_of: &ProviderDriverLookup,
     session_id: &SessionId,
     rows: &[EventEnvelope],
     head: i64,
@@ -106,10 +113,13 @@ where
         })
         .collect();
     let unended_rows = row_reads.unended_rows(&prose_rows, head)?;
+    let read_bound = session_read_bound(&read_damaged_from_sequence, session_id, None);
+    let task_list_driver = read_session_lead(reader, session_id, read_bound)?
+        .and_then(|lead| driver_of(&lead.binding.provider_name));
     let reads = RunTurnReads::new(reader, &read_damaged_from_sequence);
     let mut attribution = SessionTurnAttribution::new(*session_id);
     rows.iter()
-        .map(|event| {
+        .filter_map(|event| {
             let sequence = i64::from(event.sequence);
             let body = members_by_row.remove(&sequence).and_then(joined_body_of);
             let content = with_block_starts(
@@ -118,8 +128,22 @@ where
                 !unended_rows.contains(&sequence),
                 parse,
             );
-            let attributed = attribution.attribute(&reads, event)?;
-            row_of(event, attributed, content)
+            // Every event is attributed, a dropped one too, so the fold holds what the log holds.
+            let attributed = match attribution.attribute(&reads, event) {
+                Ok(attributed) => attributed,
+                Err(error) => return Some(Err(TranscriptProjectionError::from(error))),
+            };
+            // A body too large to travel is not loaded, so the call is asked without it.
+            let body = match &content {
+                TranscriptRowContent::Available { body, .. } => Some(body.as_str()),
+                TranscriptRowContent::Unavailable { .. } | TranscriptRowContent::Large { .. } => {
+                    None
+                }
+            };
+            let is_dropped = task_list_driver
+                .as_deref()
+                .is_some_and(|driver| is_task_list_call(driver, event, body));
+            (!is_dropped).then(|| row_of(event, attributed, content))
         })
         .collect()
 }

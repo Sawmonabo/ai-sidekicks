@@ -73,6 +73,15 @@ interface McpServerBindingAuditRef {
   serverName: string;
 }
 
+// The binding's id on the wire: opaque and path-free, the lowercase hex of a blake3 hash over the
+// binding's whole key (provider, scope, scopeRef, the root's distribution, serverName), so it is the
+// same on the binding's mcp.server.list entry and on every status notice about it, and across the
+// daemon's runs. The audit ref names a binding to a person; this id places every status notice on
+// its row, which the audit ref alone cannot where two bindings share it (two project roots with a
+// `github` server, or one root in two WSL 2 distributions). A page never re-reads the list to place
+// a notice.
+type McpServerBindingId = string; // 64 lowercase hex digits
+
 // Effective-binding derivation output (Plan-022 T22.4.5). NOT a carrier threaded in from another plan — Plan-022 derives this
 // in-plan from the session sets it builds (T22.3.3, T22.3.8). `null` is a first-class answer meaning the tool
 // resolved from NO governed binding: a provider built-in, or a tool served by the daemon's own
@@ -160,6 +169,12 @@ type McpServerConfigView =
       required?: boolean;
       startupTimeoutSec?: number;
       toolTimeoutSec?: number;
+    }
+  | {
+      transport: "ws"; // a Claude Code transport, listed but never probed, so its status reads unknown until a session reports it
+      url: string; // query-redacted, as above
+      urlQueryParamNames?: string[];
+      headerNames?: string[];
     };
 
 // Per-leg live status (Spec-024 §Unified Inventory): one config binding can back several concurrent
@@ -179,6 +194,10 @@ interface McpServerLegStatus {
   failedReason?: "commandNotRunnable";
 }
 
+// Where a provider's own configuration takes a declaration's place or switches it off: a project
+// root or settings file, or an administrator's layer the provider reads from no file.
+type McpOverrideOrigin = PlacedPath | { managedLayer: "deviceManagement" | "organizationCloud" };
+
 // Inventory read model (mcp.server.list / mcp.server.read): four merged sources per binding —
 // provider-declared config, live status (McpServerStatus, provider-driver-capability-payloads.md
 // seam), the binding row, the override rows. A DISCRIMINATED PAIR on bindingStoreUnavailable
@@ -188,12 +207,14 @@ interface McpServerLegStatus {
 // daemon's enabled overlay live in the unreachable store).
 // All mutations fail closed while degraded.
 type McpServerInventoryEntry = McpServerBindingRef & {
+  serverBindingId: McpServerBindingId; // the id every status notice about this binding carries
   config: McpServerConfigView; // the redacted normalized declaration (see above)
   status: McpServerStatus; // deterministic aggregate over legs[]: most severe current live-leg status (failed > needsAuth > unknown > starting > connected — a live leg whose observation source is lost reports "unknown": lost observability outranks known-healthy states, never a concrete failure), else newest machine-probe observation, else "unknown" — never fabricated
   legs?: McpServerLegStatus[]; // per-leg session-feed observations; absent when no live leg exists. Legs are LIVE-session observations with a bounded lifecycle: when a leg's backing runtime binding closes (session end / driver exit), the daemon retires it and recomputes the aggregate — a terminated session's last status never pins `status`
   observedAt?: string; // ISO-8601 of the newest status observation backing `status`
-  supersededIn?: PlacedPath[]; // unique `{path, place?}` entries, `place` the WSL 2 distribution a root is in: the project roots where another binding of this provider is the effective one, by the provider's order (a project's `local` binding over its `project` one, either over the `user` one, matched by serverName; on Claude Code a plugin's server or a connector also matched when it points at the same address or command); the daemon already resolves this to send each session its effective set (Spec-024 §Status Observation and Events), so it serves the answer rather than the page working it out. The page reads each one as `Not used in <project>: its own <name> takes its place.` Absent where the binding is used wherever it applies; never empty
-  disabledIn?: PlacedPath[]; // unique `{path, place?}` entries, `place` the WSL 2 distribution a root is in. Claude Code: the project roots where this server is switched off — by `disabledMcpServers` in the person's own `~/.claude.json`, which Claude Code's own `/mcp` writes, or, on a `connector` or `managed` binding, by the daemon's per-project switch; the server stays out of those projects' sessions and the page reads `Off in <project>` beside its state, dimmed, once per project. Absent where no project switched it off; never empty
+  probeFailureReason?: string; // the machine probe's newest failure text, at most `ERROR_MESSAGE_MAX_LEN` code points, sanitized (no credential, address query or file path); present only while the probe's reading decides a `failed` status
+  supersededIn?: McpOverrideOrigin[]; // unique entries, each a `{path, place?}` (`place` the WSL 2 distribution a path is in) or a `{managedLayer}`: each a project root where another binding of this provider is the effective one, by the provider's order (a project's `local` binding over its `project` one, either over the `user` one, matched by serverName; on Claude Code a plugin's server or a connector also matched when it points at the same address or command), or, on Codex, the settings file (the person's or a project's) or the administrator's layer written in no file (`deviceManagement` for a device-management profile, `organizationCloud` for the policy the provider fetches for the organization) whose entry overrides a lower layer's server field by field; the daemon already resolves this to send each session its effective set (Spec-024 §Status Observation and Events), so it serves the answer rather than the page working it out. The page reads a project root as `Not used in <project>: its own <name> takes its place.` and a settings file or a managed layer as `Overridden by <file or layer>`. Absent where the binding is used wherever it applies; never empty
+  disabledIn?: McpOverrideOrigin[]; // unique entries, each a `{path, place?}` (`place` the WSL 2 distribution a root is in) or a `{managedLayer}`. Claude Code: the project roots where this server is switched off — by `disabledMcpServers` in the person's own `~/.claude.json`, which Claude Code's own `/mcp` writes, or, on a `connector` or `managed` binding, by the daemon's per-project switch; the server stays out of those projects' sessions and the page reads `Off in <project>` beside its state, dimmed, once per project. Codex: the settings file or the administrator's layer written in no file whose entry switches the server off. Absent where nothing switched it off; never empty
 } & (
     | {
         bindingStoreUnavailable?: never; // the normal (binding-store-available) arm
@@ -266,8 +287,14 @@ interface McpLiveApplicationResult {
 }
 
 // ---- Operations (12; JSON-RPC per ADR-009) ---- Reads:
-//   mcp.server.list      {refresh?: boolean} → {servers: McpServerInventoryEntry[]}
-//   mcp.server.read       McpServerBindingRef → {server: McpServerInventoryEntry}
+//   mcp.server.list      {refresh?: boolean} → {servers: McpServerInventoryEntry[],
+// failedProviders: {provider: ProviderId, cause: string}[]} // each provider is read on its own:
+// one whose read fails is left out of `servers` and named in `failedProviders` with its cause,
+// sanitized (no credential, URL query or path outside a web address) and capped at the error
+// message's length; the other providers' rows still list
+//   mcp.server.read       McpServerBindingRef → {server: McpServerInventoryEntry} // a driver's
+// refusal answers by its code (`provider.unavailable`, `provider.timeout`); any other failure of
+// the provider's read is an internal error
 //   mcp.subscribe {} → AsyncIterable<EventEnvelope | McpServerBindingRef & {type:
 // "mcp.server.config.changed"} | McpServerStatusChangedNotice> // live-tail of every mcpGovernance
 // envelope as appended, a live notice after each edit to a binding (an add, a change, a switch, a
@@ -394,19 +421,24 @@ interface McpRegistryServer {
 
 // ---- The status notice and the event payload mirror (Spec-005 §MCP Governance) ----
 // Each embeds the PATH-FREE binding identity via intersection with McpServerBindingAuditRef
-// (provider, scope, serverName) — never the raw scopeRef (see the audit-ref comment above). A
+// (provider, scope, serverName) — never the raw scopeRef (see the audit-ref comment above); the
+// status notice also carries the binding's path-free serverBindingId, which places it on its row. A
 // status change is a live notice on mcp.subscribe and is written to no log; a settled sign-in is a
 // durable row, and Spec-024 forbids filesystem paths in both.
 type McpServerStatusChangedNotice = McpServerBindingAuditRef & {
   type: "mcp.server.status.changed";
+  serverBindingId: McpServerBindingId; // places the notice on its mcp.server.list row
+  // "sessionFeed": the leg's own status before and now, so a page updates that leg's line; "sessionEnded": the aggregate before the leg left and over the legs that remain; "machineProbe": the probe's own reading before and now
   previousStatus: McpServerStatus;
   status: McpServerStatus;
   failureReason?: string; // sanitized
-  // a session's own feed, or the daemon's probe of a server no session runs
-  origin: "sessionFeed" | "machineProbe";
-  // REQUIRED for origin "sessionFeed", the session whose feed saw it; ABSENT for "machineProbe"
+  // a session's own feed, a session's leg leaving the binding (retired, now serving the server from another binding, or with the server switched off for it), or the daemon's probe of a server no session runs
+  origin: "sessionFeed" | "sessionEnded" | "machineProbe";
+  // REQUIRED for origins "sessionFeed" and "sessionEnded", the session whose feed saw it or whose leg left; ABSENT for "machineProbe"
   sessionId?: SessionId;
-  bindingId?: string; // REQUIRED for origin "sessionFeed" — the Plan-003 runtime-binding leg key (opaque daemon-minted id), attributing the transition to its legs[] entry when one binding backs several legs in the same session; ABSENT for "machineProbe" (no leg observed). The Rust type holds the conditionality (a type where the arms allow, else a garde check)
+  // REQUIRED for origin "sessionFeed", the instant of the reading that changed the leg's status; ABSENT otherwise. The list's legs[].observedAt is the leg's newest reading, so it may be newer than the last notice's while the status agrees
+  observedAt?: string;
+  bindingId?: string; // REQUIRED for origins "sessionFeed" and "sessionEnded" — the Plan-003 runtime-binding leg key (opaque daemon-minted id), attributing the transition to its legs[] entry when one binding backs several legs in the same session; on "sessionEnded" the leg that left, `status` then the aggregate over the legs that remain, so the page drops that leg and reads nothing again; ABSENT for "machineProbe" (no leg observed). The Rust type holds the conditionality (a type where the arms allow, else a garde check)
 };
 type McpServerSignInCompletedPayload = McpServerBindingAuditRef & {
   outcome: "success" | "failure"; // 'failure' IS the asynchronous completion-failure channel (Spec-024 §OAuth Orchestration — launch failures are errors, completion failures are events)

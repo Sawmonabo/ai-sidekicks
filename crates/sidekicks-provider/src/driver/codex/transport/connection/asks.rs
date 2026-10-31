@@ -24,7 +24,7 @@ use crate::driver::codex::transport::connection::{
     read_codex_object, read_member,
 };
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
 
 /// Stands in for a responder failure that carries no words, as the refusal's reason.
 static RESPONDER_FAILURE_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =

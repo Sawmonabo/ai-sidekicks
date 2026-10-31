@@ -21,34 +21,23 @@ use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 use sidekicks_contracts::worktree::setup::{
     WorktreeSetupStage, WorktreeSetupState, WorktreeSetupStatus, WorktreeSetupStepState,
 };
-use sidekicks_platforms::{Spawner, WallClockTimer, command_shell};
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use tempfile::TempDir;
 
 use super::steps::OUTPUT_LINGER;
-use super::{
-    MadeWorktree, WorktreeSetupError, WorktreeSetupRunner, WorktreeSetupRunnerDeps,
-    WorktreeSetupSources,
-};
-use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
+use super::test_runner::test_setup_runner;
+use super::{MadeWorktree, WorktreeSetupError, WorktreeSetupRunner, WorktreeSetupSources};
+use crate::git::process::test_git_runner;
+use crate::git::process::test_repository::{git_in, make_test_repository};
+use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
-use crate::git::worktree::occupancy::MountOccupancyReader;
+use crate::git::worktree::removal::FolderProcessOwner;
 use crate::git::worktree::schema::schema_parts;
-use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
 
 const READ_STATEMENT_CAPACITY: usize = 16;
-
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "it stands in for the machine's ceiling read, which can fail"
-)]
-fn no_ceiling() -> io::Result<Option<u64>> {
-    Ok(None)
-}
 
 // The project's setup as the test saves it, read again at each read; a read refused while
 // `is_unreadable` is set, as a settings file that cannot be read refuses one.
@@ -118,31 +107,7 @@ impl SetupFixture {
         ));
         let git = test_git_runner();
         let scratch = tempfile::tempdir().expect("a scratch folder");
-        git_in(
-            &git,
-            scratch.path(),
-            &["init", "--quiet", "--initial-branch=main", "app"],
-        )
-        .await;
-        let checkout = scratch.path().join("app");
-        git_in(
-            &git,
-            &checkout,
-            &[
-                "-c",
-                "user.name=Test",
-                "-c",
-                "user.email=test@example.invalid",
-                "-c",
-                "commit.gpgSign=false",
-                "commit",
-                "--quiet",
-                "--allow-empty",
-                "-m",
-                "first",
-            ],
-        )
-        .await;
+        let checkout = make_test_repository(&git, scratch.path(), "app").await;
         let tree = scratch.path().join("tree");
         git_in(
             &git,
@@ -157,33 +122,16 @@ impl SetupFixture {
             ],
         )
         .await;
-        let watcher = Arc::new(WorkingFolderWatcher::<NullWatcher>::new(
-            WorkingFolderWatcherDeps {
-                git: git.clone(),
-                reads: Arc::clone(&reads),
-                occupancy: MountOccupancyReader::new(reads),
-                events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service))),
-                scheduler: Arc::new(Scheduler::start(
-                    Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
-                    None,
-                    tokio::sync::watch::channel(0).1,
-                )),
-                read_watch_ceiling: no_ceiling,
-                slow_tick_interval: Duration::from_secs(180),
-            },
-        ));
         let sources = Arc::new(SavedSetup {
             setup: Mutex::new(setup),
             is_unreadable: AtomicBool::new(false),
         });
-        let runner = WorktreeSetupRunner::new(WorktreeSetupRunnerDeps {
+        let runner = test_setup_runner(
             git,
-            spawner: Spawner::new(tokio::runtime::Handle::current())
-                .expect("the spawner thread starts"),
-            watcher,
-            sources: Arc::clone(&sources) as _,
-            command_shell: command_shell().expect("the account's shell reads"),
-        });
+            reads,
+            Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service))),
+            Arc::clone(&sources) as _,
+        );
         Self {
             scratch,
             _database: database,
@@ -214,17 +162,12 @@ impl SetupFixture {
                 repo_mount_id: RepoMountId::new(&mint_uuid_v7().to_string())
                     .expect("a minted id is a mount id"),
                 place: None,
+                hook_output: None,
             })
             .await
             .expect("the setup runs");
         (worktree_id, status)
     }
-}
-
-async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str]) {
-    git.run(None, GitCall::read(in_folder(folder, arguments)))
-        .await
-        .expect("git runs in the test repository");
 }
 
 fn setup_of(
@@ -301,6 +244,36 @@ async fn a_failed_command_stops_the_run_and_a_retry_runs_on_from_it_keeping_the_
         read("ran.log"),
         "ran\n",
         "a step that succeeded is not run again"
+    );
+}
+
+// Kills a retry that starts in a tree whose removal is under way: pressed while the removal holds
+// the tree's folder it is refused as one of a retired tree, and once the hold drops it runs.
+#[tokio::test]
+async fn a_retry_pressed_during_a_removal_is_refused() {
+    let fixture = SetupFixture::new(setup_of(&[], &["test -f fixed"], None)).await;
+    let (worktree_id, failed) = fixture.make().await;
+    assert_eq!(failed.state, WorktreeSetupState::Failed);
+    fs::write(fixture.tree().join("fixed"), "").expect("written");
+
+    let hold = FolderProcessOwner::end_processes_in_folder(&fixture.runner, &fixture.tree())
+        .await
+        .expect("the tree's setup commands end");
+    let during = fixture.runner.retry(worktree_id).await;
+    drop(hold);
+    let after = fixture.runner.retry(worktree_id).await;
+
+    assert!(
+        matches!(
+            during,
+            Err(WorktreeSetupError::Refused(WorktreeRefusal::NotFound { worktree_id: refused }))
+                if refused == worktree_id
+        ),
+        "a retry during the removal is refused, not {during:?}"
+    );
+    assert_eq!(
+        after.expect("a retry once the removal let go runs").state,
+        WorktreeSetupState::Succeeded
     );
 }
 

@@ -7,6 +7,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::port::run_host::{RunHost, RunHostError};
 use sidekicks_provider::run::start_request::DaemonTurnStartRequest;
@@ -20,9 +21,13 @@ impl RunHost for RunEngine {
     fn start_turn(
         &self,
         run_id: RunId,
+        provider_turn_id: Option<ProviderTurnId>,
         step_bound: Option<SafeInt<1>>,
     ) -> BoxFuture<'_, Result<Option<StartedTurn>, RunHostError>> {
-        async move { Ok(RunEngine::start_turn(self, run_id, None, step_bound).await?) }.boxed()
+        async move {
+            Ok(RunEngine::start_turn(self, run_id, None, provider_turn_id, step_bound).await?)
+        }
+        .boxed()
     }
 
     fn count_step(&self, run_id: RunId) -> BoxFuture<'_, Result<(), RunHostError>> {

@@ -19,6 +19,7 @@ use sidekicks_platforms::path_from_program_output;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::retry::read::{is_retryable_read_failure, read_with_one_retry};
 use sidekicks_workspace::git::process::{GitCall, GitError, GitRunner};
+use sidekicks_workspace::git::{GIT_ENTRY_NAME, GITLINK_MODE};
 use tokio::task::JoinError;
 
 /// The listing inside a working tree: tracked entries and the untracked ones the repository does
@@ -41,9 +42,6 @@ const UNTRACKED_TAG: &[u8] = b"? ";
 /// The length of every tag `-t` prints, its letter and a space.
 const TAG_LENGTH: usize = 2;
 
-/// The mode of a tracked repository inside the working tree (a submodule).
-const GITLINK_MODE: &[u8] = b"160000";
-
 /// The mode of a tracked link.
 const LINK_MODE: &[u8] = b"120000";
 
@@ -53,20 +51,10 @@ const MODE_LENGTH: usize = 6;
 /// What git prints, in the C locale the runner sets, for a folder outside any working tree.
 const OUTSIDE_WORKING_TREE_STDERR: &str = "not a git repository";
 
-/// The repository's own folder, never a folder of the working folder.
-const GIT_FOLDER_NAME: &str = ".git";
-
 /// A folder's rules file, which git reads only as a regular file, never through a link.
 const RULES_FILE_NAME: &str = ".gitignore";
 
 /// A working folder's files and folders, and how many files it could not name.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the `@` file search ranks and counts the listed entries"
-    )
-)]
 #[derive(Debug)]
 pub(crate) struct WorkingFolderListing {
     /// Every file and folder, each path relative to the working folder and `/`-separated.
@@ -77,13 +65,6 @@ pub(crate) struct WorkingFolderListing {
 }
 
 /// One file or folder of a working folder.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the `@` file search turns each listed entry into a row"
-    )
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ListedEntry {
     /// The path, relative to the working folder and `/`-separated.
@@ -94,7 +75,7 @@ pub(crate) struct ListedEntry {
 
 /// Why a working folder could not be listed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ListingError {
+pub enum ListingError {
     /// git failed for a reason other than the folder lying outside any working tree.
     #[error("git could not list the working folder")]
     Git(#[from] GitError),
@@ -120,13 +101,6 @@ impl ListingError {
 /// and by a walk outside one, retrying once a read another moment may clear. Fails with `Git` for
 /// any other git failure, a project in a WSL 2 distribution among them, `Walk` when the walk
 /// cannot read `folder` or meets a failure that persists, and `Task` when a blocking task ends.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the `@` file search lists a session's working folder through it"
-    )
-)]
 pub(crate) async fn list_working_folder(
     git: &GitRunner,
     place: Option<&Place>,
@@ -278,7 +252,7 @@ fn git_entry_of(listed: &[u8]) -> Option<GitEntry<'_>> {
     let staged = listed.get(TAG_LENGTH..)?;
     let mode = staged.get(..MODE_LENGTH)?;
     let path_start = staged.iter().position(|byte| *byte == b'\t')? + 1;
-    let kind = if mode == GITLINK_MODE {
+    let kind = if mode == GITLINK_MODE.as_bytes() {
         GitEntryKind::Folder
     } else if mode == LINK_MODE {
         GitEntryKind::Target
@@ -380,7 +354,7 @@ impl FolderRules {
             return false;
         }
         let is_entry_folder = is_folder(entry);
-        if is_entry_folder && entry.file_name() == GIT_FOLDER_NAME {
+        if is_entry_folder && entry.file_name() == GIT_ENTRY_NAME {
             return false;
         }
         let Some(parent) = entry.path().parent() else {

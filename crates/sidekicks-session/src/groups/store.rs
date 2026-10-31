@@ -8,8 +8,7 @@ use sidekicks_contracts::session::groups::SessionGroupId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-
-use crate::directory::lookups::session_project_sql;
+use sidekicks_workspace::project::records::session_project_sql;
 
 // The project of the session bound as `@sessionId`.
 static SESSION_PROJECT_SQL: LazyLock<String> = LazyLock::new(|| session_project_sql("@sessionId"));
@@ -28,12 +27,11 @@ static PLACE_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
 
 static PROJECT_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
     let project = <&'static str>::from(SessionShape::Project);
-    format!(
-        "SELECT 1 FROM sessions
-           WHERE id = @sessionId AND shape = '{project}' AND {} IS NOT NULL",
-        *SESSION_PROJECT_SQL
-    )
+    format!("SELECT 1 FROM sessions WHERE id = @sessionId AND shape = '{project}'")
 });
+
+static SESSION_PROJECT_KEPT_SQL: LazyLock<String> =
+    LazyLock::new(|| format!("SELECT 1 WHERE {} IS NOT NULL", *SESSION_PROJECT_SQL));
 
 static GROUP_NAME_FREE_IN_SESSION_PROJECT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -113,10 +111,20 @@ pub(crate) fn session_group_placement_statement(
     }
 }
 
-/// Holds only while the session is a project session bound to its project.
+/// Holds only while the session is a project session, not a chat.
 pub(crate) fn project_session_statement(session_id: &SessionId) -> WriteStatement {
+    session_guard_statement(PROJECT_SESSION_SQL.as_str(), session_id)
+}
+
+/// Holds only while the session's project is still kept, not forgotten.
+pub(crate) fn session_project_kept_statement(session_id: &SessionId) -> WriteStatement {
+    session_guard_statement(SESSION_PROJECT_KEPT_SQL.as_str(), session_id)
+}
+
+// A guard on the session bound as `@sessionId` that holds while `sql` answers one row.
+fn session_guard_statement(sql: &'static str, session_id: &SessionId) -> WriteStatement {
     WriteStatement {
-        sql: Cow::Borrowed(PROJECT_SESSION_SQL.as_str()),
+        sql: Cow::Borrowed(sql),
         bindings: StatementBindings::Named(vec![text_binding(
             "@sessionId",
             session_id.text().as_str(),

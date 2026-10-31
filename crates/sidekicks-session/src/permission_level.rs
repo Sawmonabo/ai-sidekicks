@@ -1,6 +1,6 @@
 //! The permission level a session runs at, a column of its `sessions` row: every process the daemon
-//! opens or resumes for the session starts at it, and a level move stores it once the provider took
-//! it.
+//! opens or resumes for the session starts at it, and a level move stores it, once the provider
+//! took it where a process runs.
 
 use std::borrow::Cow;
 

@@ -94,21 +94,46 @@ type QueueItemNotDeliveredReason =
   | { kind: "failed" }
   | { kind: "refusedByHook"; words: string };
 
-// One queued message, as a pending row draws it.
-interface QueueItemSummary {
-  id: QueueItemId;
-  state: QueueItemState;
-  // Its place in its queue's order, lowest first; an edit takes the place of the message it
-  // replaced.
-  position: number;
+// One queue item as a pending row draws it, tagged on `kind`: a message the person sent, or the
+// provider's own review queued as the session's next item, whose report lands as the agent's reply.
+type QueueItemSummary =
+  | ({ kind: "message" } & QueueMessageSummary)
+  | ({ kind: "review" } & QueueReviewSummary);
+
+// A queued message: its words and files, and the child whose queue holds it.
+type QueueMessageSummary = QueueItemByState<{
   content: string;
   attachments?: ArtifactId[];
   childHandle?: ChildHandle; // the child whose queue holds it; absent on the lead's
+}>;
+
+// A queued review of the session's changes, on the lead's queue: what it covers. It carries no
+// words, so an edit naming it is refused (`agent.queueItem.changeRefused`, `reviewItem`); one that
+// reads not delivered is sent again as a message is, through `replacesQueueItemId`, and queues the
+// same review, the send's words unread. A review takes no files, skills, answered question or
+// speed, so a retry carrying `attachments`, `skills`, `answersQuestionId` or `outputSpeedForTurn`
+// is refused (`agent.queueItem.changeRefused`, `reviewExtras`).
+type QueueReviewSummary = QueueItemByState<{
+  target: SessionReviewTarget;
+}>;
+
+// What a review covers: the working tree, the staged set, or the branch against its base.
+type SessionReviewTarget = "workingTree" | "staged" | "branch";
+
+// Each kind's members with the ones every item carries, tagged on `state`; only a `notDelivered`
+// item carries the daemon's reason.
+type QueueItemByState<Members> = Members & {
+  id: QueueItemId;
+  // Its place in its queue's order, lowest first; an edit takes the place of the message it
+  // replaced.
+  position: number;
   isSentNow: boolean; // `Send now` marked it and no later order moved it off first place
-  notDeliveredReason?: QueueItemNotDeliveredReason; // present exactly on a notDelivered item
   createdAt: string;
   updatedAt: string;
-}
+} & (
+    | { state: "queued" | "admitted" | "superseded" | "canceled" }
+    | { state: "notDelivered"; notDeliveredReason: QueueItemNotDeliveredReason }
+  );
 
 // `agent.queueItem.cancel`: `Remove`. Refused for an item the queue does not hold
 // (`agent.queueItem.notFound`), one the agent has taken (`agent.queueItem.changeRefused`,
@@ -374,12 +399,14 @@ interface RunStateChangeEvent {
   // The provider's own failure prose on an `agent.run.failed` with failureCategory
   // "providerFailure", shown as given; a typed cause is `failureCause`, never this text.
   providerFailureDetail?: string;
-  // Present only on an `agent.run.failed` whose provider process ended on its own under the turn:
-  // exactly one of the exit code and the signal, and the last lines the process printed. A process
-  // the daemon closed itself, or a sleep, records none.
+  // Present only on an `agent.run.failed` whose provider process ended on its own under the turn,
+  // or a Codex service the daemon ended for answering nothing for 2 minutes: exactly one of the
+  // exit code, the signal and the seconds it answered nothing, and the last lines the process
+  // printed. A process the daemon closed itself for any other reason, or a sleep, records none.
   processExit?:
-    | { exitCode: number; signal?: never; outputTail: string }
-    | { signal: string; exitCode?: never; outputTail: string };
+    | { exitCode: number; signal?: never; silentSeconds?: never; outputTail: string }
+    | { signal: string; exitCode?: never; silentSeconds?: never; outputTail: string }
+    | { silentSeconds: number; exitCode?: never; signal?: never; outputTail: string };
   // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent
   // on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-005 §Run
   // Lifecycle "Intended-close discriminator")
@@ -440,6 +467,36 @@ interface RunSafetyBufferingUpdatedPayload {
   turnId: string;
   active: boolean;
   fasterModel?: string; // the faster model Codex names, carried as sent
+}
+
+// agent.run.recovery.requested — the restart question a run halted on when the provider's record
+// and the session's disagreed beyond what only read (Spec-013 §Fallback Behavior), written in the
+// write that halts the run. It rides `agent.run.subscribe` as its own change, told apart from the
+// other arms by `question`, so a run already `waitingForInput`, which writes no state row at the
+// halt, still shows its question. A subscription's first read that reaches the newest change also
+// sends each run's open question — the newest `requested` with no later `resolved` — at that
+// change's cursor, as the safety holds are sent, with nothing held in memory.
+interface AgentRunRecoveryRequestedPayload {
+  sessionId: SessionId;
+  runId: RunId;
+  provider: ProviderId;
+  question: RunRecoveryQuestion;
+}
+// `providerAhead`: the provider kept steps the session never recorded, one at least not read-only;
+// the undo cuts before `cutBeforeMessageId`, or after the turn `agreedMessageId` opened when the
+// first such step sits in a turn the daemon never started. `daemonAhead`: the provider's record
+// lacks the session's last `missingTurns` turns.
+type RunRecoveryQuestion =
+  | { kind: "providerAhead"; agreedMessageId: QueueItemId; cutBeforeMessageId?: QueueItemId }
+  | { kind: "daemonAhead"; missingTurns: number };
+
+// agent.run.recovery.resolved — the person's answer to the restart question, through
+// agent.run.recovery.resolve. It rides `agent.run.subscribe` as its own change, told apart by
+// `choice`, because a run already waiting writes no state row when its question closes.
+interface AgentRunRecoveryResolvedPayload {
+  sessionId: SessionId;
+  runId: RunId;
+  choice: "keepProvider" | "undoToAgreed" | "continueProvider" | "handOver";
 }
 
 // Run-control mutations (Spec-003 §Required Behavior). `pause` holds the run at its next tool
@@ -505,7 +562,12 @@ interface StreamFrame<Change, Cursor> {
 // it went out.
 interface RunStateStreamChange {
   cursor: EventCursor;
-  event: RunStateChangeEvent | AgentRunRolledBackEvent | RunSafetyBufferingUpdatedPayload;
+  event:
+    | RunStateChangeEvent
+    | AgentRunRolledBackEvent
+    | RunSafetyBufferingUpdatedPayload
+    | AgentRunRecoveryRequestedPayload
+    | AgentRunRecoveryResolvedPayload;
 }
 type RunStateStreamFrame = StreamFrame<RunStateStreamChange, EventCursor>;
 // One change on agent.queueItem.subscribe: the item as it now stands, and the cursor of the

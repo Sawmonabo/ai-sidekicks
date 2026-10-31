@@ -121,7 +121,7 @@ impl ClaudeDeliveryStream {
         delivery: InboundDelivery<'_>,
         wire: Option<&str>,
     ) -> Option<InboundOutcome> {
-        let origin = claude_delivery_origin(session.provider_account_id.clone(), wire);
+        let origin = claude_delivery_origin(Some(session.provider_account_id.clone()), wire);
         dispatch_delivery(&*self.dependencies.dispatch, origin, delivery).await
     }
 }

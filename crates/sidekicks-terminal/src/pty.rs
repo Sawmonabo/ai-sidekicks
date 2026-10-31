@@ -4,11 +4,11 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use alacritty_terminal::event::WindowSize;
-use alacritty_terminal::tty::{self, Pty};
-use sidekicks_platforms::{ShellContainment, ShellLaunch, ShellStart, ShellStartConfirmation};
+use sidekicks_platforms::{
+    Pty, ShellContainment, ShellLaunch, ShellStart, ShellStartConfirmation, TerminalStart,
+};
 use tokio::runtime::Handle;
 use tokio::task::AbortHandle;
 
@@ -52,8 +52,8 @@ pub struct SpawnRequest {
     pub rows: u16,
     /// The terminal's width in columns.
     pub columns: u16,
-    /// The daemon's `shell` mode with its arguments, which reads both launches from the daemon
-    /// once the daemon confirms it started the mode.
+    /// The daemon's `shell` mode, its program by absolute path, with its arguments; it reads both
+    /// launches from the daemon once the daemon confirms it started the mode.
     pub shell_start: CommandLine,
 }
 
@@ -155,8 +155,8 @@ impl OpenedPty {
 /// other child between the confirmation's opening and its writing, inside `runtime`, which the
 /// confirmation's pipe registers with on Windows. Fails with `NotADirectory` when the mode's
 /// folder is not a folder, with `InvalidInput` when the system reports no process id, and with the
-/// system's error when the terminal cannot be opened, the program started or its start confirmed;
-/// a start not confirmed ends the program.
+/// system's error when the terminal cannot be opened, the program started (the error then names
+/// it) or its start confirmed; a start not confirmed ends the program.
 pub(crate) fn open_pty(request: &SpawnRequest, runtime: &Handle) -> io::Result<OpenedPty> {
     let _entered = runtime.enter();
     if !request.working_directory.is_dir() {
@@ -166,19 +166,14 @@ pub(crate) fn open_pty(request: &SpawnRequest, runtime: &Handle) -> io::Result<O
         ));
     }
     let mut start_confirmation = ShellStartConfirmation::new()?;
-    let options = sidekicks_platforms::terminal_options(
-        request.shell_start.program.clone(),
-        request.shell_start.arguments.clone(),
-        Some(request.working_directory.clone()),
-        start_confirmation.environment_entry().into_iter().collect(),
-    );
-    let window_size = WindowSize {
-        num_lines: request.rows,
-        num_cols: request.columns,
-        cell_width: 0,
-        cell_height: 0,
-    };
-    let pty = tty::new(&options, window_size, 0)?;
+    let pty = sidekicks_platforms::start_terminal(&TerminalStart {
+        program: Path::new(&request.shell_start.program),
+        arguments: &request.shell_start.arguments,
+        folder: &request.working_directory,
+        rows: request.rows,
+        columns: request.columns,
+        confirmation: &start_confirmation,
+    })?;
     let confirmed = sidekicks_platforms::child_process_id(&pty)
         .ok_or_else(|| {
             io::Error::new(

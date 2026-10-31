@@ -6,7 +6,7 @@
 //! whose name the person clears is named again the same way, a pass under way finishing as that
 //! naming, and the fresh name is told to its providers, since no provider takes an empty name. A
 //! session left unnamed while the daemon was not following it is named at the next start, one
-//! session at a time.
+//! session at a time. The same name, or those first words, give a worktree's name its title.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -34,6 +34,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_workspace::git::worktree::naming::DERIVED_NAME_MAX_CODE_POINTS;
 use sidekicks_workspace::working_folder::{WorkingFolderReadError, read_working_folder};
 use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
@@ -46,9 +47,6 @@ use crate::run::read::read_run_provider;
 /// the name and first message, the run's reply, the unnamed sessions, the session's working folder
 /// and the run's provider.
 pub const SESSION_AUTO_TITLE_STATEMENT_CAPACITY: usize = 6;
-
-/// A fallback name reads as a few words: whole words up to this many code points.
-const FALLBACK_NAME_MAX_CODE_POINTS: usize = 40;
 
 /// What joins one reply message to the next in the reply the pass reads.
 const REPLY_MESSAGE_SEPARATOR: &str = "\n\n";
@@ -441,9 +439,59 @@ impl SessionAutoTitle {
     }
 }
 
+/// The words a session's title gives a worktree's name: its `name`, else the first words of its
+/// `first_message_preview`, else those of `fallback_message`, which stands in for a first message
+/// not yet recorded on the session. Empty when none gives any.
+pub fn session_title_words(
+    name: Option<&str>,
+    first_message_preview: Option<&str>,
+    fallback_message: Option<&str>,
+) -> String {
+    match name {
+        Some(name) => name.to_owned(),
+        None => first_message_preview
+            .or(fallback_message)
+            .map_or_else(String::new, first_words_of),
+    }
+}
+
+/// Why a session's title words could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum SessionTitleWordsReadError {
+    /// SQLite refused the read.
+    #[error("a read of the session's name and first message failed")]
+    Read(#[from] rusqlite::Error),
+    /// No read connection could be had.
+    #[error(transparent)]
+    Pool(#[from] DatabaseReadError),
+}
+
+/// The words `session_id`'s title gives a worktree's name, read from its stored name and first
+/// message as [`session_title_words`] reads them, `fallback_message` standing in for a first
+/// message not yet recorded; `None` for a session with no row. Fails as the read fails.
+pub async fn read_session_title_words(
+    reads: &DatabaseReadPool,
+    session_id: SessionId,
+    fallback_message: Option<String>,
+) -> Result<Option<String>, SessionTitleWordsReadError> {
+    reads
+        .read(ReadLength::Short, move |reader| {
+            Ok(
+                read_naming_source(reader, &session_id)?.map(|(name, first_message_preview)| {
+                    session_title_words(
+                        name.as_deref(),
+                        first_message_preview.as_deref(),
+                        fallback_message.as_deref(),
+                    )
+                }),
+            )
+        })
+        .await
+}
+
 /// The fallback name a session takes from its first message: the message's whole words, split at
-/// ECMAScript whitespace and joined by single spaces, up to 40 code points; a first word longer
-/// than that is cut at it. Empty when the message has no words.
+/// ECMAScript whitespace and joined by single spaces, up to [`DERIVED_NAME_MAX_CODE_POINTS`]; a
+/// first word longer than that is cut at it. Empty when the message has no words.
 pub(crate) fn first_words_of(message: &str) -> String {
     let mut words = message
         .split(is_ecmascript_whitespace)
@@ -452,13 +500,13 @@ pub(crate) fn first_words_of(message: &str) -> String {
         return String::new();
     };
     let mut code_points = first_word.chars().count();
-    if code_points > FALLBACK_NAME_MAX_CODE_POINTS {
-        return cut_to_code_points(first_word, FALLBACK_NAME_MAX_CODE_POINTS).to_owned();
+    if code_points > DERIVED_NAME_MAX_CODE_POINTS {
+        return cut_to_code_points(first_word, DERIVED_NAME_MAX_CODE_POINTS).to_owned();
     }
     let mut name = first_word.to_owned();
     for word in words {
         let extended = code_points + 1 + word.chars().count();
-        if extended > FALLBACK_NAME_MAX_CODE_POINTS {
+        if extended > DERIVED_NAME_MAX_CODE_POINTS {
             break;
         }
         name.push(' ');
@@ -500,16 +548,7 @@ fn read_naming_input(
     if completed_at.is_some_and(|sequence| i64::from(sequence) != first_sequence) {
         return Ok(None);
     }
-    let source = snapshot
-        .prepare_cached(NAMING_SOURCE_SQL)?
-        .query_row(named_params! { "@sessionId": session.as_str() }, |row| {
-            Ok((
-                row.get::<_, Option<String>>(0)?,
-                row.get::<_, Option<String>>(1)?,
-            ))
-        })
-        .optional()?;
-    let Some((None, Some(first_message))) = source else {
+    let Some((None, Some(first_message))) = read_naming_source(&snapshot, session_id)? else {
         return Ok(None);
     };
     let place = read_working_folder(&snapshot, session_id)?.place;
@@ -521,6 +560,20 @@ fn read_naming_input(
         provider,
         first_reply,
     }))
+}
+
+// `session_id`'s stored name and first message preview; `None` for a session with no row.
+fn read_naming_source(
+    reader: &Connection,
+    session_id: &SessionId,
+) -> rusqlite::Result<Option<(Option<String>, Option<String>)>> {
+    reader
+        .prepare_cached(NAMING_SOURCE_SQL)?
+        .query_row(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
 }
 
 // The run's reply messages in order, joined, read only as far as the pass's bound and cut there

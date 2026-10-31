@@ -19,9 +19,11 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::UniqueList;
+use sidekicks_provider::driver::CurrentProviderAccount;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::run_control::InterruptPendingChoice;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
+use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_session::interventions::interrupt_queue::{
     InterruptChoice, InterruptQueue, SendNow, SendNowOutcome,
 };
@@ -398,6 +400,7 @@ impl Fixture {
             &self.home,
             driver,
             Arc::clone(&self.process) as _,
+            CurrentProviderAccount::Current(test_provider_account_id()),
         )
     }
 }

@@ -18,19 +18,14 @@ use super::{CodexServiceRecovery, CodexWriterLeft, never_left};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnWait;
 use crate::driver::codex::service::home::CodexServiceKind;
-use crate::driver::codex::service::supervisor::CodexService;
-use crate::driver::codex::service::supervisor::start::read_codex_loaded_threads;
+use crate::driver::codex::service::supervisor::{CODEX_UNLOAD_TIMEOUT, CodexService};
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::establishment::CodexInPlaceOutcome;
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
 use crate::driver::codex::session::slots::{CodexSessionClaim, let_go_codex_thread};
-use crate::driver::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::session_control::{DriverResumeResult, ProviderBuildChange};
-
-/// How long a conversation may take to unload from the service it leaves before its resume on the
-/// new one goes ahead and Codex decides.
-const CODEX_UNLOAD_TIMEOUT: std::time::Duration = CODEX_REQUEST_TIMEOUT;
 
 impl CodexServiceRecovery {
     /// Moves every session on the driver's services onto the build that replaced the running one,
@@ -111,7 +106,8 @@ impl CodexServiceRecovery {
     }
 
     // Holds every session on an account's service in its slot once each is idle, restarts the
-    // service, and resumes each conversation on the new process.
+    // service, and resumes each conversation on the new process, each resume settled as a
+    // recovery's is.
     async fn restart_account_service(
         &self,
         service: &Arc<CodexService>,
@@ -140,17 +136,17 @@ impl CodexServiceRecovery {
         service.restart_planned().await?;
         self.dependencies.release.forget_service(service.id());
         for (claim, inbound) in held {
-            let resumed = self.resume_claimed(service, &inbound, never_left()).await;
-            drop(claim);
-            if let Some(result) = resumed {
-                self.report_moved(service, &inbound, result, change).await;
-            }
+            let Some(outcome) = self.resume_claimed(service, &inbound, never_left()).await else {
+                continue;
+            };
+            let result = self.settle_resumed(service, &inbound, claim, outcome).await;
+            self.report_moved(service, &inbound, result, change).await;
         }
         Ok(())
     }
 
-    // Moves one session from `from` to `to` once it is idle, inside its slot, and tells it of
-    // `change` once it resumed there.
+    // Moves one session from `from` to `to` once it is idle, inside its slot, its resume settled as
+    // a recovery's is, and tells it of `change` once it resumed there.
     async fn move_when_idle(
         &self,
         inbound: &CodexSessionInboundSender,
@@ -161,8 +157,12 @@ impl CodexServiceRecovery {
         loop {
             match self.claim_idle(inbound).await {
                 ClaimedIdle::Idle(claim, thread_id) => {
-                    let resumed = self.move_claimed(inbound, from, to, thread_id).await;
-                    drop(claim);
+                    let resumed = match self.move_claimed(inbound, from, to, thread_id).await {
+                        Some(outcome) => {
+                            Some(self.settle_resumed(to, inbound, claim, outcome).await)
+                        }
+                        None => None,
+                    };
                     if let Some(result) = resumed {
                         let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
                         // The service the record runs on keeps the session; the other lets it go.
@@ -213,14 +213,15 @@ impl CodexServiceRecovery {
     }
 
     // The move itself, the session's slot claimed: its conversations leave `from`, `thread_id`
-    // unloading there first, then it resumes on `to`, tried again while `from` still writes it.
+    // unloading there first, then it resumes on `to`, tried again while `from` still writes it;
+    // answers the resume's outcome, `None` when the session closed or was established anew.
     async fn move_claimed(
         &self,
         inbound: &CodexSessionInboundSender,
         from: &Arc<CodexService>,
         to: &Arc<CodexService>,
         thread_id: String,
-    ) -> Option<DriverResumeResult> {
+    ) -> Option<CodexInPlaceOutcome> {
         let session_id = inbound.session_id();
         let deadline = Instant::now() + CODEX_UNLOAD_TIMEOUT;
         self.dependencies
@@ -228,7 +229,7 @@ impl CodexServiceRecovery {
             .release_session_threads(from, &session_id, |released| released != thread_id);
         to.attach_session(inbound.clone());
         let_go_codex_thread(from, &thread_id).await;
-        if !await_unloaded(from, &thread_id, deadline).await {
+        if !from.await_unloaded(&thread_id, deadline).await {
             // Another client, such as a terminal the person joined, still holds it on the old
             // service; the resume goes ahead and Codex decides.
             CodexTransportDiagnostic::ConversationUnloadTimedOut {
@@ -240,11 +241,9 @@ impl CodexServiceRecovery {
         let writer_left: CodexWriterLeft = Box::new(move || {
             let leaving = Arc::clone(&leaving);
             let thread_id = thread_id.clone();
-            async move { await_unloaded(&leaving, &thread_id, deadline).await }.boxed()
+            async move { leaving.await_unloaded(&thread_id, deadline).await }.boxed()
         });
-        let resumed = self.resume_claimed(to, inbound, writer_left).await?;
-        self.report_relaunch(to, session_id, resumed.clone()).await;
-        Some(resumed)
+        self.resume_claimed(to, inbound, writer_left).await
     }
 
     // Tells a session it moved to `change`'s build once its conversation resumed there.
@@ -303,41 +302,6 @@ enum ClaimedIdle<'slots> {
     Busy,
     /// The session closed or was established anew.
     Gone,
-}
-
-// Waits until `from` no longer holds the conversation loaded: each `thread/closed` is confirmed by
-// reading the loaded conversations, since a close can be stale. `false` once the deadline passed.
-async fn await_unloaded(from: &CodexService, thread_id: &str, deadline: Instant) -> bool {
-    loop {
-        // Armed before the read, so a close between the two is not missed.
-        let closed = from.wait_for_thread_closed(thread_id.to_owned());
-        if is_unloaded(from, thread_id).await {
-            return true;
-        }
-        if tokio::time::timeout_at(deadline, closed).await.is_err() {
-            return false;
-        }
-    }
-}
-
-// Whether `from` no longer holds the conversation loaded; a read that fails leaves it to the
-// resume, which Codex refuses while the conversation is still written elsewhere.
-async fn is_unloaded(from: &CodexService, thread_id: &str) -> bool {
-    let Ok(connection) = from.connection() else {
-        // A service that stopped holds nothing loaded.
-        return true;
-    };
-    match read_codex_loaded_threads(&connection).await {
-        Ok(loaded) => !loaded.iter().any(|loaded| loaded == thread_id),
-        Err(error) => {
-            CodexTransportDiagnostic::ConversationUnloadUnconfirmed {
-                thread_id: thread_id.to_owned(),
-                error: Box::new(error),
-            }
-            .report();
-            true
-        }
-    }
 }
 
 fn report_restart_failed(service: &CodexService, error: &CodexError) {

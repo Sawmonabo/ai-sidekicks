@@ -39,7 +39,6 @@ use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
 };
 use sidekicks_store::database::stored_column::{closed_word, text_column};
-use sidekicks_store::database::writer::messages::WriteJobFailure;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::projection::{
     ProjectionFailure, ProjectionFailureCause, SessionProjection, SessionProjectionFold,
@@ -112,7 +111,7 @@ pub enum ProjectionRebuildError {
     /// The log cannot be folded into rows; the session's cursor was marked stale, and the failure
     /// of marking it rides beside when that failed too.
     #[error("a session's projections were not rebuilt from its log")]
-    ProjectionFailure(#[source] CleanupFailures<ProjectionFailure, WriteError>),
+    ProjectionFailure(#[source] Box<CleanupFailures<ProjectionFailure, WriteError>>),
     /// The stop token was canceled before a page; the cursor is left `rebuilding`, so the next pass
     /// rebuilds the session.
     #[error("the rebuild was stopped before its next page")]
@@ -170,7 +169,7 @@ pub(crate) struct ProjectionRebuildResponse {
 
 /// Rebuilds sessions' projections from their logs, and lists the sessions that need it. Every
 /// failure is told to the damage watch on its way out, which counts only a damaged file.
-pub(crate) struct ProjectionRebuildService {
+pub struct ProjectionRebuildService {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
     session_events: Arc<SessionService>,
@@ -210,14 +209,7 @@ impl ProjectionRebuildService {
     /// The service reading cursors and heads through `pool`, the log's pages through
     /// `session_events`, writing through `writer` and telling `damage` of each store failure;
     /// `projections` are the ones a rebuild replaces, in the order their statements run.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which hands it the projections a rebuild replaces"
-        )
-    )]
-    pub(crate) fn new(
+    pub fn new(
         pool: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,
         session_events: Arc<SessionService>,
@@ -525,6 +517,7 @@ impl ProjectionRebuildService {
             | SessionServiceError::Refused(_)
             | SessionServiceError::Database(_)
             | SessionServiceError::RunNamesNoAgent { .. }
+            | SessionServiceError::RunNamesNoAccount { .. }
             | SessionServiceError::Rebuild(_)
             | SessionServiceError::Pool(_)) => {
                 FoldFailure::Rebuild(ProjectionRebuildError::Read(error))
@@ -546,11 +539,11 @@ impl ProjectionRebuildService {
                 vec![error]
             }
         };
-        ProjectionRebuildError::ProjectionFailure(CleanupFailures::new(
+        ProjectionRebuildError::ProjectionFailure(Box::new(CleanupFailures::new(
             failure,
             cleanup_failures,
             "marking the session's projections stale",
-        ))
+        )))
     }
 
     // Tells the watch of a failure on its way to the caller; only a damaged file counts.
@@ -617,13 +610,9 @@ fn page_write_failure(
 // The statement a guard refused or a constraint failed, which only a contradicting log makes; any
 // other SQLite failure is the store's own.
 fn contradicted_statement_index(error: &WriteError) -> Option<usize> {
-    if let WriteError::Failed(WriteJobFailure::Statement {
-        statement_index,
-        source,
-    }) = error
-    {
+    if let Some((statement_index, source)) = error.failed_statement() {
         return (source.sqlite_error_code() == Some(ErrorCode::ConstraintViolation))
-            .then_some(*statement_index);
+            .then_some(statement_index);
     }
     error.refused_statement_index()
 }

@@ -21,6 +21,7 @@ use std::error::Error;
 use futures::future::BoxFuture;
 use secrecy::{ExposeSecret, SecretString};
 use sidekicks_contracts::keychain::KeychainRefusalCause;
+use sidekicks_std::keyed_lock::HeldWorkEnd;
 use subtle::ConstantTimeEq as _;
 
 /// One keychain service's items, each addressed by an account name. Every call fails with
@@ -97,6 +98,24 @@ pub struct KeychainRefusal {
     /// The keychain's failure underneath, kept for the service log.
     #[source]
     failure: Option<Box<dyn Error + Send + Sync>>,
+    /// Whether the refusal came from the sealed secrets file not opening, which the status read
+    /// names on its own.
+    is_secrets_file_unopened: bool,
+}
+
+impl From<HeldWorkEnd> for KeychainRefusal {
+    /// A keychain call run under its item's key that ended without answering is `unavailable`,
+    /// keeping the task's failure where it had one.
+    fn from(end: HeldWorkEnd) -> Self {
+        let refusal = Self::new(
+            KeychainRefusalCause::Unavailable,
+            "the keychain call ended without an answer",
+        );
+        match end {
+            HeldWorkEnd::Unanswered => refusal,
+            HeldWorkEnd::Interrupted(interrupted) => refusal.with_failure(interrupted),
+        }
+    }
 }
 
 impl KeychainRefusal {
@@ -107,6 +126,16 @@ impl KeychainRefusal {
             cause,
             reason: reason.into(),
             failure: None,
+            is_secrets_file_unopened: false,
+        }
+    }
+
+    /// An `unavailable` refusal because the sealed secrets file cannot be opened, with `reason` in
+    /// words a person reads, which must hold no secret value.
+    pub(crate) fn of_unopened_secrets_file(reason: impl Into<Cow<'static, str>>) -> Self {
+        Self {
+            is_secrets_file_unopened: true,
+            ..Self::new(KeychainRefusalCause::Unavailable, reason)
         }
     }
 
@@ -120,9 +149,14 @@ impl KeychainRefusal {
     }
 
     /// Why the keychain could not be used.
-    #[cfg(any(test, feature = "test-support"))]
     pub fn cause(&self) -> KeychainRefusalCause {
         self.cause
+    }
+
+    /// Whether the call was refused because the sealed secrets file cannot be opened, whose cause
+    /// the secrets file's status names.
+    pub(crate) fn is_secrets_file_unopened(&self) -> bool {
+        self.is_secrets_file_unopened
     }
 
     /// What went wrong, in words a person reads.

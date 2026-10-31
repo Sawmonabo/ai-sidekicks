@@ -74,8 +74,8 @@ pub struct AgentBinding {
     pub binding_id: RuntimeBindingId,
     /// The provider it runs on.
     pub provider_name: ProviderId,
-    /// The account its run was admitted against; `None` when it bound none.
-    pub provider_account_id: Option<ProviderAccountId>,
+    /// The account its run was admitted against.
+    pub provider_account_id: ProviderAccountId,
     /// The one live run of the agent on the binding; `None` when several are live.
     pub run_id: Option<RunId>,
 }
@@ -117,12 +117,13 @@ pub fn resolve_agent_bindings(
             shared.run_id = None;
             continue;
         }
-        let provider_account_id = read_binding(reader, &bound.binding_id)?
-            .and_then(|binding| binding.spawn_config.provider_account_id);
+        let Some(binding) = read_binding(reader, &bound.binding_id)? else {
+            continue;
+        };
         bindings.push(AgentBinding {
             binding_id: bound.binding_id,
             provider_name: bound.provider,
-            provider_account_id,
+            provider_account_id: binding.spawn_config.provider_account_id,
             run_id: Some(live_run.run_id),
         });
     }

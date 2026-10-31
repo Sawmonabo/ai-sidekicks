@@ -58,7 +58,7 @@ pub fn prepare_shell_start(daemon_pid: u32) -> Result<ShellLaunch, ShellStartErr
 #[cfg(any(test, feature = "test-support"))]
 pub fn run_shell_start_stand_in() -> io::Error {
     let own_id = sysinfo::Pid::from_u32(std::process::id());
-    let mut system = sysinfo::System::new();
+    let mut system = crate::process_table();
     system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[own_id]), true);
     let Some(parent) = system.process(own_id).and_then(sysinfo::Process::parent) else {
         return io::Error::new(

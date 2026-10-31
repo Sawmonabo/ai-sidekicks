@@ -40,16 +40,24 @@ use sidekicks_store::database::stored_column::{
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
-use crate::driver::contract::{DriverCliVersionReport, SpawnedVersionBindingCarriers};
+use crate::driver::contract::params_and_results::{
+    DriverCliVersionReport, SpawnedVersionBindingCarriers,
+};
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::left_conversations::{LeftConversation, compose_left_conversation_insert};
 use crate::output_validation::{
     ProviderOutputValidationError, check_contract_version, check_resume_handle,
 };
 
+/// A new binding's id, which its caller mints before the provider runs under it.
+pub fn mint_runtime_binding_id() -> RuntimeBindingId {
+    RuntimeBindingId::new(mint_uuid_v7().to_string())
+        .expect("a UUID's text is within the binding id's bound")
+}
+
 /// The statements the binding reads prepare on a read connection: one binding, a run's, many
-/// runs', and every resumable one.
-pub const RUNTIME_BINDING_STORE_STATEMENT_CAPACITY: usize = 4;
+/// runs', the newest resumable one of many runs, and every resumable one.
+pub const RUNTIME_BINDING_STORE_STATEMENT_CAPACITY: usize = 5;
 
 // The stored spawn record's member naming the build that ran: written from the spawned build's
 // reading, kept apart from the legs a resume reads.
@@ -79,6 +87,13 @@ const SELECT_RUN_BINDINGS_SQL: &str = select_bindings!("WHERE run_id = ? ORDER B
 // placeholders is built per count or reaches SQLite's bound on them.
 const SELECT_BINDINGS_OF_RUNS_SQL: &str = select_bindings!(
     "WHERE run_id IN (SELECT value FROM json_each(?)) ORDER BY run_id, created_at, id"
+);
+
+// The run index serves each run; only the newest row is read.
+const SELECT_NEWEST_RESUMABLE_BINDING_OF_RUNS_SQL: &str = select_bindings!(
+    "WHERE run_id IN (SELECT value FROM json_each(?)) AND resume_handle IS NOT NULL
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1"
 );
 
 const SELECT_RESUMABLE_BINDINGS_SQL: &str =
@@ -115,7 +130,7 @@ const INSERT_RELAUNCHED_BINDING_SQL: &str = "
      resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
   SELECT @id, run_id, provider_name, contract_version, @cli_version_raw, @cli_version_semver,
          @resume_handle,
-         json_set(spawn_config, @path_member, @resolved_executable_path), '{}',
+         json_set(spawn_config, @path_member, @resolved_executable_path), runtime_metadata,
          @timestamp, @timestamp
     FROM runtime_bindings
    WHERE id = @predecessor_id";
@@ -125,7 +140,7 @@ const DELETE_BINDING_SQL: &str = "DELETE FROM runtime_bindings WHERE id = ?";
 /// The spawn-bound legs a resume rebuilds from, stored at every binding write, since a resume is a
 /// fresh spawn and recovery has no client request; a leg left out relaunches without it (no
 /// posture relaunches unsandboxed). The function legs are injected again at each spawn instead.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeBindingSpawnConfig {
     /// How the session may touch the machine.
@@ -165,13 +180,8 @@ pub struct RuntimeBindingSpawnConfig {
     )]
     pub output_schema: Option<Map<String, Value>>,
     /// The account the run was admitted against, bound for the run's life, so a resume never moves
-    /// onto the current default account.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub provider_account_id: Option<ProviderAccountId>,
+    /// onto the provider's current account.
+    pub provider_account_id: ProviderAccountId,
     /// The requested output-speed level, never the provider's observed state, which would read a
     /// level that stopped being offered as accepted after a restart.
     #[serde(
@@ -202,18 +212,21 @@ pub struct RuntimeBinding {
     pub resolved_executable_path: String,
     /// The legs a resume rebuilds from.
     pub spawn_config: RuntimeBindingSpawnConfig,
-    /// The provider's own recovery data.
-    pub(crate) runtime_metadata: Map<String, Value>,
+    /// The provider's own recovery data, which a new binding on the same leg carries over.
+    pub runtime_metadata: Map<String, Value>,
     /// When it was recorded.
     pub created_at: String,
     /// When it last changed.
     pub updated_at: String,
 }
 
-/// What [`RuntimeBindingStore::create`] records; the store mints the id, since a run has many
-/// bindings.
+/// What [`RuntimeBindingStore::create`] records, under the id its caller minted with
+/// [`mint_runtime_binding_id`], since the caller opens the binding's cursor before the provider
+/// runs.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CreateRuntimeBindingInput {
+    /// The binding's id.
+    pub id: RuntimeBindingId,
     /// The run.
     pub run_id: RunId,
     /// The provider.
@@ -321,12 +334,9 @@ pub enum RuntimeBindingStoreError {
     /// The write was not kept; a relaunch whose predecessor has no row is refused here.
     #[error("writing the runtime binding failed")]
     Write(#[from] WriteError),
-    /// The binding to point elsewhere has no row, so nothing was recorded.
-    #[error(
-        "runtime binding {} has no row to point at another conversation",
-        .binding_id.as_str()
-    )]
-    NoRowToRebind {
+    /// The binding a driver writes has no row, so nothing was recorded.
+    #[error("runtime binding {} has no row to write", .binding_id.as_str())]
+    NoRowToWrite {
         /// The binding.
         binding_id: RuntimeBindingId,
     },
@@ -364,16 +374,36 @@ pub fn read_bindings_of_runs(
     if run_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let run_ids_json = Value::Array(
+    let mut statement = reader.prepare_cached(SELECT_BINDINGS_OF_RUNS_SQL)?;
+    let rows = statement.query_map([run_ids_json(run_ids)], binding_from_row)?;
+    rows.collect()
+}
+
+// The run ids as the one JSON array `json_each` reads.
+fn run_ids_json(run_ids: &[RunId]) -> String {
+    Value::Array(
         run_ids
             .iter()
             .map(|run_id| Value::String(run_id.text().as_str().to_owned()))
             .collect(),
     )
-    .to_string();
-    let mut statement = reader.prepare_cached(SELECT_BINDINGS_OF_RUNS_SQL)?;
-    let rows = statement.query_map([run_ids_json], binding_from_row)?;
-    rows.collect()
+    .to_string()
+}
+
+/// The newest binding of `run_ids` with a resume handle, by when each was recorded and then by id,
+/// in a one-row read; `None` when none has one. Fails on a database error or a stored row that
+/// does not read.
+pub fn read_newest_resumable_binding_of_runs(
+    reader: &Connection,
+    run_ids: &[RunId],
+) -> rusqlite::Result<Option<RuntimeBinding>> {
+    if run_ids.is_empty() {
+        return Ok(None);
+    }
+    reader
+        .prepare_cached(SELECT_NEWEST_RESUMABLE_BINDING_OF_RUNS_SQL)?
+        .query_row([run_ids_json(run_ids)], binding_from_row)
+        .optional()
 }
 
 /// Every binding with a resume handle, oldest first, for recovery. Fails as a whole on a row that
@@ -400,9 +430,10 @@ impl RuntimeBindingStore {
         Self { reads, writer }
     }
 
-    /// Records a new binding under a minted id and returns it as stored, once committed. Fails
-    /// with [`RuntimeBindingStoreError::InvalidOutput`] for a contract version or resume handle
-    /// that does not meet its rules, before anything is written, and when the write fails.
+    /// Records a new binding under the id its caller minted and returns it as stored, once
+    /// committed. Fails with [`RuntimeBindingStoreError::InvalidOutput`] for a contract version or
+    /// resume handle that does not meet its rules, before anything is written, and when the write
+    /// fails, an id another row holds among the refused writes.
     pub async fn create(
         &self,
         input: CreateRuntimeBindingInput,
@@ -416,8 +447,7 @@ impl RuntimeBindingStore {
         if let Some(resume_handle) = &input.resume_handle {
             check_resume_handle(resume_handle)?;
         }
-        let id = RuntimeBindingId::new(mint_uuid_v7().to_string())
-            .expect("a UUID's text is within the binding id's bound");
+        let id = input.id;
         let timestamp = WireInstant::now().as_str().to_owned();
         let spawn_config_text = compose_spawn_config_text(
             &input.spawn_config,
@@ -540,11 +570,12 @@ impl RuntimeBindingStore {
     }
 
     /// Records the binding a driver minted when it resumed a session on its own: a new row on the
-    /// predecessor's run, provider and legs, with the relaunched build's own version and path,
-    /// naming the conversation the leg runs on now, and each conversation it left in the same
-    /// write. Fails with [`RuntimeBindingStoreError::InvalidOutput`] for an invalid resume handle,
-    /// and with [`RuntimeBindingStoreError::Write`] when the predecessor has no row, so nothing
-    /// was recorded.
+    /// predecessor's run, provider, legs and recovery data, so the new binding holds that data from
+    /// its first instant, with the relaunched build's own version and path, naming the
+    /// conversation the leg runs on now, and each conversation it left in the same write. Fails
+    /// with [`RuntimeBindingStoreError::InvalidOutput`] for an invalid resume handle, and with
+    /// [`RuntimeBindingStoreError::Write`] when the predecessor has no row, so nothing was
+    /// recorded.
     pub async fn record_relaunch(
         &self,
         relaunch: RuntimeBindingRelaunch,
@@ -707,8 +738,9 @@ fn stored_column_unreadable(
     )
 }
 
-// The stored text of a spawn record: the legs and the build's path as one JSON object.
-fn compose_spawn_config_text(
+/// The stored text of a spawn record: the legs and the build's path as one JSON object, which the
+/// binding reader reads back.
+pub(crate) fn compose_spawn_config_text(
     spawn_config: &RuntimeBindingSpawnConfig,
     resolved_executable_path: &str,
 ) -> String {

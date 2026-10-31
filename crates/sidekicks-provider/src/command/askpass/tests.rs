@@ -65,10 +65,11 @@ async fn the_askpass_exits_as_the_answer_says(
     let folder = tempfile::tempdir().expect("a folder");
     let channel = CommandChannel::open(
         folder.path().join("channel"),
-        std::process::id(),
         Arc::new(ProcessTableReader::for_this_program().expect("a reader")) as _,
     )
     .expect("the channel opens");
+    // The askpass runs under this test's process, the provider's place here.
+    channel.bind(std::process::id());
     let mut watch = channel.watch().await.expect("the channel is watched");
     let mut command = Command::new(std::env::current_exe().expect("the test program"));
     name_program(&mut command, COMMAND_ASKPASS_PROGRAM_NAME.as_ref()).expect("the name is set");

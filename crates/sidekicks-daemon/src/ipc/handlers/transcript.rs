@@ -126,6 +126,7 @@ mod tests {
     use sidekicks_contracts::event::envelope::HydratedContentUnavailableReason;
     use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::transcript::content::{
         TranscriptBodyReadRequest, TranscriptBodyReadResponse,
@@ -166,6 +167,7 @@ mod tests {
                 SESSION_SERVICE_STATEMENT_CAPACITY,
             )),
             Arc::new(|_session_id: &SessionId| None),
+            Arc::new(|_: &ProviderId| None),
         );
         let body_of = |row_id: FreeFormText<EVENT_FIELD_MAX_LEN>| TranscriptBodyReadRequest {
             session_id,
@@ -192,7 +194,9 @@ mod tests {
         };
         assert_eq!(refusal.code, RefusalCode::TranscriptRowNotFound);
         assert_eq!(
-            refusal.detail.map(serde_json::Value::Object),
+            refusal
+                .detail
+                .map(|detail| serde_json::Value::Object(*detail)),
             Some(json!({ "rowId": "no-such-row" }))
         );
     }

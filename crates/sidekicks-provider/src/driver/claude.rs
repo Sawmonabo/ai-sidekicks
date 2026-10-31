@@ -23,21 +23,32 @@ use sidekicks_platforms::{
     WindowsSystemFolder,
 };
 
+use crate::command::running_set::takes_no_input;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
+use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
-use crate::driver::contract::{
-    ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
-    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
-    RespondToRequestParams, StartRunParams,
+use crate::driver::claude::mcp::{read_claude_mcp_servers, reread_claude_live_mcp_statuses};
+use crate::driver::claude::session::establishment::context::{
+    CLAUDE_ADVISOR_ROW_ID, read_claude_row_choice,
+};
+use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
+    ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::error_causes::ProviderAxisInvalid;
+use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
+use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
-    FindTakenMessagesParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
-    PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
+    FindTakenMessagesParams, HelperTokenLimitParams, InterruptRunRequest, OverrideDenialParams,
+    PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
     WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
@@ -45,19 +56,19 @@ use crate::driver::session_control::{
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
     MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
     ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
-    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartReviewParams, StartingLevel,
+    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartingLevel,
     StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
     UpdateSessionModeParams,
 };
+use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
     BackgroundWork, CommandSandboxNeeds, DriverServices, InstallFolder, InstallFolderBase,
     ProviderCommand, ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
 };
-use crate::port::running_command_publisher::{
-    RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
-};
+use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
+mod account_credentials;
 mod attachments;
 mod capabilities;
 mod capability_probe;
@@ -69,11 +80,13 @@ mod frame_routing;
 mod goals;
 mod handshake_register;
 mod hooks;
-mod inbox_address;
+pub(crate) mod inbox;
 mod intervention;
 mod lifecycle;
+mod mcp;
 mod output_speed;
 mod rate_limit_windows;
+mod release_notes;
 mod run;
 mod session;
 mod settings_rows;
@@ -88,6 +101,7 @@ mod version;
 pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     id: "claude",
     name: "Claude Code",
+    release_notes_address: release_notes::release_notes_address,
     plan_words: &[],
     built_in_tools: &tools::CLAUDE_BUILT_IN_TOOLS,
     command: ProviderCommand {
@@ -273,6 +287,10 @@ impl ProviderDriver for ClaudeDriver {
         self.resume_session(params).boxed()
     }
 
+    fn settle_session(&self, session_id: SessionId) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.settle_session(session_id).boxed()
+    }
+
     fn start_run(&self, params: StartRunParams) -> BoxFuture<'_, Result<(), DriverError>> {
         self.start_run(params).boxed()
     }
@@ -351,11 +369,15 @@ impl ProviderDriver for ClaudeDriver {
         Some(CLAUDE_PICTURE_BASE64_LIMIT)
     }
 
+    fn session_advisor_pick(&self, app_values: &ProviderRowValues) -> Option<Option<String>> {
+        read_claude_row_choice(app_values, CLAUDE_ADVISOR_ROW_ID)
+    }
+
     // Each Claude Code session runs a process of its own, so the account weighs nothing here.
     fn starts_process(
         &self,
         session_id: SessionId,
-        _provider_account_id: Option<ProviderAccountId>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, bool> {
         ready(self.starts_process(session_id)).boxed()
     }
@@ -365,7 +387,7 @@ impl ProviderDriver for ClaudeDriver {
     fn resolve_skill_picks(
         &self,
         _session_id: SessionId,
-        _provider_account_id: Option<ProviderAccountId>,
+        _provider_account_id: ProviderAccountId,
         picks: Vec<QueuedSkillPick>,
     ) -> BoxFuture<'_, Result<Vec<PickedSkill>, DriverError>> {
         ready(Ok(picks.into_iter().map(picked_skill_of).collect())).boxed()
@@ -464,16 +486,49 @@ impl ProviderDriver for ClaudeDriver {
         self.list_models(params).boxed()
     }
 
-    fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
-        self.list_modes().boxed()
+    // Claude Code's start decides a model its catalog does not list, and the effort levels sit in
+    // a catalog only a running process reads, so the start checks both; the session options are
+    // the driver's own.
+    fn check_lead_binding(&self, params: LeadBindingCheckParams) -> Result<(), DriverError> {
+        ProviderAxisInvalid::check_options(
+            params.agent_id,
+            params.options.as_ref(),
+            &Self::session_options(),
+        )
+        .map_err(DriverError::from)
+    }
+
+    fn list_modes(
+        &self,
+        params: ListModesParams,
+    ) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
+        self.list_modes(params).boxed()
     }
 
     fn get_capabilities(&self) -> BoxFuture<'_, Result<GetCapabilitiesResult, DriverError>> {
         self.get_capabilities().boxed()
     }
 
-    fn probe_auth(&self) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>> {
-        self.probe_auth().boxed()
+    fn probe_auth(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>> {
+        self.probe_auth(provider_account_id).boxed()
+    }
+
+    fn read_mcp_servers(
+        &self,
+        request: McpServersReadRequest,
+    ) -> BoxFuture<'_, Result<ProviderMcpServersReading, DriverError>> {
+        async move {
+            let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
+            read_claude_mcp_servers(self, managed_settings_folder.as_deref(), request).await
+        }
+        .boxed()
+    }
+
+    fn reread_live_mcp_statuses(&self) -> BoxFuture<'_, ()> {
+        reread_claude_live_mcp_statuses(self).boxed()
     }
 
     fn compact_context(
@@ -491,24 +546,54 @@ impl ProviderDriver for ClaudeDriver {
     }
 
     fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>> {
-        std::future::ready(Err(command_act_unsupported(&params.command_id).into())).boxed()
+        self.stop_command(params).boxed()
     }
 
     fn move_command_to_background(
         &self,
         params: RunningCommandParams,
     ) -> BoxFuture<'_, Result<bool, DriverError>> {
-        std::future::ready(Err(command_act_unsupported(&params.command_id).into())).boxed()
+        self.move_command_to_background(params).boxed()
     }
 
     fn write_command_input(
         &self,
         params: WriteCommandInputParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        std::future::ready(Err(
-            command_act_unsupported(&params.command.command_id).into()
-        ))
-        .boxed()
+        // Claude Code's commands take no input, so the person's input is refused.
+        ready(Err(takes_no_input(&params.command.command_id).into())).boxed()
+    }
+
+    fn idle_sleep_holds(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<IdleSleepHolds, DriverError>> {
+        ready(Ok(self.idle_sleep_holds(session_id))).boxed()
+    }
+
+    fn sleep_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>> {
+        self.sleep_session(session_id).boxed()
+    }
+
+    fn wake_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>> {
+        self.wake_session(session_id).boxed()
+    }
+
+    fn task_list_change(&self, call: &ToolCallRecord<'_>) -> Option<TaskListChange> {
+        read_claude_task_list_change(call)
+    }
+
+    fn stop_helper_at_token_limit(
+        &self,
+        params: HelperTokenLimitParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        ready(self.stop_helper_at_token_limit(&params)).boxed()
     }
 
     fn observed_output_speed_for(
@@ -516,6 +601,10 @@ impl ProviderDriver for ClaudeDriver {
         session_id: &SessionId,
     ) -> Option<ProviderOutputSpeedState> {
         self.observed_output_speed_for(*session_id)
+    }
+
+    fn reported_level(&self, session_id: &SessionId) -> Option<ProviderReportedLevel> {
+        self.reported_level(*session_id)
     }
 
     fn read_rows(
@@ -546,6 +635,10 @@ impl ProviderDriver for ClaudeDriver {
         self.observed_options_for(*session_id)
     }
 
+    fn session_process_state(&self, session_id: &SessionId) -> SessionProcessState {
+        self.session_process_state(*session_id)
+    }
+
     fn update_session_mode(
         &self,
         params: UpdateSessionModeParams,
@@ -564,11 +657,7 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         params: AskSideQuestionParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        ready(self.ask_side_question(params)).boxed()
-    }
-
-    fn start_review(&self, params: StartReviewParams) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.start_review(params).boxed()
+        self.ask_side_question(params).boxed()
     }
 
     fn subscribe_provider_commands(
@@ -601,20 +690,19 @@ fn picked_skill_of(pick: QueuedSkillPick) -> PickedSkill {
 mod tests {
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::run::queue::QueuedSkillPick;
-    use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
     use crate::driver::claude::lifecycle::ClaudeDriver;
     use crate::driver::contract::ProviderDriver;
     use crate::driver::run_control::PickedSkill;
-    use crate::driver::test_registry::test_driver_services;
+    use crate::driver::test_registry::{fixed_session_id, test_driver_services};
+    use crate::runtime_binding::test_store::test_provider_account_id;
 
     // Killed by answering no skill, which drops every pick from the stored message.
     #[tokio::test]
     async fn each_skill_pick_is_answered_in_order_by_its_name_and_folder() {
         let driver = ClaudeDriver::new(&test_driver_services());
-        let session_id =
-            SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id");
+        let session_id = fixed_session_id();
         let pick = |name: &str, folder: &str| QueuedSkillPick {
             name: FreeFormText::new(name.to_owned()).expect("a valid name"),
             folder_path: FilesystemPath::new(folder.to_owned()).expect("a valid folder"),
@@ -627,7 +715,7 @@ mod tests {
         let skills = driver
             .resolve_skill_picks(
                 session_id,
-                None,
+                test_provider_account_id(),
                 vec![
                     pick("review", "/skills/review"),
                     pick("deploy", "/skills/deploy"),

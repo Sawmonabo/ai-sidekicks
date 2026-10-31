@@ -1,38 +1,54 @@
 //! The session services the daemon's start builds once: the run engine with the approval side its
 //! setup gate comes from, the pauses, the run queue and the interventions that close the engine's
 //! cycles, the sessions' reads and stores, the self-naming, the questions and plans, a chat's file
-//! versions, the code highlighter and the terminals. Their follows of the log begin once the
-//! start's recovery pass has settled the runs.
+//! versions, the code highlighter and the terminals, and what the drivers report to: the turn and
+//! context readings, the usage record, the running commands, the idle sleep and the MCP status. The
+//! follows the attachments start, and the idle sleep, begin once the start's recovery pass has
+//! settled the runs.
+
+pub(crate) mod stored_resumes;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 
+use futures::future::BoxFuture;
 use sidekicks_artifact::chat_file_versions::ChatFileVersions;
 use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_artifact::plans::service::PlansService;
 use sidekicks_artifact::publish::ArtifactPublishService;
+use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_platforms::{Spawner, WallClock};
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::background_work::BackgroundWorkForms;
+use sidekicks_provider::command::running_set::{CommandEndingAppender, RunningCommandSets};
+use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_provider::run::posture::ExecutionPostureService;
-use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_queue::changes::QueueChangeSignals;
 use sidekicks_queue::memory_gate::MemoryGate;
+use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::provider_session::{
-    ProviderSessionOpeningComposer, ProviderSessions, ProviderSessionsDeps,
+    ProviderSessionGitFolderReader, ProviderSessionOpeningComposer, ProviderSessions,
+    ProviderSessionsDeps,
 };
+use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_queue::service::{RunQueue, RunQueueDeps};
 use sidekicks_session::auto_title::{SessionAutoTitle, SessionAutoTitling};
 use sidekicks_session::changes::SessionChanges;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::draft_store::SessionDraftStore;
+use sidekicks_session::idle_sleep::openings::{SessionProcessFollower, SessionProcessWaker};
+use sidekicks_session::idle_sleep::{IdleSleepError, SessionIdleSleep, SessionIdleSleepDeps};
 use sidekicks_session::interventions::service::{InterventionService, InterventionServiceDeps};
 use sidekicks_session::links::service::SessionLinkService;
 use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_session::questions::service::QuestionsService;
+use sidekicks_session::readings::context::ContextReadings;
+use sidekicks_session::readings::turn::TurnReadings;
 use sidekicks_session::related::ranking::{RelatedRescoring, SessionRelatedRanking};
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::{RunEngine, RunEngineDeps};
@@ -40,10 +56,14 @@ use sidekicks_session::run::epochs::ExecutionEpochs;
 use sidekicks_session::run::inbound::RunInboundDispatch;
 use sidekicks_session::run::pause::RunPauseControl;
 use sidekicks_session::run::provider_choice::ProviderChoiceResolver;
+use sidekicks_session::run::provider_choice::held::HeldChoiceAnswers;
 use sidekicks_session::search::files::service::FileSearchService;
 use sidekicks_session::service::SessionService;
 use sidekicks_session::tags::SessionTagService;
+use sidekicks_session::usage_record::UsageRecord;
 use sidekicks_shell::console::CONSOLE_MODE;
+use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::log_service::EventLogService;
@@ -56,7 +76,7 @@ use sidekicks_terminal::{CommandLine, Terminals};
 use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
-use sidekicks_workspace::managed::write_watcher::ManagedWorkspaceWrite;
+use sidekicks_workspace::managed::write_watcher::{ManagedWorkspaceReport, ManagedWritesWatermark};
 use sidekicks_workspace::run_setup_gates::RunSetupGate;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -64,6 +84,7 @@ use tokio::task::JoinHandle;
 use crate::daemon::process::approvals::{
     ApprovalAttachments, ApprovalStart, Approvals, build_approvals, start_approval_attachments,
 };
+use crate::daemon::process::session_services::stored_resumes::StoredSessionResumes;
 use crate::daemon::process::stop::TaskStopFailure;
 use crate::highlight::colorer::{CodeHighlighter, CodeHighlighterOptions};
 use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
@@ -84,12 +105,18 @@ pub(crate) struct SessionServiceStart {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// Each live run's posture, the engine's first setup gate.
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
-    /// The runtime binding rows, which an opening completes or removes.
-    pub(crate) runtime_bindings: Arc<RuntimeBindingStore>,
-    /// The one set of epoch cursors, shared with the inbound dispatch.
+    /// Binds each repository-bound run to its working folder; the engine's gate before the
+    /// approval side's, so its end runs after theirs.
+    pub(crate) execution_root_gate: Arc<dyn RunSetupGate>,
+    /// Each run's binding cursors over the runtime binding rows, which an opening opens and
+    /// records and the session directory's relaunches open too.
+    pub(crate) binding_cursors: Arc<RunBindingCursors>,
+    /// The one set of epoch cursors, shared with the binding cursors and the inbound dispatch.
     pub(crate) epochs: Arc<Mutex<ExecutionEpochs>>,
     /// Composes a session's opening from its lead.
     pub(crate) compose_opening: ProviderSessionOpeningComposer,
+    /// Reads a session's git folder.
+    pub(crate) read_git_folder: ProviderSessionGitFolderReader,
     /// The identity of each session's provider process.
     pub(crate) processes: Arc<dyn ProviderProcessIds>,
     /// The gate every start waits its turn at.
@@ -121,19 +148,34 @@ pub(crate) struct SessionServiceStart {
     /// The folder of the chats' managed workspaces.
     pub(crate) workspaces_folder: PathBuf,
     /// The chats' writes the managed workspaces' watch reports.
-    pub(crate) workspace_writes: mpsc::Receiver<ManagedWorkspaceWrite>,
+    pub(crate) workspace_writes: mpsc::Receiver<ManagedWorkspaceReport>,
+    /// Where the recording of those writes keeps each instant the watch's walk caught up to, once
+    /// every write sent ahead of it is recorded, a write held behind a tool call included.
+    pub(crate) managed_writes_watermark: Arc<dyn ManagedWritesWatermark>,
     /// The daemon's wall clock.
     pub(crate) clock: Arc<dyn WallClock>,
     /// The thread every terminal child starts on.
     pub(crate) spawner: Spawner,
     /// The daemon's own program, whose `console` mode the terminals hand each console call to.
     pub(crate) daemon_program: PathBuf,
+    /// The accounts each provider runs on, which run admission resolves a new run's account from.
+    pub(crate) provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    /// The daemon's `Tokens per run`, which run admission admits each new lead run with.
+    pub(crate) token_limits: Arc<PortRegistration<Arc<dyn RunTokenLimitReader>>>,
+    /// The program's scheduler, which runs the idle sleep's check and each scheduled wake.
+    pub(crate) scheduler: Arc<Scheduler>,
+    /// The one keeper of every MCP server binding's status.
+    pub(crate) mcp_status: Arc<McpServerStatusTracker>,
+    /// The run that records each MCP binding the status tracker first observes, ending once the
+    /// tracker is let go; spawned with the services.
+    pub(crate) mcp_first_observations: BoxFuture<'static, ()>,
 }
 
 /// The session services, each built once for the daemon's life.
 #[expect(
     dead_code,
-    reason = "the daemon's driver ports, method tables and stop"
+    reason = "the daemon's driver ports read the inbound dispatch, and a chat's version reads the \
+              chat versions"
 )]
 pub(crate) struct SessionServices {
     /// The terminals; the stop drains them.
@@ -147,6 +189,13 @@ pub(crate) struct SessionServices {
     pub(crate) chat_versions: Arc<ChatFileVersions>,
     /// The queue; the stop waits for its work.
     pub(crate) queue: Arc<RunQueue>,
+    /// Each session's provider process, which the session controls move.
+    pub(crate) provider_sessions: Arc<ProviderSessions>,
+    /// Where a resume hands the runs it named, which recovery's finalize registers on before the
+    /// start serves anything.
+    pub(crate) resumed_runs: Arc<PortRegistration<Arc<dyn ResumedRunsIngress>>>,
+    /// Appends to a session's log, which the shell table's changes of holder go through.
+    pub(crate) appender: Arc<SessionEventAppender>,
     /// The queues' change signals.
     pub(crate) signals: Arc<QueueChangeSignals>,
     /// Records, accepts and dispatches interventions.
@@ -188,6 +237,25 @@ pub(crate) struct SessionServices {
     pub(crate) questions: Arc<QuestionsService>,
     /// The plans an agent hands over.
     pub(crate) plans: Arc<PlansService>,
+    /// Each run's latest turn readings, released as the run ends.
+    pub(crate) turn_readings: Arc<TurnReadings>,
+    /// Each session's latest context reading, released as the session closes.
+    pub(crate) context_readings: Arc<ContextReadings>,
+    /// Meters each provider reading and stops a run at its token limit.
+    pub(crate) usage: Arc<UsageRecord>,
+    /// Every session's running commands, each ending appended through the inbound dispatch.
+    pub(crate) running_commands: Arc<RunningCommandSets>,
+    /// Stops an idle session's process and wakes it; the start's attachments start it and their
+    /// stop stops it.
+    pub(crate) idle_sleep: Arc<SessionIdleSleep>,
+    /// The resume of a session no driver holds in memory, composed from its stored leg.
+    pub(crate) stored_resumes: Arc<StoredSessionResumes>,
+    /// The one keeper of every MCP server binding's status, which each process's status producer
+    /// reports to; the daemon's stop ends its first-observation drain through it.
+    pub(crate) mcp_status: Arc<McpServerStatusTracker>,
+    /// Records each MCP binding the status tracker first observes until the tracker is let go;
+    /// the stop takes it, lets the services go and waits for it before the database closes.
+    pub(crate) mcp_first_observations: Option<JoinHandle<()>>,
 }
 
 /// Why the session services could not be built.
@@ -208,7 +276,6 @@ pub(crate) enum SessionServiceStartError {
 /// approval side's run holds reach it, then the services that close its cycles before any run can
 /// end. Fails when the console helper cannot be named or the highlighter cannot start. Runs inside
 /// the daemon's runtime.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) fn build_session_services(
     start: SessionServiceStart,
 ) -> Result<SessionServices, SessionServiceStartError> {
@@ -220,9 +287,11 @@ pub(crate) fn build_session_services(
         read_damaged_from_sequence,
         providers,
         execution_postures,
-        runtime_bindings,
+        execution_root_gate,
+        binding_cursors,
         epochs,
         compose_opening,
+        read_git_folder,
         processes,
         memory_gate,
         machine,
@@ -239,9 +308,15 @@ pub(crate) fn build_session_services(
         spool_folder,
         workspaces_folder,
         workspace_writes,
+        managed_writes_watermark,
         clock,
         spawner,
         daemon_program,
+        provider_accounts,
+        token_limits,
+        scheduler,
+        mcp_status,
+        mcp_first_observations,
     } = start;
     // The fallible steps first, so a failure leaves no follow or task begun.
     let terminals = Arc::new(Terminals::new(spawner, console_helper(daemon_program)?));
@@ -253,6 +328,8 @@ pub(crate) fn build_session_services(
         Arc::clone(&event_log),
         SESSION_EVENT_VERSION.clone(),
     ));
+    // Taken before the watch moves on; the file search opens it with how each folder is followed.
+    let folder_changes = working_folders.folder_change_feed();
     let approval_start = ApprovalStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&writer),
@@ -267,22 +344,31 @@ pub(crate) fn build_session_services(
         data_folder,
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
     };
+    let turn_readings = Arc::new(TurnReadings::new(Arc::clone(&reads), &followers));
+    let context_readings = Arc::new(ContextReadings::new(Arc::clone(&reads), &followers));
     // The run holds take the engine's `Weak`, and the engine takes the run-end gate as it is
     // built, so the approval side is built inside the engine's allocation and leaves it here.
     let mut built_approvals = None;
+    let held_choice_answers = Arc::new(HeldChoiceAnswers::default());
     let engine = Arc::new_cyclic(|engine: &Weak<RunEngine>| {
         let approvals = build_approvals(engine.clone(), &approval_start);
         let mut built = RunEngine::new(
             RunEngineDeps {
                 pool: Arc::clone(&reads),
                 event_log: Arc::clone(&event_log),
-                execution_postures,
+                execution_postures: Arc::clone(&execution_postures),
                 providers: Arc::clone(&providers),
                 plan_holds,
+                held_choice_answers: Arc::clone(&held_choice_answers),
             },
             engine.clone(),
         );
+        // The end hooks run in reverse, so the approvals and turn readings are released before
+        // this gate releases, sweeps and moves the run's folder.
+        built.register_setup_gate(execution_root_gate);
         built.register_setup_gate(Arc::clone(&approvals.run_end) as Arc<dyn RunSetupGate>);
+        // A run's end releases its turn readings, so their subscribers' streams finish.
+        built.register_setup_gate(Arc::clone(&turn_readings) as Arc<dyn RunSetupGate>);
         built_approvals = Some(approvals);
         built
     });
@@ -292,25 +378,70 @@ pub(crate) fn build_session_services(
         Arc::clone(&engine),
         Arc::clone(&providers),
     ));
-    let binding_cursors = Arc::new(RunBindingCursors::new(
-        Arc::clone(&reads),
-        Arc::clone(&runtime_bindings),
-        Arc::clone(&epochs),
-    ));
     let changes = Arc::new(SessionChanges::new(
         Arc::clone(&reads),
         Arc::clone(&event_log),
         Arc::clone(&providers),
     ));
-    let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
+    let run_safety_holds = RunSafetyHolds::new();
+    let choices = Arc::new(ProviderChoiceResolver::new(
+        Arc::clone(&reads),
+        Arc::clone(&engine),
+        Arc::clone(&providers),
+        held_choice_answers,
+    ));
+    let inbound_dispatch = Arc::new(RunInboundDispatch::new(
+        Arc::clone(&engine),
+        epochs,
+        Arc::clone(&run_safety_holds) as Arc<_>,
+        Arc::clone(&event_log),
+        Arc::clone(&choices),
+    ));
+    let usage = Arc::new(UsageRecord::new(
+        Arc::clone(&reads),
+        Arc::clone(&read_damaged_from_sequence),
+        Arc::clone(&inbound_dispatch),
+        Arc::clone(&engine),
+    ));
+    let running_commands = Arc::new(RunningCommandSets::new(
+        {
+            let binding_cursors = Arc::clone(&binding_cursors);
+            Arc::new(move |session_id: &SessionId| binding_cursors.current_binding(session_id))
+        },
+        Arc::clone(&inbound_dispatch) as Arc<dyn CommandEndingAppender>,
+    ));
+    let idle_sleep = SessionIdleSleep::new(SessionIdleSleepDeps {
         pool: Arc::clone(&reads),
         writer: Arc::clone(&writer),
-        runtime_bindings,
+        providers: Arc::clone(&providers),
+        read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
+        transition_lock: Arc::clone(changes.transition_lock()),
+        running_commands: Arc::clone(&running_commands),
+        scheduler,
+    });
+    let resumed_runs = Arc::new(PortRegistration::new("resumed runs"));
+    let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
+        pool: Arc::clone(&reads),
+        appender: Arc::clone(&appender),
         binding_cursors: Arc::clone(&binding_cursors),
         providers: Arc::clone(&providers),
         compose_opening,
+        read_git_folder,
         transition_lock: Arc::clone(changes.transition_lock()),
+        process_follower: Arc::clone(&idle_sleep) as Arc<dyn SessionProcessFollower>,
+        execution_postures: Arc::clone(&execution_postures),
+        resumed_runs: Arc::clone(&resumed_runs),
     }));
+    execution_postures
+        .set_stored_postures(Arc::downgrade(&provider_sessions) as Weak<_>)
+        .expect("a new posture service reads no stored level yet");
+    idle_sleep
+        .set_process_waker(Arc::downgrade(&provider_sessions) as Weak<dyn SessionProcessWaker>)
+        .expect("a new idle sleep holds no process waker yet");
+    let stored_resumes = Arc::new(StoredSessionResumes::new(
+        Arc::clone(&reads),
+        Arc::clone(&provider_sessions),
+    ));
     let signals = Arc::new(QueueChangeSignals::new());
     let queue = RunQueue::new(RunQueueDeps {
         pool: Arc::clone(&reads),
@@ -319,16 +450,21 @@ pub(crate) fn build_session_services(
         signals: Arc::clone(&signals),
         engine: Arc::clone(&engine),
         providers: Arc::clone(&providers),
-        provider_sessions,
+        provider_sessions: Arc::clone(&provider_sessions),
         memory_gate,
         processes,
         pauses: Arc::clone(&pauses),
         followers,
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
+        provider_accounts,
+        token_limits,
     });
     engine
         .set_interrupt_queue(Arc::downgrade(&queue) as Weak<_>)
         .expect("a new engine holds no run queue yet");
+    engine
+        .set_session_postures(Arc::downgrade(&provider_sessions) as Weak<_>)
+        .expect("a new engine holds no posture source yet");
     let interventions = Arc::new(InterventionService::new(InterventionServiceDeps {
         pool: Arc::clone(&reads),
         event_log: Arc::clone(&event_log),
@@ -339,18 +475,6 @@ pub(crate) fn build_session_services(
     engine
         .set_limit_interrupter(Arc::downgrade(&interventions) as Weak<_>)
         .expect("a new engine holds no interventions service yet");
-    let run_safety_holds = RunSafetyHolds::new();
-    let inbound_dispatch = Arc::new(RunInboundDispatch::new(
-        Arc::clone(&engine),
-        epochs,
-        Arc::clone(&run_safety_holds) as Arc<_>,
-        Arc::clone(&event_log),
-    ));
-    let choices = Arc::new(ProviderChoiceResolver::new(
-        Arc::clone(&reads),
-        Arc::clone(&engine),
-        Arc::clone(&providers),
-    ));
     let related_ranking = Arc::new(SessionRelatedRanking::new(
         Arc::clone(&reads),
         Arc::clone(&writer),
@@ -362,6 +486,7 @@ pub(crate) fn build_session_services(
         spool_folder,
         workspaces_folder,
         clock,
+        managed_writes_watermark,
     ));
     let chat_version_recording = {
         let chat_versions = Arc::clone(&chat_versions);
@@ -369,12 +494,15 @@ pub(crate) fn build_session_services(
             chat_versions.record_reported_writes(workspace_writes).await;
         })
     };
+    let mcp_first_observations = tokio::spawn(mcp_first_observations);
     Ok(SessionServices {
         terminals,
         highlighter,
         chat_version_recording: Some(chat_version_recording),
         chat_versions,
         queue,
+        provider_sessions,
+        resumed_runs,
         signals,
         interventions,
         pauses,
@@ -382,10 +510,18 @@ pub(crate) fn build_session_services(
         binding_cursors,
         inbound_dispatch,
         run_safety_holds,
-        file_search: Arc::new(FileSearchService::new(Arc::clone(&reads), git)),
+        file_search: Arc::new(FileSearchService::new(
+            Arc::clone(&reads),
+            git,
+            folder_changes,
+        )),
         sessions: Arc::new(SessionService::new(
             Arc::clone(&reads),
             read_damaged_from_sequence,
+            Arc::new({
+                let providers = Arc::clone(&providers);
+                move |provider: &ProviderId| providers.lookup(provider).ok()
+            }),
         )),
         list_feed,
         drafts: Arc::new(SessionDraftStore::new(
@@ -414,9 +550,18 @@ pub(crate) fn build_session_services(
             Arc::clone(&engine),
             providers,
         )),
-        plans: Arc::new(PlansService::new(publisher, appender, reads)),
+        plans: Arc::new(PlansService::new(publisher, Arc::clone(&appender), reads)),
+        appender,
         engine,
         approvals,
+        turn_readings,
+        context_readings,
+        usage,
+        running_commands,
+        idle_sleep,
+        stored_resumes,
+        mcp_status,
+        mcp_first_observations: Some(mcp_first_observations),
     })
 }
 
@@ -442,30 +587,44 @@ pub(crate) struct SessionAttachments {
     auto_titling: SessionAutoTitling,
 }
 
-/// Starts the session services' follows of `followers`: the binding cursors', the approval side's,
-/// the related sessions' rescoring and the self-naming. Called once the start's recovery pass has
-/// settled the runs, inside the daemon's runtime.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-pub(crate) fn start_session_attachments(
+/// Attaches the binding cursors' follow of `followers`, which marks an ended run's cursors to drop
+/// at its session's next binding. Called before the start's recovery pass, whose resumes end runs
+/// on the bindings they open; the follow runs on the writer's pump.
+pub(crate) fn follow_binding_cursors(
     services: &SessionServices,
     followers: &Arc<SessionEventFollowers>,
-) -> SessionAttachments {
+) -> FollowerAttachment {
     let binding_cursors = Arc::clone(&services.binding_cursors);
-    SessionAttachments {
-        // Runs on the writer's pump.
-        binding_cursors: followers
-            .follow_all(move |event| binding_cursors.observe(event).map_err(Into::into)),
+    followers.follow_all(move |event| binding_cursors.observe(event).map_err(Into::into))
+}
+
+/// Starts the idle sleep, which wakes each session its stored schedules name and checks every
+/// session from then on, then the session services' other follows of `followers`: the approval
+/// side's, the related sessions' rescoring and the self-naming; holds them beside
+/// `binding_cursors`, the follow [`follow_binding_cursors`] attached. Called once the start's
+/// recovery pass has settled the runs and the driver ports are registered, since a wake due at
+/// once reads them, inside the daemon's runtime. Fails as the idle sleep's start fails, with no
+/// other follow begun and `binding_cursors` detached.
+pub(crate) async fn start_session_attachments(
+    services: &SessionServices,
+    followers: &Arc<SessionEventFollowers>,
+    binding_cursors: FollowerAttachment,
+) -> Result<SessionAttachments, IdleSleepError> {
+    services.idle_sleep.start().await?;
+    Ok(SessionAttachments {
+        binding_cursors,
         approvals: start_approval_attachments(&services.approvals, followers),
         related_rescoring: services.related_ranking.start(followers),
         auto_titling: services.auto_title.start(followers),
-    }
+    })
 }
 
 impl SessionAttachments {
-    /// Stops every follow and waits for the work under way, the file search's listings among it,
-    /// and ends `workspaces`' watch, then waits for every write it already sent to be recorded;
-    /// answers each task that ended abnormally, every one having stopped.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
+    /// Stops the idle sleep, waiting for each session's stop or wake under way, so it runs before
+    /// the scheduler's stop and the drivers' shutdown; then stops every follow and waits for the
+    /// work under way, the file search's listings and the usage record's token-limit stops among
+    /// it, and ends `workspaces`' watch, then waits for every write it already sent to be
+    /// recorded; answers each task that ended abnormally, every one having stopped.
     pub(crate) async fn stop(
         self,
         services: &mut SessionServices,
@@ -477,6 +636,7 @@ impl SessionAttachments {
             related_rescoring,
             auto_titling,
         } = self;
+        services.idle_sleep.stop().await;
         let recording = services.chat_version_recording.take();
         let chat_versions = async {
             let recount = workspaces.stop().await;
@@ -487,11 +647,12 @@ impl SessionAttachments {
             };
             (recount, recorded)
         };
-        let (mut failures, rescoring, (), (), (recount, recorded)) = tokio::join!(
+        let (mut failures, rescoring, (), (), (), (recount, recorded)) = tokio::join!(
             approvals.stop(&services.approvals),
             related_rescoring.stop(),
             auto_titling.stop(),
             services.file_search.stop(),
+            services.usage.stop(),
             chat_versions,
         );
         for (task, stopped) in [

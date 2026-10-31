@@ -41,3 +41,15 @@ pub fn pass_through_start(stand_in_test: &str) -> TestProgram {
             .to_vec(),
     }
 }
+
+/// The start of `program` through this test program's stand-in `stand_in_test`, whose body is
+/// [`run_terminal_taking_stand_in`](crate::run_terminal_taking_stand_in): the stand-in's own
+/// start, then `--`, `program` and its words, which the test harness reads as filters that name no
+/// other test.
+pub fn terminal_taking_start(stand_in_test: &str, program: &TestProgram) -> TestProgram {
+    let mut start = pass_through_start(stand_in_test);
+    start.arguments.push("--".to_owned());
+    start.arguments.push(program.program.clone());
+    start.arguments.extend(program.arguments.iter().cloned());
+    start
+}

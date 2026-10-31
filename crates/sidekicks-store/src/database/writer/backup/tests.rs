@@ -73,7 +73,7 @@ fn start_copy(
             lock_bound,
         };
         let stop = ThreadStop::new();
-        let mut commits = ThreadCommits::new(None);
+        let mut commits = ThreadCommits::new(Vec::new());
         let mut serving = ThreadServing {
             connection: &connection,
             encoder: &mut BodyEncoder::new(),

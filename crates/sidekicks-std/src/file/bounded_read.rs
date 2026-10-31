@@ -159,29 +159,32 @@ fn lock_abandoned_paths() -> MutexGuard<'static, Vec<PathBuf>> {
     lock(&ABANDONED_PATHS)
 }
 
-// How long a read of `path` may take: a test's held read gives up in moments rather than after the
-// whole ceiling.
+// How long a read of `path` may take: a read a test stalls gives up in moments rather than after
+// the whole ceiling.
 #[cfg_attr(
     not(any(test, feature = "test-support")),
     expect(unused_variables, reason = "only a test holds the reads of a path")
 )]
 fn read_ceiling(path: &Path) -> Duration {
     #[cfg(any(test, feature = "test-support"))]
-    if stalled_reads::is_stalled(path) {
+    if stalled_reads::gives_up_early(path) {
         return stalled_reads::STALLED_READ_CEILING;
     }
     FILE_READ_CEILING
 }
 
 #[cfg(any(test, feature = "test-support"))]
-pub use stalled_reads::stall_reads_of;
+pub use stalled_reads::{hold_reads_of, stall_reads_of};
 
-/// Reads a test holds, so a bounded read of a path never answers while the test runs.
+/// Reads a test holds: stalled ones never answer while the test runs, held ones answer once
+/// released.
 #[cfg(any(test, feature = "test-support"))]
 mod stalled_reads {
     use std::path::{Path, PathBuf};
-    use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+    use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
     use std::time::Duration;
+
+    use tokio::sync::Notify;
 
     use crate::mutex_lock::lock;
 
@@ -195,44 +198,71 @@ mod stalled_reads {
         passed: usize,
         // How many held reads reached their thread.
         arrived: usize,
+        // Whether a held read gives up after `STALLED_READ_CEILING`, never answering.
+        gives_up: bool,
+        // Told of each held read as it reaches its thread.
+        arrival: Arc<Notify>,
     }
 
     static STALLED: Mutex<Vec<Stall>> = Mutex::new(Vec::new());
     static RELEASED: Condvar = Condvar::new();
 
     /// Holds every bounded read of one path past its first `passed` reads until dropped, when the
-    /// held reads run and answer no one.
+    /// held reads run: a stalled read then answers no one, a held one answers its caller.
     pub struct StalledReads {
         path: PathBuf,
+        arrival: Arc<Notify>,
     }
 
     /// Stalls the bounded reads of exactly `path` after the first `passed` of them, until the
     /// returned guard drops; each held read gives up after [`STALLED_READ_CEILING`].
     pub fn stall_reads_of(path: &Path, passed: usize) -> StalledReads {
+        hold(path, passed, true)
+    }
+
+    /// Holds every bounded read of exactly `path` until the returned guard drops, its release:
+    /// each held read then runs and answers its caller, within the whole ceiling.
+    pub fn hold_reads_of(path: &Path) -> StalledReads {
+        hold(path, 0, false)
+    }
+
+    fn hold(path: &Path, passed: usize, gives_up: bool) -> StalledReads {
+        let arrival = Arc::new(Notify::new());
         lock_stalled().push(Stall {
             path: path.to_path_buf(),
             passed,
             arrived: 0,
+            gives_up,
+            arrival: Arc::clone(&arrival),
         });
         StalledReads {
             path: path.to_path_buf(),
+            arrival,
         }
     }
 
-    #[cfg(test)]
     impl StalledReads {
         /// How many reads of the path reached a thread and were held there.
-        pub(crate) fn arrived(&self) -> usize {
+        pub fn arrived(&self) -> usize {
             lock_stalled()
                 .iter()
                 .find(|stall| stall.path == self.path)
                 .map_or(0, |stall| stall.arrived)
         }
+
+        /// Waits until a read of the path reached a thread and was held there.
+        pub async fn wait_for_arrival(&self) {
+            if self.arrived() == 0 {
+                self.arrival.notified().await;
+            }
+        }
     }
 
-    /// Whether a test stalls reads of `path`.
-    pub(super) fn is_stalled(path: &Path) -> bool {
-        lock_stalled().iter().any(|stall| stall.path == path)
+    /// Whether a test stalls reads of `path` so that they give up early.
+    pub(super) fn gives_up_early(path: &Path) -> bool {
+        lock_stalled()
+            .iter()
+            .any(|stall| stall.path == path && stall.gives_up)
     }
 
     /// Waits while a test stalls reads of `path`, after taking one of its passing reads if any is
@@ -247,6 +277,7 @@ mod stalled_reads {
             return;
         }
         stall.arrived += 1;
+        stall.arrival.notify_one();
         while stalled.iter().any(|stall| stall.path == path) {
             stalled = RELEASED
                 .wait(stalled)

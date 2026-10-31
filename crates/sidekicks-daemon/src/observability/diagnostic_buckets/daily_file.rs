@@ -3,14 +3,13 @@
 //! the day's file on a blocking thread so the last line before an end is kept and no async thread
 //! waits on the disk. The expiry deletes a day's file whole once it is past
 //! `Keep diagnostic logs for`. A failed write loses its record, which a diagnostic log may, and is
-//! told once in the service log until a write succeeds again; the part of its line it wrote is cut
-//! off again, so the next record starts a line of its own.
+//! told in the service log at warn the first time since a write succeeded and at debug after; the
+//! part of its line it wrote is cut off again, so the next record starts a line of its own.
 
 use std::error::Error;
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use jiff::Zoned;
@@ -19,6 +18,7 @@ use serde::Serialize;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::create_private_folder;
 use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::failure_episode::FailureEpisode;
 use sidekicks_std::mutex_lock::lock;
 
 /// A bucket's day files: `<YYYY-MM-DD>.ndjson`, the local day its lines were recorded on.
@@ -31,7 +31,8 @@ pub(crate) struct DailyFileBucket {
 struct DayFiles {
     folder: PathBuf,
     open_day: Mutex<Option<OpenDay>>,
-    is_failing: AtomicBool,
+    // Whether a write failed since the last one succeeded, so only the first loss logs at warn.
+    write_failure_episode: FailureEpisode,
 }
 
 struct OpenDay {
@@ -57,7 +58,7 @@ impl DailyFileBucket {
             files: Arc::new(DayFiles {
                 folder,
                 open_day: Mutex::new(None),
-                is_failing: AtomicBool::new(false),
+                write_failure_episode: FailureEpisode::default(),
             }),
         }
     }
@@ -82,14 +83,22 @@ impl DailyFileBucket {
             Err(failure) => Err(failure.into()),
         };
         match written {
-            Ok(()) => self.files.is_failing.store(false, Ordering::Relaxed),
+            Ok(()) => self.files.write_failure_episode.mark_succeeded(),
             Err(failure) => {
-                if !self.files.is_failing.swap(true, Ordering::Relaxed) {
+                let error = &failure as &(dyn Error + 'static);
+                if self.files.write_failure_episode.is_first_failure() {
                     tracing::warn!(
                         folder = %self.files.folder.display(),
-                        error = &failure as &(dyn Error + 'static),
+                        error,
                         "a diagnostic record could not be written; records are lost until a write \
                          succeeds"
+                    );
+                } else {
+                    tracing::debug!(
+                        folder = %self.files.folder.display(),
+                        error,
+                        "a diagnostic record still could not be written; records are lost until a \
+                         write succeeds"
                     );
                 }
             }

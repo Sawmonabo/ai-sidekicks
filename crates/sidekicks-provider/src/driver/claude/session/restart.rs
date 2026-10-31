@@ -1,42 +1,51 @@
 //! A Claude Code process that ended on its own: its runs end through the run engine, then the
 //! session resumes after its crash window's next wait, or, once the window fills, the restarts stop
 //! and the person is told. A new provider build relaunches each session the same way, an idle one
-//! at once and a busy one when its turn settles.
+//! at once and a busy one when its turn settles. Until a relaunch has composed its start, the
+//! ended process's settings are held, so a level or mode moved meanwhile starts with it. What an
+//! ended process leaves is in `ended_process`, and the resume that brings it back in `relaunch`.
+
+pub(crate) mod ended_process;
+
+mod relaunch;
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::SystemTime;
 
 use futures::future::join_all;
 use serde_json::json;
-use sidekicks_contracts::command::ExitCode;
-use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
-use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode};
+use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::settle_all::settle_all;
+use tokio::sync::SetOnce;
 use tokio_util::task::AbortOnDropHandle;
 
+use self::ended_process::{ClaudeEndedConversation, ended_conversation_of};
+use self::relaunch::compose_claude_relaunch;
 use crate::crash_window::{CrashOutcome, CrashWindow};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::claude_delivery_origin;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
-use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
-use crate::driver::claude::session::process::ClaudeProcessEnd;
-use crate::driver::claude::session::slots::{ClaudeCloseStart, ClaudeSessionSlots};
-use crate::driver::claude::session::state::LiveClaudeSession;
-use crate::driver::claude::session::ultracode::relaunch_claude_options;
-use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::claude::session::establishment::{
+    ClaudeResumeAnswer, ClaudeSessionEstablishment,
+};
+use crate::driver::claude::session::slots::{
+    ClaudeCloseStart, ClaudeSessionSlots, ClaudeSlotClose,
+};
+use crate::driver::claude::session::state::{
+    ClaudeLiveSettings, ClaudeSlotSettled, LiveClaudeSession,
+};
+use crate::driver::contract::error::DriverError;
 use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::driver::error_causes::session_process_unavailable;
 use crate::driver::ports::DriverPorts;
 use crate::driver::session_control::{
     DriverResumeResult, ProviderBuildChange, ResumeSessionParams,
@@ -45,11 +54,11 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
 
-// Every session's crash window and what waits to start it again.
+// Every session's crash window and the sessions the driver brings back itself.
 #[derive(Default)]
 struct ClaudeRestartTable {
     crash_windows: HashMap<SessionId, CrashWindow>,
-    pending_restarts: HashMap<SessionId, AbortOnDropHandle<()>>,
+    restarting: HashMap<SessionId, ClaudeRestartStage>,
     // The build each busy session moves to once its turn settles.
     pending_build_moves: HashMap<SessionId, ProviderBuildChange>,
     // The conversation each session's last ended process wrote, until the session closes.
@@ -58,13 +67,48 @@ struct ClaudeRestartTable {
     is_stopped: bool,
 }
 
-/// The conversation an ended process wrote, where its file is found again.
-#[derive(Clone, Debug)]
-pub(crate) struct ClaudeEndedConversation {
-    /// Claude Code's id of the conversation.
-    pub(crate) provider_session_id: String,
-    /// The environment the process ran in, which names its Claude Code home.
-    pub(crate) spawn_environment: Vec<(String, String)>,
+// Where a session the driver brings back itself stands.
+enum ClaudeRestartStage {
+    // Its process ended and no relaunch has composed its start: the ended process's settings,
+    // which the relaunch composes from, the crash window's wait once one is set, and the cell set
+    // once the stage goes.
+    Held {
+        ended: Arc<LiveClaudeSession>,
+        wait: Option<AbortOnDropHandle<()>>,
+        left: ClaudeHeldStageLeft,
+    },
+    // A relaunch composed its start and brings the process up; set once it is done.
+    Relaunching {
+        settled: ClaudeSlotSettled,
+    },
+}
+
+/// Where a session's process stands for a control that moves its level or mode.
+pub(crate) enum ClaudeSessionStanding {
+    /// A process serves the session.
+    Live(Arc<LiveClaudeSession>),
+    /// The process ended and the driver brings it back from `ended`'s settings, which a move
+    /// writes; `left` is set once the restart composed its start or was dropped.
+    Held {
+        /// The ended process, whose settings the relaunch composes from.
+        ended: Arc<LiveClaudeSession>,
+        /// Set once the session is no longer held.
+        left: ClaudeSlotSettled,
+    },
+    /// A process comes up without the daemon's open; the move waits for this, then looks again.
+    Settling(ClaudeSlotSettled),
+    /// No process serves the session and none comes back until the daemon opens it.
+    Down,
+}
+
+// The cell of a held restart, set when the stage goes: replaced by its relaunch, or dropped by the
+// person's restart, a close or the daemon's stop.
+struct ClaudeHeldStageLeft(ClaudeSlotSettled);
+
+impl Drop for ClaudeHeldStageLeft {
+    fn drop(&mut self) {
+        drop(self.0.set(()));
+    }
 }
 
 /// Every Claude Code session's restarts after an exit, and its moves to a new build.
@@ -129,14 +173,37 @@ impl ClaudeSessionRestarts {
     ) {
         let session_id = live.session_id;
         let runs = self.routes.bound_runs_on(session_id);
-        {
+        // Decided before anything awaits, so a read of the session's state from here on, the
+        // queue's on hearing the process gone among them, sees whether it comes back.
+        let outcome = {
             let mut table = lock(&self.table);
             // The restart resumes on the build installed now, so a move that waited is done.
             table.pending_build_moves.remove(&session_id);
             table
                 .ended_conversations
                 .insert(session_id, ended_conversation_of(&live));
-        }
+            if table.is_stopped {
+                None
+            } else {
+                let outcome = table
+                    .crash_windows
+                    .entry(session_id)
+                    .or_insert_with(CrashWindow::provider)
+                    .record_crash(SystemTime::now());
+                if matches!(outcome, CrashOutcome::RestartAfter(_)) {
+                    // Held from the exit on, so a move while its runs end reaches the restart.
+                    table.restarting.insert(
+                        session_id,
+                        ClaudeRestartStage::Held {
+                            ended: Arc::clone(&live),
+                            wait: None,
+                            left: ClaudeHeldStageLeft(Arc::new(SetOnce::new())),
+                        },
+                    );
+                }
+                Some(outcome)
+            }
+        };
         self.routes.retire_run_routes(session_id);
         self.routes.retire_child_routes(session_id);
         for run in &runs {
@@ -156,33 +223,32 @@ impl ClaudeSessionRestarts {
             }
         }
         live.release_served_presses(&self.ports.reviewer_denials);
-        if let Some(process_gone) = self.ports.process_gone.port() {
-            process_gone.process_gone(session_id);
-        }
-        let outcome = {
-            let mut table = lock(&self.table);
-            if table.is_stopped {
-                return;
-            }
-            table
-                .crash_windows
-                .entry(session_id)
-                .or_insert_with(CrashWindow::provider)
-                .record_crash(SystemTime::now())
-        };
+        self.report_gone(session_id);
         match outcome {
-            CrashOutcome::CrashLoop => self.report_crash_loop(session_id, &exit).await,
-            CrashOutcome::RestartAfter(wait) => {
+            None => {}
+            Some(CrashOutcome::CrashLoop) => self.report_crash_loop(session_id, &exit).await,
+            Some(CrashOutcome::RestartAfter(wait)) => {
+                // Spawned under the lock its wait is kept under, so the wait cannot end before it
+                // is kept.
+                let mut table = lock(&self.table);
+                let Some(ClaudeRestartStage::Held {
+                    ended,
+                    wait: kept_wait,
+                    ..
+                }) = table.restarting.get_mut(&session_id)
+                else {
+                    // The person's restart, a close or the daemon's stop took the session.
+                    return;
+                };
+                if !Arc::ptr_eq(ended, &live) {
+                    return;
+                }
                 let restarts = Arc::clone(self);
                 let pending = tokio::spawn(async move {
                     tokio::time::sleep(wait).await;
-                    // Held to the end, so dropping it aborts nothing of this run.
-                    let _own = lock(&restarts.table).pending_restarts.remove(&session_id);
-                    restarts.restart(&live).await;
+                    restarts.restart(live).await;
                 });
-                lock(&self.table)
-                    .pending_restarts
-                    .insert(session_id, AbortOnDropHandle::new(pending));
+                *kept_wait = Some(AbortOnDropHandle::new(pending));
             }
         }
     }
@@ -191,7 +257,12 @@ impl ClaudeSessionRestarts {
     /// waiting; the person's own restart.
     pub(crate) fn clear_crash_window(&self, session_id: SessionId) {
         let mut table = lock(&self.table);
-        table.pending_restarts.remove(&session_id);
+        if matches!(
+            table.restarting.get(&session_id),
+            Some(ClaudeRestartStage::Held { .. })
+        ) {
+            table.restarting.remove(&session_id);
+        }
         if let Some(window) = table.crash_windows.get_mut(&session_id) {
             window.clear();
         }
@@ -200,7 +271,7 @@ impl ClaudeSessionRestarts {
     /// Forgets a closed session's crash window and anything it had waiting.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         let mut table = lock(&self.table);
-        table.pending_restarts.remove(&session_id);
+        table.restarting.remove(&session_id);
         table.crash_windows.remove(&session_id);
         table.pending_build_moves.remove(&session_id);
         table.ended_conversations.remove(&session_id);
@@ -225,7 +296,8 @@ impl ClaudeSessionRestarts {
         live: &Arc<LiveClaudeSession>,
     ) -> Result<(), DriverError> {
         let session_id = live.session_id;
-        let Some(result) = self.relaunch(live).await else {
+        // The runs keep their binding, so the session directory records no new one.
+        let Some(ClaudeResumeAnswer { result, .. }) = self.relaunch(live, false).await else {
             return Ok(());
         };
         let DriverResumeResult::Failed {
@@ -235,6 +307,7 @@ impl ClaudeSessionRestarts {
         else {
             return Ok(());
         };
+        self.report_gone(session_id);
         let failure = DriverError::Internal(provider_failure_detail.as_str().into());
         if let Err(error) = self.report_relaunch(session_id, result).await {
             record_unheard_claude_failure(
@@ -252,8 +325,74 @@ impl ClaudeSessionRestarts {
     pub(crate) fn stop(&self) {
         let mut table = lock(&self.table);
         table.is_stopped = true;
-        table.pending_restarts.clear();
+        table
+            .restarting
+            .retain(|_, stage| matches!(stage, ClaudeRestartStage::Relaunching { .. }));
         table.pending_build_moves.clear();
+    }
+
+    /// Waits until the session's process no longer comes back on its own: a restart held for its
+    /// crash window's wait, a relaunch or a bring-up in flight each waited out. Answers once the
+    /// process is live; fails `provider.unavailable` once none serves the session.
+    pub(crate) async fn settle(&self, session_id: SessionId) -> Result<(), DriverError> {
+        loop {
+            match self.standing(session_id) {
+                ClaudeSessionStanding::Live(_) => return Ok(()),
+                ClaudeSessionStanding::Down => {
+                    return Err(DriverError::from(session_process_unavailable(session_id)));
+                }
+                ClaudeSessionStanding::Held { left, .. } => {
+                    left.wait().await;
+                }
+                ClaudeSessionStanding::Settling(settled) => {
+                    settled.wait().await;
+                }
+            }
+        }
+    }
+
+    /// Where the session's process stands: live, held by a restart that has not composed its
+    /// start, coming up without the daemon's open (a relaunch, or a fork that replaces it), or
+    /// down. A read of what the driver holds.
+    pub(crate) fn standing(&self, session_id: SessionId) -> ClaudeSessionStanding {
+        match lock(&self.table).restarting.get(&session_id) {
+            Some(ClaudeRestartStage::Held { ended, left, .. }) => {
+                return ClaudeSessionStanding::Held {
+                    ended: Arc::clone(ended),
+                    left: Arc::clone(&left.0),
+                };
+            }
+            Some(ClaudeRestartStage::Relaunching { settled }) => {
+                return ClaudeSessionStanding::Settling(Arc::clone(settled));
+            }
+            None => {}
+        }
+        if let Some(live) = self.slots.live_session(session_id) {
+            return ClaudeSessionStanding::Live(live);
+        }
+        match self.slots.establishing_settled(session_id) {
+            Some(settled) => ClaudeSessionStanding::Settling(settled),
+            None => ClaudeSessionStanding::Down,
+        }
+    }
+
+    /// Writes `write` into the settings `ended`'s restart composes its start from, while they are
+    /// still held for it; `false` once the relaunch composed it or the session left the restart.
+    pub(crate) fn write_held_settings(
+        &self,
+        ended: &Arc<LiveClaudeSession>,
+        write: impl FnOnce(&mut ClaudeLiveSettings),
+    ) -> bool {
+        // Written under the table's lock, which the relaunch takes before it composes.
+        let table = lock(&self.table);
+        let is_held = matches!(
+            table.restarting.get(&ended.session_id),
+            Some(ClaudeRestartStage::Held { ended: held, .. }) if Arc::ptr_eq(held, ended)
+        );
+        if is_held {
+            write(&mut lock(&ended.settings));
+        }
+        is_held
     }
 
     /// Moves every live session onto the build that replaced the running one: an idle one at once,
@@ -335,11 +474,14 @@ impl ClaudeSessionRestarts {
     ) -> Result<(), DriverError> {
         let session_id = live.session_id;
         lock(&self.table).pending_build_moves.remove(&session_id);
-        let Some(result) = self.relaunch(live).await else {
+        let Some(answer) = self.relaunch(live, true).await else {
             return Ok(());
         };
-        let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
-        self.report_relaunch(session_id, result).await?;
+        let is_resumed = matches!(answer.result, DriverResumeResult::Resumed { .. });
+        if !is_resumed {
+            self.report_gone(session_id);
+        }
+        self.record_relaunch(session_id, answer).await?;
         if is_resumed
             && let (Ok(from_version), Ok(to_version)) = (
                 FreeFormText::new(change.from_version.clone()),
@@ -360,101 +502,148 @@ impl ClaudeSessionRestarts {
         Ok(())
     }
 
-    // Ends `live`'s process the way a close does and resumes its conversation; `None`, with
-    // nothing ended, once the process is no longer the session's or the daemon stops.
-    async fn relaunch(&self, live: &Arc<LiveClaudeSession>) -> Option<DriverResumeResult> {
-        let session_id = live.session_id;
-        let close = {
-            let is_own = self
-                .slots
-                .live_session(session_id)
-                .is_some_and(|held| Arc::ptr_eq(&held.channel, &live.channel));
-            if lock(&self.table).is_stopped || !is_own {
-                return None;
-            }
-            match self.slots.begin_close(session_id) {
-                ClaudeCloseStart::Closing(close) => close,
-                // A create, resume or close took the session first and owns it now.
-                ClaudeCloseStart::Empty | ClaudeCloseStart::Wait(_) => return None,
-            }
-        };
-        let relaunch = compose_claude_relaunch(live);
-        lock(&self.table)
-            .ended_conversations
-            .insert(session_id, ended_conversation_of(live));
-        close.retire_for_bring_up(&self.routes, &self.ports).await;
-        Some(self.resume(relaunch).await)
+    /// Starts `live`'s stop for the idle sleep and answers the resume that wakes it, which brings
+    /// its conversation back on the same account, folder, settings and level; `None`, with nothing
+    /// stopped, once the process is no longer the session's, the daemon stops, or the model it
+    /// runs on has no name a resume carries.
+    pub(crate) fn begin_sleep(
+        &self,
+        live: &Arc<LiveClaudeSession>,
+    ) -> Option<(ClaudeSlotClose, ResumeSessionParams)> {
+        let resume = compose_claude_relaunch(live)?;
+        Some((self.begin_own_close(live)?, resume))
     }
 
-    // The wait passed: the session resumes unless a create, resume or close reached it meanwhile.
-    async fn restart(&self, live: &LiveClaudeSession) {
-        let session_id = live.session_id;
-        if lock(&self.table).is_stopped || self.slots.holds_slot(session_id) {
-            return;
+    /// Ends the process a sleep's `close` holds the way a close does, keeping its conversation:
+    /// its input closes, so Claude Code finishes writing it, and it settles once it exited.
+    pub(crate) async fn finish_sleep(&self, close: ClaudeSlotClose, live: &LiveClaudeSession) {
+        self.retire_keeping_conversation(close, live).await;
+    }
+
+    /// Wakes a sleeping session through `resume`, under a binding the session directory opens
+    /// first, and hands the directory the result, so it records the binding. Fails with the
+    /// resume's failure, which the directory records too, and as the record fails.
+    pub(crate) async fn wake(&self, resume: ResumeSessionParams) -> Result<(), DriverError> {
+        let session_id = resume.session_id;
+        let answer = self.resume(Some(resume), true).await;
+        let failure = match &answer.result {
+            DriverResumeResult::Resumed { .. } => None,
+            DriverResumeResult::Failed {
+                provider_failure_detail,
+                ..
+            } => Some(DriverError::Internal(
+                provider_failure_detail.as_str().into(),
+            )),
+        };
+        self.record_relaunch(session_id, answer).await?;
+        failure.map_or(Ok(()), Err)
+    }
+
+    // Ends `live`'s process the way a close does and resumes its conversation, under a binding the
+    // session directory opens first where `is_recorded`, since it records it; `None`, with
+    // nothing ended, once the process is no longer the session's or the daemon stops.
+    async fn relaunch(
+        &self,
+        live: &Arc<LiveClaudeSession>,
+        is_recorded: bool,
+    ) -> Option<ClaudeResumeAnswer> {
+        let close = self.begin_own_close(live)?;
+        let _relaunching = self.mark_relaunching(live.session_id);
+        let relaunch = compose_claude_relaunch(live);
+        self.retire_keeping_conversation(close, live).await;
+        Some(self.resume(relaunch, is_recorded).await)
+    }
+
+    // Takes `live`'s slot for a close that keeps its conversation; `None` once the process is no
+    // longer the session's or the daemon stops.
+    fn begin_own_close(&self, live: &Arc<LiveClaudeSession>) -> Option<ClaudeSlotClose> {
+        let is_own = self
+            .slots
+            .live_session(live.session_id)
+            .is_some_and(|held| Arc::ptr_eq(&held.channel, &live.channel));
+        if lock(&self.table).is_stopped || !is_own {
+            return None;
         }
-        let result = self.resume(compose_claude_relaunch(live)).await;
-        let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
-        if let Err(error) = self.report_relaunch(session_id, result).await {
+        match self.slots.begin_close(live.session_id) {
+            ClaudeCloseStart::Closing(close) => Some(close),
+            // A create, resume or close took the session first and owns it now.
+            ClaudeCloseStart::Empty | ClaudeCloseStart::Wait(_) => None,
+        }
+    }
+
+    // Ends the process `close` holds, its conversation kept where a later read finds its file.
+    async fn retire_keeping_conversation(&self, close: ClaudeSlotClose, live: &LiveClaudeSession) {
+        lock(&self.table)
+            .ended_conversations
+            .insert(live.session_id, ended_conversation_of(live));
+        close.retire_for_bring_up(&self.routes, &self.ports).await;
+    }
+
+    // The wait passed: the session resumes from the settings held for it unless a create, resume
+    // or close reached it meanwhile.
+    async fn restart(&self, live: Arc<LiveClaudeSession>) {
+        let session_id = live.session_id;
+        // Its own wait is taken out with its stage and kept to the end, so dropping it aborts
+        // nothing of this restart.
+        let (_own_wait, relaunching) = {
+            let mut table = lock(&self.table);
+            let (wait, left) = match table.restarting.remove(&session_id) {
+                Some(ClaudeRestartStage::Held {
+                    ended, wait, left, ..
+                }) if Arc::ptr_eq(&ended, &live) => (wait, left),
+                Some(stage) => {
+                    table.restarting.insert(session_id, stage);
+                    return;
+                }
+                None => return,
+            };
+            if table.is_stopped || self.slots.holds_slot(session_id) {
+                return;
+            }
+            let relaunching = self.mark_relaunching_in(&mut table, session_id);
+            // Whoever waited on the held stage now waits on the relaunch.
+            drop(left);
+            (wait, relaunching)
+        };
+        let answer = self.resume(compose_claude_relaunch(&live), true).await;
+        let is_resumed = matches!(answer.result, DriverResumeResult::Resumed { .. });
+        if !is_resumed {
+            // Let go first, so the session reads down once the relaunch failed.
+            drop(relaunching);
+            self.report_gone(session_id);
+        }
+        if let Err(error) = self.record_relaunch(session_id, answer).await {
             record_unheard_claude_failure(
                 DriverDiagnosticKind::ProcessReportFailed,
                 session_id,
                 "the record of a restart",
                 &error,
             );
+            return;
         }
         if is_resumed {
             self.report_restarted(session_id, false).await;
         }
     }
 
-    // Resumes through the establishment, which is gone only once the driver is.
-    async fn resume(&self, params: Option<ResumeSessionParams>) -> DriverResumeResult {
-        let Some(params) = params else {
-            return DriverResumeResult::Failed {
-                recovery_condition: RecoveryCondition::RecoveryNeeded,
-                provider_failure_detail: bound_failure_detail(
-                    "The model the session ran on has no name the relaunch can carry.",
-                    UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
-                ),
-            };
-        };
-        match self.establishment.upgrade() {
-            Some(establishment) => establishment.resume(params).await.result,
-            None => DriverResumeResult::Failed {
-                recovery_condition: RecoveryCondition::RecoveryNeeded,
-                provider_failure_detail: bound_failure_detail(
-                    "The Claude Code driver has stopped.",
-                    UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
-                ),
-            },
+    // Tells the queue the session's process is gone: at an exit, and once a relaunch failed, after
+    // which the session stands down and its next run opens it again.
+    fn report_gone(&self, session_id: SessionId) {
+        if let Some(process_gone) = self.ports.process_gone.port() {
+            process_gone.process_gone(session_id);
         }
     }
 
-    // Hands the session directory the relaunch's result, so it records the binding or the failure.
-    async fn report_relaunch(
-        &self,
-        session_id: SessionId,
-        result: DriverResumeResult,
-    ) -> Result<(), DriverError> {
-        let listener = self
-            .ports
-            .session_relaunched
-            .require_port()
-            .map_err(|error| DriverError::Internal(Box::new(error)))?;
-        listener
-            .session_relaunched(session_id, result)
-            .await
-            .map_err(DriverError::Internal)
-    }
-
     async fn report_crash_loop(&self, session_id: SessionId, exit: &ProcessExit) {
-        let (exit_code, signal) = match exit {
-            ProcessExit::Code(ended) => (Some(ended.exit_code), None),
-            ProcessExit::Signal(ended) => (None, Some(ended.signal.clone())),
+        let (exit_code, signal, silent_seconds) = match exit {
+            ProcessExit::Code(ended) => (Some(ended.exit_code), None, None),
+            ProcessExit::Signal(ended) => (None, Some(ended.signal.clone()), None),
+            ProcessExit::Silent(ended) => (None, None, Some(ended.silent_seconds)),
         };
-        let ending = match (&exit_code, &signal) {
-            (Some(code), _) => ("exitCode".to_owned(), json!(code)),
-            (None, signal) => ("signal".to_owned(), json!(signal)),
+        let ending = match (&exit_code, &signal, &silent_seconds) {
+            (Some(code), _, _) => ("exitCode".to_owned(), json!(code)),
+            (None, None, Some(seconds)) => ("silentSeconds".to_owned(), json!(seconds)),
+            (None, signal, _) => ("signal".to_owned(), json!(signal)),
         };
         emit_driver_diagnostic(&DriverDiagnosticRecord {
             provider: DESCRIPTOR.provider_id(),
@@ -474,6 +663,7 @@ impl ClaudeSessionRestarts {
                 provider: DESCRIPTOR.provider_id(),
                 exit_code,
                 signal,
+                silent_seconds,
                 start_failure: None,
             },
         )
@@ -497,57 +687,54 @@ impl ClaudeSessionRestarts {
     }
 }
 
-// Where the file of the conversation `live`'s process wrote is found again.
-fn ended_conversation_of(live: &LiveClaudeSession) -> ClaudeEndedConversation {
-    ClaudeEndedConversation {
-        provider_session_id: live.provider_session_id.clone(),
-        spawn_environment: live.spawn_bound_legs.spawn_environment.clone(),
+// A relaunch marked as its session's stage; dropping it takes the mark out and settles whoever
+// waits for the relaunch.
+struct ClaudeRelaunchMark<'restarts> {
+    restarts: &'restarts ClaudeSessionRestarts,
+    session_id: SessionId,
+    settled: ClaudeSlotSettled,
+}
+
+impl Drop for ClaudeRelaunchMark<'_> {
+    fn drop(&mut self) {
+        {
+            let mut table = lock(&self.restarts.table);
+            let is_own = matches!(
+                table.restarting.get(&self.session_id),
+                Some(ClaudeRestartStage::Relaunching { settled })
+                    if Arc::ptr_eq(settled, &self.settled)
+            );
+            if is_own {
+                table.restarting.remove(&self.session_id);
+            }
+        }
+        drop(self.settled.set(()));
     }
 }
 
-/// The exit a process's end crosses the wire with: a wait that failed reads as code 0, its error
-/// the output tail, since the process is gone either way.
-pub(crate) fn claude_process_exit_of(end: &ClaudeProcessEnd) -> ProcessExit {
-    match end {
-        Ok(exit) => exit.clone(),
-        Err(error) => ProcessExit::Code(ProcessExitWithCode {
-            exit_code: ExitCode::new(0).expect("zero is a safe integer"),
-            signal: None,
-            output_tail: bound_failure_detail(
-                &describe_error(&**error as &(dyn Error + 'static)),
-                UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
-            ),
-        }),
+impl ClaudeSessionRestarts {
+    // Marks the session relaunching until the mark drops.
+    fn mark_relaunching(&self, session_id: SessionId) -> ClaudeRelaunchMark<'_> {
+        self.mark_relaunching_in(&mut lock(&self.table), session_id)
     }
-}
 
-// The resume that brings `live` back on the legs and level it ran at, the person's later moves
-// included, under the account it was admitted on, asking for the callback tools and Settings rows
-// its process was asked for, which the session's own advisor and style still override; `None` when
-// the model it moved to has no name a resume carries.
-fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionParams> {
-    let settings = lock(&live.settings).clone();
-    let legs = &live.spawn_bound_legs;
-    Some(ResumeSessionParams {
-        session_id: live.session_id,
-        agent_id: live.agent_id,
-        resume_handle: live.provider_session_id.clone(),
-        // The model it runs on now, which a session-long switch by Claude Code may have moved.
-        model: FreeFormText::new(settings.running_model).ok()?,
-        // Claude Code's model id names its window, so the driver keeps no figure of its own.
-        larger_window: None,
-        mode: settings.session_mode,
-        execution_posture: settings.execution_posture,
-        output_speed: settings
-            .applied_output_speed
-            .and_then(|level| FreeFormText::new(level).ok()),
-        options: relaunch_claude_options(settings.ultracode_requested),
-        row_values: live.requested_spawn.row_values.clone(),
-        callback_tools: live.requested_spawn.callback_tools.clone(),
-        subagent_policy: legs.subagent_policy.clone(),
-        tool_servers: Some(legs.tool_servers.clone()),
-        output_schema: legs.output_schema.clone(),
-        provider_account_id: live.admitted_provider_account_id.clone(),
-        on_mcp_server_status: legs.on_mcp_server_status.clone(),
-    })
+    // Marks the session relaunching in `table`, which the caller holds locked.
+    fn mark_relaunching_in(
+        &self,
+        table: &mut ClaudeRestartTable,
+        session_id: SessionId,
+    ) -> ClaudeRelaunchMark<'_> {
+        let settled: ClaudeSlotSettled = Arc::new(SetOnce::new());
+        table.restarting.insert(
+            session_id,
+            ClaudeRestartStage::Relaunching {
+                settled: Arc::clone(&settled),
+            },
+        );
+        ClaudeRelaunchMark {
+            restarts: self,
+            session_id,
+            settled,
+        }
+    }
 }

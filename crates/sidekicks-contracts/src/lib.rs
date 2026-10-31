@@ -55,6 +55,7 @@ pub mod skill;
 pub mod tag;
 pub mod terminal;
 pub mod transcript;
+pub mod trust;
 pub mod trust_statement;
 pub mod turn;
 pub mod typescript;

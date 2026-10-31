@@ -14,7 +14,9 @@ use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::event_cursor::{START_OF_LOG_POSITION, encode_event_cursor};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{
@@ -31,14 +33,14 @@ use sidekicks_contracts::transcript::operations::{
     TranscriptReadResponse, TranscriptReasoningReadRequest, TranscriptReasoningReadResponse,
 };
 use sidekicks_contracts::transcript::run_facts::{FoldedThroughSequence, TranscriptRunFacts};
-use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -48,7 +50,8 @@ use sidekicks_store::events::session::read::{
     readable_event_sql, session_read_bound,
 };
 
-use crate::console_state::read_session_max_steps_per_turn;
+use crate::console_state::{read_session_max_steps_per_turn, read_session_mode};
+use crate::permission_level::read_session_permission_level;
 use crate::projector::{SessionRebuildError, rebuild_session};
 use crate::records::DaemonSessionRecord;
 use crate::run::read::{SessionLiveRunRow, read_session_live_runs};
@@ -63,12 +66,12 @@ use crate::transcript::reasoning::read_reasoning;
 use crate::transcript::run_facts::TranscriptRunFactsReader;
 use crate::transcript::window::{TranscriptReadError, read_transcript_window};
 
-/// The statements the service's reads run: its own five (the row, the tags, the live runs, the
-/// standing sequences and the console read), the run facts' three, the five shared event reads
-/// (the head, the rows after a position of every type and of named types, a sequence window and the
-/// rows at named sequences), and the transcript reads' six (the rows before a position, a stored
-/// row, a window's bodies and the turn attribution's three seeds).
-pub const SESSION_SERVICE_STATEMENT_CAPACITY: usize = 5 + 3 + 5 + 6;
+/// The statements the service's reads run: its own seven (the row, the tags, the live runs, the
+/// standing sequences, the level and the console's two reads), the run facts' three, the five
+/// shared event reads (the head, the rows after a position of every type and of named types, a
+/// sequence window and the rows at named sequences), and the transcript reads' six (the rows before
+/// a position, a stored row, a window's bodies and the turn attribution's three seeds).
+pub const SESSION_SERVICE_STATEMENT_CAPACITY: usize = 7 + 3 + 5 + 6;
 
 // A negative limit reads every event.
 const NO_LIMIT: i64 = -1;
@@ -98,6 +101,10 @@ pub struct SessionReadRecord {
     pub updated_at: WireInstant,
     /// Its own bound on the steps one turn may take, `None` where the person set none.
     pub max_steps_per_turn: Option<SafeInt<1>>,
+    /// The level it runs at.
+    pub permission_level: PermissionLevel,
+    /// Whether its next turns plan or build.
+    pub session_mode: SessionMode,
     /// Its tags as first written, in the order of their case fold.
     pub tags: TagList,
 }
@@ -162,6 +169,14 @@ pub enum SessionServiceError {
         /// Its session.
         session_id: SessionId,
     },
+    /// A live run's creation names no account, which admission never writes.
+    #[error("run {run_id} of session {session_id} names no account")]
+    RunNamesNoAccount {
+        /// The run.
+        run_id: RunId,
+        /// Its session.
+        session_id: SessionId,
+    },
     /// The log does not rebuild into a record.
     #[error(transparent)]
     Rebuild(#[from] SessionRebuildError),
@@ -180,6 +195,7 @@ impl From<SessionServiceError> for HandlerError {
             fault @ (SessionServiceError::Database(_)
             | SessionServiceError::Log(_)
             | SessionServiceError::RunNamesNoAgent { .. }
+            | SessionServiceError::RunNamesNoAccount { .. }
             | SessionServiceError::Rebuild(_)
             | SessionServiceError::Pool(_)) => Self::Internal(Box::new(fault)),
         }
@@ -264,6 +280,10 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+/// Answers the driver of a provider, `None` where no driver answers it.
+pub type ProviderDriverLookup =
+    dyn Fn(&ProviderId) -> Option<Arc<dyn ProviderDriver>> + Send + Sync;
+
 /// Reads one session through the daemon's read pool: its record and cursors from its row, its
 /// whole log or a page of it, a window of its transcript or one stored row, or its record rebuilt
 /// from that log. Each read runs on the blocking pool on a connection it borrows for the whole
@@ -271,20 +291,23 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
 pub struct SessionService {
     pool: Arc<DatabaseReadPool>,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+    driver_of: Arc<ProviderDriverLookup>,
     // The cuts of ended replies its body reads keep, so a later part decodes only its frames.
     block_cuts: Arc<BlockCuts>,
 }
 
 impl SessionService {
     /// The service reading through `pool`; `read_damaged_from_sequence` says where a damaged
-    /// session's reads stop.
+    /// session's reads stop; `driver_of` answers the driver that reads a session's task-list calls.
     pub fn new(
         pool: Arc<DatabaseReadPool>,
         read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+        driver_of: Arc<ProviderDriverLookup>,
     ) -> Self {
         Self {
             pool,
             read_damaged_from_sequence,
+            driver_of,
             block_cuts: Arc::default(),
         }
     }
@@ -301,7 +324,8 @@ impl SessionService {
     /// so no event the row, a run or a standing event reflects lies past `latest`. Fails with
     /// [`SessionServiceError::Refused`] (`session.notFound`) for a session this daemon holds no row
     /// for, [`SessionServiceError::Log`] for a standing event that is not a well-formed envelope,
-    /// and [`SessionServiceError::RunNamesNoAgent`] for a live run whose creation names no agent.
+    /// [`SessionServiceError::RunNamesNoAgent`] for a live run whose creation names no agent, and
+    /// [`SessionServiceError::RunNamesNoAccount`] for one whose creation names no account.
     pub async fn read_session(
         &self,
         request: SessionReadRequest,
@@ -331,28 +355,14 @@ impl SessionService {
         .await
     }
 
-    /// Every event of the session's log in sequence order; none for a session with no events.
-    /// Fails with [`SessionServiceError::Log`] when a stored row is not a well-formed envelope.
-    pub(crate) async fn read_events(
-        &self,
-        session_id: SessionId,
-    ) -> Result<Vec<EventEnvelope>, SessionServiceError> {
-        self.run_read(
-            ReadLength::Long,
-            move |reader, read_damaged_from_sequence| {
-                Ok(read_events(
-                    reader,
-                    read_damaged_from_sequence,
-                    &session_id,
-                )?)
-            },
-        )
-        .await
-    }
-
     /// Rebuilds the session's record from its whole log, `None` when it has no events. Fails with
-    /// [`SessionServiceError::Rebuild`] for a log that does not open at `session.created`, and as
-    /// [`SessionService::read_events`] does.
+    /// [`SessionServiceError::Rebuild`] for a log that does not open at `session.created`, and
+    /// with [`SessionServiceError::Log`] when a stored row is not a well-formed envelope.
+    #[expect(
+        dead_code,
+        reason = "the session core's rebuild of a session's record from its whole log, read in \
+                  order"
+    )]
     pub(crate) async fn rebuild_session(
         &self,
         session_id: SessionId,
@@ -376,10 +386,17 @@ impl SessionService {
         &self,
         request: TranscriptReadRequest,
     ) -> Result<TranscriptReadResponse, TranscriptReadError> {
+        let driver_of = Arc::clone(&self.driver_of);
         self.run_read(
             ReadLength::Long,
             move |reader, read_damaged_from_sequence| {
-                read_transcript_window(reader, read_damaged_from_sequence, &request, MARKDOWN_PARSE)
+                read_transcript_window(
+                    reader,
+                    read_damaged_from_sequence,
+                    &*driver_of,
+                    &request,
+                    MARKDOWN_PARSE,
+                )
             },
         )
         .await
@@ -456,12 +473,14 @@ impl SessionService {
         request: TranscriptChildRunExpandRequest,
         observed_at: WireInstant,
     ) -> Result<TranscriptChildRunExpandResponse, TranscriptReadError> {
+        let driver_of = Arc::clone(&self.driver_of);
         self.run_read(
             ReadLength::Long,
             move |reader, read_damaged_from_sequence| {
                 expand_child_run(
                     reader,
                     read_damaged_from_sequence,
+                    &*driver_of,
                     &request,
                     &observed_at,
                     MARKDOWN_PARSE,
@@ -537,6 +556,8 @@ fn read_session(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let max_steps_per_turn = read_session_max_steps_per_turn(&snapshot, session_id)?;
+    let permission_level = read_session_permission_level(&snapshot, session_id)?;
+    let session_mode = read_session_mode(&snapshot, session_id)?;
     let read_bound = session_read_bound(read_damaged_from_sequence, session_id, None);
     let live_runs = read_live_runs(
         &snapshot,
@@ -579,6 +600,8 @@ fn read_session(
             created_at: row.created_at,
             updated_at: row.updated_at,
             max_steps_per_turn,
+            permission_level,
+            session_mode,
             tags: TagList(UniqueList::new(tags).expect("a tag list has no count bound")),
         },
         transcript_cursors: SessionTranscriptCursors {
@@ -630,15 +653,21 @@ fn live_run_of(
             session_id: *session_id,
         });
     };
+    // Every run is admitted against an account its creation names.
+    let Some(admitted_provider_account_id) = facts.admitted_provider_account_id else {
+        return Err(SessionServiceError::RunNamesNoAccount {
+            run_id: row.run_id,
+            session_id: *session_id,
+        });
+    };
     Ok(SessionLiveRun {
         run_id: row.run_id,
         parent_run_id: row.parent_run_id,
-        is_apart: row.is_apart.then(True::default),
         state: row.state,
         run_version: row.run_version,
         agent_id,
         actor: facts.actor,
-        admitted_provider_account_id: facts.admitted_provider_account_id,
+        admitted_provider_account_id,
         touched_at: row
             .touched_at
             .expect("a run whose agent.run.queued reads has a readable runLifecycle event"),

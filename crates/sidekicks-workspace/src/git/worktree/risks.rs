@@ -18,7 +18,7 @@ const IGNORED_STATUS: &str = "!!";
 
 /// Why a tree's risks could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RemovalRiskReadError {
+pub enum RemovalRiskReadError {
     /// A git read failed.
     #[error("reading what removing the tree would lose failed")]
     Git(#[from] GitError),
@@ -39,10 +39,6 @@ pub(crate) enum RemovalRiskReadError {
 /// a large ignored folder. Both reads take no optional lock, so they never rewrite the tree's index
 /// under a run working there, and run one after another; the status read keeps git's built-in
 /// file-watch daemon where the repository turns it on. Fails with the first git read's failure.
-#[expect(
-    dead_code,
-    reason = "worktree removal reads what it would lose through it"
-)]
 pub(crate) async fn read_removal_risks(
     git: &GitRunner,
     place: Option<&Place>,
@@ -59,13 +55,6 @@ pub(crate) async fn read_removal_risks(
 }
 
 /// What the risk read shows in a tree, and a digest of every entry and commit behind it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "worktree removal reads what it would lose through it"
-    )
-)]
 #[derive(Clone, Debug)]
 pub(crate) struct RemovalRiskReading {
     /// What removing the tree would lose.
@@ -78,13 +67,6 @@ pub(crate) struct RemovalRiskReading {
 
 /// The risk read with its digest, for a tree no session stands in. Fails with the first git read's
 /// failure, a tree whose `HEAD` names no commit among them.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "worktree removal reads what it would lose through it"
-    )
-)]
 pub(crate) async fn read_removal_risk_reading(
     git: &GitRunner,
     place: Option<&Place>,
@@ -115,13 +97,6 @@ pub(crate) async fn read_removal_risk_reading(
 }
 
 /// Whether a plain removal would lose anything: uncommitted, ignored or unpushed work.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "worktree removal reads what it would lose through it"
-    )
-)]
 pub(crate) fn has_something_to_lose(risks: &WorktreeRemovalRisks) -> bool {
     risks.uncommitted_file_count.get() > 0
         || risks.ignored_file_count.get() > 0

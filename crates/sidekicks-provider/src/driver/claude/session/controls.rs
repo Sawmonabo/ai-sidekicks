@@ -3,6 +3,7 @@
 //! for this one session), a side question in a one-turn process that keeps nothing, Claude Code's
 //! own review as the session's own run, and the live command list.
 
+mod review;
 mod staged_review;
 
 use std::collections::HashMap;
@@ -10,41 +11,45 @@ use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::controls::events::{
     SessionNotice, SessionNoticePostedPayload, SessionSideQuestionAnsweredPayload,
 };
 use sidekicks_contracts::session::controls::methods::{
-    SessionMode, SessionReviewTarget, SideQuestionId, SideQuestionText,
+    PermissionLevel, SessionMode, SideQuestionId, SideQuestionText,
 };
 use sidekicks_contracts::session::events::{
     SessionAdvisorChangedPayload, SessionOutputStyleChangedPayload,
 };
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_platforms::PathRules;
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_workspace::git::process::environment::NO_PROMPT_ENVIRONMENT;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeCommandChannels};
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
-use crate::driver::claude::run::start::{
-    ClaudeDaemonTurnOpening, ClaudeRunStart, claude_session_unavailable,
-};
+use crate::driver::claude::run::start::ClaudeRunStart;
 use crate::driver::claude::session::answered_commands::{
     ClaudeAnsweredCommand, ClaudeAttachedAdvisor, ClaudeCommandOutcome, answer_claude_advisor,
     answer_claude_output_style, read_claude_answered_command, read_claude_attached_advisor,
 };
 use crate::driver::claude::session::arrivals::deliver_in_session_order;
-use crate::driver::claude::session::errors::{
-    ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
+use crate::driver::claude::session::errors::{ClaudeSessionError, record_unheard_claude_failure};
+use crate::driver::claude::session::idle_sleep::ClaudeSideQuestionHold;
+use crate::driver::claude::session::permission_level::{
+    claude_permission_mode_for, move_claude_permission_level,
 };
-use crate::driver::claude::session::permission_level::claude_permission_mode_for;
 use crate::driver::claude::session::permissions::read_claude_session_rules;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::control::{
@@ -59,21 +64,22 @@ use crate::driver::claude::spawn::launch::bring_up::ClaudeSessionSpawn;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::{DriverError, ProviderCommandsSubscription};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::ProviderCommandsSubscription;
 use crate::driver::diagnostics::DriverDiagnosticKind;
-use crate::driver::session_control::{ProviderCommandsListener, SessionCommandAnswer};
+use crate::driver::error_causes::side_question_refusal;
+use crate::driver::session_control::{
+    ProviderCommandsListener, SessionCommandAnswer, UpdatePermissionLevelParams,
+    UpdateSessionModeParams,
+};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::port::session_rules::SessionRulePort;
-use crate::port::usage_sink::UsageSink;
+use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 use crate::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, ThreadBaseEstablishment, UsageDeltaAccountant,
 };
-use sidekicks_std::port_registration::PortRegistration;
-
-// The bundled skill Claude Code's review runs, by the name the build's skill list gives it.
-const CLAUDE_REVIEW_SKILL_NAME: &str = "code-review";
 
 /// Reads a session's command list as the driver answers it now; `None` before it holds one.
 pub(crate) type ClaudeCommandListReader =
@@ -103,6 +109,7 @@ pub(crate) struct ClaudeSessionControls {
     session_rules: Arc<PortRegistration<Arc<dyn SessionRulePort>>>,
     in_process_tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
     read_commands: ClaudeCommandListReader,
+    command_channels: Arc<ClaudeCommandChannels>,
     tables: Arc<Mutex<ClaudeControlTables>>,
 }
 
@@ -111,15 +118,16 @@ pub(crate) struct ClaudeSessionControls {
 pub(crate) struct ClaudeSideQuestionCopy {
     /// The legs the copy starts on.
     pub(crate) legs: ClaudeSpawnBoundLegs,
-    /// The account it runs on; `None` on the person's own home.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
-    /// The conversation copied, whose emitted usage the copy's is metered less.
+    /// The account it runs on.
+    pub(crate) provider_account_id: ProviderAccountId,
+    /// The conversation copied, which the copy resumes.
     pub(crate) parent_provider_session_id: String,
 }
 
 impl ClaudeSessionControls {
     /// The controls, which start the session's own runs through `run_start`, its one-turn
-    /// processes through `starts`, and read its command list through `read_commands`.
+    /// processes through `starts`, a staged review's on a channel of `command_channels`, and read
+    /// its command list through `read_commands`.
     pub(crate) fn new(
         run_start: ClaudeRunStart,
         starts: Arc<dyn ClaudeProcessStarts>,
@@ -127,6 +135,7 @@ impl ClaudeSessionControls {
         session_rules: Arc<PortRegistration<Arc<dyn SessionRulePort>>>,
         in_process_tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
         read_commands: ClaudeCommandListReader,
+        command_channels: Arc<ClaudeCommandChannels>,
     ) -> Self {
         Self {
             run_start,
@@ -135,18 +144,22 @@ impl ClaudeSessionControls {
             session_rules,
             in_process_tool_servers,
             read_commands,
+            command_channels,
             tables: Arc::new(Mutex::new(ClaudeControlTables::default())),
         }
     }
 
     /// Moves the session between Build and Plan from its next turn: Plan is Claude Code's `plan`
-    /// mode and Build its level's own mode, stored once Claude Code takes it. Fails as Claude Code
-    /// refuses.
+    /// mode and Build its level's own mode, stored once Claude Code takes it. A move that follows
+    /// a mode Claude Code reported running sends nothing and takes that mode as the one the
+    /// process runs, the level unchanged. Refused `session.mode.notOffered` in Claude Code's words
+    /// when it refuses the mode; fails as the request fails.
     pub(crate) async fn update_session_mode(
         &self,
         live: &LiveClaudeSession,
-        mode: SessionMode,
-    ) -> Result<(), ClaudeSessionError> {
+        params: &UpdateSessionModeParams,
+    ) -> Result<(), DriverError> {
+        let mode = params.mode;
         let level = lock(&live.settings)
             .execution_posture
             .as_ref()
@@ -155,12 +168,60 @@ impl ClaudeSessionControls {
             SessionMode::Plan => ClaudePermissionMode::Plan,
             SessionMode::Build => claude_permission_mode_for(level),
         };
+        if params.is_provider_reported {
+            lock(&live.settings).session_mode = mode;
+            live.permission_mode.adopt_report(permission_mode);
+            return Ok(());
+        }
+        // Held until the reply, so the report the send causes is known as the daemon's own.
+        let send = live.permission_mode.begin_send(permission_mode);
         live.channel
             .send_control_request(ClaudeControlRequest::SetPermissionMode {
                 mode: permission_mode,
             })
-            .await?;
+            .await
+            .map_err(|error| {
+                match error.into_refusal_as(
+                    RefusalCode::SessionModeNotOffered,
+                    "Claude Code refused the mode",
+                ) {
+                    Ok(refusal) => DriverError::from(refusal),
+                    Err(error) => error.into(),
+                }
+            })?;
+        send.acknowledge();
         lock(&live.settings).session_mode = mode;
+        Ok(())
+    }
+
+    /// Moves the live session to the level Claude Code reported running, as
+    /// [`move_claude_permission_level`] does a reported move, and tells the person when Claude
+    /// Code reported Sandboxed where the sandbox cannot start. Fails as the move fails.
+    pub(crate) async fn follow_reported_level(
+        &self,
+        live: &LiveClaudeSession,
+        params: &UpdatePermissionLevelParams,
+        can_run_sandbox: bool,
+        session_rules: &[ProviderAskRule],
+    ) -> Result<(), DriverError> {
+        let moved = move_claude_permission_level(
+            live,
+            params,
+            can_run_sandbox,
+            session_rules,
+            PathRules::NATIVE,
+        )
+        .await?;
+        if moved.sandbox_unavailable {
+            self.post_notice(
+                params.session_id,
+                SessionNotice::LevelUnavailable {
+                    session_id: params.session_id,
+                    level: PermissionLevel::Sandboxed,
+                },
+            )
+            .await;
+        }
         Ok(())
     }
 
@@ -226,115 +287,31 @@ impl ClaudeSessionControls {
     }
 
     /// Asks `question` on the copy of the conversation `copy` composes, in a one-turn process in
-    /// plan mode that keeps nothing; returns at once. Its answer is appended as a row when it
-    /// comes, its usage metered on the session through `usage` less the copied conversation's own,
-    /// and a refusal or failure recorded.
-    pub(crate) fn ask_side_question(
-        self: &Arc<Self>,
+    /// plan mode that keeps nothing, and resolves once it is answered: the answer is appended as a
+    /// row, its turn's usage metered on the session's `binding_id` through `usage`; `hold` keeps
+    /// the session awake until then. Refused `session.sideQuestion.refused` when the model refuses
+    /// the question; fails as the copy cannot be composed or its turn fails, and when its words
+    /// cannot be stored.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the question, where it is metered and the hold that keeps its session awake"
+    )]
+    pub(crate) async fn ask_side_question(
+        &self,
         session_id: SessionId,
+        binding_id: RuntimeBindingId,
         side_question_id: SideQuestionId,
         question: String,
         copy: BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>,
-        usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
-    ) {
-        let controls = Arc::clone(self);
-        tokio::spawn(async move {
-            let reply = controls
-                .run_side_question(copy, question.clone(), &usage)
-                .await;
-            let answered = match reply {
-                Ok(reply) => side_question_row(session_id, side_question_id, question, reply),
-                Err(error) => Err(error.to_string()),
-            };
-            match answered {
-                Ok(row) => {
-                    controls
-                        .deliver(session_id, InboundDelivery::SessionEvent { row })
-                        .await;
-                }
-                Err(reason) => record_unheard_claude_failure(
-                    DriverDiagnosticKind::ProcessReportFailed,
-                    session_id,
-                    "the side question",
-                    &std::io::Error::other(reason),
-                ),
-            }
-        });
-    }
-
-    /// Starts Claude Code's own review of `target` with its bundled `code-review` skill as the
-    /// session's own run, between the `reviewStarted` and `reviewFinished` notices: a turn on the
-    /// session's process for the working tree or the branch, and for the staged set a one-turn
-    /// process in a worktree holding only the staged changes, which a stop ends. Returns once it
-    /// has started; fails `ReviewSkillAbsent` when the build lists no such skill, and as the run's
-    /// start fails.
-    pub(crate) async fn start_review(
-        self: &Arc<Self>,
-        live: &Arc<LiveClaudeSession>,
-        target: SessionReviewTarget,
+        usage: &PortRegistration<Arc<dyn UsageSink>>,
+        _hold: ClaudeSideQuestionHold,
     ) -> Result<(), DriverError> {
-        let session_id = live.session_id;
-        let has_skill = self
-            .run_start
-            .handshakes
-            .held_handshake_for(session_id, &live.provider_session_id)
-            .is_some_and(|held| {
-                held.declaration
-                    .skills
-                    .iter()
-                    .any(|skill| skill == CLAUDE_REVIEW_SKILL_NAME)
-            });
-        if !has_skill {
-            return Err(claude_session_unavailable(
-                ClaudeSessionUnavailableReason::ReviewSkillAbsent,
-                session_id,
-                None,
-            )
-            .into());
-        }
-        if target == SessionReviewTarget::Staged {
-            return self.start_staged_review(live).await;
-        }
-        // Held before the turn starts, so a review whose turn ends at once still finishes.
-        self.lock()
-            .reviews
-            .insert(session_id, ClaudeReviewProgress::default());
-        let opening = ClaudeDaemonTurnOpening::Text {
-            text: OutboundText {
-                text: compose_review_command(target),
-                origin: OutboundTextOrigin::HumanText,
-            },
-            message_id: mint_uuid_v7().to_string(),
-            attachment_blocks: Vec::new(),
-        };
-        if let Err(error) = self.run_start.start_daemon_turn(session_id, opening).await {
-            self.lock().reviews.remove(&session_id);
-            return Err(error);
-        }
-        self.post_notice(
-            session_id,
-            SessionNotice::ReviewStarted { session_id, target },
-        )
-        .await;
-        // The turn may have ended while the start notice went; its finish waited for it.
-        let has_ended = {
-            let mut tables = self.lock();
-            match tables.reviews.get_mut(&session_id) {
-                Some(review) if review.has_ended => {
-                    tables.reviews.remove(&session_id);
-                    true
-                }
-                Some(review) => {
-                    review.is_started_posted = true;
-                    false
-                }
-                None => false,
-            }
-        };
-        if has_ended {
-            self.post_notice(session_id, SessionNotice::ReviewFinished { session_id })
-                .await;
-        }
+        let reply = self
+            .run_side_question(copy, question.clone(), &binding_id, usage)
+            .await?;
+        let row = side_question_row(session_id, side_question_id, question, reply)?;
+        self.deliver(session_id, InboundDelivery::SessionEvent { row })
+            .await;
         Ok(())
     }
 
@@ -372,10 +349,11 @@ impl ClaudeSessionControls {
         })
     }
 
-    /// Reads one frame of the session's own thread on its task: a new `system/init` gives the
-    /// followers the new list, and a `result` finishes a review running as the session's turn.
+    /// Reads one frame of the session's own thread on its task: a new `system/init` or a whole
+    /// `/` list sent again gives the followers the new list, and a `result` finishes a review
+    /// running as the session's turn.
     pub(crate) async fn observe_lead_frame(&self, session_id: SessionId, frame_kind: &str) {
-        if frame_kind == "system/init" {
+        if matches!(frame_kind, "system/init" | "system/commands_changed") {
             let listeners: Vec<_> = self
                 .lock()
                 .followers
@@ -509,14 +487,16 @@ impl ClaudeSessionControls {
         Ok(attached)
     }
 
-    // The side question's one turn on its copy, and its usage metered once the model answered.
+    // The side question's one turn on its copy, and its usage metered on `binding_id` once the
+    // model answered.
     async fn run_side_question(
         &self,
         copy: BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>,
         question: String,
+        binding_id: &RuntimeBindingId,
         usage: &PortRegistration<Arc<dyn UsageSink>>,
-    ) -> Result<ClaudeOneTurnReply, Box<dyn Error + Send + Sync>> {
-        let copy = copy.await?;
+    ) -> Result<ClaudeOneTurnReply, DriverError> {
+        let copy = copy.await.map_err(DriverError::Internal)?;
         let reply = self
             .run_one_turn(
                 &copy.legs,
@@ -530,9 +510,10 @@ impl ClaudeSessionControls {
         meter_side_question(
             usage,
             copy.legs.session_id,
-            &copy.parent_provider_session_id,
+            binding_id,
             reply.usage.as_ref(),
-        );
+        )
+        .await;
         Ok(reply)
     }
 
@@ -541,7 +522,7 @@ impl ClaudeSessionControls {
     async fn run_one_turn(
         &self,
         legs: &ClaudeSpawnBoundLegs,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         resume_handle: Option<String>,
         permission_mode: Option<ClaudePermissionMode>,
         text: String,
@@ -608,20 +589,70 @@ impl ClaudeSessionControls {
 
 /// The legs a one-turn process of `live`'s session starts on: its own, at the level, advisor and
 /// style it runs with now, on the full id of the model it runs, in `working_directory` where one is
-/// given.
+/// given, its commands reaching `command_channel` where given. The session's own channel stays the
+/// session process's, since it admits only parties under that process, so its variables give way
+/// to `command_channel`'s, and a process given none runs its commands with no channel. It reports
+/// its MCP servers on no status leg, since its servers are the session's.
 pub(crate) fn one_turn_legs(
     live: &LiveClaudeSession,
     working_directory: Option<std::path::PathBuf>,
+    command_channel: Option<Arc<ClaudeCommandChannel>>,
 ) -> ClaudeSpawnBoundLegs {
     let settings = lock(&live.settings).clone();
+    let legs = &live.spawn_bound_legs;
+    let session_variables = legs
+        .command_channel
+        .as_deref()
+        .map_or(&[][..], ClaudeCommandChannel::environment);
+    let own_variables = command_channel
+        .as_deref()
+        .map_or(&[][..], ClaudeCommandChannel::environment);
     ClaudeSpawnBoundLegs {
+        spawn_environment: legs
+            .spawn_environment
+            .iter()
+            .filter(|variable| !session_variables.contains(variable))
+            .chain(own_variables)
+            .cloned()
+            .collect(),
+        command_channel,
         model: claude_full_model_id(&live.initialize, &settings.running_model),
         execution_posture: settings.execution_posture,
         advisor: settings.advisor,
         output_style: settings.output_style,
-        working_directory: working_directory
-            .unwrap_or_else(|| live.spawn_bound_legs.working_directory.clone()),
-        ..live.spawn_bound_legs.clone()
+        working_directory: working_directory.unwrap_or_else(|| legs.working_directory.clone()),
+        on_mcp_server_status: None,
+        ..legs.clone()
+    }
+}
+
+/// The SSH askpass variable, which the no-prompt environment leaves unset rather than empty.
+const SSH_ASKPASS_VARIABLE: &str = "SSH_ASKPASS";
+
+/// `legs` for a process that may ask no one for a credential, a side question's copy: every
+/// askpass and prompt variable the session's environment carries gives way to the no-prompt
+/// environment, each of its pairs set once, so a git or ssh question fails at once.
+pub(crate) fn without_credential_prompts(legs: ClaudeSpawnBoundLegs) -> ClaudeSpawnBoundLegs {
+    let is_prompt_variable = |name: &str| {
+        name == SSH_ASKPASS_VARIABLE
+            || NO_PROMPT_ENVIRONMENT
+                .iter()
+                .any(|(prompt_name, _)| *prompt_name == name)
+    };
+    let spawn_environment = legs
+        .spawn_environment
+        .into_iter()
+        .filter(|(name, _)| !is_prompt_variable(name))
+        .chain(
+            NO_PROMPT_ENVIRONMENT
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
+        )
+        .collect();
+    ClaudeSpawnBoundLegs {
+        spawn_environment,
+        command_channel: None,
+        ..legs
     }
 }
 
@@ -637,62 +668,64 @@ pub(crate) fn claude_full_model_id(
         .unwrap_or_else(|| model.to_owned())
 }
 
-// The copy's usage on the session less what the copied conversation already reported: the copy
-// meters as a resumed thread of its own whose base is the conversation's emitted sums. With no
-// usage record registered it goes nowhere; a base that cannot be read is recorded and nothing is
-// metered, since the copy's whole figure would count the conversation again.
-fn meter_side_question(
+// The copy's turn's own usage, metered on the session's `binding_id` as a thread of its own from
+// a zero base: the copy's process ran that one turn, so the turn's usage is all it spent. With no
+// usage record registered it goes nowhere; a refused record is reported.
+async fn meter_side_question(
     usage: &PortRegistration<Arc<dyn UsageSink>>,
     session_id: SessionId,
-    parent_provider_session_id: &str,
+    binding_id: &RuntimeBindingId,
     observed: Option<&ClaudeCumulativeUsageObservation>,
 ) {
     let (Some(observed), Some(sink)) = (observed, usage.port()) else {
         return;
     };
-    let base = match sink.read_prior_emitted(session_id, parent_provider_session_id) {
-        Ok(base) => base,
-        Err(error) => {
-            record_unheard_claude_failure(
-                DriverDiagnosticKind::UsageResumeBaseUnavailable,
-                session_id,
-                "the side question's usage base",
-                &*error,
-            );
-            return;
-        }
-    };
-    let thread_id = mint_uuid_v7().to_string();
+    let thread_id = binding_id.as_str().to_owned();
     let mut accountant = UsageDeltaAccountant::new(DESCRIPTOR.provider_id());
-    accountant.establish_thread(
-        thread_id.clone(),
-        ThreadBaseEstablishment::Resume {
-            prior_emitted_cumulative: base,
-        },
-    );
-    if let Some(metered) = accountant.meter_reading(CumulativeUsageReading {
+    accountant.establish_thread(thread_id.clone(), ThreadBaseEstablishment::Fresh);
+    let Some(delta) = accountant.meter_reading(CumulativeUsageReading {
         thread_id,
         named_turn_id: None,
         cumulative: observed.cumulative,
-        declared_per_turn: observed.declared_per_turn,
-    }) {
-        sink.record_metered(session_id, metered);
+        declared_per_turn: None,
+    }) else {
+        return;
+    };
+    let metered = MeteredUsage {
+        session_id,
+        binding_id: binding_id.clone(),
+        owner: MeteredUsageOwner::SideQuestion,
+        delta,
+    };
+    if let Err(error) = sink.record_metered(metered).await {
+        record_unheard_claude_failure(
+            DriverDiagnosticKind::ProcessReportFailed,
+            session_id,
+            "the side question's usage",
+            &*error,
+        );
     }
 }
 
-// The answered row of a side question, or why it has none: a refusal has no answer, and its
-// reason names only the model, since a diagnostic never carries the model's own words.
+// The answered row of a side question; refused `session.sideQuestion.refused`, the refusal as the
+// provider gave it in its detail, when the model refused it, and a fault when the question or the
+// answer is blank, holds a NUL or passes the cap.
 fn side_question_row(
     session_id: SessionId,
     side_question_id: SideQuestionId,
     question: String,
     reply: ClaudeOneTurnReply,
-) -> Result<SessionScopedRow, String> {
-    if reply.refusal.is_some() {
-        return Err("The side question was refused.".to_owned());
+) -> Result<SessionScopedRow, DriverError> {
+    if let Some(cause) = reply.refusal {
+        return Err(DriverError::from(side_question_refusal(
+            session_id,
+            side_question_id,
+            &cause,
+        )));
     }
-    let question = FreeFormText::new(question).map_err(|error| error.to_string())?;
-    let answer = FreeFormText::new(reply.text).map_err(|error| error.to_string())?;
+    let unstorable = |error: TextError| DriverError::Internal(Box::new(error));
+    let question = FreeFormText::new(question).map_err(unstorable)?;
+    let answer = FreeFormText::new(reply.text).map_err(unstorable)?;
     Ok(SessionScopedRow::SideQuestionAnswered(
         SessionSideQuestionAnsweredPayload {
             session_id,
@@ -733,15 +766,4 @@ fn confirmed_advisor_line(
 // The output style a `get_settings` reply says is in effect.
 fn effective_output_style(reply: &ClaudeSettingsReply) -> Option<&str> {
     reply.effective.as_ref()?.get("outputStyle")?.as_str()
-}
-
-// The review command for `target`: with no words the skill reads the branch's commits ahead of
-// its upstream and every uncommitted change; the working tree alone is named in words.
-fn compose_review_command(target: SessionReviewTarget) -> String {
-    match target {
-        SessionReviewTarget::Branch => format!("/{CLAUDE_REVIEW_SKILL_NAME}"),
-        SessionReviewTarget::WorkingTree | SessionReviewTarget::Staged => {
-            format!("/{CLAUDE_REVIEW_SKILL_NAME} the uncommitted changes in the working tree")
-        }
-    }
 }

@@ -1,6 +1,9 @@
-//! Ending shells: a pane's close of one shell and a session's deletion of all of them. Each ends
-//! the shell's subscriptions and releases the holds they carried before the shell leaves its
-//! session, then has the terminal let it go and forgets its child in the orphan registry.
+//! Ending shells: a pane's close of one shell, a session's deletion of all of them, and the close
+//! of what the shells run in a folder about to be moved or deleted. Each ends the shell's
+//! subscriptions and releases the holds they carried before the shell leaves its session, then has
+//! the terminal let it go and forgets its child in the orphan registry.
+
+mod folder;
 
 use std::sync::{Arc, Weak};
 
@@ -10,6 +13,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::TerminalCloseRequest;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::child_records::DaemonChildRecords as _;
 use sidekicks_terminal::{TerminalError, TerminalHandle, Terminals};
 
 use crate::integration::injection::ShellMarkNonce;
@@ -34,26 +38,22 @@ impl Drop for SessionShellsClosed {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the shell table and the terminal methods call it"
-    )
-)]
 impl ShellTable {
     /// Ends a shell and removes it, ending its subscriptions and releasing the holds they
-    /// carried; refused while a run holds it, and while another device holds it unless `force`.
-    /// Of two closes of one shell, the second is refused `terminal.notFound`. Answers once the
-    /// terminal has let the shell go, and fails as a fault when its program outlives its kill.
-    pub(crate) async fn close(
+    /// carried; refused `terminal.control.heldByOther` while a run holds it, even with `force`,
+    /// and while another device holds it unless `force`. Refuses a session this daemon does not
+    /// hold `session.notFound` and a shell the session does not have `terminal.notFound`, so of
+    /// two closes of one shell the second is refused. Answers once the terminal has let the
+    /// shell go, and fails as a fault when its program outlives its kill.
+    pub async fn close(
         &self,
         request: &TerminalCloseRequest,
         device_id: &DeviceId,
     ) -> Result<(), HandlerError> {
         let shell = self
             .shared
-            .find_shell(&request.session_id, &request.terminal_id)?;
+            .requested_shell(&request.session_id, &request.terminal_id)
+            .await?;
         let ending = shell
             .lease
             .admit_close(device_id, request.force == Some(true), || {
@@ -79,6 +79,7 @@ impl ShellTable {
             let mut sessions = self.shared.lock_sessions();
             let session = self.shared.session_of(&mut sessions, session_id);
             session.close_holds += 1;
+            session.close_begun.send_replace(());
             session.opening.values().cloned().collect::<Vec<_>>()
         };
         let hold = SessionShellsClosed {
@@ -127,19 +128,21 @@ impl TableShared {
             session.order.retain(|id| *id != shell.terminal_id);
             session.list.mark_changed();
         }
-        let (handle, mark_nonce, spawn_nonce) = shell.record_end(ShellOutputEnd::Closed, true);
+        let (handle, mark_nonce, spawn_nonce) =
+            self.record_shell_end(shell, ShellOutputEnd::Closed, true);
         self.release_streams(shell);
         let table = Arc::clone(self);
         Some(
             async move {
-                let_shell_go(
+                let let_go = let_shell_go(
                     &table.deps.orphan_guard,
                     close_terminal(&table.deps.terminals, handle),
                     mark_nonce,
-                    spawn_nonce,
+                    spawn_nonce.clone(),
                 )
-                .await
-                .map_err(|error| HandlerError::Internal(Box::new(error)))
+                .await;
+                table.forget_uncarried_nonce(spawn_nonce).await;
+                let_go.map_err(|error| HandlerError::Internal(Box::new(error)))
             }
             .boxed(),
         )
@@ -187,6 +190,7 @@ pub(super) async fn let_shell_go(
 
 #[cfg(test)]
 mod tests {
+    use sidekicks_provider::driver::child_records::DaemonChildRecords as _;
     use sidekicks_terminal::TerminalError;
 
     use super::let_shell_go;

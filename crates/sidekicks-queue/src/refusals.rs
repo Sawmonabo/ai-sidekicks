@@ -1,5 +1,6 @@
 //! The run queue's refusals of a send or a change: an item it does not hold, one no longer waiting
-//! or not given back by its provider, and a skill pick its provider does not list.
+//! or not given back by its provider, a review's retry carrying what a review cannot take, and a
+//! skill pick its provider does not list.
 
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -65,6 +66,18 @@ pub(crate) fn unreturned_refusal(
             ),
         ),
     }
+}
+
+/// The refusal of a retry of the review `queue_item_id` that carries `members`, a message's files,
+/// skills, answered question or speed, which a review cannot take.
+pub(crate) fn review_retry_refusal(queue_item_id: QueueItemId, members: &[&str]) -> DomainError {
+    change_refused(
+        AgentQueueItemChangeRefusedReason::ReviewExtras,
+        &format!(
+            "Queue item {queue_item_id} is a review, whose retry carries no {}",
+            members.join(", ")
+        ),
+    )
 }
 
 /// The `skill.pathRefused` refusal of a skill pick the session's provider does not list.

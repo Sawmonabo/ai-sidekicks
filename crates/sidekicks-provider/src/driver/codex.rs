@@ -4,6 +4,8 @@ use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(any(test, feature = "test-support"))]
+use std::sync::Mutex;
 use std::time::SystemTime;
 
 use futures::FutureExt;
@@ -25,22 +27,31 @@ use sidekicks_platforms::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
     WindowsSystemFolder,
 };
+#[cfg(any(test, feature = "test-support"))]
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::permission_level::list_codex_modes;
-use crate::driver::contract::{
-    ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
-    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
-    RespondToRequestParams, StartRunParams,
+#[cfg(any(test, feature = "test-support"))]
+use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
+    ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::error_causes::ProviderAxisInvalid;
+use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
+use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
-    FindTakenMessagesParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
-    PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
+    FindTakenMessagesParams, HelperTokenLimitParams, InterruptRunRequest, OverrideDenialParams,
+    PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
     WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
@@ -48,10 +59,11 @@ use crate::driver::session_control::{
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
     MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
     ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
-    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartReviewParams, StartingLevel,
+    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartingLevel,
     StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
     UpdateSessionModeParams,
 };
+use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
     CommandSandboxNeeds, DriverServices, InstallFolder, InstallFolderBase, ProviderCommand,
     ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
@@ -65,28 +77,34 @@ mod account_home_logs;
 mod app_server_protocol;
 mod attachments;
 mod auth_status;
+pub(super) mod calibration;
 mod capabilities;
 mod capability_probe;
 mod commands;
 mod compaction;
+mod config_read;
 mod delivery;
 mod event_normalizer;
+mod exec_relay;
 mod goals;
 mod hooks;
 mod input_limit;
 mod intervention;
 mod lifecycle;
+mod mcp;
 mod model_windows;
 mod native_program;
 mod notification_routing;
 mod output_speed;
 mod permission_level;
 mod rate_limits;
+mod release_notes;
 mod rules;
 mod run;
 mod server_requests;
 mod service;
 mod session;
+mod shells;
 mod thread;
 mod token_usage;
 mod tools;
@@ -97,10 +115,18 @@ mod usage_limit_signal;
 mod vendored_schema;
 mod version;
 
+#[cfg(any(test, feature = "test-support"))]
+pub use service::supervisor::test_service::{
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, ScriptedCodexService,
+    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
+    write_codex_service_script,
+};
+
 /// Codex's fixed facts.
 pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     id: "codex",
     name: "Codex",
+    release_notes_address: release_notes::release_notes_address,
     plan_words: &[
         ("free", "Free"),
         ("go", "Go"),
@@ -225,6 +251,28 @@ pub(super) fn build(services: &DriverServices) -> Arc<dyn ProviderDriver> {
     Arc::new(CodexDriver::new(services))
 }
 
+/// The service registry the next driver [`build_over_scripted_service`] builds holds.
+#[cfg(any(test, feature = "test-support"))]
+static NEXT_SCRIPTED_REGISTRY: Mutex<Option<Arc<CodexServiceRegistry>>> = Mutex::new(None);
+
+/// Holds `scripted`'s service for the next driver [`build_over_scripted_service`] builds, every
+/// account resolving to its home.
+#[cfg(any(test, feature = "test-support"))]
+pub(super) fn hold_scripted_service(scripted: &ScriptedCodexService) {
+    *lock(&NEXT_SCRIPTED_REGISTRY) = Some(CodexServiceRegistry::holding(scripted));
+}
+
+/// Builds the Codex driver as [`build`] does, its registry holding the service
+/// [`hold_scripted_service`] last held, which it takes. Panics when no service is held.
+#[cfg(any(test, feature = "test-support"))]
+pub(super) fn build_over_scripted_service(services: &DriverServices) -> Arc<dyn ProviderDriver> {
+    let mut driver = CodexDriver::new(services);
+    driver.registry = lock(&NEXT_SCRIPTED_REGISTRY)
+        .take()
+        .expect("a scripted service is held before its driver is built");
+    Arc::new(driver)
+}
+
 /// Codex takes a message the run queue hands a running turn as a steer between its steps, has no
 /// verb that takes one back, keeps nothing past its run, and marks no message as priority.
 const CODEX_MESSAGE_HANDING: MessageHanding = MessageHanding {
@@ -233,6 +281,9 @@ const CODEX_MESSAGE_HANDING: MessageHanding = MessageHanding {
     kept_by_process: false,
     reads_priority_message: false,
 };
+
+/// The session options the Codex driver declares: none.
+const CODEX_SESSION_OPTIONS: &[ProviderSessionOption] = &[];
 
 impl ProviderDriver for CodexDriver {
     fn create_session(
@@ -247,6 +298,10 @@ impl ProviderDriver for CodexDriver {
         params: ResumeSessionParams,
     ) -> BoxFuture<'_, Result<DriverResumeResult, DriverError>> {
         self.resume_session(params).boxed()
+    }
+
+    fn settle_session(&self, session_id: SessionId) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.settle_session(session_id).boxed()
     }
 
     fn start_run(&self, params: StartRunParams) -> BoxFuture<'_, Result<(), DriverError>> {
@@ -322,7 +377,7 @@ impl ProviderDriver for CodexDriver {
     fn starts_process(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, bool> {
         self.starts_process(session_id, provider_account_id).boxed()
     }
@@ -330,7 +385,7 @@ impl ProviderDriver for CodexDriver {
     fn resolve_skill_picks(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         picks: Vec<QueuedSkillPick>,
     ) -> BoxFuture<'_, Result<Vec<PickedSkill>, DriverError>> {
         self.resolve_skill_picks(session_id, provider_account_id, picks)
@@ -429,7 +484,21 @@ impl ProviderDriver for CodexDriver {
         self.list_models(params).boxed()
     }
 
-    fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
+    // Codex takes any model id, and the effort levels sit in the catalog its service lists, so the
+    // start checks the effort; Codex declares no session option, so any option is refused.
+    fn check_lead_binding(&self, params: LeadBindingCheckParams) -> Result<(), DriverError> {
+        ProviderAxisInvalid::check_options(
+            params.agent_id,
+            params.options.as_ref(),
+            CODEX_SESSION_OPTIONS,
+        )
+        .map_err(DriverError::from)
+    }
+
+    fn list_modes(
+        &self,
+        _params: ListModesParams,
+    ) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
         ready(Ok(list_codex_modes())).boxed()
     }
 
@@ -437,8 +506,18 @@ impl ProviderDriver for CodexDriver {
         self.get_capabilities().boxed()
     }
 
-    fn probe_auth(&self) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>> {
-        self.probe_auth().map(Ok).boxed()
+    fn probe_auth(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>> {
+        self.probe_auth(provider_account_id).boxed()
+    }
+
+    fn read_mcp_servers(
+        &self,
+        request: McpServersReadRequest,
+    ) -> BoxFuture<'_, Result<ProviderMcpServersReading, DriverError>> {
+        self.read_mcp_servers(request).boxed()
     }
 
     fn compact_context(
@@ -456,7 +535,7 @@ impl ProviderDriver for CodexDriver {
     }
 
     fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>> {
-        std::future::ready(Err(command_act_unsupported(&params.command_id).into())).boxed()
+        self.stop_command(params).boxed()
     }
 
     fn move_command_to_background(
@@ -470,10 +549,42 @@ impl ProviderDriver for CodexDriver {
         &self,
         params: WriteCommandInputParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        std::future::ready(Err(
-            command_act_unsupported(&params.command.command_id).into()
-        ))
-        .boxed()
+        self.write_command_input(params).boxed()
+    }
+
+    // A Codex session is never slept: its service is shared by every session on the account and
+    // holds no process of the session's own, so a sleep would free nothing. It reports no hold and
+    // answers every sleep and wake as awake.
+    fn idle_sleep_holds(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'_, Result<IdleSleepHolds, DriverError>> {
+        ready(Ok(IdleSleepHolds::default())).boxed()
+    }
+
+    fn sleep_session(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>> {
+        ready(Ok(SessionSleepState::Awake)).boxed()
+    }
+
+    fn wake_session(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>> {
+        ready(Ok(SessionSleepState::Awake)).boxed()
+    }
+
+    fn task_list_change(&self, call: &ToolCallRecord<'_>) -> Option<TaskListChange> {
+        self.task_list_change(call)
+    }
+
+    fn stop_helper_at_token_limit(
+        &self,
+        params: HelperTokenLimitParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.stop_helper_at_token_limit(params).boxed()
     }
 
     fn observed_output_speed_for(
@@ -481,6 +592,11 @@ impl ProviderDriver for CodexDriver {
         session_id: &SessionId,
     ) -> Option<ProviderOutputSpeedState> {
         self.observed_output_speed_for(*session_id)
+    }
+
+    // Codex reports no permission mode of its own.
+    fn reported_level(&self, _session_id: &SessionId) -> Option<ProviderReportedLevel> {
+        None
     }
 
     fn read_rows(
@@ -501,14 +617,17 @@ impl ProviderDriver for CodexDriver {
         self.apply_row_value(params).boxed()
     }
 
-    // Codex declares no session option.
     fn session_options(&self) -> BoxFuture<'_, Result<Vec<ProviderSessionOption>, DriverError>> {
-        ready(Ok(Vec::new())).boxed()
+        ready(Ok(CODEX_SESSION_OPTIONS.to_vec())).boxed()
     }
 
     // With no option declared, there is none to observe.
     fn observed_options_for(&self, _session_id: &SessionId) -> Option<ObservedProviderOptions> {
         None
+    }
+
+    fn session_process_state(&self, session_id: &SessionId) -> SessionProcessState {
+        self.session_process_state(*session_id)
     }
 
     fn update_session_mode(
@@ -531,10 +650,6 @@ impl ProviderDriver for CodexDriver {
         params: AskSideQuestionParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         self.ask_side_question(params).boxed()
-    }
-
-    fn start_review(&self, params: StartReviewParams) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.start_review(params).boxed()
     }
 
     fn subscribe_provider_commands(

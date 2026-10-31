@@ -24,7 +24,7 @@ use crate::driver_resolution::{LiveRunDriverError, read_run_driver};
 use crate::interventions::interrupt_queue::{SendNow, SendNowOutcome};
 use crate::queue_store::send_now::read_sent_now;
 use crate::queue_store::{QueueItemReader, RecordedQueueItemState};
-use crate::run::engine::RunEngineError;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::read::RunRead;
 
 impl InterventionService {

@@ -622,7 +622,6 @@ fn is_refusal(error: &io::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::io;
     use std::sync::Once;
     use std::thread;
@@ -637,9 +636,10 @@ mod tests {
     };
     use crate::posix::memory::page_bytes;
     use crate::posix::terminal::inner::{
-        TEST_WINDOW_SIZE, end_inner_terminal, read_until_marker, start_inner_terminal,
+        end_inner_terminal, read_until_marker, start_test_terminal,
     };
-    use crate::posix::terminal::{read_terminal_master, terminal_options};
+    use crate::posix::terminal::read_terminal_master;
+    use crate::posix::terminal::test_programs::shell_script;
     use crate::terminal::InnerTerminal;
 
     // How long a reader's wait channel is read for a `select` wait before it reads as none.
@@ -718,14 +718,7 @@ mod tests {
     // channels read with the master's unread output taken as `unread_output_bytes`: the first wait
     // read within the bound, or none.
     fn read_select_wait(script: &str, unread_output_bytes: u32) -> ThreadWait {
-        let options = terminal_options(
-            "/bin/sh".to_owned(),
-            vec!["-c".to_owned(), script.to_owned()],
-            None,
-            HashMap::new(),
-        );
-        let terminal =
-            start_inner_terminal(&options, TEST_WINDOW_SIZE).expect("the terminal starts");
+        let terminal = start_test_terminal(&shell_script(script)).expect("the terminal starts");
         let prompt = read_until_marker(&terminal.pty, "ready", Duration::from_secs(20));
         let wait = prompt
             .is_ok()

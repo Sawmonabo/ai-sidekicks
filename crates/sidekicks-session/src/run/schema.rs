@@ -142,8 +142,6 @@ CREATE TABLE runs (
   parent_run_id  TEXT,                          -- NULL on a lead run
   -- How a child run was reached; NULL on a lead run.
   reached_by     TEXT CHECK(reached_by IS NULL OR reached_by IN ({reached_by})),
-  -- 1 on a run whose turn runs in a process of its own; such a run is never the lead run.
-  is_apart       INTEGER NOT NULL DEFAULT 0 CHECK(is_apart IN (0, 1)),
   state          TEXT NOT NULL CHECK(state IN ({run_states})),
   run_version    INTEGER NOT NULL CHECK(run_version >= 0)
 ) STRICT;

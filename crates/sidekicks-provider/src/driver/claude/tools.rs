@@ -1,6 +1,7 @@
 //! Claude Code's tools: the catalog the driver reports with each tool's idempotency class (whether
 //! a call may safely be repeated, shown on Settings › MCP servers), the built-in tools a person
-//! picks for an agent, and the MCP server statuses `system/init` reports.
+//! picks for an agent, and the MCP server readings `system/init` and the `mcp_status` answer
+//! report.
 //!
 //! Only pure reads of local state are `idempotent`; a wrongly permissive class tells the person a
 //! repeat is safe when it is not. No entry is `compensable` (no built-in tool accepts a dedupe key)
@@ -9,10 +10,14 @@
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::McpServerStatus;
 use sidekicks_contracts::provider::driver::tools::{IdempotencyClass, ProviderToolMetadata};
-use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
+use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::driver::mcp_server_status::{
-    McpServerStatusIngestRejection, McpServerStatusIngestResult, bound_mcp_server_status_emission,
+use crate::driver::claude::session::transport::mcp_status::{
+    ClaudeMcpServerStatus, ClaudeMcpStatusReply,
+};
+use crate::driver::mcp_server::status::{
+    McpServerReading, McpServerStatusIngestRejection, McpServerStatusIngestResult,
+    bound_mcp_server_status_emission,
 };
 
 /// The tools Claude Code carries itself, in its own names, each with the shared word for the tool
@@ -60,33 +65,39 @@ pub(crate) fn claude_tool_metadata() -> Vec<ProviderToolMetadata> {
         .collect()
 }
 
-// Claude Code's status words, read trimmed and lower-cased: the init census and the MCP status
-// read send these five; `disabled`, and any other word, reads as `unknown`.
-fn map_claude_status_token(raw_token: &Value) -> McpServerStatus {
-    let Some(raw_token) = raw_token.as_str() else {
-        return McpServerStatus::Unknown;
-    };
-    match raw_token
-        .trim_matches(is_ecmascript_whitespace)
-        .to_lowercase()
-        .as_str()
-    {
-        "connected" => McpServerStatus::Connected,
-        "failed" => McpServerStatus::Failed,
-        "needs-auth" => McpServerStatus::NeedsAuth,
-        "pending" => McpServerStatus::Starting,
-        _ => McpServerStatus::Unknown,
+// The reading of one status Claude Code sent for a server, the one map the `system/init` list and
+// the `mcp_status` answer share: `disabled` is the server switched off for the project, not a
+// status, and a status that is none of the five words (`None`) reads as `unknown`.
+fn claude_mcp_server_reading(status: Option<ClaudeMcpServerStatus>) -> McpServerReading {
+    match status {
+        Some(ClaudeMcpServerStatus::Connected) => {
+            McpServerReading::Observed(McpServerStatus::Connected)
+        }
+        Some(ClaudeMcpServerStatus::Failed) => McpServerReading::Observed(McpServerStatus::Failed),
+        Some(ClaudeMcpServerStatus::NeedsAuth) => {
+            McpServerReading::Observed(McpServerStatus::NeedsAuth)
+        }
+        Some(ClaudeMcpServerStatus::Pending) => {
+            McpServerReading::Observed(McpServerStatus::Starting)
+        }
+        Some(ClaudeMcpServerStatus::Disabled) => McpServerReading::SwitchedOff,
+        None => McpServerReading::Observed(McpServerStatus::Unknown),
     }
 }
 
-/// Reads the `system/init` frame's `mcp_servers` list as one status per server. A list that is
-/// not an array is one rejection with no emissions, and a row that is not an object, or whose name
-/// fails the wire bound, is one rejection; the rest are emitted.
-#[expect(
-    dead_code,
-    reason = "the MCP server settings' live status reads each Claude Code session's servers from \
-              its init frame through it"
-)]
+// A raw status word's reading; a value that is not text reads as `unknown`.
+fn map_claude_status_token(raw_token: &Value) -> McpServerReading {
+    claude_mcp_server_reading(
+        raw_token
+            .as_str()
+            .and_then(ClaudeMcpServerStatus::from_word),
+    )
+}
+
+/// Reads the `system/init` frame's `mcp_servers` list as one reading per server, each with the
+/// row's `error` text where it has one. A list that is not an array is one rejection with no
+/// emissions, and a row that is not an object, or whose name fails the wire bound, is one
+/// rejection; the rest are emitted.
 pub(crate) fn normalize_claude_mcp_server_init_census(
     raw_servers: &Value,
 ) -> McpServerStatusIngestResult {
@@ -94,7 +105,8 @@ pub(crate) fn normalize_claude_mcp_server_init_census(
         return McpServerStatusIngestResult {
             emissions: Vec::new(),
             rejections: vec![McpServerStatusIngestRejection {
-                reason: "system/init mcp_servers is not an array; census skipped for this session."
+                reason: "Claude Code's MCP server list is not an array; census skipped for this \
+                         session."
                     .to_owned(),
             }],
         };
@@ -103,15 +115,130 @@ pub(crate) fn normalize_claude_mcp_server_init_census(
     for raw_server in raw_servers {
         let Some(row) = raw_server.as_object() else {
             result.rejections.push(McpServerStatusIngestRejection {
-                reason: "system/init mcp_servers row is not an object; row skipped.".to_owned(),
+                reason: "Claude Code's MCP server row is not an object; row skipped.".to_owned(),
             });
             continue;
         };
-        let status = map_claude_status_token(row.get("status").unwrap_or(&Value::Null));
-        match bound_mcp_server_status_emission(row.get("name").unwrap_or(&Value::Null), status) {
+        let reading = map_claude_status_token(row.get("status").unwrap_or(&Value::Null));
+        match bound_mcp_server_status_emission(
+            row.get("name").unwrap_or(&Value::Null),
+            reading,
+            row.get("error").unwrap_or(&Value::Null),
+            // The list names no tools.
+            None,
+        ) {
             Ok(emission) => result.emissions.push(emission),
             Err(rejection) => result.rejections.push(rejection),
         }
     }
     result
+}
+
+/// Reads an `mcp_status` answer's rows as one reading per server, each with its sanitized error
+/// text and the names of its tools where the row lists them; `None` for an answer that carries no
+/// list. A row whose name fails the wire bound is one rejection; the rest are emitted.
+pub(crate) fn normalize_claude_mcp_status_reply(
+    reply: &ClaudeMcpStatusReply,
+) -> Option<McpServerStatusIngestResult> {
+    let rows = &reply.servers.as_ref()?.0;
+    let mut result = McpServerStatusIngestResult::default();
+    for row in rows {
+        let text_of = |text: &Option<String>| text.clone().map_or(Value::Null, Value::String);
+        match bound_mcp_server_status_emission(
+            &text_of(&row.name),
+            claude_mcp_server_reading(row.status),
+            &text_of(&row.error),
+            row.tools.is_some().then(|| row.tool_names()),
+        ) {
+            Ok(emission) => result.emissions.push(emission),
+            Err(rejection) => result.rejections.push(rejection),
+        }
+    }
+    Some(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use serde_json::{Value, json};
+    use sidekicks_contracts::mcp::server::McpServerStatus::{
+        Connected, Failed, NeedsAuth, Starting, Unknown,
+    };
+
+    use super::{normalize_claude_mcp_server_init_census, normalize_claude_mcp_status_reply};
+    use crate::driver::claude::session::transport::mcp_status::ClaudeMcpStatusReply;
+    use crate::driver::mcp_server::status::McpServerReading;
+    use crate::driver::mcp_server::status::McpServerReading::{Observed, SwitchedOff};
+
+    // Every status word Claude Code sends maps to its reading, `disabled` to the server switched
+    // off rather than a status, and a row's `error` text reaches the emission. Killed by mapping
+    // `disabled` to `Observed(Unknown)`, or by dropping the row's error text.
+    #[rstest]
+    #[case::connected(json!("connected"), Value::Null, Observed(Connected), None)]
+    #[case::failed_with_error(
+        json!("failed"),
+        json!("spawn ENOENT"),
+        Observed(Failed),
+        Some("spawn ENOENT")
+    )]
+    #[case::needs_auth(json!("needs-auth"), Value::Null, Observed(NeedsAuth), None)]
+    #[case::pending(json!("pending"), Value::Null, Observed(Starting), None)]
+    #[case::disabled(json!("disabled"), Value::Null, SwitchedOff, None)]
+    #[case::trimmed_upper_case(json!(" Connected "), Value::Null, Observed(Connected), None)]
+    #[case::unlisted_word(json!("sleeping"), Value::Null, Observed(Unknown), None)]
+    #[case::not_text(json!(7), Value::Null, Observed(Unknown), None)]
+    #[case::blank_error(json!("failed"), json!("  "), Observed(Failed), None)]
+    fn each_status_word_reads_as_its_reading(
+        #[case] status: Value,
+        #[case] error: Value,
+        #[case] expected_reading: McpServerReading,
+        #[case] expected_failure_text: Option<&str>,
+    ) {
+        let result = normalize_claude_mcp_server_init_census(&json!([
+            { "name": "github", "status": status, "error": error },
+        ]));
+
+        assert!(result.rejections.is_empty(), "{:?}", result.rejections);
+        let [emission] = result.emissions.as_slice() else {
+            panic!("one emission, got {:?}", result.emissions);
+        };
+        assert_eq!(emission.server_name.as_str(), "github");
+        assert_eq!(emission.reading, expected_reading);
+        assert_eq!(emission.failure_text.as_deref(), expected_failure_text);
+    }
+
+    // An `mcp_status` row that lists its tools carries their names, and a row that sends no list,
+    // as one still starting does, carries none, so the leg keeps the list it last read. Killed by
+    // an absent list read as an empty one, and by the row's tools dropped.
+    #[test]
+    fn a_status_row_carries_its_tools_only_where_it_lists_them() {
+        let raw = serde_json::value::to_raw_value(&json!({ "mcpServers": [
+            { "name": "github", "status": "connected", "tools": [{ "name": "search" }] },
+            { "name": "tracker", "status": "pending" },
+        ] }))
+        .expect("the answer is JSON");
+        let read = normalize_claude_mcp_status_reply(&ClaudeMcpStatusReply::read(Some(&*raw)))
+            .expect("the answer carries a list");
+
+        let tools: Vec<_> = read
+            .emissions
+            .iter()
+            .map(|emission| {
+                let names = emission.tool_names.as_ref().map(|names| {
+                    names
+                        .iter()
+                        .map(|name| name.as_str().to_owned())
+                        .collect::<Vec<_>>()
+                });
+                (emission.server_name.as_str().to_owned(), names)
+            })
+            .collect();
+        assert_eq!(
+            tools,
+            [
+                ("github".to_owned(), Some(vec!["search".to_owned()])),
+                ("tracker".to_owned(), None),
+            ]
+        );
+    }
 }

@@ -8,15 +8,15 @@ use futures::FutureExt as _;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::question::{
-    QuestionAnswer, QuestionAskedState, QuestionId, QuestionPrompt, QuestionResolveRequest,
-    QuestionSettledState,
+    QuestionAnswer, QuestionId, QuestionPrompt, QuestionResolveRequest, QuestionSettledState,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::list::BoundedVec;
-use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderRequestAnswer};
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::params_and_results::ProviderRequestAnswer;
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
@@ -37,7 +37,10 @@ use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tempfile::TempDir;
 
-use super::{HeldRequestAnswerer, QUESTION_STATEMENT_CAPACITY, QuestionError, QuestionsService};
+use super::{
+    HeldRequestAnswerer, QUESTION_STATEMENT_CAPACITY, QuestionError, QuestionRecording,
+    QuestionsService,
+};
 use crate::questions::projection::question_projection_statements;
 use crate::questions::schema::schema_parts;
 #[cfg(test)]
@@ -305,15 +308,16 @@ pub struct QueuedAnswers {
 /// its agent does not wait for, answered by the first of two queued answers its agent takes.
 pub async fn write_queued_answers(fixture: &Fixture) -> QueuedAnswers {
     let record_waiting = |request_id: &'static str| {
-        fixture.questions.record_question(
+        fixture.questions.record(
             fixture.question(request_id, json!([choice_page()]), true),
             HeldRequestAnswerer::Driver,
-            QuestionAskedState::WaitingForRun,
+            QuestionRecording::WaitingForRun,
         )
     };
     let withdrawn_waiting = record_waiting("request-4")
         .await
-        .expect("the question is recorded waiting for its run");
+        .expect("the question is recorded waiting for its run")
+        .0;
     fixture
         .questions
         .withdraw_question(ProviderQuestionWithdrawal {
@@ -324,7 +328,8 @@ pub async fn write_queued_answers(fixture: &Fixture) -> QueuedAnswers {
         .expect("the withdrawal is taken");
     let opened = record_waiting("request-5")
         .await
-        .expect("the question is recorded waiting for its run");
+        .expect("the question is recorded waiting for its run")
+        .0;
     assert_eq!(
         fixture
             .questions

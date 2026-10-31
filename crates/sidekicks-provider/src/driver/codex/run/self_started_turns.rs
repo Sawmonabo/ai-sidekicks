@@ -113,7 +113,6 @@ async fn open_run(
             admitted_provider_account_id: record.provider_account_id.clone(),
             execution_posture: record.execution_posture.clone(),
             is_provider_started: true,
-            is_apart: false,
             start_turn: Box::new(move |run_id| {
                 let resolver = Arc::clone(&resolver);
                 let binding_slot = Arc::clone(&binding_slot);

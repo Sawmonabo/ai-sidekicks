@@ -83,8 +83,8 @@ impl JsonSchema for McpGovernanceEvent {
 
 /// One `mcp.subscribe` frame: the live notice of an edit to a binding or of a status change, or a
 /// governance event. The stream reads governance events from the sentinel session's log at the
-/// subscriber's place and sends each notice's newest value per binding, so it keeps no queue, no
-/// cursor and no dropped mark.
+/// subscriber's place and sends each notice's newest value per binding and source (a session's
+/// leg, the machine probe, an edit), so it keeps no queue, no cursor and no dropped mark.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 #[garde(allow_unvalidated)]
@@ -100,8 +100,8 @@ pub enum McpSubscribeEmission {
 methods! {
     /// `mcp.subscribe`, the MCP governance stream, opened before `mcp.server.list` is read so
     /// nothing falls between the two. It reads governance events from the sentinel session's log at
-    /// the subscriber's place and sends each notice's newest value per binding: no cursor, no
-    /// dropped mark.
+    /// the subscriber's place and sends each notice's newest value per binding and source (a
+    /// session's leg, the machine probe, an edit): no cursor, no dropped mark.
     pub const MCP_EVENT_METHOD_DESCRIPTORS = [
         /// Follows the governance events and the live notices.
         McpSubscribe = subscription "mcp.subscribe" {

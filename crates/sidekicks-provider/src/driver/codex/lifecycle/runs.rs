@@ -1,6 +1,6 @@
-//! A Codex run's calls: its start, interrupt, steer, pause and continue, a retry of its held turn
-//! on a faster model, the answer to an ask it raised, `Allow once` on a block of Codex's own
-//! reviewer, Codex's own review, and the skills a person picked for its message.
+//! A Codex run's calls: its session's settle, its start, interrupt, steer, pause and continue, a
+//! retry of its held turn on a faster model, the answer to an ask it raised, `Allow once` on a
+//! block of Codex's own reviewer, and the skills a person picked for its message.
 
 use std::path::Path;
 
@@ -9,17 +9,39 @@ use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::CodexDriver;
-use crate::driver::codex::run::start::daemon_turns::CodexDaemonTurnError;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::{DriverError, RespondToRequestParams, StartRunParams};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    RespondToRequestParams, SessionProcessState, StartRunParams,
+};
+use crate::driver::error_causes::session_process_unavailable;
 use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, FasterModelRetryOutcome,
     FasterModelRetryParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams, PickedSkill,
     ResumeRunParams,
 };
-use crate::driver::session_control::StartReviewParams;
 
 impl CodexDriver {
+    /// Waits until the session's conversation settled: a service on its way back is waited for,
+    /// then the resume or establishment in flight on the session. Answers once the session reads
+    /// live; fails `provider.unavailable` once it reads down.
+    pub(crate) async fn settle_session(&self, session_id: SessionId) -> Result<(), DriverError> {
+        loop {
+            if let Some(service) = self.views.service(session_id) {
+                service.when_back().await;
+            }
+            self.slots.settle(session_id).await;
+            match self.session_process_state(session_id) {
+                SessionProcessState::Live => return Ok(()),
+                SessionProcessState::Down => {
+                    return Err(DriverError::from(session_process_unavailable(session_id)));
+                }
+                // An establishment claimed, or a service gone back, since the waits answered.
+                SessionProcessState::Restarting => {}
+            }
+        }
+    }
+
     /// Starts one run's turn on its session's conversation; see the run start.
     pub(crate) async fn start_run(&self, params: StartRunParams) -> Result<(), DriverError> {
         Ok(self.parts()?.run_start.start_run(params).await?)
@@ -94,24 +116,16 @@ impl CodexDriver {
         Ok(self.parts()?.controls.override_denial(params).await?)
     }
 
-    /// Starts Codex's own review as the session's own run.
-    pub(crate) async fn start_review(&self, params: StartReviewParams) -> Result<(), DriverError> {
-        match self.parts()?.controls.start_review(params).await {
-            Ok(()) => Ok(()),
-            Err(CodexDaemonTurnError::Codex(error)) => Err(error.into()),
-            Err(CodexDaemonTurnError::Engine(error)) => Err(DriverError::Internal(error)),
-        }
-    }
-
     /// The skills `picks` names as Codex lists them for the session, each by its name and the
     /// file it loads it from, in the order picked: the live session's listing, else a read on
     /// the service of `provider_account_id`, the account the session's runs are admitted
-    /// against, over the session's folder. Fails with [`DriverError::SkillNotListed`] for a pick
-    /// Codex does not list in that folder, and as the read fails.
+    /// against, over the folder the session's runs work in. Fails with
+    /// [`DriverError::SkillNotListed`] for a pick Codex does not list in that folder, and as the
+    /// read fails.
     pub(crate) async fn resolve_skill_picks(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         picks: Vec<QueuedSkillPick>,
     ) -> Result<Vec<PickedSkill>, DriverError> {
         let listed = if let Some(source) = self.views.command_source(session_id) {
@@ -119,26 +133,24 @@ impl CodexDriver {
                 .read_skill_files(
                     session_id,
                     &source.service,
+                    provider_account_id,
                     Path::new(&source.working_directory),
                 )
                 .await?
         } else {
-            let context = self
+            let run_folder = self
                 .spawn_contexts
                 .require_port()
                 .map_err(|error| DriverError::Internal(Box::new(error)))?
-                .resolve_spawn_context(session_id, provider_account_id.clone())
+                .resolve_run_folder(session_id)
                 .await
                 .map_err(DriverError::Internal)?;
-            let service = self
-                .registry
-                .service_for(provider_account_id.as_ref())
-                .await?;
+            let service = self.registry.service_for(&provider_account_id).await?;
             service
                 .ensure_started(service.dependencies().startup_timeout)
                 .await?;
             self.provider_commands
-                .read_skill_files(session_id, &service, &context.working_directory)
+                .read_skill_files(session_id, &service, provider_account_id, &run_folder)
                 .await?
         };
         picks

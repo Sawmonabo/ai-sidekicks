@@ -26,7 +26,6 @@ impl ProcessStateTracker {
     }
 
     /// Where the daemon is now.
-    #[expect(dead_code, reason = "the status read reports it")]
     pub(crate) fn read(&self) -> DaemonProcessState {
         *lock(&self.state)
     }

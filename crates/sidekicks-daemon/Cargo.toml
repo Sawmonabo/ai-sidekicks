@@ -11,7 +11,7 @@ publish.workspace = true
 ignored = [
   # The linking digits of a device link.
   "hkdf",
-  # The machine's identity key and the statements it signs.
+  # The statements the machine's identity key signs.
   "ed25519-dalek",
   # The channel to each WSL 2 distribution's WSL server, the daemon the client and the WSL server
   # the server.
@@ -93,6 +93,7 @@ sidekicks-approval.workspace = true
 sidekicks-artifact.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
+sidekicks-mcp.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-policy.workspace = true
 sidekicks-provider.workspace = true
@@ -126,8 +127,12 @@ proptest.workspace = true
 rstest.workspace = true
 # The artifact test store the tests open.
 sidekicks-artifact = { workspace = true, features = ["test-support"] }
+# The client the start's tests call the served socket through.
+sidekicks-client.workspace = true
 # The call fixtures and the credit gate the tests use.
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
+# The notice board's probe notice the MCP stream's tests send.
+sidekicks-mcp = { workspace = true, features = ["test-support"] }
 # The in-memory credential store, this process's pin and footprint, and the harness's test names
 # the tests use.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }

@@ -1,13 +1,15 @@
 //! The control requests the daemon sends a Claude Code process, in their wire shape, and the
 //! members they carry: the hooks, helpers and dialogs `initialize` declares, the flag settings a
-//! live process takes, the permission modes and the tool-server routes. The set is closed, so no
-//! unrouted subtype can be written.
+//! live process takes, the permission modes and the tool servers it is sent. The set is closed,
+//! so no unrouted subtype can be written.
 
 use std::collections::BTreeMap;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
+use strum::{EnumString, IntoStaticStr};
 
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
 
@@ -63,11 +65,8 @@ pub(crate) enum ClaudeControlRequest {
         /// Always `summarized`.
         thinking_display: ClaudeThinkingDisplay,
     },
-    /// Installs the session's tool-server routes, replacing the set.
-    #[expect(
-        dead_code,
-        reason = "setting the session's tool servers at start and after each resume sends it"
-    )]
+    /// Installs the process's tool servers, replacing the set, answered by a
+    /// [`ClaudeMcpSetServersReply`].
     McpSetServers {
         /// Each route by its server name.
         servers: BTreeMap<String, ClaudeToolServerEntry>,
@@ -108,6 +107,9 @@ pub(crate) enum ClaudeControlRequest {
     },
     /// Reads the settings that took effect.
     GetSettings {},
+    /// Reads the status of each MCP server the process holds, answered by a
+    /// [`ClaudeMcpStatusReply`](super::mcp_status::ClaudeMcpStatusReply).
+    McpStatus {},
     /// Cuts the conversation back to before one message.
     RewindConversation {
         /// The message the cut removes, with all after it.
@@ -124,7 +126,16 @@ pub(crate) enum ClaudeControlRequest {
         message_uuid: String,
     },
     /// Reads the context usage of the running model.
-    GetContextUsage {},
+    GetContextUsage {
+        /// How the categories are counted.
+        detail: ClaudeContextUsageDetail,
+    },
+    /// Stops one running background task (a command, a helper), answered once Claude Code has
+    /// stopped it.
+    StopTask {
+        /// The task, as its `task_started` named it.
+        task_id: String,
+    },
     /// Moves a live process to another model.
     SetModel {
         /// The model, as Claude Code takes `--model`.
@@ -167,9 +178,11 @@ impl ClaudeControlRequest {
             Self::SetMaxThinkingTokens { .. } => ClaudeControlSubtype::SetMaxThinkingTokens,
             Self::McpSetServers { .. } => ClaudeControlSubtype::McpSetServers,
             Self::GetSettings {} => ClaudeControlSubtype::GetSettings,
+            Self::McpStatus {} => ClaudeControlSubtype::McpStatus,
             Self::RewindConversation { .. } => ClaudeControlSubtype::RewindConversation,
             Self::CancelAsyncMessage { .. } => ClaudeControlSubtype::CancelAsyncMessage,
-            Self::GetContextUsage {} => ClaudeControlSubtype::GetContextUsage,
+            Self::GetContextUsage { .. } => ClaudeControlSubtype::GetContextUsage,
+            Self::StopTask { .. } => ClaudeControlSubtype::StopTask,
             Self::SetModel { .. } => ClaudeControlSubtype::SetModel,
             Self::GetBinaryVersion {} => ClaudeControlSubtype::GetBinaryVersion,
             Self::McpMessage { .. } => ClaudeControlSubtype::McpMessage,
@@ -198,12 +211,16 @@ pub(crate) enum ClaudeControlSubtype {
     McpSetServers,
     /// `get_settings`.
     GetSettings,
+    /// `mcp_status`.
+    McpStatus,
     /// `rewind_conversation`.
     RewindConversation,
     /// `cancel_async_message`.
     CancelAsyncMessage,
     /// `get_context_usage`.
     GetContextUsage,
+    /// `stop_task`.
+    StopTask,
     /// `set_model`.
     SetModel,
     /// `get_binary_version`.
@@ -231,9 +248,11 @@ impl ClaudeControlSubtype {
             Self::SetMaxThinkingTokens => "set_max_thinking_tokens",
             Self::McpSetServers => "mcp_set_servers",
             Self::GetSettings => "get_settings",
+            Self::McpStatus => "mcp_status",
             Self::RewindConversation => "rewind_conversation",
             Self::CancelAsyncMessage => "cancel_async_message",
             Self::GetContextUsage => "get_context_usage",
+            Self::StopTask => "stop_task",
             Self::SetModel => "set_model",
             Self::GetBinaryVersion => "get_binary_version",
             Self::McpMessage => "mcp_message",
@@ -243,6 +262,15 @@ impl ClaudeControlSubtype {
             Self::NegativeControl => "zzq_nonexistent_subtype",
         }
     }
+}
+
+/// How `get_context_usage` counts its categories.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ClaudeContextUsageDetail {
+    /// From the last response's usage and local estimates, with no token-count call per
+    /// category.
+    Summary,
 }
 
 /// The thinking display `set_max_thinking_tokens` asks for.
@@ -311,19 +339,38 @@ pub(crate) struct ClaudeAgentDefinition {
     pub(crate) max_turns: Option<u64>,
 }
 
-/// A tool server `mcp_set_servers` installs: a route on the daemon's tool server, or a server the
-/// daemon hosts in-process.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+/// A tool server `mcp_set_servers` installs: a server the person declared, sent with its values,
+/// a route on the daemon's tool server, or a server the daemon hosts in-process. Its `Debug` names
+/// the transport alone, since a declaration's environment and headers carry credentials.
+#[derive(Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum ClaudeToolServerEntry {
+    /// A program Claude Code starts and talks to over its standard input and output.
+    Stdio {
+        /// The program.
+        command: String,
+        /// Its arguments.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        args: Vec<String>,
+        /// The environment it starts with, values included.
+        #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+        env: BTreeMap<String, String>,
+    },
     /// Reached over HTTP at `url`.
-    #[expect(
-        dead_code,
-        reason = "setting the session's tool servers names an HTTP server with it"
-    )]
     Http {
-        /// The route's address.
+        /// The server's address.
         url: String,
+        /// The headers each request carries, values included.
+        #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+        headers: BTreeMap<String, String>,
+    },
+    /// Reached over server-sent events at `url`.
+    Sse {
+        /// The server's address.
+        url: String,
+        /// The headers each request carries, values included.
+        #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+        headers: BTreeMap<String, String>,
     },
     /// Hosted in-process, its messages carried by `mcp_message`.
     #[expect(
@@ -334,6 +381,41 @@ pub(crate) enum ClaudeToolServerEntry {
         /// The server's name.
         name: String,
     },
+}
+
+impl fmt::Debug for ClaudeToolServerEntry {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let transport = match self {
+            Self::Stdio { .. } => "stdio",
+            Self::Http { .. } => "http",
+            Self::Sse { .. } => "sse",
+            Self::Sdk { .. } => "sdk",
+        };
+        formatter
+            .debug_struct("ClaudeToolServerEntry")
+            .field("type", &transport)
+            .finish_non_exhaustive()
+    }
+}
+
+/// An `mcp_set_servers` answer: the error text of each server that failed to start, by the name
+/// it was sent under; every other member is left unread. The text can echo a header, so it
+/// derives no `Debug`.
+#[derive(Default, Deserialize)]
+pub(crate) struct ClaudeMcpSetServersReply {
+    /// Each failed server's error text, as sent, untrusted; absent from an answer with none.
+    #[serde(default)]
+    pub(crate) errors: Option<serde_json::Map<String, Value>>,
+}
+
+impl ClaudeMcpSetServersReply {
+    /// Reads an `mcp_set_servers` answer; an absent one, or one that is no object, carries no
+    /// errors.
+    pub(crate) fn read(reply: Option<&RawValue>) -> Self {
+        reply
+            .and_then(|reply| serde_json::from_str(reply.get()).ok())
+            .unwrap_or_default()
+    }
 }
 
 /// Who chose a session's title.
@@ -398,10 +480,14 @@ lenient_object!(
 );
 
 /// Claude Code's permission modes, as `--permission-mode` and `set_permission_mode` take them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+/// Two namings with one spelling: serde's is the word a control request's JSON carries, strum's
+/// the word the command-line flag and a reported mode use, where `manual` is read as `default`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, IntoStaticStr, EnumString)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub(crate) enum ClaudePermissionMode {
     /// Asks before each change.
+    #[strum(to_string = "default", serialize = "manual")]
     Default,
     /// Takes file changes unasked.
     AcceptEdits,
@@ -447,6 +533,9 @@ pub(crate) struct ClaudeSandboxSettings {
 pub(crate) struct ClaudeSandboxFilesystem {
     /// The folders commands may write in, absolute.
     pub(crate) allow_write: Vec<String>,
+    /// The folders inside those that commands may not write in, absolute.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) deny_write: Vec<String>,
 }
 
 /// The flag settings changed on a live process. Each top-level key is merged whole, so

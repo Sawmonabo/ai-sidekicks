@@ -36,6 +36,12 @@ struct ListedTerminal {
     process_id: Option<Box<RawValue>>,
 }
 
+// The member of a terminate's reply the stop reads.
+#[derive(Deserialize)]
+struct TerminateReply {
+    terminated: bool,
+}
+
 /// The process id of every command `thread_id` still runs, as Codex's schema types it, text,
 /// read page by page within twenty pages. Fails as a page's request fails, and with
 /// `CodexError::Transport` for a reply that is not a page or a cursor past the page bound.
@@ -101,15 +107,7 @@ pub(crate) async fn end_codex_running_commands(
         }
     };
     for process_id in process_ids {
-        let terminated = connection
-            .request(
-                BACKGROUND_TERMINALS_TERMINATE_METHOD,
-                &ThreadBackgroundTerminalsTerminateParams {
-                    process_id,
-                    thread_id: thread_id.to_owned(),
-                },
-            )
-            .await;
+        let terminated = terminate_codex_running_command(connection, thread_id, &process_id).await;
         if let Err(error) = terminated {
             report_step_failed(CodexTeardownStep::BackgroundTerminalTerminate, error);
         }
@@ -128,6 +126,34 @@ pub(crate) async fn end_codex_running_commands(
     if let Err(error) = cleaned {
         report_step_failed(CodexTeardownStep::BackgroundTerminalClean, error);
     }
+}
+
+/// Asks the service to terminate `thread_id`'s background terminal `process_id`, answering Codex's
+/// `terminated`. Fails as the request fails, and with `CodexError::Transport` for a reply that
+/// names no `terminated`.
+pub(crate) async fn terminate_codex_running_command(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+    process_id: &str,
+) -> Result<bool, CodexError> {
+    let reply = connection
+        .request(
+            BACKGROUND_TERMINALS_TERMINATE_METHOD,
+            &ThreadBackgroundTerminalsTerminateParams {
+                process_id: process_id.to_owned(),
+                thread_id: thread_id.to_owned(),
+            },
+        )
+        .await?;
+    let read =
+        read_codex_object::<TerminateReply>(reply.get()).ok_or_else(|| CodexError::Transport {
+            detail: format!(
+                "The Codex service's \"{BACKGROUND_TERMINALS_TERMINATE_METHOD}\" reply names no \
+                 \"terminated\"."
+            ),
+            cause: None,
+        })?;
+    Ok(read.terminated)
 }
 
 fn report_step_failed(step: CodexTeardownStep, error: CodexError) {

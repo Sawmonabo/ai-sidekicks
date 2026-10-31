@@ -20,13 +20,13 @@ use crate::driver::codex::server_requests::{
     CodexServerRequestResponder, compose_unrouted_request_error,
 };
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::DriverError;
-use crate::driver::error_causes::RequestUnanswered;
+use crate::driver::contract::error::DriverError;
 
 #[derive(Default)]
 struct RecordedEvents {
     dropped: Mutex<Vec<String>>,
     held_requests_dropped: Mutex<Vec<CodexForgottenRequest>>,
+    silence: Mutex<Vec<String>>,
 }
 
 impl CodexConnectionEvents for RecordedEvents {
@@ -47,6 +47,20 @@ impl CodexConnectionEvents for RecordedEvents {
     }
 
     fn service_draining(&self, _message: &str) {}
+
+    fn request_timed_out(&self, silent_for: Duration) {
+        self.silence
+            .lock()
+            .expect("no test thread panicked")
+            .push(format!("timed out after {silent_for:?}"));
+    }
+
+    fn answered_after_timeout(&self) {
+        self.silence
+            .lock()
+            .expect("no test thread panicked")
+            .push("answered".to_owned());
+    }
 }
 
 enum TestResponder {
@@ -123,6 +137,68 @@ async fn a_request_past_its_deadline_is_unanswered() {
     assert_unanswered(error, RefusalCode::ProviderTimeout);
 }
 
+// Kills: each timeout reported, which would start the service's silence over at every request
+// and never end it, and the service's next frame left unreported, which would end a service that
+// answered.
+#[tokio::test(start_paused = true)]
+async fn a_timeout_is_reported_once_until_the_service_next_sends_anything() {
+    let (connection, service, events) = connect(usize::MAX, None);
+    let silence = || {
+        events
+            .silence
+            .lock()
+            .expect("no test thread panicked")
+            .clone()
+    };
+    let params = json!({});
+
+    let _first = connection.request("thread/read", &params).await;
+    let _second = connection.request("thread/read", &params).await;
+    let after_two_timeouts = silence();
+    service.send(&json!({ "method": "thread/status/changed", "params": {} }));
+    // The reader takes the frame on its own task.
+    for _ in 0..100 {
+        if silence().len() > 1 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    let _third = connection.request("thread/read", &params).await;
+
+    assert_eq!(after_two_timeouts, ["timed out after 60s"]);
+    assert_eq!(
+        silence(),
+        ["timed out after 60s", "answered", "timed out after 60s"]
+    );
+}
+
+// Kills: the silence counted from the send of the request that timed out, when an older one
+// still waits, which lets a service answer nothing past the limit; and a clock that ignores the
+// frames the service sent since, which ends a service that keeps talking.
+#[tokio::test(start_paused = true)]
+async fn a_timeout_counts_the_silence_from_the_oldest_send_or_the_last_frame() {
+    let (connection, service, events) = connect(usize::MAX, None);
+    let params = json!({});
+    let older = connection.request_within("thread/read", &params, Duration::from_mins(5));
+    tokio::pin!(older);
+    assert!(poll!(older.as_mut()).is_pending());
+    tokio::time::advance(Duration::from_secs(30)).await;
+    service.send(&json!({ "method": "thread/status/changed", "params": {} }));
+    // The reader takes the frame on its own task, at 30 s.
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    tokio::time::advance(Duration::from_secs(10)).await;
+
+    let _timed_out = connection.request("thread/read", &params).await;
+
+    // Sent at 0 s, a frame at 30 s, the newer request timed out at 100 s.
+    assert_eq!(
+        *events.silence.lock().expect("no test thread panicked"),
+        ["timed out after 70s"]
+    );
+}
+
 // Kills: a close after the write mapped back to `Transport`, which a caller would send again
 // blind.
 #[tokio::test]
@@ -166,10 +242,10 @@ fn assert_unanswered(error: CodexError, code: RefusalCode) {
         panic!("the request ended as {error:?}");
     };
     assert_eq!(method, "thread/read");
-    let DriverError::Unanswered(RequestUnanswered { refusal }) = DriverError::from(error) else {
+    let DriverError::Unanswered(unanswered) = DriverError::from(error) else {
         panic!("the driver error is not unanswered");
     };
-    assert_eq!(refusal.code, code);
+    assert_eq!(unanswered.refusal.code, code);
 }
 
 // Kills: the overloaded or draining answer left on the `Internal` arm, or the connection closed on

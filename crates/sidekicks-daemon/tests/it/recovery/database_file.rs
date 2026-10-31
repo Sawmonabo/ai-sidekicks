@@ -1,5 +1,6 @@
 //! The database file's copies aside, its repair and the readying of its fresh file, each run
-//! through the daemon's own program in its `database copy` and `database shell` modes.
+//! through the daemon's own program in its `database copy` and `database shell` modes, and the
+//! service's start on a file its repair heals and on one it cannot.
 
 use std::error::Error as _;
 use std::fs::{self, OpenOptions};
@@ -9,8 +10,15 @@ use std::path::{Path, PathBuf};
 use rstest::rstest;
 use rusqlite::Connection;
 use rusqlite::config::DbConfig;
+use sidekicks_client::daemon_connection::{DaemonConnection, DaemonEndpoint};
+use sidekicks_contracts::daemon::lifecycle::{DAEMON_READY_LINE, DaemonStop};
+use sidekicks_contracts::daemon::service_status::{DaemonCannotStart, ServiceStatusFile};
+use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_daemon::daemon::schema::schema_parts;
-use sidekicks_platforms::physical_memory;
+use sidekicks_platforms::{
+    CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, DaemonRunFolder, create_missing_private_folders,
+    physical_memory,
+};
 use sidekicks_recovery::database_file::aside_copy::{
     AsideCopyError, DatabaseFilesAside, copy_database_files_aside,
 };
@@ -24,12 +32,20 @@ use sidekicks_recovery::database_file::repair::{
     repair_damaged_file,
 };
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
-use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
+use sidekicks_store::data_folder::data_folder;
+use sidekicks_store::database::connection::writer_open::{
+    DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
+};
+use sidekicks_store::database::damage::record_database_damage;
 use sidekicks_store::database::schema::DatabaseSchema;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use tokio::io::{AsyncBufReadExt as _, BufReader};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use crate::helpers::{daemon_program, spawner};
+use crate::helpers::{
+    SERVICE_RUN_BOUND, daemon_program, run_service, short_home, spawner, start_service,
+};
 
 // The folders the store's files are copied into, each a copy.
 fn aside_copies(data_folder: &Path) -> Vec<PathBuf> {
@@ -725,4 +741,158 @@ async fn a_backup_copy_an_earlier_repair_left_is_removed_before_any_work(
         }
         (earlier, repaired) => panic!("{earlier:?} was answered {repaired:?}"),
     }
+}
+
+// A start on a damaged file its repair cannot heal, here a table this build does not have, which
+// the recovery carries into the fresh file, fails naming the damaged file's copy aside, writes the
+// status file a client reads that from, and leaves the file byte for byte as it was. Killed by the
+// start going on past a file its repair left damaged.
+#[tokio::test]
+async fn a_start_on_a_file_its_repair_cannot_heal_fails_naming_the_copy_aside() {
+    let home = short_home();
+    let data_folder = data_folder(home.path());
+    create_missing_private_folders(&data_folder).expect("the data folder is made");
+    let database_path = data_folder.join(DAEMON_DATABASE_FILE_NAME);
+    schema_file(&database_path, &schema_parts().into_schema())
+        .execute_batch("CREATE TABLE stray (id INTEGER)")
+        .expect("the table is made");
+    record_database_damage(&database_path, "a page failed the integrity check")
+        .await
+        .expect("the damage is recorded");
+    let before = fs::read(&database_path).expect("the file reads");
+
+    let ended = run_service(home.path()).await;
+
+    let standard_error = String::from_utf8_lossy(&ended.stderr);
+    assert_eq!(ended.status.code(), Some(1), "{standard_error}");
+    let status: ServiceStatusFile = serde_json::from_slice(
+        &fs::read(data_folder.join("run").join("service-status.json"))
+            .expect("the status file is written"),
+    )
+    .expect("the status file reads");
+    let DaemonCannotStart::SavedSessionsUnrepaired { aside_folder } = status.cannot_start else {
+        panic!("the status file says {:?}", status.cannot_start);
+    };
+    assert_eq!(
+        aside_copies(&data_folder),
+        vec![PathBuf::from(aside_folder.as_str())]
+    );
+    assert!(
+        standard_error.contains(aside_folder.as_str()),
+        "{standard_error}"
+    );
+    assert_eq!(
+        fs::read(&database_path).expect("the file reads"),
+        before,
+        "the file is as it was"
+    );
+}
+
+// The ids of the sessions the database at `database` holds, in order.
+fn session_ids(database: &Path) -> Vec<String> {
+    let connection = Connection::open(database).expect("the database opens");
+    let mut statement = connection
+        .prepare("SELECT id FROM sessions ORDER BY id")
+        .expect("the read prepares");
+    statement
+        .query_map([], |row| row.get(0))
+        .expect("the sessions read")
+        .collect::<rusqlite::Result<Vec<String>>>()
+        .expect("every session reads")
+}
+
+// A start on a damaged file its repair heals copies the file aside, serves the fresh file with
+// every session the damaged one held, and removes the status file an earlier start left; the
+// service then ends at `daemon.stop`. Killed by the repaired file served without the copy aside.
+#[tokio::test]
+async fn a_start_on_a_file_its_repair_heals_serves_the_fresh_file_beside_the_copy_aside() {
+    // A full run writes the machine's keys into the credential store, which only on Linux is a file
+    // in the test's home; elsewhere it is the person's own keychain or Credential Manager.
+    if !CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER {
+        return;
+    }
+    let sessions = [
+        "019a2f00-0000-7000-8000-000000000001",
+        "019a2f00-0000-7000-8000-000000000002",
+        "019a2f00-0000-7000-8000-000000000003",
+    ];
+    let home = short_home();
+    let data_folder = data_folder(home.path());
+    create_missing_private_folders(&data_folder).expect("the data folder is made");
+    let database_path = data_folder.join(DAEMON_DATABASE_FILE_NAME);
+    let file = schema_file(&database_path, &schema_parts().into_schema());
+    for session_id in sessions {
+        insert_session_row(&file, session_id, None, None);
+    }
+    drop(file);
+    record_database_damage(&database_path, "a page failed the integrity check")
+        .await
+        .expect("the damage is recorded");
+    let run_path = data_folder.join("run");
+    let run_folder = DaemonRunFolder {
+        socket_path: run_path.join("daemon.sock"),
+        token_path: run_path.join("daemon.token"),
+        status_path: run_path.join("service-status.json"),
+        folder_path: run_path,
+    };
+    create_missing_private_folders(&run_folder.folder_path).expect("the run folder is made");
+    let earlier_status = ServiceStatusFile {
+        cannot_start: DaemonCannotStart::SavedSessionsFromAnotherVersion {},
+    };
+    fs::write(
+        &run_folder.status_path,
+        serde_json::to_vec(&earlier_status).expect("the status serializes"),
+    )
+    .expect("an earlier start's status is written");
+
+    let mut service = start_service(home.path());
+    // The service log writes standard error; it is read to the end so no write of it blocks.
+    let mut lines = BufReader::new(service.stderr.take().expect("standard error is piped")).lines();
+    let mut standard_error = String::new();
+    tokio::time::timeout(SERVICE_RUN_BOUND, async {
+        while let Some(line) = lines.next_line().await.expect("standard error reads") {
+            standard_error.push_str(&line);
+            standard_error.push('\n');
+            if line.contains(DAEMON_READY_LINE) {
+                return;
+            }
+        }
+        panic!("the service ended before it was ready: {standard_error}");
+    })
+    .await
+    .expect("the service is ready within its bound");
+    let rest = tokio::spawn(async move {
+        let mut rest = String::new();
+        while let Some(line) = lines.next_line().await.expect("standard error reads") {
+            rest.push_str(&line);
+            rest.push('\n');
+        }
+        rest
+    });
+    let connection = DaemonConnection::connect(DaemonEndpoint::new(run_folder.clone()))
+        .await
+        .expect("the client connects");
+    connection
+        .client()
+        .call::<DaemonStop>(&EmptyPayload {})
+        .await
+        .expect("the stop is accepted");
+    drop(connection);
+    let ended = tokio::time::timeout(SERVICE_RUN_BOUND, service.wait())
+        .await
+        .expect("the service ends within its bound")
+        .expect("the service's end reads");
+    standard_error.push_str(&rest.await.expect("standard error is read to its end"));
+
+    assert!(ended.success(), "{ended}: {standard_error}");
+    let copies = aside_copies(&data_folder);
+    let [copy] = copies.as_slice() else {
+        panic!("the copies aside are {copies:?}");
+    };
+    assert_eq!(session_ids(&copy.join(DAEMON_DATABASE_FILE_NAME)), sessions);
+    assert_eq!(session_ids(&database_path), sessions);
+    assert!(
+        !run_folder.status_path.exists(),
+        "the earlier start's status file is left"
+    );
 }

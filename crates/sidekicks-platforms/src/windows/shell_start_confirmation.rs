@@ -75,7 +75,7 @@ impl ShellStartConfirmation {
 
     /// The variable and value the `shell` mode's environment carries so the mode finds the pipe;
     /// `None` once the launch's writer has taken the pipe.
-    pub fn environment_entry(&self) -> Option<(String, String)> {
+    pub(crate) fn environment_entry(&self) -> Option<(String, String)> {
         self.pipe
             .as_ref()
             .map(|_| (SHELL_START_CONFIRMATION.to_owned(), self.name.clone()))

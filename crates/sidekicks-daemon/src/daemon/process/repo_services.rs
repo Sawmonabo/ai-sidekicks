@@ -2,24 +2,32 @@
 //! chats' managed workspaces, the broker git's questions reach the person through, the watch over
 //! each working folder, the live sessions' folders and their projects' fetches, the branch lists,
 //! the worktrees, the turn snapshots and the mounts' health re-probe. Their background work begins
-//! once the start's recovery pass has settled the runs.
+//! once the start's recovery pass has settled the runs. Here too are the worktrees folder the start
+//! makes once, and the record of the instant the chats' write watch walks from at a start.
 
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_platforms::{askpass_socket_path, inotify_watch_ceiling};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::live_folders::{
     LiveFolderError, LiveSessionFolders, LiveSessionFoldersDeps,
 };
-use sidekicks_session::worktree_naming::worktrees_folder;
+use sidekicks_session::review_note::store::SessionReviewNoteStore;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::file::atomic_write::write_file_atomically;
+use sidekicks_std::file::real_location::resolve_real_path;
+use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::scheduler::{
     JobCondition, ScheduleError, ScheduledJobHandle, Scheduler, WakeSignal,
 };
+use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::log_service::EventLogService;
@@ -32,13 +40,14 @@ use sidekicks_workspace::git::turn_snapshot::service::TurnSnapshotService;
 use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
 use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
 use sidekicks_workspace::git::worktree::fetch::{BackgroundFetch, BackgroundFetchDeps};
+use sidekicks_workspace::git::worktree::naming::worktrees_folder;
 use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
 use sidekicks_workspace::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
 use sidekicks_workspace::git::worktree::watch::{
     SLOW_TICK_INTERVAL, WorkingFolderWatcher, WorkingFolderWatcherDeps,
 };
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
-use sidekicks_workspace::managed::write_watcher::ManagedWorkspaceWrite;
+use sidekicks_workspace::managed::write_watcher::{ManagedWorkspaceReport, ManagedWritesWatermark};
 use sidekicks_workspace::repo::mount::health::{RepoMountHealthReprobe, ReprobeError};
 use sidekicks_workspace::repo::mount::service::RepoMountService;
 use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
@@ -53,14 +62,20 @@ use crate::daemon::process::stop::TaskStopFailure;
 // until the versions catch up.
 const MANAGED_WORKSPACE_WRITE_CAPACITY: usize = 64;
 
+// The record, in the data folder, of the instant the chats' write watch walks from at a start.
+const MANAGED_WRITES_WATERMARK_FILE_NAME: &str = "managed-workspace-writes-since";
+
+// The record is the person's alone.
+const MANAGED_WRITES_WATERMARK_MODE: u32 = 0o600;
+
 /// What the repository services are built from.
 pub(crate) struct RepoServiceStart {
     /// The person's home, which holds the chats' managed workspaces.
     pub(crate) home_folder: PathBuf,
     /// The run folder, private to this account, where the askpass broker's socket goes.
     pub(crate) run_folder: PathBuf,
-    /// The daemon's own program, which git's askpass program sits beside.
-    pub(crate) daemon_program: PathBuf,
+    /// The folder of the daemon's mode links, which holds git's askpass link.
+    pub(crate) program_link_folder: PathBuf,
     /// The daemon's one git, whose failed calls' trees the stop waits for.
     pub(crate) git: GitRunner,
     /// The daemon's one read pool.
@@ -77,19 +92,23 @@ pub(crate) struct RepoServiceStart {
     pub(crate) list_feed: Arc<SessionListFeed>,
     /// The daemon's stop, which ends every health pass and every send.
     pub(crate) stop: CancellationToken,
+    /// The daemon's worktrees folder, made and resolved by the start.
+    pub(crate) worktrees_folder: PathBuf,
+    /// The instant the chats' write watch walks from for the writes it has not reported.
+    pub(crate) missed_since: SystemTime,
 }
 
 /// The repository services, each built once for the daemon's life.
 pub(crate) struct RepoServices {
     /// The repository mounts of this machine.
-    #[expect(dead_code, reason = "the daemon's method tables")]
     pub(crate) mounts: Arc<RepoMountService>,
     /// The chats' managed workspaces and the watch of their writes; the stop ends both through
     /// [`ManagedWorkspaceService::stop`].
     pub(crate) workspaces: Arc<ManagedWorkspaceService>,
-    /// The broker git's questions go through, `None` where the system has no private askpass
-    /// socket, which leaves clones unavailable; the stop closes it.
-    pub(crate) askpass: Option<AskpassBroker>,
+    /// The broker git's questions go through, or the text every clone verb answers
+    /// `project.clone.unavailable` with, empty where the system has no private askpass socket; the
+    /// start takes it for the clone service, which owns the broker from then on.
+    pub(crate) askpass: Option<Result<AskpassBroker, String>>,
     /// The watch over each working folder; the stop stops it.
     pub(crate) folder_watch: Arc<WorkingFolderWatcher>,
     /// Each live project's repository fetched in the background; the stop stops it.
@@ -97,13 +116,14 @@ pub(crate) struct RepoServices {
     /// Each live session's working folder held watched and its repository fetched.
     pub(crate) live_folders: Arc<LiveSessionFolders>,
     /// A repository's branches, for the new-worktree form.
-    #[expect(dead_code, reason = "the daemon's method tables")]
     pub(crate) branches: Arc<BranchListReader>,
+    /// Each session's review notes, read against its live working folder.
+    pub(crate) review_notes: Arc<SessionReviewNoteStore>,
     /// Every worktree transition and worktree-scoped git call.
-    #[expect(dead_code, reason = "the worktree methods")]
     pub(crate) worktrees: Arc<WorktreeService>,
+    /// The seam each worktree's events are appended through.
+    pub(crate) worktree_events: Arc<WorktreeEventEmitter>,
     /// Each turn's checkout snapshot and the prune of a run's snapshot refs.
-    #[expect(dead_code, reason = "the session purge and the checkpoints")]
     pub(crate) snapshots: Arc<TurnSnapshotService>,
     /// The mounts' health, re-probed on the slow tick, a wake and a repository's change.
     pub(crate) mount_health: Arc<RepoMountHealthReprobe>,
@@ -113,31 +133,33 @@ pub(crate) struct RepoServices {
     pub(crate) stop: CancellationToken,
     /// The chats' writes the managed workspaces' watch reports, for a chat's file versions; the
     /// start takes it for the session services before the repository attachments start.
-    #[expect(dead_code, reason = "the session services' build")]
-    pub(crate) workspace_writes: Option<mpsc::Receiver<ManagedWorkspaceWrite>>,
+    pub(crate) workspace_writes: Option<mpsc::Receiver<ManagedWorkspaceReport>>,
+    /// The seam each workspace's events are appended through.
+    pub(crate) workspace_events: Arc<WorkspaceEventEmitter>,
+    /// The daemon's one occupancy reader, for the sessions standing and running in each folder.
+    pub(crate) occupancy: MountOccupancyReader,
+    /// The daemon's worktrees folder, its links resolved.
+    pub(crate) worktrees_folder: PathBuf,
 }
 
 /// Why the repository services could not be built.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RepoServiceStartError {
-    /// The askpass broker could not start.
-    #[error(transparent)]
-    Askpass(AskpassBrokerError),
     /// Another daemon binds the askpass program's socket in the run folder.
     #[error(transparent)]
     AlreadyRunning(#[from] DaemonAlreadyRunningError),
 }
 
-/// Builds the repository services from `start`. Fails when the askpass broker cannot start for
-/// any reason but a system with no private askpass socket, which leaves it unstarted. Runs inside
-/// the daemon's runtime.
+/// Builds the repository services from `start`. Fails only when another daemon binds the askpass
+/// program's socket in the run folder; any other broker failure leaves clones unavailable and the
+/// start going on. Runs inside the daemon's runtime.
 pub(crate) fn build_repo_services(
     start: RepoServiceStart,
 ) -> Result<RepoServices, RepoServiceStartError> {
     let RepoServiceStart {
         home_folder,
         run_folder,
-        daemon_program,
+        program_link_folder,
         git,
         reads,
         writer,
@@ -146,6 +168,8 @@ pub(crate) fn build_repo_services(
         scheduler,
         list_feed,
         stop,
+        worktrees_folder,
+        missed_since,
     } = start;
     let workspace_events = Arc::new(WorkspaceEventEmitter::new(Arc::clone(&event_log)));
     let mounts = Arc::new(RepoMountService::new(
@@ -164,9 +188,10 @@ pub(crate) fn build_repo_services(
         git.clone(),
         writes,
         list_feed,
+        missed_since,
     ));
     let askpass = askpass_or_unavailable(
-        AskpassBroker::start(&run_folder, git_askpass_program_path(&daemon_program)),
+        AskpassBroker::start(&run_folder, git_askpass_program_path(&program_link_folder)),
         &run_folder,
     )?;
     let occupancy = MountOccupancyReader::new(Arc::clone(&reads));
@@ -191,7 +216,7 @@ pub(crate) fn build_repo_services(
         watcher: Arc::clone(&folder_watch),
         fetch: Arc::clone(&fetch),
     }));
-    let worktrees_folder = worktrees_folder(&home_folder);
+    let review_notes = Arc::new(live_folders.review_note_store(Arc::clone(&writer)));
     let snapshots = Arc::new(TurnSnapshotService::new(
         git.clone(),
         Arc::clone(&reads),
@@ -201,13 +226,13 @@ pub(crate) fn build_repo_services(
         git: git.clone(),
         reads: Arc::clone(&reads),
         writer,
-        events: worktree_events,
-        occupancy,
-        worktrees_folder,
+        events: Arc::clone(&worktree_events),
+        occupancy: occupancy.clone(),
+        worktrees_folder: worktrees_folder.clone(),
     }));
     let mount_health = Arc::new(RepoMountHealthReprobe::new(
         Arc::clone(&reads),
-        workspace_events,
+        Arc::clone(&workspace_events),
         RepoRootResolver::new(git.clone()),
         stop.clone(),
     ));
@@ -215,17 +240,97 @@ pub(crate) fn build_repo_services(
         branches: Arc::new(BranchListReader::new(git, reads)),
         mounts,
         workspaces,
-        askpass,
+        askpass: Some(askpass),
         folder_watch,
         fetch,
         live_folders,
+        review_notes,
         worktrees,
+        worktree_events,
         snapshots,
         mount_health,
         scheduler,
         stop,
         workspace_writes: Some(workspace_writes),
+        workspace_events,
+        occupancy,
+        worktrees_folder,
     })
+}
+
+/// Makes the daemon's worktrees folder under `home_folder` and answers it with every link
+/// resolved, so each tree's stored folder is the one git records. Fails with the system's error.
+pub(crate) async fn make_worktrees_folder(home_folder: &Path) -> io::Result<PathBuf> {
+    let folder = worktrees_folder(home_folder);
+    tokio::fs::create_dir_all(&folder).await?;
+    resolve_real_path(&folder).await
+}
+
+/// The record of the instant the chats' write watch walks from, in the data folder under
+/// `home_folder`.
+pub(crate) fn managed_writes_watermark_path(home_folder: &Path) -> PathBuf {
+    data_folder(home_folder).join(MANAGED_WRITES_WATERMARK_FILE_NAME)
+}
+
+/// Reads the instant the record at `path` holds: the one the last clean stop stored, or the one
+/// the last walk of the chats' writes caught up to, stored once every write it sent was recorded.
+/// A missing or unreadable record reads as the epoch, so the walk reads every write; an unreadable
+/// record is logged.
+pub(crate) async fn read_managed_writes_watermark(path: &Path) -> SystemTime {
+    match tokio::fs::read_to_string(path).await.none_if_missing() {
+        Ok(Some(text)) => text.trim().parse::<u64>().map_or_else(
+            |error| {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the chats' write watermark is no instant, so the chats' folders are walked \
+                     whole"
+                );
+                UNIX_EPOCH
+            },
+            |nanoseconds| UNIX_EPOCH + Duration::from_nanos(nanoseconds),
+        ),
+        Ok(None) => UNIX_EPOCH,
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the chats' write watermark could not be read, so the chats' folders are walked \
+                 whole"
+            );
+            UNIX_EPOCH
+        }
+    }
+}
+
+/// The record at `path`, [`managed_writes_watermark_path`] under the daemon's home, that keeps the
+/// instant the next start's walk of the chats' writes begins at.
+pub(crate) struct ManagedWritesWatermarkFile {
+    /// The record's path.
+    pub(crate) path: PathBuf,
+}
+
+impl ManagedWritesWatermark for ManagedWritesWatermarkFile {
+    fn store(&self, instant: SystemTime) -> BoxFuture<'_, ()> {
+        async move {
+            // An instant before the epoch is stored as the epoch.
+            let nanoseconds = instant.duration_since(UNIX_EPOCH).map_or(0, |since| {
+                u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
+            });
+            if let Err(error) = write_file_atomically(
+                &self.path,
+                nanoseconds.to_string(),
+                MANAGED_WRITES_WATERMARK_MODE,
+            )
+            .await
+            {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the chats' write watermark could not be stored, so the next start walks from \
+                     an earlier instant"
+                );
+            }
+        }
+        .boxed()
+    }
 }
 
 /// Why the repository services' background work could not begin.
@@ -359,15 +464,16 @@ fn log_reprobe_failure(probed: Result<(), ReprobeError>) {
     }
 }
 
-// The askpass broker `started` in `run_folder`, or `None`, logging why, where the system has no
-// private askpass socket; every clone call is then refused `project.clone.unavailable`. A socket
-// another daemon binds there fails the start as the daemon's own socket does.
+// The askpass broker `started` in `run_folder`, or, logging why, the text every clone verb is
+// refused `project.clone.unavailable` with: empty where the system has no private askpass socket,
+// else the failure's own text, the daemon's start going on. A socket another daemon binds there
+// fails the start as the daemon's own socket does.
 fn askpass_or_unavailable(
     started: Result<AskpassBroker, AskpassBrokerError>,
     run_folder: &Path,
-) -> Result<Option<AskpassBroker>, RepoServiceStartError> {
+) -> Result<Result<AskpassBroker, String>, RepoServiceStartError> {
     match started {
-        Ok(broker) => Ok(Some(broker)),
+        Ok(broker) => Ok(Ok(broker)),
         Err(AskpassBrokerError::Listen(error)) if error.kind() == io::ErrorKind::AddrInUse => {
             Err(DaemonAlreadyRunningError {
                 held_place: HeldPlace::Socket(askpass_socket_path(run_folder)),
@@ -381,28 +487,34 @@ fn askpass_or_unavailable(
                 "the clone service was not started: this system has no private socket for git's \
                  questions"
             );
-            Ok(None)
+            Ok(Err(String::new()))
         }
-        Err(error) => Err(RepoServiceStartError::Askpass(error)),
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the clone service was not started: its askpass broker could not start"
+            );
+            Ok(Err(describe_error(&error)))
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::io;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     use sidekicks_platforms::askpass_socket_path;
-    use sidekicks_workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerError};
+    use sidekicks_workspace::clone::askpass::broker::AskpassBrokerError;
 
     use super::{RepoServiceStartError, askpass_or_unavailable};
     use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
 
-    // The first case is killed by the `Unsupported` arm deleted, which fails the start where the
-    // system has no askpass socket; the second by the `Unsupported` guard widened to every listen
-    // error, which answers `None` for a run folder whose socket path is past the system's bound.
-    #[tokio::test]
-    async fn only_a_system_with_no_askpass_socket_leaves_the_broker_unstarted() {
+    // Every broker failure but another daemon's socket keeps the start: a system with no askpass
+    // socket with empty text, any other failure with its own. Killed by the third arm failing the
+    // start, by the `Unsupported` arm deleted, and by every failure answered with empty text.
+    #[test]
+    fn a_broker_that_cannot_start_keeps_the_start_and_carries_its_text() {
         let unsupported = askpass_or_unavailable(
             Err(AskpassBrokerError::Listen(io::Error::from(
                 io::ErrorKind::Unsupported,
@@ -410,34 +522,31 @@ mod tests {
             Path::new("/run"),
         );
         assert!(
-            matches!(unsupported, Ok(None)),
+            matches!(unsupported, Ok(Err(ref text)) if text.is_empty()),
             "{:?}",
-            unsupported.map(|broker| broker.is_some())
+            unsupported.map(Result::err)
         );
 
-        let run_folder = PathBuf::from("/").join("a".repeat(200));
-        let started = AskpassBroker::start(&run_folder, PathBuf::from("askpass-program"));
-        // Where the system has no askpass socket, no path is past its bound.
-        if matches!(
-            started,
-            Err(AskpassBrokerError::Listen(ref error)) if error.kind() == io::ErrorKind::Unsupported
-        ) {
-            return;
-        }
-        let past_the_bound = askpass_or_unavailable(started, &run_folder);
+        let refused = askpass_or_unavailable(
+            Err(AskpassBrokerError::Listen(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "permission denied",
+            ))),
+            Path::new("/run"),
+        );
         assert!(
             matches!(
-                past_the_bound,
-                Err(RepoServiceStartError::Askpass(AskpassBrokerError::Listen(ref error)))
-                    if error.kind() == io::ErrorKind::InvalidInput
+                refused,
+                Ok(Err(ref text))
+                    if text == "the askpass program's socket could not be opened: permission denied"
             ),
             "{:?}",
-            past_the_bound.as_ref().map(Option::is_some)
+            refused.map(Result::err)
         );
     }
 
-    // Killed by the `AddrInUse` arm deleted: another daemon's askpass socket then fails the start
-    // as a broker that could not start, not as a daemon already running there.
+    // Killed by the `AddrInUse` arm deleted: another daemon's askpass socket then leaves clones
+    // unavailable instead of failing the start as a daemon already running there.
     #[test]
     fn another_daemon_s_askpass_socket_fails_the_start_as_already_running() {
         let run_folder = Path::new("/run/ai-sidekicks");
@@ -458,7 +567,7 @@ mod tests {
                 })) if *path == askpass_socket_path(run_folder)
             ),
             "{:?}",
-            held.map(|broker| broker.is_some())
+            held.map(Result::err)
         );
     }
 }

@@ -68,7 +68,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, MaintenanceError};
 use sidekicks_store::events::log_service::{EventLogAppendOptions, EventLogService};
 use sidekicks_store::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
-use sidekicks_store::machine::local::LocalMachine;
+use sidekicks_store::machine::local::{LocalMachineError, read_local_machine};
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::backup::generations::{BackupGeneration, backups_to_prune};
@@ -142,30 +142,23 @@ pub(crate) enum BackupTrigger {
     Now,
 }
 
-/// What each manifest records about the service that wrote it.
+/// The versions each manifest records about the service that wrote it; the computer's name is read
+/// at each run, so a rename reaches the next manifest.
 pub(crate) struct BackupManifestFacts {
     /// The app's version.
     pub(crate) app_version: ReleaseVersion,
     /// The service's version.
     pub(crate) service_version: ReleaseVersion,
-    /// The computer's name.
-    pub(crate) computer_name: FreeFormText<BACKUP_LABEL_MAX_LEN>,
 }
 
-/// What each manifest records, from this build's release version, which one release ships as both
-/// the app's and the service's, and `machine`'s name, cut to [`BACKUP_LABEL_MAX_LEN`] code points.
-/// Fails when the name is blank or holds a NUL.
-pub(crate) fn backup_manifest_facts(
-    machine: &LocalMachine,
-) -> Result<BackupManifestFacts, TextError> {
+/// The versions each manifest records: this build's release version, which one release ships as
+/// both the app's and the service's.
+pub(crate) fn backup_manifest_facts() -> BackupManifestFacts {
     let version = this_build_release_version();
-    Ok(BackupManifestFacts {
+    BackupManifestFacts {
         app_version: version.clone(),
         service_version: version,
-        computer_name: FreeFormText::new(
-            cut_to_code_points(&machine.name, BACKUP_LABEL_MAX_LEN).to_owned(),
-        )?,
-    })
+    }
 }
 
 /// Reads the files and folders the mirror keeps, as they stand at the run, its reads charged to the
@@ -179,7 +172,7 @@ pub(crate) struct BackupDeps {
     pub(crate) writer: Arc<DatabaseWriter>,
     /// The log the runs' events land in, on the service's own session.
     pub(crate) event_log: Arc<EventLogService>,
-    /// The read pool the last run is read through.
+    /// The read pool the last run and this machine's name are read through.
     pub(crate) reads: Arc<DatabaseReadPool>,
     /// The write-ahead log's truncation, run once a copy completes.
     pub(crate) truncation: Arc<WriteAheadLogTruncation>,
@@ -190,7 +183,7 @@ pub(crate) struct BackupDeps {
     pub(crate) home_folder: PathBuf,
     /// The files and folders the mirror keeps.
     pub(crate) read_mirror_roots: MirrorRootsReader,
-    /// What each manifest records.
+    /// The versions each manifest records.
     pub(crate) manifest_facts: BackupManifestFacts,
 }
 
@@ -200,6 +193,15 @@ pub(crate) enum BackupRunError {
     /// The settings file did not read.
     #[error("the backup settings could not be read")]
     Settings(#[from] MachineSettingsFileError),
+    /// This machine's row, which holds the computer's name, did not read.
+    #[error("the computer's name could not be read")]
+    LocalMachine(#[source] LocalMachineError),
+    /// This machine has no row, so there is no computer's name to label the backup.
+    #[error("the computer's name is not recorded")]
+    NoLocalMachine,
+    /// The computer's name is blank or holds a NUL, so it cannot label a backup.
+    #[error("the computer's name cannot label a backup")]
+    ComputerName(#[source] TextError),
     /// The backups folder or a backup's file could not be made, written or removed.
     #[error("the backups folder could not be written at {}", path.display())]
     Folder {
@@ -501,9 +503,9 @@ impl Backups {
         written
     }
 
-    // Copies, checks and places the database, brings the mirror level and writes the manifest. The
-    // copy is never dropped while the writer's thread steps it: the stop cancels it, and the
-    // thread answers before its next step.
+    // Reads the computer's name, copies, checks and places the database, brings the mirror level
+    // and writes the manifest. The copy is never dropped while the writer's thread steps it: the
+    // stop cancels it, and the thread answers before its next step.
     async fn fill_backup(
         &self,
         folder: &Path,
@@ -513,6 +515,8 @@ impl Backups {
         stop: &CancellationToken,
         meter: &ProcessorMeter,
     ) -> Result<Option<WrittenBackup>, BackupRunError> {
+        // Read before the copy, so a name that cannot label the backup costs no copy.
+        let computer_name = self.read_computer_name().await?;
         let copy = self
             .deps
             .writer
@@ -568,7 +572,7 @@ impl Backups {
             app_version: facts.app_version.clone(),
             service_version: facts.service_version.clone(),
             total_bytes: SafeInt::new(total_bytes).expect("a backup's size is a safe integer"),
-            computer_name: facts.computer_name.clone(),
+            computer_name,
             distribution_parts: None,
         };
         let manifest_bytes = serde_json::to_vec(&manifest).expect("a manifest serializes as JSON");
@@ -584,6 +588,18 @@ impl Backups {
             total_bytes,
             copied_through,
         }))
+    }
+
+    // This machine's name as its row holds it now, cut to [`BACKUP_LABEL_MAX_LEN`] code points.
+    async fn read_computer_name(
+        &self,
+    ) -> Result<FreeFormText<BACKUP_LABEL_MAX_LEN>, BackupRunError> {
+        let machine = read_local_machine(&self.deps.reads)
+            .await
+            .map_err(BackupRunError::LocalMachine)?
+            .ok_or(BackupRunError::NoLocalMachine)?;
+        FreeFormText::new(cut_to_code_points(&machine.name, BACKUP_LABEL_MAX_LEN).to_owned())
+            .map_err(BackupRunError::ComputerName)
     }
 
     // Appends `event` on the service's own session.

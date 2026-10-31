@@ -70,7 +70,7 @@ pub(super) fn absorb(
     );
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: binding.provider_name.clone(),
-        provider_account_id: binding.provider_account_id.clone(),
+        provider_account_id: Some(binding.provider_account_id.clone()),
         kind: DriverDiagnosticKind::LateEventAbsorbed,
         raw_wire_type: None,
         disposition_reason: reason_sentence(reason).to_owned(),

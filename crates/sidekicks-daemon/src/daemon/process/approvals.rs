@@ -20,7 +20,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::background_work::BackgroundWorkForms;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_session::driver_resolution::read_session_driver;
@@ -67,7 +67,10 @@ pub(crate) struct ApprovalStart {
 }
 
 /// The approval side, each part built once and shared by `Arc`.
-#[expect(dead_code, reason = "the daemon's driver ports and method tables")]
+#[expect(
+    dead_code,
+    reason = "the callback tools and a workflow start check their actions through it"
+)]
 pub(crate) struct Approvals {
     /// Raises, answers and cancels approval cards.
     pub(crate) service: Arc<ApprovalService>,
@@ -89,7 +92,6 @@ pub(crate) struct Approvals {
 
 /// Builds the approval side over `deps`, its run holds reaching `engine`, which the run engine's
 /// own build hands it before the engine exists.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) fn build_approvals(engine: Weak<RunEngine>, deps: &ApprovalStart) -> Approvals {
     let run_holds = Arc::new(ApprovalRunHolds::new(engine, Arc::clone(&deps.reads)));
     let service = Arc::new(ApprovalService::new(
@@ -186,7 +188,7 @@ fn revoke_at_session_provider(
             )
             .await
             .map_err(|error| match error {
-                SessionDriverReadError::Refused(refusal) => DriverError::Refused(refusal),
+                SessionDriverReadError::Refused(refusal) => DriverError::from(refusal),
                 other @ (SessionDriverReadError::Pool(_) | SessionDriverReadError::Database(_)) => {
                     DriverError::Internal(Box::new(other))
                 }
@@ -209,7 +211,6 @@ pub(crate) struct ApprovalAttachments {
 /// Starts the approval side's follows of `followers`: the closed sessions' sweep and rule ends,
 /// the holds of each run that runs again with an ask open, and the reviewer's blocks' wakes. Called
 /// once the start's recovery pass has settled the runs, inside the daemon's runtime.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) fn start_approval_attachments(
     approvals: &Approvals,
     followers: &Arc<SessionEventFollowers>,
@@ -225,7 +226,6 @@ pub(crate) fn start_approval_attachments(
 impl ApprovalAttachments {
     /// Stops every follow, the reviewer's blocks' first, and waits for the work under way; answers
     /// each follower whose task ended abnormally, every one having stopped.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
     pub(crate) async fn stop(self, approvals: &Approvals) -> Vec<TaskStopFailure> {
         let Self {
             denials,
@@ -255,7 +255,8 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-    use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+    use sidekicks_provider::driver::contract::MockProviderDriver;
+    use sidekicks_provider::driver::contract::error::DriverError;
     use sidekicks_provider::driver::session_control::RevokeRuleParams;
     use sidekicks_provider::driver::test_registry::registry_of_first_provider;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;

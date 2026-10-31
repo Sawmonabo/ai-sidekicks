@@ -36,13 +36,6 @@ pub(crate) fn diagnostic_bucket_folders(data_folder: &Path) -> [PathBuf; 3] {
 }
 
 /// The folder raw provider messages are written to, which Settings › Runtime names.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start names the folder to the config methods"
-    )
-)]
 pub(crate) fn provider_messages_folder(data_folder: &Path) -> PathBuf {
     data_folder
         .join(DIAGNOSTICS_FOLDER_NAME)

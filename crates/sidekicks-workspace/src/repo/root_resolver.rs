@@ -26,8 +26,10 @@ use sidekicks_std::file::real_location::resolve_real_path;
 use sidekicks_std::missing_entry::is_missing_entry;
 use sidekicks_std::text_cut::cut_to_code_points;
 
+use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{
-    GitCall, GitError, GitRunner, background_read, read_git_common_folder, strip_line_end,
+    GIT_FATAL_EXIT_CODE, GitCall, GitError, GitRunner, background_read, read_git_common_folder,
+    strip_line_end,
 };
 use crate::git::worktree::reads::{ListedWorktree, read_listed_worktrees};
 use crate::repo::errors::RepoRefusal;
@@ -40,16 +42,10 @@ use crate::trust_envelope::{components_equal, is_contained_within};
 /// that cannot finish reading the folder says the folder is out of reach.
 pub(crate) const ROOT_RESOLUTION_GIT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// git's exit code for a fatal error, half of its not-a-repository verdict.
-const GIT_FATAL_EXIT_CODE: i32 = 128;
-
 /// The start of git's not-a-repository line, matched at the start of a standard error line without
 /// case: anywhere else it could sit inside a quoted path of another fatal error, and git escapes
 /// control characters in a quoted path, so none can start a line of its own.
 const NOT_A_REPOSITORY_MARKER: &str = "fatal: not a git repository";
-
-/// The entry git's discovery looks for, a folder or a `gitdir:` file; it is only looked at.
-const GIT_ENTRY_NAME: &str = ".git";
 
 /// What an attach may keep about a path: every member absolute with each link resolved, and both
 /// roots readable when resolved.
@@ -82,10 +78,6 @@ pub struct RepoRootResolver {
     canned_resolution: Option<RepoRootResolution>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the repository mount attach and its health read")
-)]
 impl RepoRootResolver {
     /// The resolver asking `git`, each call held to `ROOT_RESOLUTION_GIT_TIMEOUT`.
     pub fn new(git: GitRunner) -> Self {
@@ -111,8 +103,9 @@ impl RepoRootResolver {
     /// a path naming no complete location, `pathNotFound` or `notReadable` from the path's own
     /// read before git runs, `notReadable` for any file read past the bounded read's ceiling,
     /// `notARepository` on git's verdict alone, `rootMismatch` for a working tree git does not
-    /// name for the repository, `notReadable` when a git call passes its bound, and `vcsError` when
-    /// git cannot answer otherwise.
+    /// name for the repository, `notUnicode` for a resolved path that is not valid Unicode,
+    /// `notReadable` when a git call passes its bound, and `vcsError` when git cannot answer
+    /// otherwise.
     pub(crate) async fn resolve_canonical_root(
         &self,
         local_path: &Path,
@@ -134,6 +127,8 @@ impl RepoRootResolver {
         let input = resolve_real_path(local_path)
             .await
             .map_err(|error| refusal_of_filesystem_failure(&error))?;
+        // A link spelled in valid Unicode can resolve to a name that is not.
+        require_unicode_path(&input)?;
 
         let working_tree_root = match self.query_toplevel(&input).await? {
             ToplevelAnswer::Toplevel(toplevel) => toplevel,
@@ -192,6 +187,9 @@ impl RepoRootResolver {
         if !is_main_checkout {
             require_readable_root(&working_tree_root).await?;
         }
+        // The working tree holds the input, so it is valid Unicode too; these two need not be.
+        require_unicode_path(&canonical_root)?;
+        require_unicode_path(&common_folder)?;
         Ok(RepoRootResolution {
             canonical_root,
             working_tree_root,
@@ -220,7 +218,7 @@ impl RepoRootResolver {
 
     /// The top level, each link resolved, of the working tree `folder` sits in, or `None` when git
     /// answers that it sits in none. Fails with `vcsError` when git cannot answer.
-    pub(crate) async fn read_working_tree_root(
+    pub async fn read_working_tree_root(
         &self,
         folder: &Path,
     ) -> Result<Option<PathBuf>, RepoRefusal> {
@@ -353,6 +351,14 @@ impl RepoRootResolver {
             .await
             .map_err(|error| vcs_refusal(&error))
     }
+}
+
+/// `path` as text, refused `notUnicode` when it is not valid Unicode, since a path is stored,
+/// compared and sent as text; the attach's resolution and the clone start's parent folder both
+/// call it on a resolved path, so nothing is written for such a folder.
+pub(crate) fn require_unicode_path(path: &Path) -> Result<&str, RepoRefusal> {
+    path.to_str()
+        .ok_or_else(|| root_resolution_refusal(RepoMountRootResolutionReason::NotUnicode, None))
 }
 
 /// The refusal a failed read of a picked path gives: `pathNotFound` when the path names nothing,
@@ -546,8 +552,8 @@ mod tests {
         )
     }
 
-    // Catches a wrong main checkout, a planted `.git` admitted, git asked first, a lost reason, or a
-    // read awaited past the ceiling.
+    // Catches a wrong main checkout, a planted `.git` admitted, git asked first, a lost reason, or
+    // a read awaited past the ceiling.
     #[rstest]
     #[case::a_linked_worktree(Pick::LinkedWorktree)]
     #[case::a_planted_git_file(Pick::PlantedGitFile)]

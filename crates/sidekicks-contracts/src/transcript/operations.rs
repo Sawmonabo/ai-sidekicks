@@ -1,8 +1,9 @@
 //! The paged transcript reads: `transcript.read`, the reasoning read and the child-run expansion,
-//! each page held to the shared page budget. A continuing page carries at least one entry and the
-//! cursor to continue from; a terminal page may be empty and may still say where the window ended,
-//! which a client needs to open the live stream from exactly there. The reasoning read names no
-//! principal: the caller is the authenticated connection.
+//! each page held to the shared page budget. A continuing page carries the cursor to continue from
+//! and at least one entry, but for a transcript page whose read passed over as many events standing
+//! as no row as one request projects, its cursor then past them; a terminal page may be empty and
+//! may still say where the window ended, which a client needs to open the live stream from exactly
+//! there. The reasoning read names no principal: the caller is the authenticated connection.
 
 use std::collections::HashSet;
 
@@ -200,7 +201,9 @@ pub type ReadEntries<const MIN: usize> =
 /// The facts of a window's runs, at most one per row.
 pub type WindowRunFacts = BoundedVec<TranscriptRunFacts, 0, TRANSCRIPT_READ_LIMIT_MAX>;
 
-/// A read window with more after it: at least one row, and the cursor to continue from.
+/// A read window with more after it, and the cursor to continue from: at least one row, unless the
+/// read passed over as many events standing as no row as one request projects, its cursor then past
+/// them.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[schemars(inline)]
@@ -208,10 +211,10 @@ pub type WindowRunFacts = BoundedVec<TranscriptRunFacts, 0, TRANSCRIPT_READ_LIMI
 pub struct TranscriptReadContinuing {
     /// The rows, oldest first, within the page budget the runs leave.
     #[garde(dive)]
-    #[garde(custom(|entries: &ReadEntries<1>, (): &()| {
+    #[garde(custom(|entries: &ReadEntries<0>, (): &()| {
         require_window_rows(entries.as_slice(), self.runs.as_slice())
     }))]
-    pub entries: ReadEntries<1>,
+    pub entries: ReadEntries<0>,
     /// The facts of each run the entries name, folded over the whole log, one per run.
     #[garde(custom(|runs: &WindowRunFacts, (): &()| {
         require_one_fact_per_named_run(runs.as_slice(), self.entries.as_slice())
@@ -442,7 +445,6 @@ macro_rules! child_run_expand_arm {
     (
         $(#[doc = $doc:literal])+
         $name:ident {
-            entries: $min:literal,
             $($arm_member:tt)*
         }
     ) => {
@@ -464,7 +466,7 @@ macro_rules! child_run_expand_arm {
             pub state: RunState,
             /// The run's rows, oldest first, each with its body.
             #[garde(dive)]
-            #[garde(custom(|entries: &ReadEntries<$min>, (): &()| {
+            #[garde(custom(|entries: &ReadEntries<0>, (): &()| {
                 require_expansion_rows(&self.run_id, entries.as_slice())
             }))]
             #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES, "not" = { "contains": {
@@ -481,16 +483,17 @@ macro_rules! child_run_expand_arm {
                     "required": ["childRunSummary"],
                 },
             } }))]
-            pub entries: ReadEntries<$min>,
+            pub entries: ReadEntries<0>,
             $($arm_member)*
         }
     };
 }
 
 child_run_expand_arm! {
-    /// An expansion with more after it: at least one row, and the cursor to continue from.
+    /// An expansion with more after it, and the cursor to continue from: at least one row, unless
+    /// the read passed over as many events standing as no row as one request projects, its cursor
+    /// then past them.
     TranscriptChildRunExpandContinuing {
-        entries: 1,
         /// More rows follow.
         pub has_more: True,
         /// Where to continue.
@@ -503,7 +506,6 @@ child_run_expand_arm! {
 child_run_expand_arm! {
     /// The last expansion page: possibly empty, and possibly saying where it ended.
     TranscriptChildRunExpandTerminal {
-        entries: 0,
         /// No rows follow.
         pub has_more: False,
         /// Where the expansion ended.

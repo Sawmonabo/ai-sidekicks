@@ -24,6 +24,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -61,7 +62,8 @@ use crate::driver::claude::session::transport::user_message::{
     ClaudeWriteAttempt, ClaudeWriteDelivery,
 };
 use crate::driver::claude::spawn::settings::matches_claude_reviewed_removal_rule;
-use crate::driver::contract::{DriverError, ProviderRequestAnswer};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::ProviderRequestAnswer;
 use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -79,7 +81,6 @@ use crate::port::question::{
 };
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome};
-use sidekicks_std::port_registration::PortRegistration;
 
 // The decision reason of an ask an ask rule sent to the host.
 const CLAUDE_RULE_DECISION: &str = "rule";
@@ -218,7 +219,7 @@ impl ClaudeInboundRequests {
                 session.tool_server_calls.start(
                     ClaudeToolServerCallContext {
                         session_id: session.stream.session_id(),
-                        provider_account_id: session.stream.provider_account_id().cloned(),
+                        provider_account_id: session.stream.provider_account_id().clone(),
                         channel: Arc::clone(&session.channel),
                         servers: session.tool_servers.clone(),
                     },
@@ -294,6 +295,11 @@ impl ClaudeInboundRequests {
     /// closes; the receiver fails when the session's process ends first. `None` when none is open.
     pub(crate) fn wait_asks_closed(&self, session_id: SessionId) -> Option<oneshot::Receiver<()>> {
         self.lock().wait_closed(session_id)
+    }
+
+    /// How many asks and questions the session holds open, each one a reason it stays awake.
+    pub(crate) fn open_request_count(&self, session_id: SessionId) -> u32 {
+        u32::try_from(self.lock().open_count(session_id)).unwrap_or(u32::MAX)
     }
 
     /// Forgets the requests of a session whose process is gone; each one a service holds is
@@ -400,10 +406,8 @@ impl ClaudeInboundRequests {
         let is_sent_by_level_rule = session.level == Some(PermissionLevel::Reviewed)
             && ask.decision_reason_type.as_deref() == Some(CLAUDE_RULE_DECISION)
             && matches_claude_reviewed_removal_rule(&tool_name, &input)
-            && session
-                .stream
-                .permission_mode()
-                .is_some_and(|mode| is_reviewed_mode(&mode));
+            && session.stream.permission_mode().newest_report()
+                == Some(claude_permission_mode_for(Some(PermissionLevel::Reviewed)));
         let flags = Map::from_iter([(
             "suppress_always_allow_rule".to_owned(),
             Value::Bool(ask.suppress_always_allow_rule == Some(true)),
@@ -516,7 +520,8 @@ impl ClaudeInboundRequests {
     }
 
     // A plan the agent proposes is recorded from the ask's own input, Claude Code's `plan` text and
-    // the plan file it wrote beside it; the ask itself goes on to the approval pipeline.
+    // the plan file it wrote beside it; the ask goes on to the approval pipeline and stays held
+    // until answered, so the plan holds its request.
     fn record_plan(&self, session_id: SessionId, run: &ClaudeBoundRun, input: &Map<String, Value>) {
         let Some(text) = input
             .get("plan")
@@ -534,7 +539,7 @@ impl ClaudeInboundRequests {
             text: text.to_owned(),
             plan_file_path: read_non_empty_string(input, "planFilePath")
                 .and_then(|path| FilesystemPath::new(path.to_owned()).ok()),
-            holds_request: false,
+            holds_request: true,
         };
         tokio::spawn(async move {
             if let Err(error) = port.take_plan(plan).await {
@@ -646,8 +651,10 @@ impl ClaudeInboundRequests {
                 }),
             },
         };
-        let origin =
-            claude_delivery_origin(session.stream.provider_account_id().cloned(), Some(wire));
+        let origin = claude_delivery_origin(
+            Some(session.stream.provider_account_id().clone()),
+            Some(wire),
+        );
         let outcome = dispatch_delivery(&*self.dependencies.dispatch, origin, delivery).await;
         let is_admitted = outcome == Some(InboundOutcome::AskAdmitted);
         let mut tables = self.lock();
@@ -755,12 +762,6 @@ fn made_rule_of(answer: ProviderPermissionAnswer) -> Option<ProviderAnswerRule> 
     }
 }
 
-// Whether the mode the process reported is the one Reviewed runs in.
-fn is_reviewed_mode(mode: &str) -> bool {
-    serde_json::to_value(claude_permission_mode_for(Some(PermissionLevel::Reviewed)))
-        .is_ok_and(|reviewed| reviewed == mode)
-}
-
 // A request's relayed input as an object; any other JSON reads as none.
 fn read_input(input: Option<&RawValue>) -> Map<String, Value> {
     input
@@ -837,7 +838,7 @@ fn record_hand_off_failure(session_id: SessionId, kind: &str, error: &(dyn Error
 fn record_unattributed(session: &ClaudeRequestSession<'_>, subtype: &str, request_id: &str) {
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: session.stream.provider_account_id().cloned(),
+        provider_account_id: Some(session.stream.provider_account_id().clone()),
         kind: DriverDiagnosticKind::UnmappedWireKind,
         raw_wire_type: Some(format!("control_request/{subtype}")),
         disposition_reason: "a request Claude Code holds no daemon run on, or of a kind the \

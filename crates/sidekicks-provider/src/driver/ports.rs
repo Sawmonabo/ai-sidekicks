@@ -8,14 +8,19 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_store::database::writer::DatabaseWriter;
 
 use crate::callback_tools::host::CallbackToolHost;
+use crate::command::running_set::RunningCommandSets;
 use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
+use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::permission_ask::PermissionAskPort;
@@ -26,10 +31,14 @@ use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::port::run_pause::{ContinuedMessages, RunPauses};
 use crate::port::session_advisor_store::SessionAdvisorStore;
+use crate::port::session_level_follower::SessionLevelFollower;
+use crate::port::session_resume_reader::SessionResumeReader;
 use crate::port::session_rules::SessionRulePort;
+use crate::port::session_wake::SessionWaker;
 use crate::port::tool_server_route::ToolServerRoute;
+use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
-use sidekicks_std::port_registration::PortRegistration;
+use crate::runtime_binding::resume::ResumeFunctionLegs;
 
 /// The run queue's intake of a message the provider took into a run's turn.
 pub trait MessageTakenListener: Send + Sync {
@@ -66,10 +75,35 @@ pub trait ProcessGoneListener: Send + Sync {
 }
 
 /// The session directory's intake of a resume a driver started on its own, after a crash or for a
-/// move to a new build, so the daemon records the binding it minted or the failure.
+/// move to a new build, so the daemon opens the binding the driver minted before the resume runs
+/// and records it, or the failure, once the resume answered.
 pub trait SessionRelaunchListener: Send + Sync {
-    /// Records what `session_id`'s relaunch did. Fails when its binding could not be recorded,
-    /// which the driver reports as a failed relaunch.
+    /// Opens the event cursor of `binding_id`, which the driver minted for its resume of
+    /// `session_id`'s conversation, where the cursor of the session's newest binding stands, before
+    /// the resume runs, so the resumed process can deliver at once, and answers the binding's
+    /// function legs, which the driver hands the resumed process; a session with no binding yet
+    /// has no cursor to carry on, and nothing opens. Fails when the cursor cannot be opened, and
+    /// the driver then does not resume and reports the relaunch failed.
+    fn open_relaunch_binding(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn Error + Send + Sync>>>;
+
+    /// Answers the function legs of `binding_id`, the process a relaunch of `session_id` starts
+    /// while the session keeps its binding, so the daemon opens no cursor and records no binding:
+    /// legs of their own, never the ended process's; a session with no binding yet gets none.
+    /// Fails as the daemon's reads fail, and the driver then does not resume.
+    fn open_relaunch_legs(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn Error + Send + Sync>>>;
+
+    /// Records what `session_id`'s relaunch did: a `Resumed` one's binding row, under the cursor
+    /// `open_relaunch_binding` opened, which it does not open again; a `Failed` one forgets that
+    /// cursor. Fails when its binding could not be recorded, which the driver reports as a failed
+    /// relaunch.
     fn session_relaunched(
         &self,
         session_id: SessionId,
@@ -117,8 +151,28 @@ pub struct DriverPorts {
     pub session_relaunched: Arc<PortRegistration<Arc<dyn SessionRelaunchListener>>>,
     /// The run queue's intake of an ended process.
     pub process_gone: Arc<PortRegistration<Arc<dyn ProcessGoneListener>>>,
-    /// The usage record.
+    /// The usage record. Until it is registered a session's readings meter from a zero base and
+    /// each metered change and quota window is dropped, as the command output and the readings
+    /// ports drop theirs while the other ports refuse: the provider's stream never waits on it.
     pub usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
+    /// The running commands of every session, which each driver reports its agent's commands to
+    /// and follows each command's channel into; a command reported before it is registered is
+    /// dropped.
+    pub command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
+    /// The turn readings each run's working line reads; a reading made before it is registered is
+    /// dropped.
+    pub turn_readings: Arc<PortRegistration<Arc<dyn TurnReadingPublisher>>>,
+    /// The context reading each session's ring and `Context` section read; a reading made before
+    /// it is registered is dropped.
+    pub context_readings: Arc<PortRegistration<Arc<dyn ContextReadingPublisher>>>,
+    /// The idle sleep's wake of a sleeping session for a message its inbox received; a driver that
+    /// finds it unregistered refuses the message.
+    pub session_wakes: Arc<PortRegistration<Arc<dyn SessionWaker>>>,
+    /// The stored resume and kept schedules of a sleeping session a driver holds nothing for in
+    /// memory; a driver that finds it unregistered fails the wake.
+    pub session_resumes: Arc<PortRegistration<Arc<dyn SessionResumeReader>>>,
+    /// The database writer the calibration stores its limits through.
+    pub database_writer: Arc<PortRegistration<Arc<DatabaseWriter>>>,
     /// The approval pipeline's intake of permission asks.
     pub permission_asks: Arc<PortRegistration<Arc<dyn PermissionAskPort>>>,
     /// The questions card's intake.
@@ -139,6 +193,8 @@ pub struct DriverPorts {
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
     /// The one callback-tool dispatcher, which each spawn's callback tools are bound through.
     pub callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
+    /// The daemon's follow of a level or mode a provider reported running.
+    pub session_level_followers: Arc<PortRegistration<Arc<dyn SessionLevelFollower>>>,
     /// The pause and continue of runs.
     pub run_pauses: Arc<PortRegistration<Arc<dyn RunPauses>>>,
     /// The messages waiting for paused runs, as the run queue holds them.
@@ -167,6 +223,12 @@ impl DriverPorts {
             session_relaunched: Arc::new(PortRegistration::new("session relaunched")),
             process_gone: Arc::new(PortRegistration::new("process gone")),
             usage: Arc::new(PortRegistration::new("usage")),
+            command_output: Arc::new(PortRegistration::new("command output")),
+            turn_readings: Arc::new(PortRegistration::new("turn readings")),
+            context_readings: Arc::new(PortRegistration::new("context readings")),
+            session_wakes: Arc::new(PortRegistration::new("session wakes")),
+            session_resumes: Arc::new(PortRegistration::new("session resumes")),
+            database_writer: Arc::new(PortRegistration::new("database writer")),
             permission_asks: Arc::new(PortRegistration::new("permission asks")),
             questions: Arc::new(PortRegistration::new("questions")),
             plans: Arc::new(PortRegistration::new("plans")),
@@ -177,6 +239,7 @@ impl DriverPorts {
             in_process_tool_servers: Arc::new(PortRegistration::new("in-process tool servers")),
             tool_server_route: Arc::new(PortRegistration::new("tool server route")),
             callback_tool_host: Arc::new(PortRegistration::new("callback tool host")),
+            session_level_followers: Arc::new(PortRegistration::new("session level followers")),
             run_pauses: Arc::new(PortRegistration::new("run pauses")),
             continued_messages: Arc::new(PortRegistration::new("continued messages")),
         }

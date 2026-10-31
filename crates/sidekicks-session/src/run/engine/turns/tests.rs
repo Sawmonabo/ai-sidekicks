@@ -15,7 +15,7 @@ use sidekicks_store::events::session::insert::{SessionEventRow, monotonic_ns_now
 
 use super::{no_turn_end_statement, no_turn_start_from_statement};
 use crate::questions::schema::schema_parts;
-use crate::run::engine::RunEngineError;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
 use crate::run::engine::tests::{
     arm_step_count, events, hand_limit_interrupter, provider_end, stored_events, turn,

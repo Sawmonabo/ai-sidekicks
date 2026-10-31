@@ -50,6 +50,11 @@ impl ReservedEnvironmentNames {
                 .collect(),
         }
     }
+
+    /// The names no row may set, each a name a registered driver sets on its processes.
+    pub fn names(&self) -> &[&'static str] {
+        &self.names
+    }
 }
 
 /// What every environment the daemon builds for one session starts from.
@@ -339,6 +344,7 @@ mod tests {
     const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         id: "first",
         name: "First",
+        release_notes_address: |_version| String::new(),
         plan_words: &[],
         built_in_tools: &[],
         command: ProviderCommand {

@@ -1,9 +1,9 @@
 //! A relayed command run in a terminal of its own: the wrapper restarted inside it, bytes copied
 //! both ways between it and the provider's terminal, and what its master shows reported.
 
-use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Read as _, Write as _};
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::mpsc;
 use std::sync::{Arc, Condvar, Mutex, Once, PoisonError};
@@ -11,12 +11,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::WindowSize;
-use alacritty_terminal::tty::Pty;
 use sidekicks_platforms::{
-    RawStandardInput, TerminalOutputWatch, blocking_terminal_master, end_terminal_session,
+    Pty, RawStandardInput, TerminalOutputWatch, blocking_terminal_master, end_terminal_session,
     pass_on_stop_signals, read_standard_input_window_size, read_terminal_master,
-    signal_foreground_group, start_inner_terminal, terminal_options, wait_for_exit,
-    wait_for_terminal_command,
+    signal_foreground_group, start_inner_terminal, wait_for_exit, wait_for_terminal_command,
 };
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::standard_error::write_error_line;
@@ -68,9 +66,11 @@ type SharedTail = Arc<(Mutex<OutputTail>, Condvar)>;
 /// Runs a relayed command in a terminal of its own, the wrapper restarted inside it in its inner
 /// form: the provider's terminal set raw, bytes copied both ways, the stop signals passed to the
 /// inner terminal's foreground group, what its master shows reported on the cheap checks'
-/// schedule while the channel is joined, and the daemon's stop ending its whole session.
+/// schedule while the channel is joined, and the daemon's stop ending its whole session. The inner
+/// form runs the program `inner_program` reads under the wrapper's own name.
 pub(super) fn run_in_terminal(
     process_arguments: &[OsString],
+    inner_program: fn() -> io::Result<PathBuf>,
     arg0: Option<&OsStr>,
     words: &[OsString],
     state: &SharedState,
@@ -87,24 +87,26 @@ pub(super) fn run_in_terminal(
             FALLBACK_WINDOW
         }
     };
-    let program = process_arguments
+    let program = match inner_program() {
+        Ok(program) => program,
+        Err(error) => return exec_failed(&error),
+    };
+    // The wrapper's own name, so the inner form reaches this mode as the wrapper did.
+    let argument_zero = process_arguments
         .first()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or(OsStr::new(""), OsString::as_os_str);
     let mut inner_arguments = vec![INNER_FLAG.to_owned()];
     if let Some(arg0) = arg0 {
         inner_arguments.extend([ARG0_FLAG.to_owned(), arg0.to_string_lossy().into_owned()]);
     }
     inner_arguments.push(WORDS_SEPARATOR.to_owned());
     inner_arguments.extend(words.iter().map(|word| word.to_string_lossy().into_owned()));
-    let options = terminal_options(program, inner_arguments, None, HashMap::new());
-    let terminal = match start_inner_terminal(&options, window) {
+    let terminal = match start_inner_terminal(&program, argument_zero, &inner_arguments, window) {
         Ok(terminal) => terminal,
         Err(error) => return exec_failed(&error),
     };
-    *lock(state) = CommandState::Running {
-        group: terminal.pty.child().id(),
-    };
+    let group = terminal.process_id;
+    *lock(state) = CommandState::Running { group };
     // The rest of `terminal`, its own handle on the program side among it, lives until the
     // wrapper returns, so the master never reads as closed while the command runs.
     let pty = Arc::new(terminal.pty);
@@ -166,7 +168,7 @@ pub(super) fn run_in_terminal(
         );
     }
     // The command stays unreaped until its state reads reaped, so no stop reaches a reused id.
-    let exited = wait_for_exit(pty.child().id(), None);
+    let exited = wait_for_exit(group, None);
     lock(&tail.0).has_command_exited = true;
     // Set before the wake, so a copier woken from its wait reads the exit.
     if let Err(error) = output_watch.wake() {

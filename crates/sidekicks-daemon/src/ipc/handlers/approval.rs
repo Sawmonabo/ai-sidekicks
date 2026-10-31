@@ -14,10 +14,10 @@ use sidekicks_contracts::approval::{
     ApprovalResolve, ApprovalRuleList, ApprovalRuleRevoke,
 };
 use sidekicks_contracts::method::Method as _;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_session::directory::lookups::session_exists;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,

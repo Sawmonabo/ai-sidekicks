@@ -10,17 +10,21 @@ pub enum KeychainService {
     WorkflowSecrets,
     /// The write-probe-read-delete check's item, under a fresh account each start.
     Probe,
+    /// This machine's identity key and channel key, under `identity-<machine id>` and
+    /// `channel-<machine id>`.
+    MachineKeys,
 }
 
 impl KeychainService {
     /// Every service, in the order a move and an erase walk them.
-    pub(crate) const ALL: [Self; 2] = [Self::WorkflowSecrets, Self::Probe];
+    pub(crate) const ALL: [Self; 3] = [Self::WorkflowSecrets, Self::Probe, Self::MachineKeys];
 
     /// The service's name in the store.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::WorkflowSecrets => "ai-sidekicks-workflow-secrets",
             Self::Probe => "ai-sidekicks-probe",
+            Self::MachineKeys => "ai-sidekicks-machine-keys",
         }
     }
 
@@ -28,7 +32,7 @@ impl KeychainService {
     /// and an erase sweeps any left behind.
     pub(crate) const fn is_moved(self) -> bool {
         match self {
-            Self::WorkflowSecrets => true,
+            Self::WorkflowSecrets | Self::MachineKeys => true,
             Self::Probe => false,
         }
     }

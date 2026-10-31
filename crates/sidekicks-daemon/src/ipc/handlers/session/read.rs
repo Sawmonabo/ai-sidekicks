@@ -18,6 +18,13 @@ use sidekicks_session::service::{SessionLogRead, SessionReadRecord, SessionServi
 use sidekicks_session::staged_attachments::StagedAttachments;
 
 // What `session.read` composes its answer from.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the staged attachments store registers the session read"
+    )
+)]
 struct SessionReadSources {
     sessions: Arc<SessionService>,
     drafts: Arc<SessionDraftStore>,
@@ -27,6 +34,13 @@ struct SessionReadSources {
 
 /// Registers `session.read`, refusing a session the daemon does not hold `session.notFound`.
 /// Fails the start when the method is already registered.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the staged attachments store registers the session read"
+    )
+)]
 pub(crate) fn register_session_read(
     registry: &mut MethodRegistryBuilder,
     sessions: Arc<SessionService>,
@@ -48,6 +62,13 @@ pub(crate) fn register_session_read(
     )
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the staged attachments store registers the session read"
+    )
+)]
 async fn read_session(
     sources: &SessionReadSources,
     request: SessionReadRequest,
@@ -72,6 +93,8 @@ async fn read_session(
         created_at,
         updated_at,
         max_steps_per_turn,
+        permission_level,
+        session_mode,
         tags,
     } = session;
     let addresses = sources.addresses.addresses_of(&session_id, place.as_ref());
@@ -89,6 +112,8 @@ async fn read_session(
             draft,
             attachments,
             max_steps_per_turn,
+            permission_level,
+            session_mode,
             addresses,
             tags,
         },
@@ -107,6 +132,7 @@ mod tests {
     use serde_json::{Value, json};
     use sidekicks_contracts::method::Method as _;
     use sidekicks_contracts::place::{Place, WindowsPlace};
+    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::draft::{SessionAttachmentSummary, SessionDraftUpdate};
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::SessionRead;
@@ -176,6 +202,7 @@ mod tests {
             Arc::new(SessionService::new(
                 reads,
                 Arc::new(|_session_id: &SessionId| None),
+                Arc::new(|_: &ProviderId| None),
             )),
             drafts,
             Arc::new(NoStagedAttachments),

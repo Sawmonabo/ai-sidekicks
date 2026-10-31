@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, ExitCode, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc::RecvTimeoutError;
@@ -69,9 +69,18 @@ fn a_wrapper_process_runs_its_arguments() {
         .map(OsString::from)
         .collect();
     assert_eq!(
-        run_command_wrapper_with(&process_arguments, &own),
+        run_command_wrapper_with(&process_arguments, &own, stand_in_program),
         ExitCode::SUCCESS
     );
+}
+
+/// The program a wrapper process restarts as for its inner form: the stand-in it was started as,
+/// since this binary itself would read the inner form's arguments as the harness's.
+fn stand_in_program() -> std::io::Result<PathBuf> {
+    std::env::args_os()
+        .next()
+        .map(PathBuf::from)
+        .ok_or_else(|| std::io::Error::other("the wrapper process has no name"))
 }
 
 /// A script standing in for the wrapper's link inside a command's terminal: it starts this binary
@@ -97,14 +106,16 @@ fn write_stand_in(folder: &Path, is_output_dropped: bool) -> std::path::PathBuf 
     path
 }
 
-/// A channel this test answers as the daemon, for wrappers it starts.
+/// A channel this test answers as the daemon, for wrappers it starts, bound to this test's process,
+/// the provider's place here.
 fn open_channel(folder: &Path) -> CommandChannel {
-    CommandChannel::open(
+    let channel = CommandChannel::open(
         folder.join("channel"),
-        std::process::id(),
         Arc::new(ProcessTableReader::for_this_program().expect("a reader")) as _,
     )
-    .expect("the channel opens")
+    .expect("the channel opens");
+    channel.bind(std::process::id());
+    channel
 }
 
 /// The id of a provider that runs its commands through a shell prefix, from the providers' table.

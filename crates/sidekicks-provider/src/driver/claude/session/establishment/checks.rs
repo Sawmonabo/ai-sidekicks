@@ -1,42 +1,53 @@
 //! The checks a started process passes before it is adopted: the model it runs is one its build
-//! offers, or one Claude Code takes at the switch; it can run at the session's level; and the
-//! output speed, a planning session's Plan and the Ultracode value asked for are set on it.
+//! offers, or one Claude Code takes at the switch; the effort asked for is one the offered model
+//! lists; it can run at the session's level; and the output speed and the Ultracode value asked
+//! for are set on it.
 
 use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::session::controls::methods::SessionMode;
 
 use super::{ClaudeEstablishmentError, ClaudeModelCheck, ClaudeSessionEstablishment};
 use crate::driver::claude::output_speed::apply_claude_output_speed;
-use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
+use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::permission_level::{
     can_run_claude_level, read_claude_sandbox_support,
 };
 use crate::driver::claude::session::transport::control::{
-    ClaudeControlRequest, ClaudeControlSubtype, ClaudePermissionMode,
+    ClaudeControlRequest, ClaudeControlSubtype,
 };
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::{ClaudeUltracodeReading, apply_claude_ultracode};
 use crate::driver::claude::spawn::launch::installed_build::ClaudeStartedSession;
+use crate::driver::error_causes::ProviderAxisInvalid;
+use crate::driver::session_control::permission_level_not_offered;
 
 impl ClaudeSessionEstablishment {
     /// Checks `started` before it is adopted and answers the output speed it took and
     /// Ultracode's state once the value asked for is set. A model the build's catalog does not
     /// list is set once with `set_model`, whose refusal answers `ModelNotOffered` for `agent_id`,
-    /// the session's lead; fails `PermissionLevelUnavailable` where Claude Code cannot run the
-    /// session's level.
+    /// the session's lead; an effort a listed model does not list fails `AxisNotOffered` on the
+    /// effort axis; fails `LevelNotOffered` where Claude Code cannot run the session's level.
     pub(super) async fn check_started(
         &self,
         started: &ClaudeStartedSession,
         legs: &ClaudeSpawnBoundLegs,
         agent_id: AgentId,
-        (session_mode, output_speed): (SessionMode, Option<&str>),
+        output_speed: Option<&str>,
         (model_check, ultracode): (ClaudeModelCheck, Option<bool>),
     ) -> Result<(Option<String>, Option<ClaudeUltracodeReading>), ClaudeEstablishmentError> {
         let session_id = legs.session_id;
         let channel = &*started.channel;
-        if model_check == ClaudeModelCheck::Checked
-            && started.initialize.offered_model(&legs.model).is_none()
+        let offered = started.initialize.offered_model(&legs.model);
+        if let (
+            ClaudeModelCheck::Checked {
+                effort: Some(effort),
+            },
+            Some(offered),
+        ) = (&model_check, offered)
         {
+            ProviderAxisInvalid::check_effort(agent_id, effort, offered.effort_levels.as_deref())
+                .map_err(ClaudeEstablishmentError::AxisNotOffered)?;
+        }
+        if matches!(model_check, ClaudeModelCheck::Checked { .. }) && offered.is_none() {
             // An unlisted model may still run; Claude Code's own check of it decides.
             channel
                 .send_control_request(ClaudeControlRequest::SetModel {
@@ -63,7 +74,7 @@ impl ClaudeSessionEstablishment {
         }
         if let Some(posture) = &legs.execution_posture {
             let can_run_sandbox = read_claude_sandbox_support(
-                &self.sources.spawner,
+                &self.sources,
                 &legs.spawn_environment,
                 &legs.working_directory,
                 Some(session_id),
@@ -76,13 +87,9 @@ impl ClaudeSessionEstablishment {
                 &started.initialize.auto_mode_models,
                 can_run_sandbox,
             ) {
-                return Err(ClaudeSessionError::Unavailable {
-                    reason: ClaudeSessionUnavailableReason::PermissionLevelUnavailable,
-                    detail: Some(format!("Level {}.", <&str>::from(level))),
-                    session_id: Some(session_id),
-                    run_id: None,
-                }
-                .into());
+                return Err(ClaudeEstablishmentError::LevelNotOffered(
+                    permission_level_not_offered(level),
+                ));
             }
         }
         // A fresh process holds no flag setting until it is told again.
@@ -92,14 +99,6 @@ impl ClaudeSessionEstablishment {
                 .map(str::to_owned),
             None => None,
         };
-        // A process starts at its level's own mode, so only Plan is carried.
-        if session_mode == SessionMode::Plan {
-            channel
-                .send_control_request(ClaudeControlRequest::SetPermissionMode {
-                    mode: ClaudePermissionMode::Plan,
-                })
-                .await?;
-        }
         let ultracode = match ultracode {
             Some(is_on) => apply_claude_ultracode(channel, is_on).await?,
             None => None,

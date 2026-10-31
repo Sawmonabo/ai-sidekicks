@@ -64,20 +64,12 @@ pub(crate) struct KeptCopyClaims {
 
 impl KeptCopyClaims {
     /// The claims as `reads` holds them whenever asked.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a kept copy's stale record removal and a put-back's undo read the claims"
-        )
-    )]
     pub(crate) fn new(reads: Arc<DatabaseReadPool>) -> Self {
         Self { reads }
     }
 
     /// Whether a live worktree row has its folder at `folder`, compared by components as stored.
     /// Fails with the pool's or SQLite's failure.
-    #[expect(dead_code, reason = "a kept copy's stale record removal")]
     pub(crate) async fn is_live_tree_at(
         &self,
         folder: &Path,
@@ -91,7 +83,6 @@ impl KeptCopyClaims {
 
     /// The records the put-backs under way are making, as their marks name them. Fails with the
     /// pool's or SQLite's failure.
-    #[expect(dead_code, reason = "a kept copy's stale record removal")]
     pub(crate) async fn restoring_records(&self) -> Result<Vec<PathBuf>, KeptCopyClaimsReadError> {
         Ok(self
             .read_restoring()
@@ -106,13 +97,6 @@ impl KeptCopyClaims {
     /// read when asked in one read transaction, so a put-back that finishes meanwhile is seen as
     /// one or the other. A live tree whose mount records no common folder may be in this
     /// repository, so it claims. Fails with the pool's or SQLite's failure.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a kept copy's stale record removal and a put-back's undo"
-        )
-    )]
     pub(crate) async fn is_branch_claimed(
         &self,
         branch: &str,

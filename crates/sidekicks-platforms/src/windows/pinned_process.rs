@@ -117,6 +117,16 @@ impl PinnedProcess {
         ))
     }
 
+    /// Ends the process alone through its handle, so no process given its id meanwhile is ended;
+    /// `false` when it had already exited. Fails with the system's error.
+    pub fn kill(&self) -> io::Result<bool> {
+        if self.wait_for_exit(Duration::ZERO)? {
+            return Ok(false);
+        }
+        self.terminate_process()?;
+        Ok(true)
+    }
+
     /// Waits with no bound and no thread of its own for the process's end, an end before the wait
     /// included: the system's thread pool waits on its handle. Dropping the wait calls it off.
     /// Fails with the system's error when the pool refuses the wait, and with `Unsupported` for
@@ -442,7 +452,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use rstest::rstest;
-    use sysinfo::{Pid, ProcessesToUpdate, System};
+    use sysinfo::{Pid, ProcessesToUpdate};
 
     use super::{PinnedProcess, count_active_processes, read_exit_code};
     use crate::child_command::ChildEnd;
@@ -629,7 +639,7 @@ mod tests {
     // A child of process `parent`, pinned, once one has started; fails the test after ten seconds.
     fn find_child_of(parent: u32) -> PinnedProcess {
         let give_up_at = Instant::now() + Duration::from_secs(10);
-        let mut system = System::new();
+        let mut system = crate::process_table();
         loop {
             system.refresh_processes(ProcessesToUpdate::All, true);
             let found = system

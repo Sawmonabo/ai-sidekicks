@@ -78,7 +78,10 @@ interface ProviderDriver {
   // The provider's catalog for a session's model control, read against the account the params
   // name, or the provider's default account where they name none.
   listModels(params: ListModelsParams): Promise<ProviderModel[]>;
-  listModes(): Promise<ProviderMode[]>;
+  // The levels the provider runs for a session's level control, read against the model the params
+  // name on their account, or the provider's current account where they name none; with no
+  // model, the levels this system runs.
+  listModes(params: ListModesParams): Promise<ProviderMode[]>;
   getCapabilities(): Promise<GetCapabilitiesResult>;
   probeAuth(): Promise<DriverAuthProbeResult>;
   // Compose the hand-over brief a session on a DIFFERENT provider is started from, on a throwaway
@@ -232,6 +235,16 @@ interface ListModelsParams {
   providerAccountId: ProviderAccountId | null;
 }
 
+// The DRIVER-FACING params of `listModes`. For the session's own provider the daemon names the
+// session, its own bound account (`null` for the provider's current account) and the model the
+// session's lead runs on now; for every other provider it names none of them, and that provider
+// lists the levels this system runs.
+interface ListModesParams {
+  sessionId: SessionId | null;
+  providerAccountId: ProviderAccountId | null;
+  model: string | null;
+}
+
 // Why one provider's models or modes could not be read. `code` is the refusal the read answered
 // (`provider.timeout`, `provider.unavailable`, `provider.commandPath.notRunnable` for a command
 // path the person typed with nothing runnable at it, ...); `providerFailureDetail` is the
@@ -254,8 +267,10 @@ interface ProviderModelListResponse {
   providers: ProviderModelReport[];
 }
 
-// `provider.mode.list` answers the same way: one outcome per installed provider in the provider
-// table's order, its modes or the failure their read answered, a provider not installed left out.
+// `provider.mode.list {sessionId}` answers the same way, refused `session.notFound` for a session
+// the daemon does not hold: one outcome per installed provider, the session's own provider first
+// and then the provider table's order, its modes or the failure their read answered, a provider not
+// installed left out.
 type ProviderModeReport =
   | { providerName: ProviderId; modes: ProviderMode[] }
   | { providerName: ProviderId; failure: ProviderReadFailure };
@@ -309,19 +324,24 @@ interface ProviderModeListResponse {
 // untrusted provider-output strings enumerated at the head of this section are. The list carries
 // every entry the provider publishes, with no count of the driver's own; the palette draws only the
 // rows in view. The binding an enumeration belongs to: the driver, by its open provider id
-// (`ProviderId`, checked against the registered drivers), and the account. `providerAccountId` is
-// null where the session has bound no account; absence is stated, never synthesized.
+// (`ProviderId`, checked against the registered drivers), and the account the session runs on.
 interface ProviderCommandBinding {
   providerName: ProviderId;
-  providerAccountId: string | null;
+  providerAccountId: string;
 }
-interface ProviderCommandEntry {
+// Tagged on `kind`; only a tool server's prompt names its server and carries a title.
+type ProviderCommandEntry =
+  | ({ kind: "command" | "skill"; server?: never; title?: never } & ProviderCommandEntryMembers)
+  | ({
+      kind: "prompt";
+      server: string; // the tool server that publishes it
+      title?: string; // the prompt's title for people, where the server gives one
+    } & ProviderCommandEntryMembers);
+interface ProviderCommandEntryMembers {
   name: string;
-  kind: "command" | "skill" | "prompt";
   description?: string;
   argumentHint?: string;
   scope?: string;
-  server?: string; // present iff `kind` is "prompt": the tool server that publishes it
   // Absent = the provider draws no enabled/disabled distinction on this surface. `false` = the
   // provider published the entry AND declared it disabled: returned, never filtered, not offerable.
   enabled?: boolean;
@@ -418,21 +438,25 @@ interface CreateSessionParams {
   // StartRunParams.outputSchema (turn/start.outputSchema). Named consumers: Plan-013 orchestration
   // reads
   outputSchema?: Record<string, unknown>;
-  // Provider-account identity at spawn (Plan-003 T3.45). OPAQUE TO THE DRIVER — never parsed, never
-  // used to locate credential material: the driver receives the already-constructed spawn
-  // environment, and pinning the account's credential home into it (and denying the ambient names a
-  // bound leg must not read) are obligations on the spawn path — Plan-023's fail-closed binding,
-  // consumed per CP-003-7 — not properties this member carries. RESOLVED BY THE DAEMON AND NEVER
-  // SUPPLIED BY A CLIENT: the daemon resolves exactly one account and stamps it here — the account
-  // pinned by the run's saved agent definition or workflow step where one pins, and otherwise the
-  // provider's current account, the one carrying the mark on the provider surface when the run
-  // starts (provider-account-payloads.md §Plan-023 — Provider Accounts And Credential Homes). No
-  // wire request carries an account per session or per run, so there is no override to authorize
-  // and no client-supplied value to reconcile against the resolution. Spawn-bound because a run's
-  // paying account is bound for the run's LIFETIME — `ResumeSessionParams` re-realizes it below
-  // from the durable record rather than re-resolving whichever account is current at the resume.
-  // Omitting it is the unchanged default path.
-  providerAccountId?: string;
+  // Provider-account identity at spawn (Plan-003 T3.45), REQUIRED on every create and resume.
+  // OPAQUE TO THE DRIVER — never parsed, and never used by the driver to read credential material
+  // itself: the driver hands it back to the daemon, the Claude Code driver to receive the account's
+  // spawn environment with its credential store pinned in (and the ambient names a bound leg must
+  // not read denied), the Codex driver to receive the account's Codex home, whose app-server
+  // service runs the session. That pinning is an obligation on the spawn path — Plan-023's
+  // fail-closed binding, consumed per CP-003-7 — not a property this member carries. RESOLVED BY
+  // THE DAEMON AND NEVER SUPPLIED BY A CLIENT: the daemon resolves exactly one account and stamps
+  // it here — the account pinned by the run's saved agent definition or workflow step where one
+  // pins, and otherwise the provider's current account, the one carrying the mark on the provider
+  // surface when the run starts (provider-account-payloads.md §Plan-023 — Provider Accounts And
+  // Credential Homes). No wire request carries an account per session or per run, so there is no
+  // override to authorize and no client-supplied value to reconcile against the resolution.
+  // Spawn-bound because a run's paying account is bound for the run's LIFETIME —
+  // `ResumeSessionParams` re-realizes it below from the durable record rather than re-resolving
+  // whichever account is current at the resume.
+  // A provider with no account to resolve refuses the run before spawn
+  // (`provider.account.notRegistered`, `provider.account.current.notSet`).
+  providerAccountId: string;
   // THIS SESSION'S OWN bound on how many steps one turn may take, carried onto the spawn because
   // one leg realizes it as a start flag (Spec-003 §The Step Bound On A Turn). Absent means the
   // session set no bound of its own, in which case the machine's own Runtime value applies and
@@ -503,7 +527,7 @@ interface ResumeSessionParams {
   // from the durable `runtime_bindings.spawn_config` record written at the original spawn — never
   // re-resolved, and never re-supplied: no wire request carries an account, and recovery holds none
   // to take one from. Same opacity rule as on `CreateSessionParams` above.
-  providerAccountId?: string;
+  providerAccountId: string;
   // A reconstructed data leg: a resume that dropped the session's own step bound would relaunch the
   // Claude leg without its `--max-turns` backstop while the session record still holds the number
   // the person set, which is the silent shedding this list exists to prevent. Read back from
@@ -516,6 +540,11 @@ interface ResumeSessionParams {
   // re-injected census sink, pre-bound to the resumed leg's identity — the resumed leg re-emits its
   // init census through it
   onMcpServerStatus?: McpServerStatusProducer;
+  // The timed fires the idle sleep stored for the session — its wake-ups and the scheduled jobs
+  // that live only in the session's process — read from the daemon's store by the session's key
+  // on every resume, empty for a session with none. A fresh process holds none of them, so a
+  // session the idle sleep put to sleep, woken after a daemon restart, takes them back here.
+  keptSchedules: KeptSchedule[];
 }
 
 interface StartRunParams {
@@ -643,9 +672,8 @@ interface ApplyInterventionResponse {
 // rollback: undo cuts the conversation IN PLACE through `rewindConversation`.
 interface MoveSessionToForkParams {
   sessionId: SessionId;
-  // the normalized session position of the message the fork carries history up to and including
-  // (the vocabulary `DriverResumeResult.sessionPosition` reports); the driver maps it to its
-  // provider's own anchor
+  // the normalized session position of the message the fork carries history up to and including;
+  // the driver maps it to its provider's own anchor
   position: number;
   // the session's leg — the run's live runtime binding, daemon-resolved at dispatch (run→bindings
   // is 1:many, so `sessionId` alone cannot name it); no client payload carries it
@@ -708,14 +736,15 @@ type DriverGoalResult =
 // silent-replacement structurally inexpressible: the failure variant has no `bindingId`, so a
 // successful resume cannot be conflated with a failed one. Spec-004 §Fallback Behavior requires
 // that resume failure "surface `providerFailure` detail and a visible `recoveryNeeded` condition;
-// it must not silently create a replacement provider session under the same canonical run." The
-// `resumed` variant's REQUIRED `sessionPosition` is the driver's normalized monotonic position —
-// turn/event ordinal, the same number-cursor convention as `lastAppliedSequence`/`afterSequence` in
-// persistence-payloads.md — which the daemon compares against its recorded position; divergence
-// reconciliation (halt-for-human, rollback markers as the position floor) is Spec-013's, per
-// ADR-016's rule that the local log is authoritative. The compare also catches a provider silently
-// returning a fresh session on resume (e.g. Claude on a working-directory mismatch): a fresh
-// session's position cannot match the recorded one. Timestamps for the resumed case live on
+// it must not silently create a replacement provider session under the same canonical run." After a
+// `resumed` result the daemon compares the provider's record with its own by provider id at the
+// grain of each step; divergence reconciliation (halt-for-human, rollback markers as the floor) is
+// Spec-013's, per ADR-016's rule that the local log is authoritative. The driver reports `resumed`
+// only for the provider session its handle names, so a provider silently returning a fresh session
+// on resume (e.g. Claude on a working-directory mismatch) is caught: Codex refuses a
+// `thread/resume` reply naming another thread, and Claude Code's first `system/init` after a resume
+// naming another session fails the run with `providerFailure` and `recoveryNeeded` before any row
+// of that turn is written. Timestamps for the resumed case live on
 // `runtime_bindings.updated_at` (Plan-003 T2.1); the result shape carries only the
 // discriminated-union semantic payload.
 type DriverResumeResult =
@@ -727,7 +756,6 @@ type DriverResumeResult =
   | {
       status: "resumed";
       bindingId: string;
-      sessionPosition: number;
       // The conversation the session runs on now, which the daemon records on the binding: the
       // handle it was given, or a new one where the provider continues the conversation in a new
       // thread, as Codex does, reopening a conversation by forking it with the session's whole

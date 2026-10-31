@@ -35,33 +35,33 @@ pub(crate) struct ClaudePurgePlace<'a> {
 pub(crate) enum ClaudePurgeError {
     /// The environment a spawn on the account would start with could not be resolved.
     #[error(
-        "resolving the Claude Code home of {} failed",
-        describe_home(.provider_account_id.as_ref())
+        "resolving the Claude Code home of account {} failed",
+        .provider_account_id.as_str()
     )]
     HomeUnresolved {
-        /// The account; `None`, the person's own home.
-        provider_account_id: Option<ProviderAccountId>,
+        /// The account.
+        provider_account_id: ProviderAccountId,
         /// Why.
         #[source]
         source: Box<dyn Error + Send + Sync>,
     },
     /// The spawn environment names no home, so no config folder is known.
     #[error(
-        "no Claude Code config folder is known for {}",
-        describe_home(.provider_account_id.as_ref())
+        "no Claude Code config folder is known for account {}",
+        .provider_account_id.as_str()
     )]
     ConfigFolderUnknown {
-        /// The account; `None`, the person's own home.
-        provider_account_id: Option<ProviderAccountId>,
+        /// The account.
+        provider_account_id: ProviderAccountId,
     },
     /// Claude Code's files of the home's conversations could not all be deleted.
     #[error(
-        "deleting the Claude Code conversations of {} failed",
-        describe_home(.provider_account_id.as_ref())
+        "deleting the Claude Code conversations of account {} failed",
+        .provider_account_id.as_str()
     )]
     Delete {
-        /// The account; `None`, the person's own home.
-        provider_account_id: Option<ProviderAccountId>,
+        /// The account.
+        provider_account_id: ProviderAccountId,
         /// The first read or removal that failed.
         #[source]
         source: io::Error,
@@ -70,7 +70,7 @@ pub(crate) enum ClaudePurgeError {
 
 /// Deletes every file Claude Code keeps for each of the session's conversations from the home it
 /// ran in, its config folder resolved from the environment a spawn on its account would start
-/// with, `resolve_spawn_environment` (`None`, the person's own home). Every home is tried; fails
+/// with, `resolve_spawn_environment`. Every home is tried; fails
 /// after with each home that failed.
 pub(crate) async fn purge_claude_conversations<ResolveEnvironment, EnvironmentResolution>(
     params: &PurgeSessionParams,
@@ -78,13 +78,13 @@ pub(crate) async fn purge_claude_conversations<ResolveEnvironment, EnvironmentRe
     resolve_spawn_environment: ResolveEnvironment,
 ) -> Result<(), SettleFailures<ClaudePurgeError>>
 where
-    ResolveEnvironment: Fn(Option<ProviderAccountId>) -> EnvironmentResolution,
+    ResolveEnvironment: Fn(ProviderAccountId) -> EnvironmentResolution,
     EnvironmentResolution:
         Future<Output = Result<Vec<(String, String)>, Box<dyn Error + Send + Sync>>>,
 {
     // Each home's conversations in the order the params list them, the homes in the order first
     // met, so a fork still goes before the conversation it was forked from.
-    let mut homes: Vec<(Option<ProviderAccountId>, Vec<&str>)> = Vec::new();
+    let mut homes: Vec<(ProviderAccountId, Vec<&str>)> = Vec::new();
     for conversation in &params.conversations {
         let handle = conversation.resume_handle.as_str();
         match homes
@@ -115,11 +115,11 @@ where
 async fn delete_home_conversations<ResolveEnvironment, EnvironmentResolution>(
     place: &ClaudePurgePlace<'_>,
     resolve_spawn_environment: &ResolveEnvironment,
-    provider_account_id: Option<ProviderAccountId>,
+    provider_account_id: ProviderAccountId,
     handles: &[&str],
 ) -> Result<(), ClaudePurgeError>
 where
-    ResolveEnvironment: Fn(Option<ProviderAccountId>) -> EnvironmentResolution,
+    ResolveEnvironment: Fn(ProviderAccountId) -> EnvironmentResolution,
     EnvironmentResolution:
         Future<Output = Result<Vec<(String, String)>, Box<dyn Error + Send + Sync>>>,
 {
@@ -150,7 +150,7 @@ where
             home_folder: place.home_folder,
             path_rules: place.path_rules,
             data_folder: place.data_folder,
-            provider_account_id: provider_account_id.as_ref(),
+            provider_account_id: &provider_account_id,
         },
         &conversations,
     )
@@ -159,12 +159,4 @@ where
         provider_account_id,
         source,
     })
-}
-
-// The words a failure names a home by.
-fn describe_home(provider_account_id: Option<&ProviderAccountId>) -> String {
-    match provider_account_id {
-        Some(account) => format!("account {}", account.as_str()),
-        None => "the person's own home".to_owned(),
-    }
 }

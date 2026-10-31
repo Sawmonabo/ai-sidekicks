@@ -367,9 +367,16 @@ impl Terminals {
     pub fn process_ids(&self) -> Vec<u32> {
         lock_live(&self.live)
             .values()
-            .filter(|entry| !entry.control.has_child_exited())
-            .filter_map(|entry| entry.control.process_id())
+            .filter_map(|entry| running_process_id(entry))
             .collect()
+    }
+
+    /// The process id of the program the terminal `handle` started, `None` once it exited or for a
+    /// terminal that is gone.
+    pub fn process_id(&self, handle: TerminalHandle) -> Option<u32> {
+        lock_live(&self.live)
+            .get(&handle)
+            .and_then(|entry| running_process_id(entry))
     }
 
     /// Reads how much input waits on the console of the program `process_id`, through the console
@@ -404,6 +411,14 @@ impl Terminals {
             .cloned()
             .ok_or(TerminalError::UnknownTerminal(handle))
     }
+}
+
+/// The process id of the program `entry` started, while its exit has not come.
+fn running_process_id(entry: &TerminalEntry) -> Option<u32> {
+    if entry.control.has_child_exited() {
+        return None;
+    }
+    entry.control.process_id()
 }
 
 /// Locks the live terminals.

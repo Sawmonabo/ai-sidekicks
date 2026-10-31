@@ -42,7 +42,7 @@ static LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
 /// that count, which sees its current value and every change.
 pub fn count_live_runs_after_commits() -> (CommitRead, watch::Receiver<u32>) {
     let (count, receiver) = watch::channel(0);
-    let read: CommitRead = Box::new(move |connection: &Connection| {
+    let read = CommitRead::new("the live-run count", move |connection: &Connection| {
         let live_runs: u32 = connection
             .prepare_cached(LIVE_RUNS_SQL.as_str())?
             .query_row([<&str>::from(ProjectionCursorState::Current)], |row| {
@@ -59,7 +59,7 @@ pub fn count_live_runs_after_commits() -> (CommitRead, watch::Receiver<u32>) {
 }
 
 /// Whether a run in `state` does work.
-fn is_live(state: RunState) -> bool {
+pub(crate) fn is_live(state: RunState) -> bool {
     match state {
         RunState::Starting | RunState::Running | RunState::Pausing => true,
         RunState::Queued

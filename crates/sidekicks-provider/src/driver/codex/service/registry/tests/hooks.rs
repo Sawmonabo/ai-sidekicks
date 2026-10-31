@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, short_socket_folder};
+use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET};
 
 use super::stand_in::{last_launch_arguments, stand_in_services, this_daemon};
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Fails when the terminal service is launched with the daemon's hook switches, or trusts hooks,
 // while the daemon's program dispatches no hook mode: each such hook exits 1 on every tool call.
@@ -13,10 +14,12 @@ async fn a_terminal_service_with_no_hook_mode_launches_and_trusts_no_hook() {
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let services = stand_in_services(folder.path(), |program| Arc::new(program));
+    let services = stand_in_services(|program| Arc::new(program));
     let daemon = this_daemon(&services);
-    let service = daemon.service_for(None).await.expect("the home resolves");
+    let service = daemon
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
 
     let started = service
         .ensure_started(services.dependencies.startup_timeout)

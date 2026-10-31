@@ -44,8 +44,8 @@ pub(crate) struct RunStateSwap {
 }
 
 const INSERT_QUEUED_RUN_SQL: &str = "INSERT INTO runs
-    (run_id, session_id, parent_run_id, reached_by, is_apart, state, run_version)
-  VALUES (@run_id, @session_id, @parent_run_id, @reached_by, @is_apart, @state, @run_version)";
+    (run_id, session_id, parent_run_id, reached_by, state, run_version)
+  VALUES (@run_id, @session_id, @parent_run_id, @reached_by, @state, @run_version)";
 
 // Matches only a row still in the state the change leaves, one version behind it.
 const SWAP_RUN_STATE_SQL: &str = "UPDATE runs
@@ -108,14 +108,13 @@ static RUNS_EVENT_TYPES: LazyLock<Vec<SessionEventType>> = LazyLock::new(|| {
 
 /// The statement that creates a run's row from its `agent.run.queued` payload.
 pub fn insert_queued_run_statement(payload: &AgentRunQueuedPayload) -> WriteStatement {
-    let (session_id, run_id, run_version, parent_run_id, reached_by, is_apart) = match payload {
+    let (session_id, run_id, run_version, parent_run_id, reached_by) = match payload {
         AgentRunQueuedPayload::SessionAgent(queued) => (
             &queued.session_id,
             &queued.run_id,
             queued.run_version,
             queued.parent_run_id.as_ref(),
             queued.reached_by,
-            queued.is_apart.is_some(),
         ),
         AgentRunQueuedPayload::ResolvedAgent(queued) => (
             &queued.session_id,
@@ -123,7 +122,6 @@ pub fn insert_queued_run_statement(payload: &AgentRunQueuedPayload) -> WriteStat
             queued.run_version,
             queued.parent_run_id.as_ref(),
             queued.reached_by,
-            queued.is_apart.is_some(),
         ),
     };
     WriteStatement {
@@ -140,10 +138,6 @@ pub fn insert_queued_run_statement(payload: &AgentRunQueuedPayload) -> WriteStat
                 Value::from(
                     reached_by.map(|provenance| <&'static str>::from(provenance).to_owned()),
                 ),
-            ),
-            (
-                Cow::Borrowed("@is_apart"),
-                Value::Integer(i64::from(is_apart)),
             ),
             text_binding("@state", RunState::Queued.into()),
             (

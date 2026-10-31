@@ -221,6 +221,8 @@ async fn bind_repairing_socket(
         subscriptions: Subscriptions::new(Arc::new(DispatchDamageWatch(Arc::new(
             DatabaseDamageWatch::new(),
         )))),
+        // No presence method is served while the file is repaired, so no heartbeat is filed.
+        presence: Arc::default(),
         hooks: Arc::new(RepairingSocketHooks),
     };
     prepare_run_folder(deps.run_folder).await?;

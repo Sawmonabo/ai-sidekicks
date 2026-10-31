@@ -57,7 +57,7 @@ methods! {
             mutating: false,
             params: RepoMountRequest,
             result: RepoMountReadResponse,
-            refusals: [RepoMountNotFound],
+            refusals: [RepoMountNotFound, RepoMountRootResolutionFailed],
         },
         /// Every folder the service can reach.
         RepoMountList = query "repoMount.list" {
@@ -80,6 +80,7 @@ methods! {
             result: RepoMountReattachResponse,
             refusals: [
                 RepoMountNotFound,
+                RepoMountManaged,
                 RepoMountReattachRefused,
                 RepoMountReattachConflict,
                 RepoMountRootResolutionFailed,
@@ -109,6 +110,8 @@ methods! {
                 RepoMountManaged,
                 RepoMountOutsideTrustEnvelope,
                 WorkspaceModeUnsupported,
+                WorkspaceRootUnavailable,
+                RepoMountRootResolutionFailed,
             ],
         },
         /// A session's workspaces.
@@ -175,10 +178,12 @@ methods! {
             result: ProjectCloneStartResponse,
             refusals: [
                 ProjectNotFound,
+                ProjectCloneIdempotencyConflict,
                 ProjectCloneRefused,
                 ProjectCloneUnavailable,
                 RepoMountDistributionNeedsWsl2,
                 RepoMountDistributionNotFound,
+                RepoMountRootResolutionFailed,
             ],
         },
         /// Follows a clone's card.
@@ -208,7 +213,7 @@ methods! {
             mutating: false,
             params: EmptyPayload,
             result: ProjectCloneFolderReadResponse,
-            refusals: [ProjectCloneUnavailable],
+            refusals: [ProjectCloneUnavailable, RepoMountDistributionNotFound],
         },
         /// Pulls a cloned project's large files.
         ProjectLargeFilePull = mutation "project.largeFile.pull" {
@@ -247,8 +252,11 @@ methods! {
             refusals: [
                 WorkspaceNotFound,
                 WorkspaceBranchNameRequired,
+                WorkspaceModeUnsupported,
                 WorkspaceRootUnavailable,
                 WorkspacePreparationFailed,
+                RepoMountNotFound,
+                RepoMountRootResolutionFailed,
                 WorktreeBranchCollision,
                 WorktreeCreateFailed,
             ],

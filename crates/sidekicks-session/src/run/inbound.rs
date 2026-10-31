@@ -2,10 +2,10 @@
 //! before anything is written. A lifecycle event, child run, marker, live state, unstamped row or
 //! permission ask from the execution before an undo's cut is absorbed there; one for a run already
 //! ended is absorbed by the refusal of its own write, with a diagnostic unless it is the provider's
-//! end of a turn the daemon interrupted, and so is a piece of a reply or of reasoning once no turn
-//! of its ended run is open; any other row is appended, stamped with its source pair when it is
-//! late, a reasoning update among them with its body. A session notice or session row belongs to
-//! no execution and is appended as it is.
+//! end of a turn the daemon interrupted or belongs to a helper refused at its setup, and so is a
+//! piece of a reply or of reasoning once no turn of its ended run is open; any other row is
+//! appended, stamped with its source pair when it is late, a reasoning update among them with its
+//! body. A session notice or session row belongs to no execution and is appended as it is.
 
 mod absorb;
 #[cfg(test)]
@@ -35,6 +35,8 @@ use sidekicks_provider::run::delivery::{
 use sidekicks_provider::run::state_entry::RunStateReport;
 use sidekicks_provider::run::turn_end::ProviderTurnEnd;
 use sidekicks_std::mutex_lock::lock;
+#[cfg(test)]
+use sidekicks_std::pause_point::PausePoint;
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::{
@@ -44,12 +46,14 @@ use sidekicks_store::events::session::appender::{
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use crate::console_state::advisor_model_change_statement;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::turns::run_live_or_turn_open_statement;
-use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::engine::{RunEngine, SubagentRunStart};
 use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs};
 use crate::run::inbound::absorb::absorb;
+use crate::run::provider_choice::ProviderChoiceResolver;
 use crate::run::refusals::RunRefusal;
-use crate::run::state_change::{RunStateChange, refused_statement_index};
+use crate::run::state_change::RunStateChange;
 use crate::transcript::reasoning::split_reasoning_text;
 
 /// Why a delivery was neither written, routed nor absorbed; nothing of it is kept.
@@ -75,6 +79,10 @@ pub struct RunInboundDispatch {
     epochs: Arc<Mutex<ExecutionEpochs>>,
     run_state_publisher: Arc<dyn RunStatePublisher>,
     appender: SessionEventAppender,
+    choices: Arc<ProviderChoiceResolver>,
+    /// Where a test holds a held answer's settle between its failed try and its retry.
+    #[cfg(test)]
+    pub(super) settle_retry_pause: PausePoint,
 }
 
 // A delivery attributed to its execution, with what is left to do for it.
@@ -182,19 +190,23 @@ impl RunWork {
 
 impl RunInboundDispatch {
     /// A dispatch moving runs through `engine`, attributing on `epochs`, the cursors the binding
-    /// cursors keep, sending live states to `run_state_publisher` and appending rows to
-    /// `event_log`.
+    /// cursors keep, sending live states to `run_state_publisher`, appending rows to `event_log`
+    /// and settling an answer `choices` holds once the provider reports its run.
     pub fn new(
         engine: Arc<RunEngine>,
         epochs: Arc<Mutex<ExecutionEpochs>>,
         run_state_publisher: Arc<dyn RunStatePublisher>,
         event_log: Arc<EventLogService>,
+        choices: Arc<ProviderChoiceResolver>,
     ) -> Self {
         Self {
             engine,
             epochs,
             run_state_publisher,
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
+            choices,
+            #[cfg(test)]
+            settle_retry_pause: PausePoint::default(),
         }
     }
 
@@ -245,19 +257,16 @@ impl RunInboundDispatch {
                     let event_id = match self.appender.append(draft, linkage).await {
                         Ok(receipt) => receipt.id,
                         Err(error)
-                            if refused_statement_index(&error)
+                            if error.refused_statement_index()
                                 == Some(PIECE_RUN_LIVE_GUARD_INDEX) =>
                         {
                             let (Some(piece), Some(run_id)) = (piece_of, piece_run_id) else {
                                 return Err(error.into());
                             };
                             self.engine.require_run(run_id).await?;
-                            return Ok(absorb(
-                                &piece.binding,
-                                &piece.absorbed,
-                                LateEventAbsorbReason::RunEnded,
-                                piece.attribution,
-                            ));
+                            return self
+                                .absorb_ended(&piece.binding, &piece.absorbed, piece.attribution)
+                                .await;
                         }
                         Err(error) => return Err(error.into()),
                     };
@@ -477,6 +486,29 @@ impl RunInboundDispatch {
         })
     }
 
+    // Settles the answer the provider got with no reply back before the report that shows it took,
+    // so the report finds the move made. A failed settle is tried once more; on a second failure
+    // the answer stays held and the report still applies, so the run never reads waiting for input
+    // while its provider runs. Answers whether the answer was left held that way.
+    async fn settle_held_answer(&self, run_id: RunId, reported: RunState) -> bool {
+        let mut settled = self.choices.settle_held_answer(run_id, reported).await;
+        if settled.is_err() {
+            #[cfg(test)]
+            self.settle_retry_pause.pass().await;
+            settled = self.choices.settle_held_answer(run_id, reported).await;
+        }
+        let Err(error) = settled else {
+            return false;
+        };
+        tracing::warn!(
+            run_id = %run_id,
+            error = &error as &(dyn Error + 'static),
+            "the answer held on a run's choice was not settled; it stays held and the provider's \
+             report applies"
+        );
+        true
+    }
+
     // Makes a delivery's engine call; a run that has ended absorbs it.
     async fn run(
         &self,
@@ -485,14 +517,7 @@ impl RunInboundDispatch {
         work: RunWork,
     ) -> Result<InboundOutcome, InboundDispatchError> {
         let absorbed = work.absorbed();
-        let run_ended = || {
-            absorb(
-                binding,
-                &absorbed,
-                LateEventAbsorbReason::RunEnded,
-                attribution,
-            )
-        };
+        let run_ended = || self.absorb_ended(binding, &absorbed, attribution);
         Ok(match work {
             RunWork::Lifecycle {
                 change,
@@ -500,21 +525,31 @@ impl RunInboundDispatch {
                 is_daemon_interrupt_end,
             } => {
                 let run_id = change.run_id;
+                let change = RunStateChange::from(change);
+                let is_answer_left_held = self
+                    .settle_held_answer(run_id, RunState::from(change.entry.state()))
+                    .await;
                 match self
                     .engine
-                    .apply_provider_state_change(RunStateChange::from(change), turn_end)
+                    .apply_provider_state_change(change, turn_end)
                     .await
                 {
-                    Ok(written) => InboundOutcome::Transitioned {
-                        state: written.log_resend_failure(run_id).state,
-                    },
+                    Ok(written) => {
+                        // The report made the run's move, so the held answer settles alone.
+                        if is_answer_left_held {
+                            self.choices.hold_answer_as_settlement_alone(run_id);
+                        }
+                        InboundOutcome::Transitioned {
+                            state: written.log_resend_failure(run_id).state,
+                        }
+                    }
                     // The end of a turn the daemon interrupted is expected to find the run ended.
                     Err(error) if is_ended_run_refusal(&error) && is_daemon_interrupt_end => {
                         InboundOutcome::Absorbed {
                             reason: LateEventAbsorbReason::RunEnded,
                         }
                     }
-                    Err(error) if is_ended_run_refusal(&error) => run_ended(),
+                    Err(error) if is_ended_run_refusal(&error) => run_ended().await?,
                     // A resume can land before the provider's own report of the pause it ends.
                     Err(error) if is_resumed_run_refusal(&error) => {
                         tracing::debug!(
@@ -532,7 +567,7 @@ impl RunInboundDispatch {
             RunWork::Continued { run_id } => {
                 match self.engine.continue_run_with_kept_messages(run_id).await? {
                     Some(run) => InboundOutcome::Transitioned { state: run.state },
-                    None => run_ended(),
+                    None => run_ended().await?,
                 }
             }
             RunWork::ChildRun { parent_run_id } => {
@@ -541,15 +576,48 @@ impl RunInboundDispatch {
                     .start_provider_subagent_run(parent_run_id)
                     .await?
                 {
-                    Some(run_id) => InboundOutcome::ChildRunStarted { run_id },
-                    None => run_ended(),
+                    Some(SubagentRunStart::Running(run_id)) => {
+                        InboundOutcome::ChildRunStarted { run_id }
+                    }
+                    Some(SubagentRunStart::Refused(run_id, reason)) => {
+                        InboundOutcome::ChildRunRefused { run_id, reason }
+                    }
+                    None => run_ended().await?,
                 }
             }
             RunWork::Marker { marker } => match self.engine.append_run_marker(marker).await? {
                 Some(event_id) => InboundOutcome::Appended { event_id },
-                None => run_ended(),
+                None => run_ended().await?,
             },
         })
+    }
+
+    // Absorbs a delivery whose run had ended: one to a run its own record shows ended at its
+    // setup, as a helper refused after its provider started it, is expected, so it is logged at
+    // debug alone; any other is reported. Fails as the run's read fails.
+    async fn absorb_ended(
+        &self,
+        binding: &EpochBinding,
+        absorbed: &AbsorbedDelivery,
+        attribution: DeliveryAttribution,
+    ) -> Result<InboundOutcome, InboundDispatchError> {
+        let run_id = absorbed.run_id.unwrap_or(binding.run_id);
+        if self.engine.is_failed_at_setup(run_id).await? {
+            tracing::debug!(
+                %run_id,
+                kind = absorbed.kind,
+                "a delivery of a run refused at its setup was absorbed on its ended run"
+            );
+            return Ok(InboundOutcome::Absorbed {
+                reason: LateEventAbsorbReason::RunEnded,
+            });
+        }
+        Ok(absorb(
+            binding,
+            absorbed,
+            LateEventAbsorbReason::RunEnded,
+            attribution,
+        ))
     }
 
     fn lock_epochs(&self) -> MutexGuard<'_, ExecutionEpochs> {
@@ -577,9 +645,9 @@ fn session_row_statements(row: &SessionScopedRow) -> Vec<WriteStatement> {
             payload.advisor_model.as_ref().map(FreeFormText::as_str),
             payload.at.as_str(),
         )],
-        SessionScopedRow::SideQuestionAnswered(_) | SessionScopedRow::OutputStyleChanged(_) => {
-            Vec::new()
-        }
+        SessionScopedRow::SideQuestionAnswered(_)
+        | SessionScopedRow::UsageTokenCountRecorded(_)
+        | SessionScopedRow::OutputStyleChanged(_) => Vec::new(),
     }
 }
 

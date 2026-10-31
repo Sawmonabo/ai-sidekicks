@@ -559,9 +559,8 @@ type AgentRunQueuedPayload = {
   runId: RunId;
   runVersion: number;
   newState: "queued";
-  parentRunId?: RunId;
+  parentRunId?: RunId; // absent on a lead run, Claude Code's staged review among them, which runs in a process of its own
   reachedBy?: ChildRunProvenance; // present with parentRunId: how the child was reached
-  isApart?: true; // a turn in a process of its own, such as Claude Code's staged review; never the lead run
   effectiveRunConfig?: OrchestrationRunConfig;
   // ── Path-independent admission stamps: agent.run.queued carries them for EVERY provider run,
   // whether admitted via the ordinary agent.queueItem.create path or orchestration admission (the
@@ -577,8 +576,9 @@ type AgentRunQueuedPayload = {
   // fallback when the wire carries no attribution.
   admittedModelFamily?: string;
   // The account the run was admitted against. Priced usage rows join to a paying account through the run,
-  // and resume rebinds to this stamp rather than re-resolving the current default.
-  admittedProviderAccountId?: ProviderAccountId;
+  // and resume rebinds to this stamp rather than re-resolving the current default. Every run has one:
+  // admission refuses a provider with no account to run on.
+  admittedProviderAccountId: ProviderAccountId;
 } & (
   | { agentId: AgentId; resolvedAgent?: never }
   | {

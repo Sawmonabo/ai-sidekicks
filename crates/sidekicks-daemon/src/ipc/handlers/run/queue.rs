@@ -178,7 +178,7 @@ impl ChangeRecord for QueueRecord {
         &self,
         cursor: &QueueChangeCursor,
         max: usize,
-    ) -> BoxFuture<'_, Result<RecordPage<QueueChange>, QueueStreamError>> {
+    ) -> BoxFuture<'_, Result<RecordPage<QueueChangeCursor, QueueChange>, QueueStreamError>> {
         let cursor = cursor.clone();
         let signals = Arc::clone(&self.signals);
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
@@ -199,15 +199,12 @@ impl ChangeRecord for QueueRecord {
                 .await?;
             // The queue's read is cut by its count alone.
             Ok(RecordPage {
+                read_through: changes.last().map(|change| change.resume_cursor.clone()),
+                is_cut_short: changes.len() == max,
                 changes,
-                is_cut_by_size: false,
             })
         }
         .boxed()
-    }
-
-    fn cursor_of(change: &QueueChange) -> QueueChangeCursor {
-        change.resume_cursor.clone()
     }
 
     fn change_count(&self) -> watch::Receiver<u64> {

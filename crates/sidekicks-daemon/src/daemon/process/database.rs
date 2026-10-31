@@ -26,11 +26,14 @@ use sidekicks_approval::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 use sidekicks_artifact::plans::service::PLANS_STATEMENT_CAPACITY;
 use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_mcp::binding::store::MCP_BINDING_STORE_STATEMENT_CAPACITY;
 use sidekicks_platforms::DaemonRunFolder;
+use sidekicks_provider::driver::DRIVERS_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::capabilities::writer::DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::runtime_binding::store::RUNTIME_BINDING_STORE_STATEMENT_CAPACITY;
 use sidekicks_queue::provider_session::PROVIDER_SESSIONS_STATEMENT_CAPACITY;
+use sidekicks_queue::service::RUN_QUEUE_STATEMENT_CAPACITY;
 use sidekicks_recovery::damaged_history::DAMAGED_HISTORY_STATEMENT_CAPACITY;
 use sidekicks_recovery::database_file::check::{DatabaseFileCheck, DatabaseFileCheckAnswer};
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
@@ -46,21 +49,31 @@ use sidekicks_recovery::projection_rebuild::PROJECTION_REBUILD_STATEMENT_CAPACIT
 use sidekicks_recovery::restart_settle::RESTART_SETTLE_STATEMENT_CAPACITY;
 use sidekicks_recovery::session_write_refusal::refuse_session_event;
 use sidekicks_recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
-use sidekicks_recovery::status::RecoveryStatusTracker;
+use sidekicks_recovery::status::{RECOVERY_STATUS_STATEMENT_CAPACITY, RecoveryStatusTracker};
+use sidekicks_session::attention::changes::{AttentionChanges, attention_changes_after_commits};
+use sidekicks_session::attention::projection::attention_projection_statements;
+use sidekicks_session::attention::service::ATTENTION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
 use sidekicks_session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
 use sidekicks_session::conversation_purge::CONVERSATION_PURGE_STATEMENT_CAPACITY;
+use sidekicks_session::convert::SESSION_CONVERSION_STATEMENT_CAPACITY;
+use sidekicks_session::create::SESSION_CREATION_STATEMENT_CAPACITY;
 use sidekicks_session::directory::list_feed::rows::SESSION_LIST_ROWS_STATEMENT_CAPACITY;
+use sidekicks_session::directory::provider_port::SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY;
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
+use sidekicks_session::directory::run_activity::PROJECT_SESSION_ACTIVITY_STATEMENT_CAPACITY;
 use sidekicks_session::draft_store::SESSION_DRAFT_STORE_STATEMENT_CAPACITY;
+use sidekicks_session::idle_sleep::IDLE_SLEEP_STATEMENT_CAPACITY;
 use sidekicks_session::interventions::service::INTERVENTION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::links::service::SESSION_LINK_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::questions::projection::question_projection_statements;
 use sidekicks_session::questions::service::QUESTION_STATEMENT_CAPACITY;
+use sidekicks_session::readings::READINGS_STATEMENT_CAPACITY;
 use sidekicks_session::related::ranking::RELATED_RANKING_STATEMENT_CAPACITY;
 use sidekicks_session::review_note::store::REVIEW_NOTE_STORE_STATEMENT_CAPACITY;
 use sidekicks_session::run::binding_cursors::RUN_BINDING_CURSORS_STATEMENT_CAPACITY;
 use sidekicks_session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
+use sidekicks_session::run::folders::SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY;
 use sidekicks_session::run::live_bindings::LIVE_RUN_BINDINGS_STATEMENT_CAPACITY;
 use sidekicks_session::run::live_count::count_live_runs_after_commits;
 use sidekicks_session::run::pause::RUN_PAUSE_STATEMENT_CAPACITY;
@@ -69,6 +82,8 @@ use sidekicks_session::search::files::service::FILE_SEARCH_STATEMENT_CAPACITY;
 use sidekicks_session::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
 use sidekicks_session::service::SESSION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::tags::SESSION_TAG_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_session::usage_record::USAGE_RECORD_STATEMENT_CAPACITY;
+use sidekicks_session::working_folder::SESSION_WORKING_FOLDERS_STATEMENT_CAPACITY;
 use sidekicks_std::bounded_wait::wait_within;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
@@ -91,7 +106,8 @@ use sidekicks_store::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies, ProjectionError,
 };
 use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
-use sidekicks_store::events::session::followers::SessionEventFollowers;
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_store::machine::registry::MACHINE_REGISTRY_STATEMENT_CAPACITY;
 use sidekicks_workflow::definitions::drafts::WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY;
 use sidekicks_workflow::definitions::kept_values::WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY;
@@ -102,11 +118,22 @@ use sidekicks_workflow::runs::attention::WORKFLOW_RUN_ATTENTION_STATEMENT_CAPACI
 use sidekicks_workflow::runs::deletion::WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY;
 use sidekicks_workflow::runs::step_payload::WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY;
 use sidekicks_workflow::runs::store::WORKFLOW_RUN_STORE_STATEMENT_CAPACITY;
+use sidekicks_workspace::clone::requests::CLONE_REQUESTS_STATEMENT_CAPACITY;
+use sidekicks_workspace::execution_root::EXECUTION_ROOT_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_workspace::folder::usage::REPO_FOLDER_USAGE_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::turn_snapshot::service::TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::creation::WORKTREE_CREATOR_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::occupancy::MOUNT_OCCUPANCY_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::removed_store::REMOVED_WORKTREE_STORE_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::service::WORKTREE_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::status::WORKTREE_STATUS_READER_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::unfinished_discards::UNFINISHED_DISCARD_STATEMENT_CAPACITY;
+use sidekicks_workspace::project::records::PROJECT_RECORDS_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::health::REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY;
+use sidekicks_workspace::repo::mount::reattach::REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::service::REPO_MOUNT_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_workspace::run_setup_gates::execution_root::EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY;
+use sidekicks_workspace::service::WORKSPACE_SERVICE_STATEMENT_CAPACITY;
 use tokio::sync::{oneshot, watch};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
@@ -127,32 +154,47 @@ use crate::ipc::handlers::approval::APPROVAL_METHODS_STATEMENT_CAPACITY;
 use crate::ipc::handlers::driver::DRIVER_METHODS_STATEMENT_CAPACITY;
 
 /// The statements each read connection keeps prepared: every reading service's set, summed, so a
-/// statement stays prepared on whichever connection a read borrows. A service whose set holds
-/// another's counts it inside its own.
+/// statement stays prepared on whichever connection a read borrows. A statement another set in the
+/// sum already counts is not counted twice: each set counts only the statements no other one holds.
 pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMENT_CAPACITY
     + APPROVAL_REQUEST_READER_STATEMENT_CAPACITY
     + APPROVAL_RULES_STATEMENT_CAPACITY
     + ARTIFACT_STATEMENT_CAPACITY
+    // The attention service's set holds the attention read's.
+    + ATTENTION_SERVICE_STATEMENT_CAPACITY
     + BACKUP_STATEMENT_CAPACITY
+    + CLONE_REQUESTS_STATEMENT_CAPACITY
     + CONVERSATION_PURGE_STATEMENT_CAPACITY
     + DAEMON_CONFIGURATION_STATEMENT_CAPACITY
     + DAMAGED_HISTORY_STATEMENT_CAPACITY
     + DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY
     + DRIVER_METHODS_STATEMENT_CAPACITY
+    + DRIVERS_STATEMENT_CAPACITY
     + EVENT_LOG_STATEMENT_CAPACITY
+    + EXECUTION_ROOT_SERVICE_STATEMENT_CAPACITY
+    + EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY
     + FILE_SEARCH_STATEMENT_CAPACITY
+    + IDLE_SLEEP_STATEMENT_CAPACITY
     + INTERVENTION_SERVICE_STATEMENT_CAPACITY
     + LIVE_RUN_BINDINGS_STATEMENT_CAPACITY
     + MACHINE_REGISTRY_STATEMENT_CAPACITY
+    + MCP_BINDING_STORE_STATEMENT_CAPACITY
     + MOUNT_OCCUPANCY_STATEMENT_CAPACITY
     + OUTBOX_STATEMENT_CAPACITY
     + PLANS_STATEMENT_CAPACITY
+    + PROJECT_RECORDS_STATEMENT_CAPACITY
+    + PROJECT_SESSION_ACTIVITY_STATEMENT_CAPACITY
     + PROJECTION_REBUILD_STATEMENT_CAPACITY
     + PROVIDER_CHOICE_STATEMENT_CAPACITY
     + PROVIDER_SESSIONS_STATEMENT_CAPACITY
     + QUESTION_STATEMENT_CAPACITY
+    + READINGS_STATEMENT_CAPACITY
+    + RECOVERY_STATUS_STATEMENT_CAPACITY
     + RELATED_RANKING_STATEMENT_CAPACITY
+    + REMOVED_WORKTREE_STORE_STATEMENT_CAPACITY
+    + REPO_FOLDER_USAGE_STATEMENT_CAPACITY
     + REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY
+    + REPO_MOUNT_REATTACH_SERVICE_STATEMENT_CAPACITY
     + REPO_MOUNT_SERVICE_STATEMENT_CAPACITY
     + RESTART_SETTLE_STATEMENT_CAPACITY
     + RETENTION_STATEMENT_CAPACITY
@@ -162,18 +204,25 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + RUN_BINDING_CURSORS_STATEMENT_CAPACITY
     + RUN_ENGINE_STATEMENT_CAPACITY
     + RUN_PAUSE_STATEMENT_CAPACITY
+    + RUN_QUEUE_STATEMENT_CAPACITY
     + RUNTIME_BINDING_STORE_STATEMENT_CAPACITY
     + SESSION_AUTO_TITLE_STATEMENT_CAPACITY
     + SESSION_CHANGES_STATEMENT_CAPACITY
+    + SESSION_CONVERSION_STATEMENT_CAPACITY
+    + SESSION_CREATION_STATEMENT_CAPACITY
+    + SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY
     + SESSION_DRAFT_STORE_STATEMENT_CAPACITY
     + SESSION_LINK_SERVICE_STATEMENT_CAPACITY
     + SESSION_LIST_ROWS_STATEMENT_CAPACITY
+    + SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY
     + SESSION_PURGE_STATEMENT_CAPACITY
     + SESSION_SERVICE_STATEMENT_CAPACITY
     + SESSION_TAG_SERVICE_STATEMENT_CAPACITY
+    + SESSION_WORKING_FOLDERS_STATEMENT_CAPACITY
     + STARTUP_RECOVERY_STATEMENT_CAPACITY
     + TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY
     + UNFINISHED_DISCARD_STATEMENT_CAPACITY
+    + USAGE_RECORD_STATEMENT_CAPACITY
     + WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY
     + WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY
     + WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY
@@ -182,7 +231,11 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY
     + WORKFLOW_RUN_STORE_STATEMENT_CAPACITY
     + WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY
-    + WORKFLOW_VERSIONS_STATEMENT_CAPACITY;
+    + WORKFLOW_VERSIONS_STATEMENT_CAPACITY
+    + WORKSPACE_SERVICE_STATEMENT_CAPACITY
+    + WORKTREE_CREATOR_STATEMENT_CAPACITY
+    + WORKTREE_SERVICE_STATEMENT_CAPACITY
+    + WORKTREE_STATUS_READER_STATEMENT_CAPACITY;
 
 /// How the writer's open fails, as [`DatabaseWriter::open`] reports the schema's opener.
 type WriterOpenFailure =
@@ -250,10 +303,10 @@ pub(crate) enum DatabaseFileOpenError {
     /// The file is too damaged to open; its damage is recorded, beside the record's own failure
     /// when that failed, so the next start repairs it.
     #[error("the database file is damaged; the next start repairs it")]
-    Damaged(#[source] CleanupFailures<WriterOpenFailure, AtomicWriteError>),
+    Damaged(#[source] Box<CleanupFailures<WriterOpenFailure, AtomicWriteError>>),
     /// The writer could not open the file.
     #[error(transparent)]
-    Writer(WriterOpenFailure),
+    Writer(Box<WriterOpenFailure>),
 }
 
 /// Why a step of the database file's close failed; every other step still ran.
@@ -308,8 +361,15 @@ pub(crate) struct DatabaseFile {
     pub(crate) followers: Arc<SessionEventFollowers>,
     /// The count of live runs, read after each commit.
     pub(crate) live_runs: watch::Receiver<u32>,
+    /// The attention change counts, raised after each commit that changed attention.
+    pub(crate) attention_changes: AttentionChanges,
     /// Truncates the write-ahead log, asked once the check has answered and after each purge.
     pub(crate) truncation: Arc<WriteAheadLogTruncation>,
+    /// Where each damaged session's log stops being readable, as the recovery status says.
+    pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+    // Clears a session's failed resumes from the recovery status once its next run starts;
+    // detached first at the close.
+    run_starts: FollowerAttachment,
     check: CheckFollower,
     // Ends the writer once damage is found; aborted with the file.
     damage_follower: AbortOnDropHandle<()>,
@@ -400,6 +460,7 @@ pub(crate) async fn open_database_file(
     let status = Arc::new(RecoveryStatusTracker::new());
     let listener_writer = Arc::new(OnceLock::new());
     let (after_commit, live_runs) = count_live_runs_after_commits();
+    let (attention_after_commit, attention_changes) = attention_changes_after_commits();
     let writer = open_writer(
         &database_path,
         schema,
@@ -410,7 +471,7 @@ pub(crate) async fn open_database_file(
                 Arc::clone(&status),
                 Arc::clone(&listener_writer),
             )),
-            after_commit: Some(after_commit),
+            after_commits: vec![after_commit, attention_after_commit],
         },
     )
     .await?;
@@ -443,6 +504,13 @@ pub(crate) async fn open_database_file(
         Arc::clone(&writer),
     )));
     let followers = Arc::new(SessionEventFollowers::default());
+    // Attached before the recovery pass marks any failed resume, so no run start after it is
+    // missed.
+    let run_starts = status.follow_run_starts(&followers);
+    let read_damaged_from_sequence: Arc<DamagedFromSequenceReader> = Arc::new({
+        let status = Arc::clone(&status);
+        move |session_id| status.read_damaged_from_sequence(session_id)
+    });
     let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
         writer: Arc::clone(&writer),
         pool: Arc::clone(&pool),
@@ -452,10 +520,7 @@ pub(crate) async fn open_database_file(
             let status = Arc::clone(&status);
             move |session_id, event_type| refuse_session_event(&status, session_id, event_type)
         })),
-        read_damaged_from_sequence: Some(Arc::new({
-            let status = Arc::clone(&status);
-            move |session_id| status.read_damaged_from_sequence(session_id)
-        })),
+        read_damaged_from_sequence: Some(Arc::clone(&read_damaged_from_sequence)),
     }));
     Ok(DatabaseFile {
         database_path,
@@ -466,23 +531,26 @@ pub(crate) async fn open_database_file(
         event_log,
         followers,
         live_runs,
+        attention_changes,
         truncation,
+        read_damaged_from_sequence,
+        run_starts,
         check,
         damage_follower,
         is_vouched,
     })
 }
 
-/// Closes the database file once the work that reads and writes it has ended: the check first, then
-/// the damage found recorded, its writer ended if nothing has ended it yet, then the log's
-/// truncation stopped; then the read pool before the writer, so the writer is the last to close the
-/// file and folds the write-ahead log into it, except an ended writer, which is joined first and
-/// skips that checkpoint, so a damaged file's log stays for the repair; damage the drain meets is
-/// recorded after the writer's close. The check, the truncation and the writer's drain all end
-/// within `remaining`, counted from the call; a check or truncation still running then is a
-/// failure, and the close goes on without it. The clean stop is recorded only for a file vouched
-/// for, with no damage found, no write left unfinished, no failure here and `is_stop_failed` false.
-/// Answers each step's failure, every step having run.
+/// Closes the database file once the work that reads and writes it has ended: the recovery status's
+/// follow of run starts detached, the check first, then the damage found recorded, its writer ended
+/// if nothing has ended it yet, then the log's truncation stopped; then the read pool before the
+/// writer, so the writer is the last to close the file and folds the write-ahead log into it,
+/// except an ended writer, which is joined first and skips that checkpoint, so a damaged file's log
+/// stays for the repair; damage the drain meets is recorded after the writer's close. The check,
+/// the truncation and the writer's drain all end within `remaining`, counted from the call; a check
+/// or truncation still running then is a failure, and the close goes on without it. The clean stop
+/// is recorded only for a file vouched for, with no damage found, no write left unfinished, no
+/// failure here and `is_stop_failed` false. Answers each step's failure, every step having run.
 pub(crate) async fn close_database_file(
     file: DatabaseFile,
     remaining: Duration,
@@ -496,11 +564,13 @@ pub(crate) async fn close_database_file(
         damage,
         status,
         truncation,
+        run_starts,
         check,
         damage_follower,
         is_vouched,
         ..
     } = file;
+    drop(run_starts);
     let left = || remaining.saturating_sub(closing_started.elapsed());
     let mut failures = Vec::new();
     // The check's connection closes first, so the writer is the last to close the file. Writes
@@ -590,27 +660,31 @@ async fn open_writer(
         return Err(DatabaseFileOpenError::SavedSessionsFromAnotherVersion { path: path.clone() });
     }
     if !is_database_damage_error(&failure) {
-        return Err(DatabaseFileOpenError::Writer(failure));
+        return Err(DatabaseFileOpenError::Writer(Box::new(failure)));
     }
     let record_failures = record_database_damage(database_path, &describe_error(&failure))
         .await
         .err()
         .into_iter()
         .collect();
-    Err(DatabaseFileOpenError::Damaged(CleanupFailures::new(
-        failure,
-        record_failures,
-        "recording the damage to the database file",
+    Err(DatabaseFileOpenError::Damaged(Box::new(
+        CleanupFailures::new(
+            failure,
+            record_failures,
+            "recording the damage to the database file",
+        ),
     )))
 }
 
 // The statements the projections kept in each event's own write take for `envelope`: the session's
-// directory row first, which the others' rows refer to, then the questions' queued answers.
+// directory row first, which the others' rows refer to, then the questions' queued answers, then
+// the attention entries.
 fn session_projection_statements(
     envelope: &UnsequencedEventEnvelope,
 ) -> Result<Vec<WriteStatement>, ProjectionError> {
     let mut statements = directory_statements_for(&DirectoryEvent::from(envelope))?;
     statements.extend(question_projection_statements(envelope));
+    statements.extend(attention_projection_statements(envelope)?);
     Ok(statements)
 }
 

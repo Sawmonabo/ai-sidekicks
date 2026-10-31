@@ -176,7 +176,7 @@ lenient_object!(StreamEventFrame, StreamEvent, StreamDelta, AbandonedBlocks);
 
 /// The blocks one session's process is streaming, from their first piece to their turn's end.
 pub(crate) struct ClaudeStreamedBlocks {
-    provider_account_id: Option<ProviderAccountId>,
+    provider_account_id: ProviderAccountId,
     text: StreamedText<ClaudeStreamedBlockKey>,
     // The row each streamed block's pieces are written as, by its key.
     prose_rows: HashMap<ClaudeStreamedBlockKey, ProseRow>,
@@ -190,7 +190,7 @@ pub(crate) struct ClaudeStreamedBlocks {
 
 impl ClaudeStreamedBlocks {
     /// The blocks of a process running on `provider_account_id`'s home.
-    pub(crate) fn new(provider_account_id: Option<ProviderAccountId>) -> Self {
+    pub(crate) fn new(provider_account_id: ProviderAccountId) -> Self {
         Self {
             provider_account_id,
             text: StreamedText::default(),
@@ -434,7 +434,7 @@ impl ClaudeStreamedBlocks {
     ) {
         emit_driver_diagnostic(&DriverDiagnosticRecord {
             provider: DESCRIPTOR.provider_id(),
-            provider_account_id: self.provider_account_id.clone(),
+            provider_account_id: Some(self.provider_account_id.clone()),
             kind,
             raw_wire_type: Some(raw_wire_type.to_owned()),
             disposition_reason: disposition_reason.to_owned(),

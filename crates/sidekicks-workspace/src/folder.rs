@@ -1,5 +1,6 @@
-//! The machine's folders: the key every folder comparison uses, and the listing another device's
-//! folder chooser reads.
+//! The machine's folders: the key every folder comparison uses, the listing another device's
+//! folder chooser reads, and the folders the service reaches with the sessions using each.
 
 pub mod canonical_path;
-pub(crate) mod list;
+pub mod list;
+pub mod usage;

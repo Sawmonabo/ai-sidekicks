@@ -11,6 +11,7 @@ use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderRowValues
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::ProviderDeclarationId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -20,7 +21,6 @@ use crate::driver::claude::spawn::environment::ClaudeAccountFolders;
 use crate::driver::claude::spawn::legs::ClaudeSpawnContext;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::port::session_advisor_store::SessionAdvisorStore;
-use sidekicks_std::port_registration::PortRegistration;
 
 /// The id of the Settings row holding the output style new sessions start with.
 pub(crate) const CLAUDE_OUTPUT_STYLE_ROW_ID: &str = "outputStyle";
@@ -61,7 +61,7 @@ pub(crate) async fn resolve_claude_spawn_context(
     spawn_contexts: &PortRegistration<Arc<dyn SessionSpawnContextResolver>>,
     pool: &DatabaseReadPool,
     session_id: SessionId,
-    provider_account_id: Option<ProviderAccountId>,
+    provider_account_id: ProviderAccountId,
     row_values: &ProviderRowValues,
 ) -> Result<ClaudeSpawnContext, ClaudeSpawnContextError> {
     let context = spawn_contexts
@@ -79,10 +79,7 @@ pub(crate) async fn resolve_claude_spawn_context(
         working_directory: context.working_directory,
         every_project_rows: context.every_project_rows,
         project_rows: context.project_rows,
-        account_folders: context
-            .account_folders
-            .as_ref()
-            .map(ClaudeAccountFolders::from),
+        account_folders: ClaudeAccountFolders::from(&context.account_folders),
         // Claude Code finds each folder's memory itself; the daemon names none beside them.
         memory_folders: Vec::new(),
         // The session's own advisor and style, else the ones the app keeps for new sessions.

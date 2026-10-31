@@ -22,11 +22,11 @@ const CARRY_STASH_MESSAGE: &str = "uncommitted work carried to a new worktree";
 
 /// The stash a carry made, by its commit and the folder it was pushed in, kept until adoption.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CarriedStash {
+pub struct CarriedStash {
     /// The stash's commit.
-    pub(crate) commit: String,
+    pub commit: String,
     /// The folder the stash was pushed in, whose stash list holds it.
-    pub(crate) folder: PathBuf,
+    pub folder: PathBuf,
 }
 
 /// How the person finds a kept stash: by its commit, or by its message when the commit could not
@@ -43,10 +43,6 @@ pub(crate) enum KeptStash<'a> {
 /// branch, so only a tree cut from it takes the work as it stands. Runs before any tree is made.
 /// Fails with `createFailed`: `gitInvocationFailed` when the branch cannot be read,
 /// `carryBaseMismatch` for another branch or a detached HEAD.
-#[expect(
-    dead_code,
-    reason = "worktree creation carries the uncommitted work through it"
-)]
 pub(crate) async fn require_carry_onto_current_branch(
     git: &GitRunner,
     place: Option<&Place>,
@@ -76,13 +72,6 @@ pub(crate) async fn require_carry_onto_current_branch(
 /// `gitInvocationFailed` when the push fails and left no stash, and `carryFailed`, naming the
 /// command that recovers the kept stash, when a push that saved still fails, the stash cannot be
 /// found again or the apply fails; the caller undoes the new tree.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "worktree creation carries the uncommitted work through it"
-    )
-)]
 pub(crate) async fn carry_uncommitted_work(
     git: &GitRunner,
     place: Option<&Place>,
@@ -174,13 +163,6 @@ pub(crate) fn kept_stash_failure(
 
 /// Drops the carry's stash, wherever another stash has pushed it in the list; a stash already gone
 /// is nothing to drop. Fails with git's failure.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "worktree creation drops the stash once the session adopts the tree"
-    )
-)]
 pub(crate) async fn drop_carried_stash(
     git: &GitRunner,
     place: Option<&Place>,

@@ -461,7 +461,9 @@ mod tests {
     #[case::unknown_owner(|_: &str| request_line(&"0".repeat(32), "Password: "))]
     #[case::bad_json(|_: &str| b"{\"owner\": \n".to_vec())]
     // The registered owner's request as an array, so only the object check refuses it.
-    #[case::not_an_object(|owner_id: &str| format!("[\"{owner_id}\", \"Password: \"]\n").into_bytes())]
+    #[case::not_an_object(|owner_id: &str| {
+        format!("[\"{owner_id}\", \"Password: \"]\n").into_bytes()
+    })]
     #[case::over_the_cap(|_: &str| vec![b'a'; REQUEST_MAX_BYTES + 1])]
     #[tokio::test]
     async fn leaves_a_request_that_is_no_question_unanswered(

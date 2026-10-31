@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent::definition::AgentId;
+use crate::agent::definition::binding::ProviderToken;
 use crate::context_window::ContextWindowSource;
 use crate::event::envelope::{
     SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
@@ -18,9 +19,9 @@ use crate::event::envelope::{
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
-use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
+use crate::run::subagent::SubagentId;
 use crate::session::cost::UsdMicros;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -39,6 +40,17 @@ ts_constants! {
 #[must_use]
 pub fn compose_scoped_limit_id(kind: &str, model_display_name: &str) -> String {
     format!("{kind}:{model_display_name}")
+}
+
+/// Whether a usage row's input figure has the cache's read and written tokens taken out of it:
+/// taken out where the provider's breakdown showed them inside its input, else left in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum UsageContainment {
+    /// The breakdown's sum identity showed the cache counts inside input, so they were subtracted.
+    ConfirmedSubtracted,
+    /// No identity held, so input is the raw figure: an overstatement, surfaced by a diagnostic.
+    UnconfirmedUnsubtracted,
 }
 
 /// The `usage.tokenCount.recorded` payload: one turn's own token figures, never a running total, so
@@ -108,6 +120,8 @@ pub struct UsageTokenCountRecordedPayload {
     )]
     #[schemars(with = "SafeInt<0>")]
     pub reasoning_tokens: Option<SafeInt<0>>,
+    /// Whether `input_tokens` has the cache's read and written tokens taken out.
+    pub containment: UsageContainment,
     /// The account the turn was charged to.
     pub provider_account_id: ProviderAccountId,
     /// The account's credential generation seen with the turn.
@@ -128,8 +142,8 @@ pub struct UsageTokenCountRecordedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
-    pub subagent_id: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    #[schemars(with = "SubagentId")]
+    pub subagent_id: Option<SubagentId>,
     /// The execution epoch a late row is attributed to; comes with `sourcePosition` and
     /// `runId`.
     #[serde(
@@ -187,8 +201,8 @@ pub struct UsageCostUpdatedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
-    pub subagent_id: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    #[schemars(with = "SubagentId")]
+    pub subagent_id: Option<SubagentId>,
     /// The execution epoch a late row is attributed to; comes with `sourcePosition` and
     /// `runId`.
     #[serde(
@@ -268,8 +282,8 @@ pub struct UsageContextWindowUpdatedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
-    pub subagent_id: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    #[schemars(with = "SubagentId")]
+    pub subagent_id: Option<SubagentId>,
     /// The execution epoch a late row is attributed to; comes with `sourcePosition` and
     /// `runId`.
     #[serde(
@@ -558,8 +572,9 @@ pub struct AgentTurnReroutedPayload {
     pub agent_id: Option<AgentId>,
     /// The model the turn was asked of.
     pub from_model: FreeFormText<EVENT_FIELD_MAX_LEN>,
-    /// The model the turn ran on, and the model it is priced at.
-    pub to_model: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// The model the turn ran on, and the model it is priced at; a session-long move makes it the
+    /// model the session runs on, so it takes a model id's bound.
+    pub to_model: ProviderToken,
     /// How long the move holds.
     pub scope: ModelRerouteScope,
     /// The provider's own sentence, absent when it sent none.
@@ -616,6 +631,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           quota snapshot, a provider's retry, a compaction of a run's context, and the provider's \
           move of a turn onto another model.",
     definitions: &[
+        Definition::read::<UsageContainment>(),
         Definition::read::<UsageTokenCountRecordedPayload>().checked(),
         Definition::read::<UsageCostUpdatedPayload>().checked(),
         Definition::read::<UsageContextWindowUpdatedPayload>().checked(),

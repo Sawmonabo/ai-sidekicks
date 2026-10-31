@@ -18,10 +18,10 @@ use crate::c_string_array::null_terminated_pointers;
 use crate::macos::caller_process::{read_program_path, read_responsible_process};
 use crate::macos::loaded_images::look_up_symbol;
 use crate::macos::pinned_process::pin_running_process;
-use crate::macos::posix_spawn::{SpawnAttributes, check_spawn_status};
 use crate::own_root::OwnRootError;
 use crate::posix::c_string::c_string;
 use crate::posix::process::id::system_process_id;
+use crate::posix::spawn::{SpawnAttributes, check_spawn_status};
 
 /// The environment variable a program re-run as its own responsible process starts with, holding
 /// the id of the process that set it, which the re-run keeps, so the re-run never repeats; removed
@@ -248,7 +248,7 @@ fn spawn_own_root_child(
 ) -> io::Result<u32> {
     use std::os::fd::AsRawFd as _;
 
-    use crate::macos::posix_spawn::SpawnFileActions;
+    use crate::posix::spawn::SpawnFileActions;
 
     let attributes = disclaiming_attributes(0)?;
     let mut file_actions = SpawnFileActions::new()?;
@@ -419,7 +419,7 @@ pub(crate) fn rerun_test_as_own_root(name: &str) -> (bool, String) {
     use std::io::Read as _;
     use std::os::fd::AsFd as _;
 
-    use crate::macos::posix_spawn::reap_spawned_child;
+    use crate::posix::spawn::reap_spawned_child;
 
     let program = std::env::current_exe().expect("the test program names itself");
     let arguments: Vec<CString> = std::iter::once(program.clone().into_os_string())
@@ -469,7 +469,7 @@ mod tests {
     use crate::ResponsibleProcess;
     use crate::macos::caller_process::read_responsible_process;
     use crate::macos::pinned_process::pin_running_process;
-    use crate::macos::posix_spawn::end_spawned_child;
+    use crate::posix::spawn::end_spawned_child;
     use crate::test_program::this_test_program;
 
     /// What the stand-in started under an own-root instance of this program prints once it found

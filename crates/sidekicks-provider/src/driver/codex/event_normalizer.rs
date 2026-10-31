@@ -63,6 +63,11 @@ pub(crate) const CODEX_SKILLS_CHANGED_METHOD: &str = "skills/changed";
 /// The `thread/settings/updated` method, which declares the thread's output speed.
 pub(crate) const CODEX_THREAD_SETTINGS_UPDATED_METHOD: &str = "thread/settings/updated";
 
+/// The `mcpServer/startupStatus/updated` method: one tool server's startup on a conversation,
+/// reported to the session's status sink.
+pub(crate) const CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD: &str =
+    "mcpServer/startupStatus/updated";
+
 /// Which root a frame arrives on: a server request must be answered, a notification is not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexFrameRoot {
@@ -142,6 +147,7 @@ pub(crate) enum CodexInboundMethod {
     ThreadGoalUpdated,
     ThreadGoalCleared,
     AccountRateLimitsUpdated,
+    McpServerStartupStatusUpdated,
     GuardianWarning,
     AutoApprovalReviewStrictReviewRequired,
     ItemAutoApprovalReviewCompleted,
@@ -219,6 +225,7 @@ impl CodexInboundMethod {
             Self::ThreadGoalUpdated => "thread/goal/updated",
             Self::ThreadGoalCleared => "thread/goal/cleared",
             Self::AccountRateLimitsUpdated => "account/rateLimits/updated",
+            Self::McpServerStartupStatusUpdated => CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD,
             Self::GuardianWarning => "guardianWarning",
             Self::AutoApprovalReviewStrictReviewRequired => {
                 "autoApprovalReview/strictReviewRequired"
@@ -341,6 +348,13 @@ impl CodexInboundMethod {
             Self::AccountRateLimitsUpdated => notification(
                 CONNECTION,
                 Reads("the account's latest usage-limit reading, read when a turn fails"),
+            ),
+            Self::McpServerStartupStatusUpdated => notification(
+                LIFECYCLE,
+                Reads(
+                    "a tool server's startup on the session's own conversation, reported to the \
+                     session's status sink",
+                ),
             ),
 
             // Codex's own reviewer.
@@ -473,7 +487,7 @@ pub(crate) enum CodexFrameEmissionRoute {
 }
 
 /// The driver core's entry point onto the table for the frame whose method is `method`, for the
-/// account `provider_account_id` names. Never fails: a method outside the table, or an opted-out
+/// account `provider_account_id` names, `None` on a service no account owns. Never fails: a method outside the table, or an opted-out
 /// notification that arrived anyway, is routed to a diagnostic logged once per method on the
 /// connection `reports` belongs to, never forced into an event or dropped.
 pub(crate) fn resolve_codex_frame_emission_route(
@@ -593,6 +607,7 @@ pub(crate) fn derive_codex_child_thread_announcement(
         child_thread_id: thread_id,
         declared_parent_thread_id: parent_thread_id,
         subagent_id,
+        waiting_call_id: None,
     }
 }
 

@@ -10,10 +10,10 @@ use sidekicks_contracts::session::id::SessionId;
 use crate::driver::codex::delivery::frames::CodexFrameEffects;
 use crate::driver::codex::delivery::rows::CodexRowRun;
 use crate::driver::codex::lifecycle::CodexDriverParts;
-use crate::driver::codex::lifecycle::sessions::let_go_codex_session_record;
 use crate::driver::codex::run::start::record::CodexSessionDisposal;
 use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
 use crate::driver::codex::server_requests::CodexAskKind;
+use crate::driver::codex::session::lifecycle_call::let_go_codex_session_record;
 use crate::driver::run_control::RunToolBoundary;
 use crate::port::plan::ProviderPlan;
 
@@ -52,14 +52,14 @@ impl CodexFrameEffects for CodexDriverEffects {
     fn withdraw_ask(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<&ProviderAccountId>,
+        provider_account_id: &ProviderAccountId,
         request_id: &str,
         ask_kind: CodexAskKind,
     ) {
         if let Some(parts) = self.link.parts() {
             parts.hand_off.withdraw(
                 session_id,
-                provider_account_id.cloned(),
+                provider_account_id.clone(),
                 request_id,
                 ask_kind,
             );

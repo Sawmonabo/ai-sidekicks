@@ -94,7 +94,7 @@ methods! {
             mutating: true,
             params: MachineRegisterRequest,
             result: EmptyPayload,
-            refusals: [MachinePermissionDenied],
+            refusals: [MachineKeyChanged, MachinePermissionDenied],
         },
         /// Renames the machine.
         MachineRename = mutation "machine.rename" {

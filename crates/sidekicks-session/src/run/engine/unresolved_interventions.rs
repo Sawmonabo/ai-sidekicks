@@ -20,8 +20,9 @@ use crate::interventions::unresolved::{
     read_unresolved_interventions, settle_unresolved,
 };
 use crate::questions::run_end::settle_held_requests_at_run_end;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::turns::TurnEnd;
-use crate::run::engine::{RunEngine, RunEngineError, refused_statement_index, settled};
+use crate::run::engine::{RunEngine, settled};
 use crate::run::read::RunRead;
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeError};
 
@@ -81,6 +82,7 @@ impl RunEngine {
             settle_held_requests_at_run_end(
                 &self.pool,
                 &self.plan_holds,
+                &self.held_choice_answers,
                 &change,
                 &mut with_settle,
             )
@@ -168,7 +170,7 @@ impl RunEngine {
                 Ok(_receipt) => {
                     return self.release_interrupt_holds(run_id, released_choices).await;
                 }
-                Err(error) if refused_statement_index(&error).is_some() && !is_read_again => {
+                Err(error) if error.refused_statement_index().is_some() && !is_read_again => {
                     is_read_again = true;
                 }
                 Err(error) => return Err(error.into()),
@@ -239,7 +241,7 @@ impl RunEngine {
                         .await?;
                     return Ok(true);
                 }
-                Err(error) if refused_statement_index(&error).is_some() && !is_read_again => {
+                Err(error) if error.refused_statement_index().is_some() && !is_read_again => {
                     is_read_again = true;
                 }
                 Err(error) => return Err(error.into()),

@@ -17,17 +17,14 @@ use crate::table::end::{close_terminal, let_shell_go};
 use crate::table::open::discard_unread_nonce;
 use crate::table::{ShellTable, TableShared, log_failure};
 
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the shell table and the terminal methods call it"
-)]
 impl ShellTable {
     /// The feed of a shell's output for `subscription_id` on `transport_id`: its scrollback, then
     /// its output, or only the output after the request's `afterOffset` while the window holds
     /// it. A shell that no longer runs is sent as its scrollback and how it ended. The
-    /// subscription counts its connection as a watcher of the shell until it ends. Refuses a shell
-    /// the session does not have `terminal.notFound`.
-    pub(crate) fn subscribe_output(
+    /// subscription counts its connection as a watcher of the shell until it ends. Refuses a
+    /// session this daemon does not hold `session.notFound` and a shell the session does not have
+    /// `terminal.notFound`.
+    pub async fn subscribe_output(
         &self,
         request: &TerminalOutputSubscribeRequest,
         subscription_id: SubscriptionId,
@@ -35,7 +32,8 @@ impl ShellTable {
     ) -> Result<ShellOutputStream, HandlerError> {
         let shell = self
             .shared
-            .find_shell(&request.session_id, &request.terminal_id)?;
+            .requested_shell(&request.session_id, &request.terminal_id)
+            .await?;
         let progress = shell.progress.subscribe();
         if shell.handle().is_some() {
             shell.add_stream(subscription_id, transport_id);
@@ -87,15 +85,21 @@ impl TableShared {
             exit_code,
             cursor: record.output_offset(),
         };
-        let (handle, mark_nonce, spawn_nonce) = record.record_end(end, false);
+        let (handle, mark_nonce, spawn_nonce) = self.record_shell_end(record, end, false);
         self.release_streams(record);
         self.refresh_list(&record.session_id);
         let closing = close_terminal(&self.deps.terminals, handle);
-        if let Err(error) =
-            let_shell_go(&self.deps.orphan_guard, closing, mark_nonce, spawn_nonce).await
+        if let Err(error) = let_shell_go(
+            &self.deps.orphan_guard,
+            closing,
+            mark_nonce,
+            spawn_nonce.clone(),
+        )
+        .await
         {
             log_failure(record, "could not let its exited terminal go", &error);
         }
+        self.forget_uncarried_nonce(spawn_nonce).await;
     }
 
     /// Releases the hold bindings every open output subscription of the shell carried, as closed

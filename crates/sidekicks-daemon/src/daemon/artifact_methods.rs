@@ -92,10 +92,6 @@ pub(crate) enum ArtifactMethodsError {
 }
 
 /// The artifact store's background work, and its binding of a message's files to stored copies.
-#[expect(
-    dead_code,
-    reason = "the plans and a chat's versions take the publisher, the data export the payloads"
-)]
 pub(crate) struct ArtifactMethods {
     /// Binds the files a message carries to their stored copies, for the drivers to hand over.
     pub(crate) attachments: Arc<ArtifactAttachmentResolver>,
@@ -103,6 +99,8 @@ pub(crate) struct ArtifactMethods {
     pub(crate) publisher: Arc<ArtifactPublishService>,
     /// The stored payloads, which the data export copies each session's files from.
     pub(crate) payloads: Arc<PayloadStore>,
+    /// The spools' folder, on the store's volume, where a chat's versions spool too.
+    pub(crate) spool_folder: PathBuf,
     ingest: Arc<ArtifactIngestService>,
     reads: Arc<DatabaseReadPool>,
 }
@@ -182,8 +180,9 @@ pub(crate) fn register_artifact_methods(
         PayloadStore::new(store_folder.join("objects"))
             .map_err(ArtifactMethodsError::PayloadStore)?,
     );
+    let spool_folder = store_folder.join("spool");
     let admission = Arc::new(UploadAdmission::new(
-        store_folder.join("spool"),
+        spool_folder.clone(),
         volume_free_bytes,
     ));
     let appender = Arc::new(SessionEventAppender::new(
@@ -216,6 +215,7 @@ pub(crate) fn register_artifact_methods(
         )),
         ingest,
         payloads,
+        spool_folder,
         reads: deps.reads,
     })
 }

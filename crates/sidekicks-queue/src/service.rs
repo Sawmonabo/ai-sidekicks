@@ -1,10 +1,11 @@
-//! The run queue: a person's sends to a session's lead, and the edit, removal and reorder of the
-//! messages still waiting. A send is written whole before anything acts on it. Every decision on a
-//! session's waiting messages is taken under the queue's one lock per session, so a send, a change
-//! and a run's end never interleave; a skill pick is resolved before the lock, so a read waiting
-//! at the memory gate never holds the session's writes. A change to a message a provider was
-//! handed takes it back first, and one the provider does not give back reads not delivered and
-//! leaves the change. A send into a paused or pausing run resumes it once the lock is let go.
+//! The run queue: a person's sends to a session's lead, the reviews of a session's changes queued
+//! as its next item, and the edit, removal and reorder of the messages still waiting. A send is
+//! written whole before anything acts on it. Every decision on a session's waiting messages is
+//! taken under the queue's one lock per session, so a send, a change and a run's end never
+//! interleave; a skill pick is resolved before the lock, so a read waiting at the memory gate never
+//! holds the session's writes. A change to a message a provider was handed takes it back first,
+//! and one the provider does not give back reads not delivered and leaves the change. A send into
+//! a paused or pausing run resumes it once the lock is let go.
 
 mod interrupt;
 #[cfg(test)]
@@ -23,26 +24,29 @@ use sidekicks_contracts::run::queue::{
     QueueItemId, QueueItemState,
 };
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::session::controls::methods::SessionCodeReviewStartRequest;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::not_found::session::session_not_found;
+use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::ports::ProcessGoneListener;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_session::changes::refuse_unchangeable_session;
-use sidekicks_session::driver_resolution::read_session_driver;
 use sidekicks_session::interventions::store::read_sessions_with_unreleased_interrupts;
 use sidekicks_session::queue_store::summary::summary_of;
 use sidekicks_session::queue_store::{
-    QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
+    QueueItemOutcome, QueueItemReader, QueueItemRecord, QueueMessageBody, RecordedQueueItemState,
 };
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::pause::RunPauseControl;
 use sidekicks_session::run::read::{read_run_through, safe_run_version};
 use sidekicks_std::keyed_lock::KeyHold;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::schema::session_directory::read_session_state_through;
 use sidekicks_store::database::writer::DatabaseWriter;
@@ -64,8 +68,20 @@ use crate::refusals::{
     UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found, unreturned_refusal,
 };
 use crate::run_lifecycle::{QueueRunLifecycle, QueueRunLifecycleDeps, RunLifecycleListener};
-use crate::send::{QueueSendMessage, QueueSends, QueueSendsDeps};
+use crate::run_token_limit::RunTokenLimitReader;
+use crate::send::{QueueSendItem, QueueSendMessage, QueueSends, QueueSendsDeps};
 use crate::session_lock::{QueueSessionLock, UnreleasedInterrupts};
+
+/// The statements the run queue's reads prepare that no other reading service's set holds: a queue
+/// item by its id and by a send's idempotency key, a session's newest lead run that has not ended
+/// and its current lead run, the sessions with a lead message waiting for a run that ended or has
+/// not started, a session's interrupts whose release left their choice unsettled and the sessions
+/// holding one, the trigger of a run's newest interrupted end, and the queue stream's reads of the
+/// changes after a cursor and of the waiting items from the first place and after a place. Its
+/// other reads (a session's queue, the messages waiting for a run, a run's row, its provider, its
+/// agent and account, a session's state, its lead and its step bound) are in the idle sleep's, the
+/// run engine's and the run pause's sets.
+pub const RUN_QUEUE_STATEMENT_CAPACITY: usize = 11;
 
 // The detail of a queued run ended because every message it was queued for was removed.
 static EMPTIED_RUN_DETAIL: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -102,6 +118,11 @@ pub struct RunQueueDeps {
     pub followers: Arc<SessionEventFollowers>,
     /// Where each damaged session's log stops being readable.
     pub read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+    /// Reads each provider's current account, which a new run follows when its session is bound
+    /// to none.
+    pub provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    /// Reads the token limit a new lead run is admitted with.
+    pub token_limits: Arc<PortRegistration<Arc<dyn RunTokenLimitReader>>>,
 }
 
 /// The daemon's one run queue: the handlers' sends and changes, the interventions' interrupts, and
@@ -109,8 +130,6 @@ pub struct RunQueueDeps {
 pub struct RunQueue {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
-    providers: Arc<ProviderRegistry>,
-    read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     pauses: Arc<RunPauseControl>,
     engine: Arc<RunEngine>,
     recorder: Arc<QueueRecorder>,
@@ -142,6 +161,8 @@ impl RunQueue {
             pauses,
             followers,
             read_damaged_from_sequence,
+            provider_accounts,
+            token_limits,
         } = deps;
         let recorder = Arc::new(QueueRecorder::new(QueueRecorderDeps {
             event_log,
@@ -168,10 +189,12 @@ impl RunQueue {
                 engine: Arc::clone(&engine),
                 provider_sessions: Arc::clone(&provider_sessions),
                 providers: Arc::clone(&providers),
+                provider_accounts,
+                token_limits,
                 memory_gate: Arc::clone(&memory_gate),
                 processes,
                 session_lock: Arc::clone(&session_lock),
-                read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
+                read_damaged_from_sequence,
                 openings,
                 delivery: delivery.clone(),
                 delivery_timeout: QUEUE_DELIVERY_TIMEOUT,
@@ -206,8 +229,6 @@ impl RunQueue {
             Self {
                 pool,
                 writer,
-                providers,
-                read_damaged_from_sequence,
                 pauses,
                 engine,
                 recorder,
@@ -225,11 +246,7 @@ impl RunQueue {
 
     /// The queue's delivery, which the drivers' ports tell of each message a provider took,
     /// refused or gave back, and which holds the messages waiting for paused runs.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start registers the drivers' ports with it"
-    )]
-    pub(crate) fn delivery(&self) -> QueueDelivery {
+    pub fn delivery(&self) -> QueueDelivery {
         self.delivery.clone()
     }
 
@@ -257,29 +274,29 @@ impl RunQueue {
 
     /// Sends one message from `device_id` to the lead of `to`, else of `session_id`, and answers it
     /// as saved; a send again under the same key answers what the first send saved.
-    /// `replaces_queue_item_id` edits a waiting message, or sends one not delivered again. Refuses
-    /// a session the daemon does not hold, one closed (`session.alreadyClosed`) or being purged
+    /// `replaces_queue_item_id` edits a waiting message, or sends an item not delivered again, a
+    /// review as the same review. Refuses a session the daemon does not hold, one whose provider
+    /// has no account to run on (`provider.account.notRegistered`,
+    /// `provider.account.current.notSet`), one closed (`session.alreadyClosed`) or being purged
     /// (`session.changeRefused`), an edit of a message the agent has taken or its provider did not
-    /// give back, a retry in other words, a skill pick the provider does not list or whose read
-    /// waited past the delivery timeout, a send the store cannot keep and one whose lead run kept
-    /// moving under it, writing nothing.
+    /// give back, an edit of a waiting review, a retry of a message in other words, a review's
+    /// retry carrying files, skills, an answered question or a speed, a skill pick the provider
+    /// does not list or whose read waited past the delivery timeout, a send the store cannot keep
+    /// and one whose lead run kept moving under it, writing nothing.
     pub async fn create(
         &self,
         request: AgentQueueItemCreateRequest,
         device_id: DeviceId,
     ) -> Result<AgentQueueItemCreateResponse, QueueError> {
         let session_id = request.to.unwrap_or(request.session_id);
-        let (provider, provider_account_id, driver) = read_session_driver::<QueueError>(
-            &self.pool,
-            &self.providers,
-            self.read_damaged_from_sequence.as_ref(),
-            session_id,
-        )
-        .await?;
         let key = request.client_idempotency_key.clone();
+        // A repeated send answers what the first one saved, whatever its account or limit is now.
         if let Some(saved) = self.read_saved(session_id, &key).await? {
             return Ok(created_response_of(saved));
         }
+        let (provider, provider_account_id, driver) =
+            self.admission.admit_session_account(session_id).await?;
+        let run_config = self.admission.lead_run_config(session_id)?;
         let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
         if let Some(state) = state {
             refuse_unchangeable_session(&session_id, state)?;
@@ -289,7 +306,7 @@ impl RunQueue {
             .resolve_skill_picks(
                 session_id,
                 &provider,
-                provider_account_id,
+                provider_account_id.clone(),
                 driver.as_ref(),
                 request.skills.clone(),
             )
@@ -301,7 +318,9 @@ impl RunQueue {
             }
             let message = QueueSendMessage {
                 item_id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is an id"),
-                body: QueueItemBody {
+                provider_account_id,
+                run_config,
+                body: QueueMessageBody {
                     content: request.content,
                     attachments: request.attachments,
                     skills,
@@ -312,7 +331,10 @@ impl RunQueue {
                 client_idempotency_key: key,
             };
             match request.replaces_queue_item_id {
-                None => self.sends.send(&hold, message, device_id, None).await?,
+                None => {
+                    let item = QueueSendItem::Message { message, device_id };
+                    self.sends.send(&hold, item, None).await?
+                }
                 Some(replaces) => {
                     self.sends
                         .replace(&hold, replaces, message, device_id)
@@ -326,8 +348,52 @@ impl RunQueue {
         Ok(created_response_of(written.item))
     }
 
+    /// Queues the provider's own review of the session's changes as its lead's next item, which
+    /// opens a run of its own: behind the live lead run's turn or the messages waiting to continue
+    /// the interrupted one, else at once, waking a session with no live process as a message does;
+    /// its report lands as the agent's reply. A start again under the same key answers the review
+    /// the first queued. Refuses a session the daemon does not hold or whose provider has no driver
+    /// or no account to run on (`provider.account.notRegistered`,
+    /// `provider.account.current.notSet`), one closed (`session.alreadyClosed`) or being purged
+    /// (`session.changeRefused`), a review the store cannot keep and one whose lead run kept moving
+    /// under it, writing nothing.
+    pub async fn queue_review(
+        &self,
+        request: SessionCodeReviewStartRequest,
+    ) -> Result<AgentQueueItemCreateResponse, QueueError> {
+        let SessionCodeReviewStartRequest {
+            session_id,
+            client_idempotency_key: key,
+            target,
+        } = request;
+        // A repeated start answers what the first one saved, whatever its account or limit is now.
+        if let Some(saved) = self.read_saved(session_id, &key).await? {
+            return Ok(created_response_of(saved));
+        }
+        let (_, provider_account_id, _) = self.admission.admit_session_account(session_id).await?;
+        let run_config = self.admission.lead_run_config(session_id)?;
+        let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
+        if let Some(state) = state {
+            refuse_unchangeable_session(&session_id, state)?;
+        }
+        let hold = self.session_lock.hold_session(session_id).await;
+        if let Some(saved) = self.read_saved(session_id, &key).await? {
+            return Ok(created_response_of(saved));
+        }
+        let item = QueueSendItem::Review {
+            item_id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is an id"),
+            target,
+            client_idempotency_key: key,
+            provider_account_id,
+            run_config,
+        };
+        let written = self.sends.send(&hold, item, None).await?;
+        Ok(created_response_of(written.item))
+    }
+
     /// A queue, the lead's or a child's, in its order, only the items in `state` when it is
-    /// given. Fails as the read fails.
+    /// given. Refuses a session the daemon does not hold (`session.notFound`); fails as the read
+    /// fails.
     pub async fn list(
         &self,
         request: AgentQueueItemListRequest,
@@ -337,16 +403,13 @@ impl RunQueue {
             child_handle,
             state,
         } = request;
-        let items = self
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, QueueError>(QueueItemReader::new(reader).list(
-                    &session_id,
-                    child_handle.as_ref(),
-                    state,
-                )?)
-            })
-            .await?;
+        if read_session_state_through::<QueueError>(&self.pool, session_id)
+            .await?
+            .is_none()
+        {
+            return Err(session_not_found(&session_id).into());
+        }
+        let items = self.read_queue(session_id, child_handle, state).await?;
         Ok(AgentQueueItemListResponse {
             items: items.into_iter().map(summary_of).collect(),
         })
@@ -488,14 +551,7 @@ impl RunQueue {
     /// restart is ended as at its end, and a queued run is started. Answers each session whose
     /// settle or read failed, with why, every session tried; fails as the read of the sessions
     /// fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, once its recovery settled the live runs"
-        )
-    )]
-    pub(crate) async fn recover(&self) -> Result<Vec<(SessionId, QueueError)>, QueueError> {
+    pub async fn recover(&self) -> Result<Vec<(SessionId, QueueError)>, QueueError> {
         let (unreleased, waiting) = self
             .pool
             .read(ReadLength::Short, move |reader| {
@@ -530,8 +586,7 @@ impl RunQueue {
     /// finishes or fails before it answers. Work keeps being taken meanwhile: each kind of work is
     /// waited for in turn, again until all four are idle at once, since a drain may start a run, a
     /// run's end a release and either a hand.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
-    pub(crate) async fn stop(&self) {
+    pub async fn stop(&self) {
         self.lifecycle.close();
         self.admission.close();
         self.releases.close();

@@ -32,8 +32,8 @@ pub(crate) struct ClaudeTurnSettlement {
 }
 
 impl ClaudeTurnSettlement {
-    /// Settles the live session's turn on the session's task, and answers whether nothing holds the
-    /// session's turn now, so a relaunch that waited for it may go.
+    /// Settles the live session's turn on the session's task, and answers whether nothing holds
+    /// the session's turn now, so a relaunch that waited for it may go.
     pub(crate) async fn settle_turn(&self, live: &LiveClaudeSession) -> bool {
         let session_id = live.session_id;
         // A turn that ended before its handshake reported settles on the state the process holds.
@@ -56,11 +56,12 @@ impl ClaudeTurnSettlement {
         self.pending_compactions
             .observe_turn_end(&session_id.to_string());
         let admitted = lock(&self.helpers).turn_ended(&session_id);
+
         for request_id in admitted {
             answer_claude_request(
                 &*live.channel,
                 &session_id,
-                live.admitted_provider_account_id.as_ref(),
+                &live.admitted_provider_account_id,
                 request_id,
                 &ClaudeHookAnswer::Pass,
             )

@@ -63,6 +63,11 @@ impl CodexConnectionEvents for CodexDetachedFrames {
 
     // The pass's request fails with Codex's own words.
     fn service_draining(&self, _message: &str) {}
+
+    // The pass's request fails at its own deadline, and nothing ends the service for it.
+    fn request_timed_out(&self, _silent_for: Duration) {}
+
+    fn answered_after_timeout(&self) {}
 }
 
 /// Stops the throwaway turn `turn_id` names on `thread_id` over `connection`, within a bound of

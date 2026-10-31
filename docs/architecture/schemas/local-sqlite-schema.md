@@ -6,13 +6,14 @@ The database is one schema, created whole when the daemon first opens it. There 
 
 **Storage boundary:** Machine-scoped execution truth and recovery data. See [Data Architecture](../data-architecture.md).
 
-Nine areas keep their tables in files of their own, beside this one:
+Ten areas keep their tables in files of their own, beside this one:
 
 - [Session Tables (Plan-001)](local-sqlite-session-tables.md)
 - [Session Search Index Tables (ADR-041)](local-sqlite-session-search-tables.md)
 - [Workspace and Git Tables (Plan-006, Plan-007, Plan-008)](local-sqlite-workspace-and-git-tables.md)
 - [Orchestration Tables (Plan-013)](local-sqlite-orchestration-tables.md)
 - [Workflow Tables (Plan-014)](local-sqlite-workflow-tables.md)
+- [Attention Tables (Plan-016)](local-sqlite-attention-tables.md)
 - [MCP Governance Tables (Plan-022)](local-sqlite-mcp-governance-tables.md)
 - [Provider Account Tables (Plan-023)](local-sqlite-provider-account-tables.md)
 - [Agent Definition Tables (Plan-024)](local-sqlite-agent-definition-tables.md)
@@ -211,12 +212,10 @@ The run's state is event-sourced: each `agent.run.*` state change, and each appl
 CREATE TABLE runs (
   run_id         TEXT NOT NULL PRIMARY KEY,
   session_id     TEXT NOT NULL,
-  parent_run_id  TEXT,                          -- NULL on a lead run
+  parent_run_id  TEXT,                          -- NULL on a lead run, Claude Code's staged review among them, which runs in a process of its own
   reached_by     TEXT                           -- how a child run was reached; NULL on a lead run
                  CHECK(reached_by IS NULL
                    OR reached_by IN ('providerSubagent', 'bridgeRun', 'workflowStep')),
-  is_apart       INTEGER NOT NULL DEFAULT 0     -- 1 on a run whose turn runs in a process of its own; such a run is never the lead run
-                 CHECK(is_apart IN (0, 1)),
   state          TEXT NOT NULL
     CHECK(state IN ('queued', 'starting', 'running', 'waitingForApproval', 'waitingForInput',
                     'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),
@@ -407,7 +406,7 @@ CREATE INDEX idx_runtime_bindings_run ON runtime_bindings(run_id);
 CREATE TABLE left_conversations (
   session_id           TEXT NOT NULL,
   provider_name          TEXT NOT NULL,           -- 'claude' or 'codex'
-  provider_account_id  TEXT,                    -- NULL on the machine's default home
+  provider_account_id  TEXT NOT NULL,           -- the account the conversation ran on
   conversation_id      TEXT NOT NULL            -- provider-owned, bounded as resume_handle is
                        CHECK (length(conversation_id) > 0 AND length(conversation_id) <= 4096 AND instr(conversation_id, char(0)) = 0),
   left_at              TEXT NOT NULL,
@@ -483,6 +482,38 @@ CREATE TABLE driver_contract_meta (
 The build-metadata rejection above is grounded in the SemVer specification itself: per [Semantic Versioning 2.0.0 §10](https://semver.org/#spec-item-10), "Build metadata MUST be ignored when determining version precedence. Thus two versions that differ only in the build metadata, have the same precedence." Because `1.2.3+build.5` and `1.2.3+build.6` denote the SAME contract version under that precedence rule, persisting them as byte-distinct `contract_version` strings would let a non-change masquerade as a change. The shared write-path garde check (`assertValidContractVersion`, invoked from both the T2.2 `runtime_bindings` and T2.4 `driver_contract_meta` write paths) therefore REJECTS — rather than strips/normalizes — any value carrying build metadata, keeping the stored value byte-identical to what was validated and both `contract_version` columns canonical-identifying.
 
 **Cloud tasks.** `cloud_tasks` holds one row per task a session sent to its provider's own cloud (`cloud.task.start`), read by `cloud.task.subscribe` and `cloud.task.read`. Each row belongs to its session and records the task's state exactly as the provider last reported it, never a state the daemon inferred: on Codex `pending`, `ready`, `applied` or `error`, and on Claude Code `submitted` for the task's whole life, because Claude Code's command line reports no later state. Each row also keeps the task's environment label, from which [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.31 reads the project's last Codex environment back. [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) owns the row's columns.
+
+**Compaction calibrations.** `compaction_calibrations` holds, for each provider build, model and context window, the token count at which the provider compacts a conversation, as the daemon's calibration run measured it ([Plan-010](../../plans/010-transcript-and-reasoning.md) T3.7). The context ring's top stop reads it; where no row exists the stop falls back to the design's buffer. Each row names the digest of the model catalog it was measured against, and a row is read only for the build's version and the catalog's current digest, so a build or a catalog that changed, the daemon's own downtime included, is measured again before its stop is read; the new measurement replaces the row.
+
+```sql
+-- One row per provider build, model and window; the version is the build's own printed text.
+CREATE TABLE compaction_calibrations (
+  provider                 TEXT NOT NULL,
+  provider_version         TEXT NOT NULL,
+  model_id                 TEXT NOT NULL,
+  window_tokens            INTEGER NOT NULL CHECK (window_tokens >= 1),
+  catalog_digest           TEXT NOT NULL,
+  compaction_limit_tokens  INTEGER NOT NULL CHECK (compaction_limit_tokens >= 1),
+  measured_at              TEXT NOT NULL,
+  PRIMARY KEY (provider, provider_version, model_id, window_tokens)
+) STRICT;
+```
+
+**Kept schedules.** `session_kept_schedules` holds, for each session, the timed fires its provider keeps as the provider last reported them: a one-shot wake-up or job by the instant it fires, a recurring job by its five-field schedule in local time and its next run where the provider gave one ([Plan-001](../../plans/001-session-core.md) T6.12). The list is replaced whole at each change. The daemon's start reads it, so a sleeping session is woken on its schedule after a restart; a session's purge deletes its rows.
+
+```sql
+-- One row per kept fire; exactly one of fires_at and cron is set.
+CREATE TABLE session_kept_schedules (
+  session_id    TEXT NOT NULL,
+  position      INTEGER NOT NULL CHECK (position >= 0),
+  fires_at      TEXT,
+  cron          TEXT,
+  next_fire_at  TEXT,
+  CHECK ((fires_at IS NULL) <> (cron IS NULL)),
+  CHECK (cron IS NOT NULL OR next_fire_at IS NULL),
+  PRIMARY KEY (session_id, position)
+) STRICT;
+```
 
 ---
 
@@ -596,6 +627,9 @@ CREATE TABLE approval_requests (
                                               -- minted by the CP-009-5 permission-ask normalizer; rebuilt from
                                               -- approval.requested.askId on rebuild (D-009-6/D-009-7) so outcome routing to the native
                                               -- ask survives restart with several in-flight asks on one run
+  tool_call_id          TEXT,                 -- the provider's id of the tool call the ask holds, from
+                                              -- approval.requested.toolCallId; NULL where the provider sent none
+                                              -- and on a card the daemon raised itself
   state                 TEXT NOT NULL DEFAULT 'pending'
                         CHECK(state IN ('pending', 'approved', 'rejected', 'canceled')),
                                               -- No 'expired' state and no deadline column: a request waits until it is
@@ -614,8 +648,9 @@ CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = 'pending';
 CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_id) WHERE ask_id IS NOT NULL;
 -- UNIQUE (run_id, ask_id): one approval row per ask id. The daemon mints the id once for each
--- provider ask it takes, and a provider ask delivered again while it is held is matched to the held
--- one in memory, so no second row is minted for it (Spec-010 one ask↔one approval)
+-- provider ask it takes; a provider ask delivered again while it is held is matched to the held
+-- one in memory, and one resent with none held (after a restart) is matched to its pending row by
+-- tool_call_id and action, so no second row is minted for it (Spec-010 one ask↔one approval)
 
 -- Owner: Plan-009
 CREATE TABLE approval_resolutions (
@@ -711,6 +746,8 @@ CREATE TABLE questions (
   session_id        TEXT NOT NULL,
   run_id            TEXT,              -- the run that holds it, or
   wait_id           TEXT,              -- the workflow wait that holds it
+  provider_request_id TEXT,            -- the provider's request a run's question came on, from question.asked.providerRequestId,
+                                       -- so a request sent again after a restart finds its open record; NULL on a wait's question
   is_agent_waiting  INTEGER NOT NULL CHECK(is_agent_waiting IN (0, 1)), -- 0: a queued message answers it
   state             TEXT NOT NULL DEFAULT 'open' CHECK(state IN ('waitingForRun', 'open', 'answered', 'canceled')),
   CHECK((run_id IS NULL) <> (wait_id IS NULL))
@@ -808,26 +845,6 @@ CREATE TABLE skill_records (
 CREATE UNIQUE INDEX idx_skill_records_folder ON skill_records(folder_path) WHERE orphaned = 0;
 ```
 
-## Attention Delivery State (Plan-016)
+## Attention Tables (Plan-016)
 
-The attention service's entries carry the state its two deliveries beyond the app need to survive a service restart ([Spec-017 §Cross-Device Delivery](../../specs/017-notifications-and-attention-model.md#cross-device-delivery)). No table here holds a mail password, a web address or its signing secret: each is kept as its own item in the operating system's credential store and never written to a column, a reply, an event, a log or an error ([ADR-036](../../decisions/036-workflow-secrets-in-the-os-keychain.md)).
-
-- **Each attention entry** carries a nullable `digested_at`, the instant the entry went out in an email digest, so no entry is listed twice and the digest's one timer is restored from it at start; and a nullable `web_address_state` (`pending`, `delivered` or `undelivered`) with its attempt count, so a retry to the web address survives a restart. Both live as long as the entry.
-- **Each delivery channel** — the web address and the email digest — keeps one outcome row: when the last attempt ran, its result (`delivered`, `refused`, `unreachable`, `timedOut`, `signInRefused`, `notEncrypted` or `notAnAddress`), the HTTP status where there was one, and how many moments are undelivered. The row is overwritten on each attempt and removed with the channel's secret; `attention.delivery.list` returns it.
-- **The session row's `muted_at`** ([Session Tables §Session Directory](local-sqlite-session-tables.md#session-directory-plan-001)) keeps a muted session's `Finished` and `Failed` moments out of both channels.
-- **Each push to another device** keeps a `push_deliveries` row, its device one of `trusted_devices` ([Remote Control Tables §The Account's Devices](local-sqlite-remote-control-tables.md#the-accounts-devices)).
-
-```sql
--- Owner: Plan-016 (T3.6)
--- One row per device a push went to, so a withdrawal reaches exactly the devices that got the entry.
--- A row goes when its entry is withdrawn or 24 hours after it was sent.
-CREATE TABLE push_deliveries (
-  entry_id     TEXT NOT NULL,                     -- the attention entry the push announced
-  device_id    TEXT NOT NULL REFERENCES trusted_devices(device_id),
-  collapse_id  TEXT NOT NULL,                     -- the moment's stable id, sent as the push's collapse id, so a later push for the same moment replaces it in place
-  state        TEXT NOT NULL
-               CHECK(state IN ('sent', 'replaced')),  -- 'replaced' once a later push for the same moment took its place, which leaves nothing to withdraw
-  sent_at      TEXT NOT NULL,
-  PRIMARY KEY (entry_id, device_id)
-) STRICT;
-```
+The attention tables and the record of each provider's builds are in [Attention Tables (Plan-016)](local-sqlite-attention-tables.md).

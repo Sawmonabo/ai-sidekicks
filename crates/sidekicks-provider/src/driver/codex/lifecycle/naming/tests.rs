@@ -39,7 +39,7 @@ fn start_pass(
     tokio::task::JoinHandle<Result<Option<String>, CodexError>>,
     ScriptedService,
 ) {
-    let (events, mut frames) = CodexDetachedFrames::new();
+    let (events, frames) = CodexDetachedFrames::new();
     let (connection, script) = connect_scripted_service(
         MESSAGE_LIMIT,
         CodexConnectionHandlers {
@@ -49,8 +49,8 @@ fn start_pass(
     );
     let pass = tokio::spawn(async move {
         draw_title(
-            &connection,
-            &mut frames,
+            connection,
+            frames,
             &TitleRequest {
                 thread_id: "thread-1",
                 is_joined: false,
@@ -118,6 +118,29 @@ async fn next_turn_start(script: &mut ScriptedService) -> Value {
     assert_eq!(turn["method"], "turn/start");
     assert_eq!(turn["params"]["threadId"], TITLE_THREAD);
     turn
+}
+
+// Answers the title turn's start, then sends its one answer `title` and its completion.
+fn complete_title_turn(script: &ScriptedService, turn: &Value, title: &str) {
+    script.answer(turn, &turn_reply(TITLE_TURN));
+    let answer = json!({"title": title}).to_string();
+    script.send(&json!({
+        "jsonrpc": "2.0",
+        "method": "item/completed",
+        "params": {
+            "threadId": TITLE_THREAD,
+            "turnId": TITLE_TURN,
+            "item": {"type": "agentMessage", "id": "item-1", "text": answer},
+        },
+    }));
+    script.send(&json!({
+        "jsonrpc": "2.0",
+        "method": "turn/completed",
+        "params": {
+            "threadId": TITLE_THREAD,
+            "turn": {"id": TITLE_TURN, "items": [], "status": "completed"},
+        },
+    }));
 }
 
 // Every config key Codex's own terminal sets on a throwaway structured conversation, with the two
@@ -206,28 +229,28 @@ async fn a_title_pass_reads_the_config_then_starts_locked_down_and_reads_a_cappe
     }
     let turn = next_turn_start(&mut script).await;
     assert_eq!(turn["params"].get("effort").and_then(Value::as_str), effort);
-    script.answer(&turn, &turn_reply(TITLE_TURN));
-    let answer = json!({"title": title}).to_string();
-    script.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "item/completed",
-        "params": {
-            "threadId": TITLE_THREAD,
-            "turnId": TITLE_TURN,
-            "item": {"type": "agentMessage", "id": "item-1", "text": answer},
-        },
-    }));
-    script.send(&json!({
-        "jsonrpc": "2.0",
-        "method": "turn/completed",
-        "params": {
-            "threadId": TITLE_THREAD,
-            "turn": {"id": TITLE_TURN, "items": [], "status": "completed"},
-        },
-    }));
+    complete_title_turn(&script, &turn, &title);
 
     let drawn = pass.await.expect("the pass's task ends");
     assert_eq!(drawn.expect("the pass ran").as_deref(), named);
+}
+
+// Killed by keeping the pass's connection once the pass ends: its ephemeral title conversation
+// would stay loaded, never unloading on the service.
+#[tokio::test(start_paused = true)]
+async fn a_title_pass_lets_its_connection_go_when_it_ends() {
+    let (pass, mut script) = start_pass(CancellationToken::new());
+    answer_config_read(&mut script).await;
+    answer_model_list(&mut script, &[SESSION_MODEL]).await;
+    answer_thread_start(&mut script, "readOnly").await;
+    let turn = next_turn_start(&mut script).await;
+    complete_title_turn(&script, &turn, "A title");
+    let drawn = pass.await.expect("the pass's task ends");
+
+    let closed = tokio::time::timeout(CODEX_NAMING_DEADLINE, script.sent.recv()).await;
+
+    assert_eq!(drawn.expect("the pass ran").as_deref(), Some("A title"));
+    assert_eq!(closed, Ok(None), "the connection outlived the pass");
 }
 
 /// How a title pass's start is refused before any turn runs.

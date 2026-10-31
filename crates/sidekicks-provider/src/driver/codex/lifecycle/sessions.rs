@@ -8,16 +8,18 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::{CODEX_SERVICE_STARTUP_TIMEOUT, CodexDriver, CodexDriverParts};
-use crate::driver::codex::lifecycle::intake::call_codex_lifecycle;
 use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnWait};
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::history::read_codex_turn_id_by_client_message_id;
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
-use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::driver::codex::session::lifecycle_call::{
+    CodexLifecycleCall, call_codex_lifecycle, let_go_codex_session_record,
+};
 use crate::driver::codex::session::purge::purge_codex_conversations;
 use crate::driver::codex::session::slots::CODEX_LET_GO_TIMEOUT;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
@@ -27,16 +29,6 @@ use crate::driver::session_control::{
     ResumeSessionParams,
 };
 use crate::usage_delta_accountant::UsageAxisCounts;
-
-/// Lets `inbound`'s record go on its session's task as `exit`; a task that let it go first has
-/// nothing more to let go.
-pub(crate) async fn let_go_codex_session_record(
-    inbound: &CodexSessionInboundSender,
-    exit: CodexRecordExit,
-) {
-    let _gone =
-        call_codex_lifecycle(inbound, |reply| CodexLifecycleCall::LetGo { exit, reply }).await;
-}
 
 impl CodexDriver {
     /// Opens a session on a fresh conversation on its account's service. Fails with
@@ -65,8 +57,9 @@ impl CodexDriver {
         Ok(handle)
     }
 
-    /// Reopens a session's conversation on a fork carrying every setting it holds, the record it
-    /// held let go first; every failure answers `Failed`. Fails with `CodexError::SessionClosed`
+    /// Reopens a session's conversation in place by its handle, the record it held let go first:
+    /// joined as it runs where its service holds it loaded, else loaded again with every setting
+    /// the session holds; every failure answers `Failed`. Fails with `CodexError::SessionClosed`
     /// when the session closed while the resume waited behind the close.
     pub(crate) async fn resume_session(
         &self,
@@ -79,15 +72,23 @@ impl CodexDriver {
             let_go_codex_session_record(&inbound, CodexRecordExit::SessionContinues).await;
             claim.vacate();
         }
-        let forked = parts.establishment.resume_as_fork(&params).await;
-        let Some(established) = forked.established else {
-            return Ok(forked.result);
+        let resumed = parts.establishment.resume_by_handle(&params).await;
+        let Some(mut established) = resumed.established else {
+            return Ok(resumed.result);
         };
-        let prior_emitted = self.read_prior_emitted(session_id, &params.resume_handle);
+        let prior_emitted = self
+            .read_prior_emitted(session_id, &params.resume_handle)
+            .await;
+        for helper in established.restored_helpers_mut() {
+            helper.prior_emitted = self
+                .read_prior_emitted(session_id, &helper.thread_id)
+                .await
+                .unwrap_or_default();
+        }
         let opened = parts.establishment.open(established, prior_emitted).await;
         claim.install(opened.record.inbound.clone());
         self.spawn_session_task(parts, opened);
-        Ok(forked.result)
+        Ok(resumed.result)
     }
 
     /// The person's restart of a session whose service stayed down: the service starts again and
@@ -100,7 +101,7 @@ impl CodexDriver {
         let parts = self.parts()?;
         let service = parts
             .registry
-            .service_for(params.provider_account_id.as_ref())
+            .service_for(&params.provider_account_id)
             .await?;
         match parts
             .recovery
@@ -108,7 +109,7 @@ impl CodexDriver {
             .await?
         {
             Some(result) => Ok(result),
-            None => self.resume_session(params).await,
+            None => Box::pin(self.resume_session(params)).await,
         }
     }
 
@@ -223,6 +224,8 @@ impl CodexDriver {
         drop(claim);
         parts.release.forget_session(&session_id).await;
         parts.adoptions.forget_session(session_id);
+        self.stopped_helpers.forget_session(session_id);
+        self.forget_relayed_commands(session_id).await;
         Ok(())
     }
 
@@ -250,6 +253,22 @@ impl CodexDriver {
         self.tasks.wait().await;
     }
 
+    /// Where the session's process stands: a live record on a service that is up is `Live`; one
+    /// being established again, or whose service is on its way back, is `Restarting`; anything
+    /// else, a crash loop or a closing session included, is `Down`. A read of the driver's own
+    /// tables.
+    pub(crate) fn session_process_state(&self, session_id: SessionId) -> SessionProcessState {
+        match self.slots.describe_holder(session_id) {
+            Some(CodexSessionSlotState::Establishing) => SessionProcessState::Restarting,
+            Some(CodexSessionSlotState::Closing) | None => SessionProcessState::Down,
+            Some(CodexSessionSlotState::Live) => match self.views.service(session_id) {
+                Some(service) if service.is_coming_back() => SessionProcessState::Restarting,
+                Some(service) if service.is_serving() => SessionProcessState::Live,
+                Some(_) | None => SessionProcessState::Down,
+            },
+        }
+    }
+
     /// Whether a run on `session_id` brings a Codex service up: `false` while the session's
     /// conversation is loaded on a service that runs, or, with none loaded, while the service of
     /// `provider_account_id`, the account the run is admitted against, runs. A home that cannot
@@ -257,15 +276,11 @@ impl CodexDriver {
     pub(crate) async fn starts_process(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
     ) -> bool {
         let service = match self.views.service(session_id) {
             Some(service) => service,
-            None => match self
-                .registry
-                .service_for(provider_account_id.as_ref())
-                .await
-            {
+            None => match self.registry.service_for(&provider_account_id).await {
                 Ok(service) => service,
                 Err(_) => return true,
             },
@@ -303,13 +318,16 @@ impl CodexDriver {
 
     // The spend the session's conversation emitted before its resume, which its usage is based
     // on; with no usage sink yet, or an unreadable record, the base starts at zero, logged.
-    fn read_prior_emitted(
+    async fn read_prior_emitted(
         &self,
         session_id: SessionId,
         thread_id: &str,
     ) -> Option<UsageAxisCounts> {
         let sink = self.ports.usage.port()?;
-        match sink.read_prior_emitted(session_id, thread_id) {
+        match sink
+            .read_prior_emitted(session_id, thread_id.to_owned())
+            .await
+        {
             Ok(prior) => Some(prior),
             Err(error) => {
                 tracing::warn!(

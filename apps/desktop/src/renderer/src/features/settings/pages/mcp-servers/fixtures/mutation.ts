@@ -16,9 +16,9 @@ import type {
   McpServerBindingRef,
   McpSetEnabledRequest,
   McpSetToolOverrideRequest,
-  McpToolOverride,
   McpToolOverrideMutationResult,
 } from "@ai-sidekicks/contracts/mcp/server";
+import type { McpToolOverride } from "@ai-sidekicks/contracts/mcp/tool-settings";
 import type { Refusal } from "#renderer/lib/refusal/contract.js";
 
 /**

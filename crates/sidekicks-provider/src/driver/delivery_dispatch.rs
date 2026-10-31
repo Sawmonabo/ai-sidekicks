@@ -11,7 +11,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::error_description::describe_error;
 
-use crate::driver::contract::bound_failure_detail;
+use crate::driver::contract::error::bound_failure_detail;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -23,7 +23,8 @@ use crate::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
 pub(crate) struct DeliveryOrigin<'a> {
     /// The provider whose driver produced it.
     pub(crate) provider: ProviderId,
-    /// The account the provider runs on; `None` on the machine's default home.
+    /// The account the provider runs on; `None` where no account owns the delivery, such as one
+    /// from the service on the person's own provider folder.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// The provider frame it came from; `None` for the driver's own.
     pub(crate) raw_wire_type: Option<&'a str>,
@@ -100,6 +101,7 @@ pub(crate) fn dispatch_delivery<'d>(
 fn scoped_row_session(row: &SessionScopedRow) -> SessionId {
     match row {
         SessionScopedRow::SideQuestionAnswered(payload) => payload.session_id,
+        SessionScopedRow::UsageTokenCountRecorded(payload) => payload.session_id,
         SessionScopedRow::AdvisorChanged(payload) => payload.session_id,
         SessionScopedRow::OutputStyleChanged(payload) => payload.session_id,
     }

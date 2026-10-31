@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::mcp::server::McpServerName;
@@ -28,10 +29,12 @@ use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::controls::methods::{
-    PermissionLevel, SessionMode, SessionReviewTarget, SideQuestionId,
+    PermissionLevel, SessionMode, SideQuestionId,
 };
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_ipc::domain_error::DomainError;
@@ -40,8 +43,9 @@ use sidekicks_std::text_cut::cut_to_code_points;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::driver::contract::SpawnedVersionBindingCarriers;
-use crate::driver::mcp_server_status::McpServerStatusProducer;
+use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
+use crate::driver::idle_sleep::KeptSchedule;
+use crate::driver::mcp_server::status::McpServerStatusProducer;
 
 /// The longest account or plan descriptor an authentication probe keeps, in code points; a longer
 /// one is cut, and dropping it loses only words, never the probe's status.
@@ -49,7 +53,7 @@ const PROVIDER_AUTH_DETAIL_MAX_LEN: usize = 512;
 
 /// What the daemon hands a driver to open a session: its config, its spawn-bound legs and the
 /// daemon's callbacks. A spawn-bound leg that gets nothing here launches without it; per-run
-/// carriers are on [`StartRunParams`](super::contract::StartRunParams).
+/// carriers are on [`StartRunParams`](super::contract::params_and_results::StartRunParams).
 #[derive(Clone)]
 pub struct CreateSessionParams {
     /// The session.
@@ -61,11 +65,17 @@ pub struct CreateSessionParams {
     /// The session's model. A provider that takes it at process start applies a usage-credits
     /// prompt's `switchDefault` to this session alone, never to the account's saved default.
     pub model: ProviderToken,
+    /// The lead's reasoning effort, which the start refuses `agent.providerAxisInvalid` on the
+    /// effort axis when the provider lists the model without that level; `None` checks none.
+    pub effort: Option<ProviderToken>,
     /// The larger window chosen for the model, in tokens, as recorded when it was picked; `None`
     /// runs the model's default window. A provider whose model id names the window refuses one.
     pub larger_window: Option<SafeInt<1>>,
     /// How the session may touch the machine.
     pub execution_posture: Option<ExecutionPosture>,
+    /// Build or Plan, as the session stores it, which the new provider runs in from its first
+    /// turn.
+    pub mode: SessionMode,
     /// The agent's accepted output-speed level (gated on `outputSpeed`), sent when the process
     /// starts and never refused: a level the model does not list runs at standard. The provider's
     /// declared state is read through `observed_output_speed_for`, never written back here.
@@ -86,13 +96,14 @@ pub struct CreateSessionParams {
     /// `mcp`); the driver hands each to the provider as an entry on the daemon's route.
     pub tool_servers: Option<Vec<SessionToolServer>>,
     /// A JSON Schema the final output must meet, for a provider that binds it per session (gated
-    /// on `structuredOutput`); one that binds it per turn reads
-    /// [`StartRunParams::output_schema`](super::contract::StartRunParams::output_schema).
+    /// on `structuredOutput`); one that binds it per turn reads [`StartRunParams::output_schema`].
+    ///
+    /// [`StartRunParams::output_schema`]:
+    ///     super::contract::params_and_results::StartRunParams::output_schema
     pub output_schema: Option<Map<String, Value>>,
-    /// The account the leg is admitted against, resolved by the daemon; `None` spawns on the
-    /// machine's default for the provider. The spawn path pins the account's credential home, so
-    /// the driver only carries it.
-    pub provider_account_id: Option<ProviderAccountId>,
+    /// The account the leg is admitted against, resolved by the daemon before the spawn. The spawn
+    /// path pins the account's credential home, so the driver only carries it.
+    pub provider_account_id: ProviderAccountId,
     /// The MCP server-status sink, bound to this leg's session and binding at spawn, so a driver
     /// cannot report for another leg and needs no id for the census it reports while opening.
     pub on_mcp_server_status: Option<McpServerStatusProducer>,
@@ -105,6 +116,9 @@ pub struct CreateSessionParams {
 pub struct ResumeSessionParams {
     /// The session.
     pub session_id: SessionId,
+    /// The binding the resumed process runs under, minted by the caller through the binding
+    /// store's mint, so its cursor can open before the process delivers.
+    pub binding_id: RuntimeBindingId,
     /// The session's lead, which a refusal of the session's model at its start names.
     pub agent_id: AgentId,
     /// The provider's own handle of the conversation.
@@ -113,6 +127,8 @@ pub struct ResumeSessionParams {
     pub model: ProviderToken,
     /// The recorded larger window, sent as recorded whatever the catalog offers now.
     pub larger_window: Option<SafeInt<1>>,
+    /// The provider's own recovery data its binding kept, handed back as stored.
+    pub runtime_metadata: Map<String, Value>,
     /// Build or Plan, which the resumed provider runs in from its first turn.
     pub mode: SessionMode,
     /// How the session may touch the machine; left out, the leg would relaunch unsandboxed.
@@ -136,9 +152,73 @@ pub struct ResumeSessionParams {
     pub output_schema: Option<Map<String, Value>>,
     /// The account read back from the stored spawn record, never resolved again, so a live run's
     /// spend never moves onto an account it was not admitted against.
-    pub provider_account_id: Option<ProviderAccountId>,
+    pub provider_account_id: ProviderAccountId,
     /// The status sink, bound to the resumed leg, through which it reports its census again.
     pub on_mcp_server_status: Option<McpServerStatusProducer>,
+    /// The timed fires the idle sleep stored for the session, its wake-ups and session-only
+    /// scheduled jobs, which a fresh process does not keep; the resumed process takes them back.
+    pub kept_schedules: Vec<KeptSchedule>,
+    /// Every run of the session not yet ended, lead and children alike, which the driver answers
+    /// for in [`DriverResumeResult::Resumed`]'s `runs`.
+    pub live_runs: Vec<LiveRunResume>,
+}
+
+/// A run of a resumed session not yet ended, as its log names it to the provider: the run it was
+/// started beneath, its open turns and, for a provider's helper, the helper's own id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LiveRunResume {
+    /// The run.
+    pub run_id: RunId,
+    /// The run it was started beneath; `None` for a run started on its own.
+    pub parent_run_id: Option<RunId>,
+    /// Its turns started with no end, in turn order.
+    pub open_turns: Vec<OpenTurnResume>,
+    /// The provider's own id of the helper the run is, as its `agent.subagent.started` recorded
+    /// it; `None` for a lead or any run no helper's start names.
+    pub subagent_id: Option<SubagentId>,
+}
+
+/// A turn of a live run started with no end.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenTurnResume {
+    /// The turn's number within its run.
+    pub turn_number: SafeInt<1>,
+    /// The provider's own id of the turn as its `agent.turn.started` recorded it; `None` where
+    /// the provider reported none.
+    pub provider_turn_id: Option<ProviderTurnId>,
+    /// The id of the event that started it, which a flag about the whole turn points at.
+    pub started_event_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
+}
+
+/// What the provider holds of one run's turn after a resume.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderTurnAnswer {
+    /// The turn still runs in the provider's process, which delivers the rest of it.
+    StillRunning,
+    /// The provider ended the turn; its own end frame arrives through the ordinary dispatch.
+    EndedByProvider,
+    /// The provider holds no turn of the run.
+    Gone,
+}
+
+/// The provider's answer for one run a resume named.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResumedRunAnswer {
+    /// The run.
+    pub run_id: RunId,
+    /// What the provider holds of its turn.
+    pub turn: ProviderTurnAnswer,
+}
+
+/// The answer of a resume whose provider runs no turn of any of `live_runs`: every one gone.
+pub fn answer_every_run_gone(live_runs: &[LiveRunResume]) -> Vec<ResumedRunAnswer> {
+    live_runs
+        .iter()
+        .map(|run| ResumedRunAnswer {
+            run_id: run.run_id,
+            turn: ProviderTurnAnswer::Gone,
+        })
+        .collect()
 }
 
 /// Asks a driver to close one session.
@@ -199,6 +279,9 @@ pub struct UpdatePermissionLevelParams {
     pub session_id: SessionId,
     /// The posture it moves to.
     pub execution_posture: ExecutionPosture,
+    /// True when the move follows a mode the provider itself reported running, which the
+    /// provider runs already.
+    pub is_provider_reported: bool,
 }
 
 /// Params of `revoke_rule`: a revoked rule taken out of force at one session's provider, out of
@@ -222,8 +305,24 @@ pub struct StartingLevelParams {
     pub(crate) working_folder: PathBuf,
     /// The session's model.
     pub(crate) model: ProviderToken,
-    /// The account the session runs on; `None` on the person's own sign-in.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The account the session runs on, whose own settings the level is read from.
+    pub(crate) provider_account_id: ProviderAccountId,
+}
+
+impl StartingLevelParams {
+    /// The params of a session starting in `working_folder` on `model`, run on
+    /// `provider_account_id`.
+    pub fn new(
+        working_folder: PathBuf,
+        model: ProviderToken,
+        provider_account_id: ProviderAccountId,
+    ) -> Self {
+        Self {
+            working_folder,
+            model,
+            provider_account_id,
+        }
+    }
 }
 
 /// The level and mode a new session starts at.
@@ -233,6 +332,27 @@ pub struct StartingLevel {
     pub(crate) level: PermissionLevel,
     /// Plan where the provider itself would start planning, else Build.
     pub(crate) session_mode: SessionMode,
+}
+
+impl StartingLevel {
+    /// A session starting at `level` in `session_mode`, as a test's driver answers it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn new(level: PermissionLevel, session_mode: SessionMode) -> Self {
+        Self {
+            level,
+            session_mode,
+        }
+    }
+
+    /// The level.
+    pub fn level(&self) -> PermissionLevel {
+        self.level
+    }
+
+    /// The mode: Plan where the provider itself would start planning, else Build.
+    pub fn session_mode(&self) -> SessionMode {
+        self.session_mode
+    }
 }
 
 /// What a goal operation did: the provider took it, or the driver took a fallback instead.
@@ -297,13 +417,13 @@ pub struct ProviderBuildChange {
 }
 
 /// One provider conversation a session opened, by the handle it was resumed from, and the account
-/// home it ran in; `provider_account_id` is `None` for one that ran on the machine's default home.
+/// home it ran in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PurgedConversation {
     /// The handle the conversation was resumed from.
     pub resume_handle: String,
     /// The account whose home it ran in.
-    pub provider_account_id: Option<ProviderAccountId>,
+    pub provider_account_id: ProviderAccountId,
 }
 
 /// Params of `purge_session`: every conversation the session's own bindings opened, newest first,
@@ -321,9 +441,12 @@ pub struct PurgeSessionParams {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UpdateSessionModeParams {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The mode it moves to.
-    pub(crate) mode: SessionMode,
+    pub mode: SessionMode,
+    /// True when the move follows a mode the provider itself reported running, which the
+    /// provider runs already.
+    pub is_provider_reported: bool,
 }
 
 /// Params of `ask_side_question`: a question asked on a throwaway copy of the conversation,
@@ -332,24 +455,16 @@ pub struct UpdateSessionModeParams {
 #[derive(Clone)]
 pub struct AskSideQuestionParams {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
+    /// The session's binding, which the side question's usage is recorded on.
+    pub binding_id: RuntimeBindingId,
     /// The id the answer carries.
-    pub(crate) side_question_id: SideQuestionId,
+    pub side_question_id: SideQuestionId,
     /// The question.
-    pub(crate) question: String,
-    /// The session's resume material when it has no live process, composed as a resume's is, which
-    /// the copy is forked from; `None` while a process runs it.
-    pub(crate) resume: Option<ResumeSessionParams>,
-}
-
-/// Params of `start_review`: the provider's own review of `target`, bracketed by the
-/// `reviewStarted` and `reviewFinished` notices.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StartReviewParams {
-    /// The session.
-    pub(crate) session_id: SessionId,
-    /// What the review covers.
-    pub(crate) target: SessionReviewTarget,
+    pub question: String,
+    /// The session's newest resume material, composed as a resume's is, which the copy is forked
+    /// from when no live process runs the session; `None` for a session with no conversation yet.
+    pub resume: Option<ResumeSessionParams>,
 }
 
 /// Params of `answer_session_command`: the text the person sent, before any run is made for it.
@@ -379,7 +494,7 @@ pub enum SessionCommandAnswer {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SubscribeProviderCommandsParams {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
 }
 
 /// Receives each new command list a session's provider and its tool servers offer.
@@ -393,6 +508,9 @@ pub struct ProviderSessionHandle {
     pub provider_session_id: String,
     /// The handle a later resume names.
     pub resume_handle: String,
+    /// The build the session's own process reported when the create started it, which the
+    /// binding records.
+    pub spawned_version: SpawnedVersionBindingCarriers,
 }
 
 /// What a resume did, built by the driver from provider output. A failed resume carries why and
@@ -412,13 +530,15 @@ pub enum DriverResumeResult {
         /// The relaunched build's version and path, from the one reading its spawn took; a
         /// relaunch resolves the command again, so the predecessor's build may not be this one.
         spawned_version: SpawnedVersionBindingCarriers,
+        /// What the provider holds of each run the resume's `live_runs` named.
+        runs: Vec<ResumedRunAnswer>,
     },
     /// The resume failed.
     Failed {
         /// What recovery the run needs.
         recovery_condition: RecoveryCondition,
         /// The provider's failure, fitted by
-        /// [`bound_failure_detail`](super::contract::bound_failure_detail).
+        /// [`bound_failure_detail`](super::contract::error::bound_failure_detail).
         provider_failure_detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     },
 }

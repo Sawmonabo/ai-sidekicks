@@ -7,6 +7,7 @@ use serde_json::json;
 use sidekicks_contracts::event::declared_variants::RunAgentOutputPayload;
 use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, SourcePosition};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::events::{
@@ -28,24 +29,28 @@ use sidekicks_provider::run::delivery::{
     LateEventAbsorbReason, MachineScopedRow, SessionScopedRow,
 };
 use sidekicks_provider::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::open_log;
 use tempfile::TempDir;
 
 use super::{InboundDispatchError, RunInboundDispatch};
 use crate::questions::schema::schema_parts;
-use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
+use crate::run::engine::RunEngine;
+use crate::run::engine::errors::RunEngineError;
+use crate::run::engine::test_fixture::{
+    append, insert_running_run, stored_run_state, test_choices, test_engine,
+};
 use crate::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, continue_request, held_driver, turn_completed_at, turn_started_at,
 };
-use crate::run::engine::{RunEngine, RunEngineError};
 use crate::run::epochs::{ConfirmedCut, DeliveryAttribution, EpochBinding, ExecutionEpochs};
 use crate::run::refusals::RunRefusal;
-use crate::run::state_change::RunStateChangeCompanions;
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use crate::transcript::reasoning::read_reasoning;
 
-// A run-state stream no one reads.
-struct UnreadRunStates;
+/// A run-state stream no one reads.
+pub(crate) struct UnreadRunStates;
 
 impl RunStatePublisher for UnreadRunStates {
     fn publish(&self, _hold: RunSafetyBufferingUpdatedPayload) {}
@@ -78,6 +83,7 @@ impl Harness {
             Arc::clone(&epochs),
             Arc::new(UnreadRunStates),
             Arc::clone(&log.service),
+            test_choices(&database, &engine),
         ));
         let run_id = new_run_id();
         insert_running_run(&database, test_session_id(), run_id);
@@ -98,7 +104,7 @@ impl Harness {
                     id: binding_id.clone(),
                     run_id,
                     provider_name: test_provider(),
-                    provider_account_id: None,
+                    provider_account_id: test_provider_account_id(),
                 },
                 RUN_START_POSITION,
             )
@@ -320,12 +326,16 @@ async fn inbound_reads_an_unknown_execution_as_current_for_a_live_terminal_and_a
 }
 
 // Killed by the ended run's refusal surfaced as a failure, by its diagnostic left out, by the
-// daemon's own interrupt's end reported as late, and by any row written for it.
+// daemon's own interrupt's end reported as late, by a run refused at its setup reported as late
+// (its own record read under another key, category or session), by an ordinary ended run read as
+// refused at its setup, and by any row written for it.
 #[rstest]
-#[case::with_a_diagnostic(false, 1)]
-#[case::silently_after_the_daemons_interrupt(true, 0)]
+#[case::with_a_diagnostic(false, false, 1)]
+#[case::silently_after_the_daemons_interrupt(true, false, 0)]
+#[case::silently_for_a_run_refused_at_its_setup(false, true, 0)]
 fn inbound_absorbs_a_late_terminal_on_an_ended_run(
     #[case] is_daemon_interrupt_end: bool,
+    #[case] is_refused_at_setup: bool,
     #[case] diagnostics: usize,
 ) {
     let recorded = RecordedEvents::default();
@@ -335,7 +345,33 @@ fn inbound_absorbs_a_late_terminal_on_an_ended_run(
         .expect("the test's runtime starts");
     recorded.record_during(|| {
         runtime.block_on(async {
-            let harness = Harness::new(RunState::Completed).await;
+            let (harness, ended) = if is_refused_at_setup {
+                let harness = Harness::new(RunState::Starting).await;
+                harness
+                    .engine
+                    .transition(
+                        RunStateChange {
+                            expected_state: Some(RunState::Starting),
+                            failure_category: Some(RunFailureCategory::SetupFailure),
+                            ..RunStateChange::new(
+                                harness.run_id,
+                                RunStateEntry::Failed {
+                                    intended_close: None,
+                                    failure_cause: None,
+                                    provider_failure_detail: None,
+                                    process_exit: None,
+                                },
+                            )
+                        },
+                        RunStateChangeCompanions::default(),
+                    )
+                    .await
+                    .expect("the run ends refused at its setup");
+                (harness, "failed")
+            } else {
+                (Harness::new(RunState::Completed).await, "completed")
+            };
+            let stored_before = harness.stored_event_count();
 
             let outcome = harness
                 .dispatched(harness.terminal(None, is_daemon_interrupt_end))
@@ -347,10 +383,10 @@ fn inbound_absorbs_a_late_terminal_on_an_ended_run(
                     reason: LateEventAbsorbReason::RunEnded,
                 }
             );
-            assert_eq!(harness.stored_event_count(), 0);
+            assert_eq!(harness.stored_event_count(), stored_before);
             assert_eq!(
                 stored_run_state(&harness.database, &harness.run_id).0,
-                "completed"
+                ended
             );
         });
     });

@@ -27,12 +27,14 @@ pub fn compose_process_exit<const CAP: usize>(
         Some(signal) => ProcessExit::Signal(ProcessExitWithSignal {
             signal: FreeFormText::new(signal).expect("a signal's name is a short, non-blank word"),
             exit_code: None,
+            silent_seconds: None,
             output_tail,
         }),
         None => ProcessExit::Code(ProcessExitWithCode {
             exit_code: ExitCode::new(exit.exit_code)
                 .expect("an unsigned 32-bit code is a safe integer"),
             signal: None,
+            silent_seconds: None,
             output_tail,
         }),
     }

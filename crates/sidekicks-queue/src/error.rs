@@ -4,17 +4,18 @@
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_session::driver_resolution::LiveRunDriverError;
 use sidekicks_session::run::agent::RunAgentReadError;
-use sidekicks_session::run::engine::RunEngineError;
+use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::refusals::RunRefusal;
+use sidekicks_std::port_registration::PortRegistrationError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::database::writer::WriteError;
 
 use crate::delivery::DeliveryError;
 use crate::memory_gate::MemoryAdmissionError;
-use crate::provider_session::ProviderSessionError;
+use crate::provider_session::errors::ProviderSessionError;
 use crate::recorder::QueueRecordError;
 
 /// Why a run queue call, or the work it runs on its own, failed.
@@ -66,6 +67,9 @@ pub enum QueueError {
         /// The interrupted run.
         run_id: RunId,
     },
+    /// A port the queue reads through is not registered yet.
+    #[error(transparent)]
+    Port(#[from] PortRegistrationError),
 }
 
 impl From<RunRefusal> for QueueError {
@@ -82,17 +86,18 @@ impl From<QueueError> for HandlerError {
             QueueError::Refused(refusal) => Self::Refused(refusal),
             QueueError::Driver(driver) => driver.into(),
             QueueError::RunDriver(run_driver) => run_driver.into(),
+            QueueError::ProviderSession(provider_session) => provider_session.into(),
             fault @ (QueueError::Read(_)
             | QueueError::Pool(_)
             | QueueError::Delivery(_)
             | QueueError::Write(_)
             | QueueError::Record(_)
             | QueueError::Engine(_)
-            | QueueError::ProviderSession(_)
             | QueueError::Agent(_)
             | QueueError::Gate(_)
             | QueueError::DrainEnded
-            | QueueError::ContinueTakenOver { .. }) => Self::Internal(Box::new(fault)),
+            | QueueError::ContinueTakenOver { .. }
+            | QueueError::Port(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }

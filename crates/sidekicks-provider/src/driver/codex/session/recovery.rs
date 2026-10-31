@@ -2,9 +2,11 @@
 //! moves to a new provider build: running turns end with the process, every conversation resumes
 //! once it runs again, and the sessions hear what the person needs to: the crash loop that keeps
 //! the service down, the person's restart that brought it back, and the build a move left them
-//! on. The daemon's own restarts write no notice. The moves to a new build are in `build_move`.
+//! on. The daemon's own restarts write no notice. The moves to a new build are in `build_move`,
+//! and the resume in place a session's task runs is in `in_place_resume`.
 
 mod build_move;
+pub(crate) mod in_place_resume;
 #[cfg(test)]
 mod tests;
 
@@ -14,21 +16,20 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use serde::Deserialize;
-use serde_json::value::RawValue;
+use serde_json::json;
+use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
-use crate::driver::codex::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
-use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::run::control::fail_codex_run;
 use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
@@ -40,14 +41,20 @@ use crate::driver::codex::session::calls::{
 };
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::establishment::CodexSessionEstablishment;
+use crate::driver::codex::session::establishment::{
+    CodexInPlaceOutcome, CodexSessionEstablishment, compose_failed_resume,
+};
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
-use crate::driver::codex::session::slots::CodexSessionSlots;
-use crate::driver::codex::transport::connection::read_codex_object;
+use crate::driver::codex::session::lifecycle_call::let_go_codex_session_record;
+use crate::driver::codex::session::slots::{
+    CodexRecoveryGeneration, CodexSessionClaim, CodexSessionSlots,
+};
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
-use crate::driver::codex::turn_evidence::CodexTurnStatus;
-use crate::driver::contract::bound_failure_detail;
+use crate::driver::contract::error::bound_failure_detail;
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
+use crate::driver::diagnostics::{
+    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
+};
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::session_control::{DriverResumeResult, ProviderBuildChange};
@@ -55,7 +62,9 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
-use sidekicks_std::port_registration::PortRegistration;
+use crate::runtime_binding::store::mint_runtime_binding_id;
+
+use self::in_place_resume::CodexInPlaceResumeCall;
 
 /// The words a run is failed with when its service ended with no exit the daemon could read.
 const CODEX_EXIT_UNREAD_FAILURE: &str = "The Codex service ended";
@@ -72,16 +81,6 @@ pub(crate) struct CodexDroppedTurns {
 /// Answers whether the runtime that still wrote a conversation let it go, so a refused resume is
 /// tried again; `false` ends the tries.
 pub(crate) type CodexWriterLeft = Box<dyn FnMut() -> BoxFuture<'static, bool> + Send>;
-
-/// One resume in place, as a call carries it to the session's task.
-pub(crate) struct CodexInPlaceResumeCall {
-    /// The establishment that resumes it.
-    pub(crate) establishment: Arc<CodexSessionEstablishment>,
-    /// The service it resumes on.
-    pub(crate) service: Arc<CodexService>,
-    /// Whether a refusing writer let the conversation go.
-    pub(crate) writer_left: CodexWriterLeft,
-}
 
 /// What recovery acts through.
 pub(crate) struct CodexServiceRecoveryDependencies {
@@ -123,6 +122,11 @@ struct RecoveryState {
     pending_build_change: HashMap<CodexServiceId, ProviderBuildChange>,
     // The services a build move left, waiting for their held conversations to be let go.
     retiring: HashSet<CodexServiceId>,
+    // The sessions each service that came back owes a resume, by recovery, until that recovery
+    // resumed them.
+    owed_resumes: HashMap<CodexServiceId, HashMap<CodexRecoveryGeneration, Vec<SessionId>>>,
+    // The last recovery minted.
+    last_generation: u64,
 }
 
 /// Keeps each service's conversations through its exits, restarts, reconnects and build moves.
@@ -146,10 +150,34 @@ impl CodexServiceRecovery {
         self.lock().last_exit.insert(service.id(), exit);
     }
 
-    /// Forgets the service's remembered exit once it runs again, so a later crash loop names only
-    /// its own; called in the service's own event order.
-    pub(crate) fn forget_exit(&self, service: &CodexService) {
-        self.lock().last_exit.remove(&service.id());
+    /// Takes the service's remembered exit once it runs again, so a later crash loop names only
+    /// its own, answering it for the restart's record; called in the service's own event order.
+    pub(crate) fn take_exit(&self, service: &CodexService) -> Option<ProcessExit> {
+        self.lock().last_exit.remove(&service.id())
+    }
+
+    /// Marks every session on a service that came back as owed its resume by a new recovery, in
+    /// the service's own event order before the service reads as up, so none reads live and no
+    /// move or run reaches its conversation until [`Self::recover`] of the answered recovery
+    /// claimed its slot.
+    pub(crate) fn owe_resumes(&self, service: &CodexService) -> CodexRecoveryGeneration {
+        let owed: Vec<SessionId> = service
+            .attached_sessions()
+            .iter()
+            .map(CodexSessionInboundSender::session_id)
+            .collect();
+        let mut state = self.lock();
+        state.last_generation += 1;
+        let generation = CodexRecoveryGeneration(state.last_generation);
+        for session_id in &owed {
+            self.dependencies.slots.owe_resume(*session_id, generation);
+        }
+        state
+            .owed_resumes
+            .entry(service.id())
+            .or_default()
+            .insert(generation, owed);
+        generation
     }
 
     /// Ends every turn the service's sessions held with its process, in the order a kept message
@@ -196,18 +224,22 @@ impl CodexServiceRecovery {
     }
 
     /// Resumes every conversation of a service that runs again: after a crash, a reconnect or the
-    /// person's restart of a crash loop. After a reconnect the conversations held for their running
-    /// commands are subscribed to again first. Only the person's restart writes a notice: one
-    /// `ProviderRestarted` on each session its crash loop held that the restart brought back.
+    /// person's restart of a crash loop, settling the resumes `generation` owed. After a reconnect
+    /// the conversations held for their running commands are subscribed to again first. A restart
+    /// is recorded with `ended`, how the process it replaced ended, where that was read. Only the
+    /// person's restart writes a notice: one `ProviderRestarted` on each session its crash loop
+    /// held that the restart brought back.
     pub(crate) async fn recover(
         &self,
         service: &Arc<CodexService>,
         cause: CodexServiceRecoveryCause,
+        generation: CodexRecoveryGeneration,
+        ended: Option<ProcessExit>,
     ) {
         if cause == CodexServiceRecoveryCause::Reconnect {
             self.dependencies.release.resubscribe_service(service).await;
         }
-        let resumed = self.resume_all(service).await;
+        let resumed = self.resume_all(service, generation).await;
         if cause == CodexServiceRecoveryCause::Reconnect {
             CodexTransportDiagnostic::ServiceReconnected {
                 codex_home: service.home().codex_home.clone(),
@@ -218,12 +250,7 @@ impl CodexServiceRecovery {
             }
             .report();
         } else {
-            tracing::info!(
-                codex_home = %service.home().codex_home.display(),
-                ?cause,
-                conversations = resumed.len(),
-                "the codex service runs again and its conversations resumed"
-            );
+            report_restarted(service, cause, ended.as_ref(), &resumed);
         }
         if cause == CodexServiceRecoveryCause::PersonRestart {
             self.announce_person_restart(service, &resumed).await;
@@ -239,17 +266,14 @@ impl CodexServiceRecovery {
     /// Tells every session on a service that stays down after its crash window filled, naming how
     /// its process last ended, the newest end recovery read, else, for a loop of failed restarts
     /// after an end the daemon could not read, `start_failure`, the failure of the restart that
-    /// filled the window. A loop with neither, whose ends no wait read, posts nothing.
+    /// filled the window. A loop with neither, whose ends no wait read, posts nothing. The queue
+    /// hears each session's process gone first, so its next run opens it again.
     pub(crate) async fn crash_loop(
         &self,
         service: &Arc<CodexService>,
         start_failure: Option<&CodexError>,
     ) {
-        let sessions: HashSet<SessionId> = service
-            .attached_sessions()
-            .iter()
-            .map(CodexSessionInboundSender::session_id)
-            .collect();
+        let sessions = self.report_sessions_gone(service);
         let exit = {
             let mut state = self.lock();
             state
@@ -257,10 +281,12 @@ impl CodexServiceRecovery {
                 .insert(service.id(), sessions.clone());
             state.last_exit.get(&service.id()).cloned()
         };
-        let (exit_code, signal, start_failure) = match (exit, start_failure) {
-            (Some(ProcessExit::Code(ended)), _) => (Some(ended.exit_code), None, None),
-            (Some(ProcessExit::Signal(ended)), _) => (None, Some(ended.signal), None),
+        let (exit_code, signal, silent_seconds, start_failure) = match (exit, start_failure) {
+            (Some(ProcessExit::Code(ended)), _) => (Some(ended.exit_code), None, None, None),
+            (Some(ProcessExit::Signal(ended)), _) => (None, Some(ended.signal), None, None),
+            (Some(ProcessExit::Silent(ended)), _) => (None, None, Some(ended.silent_seconds), None),
             (None, Some(failure)) => (
+                None,
                 None,
                 None,
                 Some(bound_failure_detail(
@@ -285,11 +311,45 @@ impl CodexServiceRecovery {
                     provider: DESCRIPTOR.provider_id(),
                     exit_code,
                     signal: signal.clone(),
+                    silent_seconds,
                     start_failure: start_failure.clone(),
                 },
             )
             .await;
         }
+    }
+
+    /// Tells the queue each session on a service that stays down, its start having failed, that
+    /// its process is gone, so its next run opens it again.
+    pub(crate) fn start_failed(&self, service: &CodexService) {
+        self.report_sessions_gone(service);
+    }
+
+    // Tells the queue the process of every session on `service`, which stays down, is gone, and
+    // answers those sessions. Every resume the service's recoveries owed them is let go first, so
+    // each reads down by the notice and the queue forgets it.
+    fn report_sessions_gone(&self, service: &CodexService) -> HashSet<SessionId> {
+        let sessions: HashSet<SessionId> = service
+            .attached_sessions()
+            .iter()
+            .map(CodexSessionInboundSender::session_id)
+            .collect();
+        let owed = self.lock().owed_resumes.remove(&service.id());
+        for (generation, session_id) in owed
+            .into_iter()
+            .flatten()
+            .flat_map(|(generation, owed)| owed.into_iter().map(move |id| (generation, id)))
+        {
+            self.dependencies
+                .slots
+                .settle_resume(session_id, generation);
+        }
+        if let Some(listener) = self.dependencies.process_gone.port() {
+            for session_id in &sessions {
+                listener.process_gone(*session_id);
+            }
+        }
+        sessions
     }
 
     /// The person's restart of `session_id`'s service: one its crash loop left down starts again
@@ -335,19 +395,26 @@ impl CodexServiceRecovery {
         else {
             return Ok(None);
         };
-        Ok(self.resume_session(service, &inbound, never_left()).await)
+        Ok(self
+            .resume_session(service, &inbound, never_left(), None)
+            .await)
     }
 
     /// Resumes every conversation the service holds, each inside its session's slot, reports each
-    /// relaunch and answers each resumed session with its conversation and result.
+    /// relaunch and answers each resumed session with its conversation and result; settles the
+    /// resumes `generation` owed, a later recovery's left owed.
     async fn resume_all(
         &self,
         service: &Arc<CodexService>,
+        generation: CodexRecoveryGeneration,
     ) -> Vec<(SessionId, String, DriverResumeResult)> {
         let mut resumed = Vec::new();
         for inbound in service.attached_sessions() {
             let session_id = inbound.session_id();
-            let Some(result) = self.resume_session(service, &inbound, never_left()).await else {
+            let Some(result) = self
+                .resume_session(service, &inbound, never_left(), Some(generation))
+                .await
+            else {
                 continue;
             };
             let waits = self
@@ -373,62 +440,164 @@ impl CodexServiceRecovery {
             };
             resumed.push((session_id, thread_id, result));
         }
-        // A person's restart waiting on a session with no record here answers `None`.
-        self.lock().restart_waits.remove(&service.id());
+        // A person's restart waiting on a session with no record here answers `None`, and a
+        // session owed a resume that moved off the service meanwhile owes it no longer.
+        let owed = {
+            let mut state = self.lock();
+            state.restart_waits.remove(&service.id());
+            let owed_by_service = state.owed_resumes.get_mut(&service.id());
+            let owed = owed_by_service.and_then(|owed| owed.remove(&generation));
+            if state
+                .owed_resumes
+                .get(&service.id())
+                .is_some_and(HashMap::is_empty)
+            {
+                state.owed_resumes.remove(&service.id());
+            }
+            owed
+        };
+        for session_id in owed.into_iter().flatten() {
+            self.dependencies
+                .slots
+                .settle_resume(session_id, generation);
+        }
         resumed
     }
 
-    // Resumes one session's conversation in place on `service` inside its slot and reports the
-    // relaunch; `None` when the session closed or was established anew meanwhile.
+    // Resumes one session's conversation in place on `service` inside its slot, settling the resume
+    // `generation` owed it, and reports the relaunch; `None` when the session closed or was
+    // established anew meanwhile. A conversation the live service refused to resume, or whose
+    // binding could not be opened, lets the session's record go, so it reads down; one the service
+    // went down under keeps its record for the service's next recovery or the person's restart.
+    // Either way the queue, told once the session's process is gone, opens it again on its next
+    // run.
     async fn resume_session(
         &self,
         service: &Arc<CodexService>,
         inbound: &CodexSessionInboundSender,
         writer_left: CodexWriterLeft,
+        generation: Option<CodexRecoveryGeneration>,
     ) -> Option<DriverResumeResult> {
         let session_id = inbound.session_id();
-        let claim = self
-            .dependencies
-            .slots
-            .claim_establishing(session_id)
-            .await
-            .ok()?;
-        let result = self.resume_claimed(service, inbound, writer_left).await;
-        drop(claim);
-        let result = result?;
-        self.report_relaunch(service, session_id, result.clone())
-            .await;
-        Some(result)
+        let claimed = self.dependencies.slots.claim_establishing(session_id).await;
+        // From here its claim reads it re-established, or it closed meanwhile.
+        if let Some(generation) = generation {
+            self.dependencies
+                .slots
+                .settle_resume(session_id, generation);
+        }
+        let claim = claimed.ok()?;
+        let outcome = self.resume_claimed(service, inbound, writer_left).await?;
+        Some(self.settle_resumed(service, inbound, claim, outcome).await)
     }
 
-    // The resume itself, the session's slot already claimed.
+    // What follows a resume run under `claim` on `service`, one rule for a recovery's resume and a
+    // build move's: a conversation the live service refused, or whose binding could not be
+    // opened, lets the session's record go, so it reads down, while one the service went down
+    // under keeps it for that service's next recovery; the relaunch is reported under the claim;
+    // and once the claim is let go, a failed resume tells the queue once that the session's
+    // process is gone, so its next run opens it again. Answers the resume's result.
+    async fn settle_resumed(
+        &self,
+        service: &CodexService,
+        inbound: &CodexSessionInboundSender,
+        claim: CodexSessionClaim<'_>,
+        outcome: CodexInPlaceOutcome,
+    ) -> DriverResumeResult {
+        let session_id = inbound.session_id();
+        let CodexInPlaceOutcome {
+            result,
+            is_service_lost,
+        } = outcome;
+        let is_failed = matches!(result, DriverResumeResult::Failed { .. });
+        if is_failed && !is_service_lost {
+            let_go_codex_session_record(inbound, CodexRecordExit::SessionContinues).await;
+            claim.vacate();
+        }
+        self.report_relaunch(service, &claim, session_id, result.clone())
+            .await;
+        drop(claim);
+        if is_failed && let Some(listener) = self.dependencies.process_gone.port() {
+            listener.process_gone(session_id);
+        }
+        result
+    }
+
+    // The resume itself, the session's slot already claimed, under a binding whose cursor the
+    // session directory opened first, so what the resumed conversation delivers at once is taken;
+    // a binding that cannot be opened, the directory unregistered among the causes, fails the
+    // relaunch with no resume, as the live service's refusal. A session that closed or was
+    // established anew meanwhile answers `None`, its opened binding forgotten through a failed
+    // relaunch.
     async fn resume_claimed(
         &self,
         service: &Arc<CodexService>,
         inbound: &CodexSessionInboundSender,
         writer_left: CodexWriterLeft,
-    ) -> Option<DriverResumeResult> {
+    ) -> Option<CodexInPlaceOutcome> {
+        let session_id = inbound.session_id();
+        let binding_id = mint_runtime_binding_id();
+        let session_relaunched = &self.dependencies.session_relaunched;
+        let function_legs = match session_relaunched.require_port() {
+            Ok(listener) => {
+                listener
+                    .open_relaunch_binding(session_id, binding_id.clone())
+                    .await
+            }
+            Err(unregistered) => Err(unregistered.into()),
+        };
+        let function_legs = match function_legs {
+            Ok(function_legs) => function_legs,
+            Err(cause) => {
+                let error = CodexError::PortFailed {
+                    port: session_relaunched.port_name(),
+                    cause,
+                };
+                return Some(CodexInPlaceOutcome {
+                    result: compose_failed_resume(None, &error).await,
+                    is_service_lost: false,
+                });
+            }
+        };
         let resume = CodexInPlaceResumeCall {
             establishment: Arc::clone(&self.dependencies.establishment),
             service: Arc::clone(service),
+            binding_id,
+            function_legs,
             writer_left,
         };
-        call_codex_session(inbound, |reply| CodexSessionCall::ResumeInPlace {
+        let resumed = call_codex_session(inbound, |reply| CodexSessionCall::ResumeInPlace {
             resume: Box::new(resume),
             reply,
         })
         .await
-        .ok()
+        .ok();
+        if resumed.is_none() {
+            let gone = DriverResumeResult::Failed {
+                recovery_condition: RecoveryCondition::RecoveryNeeded,
+                provider_failure_detail: bound_failure_detail(
+                    "The session closed or opened anew while its conversation resumed.",
+                    UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
+                ),
+            };
+            self.record_relaunch(service, session_id, gone).await;
+        }
+        resumed
     }
 
     // Hands the relaunch to the session directory, which records its binding; a failed resume is
-    // logged, as the person sees it on the session's next request.
+    // logged, as the person sees it on the session's next request. A resumed conversation whose
+    // binding was not recorded is let go, so none delivers under a binding with no row. Run under
+    // the `claim` the resume ran under, so no other relaunch of the session opens before this one
+    // is recorded.
     async fn report_relaunch(
         &self,
         service: &CodexService,
+        claim: &CodexSessionClaim<'_>,
         session_id: SessionId,
         result: DriverResumeResult,
     ) {
+        let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
         if let DriverResumeResult::Failed {
             provider_failure_detail,
             ..
@@ -440,17 +609,46 @@ impl CodexServiceRecovery {
                 "a codex conversation could not be resumed after its service came back"
             );
         }
-        let Some(listener) = self.dependencies.session_relaunched.port() else {
-            return;
+        if !self.record_relaunch(service, session_id, result).await && is_resumed {
+            self.let_go_unrecorded(claim, session_id).await;
+        }
+    }
+
+    // Whether the session directory recorded the relaunch; a failure, an unregistered directory
+    // among the causes, is reported.
+    async fn record_relaunch(
+        &self,
+        service: &CodexService,
+        session_id: SessionId,
+        result: DriverResumeResult,
+    ) -> bool {
+        let recorded = match self.dependencies.session_relaunched.require_port() {
+            Ok(listener) => listener.session_relaunched(session_id, result).await,
+            Err(unregistered) => Err(unregistered.into()),
         };
-        if let Err(error) = listener.session_relaunched(session_id, result).await {
-            CodexTransportDiagnostic::PortDeliveryFailed {
-                provider_account_id: service.home().provider_account_id.clone(),
-                port: CodexDeliveryPort::SessionRelaunched,
-                session_id: Some(session_id),
-                error,
-            }
-            .report();
+        let Err(error) = recorded else {
+            return true;
+        };
+        CodexTransportDiagnostic::PortDeliveryFailed {
+            provider_account_id: service.home().provider_account_id().cloned(),
+            port: CodexDeliveryPort::SessionRelaunched,
+            session_id: Some(session_id),
+            error,
+        }
+        .report();
+        false
+    }
+
+    // Lets a resumed conversation whose binding has no row go under the `claim` it resumed under,
+    // as a resume lets a live record go, and tells the queue its process is gone, so the next
+    // admission resumes it again.
+    async fn let_go_unrecorded(&self, claim: &CodexSessionClaim<'_>, session_id: SessionId) {
+        if let Some(inbound) = claim.live() {
+            let_go_codex_session_record(&inbound, CodexRecordExit::SessionContinues).await;
+            claim.vacate();
+        }
+        if let Some(listener) = self.dependencies.process_gone.port() {
+            listener.process_gone(session_id);
         }
     }
 
@@ -499,7 +697,7 @@ impl CodexServiceRecovery {
                     .await
                 {
                     CodexTransportDiagnostic::PortDeliveryFailed {
-                        provider_account_id: service.home().provider_account_id.clone(),
+                        provider_account_id: service.home().provider_account_id().cloned(),
                         port: CodexDeliveryPort::RunEnd,
                         session_id: Some(session_id),
                         error,
@@ -538,7 +736,7 @@ impl CodexServiceRecovery {
             &*self.dependencies.dispatch,
             DeliveryOrigin {
                 provider: DESCRIPTOR.provider_id(),
-                provider_account_id: service.home().provider_account_id.clone(),
+                provider_account_id: service.home().provider_account_id().cloned(),
                 raw_wire_type: None,
             },
             InboundDelivery::SessionNotice {
@@ -602,66 +800,51 @@ pub(crate) fn drop_codex_turns(
     }
 }
 
-/// Resumes the session's conversation in place on the session's task, then ends each turn the
-/// session still owed an end that the resume lists as over: its `turn/completed` was sent while
-/// the daemon was not connected, and Codex sends none again. Answers the resume's result and the
-/// frames its routing released.
-pub(crate) async fn resume_codex_session_in_place(
-    task: &mut CodexSessionTask<'_>,
-    dependencies: &CodexSessionCallDependencies,
-    resume: CodexInPlaceResumeCall,
-) -> (DriverResumeResult, CodexRoutedFrames) {
-    let CodexInPlaceResumeCall {
-        establishment,
-        service,
-        writer_left,
-    } = resume;
-    let resumed = establishment
-        .resume_in_place(task, service, writer_left)
-        .await;
-    let mut routed = resumed.routed;
-    for listed in resumed.listed_turns {
-        let is_owed = task.record.active_turn_run(&listed.id).is_some()
-            || task.record.ending_turn_ids().contains(&listed.id.as_str());
-        if !is_owed || is_turn_in_progress(&listed.turn) {
-            continue;
+// Records that the service runs again in place of a process that ended, with how it ended where
+// that was read, counted per account so a service that keeps ending shows.
+fn report_restarted(
+    service: &CodexService,
+    cause: CodexServiceRecoveryCause,
+    ended: Option<&ProcessExit>,
+    resumed: &[(SessionId, String, DriverResumeResult)],
+) {
+    let mut details = serde_json::Map::from_iter([
+        (
+            "codexHome".to_owned(),
+            json!(service.home().codex_home.display().to_string()),
+        ),
+        ("cause".to_owned(), json!(format!("{cause:?}"))),
+        (
+            "conversations".to_owned(),
+            json!(
+                resumed
+                    .iter()
+                    .map(|(_, thread_id, _)| thread_id.as_str())
+                    .collect::<Vec<_>>()
+            ),
+        ),
+    ]);
+    let disposition_reason = match ended {
+        Some(ProcessExit::Code(ended)) => {
+            details.insert("exitCode".to_owned(), json!(ended.exit_code));
+            "the Codex service ended and was started again"
         }
-        let Some(params) = compose_turn_completed_params(&task.record.thread_id, &listed.turn)
-        else {
-            continue;
-        };
-        let ended = task
-            .routing
-            .route_notification(
-                &dependencies.forks.delivery,
-                task.record,
-                CODEX_TURN_COMPLETED_METHOD.to_owned(),
-                params,
-            )
-            .await;
-        routed.extend(ended);
-    }
-    (resumed.result, routed)
-}
-
-// Whether a listed turn still runs.
-fn is_turn_in_progress(turn: &RawValue) -> bool {
-    #[derive(Deserialize)]
-    struct ListedTurnStatus {
-        status: Option<String>,
-    }
-    read_codex_object::<ListedTurnStatus>(turn.get())
-        .and_then(|listed| listed.status)
-        .and_then(|status| CodexTurnStatus::read(&status))
-        == Some(CodexTurnStatus::InProgress)
-}
-
-// The params of the `turn/completed` Codex sent for a listed turn: the conversation and the turn.
-fn compose_turn_completed_params(thread_id: &str, turn: &RawValue) -> Option<Box<RawValue>> {
-    let thread_id = serde_json::to_string(thread_id).ok()?;
-    RawValue::from_string(format!(
-        r#"{{"threadId":{thread_id},"turn":{}}}"#,
-        turn.get()
-    ))
-    .ok()
+        Some(ProcessExit::Signal(ended)) => {
+            details.insert("signal".to_owned(), json!(ended.signal));
+            "the Codex service ended and was started again"
+        }
+        Some(ProcessExit::Silent(ended)) => {
+            details.insert("silentSeconds".to_owned(), json!(ended.silent_seconds));
+            "the Codex service answered nothing, so the daemon ended it and started it again"
+        }
+        None => "the Codex service ended unread and was started again",
+    };
+    emit_driver_diagnostic(&DriverDiagnosticRecord {
+        provider: DESCRIPTOR.provider_id(),
+        provider_account_id: service.home().provider_account_id().cloned(),
+        kind: DriverDiagnosticKind::ProviderRestarted,
+        raw_wire_type: None,
+        disposition_reason: disposition_reason.to_owned(),
+        details,
+    });
 }

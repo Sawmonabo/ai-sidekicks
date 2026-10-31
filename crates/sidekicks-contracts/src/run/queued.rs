@@ -15,7 +15,7 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
-use crate::wire::{Never, True, literal};
+use crate::wire::{Never, literal};
 
 /// How a child run was reached: a provider's own subagent, a run another agent asked for through
 /// the bridge, or a workflow step. Internal to the agent index; the screen never shows it.
@@ -92,15 +92,6 @@ macro_rules! run_queued_payload {
             )]
             #[schemars(with = "ChildRunProvenance")]
             pub reached_by: Option<ChildRunProvenance>,
-            /// Marks a run whose one turn runs in a process of its own apart from the session's,
-            /// such as the provider's own review of the staged set; never the session's lead run.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "True")]
-            pub is_apart: Option<True>,
             /// The limits admission resolved, the request's own else the session's default, so a
             /// rebuild restores them even if the defaults change mid-run.
             #[serde(
@@ -118,14 +109,8 @@ macro_rules! run_queued_payload {
             )]
             #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
             pub admitted_model_family: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
-            /// The account the run was admitted against.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "ProviderAccountId")]
-            pub admitted_provider_account_id: Option<ProviderAccountId>,
+            /// The account the run was admitted against, resolved before its provider is called.
+            pub admitted_provider_account_id: ProviderAccountId,
         }
     };
 }

@@ -276,6 +276,7 @@ fn harness() -> Harness {
         registry,
         negotiator: Arc::clone(&negotiator),
         subscriptions,
+        presence: Arc::default(),
         hooks: Arc::clone(&hooks) as Arc<dyn SupervisionHooks>,
     });
     Harness {

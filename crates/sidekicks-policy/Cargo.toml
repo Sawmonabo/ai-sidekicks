@@ -28,5 +28,9 @@ rstest.workspace = true
 # The paused clock the reading bound's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 
+[features]
+# Rules other crates' tests decide by in place of the built-in ones.
+test-support = []
+
 [lints]
 workspace = true

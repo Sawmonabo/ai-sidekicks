@@ -34,6 +34,7 @@ fn window(log: &TranscriptTestLog) -> Value {
     let window = read_transcript_window(
         &log.session_log.reader(),
         &|_: &SessionId| None,
+        &|_| None,
         &request,
         MARKDOWN_PARSE,
     )

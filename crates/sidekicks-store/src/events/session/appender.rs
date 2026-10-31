@@ -26,6 +26,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::statement::WriteStatement;
+use crate::database::writer::WriteError;
 use crate::events::canonicalizer::{OccurredAtNormalizationRefusal, normalize_occurred_at};
 use crate::events::content::append::{
     ContentPartitionRefusedError, PatchFilesRefusedError, PatchPartPlace, compose_content_payload,
@@ -314,6 +315,51 @@ pub enum SessionEventEmitError {
     /// The event log did not keep the append.
     #[error("the event was not appended")]
     Append(#[from] SessionEventAppendError),
+}
+
+impl SessionEventAppendError {
+    /// The writer's failure, when the writer is what did not keep the append.
+    pub fn write_error(&self) -> Option<&WriteError> {
+        match self {
+            Self::Append(EventAppendError::Write(write)) => Some(write),
+            Self::OccurredAt(_) | Self::Append(_) => None,
+        }
+    }
+
+    /// The position of the statement whose row count refused the append's write, `None` for any
+    /// other failure.
+    pub fn refused_statement_index(&self) -> Option<usize> {
+        self.write_error()
+            .and_then(WriteError::refused_statement_index)
+    }
+}
+
+impl SessionEventEmitError {
+    /// The writer's failure, when the writer is what did not keep the append.
+    pub fn write_error(&self) -> Option<&WriteError> {
+        match self {
+            Self::Append(append) => append.write_error(),
+            Self::Draft(_) => None,
+        }
+    }
+
+    /// The position of the statement whose row count refused the append's write, `None` for any
+    /// other failure.
+    pub fn refused_statement_index(&self) -> Option<usize> {
+        self.write_error()
+            .and_then(WriteError::refused_statement_index)
+    }
+
+    /// The writer's failure, taken out, when the writer is what did not keep the append; any
+    /// other failure is handed back as it came.
+    pub fn into_write_error(self) -> Result<WriteError, Self> {
+        match self {
+            Self::Append(SessionEventAppendError::Append(EventAppendError::Write(write))) => {
+                Ok(write)
+            }
+            other @ (Self::Draft(_) | Self::Append(_)) => Err(other),
+        }
+    }
 }
 
 /// Builds one session event envelope from a typed event and appends it to the event log.

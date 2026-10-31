@@ -131,8 +131,8 @@ impl ClaudeHeldFigures {
     /// own process that keeps nothing, where none is held for it at the session's endpoint.
     #[expect(
         dead_code,
-        reason = "a session's move to another model reads that model's reply reserve, which the \
-                  session's context-usage read takes"
+        reason = "the compaction bound's write reads the new model's reply reserve on a model \
+                  change, to set Claude Code's compaction keys again"
     )]
     pub(crate) fn read_reply_reserve_for(&self, legs: &ClaudeSpawnBoundLegs, running_model: &str) {
         let figures = self.current();

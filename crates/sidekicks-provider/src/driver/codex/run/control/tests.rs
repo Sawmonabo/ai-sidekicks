@@ -15,7 +15,7 @@ use crate::driver::codex::intervention::CodexSteerRunRequest;
 use crate::driver::codex::run::routes::CodexRunBinding;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession, turn_completed};
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::test_registry::{new_message_id, new_run_id};
 
 /// How long a test waits before it counts a hold on the session's task as a deadlock.

@@ -9,6 +9,7 @@ pub(crate) mod channel;
 pub(crate) mod control;
 pub(crate) mod declarations;
 pub(crate) mod inbound;
+pub(crate) mod mcp_status;
 pub(crate) mod readings;
 pub(crate) mod spawn_legs;
 pub(crate) mod user_message;

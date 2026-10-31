@@ -4,7 +4,7 @@
 //! the whole set, a command's output is kept only as its live tail, and each command's ending is
 //! appended once on the session's binding at the time it ends, so a fork move changes nothing.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -12,10 +12,11 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::json;
 use sidekicks_contracts::command::{
-    AgentCommandEndedPayload, CommandEnding, CommandId, CommandPrompt, ExitCode, RunningCommand,
+    AgentCommandEndedPayload, CommandEnding, CommandId, ExitCode, RunningCommand,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
@@ -35,29 +36,31 @@ use crate::port::running_command_publisher::{
 };
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
 
+mod drawing;
 mod feed;
+mod refusals;
+mod wrappers;
 
+use drawing::drawn_row;
 use feed::OutputRing;
 pub(crate) use feed::RunningCommandFeed;
 #[cfg(test)]
 pub(crate) use feed::{next_sent_frame, next_sent_set_where};
+use refusals::not_in_foreground;
+pub(crate) use refusals::takes_no_input;
 
+#[cfg(any(test, feature = "test-support"))]
+mod test_support;
+#[cfg(any(test, feature = "test-support"))]
+pub use test_support::unbound_running_command_sets;
 #[cfg(test)]
 mod tests;
 
 /// The binding a session runs on now, where it has one.
-pub(crate) type SessionBindingLookup =
-    Arc<dyn Fn(&SessionId) -> Option<RuntimeBindingId> + Send + Sync>;
+pub type SessionBindingLookup = Arc<dyn Fn(&SessionId) -> Option<RuntimeBindingId> + Send + Sync>;
 
 /// Where a command's ending is appended: the session's event log, through the binding it runs on.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start hands the running set its ending appender"
-    )
-)]
-pub(crate) trait CommandEndingAppender: Send + Sync {
+pub trait CommandEndingAppender: Send + Sync {
     /// Appends `ending` on `binding_id`, `summary` as its body; a failure is logged, since the
     /// provider's stream cannot take it back.
     fn append(
@@ -157,6 +160,9 @@ struct SessionCommands {
     commands_version: u64,
     /// Raised on every change, the set's or a command's output, waking each feed.
     changed: watch::Sender<()>,
+    /// The runs of the session's processes apart from its own, such as a staged review's, whose
+    /// rows its own process's whole list and its end leave alone.
+    apart_runs: HashSet<RunId>,
 }
 
 impl Default for SessionCommands {
@@ -166,6 +172,7 @@ impl Default for SessionCommands {
             unpaired: Vec::new(),
             commands_version: 0,
             changed: watch::Sender::new(()),
+            apart_runs: HashSet::new(),
         }
     }
 }
@@ -208,6 +215,8 @@ struct WrapperFacts {
     exit: Option<WrapperExit>,
     waiting: Option<WaitingState>,
     prompt: Option<OpenPrompt>,
+    // Set once the person ended the command's input, after which its prompts answer empty at once.
+    is_input_ended: bool,
 }
 
 // How the wrapper's command exited: its code, absent for a signal's end.
@@ -224,6 +233,8 @@ struct OpenPrompt {
 
 struct UnpairedWrapper {
     party: PartyId,
+    // The run its channel's process runs alone; `None` for the session's own process's channel.
+    apart_run: Option<RunId>,
     command: WrapperCommand,
     facts: WrapperFacts,
     // Raised once the wrapper pairs with its row.
@@ -243,14 +254,7 @@ enum RowEnd {
 impl RunningCommandSets {
     /// Running sets that append each ending through `endings` on the binding `binding_of` answers
     /// for its session when the command ends.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start builds the one running set")
-    )]
-    pub(crate) fn new(
-        binding_of: SessionBindingLookup,
-        endings: Arc<dyn CommandEndingAppender>,
-    ) -> Self {
+    pub fn new(binding_of: SessionBindingLookup, endings: Arc<dyn CommandEndingAppender>) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             binding_of,
@@ -272,6 +276,14 @@ impl RunningCommandSets {
             .changed
             .subscribe();
         RunningCommandFeed::new(Arc::clone(&self.sessions), session_id, changed)
+    }
+
+    /// Whether a command of `session_id` still runs: one the provider reported, or one whose
+    /// wrapper started before the provider named it.
+    pub fn has_running_commands(&self, session_id: SessionId) -> bool {
+        self.lock()
+            .get(&session_id)
+            .is_some_and(|commands| !commands.rows.is_empty() || !commands.unpaired.is_empty())
     }
 
     /// The person's stop, carried out by the session's `driver`: answered once the provider
@@ -401,9 +413,9 @@ impl RunningCommandSets {
     }
 
     /// The person's input: an open askpass prompt takes it as its answer, the end of input alone
-    /// answering it empty; otherwise the session's `driver` writes it to a command that takes
-    /// input. Refused with `agent.command.takesNoInput` for any other command, and with the
-    /// provider's refusal.
+    /// answering it empty and every later prompt of the command at once; otherwise the session's
+    /// `driver` writes it to a command that takes input. Refused with `agent.command.takesNoInput`
+    /// for any other command, and with the provider's refusal.
     pub async fn write(
         &self,
         driver: &dyn ProviderDriver,
@@ -420,6 +432,7 @@ impl RunningCommandSets {
                 return Err(takes_no_input(command_id).into());
             };
             if let Some(prompt) = row.facts.prompt.take() {
+                row.facts.is_input_ended = input.is_end_of_input;
                 prompt.answer.answer(input.text.unwrap_or_default());
                 commands.publish_commands();
                 return Ok(());
@@ -460,156 +473,20 @@ impl RunningCommandSets {
         })
     }
 
-    /// Pairs the wrapper `party` with its command's row: a line with the oldest unpaired row whose
-    /// line runs the same text, a process with the row the provider names by it; a wrapper whose
-    /// row is not known yet waits for it. Answers the signal raised once it pairs, which its output
-    /// waits on.
-    pub(crate) fn wrapper_started(
-        &self,
-        session_id: SessionId,
-        party: PartyId,
-        command: WrapperCommand,
-    ) -> watch::Receiver<bool> {
-        let mut sessions = self.lock();
-        let commands = sessions.entry(session_id).or_default();
-        let found = commands
-            .rows
-            .iter_mut()
-            .find(|row| row.wrapper == RowWrapper::Waiting && row_runs(row, &command));
-        let (paired, is_paired) = watch::channel(found.is_some());
-        match found {
-            Some(row) => row.wrapper = RowWrapper::Paired(party),
-            None => commands.unpaired.push(UnpairedWrapper {
-                party,
-                command,
-                facts: WrapperFacts::default(),
-                paired,
-            }),
-        }
-        is_paired
-    }
-
-    /// Output the wrapper `party` read from its command, kept in its row's live tail; dropped for a
-    /// wrapper not paired.
-    pub(crate) fn wrapper_output(&self, session_id: SessionId, party: PartyId, data: &str) {
-        let mut sessions = self.lock();
-        let Some(commands) = sessions.get_mut(&session_id) else {
-            return;
-        };
-        if let Some(index) = commands
-            .rows
-            .iter()
-            .position(|row| row.wrapper == RowWrapper::Paired(party))
-        {
-            commands.publish_output(index, data);
-        }
-    }
-
-    /// The wrapper `party`'s command exited with `exit_code`, which its row's ending takes when
-    /// the provider gives none.
-    pub(crate) fn wrapper_exited(
-        &self,
-        session_id: SessionId,
-        party: PartyId,
-        exit_code: Option<ExitCode>,
-    ) {
-        self.update_wrapper(session_id, party, |facts| {
-            facts.exit = Some(WrapperExit { code: exit_code });
-            facts.prompt.take().is_some()
-        });
-    }
-
-    /// What the wrapper `party`'s command's input wait now reads.
-    pub(crate) fn waiting_read(&self, session_id: SessionId, party: PartyId, state: WaitingState) {
-        self.update_wrapper(session_id, party, |facts| {
-            let changed = facts.waiting != Some(state);
-            facts.waiting = Some(state);
-            changed
-        });
-    }
-
-    /// Opens the askpass `askpass`'s prompt on the wrapper `party`'s command, in its own words,
-    /// masked when its kind is; `answer` takes the person's answer, and answers empty for a wrapper
-    /// the set holds nothing of.
-    pub(crate) fn prompt_opened(
-        &self,
-        session_id: SessionId,
-        party: PartyId,
-        askpass: PartyId,
-        text: NonEmptyText,
-        is_masked: bool,
-        answer: PromptAnswer,
-    ) {
-        self.update_wrapper(session_id, party, |facts| {
-            facts.prompt = Some(OpenPrompt {
-                askpass,
-                text,
-                is_masked,
-                answer,
-            });
-            true
-        });
-    }
-
-    /// Closes the prompt the askpass `askpass` opened on the wrapper `party`'s command, unanswered,
-    /// once that askpass ended.
-    pub(crate) fn prompt_ended(&self, session_id: SessionId, party: PartyId, askpass: PartyId) {
-        self.update_wrapper(session_id, party, |facts| {
-            let is_its_prompt = facts
-                .prompt
-                .as_ref()
-                .is_some_and(|prompt| prompt.askpass == askpass);
-            if is_its_prompt && let Some(prompt) = facts.prompt.take() {
-                prompt.answer.dismiss();
-            }
-            is_its_prompt
-        });
-    }
-
-    /// How many wrappers in `session_id` wait for their row.
-    #[cfg(test)]
-    pub(crate) fn unpaired_count(&self, session_id: SessionId) -> usize {
+    /// Marks `run_id` as a process of `session_id` apart from its own, whose rows the session's
+    /// own whole list and process end leave alone until `apart_run_ended`.
+    pub(crate) fn apart_run_started(&self, session_id: SessionId, run_id: RunId) {
         self.lock()
-            .get(&session_id)
-            .map_or(0, |commands| commands.unpaired.len())
+            .entry(session_id)
+            .or_default()
+            .apart_runs
+            .insert(run_id);
     }
 
-    /// Forgets the wrapper `party`, whose command ended or whose process did, so a later process
-    /// that reuses its id reaches no row of its.
-    pub(crate) fn wrapper_ended(&self, session_id: SessionId, party: PartyId) {
-        let mut sessions = self.lock();
-        if let Some(commands) = sessions.get_mut(&session_id) {
-            commands.unpaired.retain(|unpaired| unpaired.party != party);
-            for row in &mut commands.rows {
-                if row.wrapper == RowWrapper::Paired(party) {
-                    row.wrapper = RowWrapper::Ended;
-                }
-            }
-        }
-    }
-
-    // Applies `change` to a wrapper's facts, on its row or while it waits for one; a change that
-    // answers true sends the set.
-    fn update_wrapper(
-        &self,
-        session_id: SessionId,
-        party: PartyId,
-        change: impl FnOnce(&mut WrapperFacts) -> bool,
-    ) {
-        let mut sessions = self.lock();
-        let Some(commands) = sessions.get_mut(&session_id) else {
-            return;
-        };
-        if let Some(row) = commands
-            .rows
-            .iter_mut()
-            .find(|row| row.wrapper == RowWrapper::Paired(party))
-        {
-            if change(&mut row.facts) {
-                commands.publish_commands();
-            }
-        } else if let Some(unpaired) = commands.unpaired_mut(party) {
-            change(&mut unpaired.facts);
+    /// Clears the mark `apart_run_started` set, once the apart process ended its rows.
+    pub(crate) fn apart_run_ended(&self, session_id: SessionId, run_id: RunId) {
+        if let Some(commands) = self.lock().get_mut(&session_id) {
+            commands.apart_runs.remove(&run_id);
         }
     }
 
@@ -640,16 +517,7 @@ impl RunningCommandSets {
             output: OutputRing::default(),
             stop_answer: None,
         };
-        if let Some(index) = commands
-            .unpaired
-            .iter()
-            .position(|unpaired| row_runs(&row, &unpaired.command))
-        {
-            let unpaired = commands.unpaired.remove(index);
-            row.wrapper = RowWrapper::Paired(unpaired.party);
-            row.facts = unpaired.facts;
-            unpaired.paired.send_replace(true);
-        }
+        commands.pair_waiting_wrapper(&mut row);
         commands.rows.push(row);
         commands.publish_commands();
     }
@@ -717,7 +585,21 @@ impl RunningCommandPublisher for RunningCommandSets {
     fn command_started(&self, start: CommandStart) {
         let mut sessions = self.lock();
         let commands = sessions.entry(start.session_id).or_default();
-        if commands.row(&start.command_id).is_some() {
+        if let Some(index) = commands.index(&start.command_id) {
+            // A row the background list showed first takes what only the start names, so its
+            // wrapper can pair with it; the set is sent again only when the row changed.
+            let mut row = commands.rows.remove(index);
+            let is_filled = (row.start.line.is_none() && start.line.is_some())
+                || (row.start.process_id.is_none() && start.process_id.is_some());
+            row.start.line = row.start.line.take().or(start.line);
+            row.start.process_id = row.start.process_id.take().or(start.process_id);
+            let was_waiting = row.wrapper == RowWrapper::Waiting;
+            commands.pair_waiting_wrapper(&mut row);
+            let is_paired = was_waiting && row.wrapper != RowWrapper::Waiting;
+            commands.rows.insert(index, row);
+            if is_filled || is_paired {
+                commands.publish_commands();
+            }
             return;
         }
         let state = if start.is_backgrounded {
@@ -762,16 +644,17 @@ impl RunningCommandPublisher for RunningCommandSets {
         let commands = sessions.entry(session_id).or_default();
         let mut index = 0;
         while let Some(row) = commands.rows.get(index) {
-            let is_covered = match scope {
-                ReseedScope::EveryCommand => true,
-                ReseedScope::BackgroundCommands => matches!(
-                    row.state,
-                    RowState::Background
-                        | RowState::Stopping {
-                            was_foreground: false
-                        }
-                ),
-            };
+            let is_covered = !commands.apart_runs.contains(&row.start.run_id)
+                && match scope {
+                    ReseedScope::EveryCommand => true,
+                    ReseedScope::BackgroundCommands => matches!(
+                        row.state,
+                        RowState::Background
+                            | RowState::Stopping {
+                                was_foreground: false
+                            }
+                    ),
+                };
             let is_listed = listed
                 .iter()
                 .any(|start| start.command_id == row.start.command_id);
@@ -793,8 +676,13 @@ impl RunningCommandPublisher for RunningCommandSets {
         let Some(commands) = sessions.get_mut(&session_id) else {
             return;
         };
-        while !commands.rows.is_empty() {
-            self.end_row(commands, 0, RowEnd::ProviderExited);
+        let mut index = 0;
+        while let Some(row) = commands.rows.get(index) {
+            if commands.apart_runs.contains(&row.start.run_id) {
+                index += 1;
+            } else {
+                self.end_row(commands, index, RowEnd::ProviderExited);
+            }
         }
     }
 }
@@ -820,6 +708,23 @@ impl SessionCommands {
             .find(|unpaired| unpaired.party == party)
     }
 
+    // Pairs `row`, while it waits for its wrapper, with an unpaired wrapper of its channel that
+    // runs it, taking the wrapper's facts so far.
+    fn pair_waiting_wrapper(&mut self, row: &mut CommandRow) {
+        if row.wrapper != RowWrapper::Waiting {
+            return;
+        }
+        if let Some(index) = self.unpaired.iter().position(|unpaired| {
+            is_channel_row(row, unpaired.apart_run, &self.apart_runs)
+                && row_runs(row, &unpaired.command)
+        }) {
+            let unpaired = self.unpaired.remove(index);
+            row.wrapper = RowWrapper::Paired(unpaired.party);
+            row.facts = unpaired.facts;
+            unpaired.paired.send_replace(true);
+        }
+    }
+
     // Marks the set changed, so every feed sends it.
     fn publish_commands(&mut self) {
         self.commands_version += 1;
@@ -837,35 +742,6 @@ impl SessionCommands {
     }
 }
 
-// The row every device draws for `row`.
-fn drawn_row(row: &CommandRow) -> RunningCommand {
-    let is_foreground = match row.state {
-        RowState::Foreground => true,
-        RowState::Background => false,
-        RowState::Stopping { was_foreground } => was_foreground,
-    };
-    let waiting = row.facts.waiting.unwrap_or(WaitingState {
-        is_waiting: false,
-        is_echo_off: false,
-    });
-    let prompt = row.facts.prompt.as_ref();
-    RunningCommand {
-        command_id: row.start.command_id.clone(),
-        run_id: row.start.run_id,
-        name: row.start.name.clone(),
-        started_at: row.start.started_at.clone(),
-        waiting_in_foreground: is_foreground,
-        can_move_to_background: row.state == RowState::Foreground
-            && row.start.can_move_to_background,
-        accepts_input: row.start.accepts_input,
-        waiting_for_input: waiting.is_waiting || prompt.is_some(),
-        echo_off: waiting.is_echo_off || prompt.is_some_and(|prompt| prompt.is_masked),
-        prompt: prompt.map(|prompt| CommandPrompt {
-            text: prompt.text.clone(),
-        }),
-    }
-}
-
 // Whether `row` is the command a wrapper reports running.
 fn row_runs(row: &CommandRow, command: &WrapperCommand) -> bool {
     match command {
@@ -874,18 +750,11 @@ fn row_runs(row: &CommandRow, command: &WrapperCommand) -> bool {
     }
 }
 
-fn not_in_foreground(command_id: &CommandId) -> DomainError {
-    DomainError::new(
-        "The agent is not waiting on this command.",
-        RefusalCode::AgentCommandNotInForeground,
-    )
-    .with_detail(json!({ "commandId": command_id }))
-}
-
-fn takes_no_input(command_id: &CommandId) -> DomainError {
-    DomainError::new(
-        "This command takes no input and has no prompt open.",
-        RefusalCode::AgentCommandTakesNoInput,
-    )
-    .with_detail(json!({ "commandId": command_id }))
+// Whether `row` is a command of the process whose channel serves `apart_run` alone, or for `None`
+// of the session's own process, which runs every run not apart from it.
+fn is_channel_row(row: &CommandRow, apart_run: Option<RunId>, apart_runs: &HashSet<RunId>) -> bool {
+    match apart_run {
+        Some(run_id) => row.start.run_id == run_id,
+        None => !apart_runs.contains(&row.start.run_id),
+    }
 }

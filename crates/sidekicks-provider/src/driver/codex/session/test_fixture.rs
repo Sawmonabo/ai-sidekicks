@@ -3,23 +3,30 @@
 //! item of the session's queue handed to the test, which handles it the way the session's task
 //! does.
 
+pub(crate) mod relaunches;
+pub(crate) mod status_sink;
+
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::record::Record;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
@@ -49,7 +56,8 @@ use crate::driver::codex::run::start::record::{
     CodexBindingAdoptions, CodexRunCallDependencies, CodexSessionDisposal,
 };
 use crate::driver::codex::run::start::{CodexRunStart, CodexRunStartDependencies};
-use crate::driver::codex::run::turn_end_waiters::CodexTurnEndWaiters;
+use crate::driver::codex::run::stopped_helpers::CodexStoppedHelpers;
+use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnEndWaiters};
 use crate::driver::codex::server_requests::{
     CodexAskKind, CodexInboundServerRequest, CodexServerRequestDecision,
 };
@@ -75,26 +83,28 @@ use crate::driver::codex::session::state::{CodexEstablishedConversation, CodexSe
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
 use crate::driver::schema::schema_parts;
+use crate::driver::session_control::CreateSessionParams;
 use crate::driver::test_registry::{RecordedQueue, new_session_id};
 use crate::driver::{
-    PROVIDERS, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
-    SessionSpawnContextResolver,
+    AccountFoldersError, CurrentProviderAccount, PROVIDERS, ProviderAccountFolders,
+    ProviderAccountReader, SessionSpawnContext, SessionSpawnContextResolver,
 };
 use crate::port::run_host::RunHost;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::{ExecutionPostureService, compose_execution_posture};
-use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
-use crate::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
-use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
+use crate::runtime_binding::store::RuntimeBindingStore;
+use crate::runtime_binding::test_store::{
+    binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
+};
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::ReservedEnvironmentNames;
-use sidekicks_std::port_registration::PortRegistration;
 
 /// The conversation a test session starts on.
 pub(crate) const TEST_THREAD: &str = "thread-1";
@@ -144,6 +154,8 @@ pub(crate) struct TestCodexTask {
     pub(crate) engine: Arc<dyn RunHost>,
     /// Run control on the session, which an ended turn's pause or continue is acted on through.
     pub(crate) run_control: Arc<CodexRunControl>,
+    /// How each let-go the driver asked of the record said it stopped being its session's.
+    pub(crate) let_go_exits: Vec<CodexRecordExit>,
     items: mpsc::UnboundedReceiver<CodexSessionInbound>,
 }
 
@@ -151,7 +163,11 @@ impl TestCodexSession {
     /// A session on conversation [`TEST_THREAD`] at Ask, registered on its service, with no
     /// binding.
     pub(crate) async fn start() -> Self {
-        let scripted = start_scripted_codex_service();
+        Self::start_on(start_scripted_codex_service()).await
+    }
+
+    /// A session as [`Self::start`] makes it, on `scripted`'s service.
+    pub(crate) async fn start_on(scripted: ScriptedCodexService) -> Self {
         let database = TestDatabase::new(schema_parts());
         let engine = Arc::new(RecordingRunEngine::default());
         let bindings = Arc::new(open_store(&database).await);
@@ -164,6 +180,7 @@ impl TestCodexSession {
             reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
             command_output: Arc::new(PortRegistration::new("command output")),
             pending_compactions: pending_compactions.clone(),
+            stopped_helpers: Arc::new(CodexStoppedHelpers::new(TaskTracker::new())),
             effects: Arc::new(NoEffects),
         }));
         let session_id = new_session_id();
@@ -202,15 +219,17 @@ impl TestCodexSession {
             forks: CodexForkDependencies {
                 delivery,
                 release: Arc::clone(&scripted.dependencies.release),
-                bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingRebinder>,
+                bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingWriter>,
                 tool_server_route: Arc::new(PortRegistration::new("tool server route")),
+                reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
                 pending_compactions,
+                session_relaunched: Arc::new(PortRegistration::new("session relaunched")),
             },
             runs: CodexRunCallDependencies {
                 run_routes: Arc::clone(&run_routes),
                 config_forks: Arc::clone(&config_forks),
                 adoptions: Arc::new(CodexBindingAdoptions::default()),
-                bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingRebinder>,
+                bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingWriter>,
                 disposal: Arc::new(NoDisposal),
             },
         };
@@ -220,9 +239,8 @@ impl TestCodexSession {
             config_forks,
             run_routes: Arc::clone(&run_routes),
             engine: Arc::clone(&engine) as _,
-            daemon_turn_bindings: Arc::clone(&daemon_turn_bindings)
-                as Arc<dyn DaemonTurnBindingResolver>,
             attachments: Arc::new(NoAttachments),
+            dispatch: Arc::clone(&engine) as _,
         }));
         let self_started = CodexSelfStartedTurnDependencies {
             engine: Arc::clone(&engine) as _,
@@ -266,6 +284,7 @@ impl TestCodexSession {
                 ports,
                 engine: Arc::clone(&engine) as _,
                 run_control,
+                let_go_exits: Vec::new(),
                 items,
             },
             bindings,
@@ -283,7 +302,7 @@ impl TestCodexSession {
     pub(crate) async fn record_binding(&self) -> RuntimeBindingId {
         self.bindings
             .create(binding_input(
-                RuntimeBindingSpawnConfig::default(),
+                spawn_config_on(test_provider_account_id()),
                 spawned_build("0.130.0", "/opt/codex/bin"),
             ))
             .await
@@ -294,7 +313,7 @@ impl TestCodexSession {
 
 impl TestCodexSession {
     /// An establishment on the session's service and delivery, every conversation it composes
-    /// running in `folder`'s `work` on the person's own sign-in.
+    /// running in `folder`'s `work` on the test's account, its command channels under `folder`.
     pub(crate) fn establishment(&self, folder: &Path) -> CodexSessionEstablishment {
         CodexSessionEstablishment::new(CodexSessionEstablishmentDependencies {
             services: CodexServiceRegistry::holding(&self.scripted),
@@ -308,12 +327,15 @@ impl TestCodexSession {
             helper_roles_folder: folder.join("roles"),
             tool_server_route: Arc::new(PortRegistration::new("tool server route")),
             delivery: Arc::clone(&self.task.calls.forks.delivery),
+            run_routes: Arc::clone(&self.task.run_routes),
             pending_compactions: self.task.calls.forks.pending_compactions.clone(),
             provider_commands: CodexProviderCommandCache::new(
                 Arc::new(PortRegistration::new("server prompts")),
                 Arc::new(|_session_id| None),
             ),
             processes: Arc::clone(&self.processes),
+            reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
+            command_channel_root: folder.join("command-channels"),
         })
     }
 }
@@ -329,39 +351,49 @@ pub(super) fn one_folder_spawn_contexts(
     spawn_contexts
 }
 
-/// The provider-accounts port with [`OneFolder`] registered on it.
-pub(super) fn one_folder_provider_accounts(
-    folder: PathBuf,
-) -> Arc<PortRegistration<Arc<dyn ProviderAccountReader>>> {
-    let provider_accounts = DriverPorts::new().provider_accounts;
-    provider_accounts
-        .register(Arc::new(OneFolder(folder)) as Arc<dyn ProviderAccountReader>)
-        .expect("a fresh port registers");
-    provider_accounts
-}
-
-/// Every session runs in one folder on the person's own sign-in, whose generation is never read.
+/// Every session runs in one folder on the test's one account, whose home sits beside the folder
+/// and whose generation is never read.
 pub(crate) struct OneFolder(pub(crate) PathBuf);
+
+impl OneFolder {
+    // The test account's folders, both its Codex home beside the working folder.
+    fn account_folders(&self) -> ProviderAccountFolders {
+        let codex_home = self.0.with_file_name("codex-home");
+        ProviderAccountFolders {
+            configuration_folder: codex_home.clone(),
+            credential_store_folder: codex_home,
+        }
+    }
+}
 
 impl SessionSpawnContextResolver for OneFolder {
     fn resolve_spawn_context(
         &self,
         _session_id: SessionId,
-        _provider_account_id: Option<ProviderAccountId>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn std::error::Error + Send + Sync>>> {
         let working_directory = self.0.clone();
+        let account_folders = self.account_folders();
         async move {
             Ok(SessionSpawnContext {
                 working_directory,
                 git_common_folder: None,
                 every_project_rows: Vec::new(),
                 project_rows: Vec::new(),
-                account_folders: None,
+                account_folders,
                 step_bound: None,
                 advisor_model: None,
             })
         }
         .boxed()
+    }
+
+    fn resolve_run_folder(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'_, Result<PathBuf, Box<dyn std::error::Error + Send + Sync>>> {
+        let run_folder = self.0.clone();
+        async move { Ok(run_folder) }.boxed()
     }
 }
 
@@ -369,11 +401,17 @@ impl ProviderAccountReader for OneFolder {
     fn resolve_account_folders(
         &self,
         _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<
-        '_,
-        Result<Option<ProviderAccountFolders>, Box<dyn std::error::Error + Send + Sync>>,
-    > {
-        async { Ok(None) }.boxed()
+    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
+        let account_folders = self.account_folders();
+        async move { Ok(account_folders) }.boxed()
+    }
+
+    fn current_account(
+        &self,
+        _provider_id: ProviderId,
+    ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn std::error::Error + Send + Sync>>>
+    {
+        async { Ok(CurrentProviderAccount::Current(test_provider_account_id())) }.boxed()
     }
 
     fn read_credential_generation(
@@ -453,10 +491,17 @@ impl TestCodexTask {
                 self.apply(routed).await;
             }
             CodexSessionInbound::HeldThread { .. } => {}
+            // A let-go is kept and answered; the record stays for the test to read.
+            CodexSessionInbound::Lifecycle(CodexLifecycleCall::LetGo { exit, reply }) => {
+                self.let_go_exits.push(exit);
+                let _unheard = reply.send(());
+            }
             CodexSessionInbound::Ask { .. }
             | CodexSessionInbound::AsksWithdrawn { .. }
             | CodexSessionInbound::Lifecycle(_) => {
-                panic!("the test's service asks nothing and its driver calls nothing of its own")
+                panic!(
+                    "the test's service asks nothing and its driver calls nothing else of its own"
+                )
             }
         }
         self.waiters.settle(&self.record);
@@ -515,7 +560,7 @@ pub(crate) async fn open_test_record(
         inbound,
         thread_id: TEST_THREAD.to_owned(),
         binding_id: None,
-        provider_account_id: None,
+        provider_account_id: test_provider_account_id(),
         turn_boundaries: Vec::new(),
         thread_settings: test_thread_settings(session_id),
         execution_posture: compose_execution_posture(
@@ -526,6 +571,7 @@ pub(crate) async fn open_test_record(
         output_speed_request: None,
         declared_output_speed: None,
         reasoning_effort: None,
+        on_mcp_server_status: None,
     });
     routing
         .bind_session_thread(
@@ -550,6 +596,7 @@ pub(crate) fn test_thread_settings(session_id: SessionId) -> CodexThreadSettings
             working_directory: PathBuf::from("/work/repository"),
             git_common_folder: None,
             deny_paths: Vec::new(),
+            command_channel_folder: PathBuf::from("/data/command-channels/session"),
         },
         command_environment: Vec::new(),
         subagent_policy: None,
@@ -567,6 +614,33 @@ pub(crate) fn fork_reply(thread_id: &str, settings: &CodexThreadSettings) -> Val
             "id": compose_codex_profile_name(settings.level, &settings.profile_folders),
         },
     })
+}
+
+/// A create of `session_id` on `gpt-5` at Ask over the whole disk, in Build, on the person's own
+/// sign-in.
+pub(crate) fn create_session_params(session_id: SessionId) -> CreateSessionParams {
+    CreateSessionParams {
+        session_id,
+        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        config: Map::new(),
+        model: ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),
+        effort: None,
+        larger_window: None,
+        execution_posture: Some(compose_execution_posture(
+            PermissionLevel::Ask,
+            FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+        )),
+        mode: SessionMode::Build,
+        output_speed: None,
+        options: Vec::new(),
+        row_values: Record::default(),
+        callback_tools: None,
+        subagent_policy: None,
+        tool_servers: None,
+        output_schema: None,
+        provider_account_id: test_provider_account_id(),
+        on_mcp_server_status: None,
+    }
 }
 
 /// Answers, as the service, a fork of [`TEST_THREAD`] onto `fork_thread_id` under `settings`
@@ -754,7 +828,7 @@ impl CodexFrameEffects for NoEffects {
     fn withdraw_ask(
         &self,
         _session_id: SessionId,
-        _provider_account_id: Option<&ProviderAccountId>,
+        _provider_account_id: &ProviderAccountId,
         _request_id: &str,
         _ask_kind: CodexAskKind,
     ) {

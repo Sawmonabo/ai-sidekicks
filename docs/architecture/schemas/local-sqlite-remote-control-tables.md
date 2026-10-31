@@ -6,14 +6,17 @@ The Remote Control tables of the daemon's one SQLite schema: this machine's own 
 
 ```sql
 -- Owner: Plan-025
--- This machine: its id and its owner's user id, both minted at the daemon's first start, and the
--- friendly name read then (Spec-002). One row, kept the same at every later start.
+-- This machine: its id and its owner's user id, both minted at the daemon's first start and kept
+-- the same at every later start; the friendly name read then (Spec-002), which a rename replaces;
+-- and the public halves pinning its identity key and channel key. One row.
 CREATE TABLE local_machine (
-  singleton         INTEGER PRIMARY KEY CHECK (singleton = 1),
-  machine_id        TEXT NOT NULL,
-  owner_user_id     TEXT NOT NULL,  -- a hosted account signed in to later attaches to it
-  name              TEXT NOT NULL,
-  minted_at         TEXT NOT NULL
+  singleton            INTEGER PRIMARY KEY CHECK (singleton = 1),
+  machine_id           TEXT NOT NULL,
+  owner_user_id        TEXT NOT NULL,  -- a hosted account signed in to later attaches to it
+  name                 TEXT NOT NULL,
+  minted_at            TEXT NOT NULL,
+  identity_public_key  BLOB,           -- NULL until the first mint, replaced at the relink
+  channel_public_key   BLOB            -- NULL until the first mint, replaced at the relink
 ) STRICT;
 
 -- Owner: Plan-025

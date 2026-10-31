@@ -1,67 +1,76 @@
 //! A session's provider session, opened by its first admission: the driver's `create_session` and
 //! the runtime binding that records it, or, when the session already has a conversation from before
-//! the daemon started, the driver's `resume_session` of it and the binding the resume minted. Each
-//! run after that gets a binding of its own on the session's current leg. A session's opening, its
-//! run bindings and its level moves take the session's transition lock, so a process never opens
-//! at a level a move is about to replace, two moves never store one level while the process runs
-//! at the other, and no process opens between a close's end of the provider leg and its
-//! `session.closed` write, nor after it: an opening under the lock refuses a closed session.
+//! the daemon started, the driver's `resume_session` of it and the binding the resume minted; a
+//! process that ended and stayed down comes back the same way through the driver's
+//! `restart_session`. Each run after that gets a binding of its own on the session's current leg.
+//! A session's opening and restart, its run bindings, its level and mode moves and the forgetting
+//! of a process gone take the session's transition lock, so a process never opens at a level or in
+//! a mode a move is about to replace, two moves never store one level while the process runs at
+//! the other, and no process opens between a close's end of the provider leg and its
+//! `session.closed` write, nor after it: an opening under the lock refuses a closed session. It is
+//! the one place a session's process opens or resumes, so it tells the idle sleep of each opening
+//! and close, and brings a sleeping session's process up for it.
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::Map;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
-use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
-use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
-use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_provider::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::contract::params_and_results::{
+    SessionProcessState, SpawnedVersionBindingCarriers,
+};
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::session_control::{
-    CreateSessionParams, DriverResumeResult, UpdatePermissionLevelParams,
+use sidekicks_provider::driver::session_control::{CloseSessionParams, CreateSessionParams};
+use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
+use sidekicks_provider::run::posture::{
+    ExecutionPostureRejection, ExecutionPostureService, StoredSessionPosture,
+    compose_execution_posture, compose_folderless_posture,
 };
-use sidekicks_provider::left_conversations::LeftConversation;
-use sidekicks_provider::run::posture::compose_execution_posture;
-use sidekicks_provider::runtime_binding::resume::{
-    ResumeFunctionLegs, RuntimeBindingNotResumable, compose_resume_session_params,
-};
+use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_provider::runtime_binding::store::{
-    CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch,
-    RuntimeBindingSpawnConfig, RuntimeBindingStore, RuntimeBindingStoreError,
+    CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, mint_runtime_binding_id,
 };
 use sidekicks_session::console_state::read_session_mode;
-use sidekicks_session::permission_level::{
-    permission_level_change_statement, read_session_permission_level,
-};
-use sidekicks_session::run::binding_cursors::{RunBindingCursorError, RunBindingCursors};
+use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
+use sidekicks_session::run::agent::RunAgentReader;
+use sidekicks_session::run::binding_cursors::RunBindingCursors;
+use sidekicks_session::run::session_posture::SessionPostureSource;
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, ReadLength,
-};
+use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::schema::session_directory::read_session_state_through;
-use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::events::session::appender::SessionEventAppender;
 
+use crate::provider_session::errors::ProviderSessionError;
+use crate::provider_session::resumed_runs::ResumedRunsIngress;
+
+pub mod controls;
+pub mod errors;
+pub mod resume;
+pub mod resumed_runs;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_opening;
 #[cfg(test)]
 mod tests;
 
 /// The statements the provider sessions' reads prepare: a session's state, its runs, their
-/// bindings, its mode and its level.
-pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 5;
+/// bindings, its mode, its level and its kept schedules.
+pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 6;
 
 /// What a session's provider session opens with, composed from the session's lead as its log
 /// stands now.
@@ -73,168 +82,100 @@ pub struct ProviderSessionOpening {
     /// The create's data legs, its posture the one of the level the session stands at; its
     /// function legs are left out and bound to the binding once it is minted.
     pub create_params: CreateSessionParams,
-    /// The build the session's process spawns, which its binding records: the version it reports
-    /// and the executable it resolved to, from one reading.
-    pub spawned_version: SpawnedVersionBindingCarriers,
     /// The callbacks a process of the leg a binding id names is handed, bound to that leg.
     pub function_legs_for: Arc<dyn Fn(&RuntimeBindingId) -> ResumeFunctionLegs + Send + Sync>,
 }
 
-/// Composes a session's opening from its lead. Fails when the session has no lead or no
-/// workspace, or its repository's git folder cannot be read.
+/// Composes a session's opening from its lead, on the account given, which its create carries.
+/// Fails when the session has no lead or no workspace, or its repository's git folder cannot be
+/// read.
 pub type ProviderSessionOpeningComposer = Arc<
     dyn Fn(
             SessionId,
+            ProviderAccountId,
         )
             -> BoxFuture<'static, Result<ProviderSessionOpening, Box<dyn Error + Send + Sync>>>
         + Send
         + Sync,
 >;
 
+/// Reads the git folder of a session's repository, which the posture of Sandboxed is built on.
+/// Fails with [`GitFolderReadError::Unavailable`] when the session names no folder or git refuses
+/// the one it names, and with [`GitFolderReadError::Failed`] when the reads fail.
+pub type ProviderSessionGitFolderReader = Arc<
+    dyn Fn(SessionId) -> BoxFuture<'static, Result<FilesystemPath, GitFolderReadError>>
+        + Send
+        + Sync,
+>;
+
+/// Why a session's git folder was not read.
+#[derive(Debug, thiserror::Error)]
+pub enum GitFolderReadError {
+    /// The session names no folder to work in yet, or git refuses the one it names: no repository
+    /// there, the folder gone or unreadable, or a repository git will not use.
+    #[error("the session's repository folder is unavailable")]
+    Unavailable(#[source] Box<dyn Error + Send + Sync>),
+    /// The session's records could not be read, or git could not be run.
+    #[error("the session's git folder could not be read")]
+    Failed(#[source] Box<dyn Error + Send + Sync>),
+}
+
 /// What the provider sessions read, write and call.
 pub struct ProviderSessionsDeps {
     /// The read pool every read of a session's bindings, mode and level goes through.
     pub pool: Arc<DatabaseReadPool>,
-    /// The writer a level move is stored through.
-    pub writer: Arc<DatabaseWriter>,
-    /// The binding rows an opening completes or removes.
-    pub runtime_bindings: Arc<RuntimeBindingStore>,
-    /// Records each binding a run opens on, or a resume minted, with its epoch cursor open.
+    /// The appender a level or mode move is stored through, with the notice that tells every
+    /// client of it.
+    pub appender: Arc<SessionEventAppender>,
+    /// Records each binding with its epoch cursor open: a new session's, opened before its
+    /// provider runs, a run's on the session's leg, and the one a resume minted.
     pub binding_cursors: Arc<RunBindingCursors>,
     /// The drivers, and the contract version each declares.
     pub providers: Arc<ProviderRegistry>,
     /// Composes a session's opening from its lead.
     pub compose_opening: ProviderSessionOpeningComposer,
+    /// Reads a session's git folder, where no process of the session is open to name it.
+    pub read_git_folder: ProviderSessionGitFolderReader,
     /// The session-wide transition lock, which a session's close holds from its driver's close
-    /// until its `session.closed` write; each opening, run binding and level move takes it.
+    /// until its `session.closed` write; each opening, run binding, level or mode move and the
+    /// forgetting of a process gone takes it.
     pub transition_lock: Arc<KeyedLock<SessionId>>,
+    /// The idle sleep, told of each session whose process opens or resumes and each close.
+    pub process_follower: Arc<dyn SessionProcessFollower>,
+    /// The runs' resolved postures, which a level move carries to the session's moved posture and
+    /// a close forgets.
+    pub execution_postures: Arc<ExecutionPostureService>,
+    /// Settles each run a resume named as the provider answered for it, before the resumed
+    /// binding is recorded.
+    pub resumed_runs: Arc<PortRegistration<Arc<dyn ResumedRunsIngress>>>,
 }
 
-/// Why a session's provider session was not opened, a run's binding not recorded or a level not
-/// moved; nothing of an opening that failed is left live.
-#[derive(Debug, thiserror::Error)]
-pub enum ProviderSessionError {
-    /// The session's opening could not be composed.
-    #[error("the provider session of session {session_id} could not be composed")]
-    Compose {
-        /// The session.
-        session_id: SessionId,
-        /// Why.
-        #[source]
-        cause: Box<dyn Error + Send + Sync>,
-    },
-    /// The session's lead runs at no posture.
-    #[error("the lead of session {session_id} runs at no posture")]
-    NoPosture {
-        /// The session.
-        session_id: SessionId,
-    },
-    /// The provider's driver has recorded no capabilities yet, so no contract version.
-    #[error("the driver of {} declares no contract version yet", .provider.as_str())]
-    NoContractVersion {
-        /// The provider.
-        provider: ProviderId,
-    },
-    /// No driver answers the session's provider.
-    #[error(transparent)]
-    Provider(#[from] DomainError),
-    /// The driver failed the create, the resume or the level move.
-    #[error(transparent)]
-    Driver(#[from] DriverError),
-    /// The provider refused to resume the session's conversation.
-    #[error("the provider could not resume session {session_id} ({recovery_condition:?})")]
-    ResumeRefused {
-        /// The session.
-        session_id: SessionId,
-        /// Why the resume needs recovery.
-        recovery_condition: RecoveryCondition,
-        /// The provider's own words.
-        provider_failure_detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
-    },
-    /// The session's newest binding holds no conversation to resume.
-    #[error(transparent)]
-    NotResumable(#[from] RuntimeBindingNotResumable),
-    /// The session closed, so no process opens for it.
-    #[error("session {session_id} is closed")]
-    Closed {
-        /// The session.
-        session_id: SessionId,
-    },
-    /// The session is being deleted, so no process opens for it.
-    #[error("session {session_id} is being deleted")]
-    BeingDeleted {
-        /// The session.
-        session_id: SessionId,
-    },
-    /// The driver's create failed, and the binding recorded for it could not be removed.
-    #[error("the provider session of session {session_id} was not created ({create}), and its \
-             binding {} could not be removed", .binding_id.as_str())]
-    CreateLeftBinding {
-        /// The session.
-        session_id: SessionId,
-        /// The binding left.
-        binding_id: RuntimeBindingId,
-        /// Why the create failed.
-        create: DriverError,
-        /// Why the removal failed.
-        #[source]
-        delete: RuntimeBindingStoreError,
-    },
-    /// The binding the opening recorded is gone before its conversation was named on it.
-    #[error("the binding {} of session {session_id}'s opening is gone", .binding_id.as_str())]
-    BindingGone {
-        /// The session.
-        session_id: SessionId,
-        /// The binding.
-        binding_id: RuntimeBindingId,
-    },
-    /// The session has no provider session open in this daemon.
-    #[error("session {session_id} has no provider session open")]
-    NotOpen {
-        /// The session.
-        session_id: SessionId,
-    },
-    /// The session has no conversation to run on.
-    #[error("session {session_id} has no conversation to run on")]
-    NoConversation {
-        /// The session.
-        session_id: SessionId,
-    },
-    /// The binding or its cursor was not recorded.
-    #[error(transparent)]
-    Cursor(#[from] RunBindingCursorError),
-    /// A binding row was not written.
-    #[error(transparent)]
-    Store(#[from] RuntimeBindingStoreError),
-    /// The level the session moved to was not stored, and its process moved back.
-    #[error("the level session {session_id} moved to was not stored")]
-    LevelNotStored {
-        /// The session.
-        session_id: SessionId,
-        /// Why the store failed.
-        #[source]
-        cause: WriteError,
-    },
-    /// The level was not stored, and the process could not move back to the one stored.
-    #[error(
-        "the level session {session_id} moved to was not stored ({stored}), and its process \
-             could not move back"
-    )]
-    LevelNotMovedBack {
-        /// The session.
-        session_id: SessionId,
-        /// Why the store failed.
-        stored: WriteError,
-        /// Why the move back failed.
-        #[source]
-        moved_back: DriverError,
-    },
-    /// SQLite refused a read, or a stored value does not read as its type.
-    #[error("a read of the session's bindings, mode or level failed")]
-    Read(#[from] rusqlite::Error),
-    /// The read pool did not run a read.
-    #[error("a read of the session's bindings, mode or level did not reach the database")]
-    Pool(#[from] DatabaseReadError),
+// Closes the process `driver` opened for `session_id` whose binding was not recorded, so none runs
+// under a binding with no row; the error to answer is `recorded`, why it was not recorded, or both
+// when the close failed.
+async fn close_unrecorded(
+    driver: &dyn ProviderDriver,
+    session_id: SessionId,
+    recorded: ProviderSessionError,
+) -> ProviderSessionError {
+    match driver
+        .close_session(CloseSessionParams { session_id })
+        .await
+    {
+        Ok(()) => recorded,
+        Err(closed) => ProviderSessionError::UnrecordedNotClosed {
+            session_id,
+            recorded: Box::new(recorded),
+            closed,
+        },
+    }
+}
+
+// A session this daemon opened, where its process stands as the driver answers, and that driver.
+struct OpenedProcess {
+    state: SessionProcessState,
+    opened: OpenedSession,
+    driver: Arc<dyn ProviderDriver>,
 }
 
 // One opened session: the provider it runs on, the posture its process runs at, which each of its
@@ -248,7 +189,7 @@ struct OpenedSession {
 
 /// Opens each session's provider session once per daemon process, at its first admission, and the
 /// runtime binding of each run on it. A session holds one entry from its first admission until it
-/// closes or the daemon stops.
+/// closes, its process is gone with no restart pending, or the daemon stops.
 pub struct ProviderSessions {
     deps: ProviderSessionsDeps,
     opened: Mutex<HashMap<SessionId, OpenedSession>>,
@@ -264,77 +205,21 @@ impl ProviderSessions {
     }
 
     /// The posture the session's process runs at, which each of its runs is requested at: the open
-    /// one's, else the one it opens at. Fails with [`ProviderSessionError::NoPosture`] for a
-    /// session whose lead runs at none, and as the opening's composition fails.
+    /// one's, else the one it opens at on `provider_account_id`. Fails with
+    /// [`ProviderSessionError::NoPosture`] for a session whose lead runs at none, and as the
+    /// opening's composition fails.
     pub(crate) async fn read_execution_posture(
         &self,
         session_id: SessionId,
+        provider_account_id: ProviderAccountId,
     ) -> Result<ExecutionPosture, ProviderSessionError> {
         if let Some(opened) = self.lock_opened().get(&session_id) {
             return Ok(opened.execution_posture.clone());
         }
-        posture_of(session_id, &self.compose(session_id).await?)
-    }
-
-    /// Moves the session to `level` and stores it, unless it stands there already. An open process
-    /// is moved first, through its driver, so the record never names a level the provider refused;
-    /// a store that fails then moves it back and fails. A process not open yet opens at the stored
-    /// level. Fails as the driver's move fails, with nothing changed.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the session controls' level move")
-    )]
-    pub(crate) async fn change_level(
-        &self,
-        session_id: SessionId,
-        level: PermissionLevel,
-    ) -> Result<(), ProviderSessionError> {
-        let _hold = self.deps.transition_lock.acquire(session_id).await;
-        self.refuse_ended(session_id).await?;
-        let stored = self
-            .deps
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, ProviderSessionError>(read_session_permission_level(reader, &session_id)?)
-            })
-            .await?;
-        if stored == level {
-            return Ok(());
-        }
-        let opened = self.lock_opened().get(&session_id).cloned();
-        let Some(opened) = opened else {
-            return self
-                .record_level(session_id, level)
-                .await
-                .map_err(|cause| ProviderSessionError::LevelNotStored { session_id, cause });
-        };
-        let posture = compose_execution_posture(level, opened.git_folder.clone());
-        self.move_process(&opened.provider, session_id, &posture)
-            .await?;
-        self.set_posture(session_id, posture);
-        let Err(stored_error) = self.record_level(session_id, level).await else {
-            return Ok(());
-        };
-        let moved_back = self
-            .move_process(&opened.provider, session_id, &opened.execution_posture)
-            .await;
-        match moved_back {
-            Ok(()) => {
-                self.set_posture(session_id, opened.execution_posture);
-                Err(ProviderSessionError::LevelNotStored {
-                    session_id,
-                    cause: stored_error,
-                })
-            }
-            Err(ProviderSessionError::Driver(moved_back)) => {
-                Err(ProviderSessionError::LevelNotMovedBack {
-                    session_id,
-                    stored: stored_error,
-                    moved_back,
-                })
-            }
-            Err(other) => Err(other),
-        }
+        posture_of(
+            session_id,
+            &self.compose(session_id, provider_account_id).await?,
+        )
     }
 
     /// Opens the session's provider session for `run_id`, its first admitted run, when this process
@@ -356,11 +241,19 @@ impl ProviderSessions {
         if self.lock_opened().contains_key(&session_id) {
             return Ok(());
         }
-        let opened = match read_session_leg(&self.deps.pool, session_id).await? {
-            None => self.create(session_id, run_id).await?,
-            Some(leg) => self.resume(&hold, session_id, leg, run_id).await?,
-        };
-        self.lock_opened().insert(session_id, opened);
+        match read_session_leg(&self.deps.pool, session_id).await? {
+            None => {
+                let opened = self.create(session_id, run_id).await?;
+                self.record_opened(session_id, opened);
+            }
+            Some(leg) => {
+                self.resume_leg(session_id, leg).await?;
+                // The resumed leg sits on the run it was first opened for; this run gets its own.
+                // A failed binding fails this run alone: the resumed process stays opened and
+                // recorded, so the next admission binds to it and resumes none.
+                self.bind_run(&hold, run_id).await?;
+            }
+        }
         Ok(())
     }
 
@@ -392,9 +285,42 @@ impl ProviderSessions {
         }
     }
 
-    /// Forgets a closed session's provider session, whose process its close ended.
+    /// Forgets a closed session's provider session, whose process its close ended, with what the
+    /// posture service kept for it, and has the idle sleep forget it too.
     pub(crate) fn forget(&self, session_id: SessionId) {
         self.lock_opened().remove(&session_id);
+        self.deps.execution_postures.forget_session(&session_id);
+        self.deps.process_follower.forget_closed(session_id);
+    }
+
+    // Records `session_id`'s process as opened in this daemon, and the idle sleep follows it awake.
+    fn record_opened(&self, session_id: SessionId, opened: OpenedSession) {
+        self.lock_opened().insert(session_id, opened);
+        self.deps.process_follower.follow_awake(session_id);
+    }
+
+    /// Forgets the session's provider session once its process is gone and its driver answers,
+    /// under the session's transition lock, that none comes back until the daemon opens it, so the
+    /// next admission opens it again from the store; a process the driver brings back keeps it.
+    /// Fails with [`ProviderSessionError::Provider`] when no driver answers the provider it opened
+    /// on.
+    pub(crate) async fn forget_gone_process(
+        &self,
+        session_id: SessionId,
+    ) -> Result<(), ProviderSessionError> {
+        let _hold = self.deps.transition_lock.acquire(session_id).await;
+        let state = self.process_state(session_id)?.map(|process| process.state);
+        match state {
+            // The session is not closed, so the idle sleep keeps its stored timed fires.
+            Some(SessionProcessState::Down) => {
+                self.lock_opened().remove(&session_id);
+                self.deps
+                    .execution_postures
+                    .forget_moved_posture(&session_id);
+            }
+            Some(SessionProcessState::Live | SessionProcessState::Restarting) | None => {}
+        }
+        Ok(())
     }
 
     // `open_run_binding` under the session's `hold`, which the caller took.
@@ -418,36 +344,48 @@ impl ProviderSessions {
         let binding = self
             .deps
             .binding_cursors
-            .create(CreateRuntimeBindingInput {
-                run_id,
-                provider_name: current.provider_name,
-                contract_version: current.contract_version,
-                spawned_version: SpawnedVersionBindingCarriers {
-                    cli_version: current.cli_version,
-                    resolved_executable_path: PathBuf::from(current.resolved_executable_path),
+            .create(
+                session_id,
+                CreateRuntimeBindingInput {
+                    id: mint_runtime_binding_id(),
+                    run_id,
+                    provider_name: current.provider_name,
+                    contract_version: current.contract_version,
+                    spawned_version: SpawnedVersionBindingCarriers {
+                        cli_version: current.cli_version,
+                        resolved_executable_path: PathBuf::from(current.resolved_executable_path),
+                    },
+                    resume_handle: current.resume_handle,
+                    spawn_config: current.spawn_config,
+                    // The provider's recovery data goes with the leg, so a run bound before any
+                    // usage report keeps what the leg's provider stored, its fixed start among it.
+                    runtime_metadata: current.runtime_metadata,
                 },
-                resume_handle: current.resume_handle,
-                spawn_config: current.spawn_config,
-                runtime_metadata: Map::new(),
-            })
+            )
             .await?;
         Ok(binding.id)
     }
 
+    // A new session's first process. Its binding's cursor opens before the provider runs, since
+    // the provider delivers under the binding at once, and its row is written once the create
+    // answers, with the build that process reported and the conversation it opened; a failed
+    // create leaves neither. It runs on the account `run_id` was admitted against.
     async fn create(
         &self,
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<OpenedSession, ProviderSessionError> {
-        let opening = self.compose(session_id).await?;
+        let provider_account_id = self.read_admitted_account(session_id, run_id).await?;
+        let opening = self.compose(session_id, provider_account_id).await?;
         let execution_posture = posture_of(session_id, &opening)?;
         let ProviderSessionOpening {
             provider,
             git_folder,
             mut create_params,
-            spawned_version,
             function_legs_for,
         } = opening;
+        // A mode moved before the first process is the one it opens in.
+        create_params.mode = self.read_mode(session_id).await?;
         let driver = self.deps.providers.lookup(&provider)?;
         let contract_version = self
             .deps
@@ -456,51 +394,44 @@ impl ProviderSessions {
             .ok_or_else(|| ProviderSessionError::NoContractVersion {
                 provider: provider.clone(),
             })?;
-        let binding = self
-            .deps
+        let spawn_config = spawn_config_of(&create_params);
+        let binding_id = mint_runtime_binding_id();
+        self.deps
             .binding_cursors
-            .create(CreateRuntimeBindingInput {
+            .open_binding(
+                session_id,
+                binding_id.clone(),
                 run_id,
-                provider_name: provider.clone(),
-                contract_version,
-                spawned_version,
-                resume_handle: None,
-                spawn_config: spawn_config_of(&create_params),
-                runtime_metadata: Map::new(),
-            })
+                provider.clone(),
+                create_params.provider_account_id.clone(),
+            )
             .await?;
-        let legs = function_legs_for(&binding.id);
+        let legs = function_legs_for(&binding_id);
         create_params.on_mcp_server_status = legs.on_mcp_server_status;
         let handle = match driver.create_session(create_params).await {
             Ok(handle) => handle,
             // A run whose session never opened keeps no binding.
             Err(create) => {
-                return Err(match self.deps.runtime_bindings.delete(&binding.id).await {
-                    Ok(_) => create.into(),
-                    Err(delete) => ProviderSessionError::CreateLeftBinding {
-                        session_id,
-                        binding_id: binding.id,
-                        create,
-                        delete,
-                    },
-                });
+                self.deps.binding_cursors.forget_binding(&binding_id);
+                return Err(create.into());
             }
         };
-        let patch = RuntimeBindingPatch {
-            resume_handle: Some(handle.resume_handle),
-            ..RuntimeBindingPatch::default()
-        };
-        if self
+        let recorded = self
             .deps
-            .runtime_bindings
-            .update(&binding.id, patch, Vec::new())
-            .await?
-            .is_none()
-        {
-            return Err(ProviderSessionError::BindingGone {
-                session_id,
-                binding_id: binding.id,
-            });
+            .binding_cursors
+            .record_opened_binding(CreateRuntimeBindingInput {
+                id: binding_id,
+                run_id,
+                provider_name: provider.clone(),
+                contract_version,
+                spawned_version: handle.spawned_version,
+                resume_handle: Some(handle.resume_handle),
+                spawn_config,
+                runtime_metadata: Map::new(),
+            })
+            .await;
+        if let Err(unrecorded) = recorded {
+            return Err(close_unrecorded(driver.as_ref(), session_id, unrecorded.into()).await);
         }
         Ok(OpenedSession {
             provider,
@@ -509,127 +440,92 @@ impl ProviderSessions {
         })
     }
 
-    // The session ran before this daemon started: its conversation is resumed in a fresh process,
-    // and the binding the resume minted carries its cursor on; the run gets a binding of its own.
-    async fn resume(
+    // The account `run_id` was admitted against.
+    async fn read_admitted_account(
         &self,
-        hold: &KeyHold<'_, SessionId>,
         session_id: SessionId,
-        leg: RuntimeBinding,
         run_id: RunId,
-    ) -> Result<OpenedSession, ProviderSessionError> {
-        let opening = self.compose(session_id).await?;
-        let execution_posture = posture_of(session_id, &opening)?;
-        let mode = self
-            .deps
+    ) -> Result<ProviderAccountId, ProviderSessionError> {
+        self.deps
             .pool
             .read(ReadLength::Short, move |reader| {
-                Ok::<_, ProviderSessionError>(read_session_mode(reader, &session_id)?)
+                Ok::<_, ProviderSessionError>(
+                    RunAgentReader::new(reader).read_admitted_account(&session_id, &run_id)?,
+                )
             })
-            .await?;
-        let params = compose_resume_session_params(
-            session_id,
-            opening.create_params.agent_id,
-            &leg,
-            opening.create_params.model.clone(),
-            opening.create_params.larger_window,
-            mode,
-            execution_posture.clone(),
-            opening.create_params.options.clone(),
-            opening.create_params.row_values.clone(),
-            (opening.function_legs_for)(&leg.id),
-        )?;
-        let driver = self.deps.providers.lookup(&leg.provider_name)?;
-        let (binding_id, resume_handle, spawned_version) =
-            match driver.resume_session(params).await? {
-                DriverResumeResult::Resumed {
-                    binding_id,
-                    resume_handle,
-                    spawned_version,
-                    ..
-                } => (binding_id, resume_handle, spawned_version),
-                DriverResumeResult::Failed {
-                    recovery_condition,
-                    provider_failure_detail,
-                } => {
-                    return Err(ProviderSessionError::ResumeRefused {
-                        session_id,
-                        recovery_condition,
-                        provider_failure_detail,
-                    });
-                }
-            };
-        // A provider that continued the conversation in a new one left the old one behind.
-        let left_conversations = leg
-            .resume_handle
-            .as_ref()
-            .filter(|handle| handle.as_str() != resume_handle.as_str())
-            .map(|handle| LeftConversation {
-                session_id,
-                provider_account_id: leg.spawn_config.provider_account_id.clone(),
-                conversation_id: handle.clone(),
-            })
-            .into_iter()
-            .collect();
-        self.deps
-            .binding_cursors
-            .record_relaunch(RuntimeBindingRelaunch {
-                predecessor_id: leg.id.clone(),
-                binding_id,
-                resume_handle: resume_handle.as_str().to_owned(),
-                spawned_version,
-                left_conversations,
-            })
-            .await?;
-        let opened = OpenedSession {
-            provider: leg.provider_name,
-            execution_posture,
-            git_folder: opening.git_folder,
-        };
-        // The resumed leg sits on the run it was first opened for; this run gets its own.
-        self.lock_opened().insert(session_id, opened.clone());
-        if let Err(error) = self.bind_run(hold, run_id).await {
-            self.forget(session_id);
-            return Err(error);
-        }
-        Ok(opened)
+            .await
     }
 
     async fn compose(
         &self,
         session_id: SessionId,
+        provider_account_id: ProviderAccountId,
     ) -> Result<ProviderSessionOpening, ProviderSessionError> {
-        (self.deps.compose_opening)(session_id)
+        (self.deps.compose_opening)(session_id, provider_account_id)
             .await
             .map_err(|cause| ProviderSessionError::Compose { session_id, cause })
     }
 
-    async fn move_process(
-        &self,
-        provider: &ProviderId,
-        session_id: SessionId,
-        posture: &ExecutionPosture,
-    ) -> Result<(), ProviderSessionError> {
-        let driver = self.deps.providers.lookup(provider)?;
-        driver
-            .update_permission_level(UpdatePermissionLevelParams {
-                session_id,
-                execution_posture: posture.clone(),
+    async fn read_mode(&self, session_id: SessionId) -> Result<SessionMode, ProviderSessionError> {
+        self.deps
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, ProviderSessionError>(read_session_mode(reader, &session_id)?)
             })
-            .await?;
-        Ok(())
+            .await
     }
 
-    async fn record_level(
+    // Where the session's process stands, as the driver of the provider it opened on answers;
+    // read under the caller's hold of the session. `None` for a session this daemon has not
+    // opened, which is down: a driver runs or brings back only a process the daemon opened.
+    fn process_state(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<OpenedProcess>, ProviderSessionError> {
+        let Some(opened) = self.lock_opened().get(&session_id).cloned() else {
+            return Ok(None);
+        };
+        let driver = self.deps.providers.lookup(&opened.provider)?;
+        Ok(Some(OpenedProcess {
+            state: driver.session_process_state(&session_id),
+            opened,
+            driver,
+        }))
+    }
+
+    // The posture the session's process runs at at `level`, over the opened process's git folder,
+    // else the session's as read now, which only a level whose posture names it reads. Fails with
+    // `PostureRefused` where that folder is unavailable, and as its read fails otherwise.
+    async fn level_posture(
         &self,
         session_id: SessionId,
         level: PermissionLevel,
-    ) -> Result<(), WriteError> {
-        self.deps
-            .writer
-            .write(vec![permission_level_change_statement(&session_id, level)])
-            .await
-            .map(drop)
+    ) -> Result<ExecutionPosture, ProviderSessionError> {
+        if let Some(posture) = compose_folderless_posture(level) {
+            return Ok(posture);
+        }
+        let opened_folder = self
+            .lock_opened()
+            .get(&session_id)
+            .map(|opened| opened.git_folder.clone());
+        let git_folder =
+            match opened_folder {
+                Some(git_folder) => git_folder,
+                None => (self.deps.read_git_folder)(session_id)
+                    .await
+                    .map_err(|failure| match failure {
+                        GitFolderReadError::Unavailable(cause) => {
+                            ProviderSessionError::PostureRefused {
+                                session_id,
+                                cause: ExecutionPostureRejection::UnavailableFolder(cause),
+                            }
+                        }
+                        GitFolderReadError::Failed(cause) => {
+                            ProviderSessionError::GitFolder { session_id, cause }
+                        }
+                    })?,
+            };
+        Ok(compose_execution_posture(level, git_folder))
     }
 
     fn set_posture(&self, session_id: SessionId, posture: ExecutionPosture) {
@@ -641,6 +537,79 @@ impl ProviderSessions {
     fn lock_opened(&self) -> MutexGuard<'_, HashMap<SessionId, OpenedSession>> {
         // No code panics while it holds the map, so a poisoned lock still holds a whole one.
         lock(&self.opened)
+    }
+}
+
+impl SessionLevelFollower for ProviderSessions {
+    fn follow_reported_level(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.follow_reported_level(session_id)
+                .await
+                .map_err(|failure| Box::new(failure) as Box<dyn Error + Send + Sync>)
+        }
+        .boxed()
+    }
+}
+
+impl StoredSessionPosture for ProviderSessions {
+    /// The stored level's posture, over the opened process's git folder or the session's as read
+    /// now where it names one. A folder that is unavailable fails with the posture's own
+    /// rejection, which names no move, so the gate counts it a posture the session cannot run.
+    fn stored_posture<'a>(
+        &'a self,
+        session_id: SessionId,
+        requested: &'a ExecutionPosture,
+    ) -> BoxFuture<'a, Result<Option<ExecutionPosture>, Box<dyn Error + Send + Sync>>> {
+        async move {
+            let (level, _mode) = self.read_controls(session_id).await?;
+            if level == requested.permission_level() {
+                return Ok(None);
+            }
+            Ok(Some(self.level_posture(session_id, level).await?))
+        }
+        .map(|read: Result<_, ProviderSessionError>| {
+            read.map_err(|failure| match failure {
+                ProviderSessionError::PostureRefused { cause, .. } => {
+                    Box::new(cause) as Box<dyn Error + Send + Sync>
+                }
+                failure @ (ProviderSessionError::Compose { .. }
+                | ProviderSessionError::AdmittedAccount(_)
+                | ProviderSessionError::NoPosture { .. }
+                | ProviderSessionError::NoContractVersion { .. }
+                | ProviderSessionError::Provider(_)
+                | ProviderSessionError::Driver(_)
+                | ProviderSessionError::ResumeRefused { .. }
+                | ProviderSessionError::NotResumable(_)
+                | ProviderSessionError::Closed { .. }
+                | ProviderSessionError::BeingDeleted { .. }
+                | ProviderSessionError::NotOpen { .. }
+                | ProviderSessionError::NoConversation { .. }
+                | ProviderSessionError::Cursor(_)
+                | ProviderSessionError::ResumedRuns { .. }
+                | ProviderSessionError::Port(_)
+                | ProviderSessionError::UnrecordedNotClosed { .. }
+                | ProviderSessionError::Store(_)
+                | ProviderSessionError::GitFolder { .. }
+                | ProviderSessionError::LevelNotStored { .. }
+                | ProviderSessionError::LevelNotMovedBack { .. }
+                | ProviderSessionError::ModeNotStored { .. }
+                | ProviderSessionError::ModeNotMovedBack { .. }
+                | ProviderSessionError::Read(_)
+                | ProviderSessionError::Pool(_)) => Box::new(failure),
+            })
+        })
+        .boxed()
+    }
+}
+
+impl SessionPostureSource for ProviderSessions {
+    fn opened_execution_posture(&self, session_id: &SessionId) -> Option<ExecutionPosture> {
+        self.lock_opened()
+            .get(session_id)
+            .map(|opened| opened.execution_posture.clone())
     }
 }
 

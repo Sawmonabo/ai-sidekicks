@@ -16,7 +16,7 @@ use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
 };
 use crate::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
-use crate::driver::contract::{ProviderRequestAnswer, RespondToRequestParams};
+use crate::driver::contract::params_and_results::{ProviderRequestAnswer, RespondToRequestParams};
 use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterruptPayload, InterruptPendingChoice,
     InterventionResultStatus, SteerPayload,
@@ -222,44 +222,31 @@ async fn an_interrupt_answers_the_queue_items_claude_code_dropped() {
     assert_eq!(response.canceled, [dropped]);
 }
 
-// Killed by an interrupt that moves no helper to the background first, by the bare request that
-// would move the running command too, and by asking with no helper in the foreground.
-#[tokio::test(start_paused = true)]
-async fn an_interrupt_moves_each_foreground_helper_to_the_background_first() {
-    let with_helpers = ScriptedSession::new().await;
-    let run_id = with_helpers.hold_lead_turn("lead");
-    {
-        let mut helpers = with_helpers
-            .foreground_helpers
-            .lock()
-            .expect("the helpers' lock holds");
-        for (task_id, task_type, tool_use_id) in [
-            ("helper-1", "local_agent", "call-1"),
-            ("helper-2", "local_agent", "call-2"),
-            ("command", "local_bash", "call-3"),
-        ] {
-            let frame = json!({
-                "type": "system",
-                "subtype": "task_started",
-                "task_id": task_id,
-                "task_type": task_type,
-                "tool_use_id": tool_use_id,
-                "is_backgrounded": false,
-            });
-            helpers.observe_frame(
-                with_helpers.session_id,
-                "system/task_started",
-                &frame.to_string(),
-            );
-        }
+// A helper's or a command's `task_started` in the foreground, by the tool call that started it,
+// under the helper `parent_task_id` names where one started it.
+fn foreground_task_started(
+    task_id: &str,
+    task_type: &str,
+    tool_use_id: &str,
+    parent_task_id: Option<&str>,
+) -> Value {
+    let mut frame = json!({
+        "type": "system",
+        "subtype": "task_started",
+        "task_id": task_id,
+        "task_type": task_type,
+        "tool_use_id": tool_use_id,
+        "is_backgrounded": false,
+    });
+    if let Some(parent_task_id) = parent_task_id {
+        frame["parent_task_id"] = json!(parent_task_id);
     }
-    apply(
-        &with_helpers,
-        interrupt(run_id, InterruptPendingChoice::NextTurn, false),
-    )
-    .await;
+    frame
+}
 
-    let mut requests = with_helpers.channel.control_requests();
+// The calls whose work the session asked to move to the background ahead of its interrupt, sorted.
+fn backgrounded_before_interrupt(session: &ScriptedSession) -> Vec<Value> {
+    let mut requests = session.channel.control_requests();
     let last = requests.pop().expect("the interrupt went");
     assert_eq!(last["subtype"], "interrupt");
     let mut backgrounded: Vec<_> = requests
@@ -270,7 +257,40 @@ async fn an_interrupt_moves_each_foreground_helper_to_the_background_first() {
         })
         .collect();
     backgrounded.sort_by_key(ToString::to_string);
-    assert_eq!(backgrounded, [json!("call-1"), json!("call-2")]);
+    backgrounded
+}
+
+// Killed by an interrupt that moves no helper to the background first, by the bare request that
+// would move the running command too, by moving a helper's helper, and by asking with no helper
+// in the foreground.
+#[tokio::test(start_paused = true)]
+async fn an_interrupt_moves_each_foreground_helper_to_the_background_first() {
+    let with_helpers = ScriptedSession::new().await;
+    let run_id = with_helpers.hold_lead_turn("lead");
+    for (task_id, task_type, tool_use_id, parent_task_id) in [
+        ("helper-1", "local_agent", "call-1", None),
+        ("helper-2", "local_agent", "call-2", None),
+        ("command", "local_bash", "call-3", None),
+        ("nested", "local_agent", "call-4", Some("helper-1")),
+    ] {
+        with_helpers.frame(&foreground_task_started(
+            task_id,
+            task_type,
+            tool_use_id,
+            parent_task_id,
+        ));
+    }
+    settle().await;
+    apply(
+        &with_helpers,
+        interrupt(run_id, InterruptPendingChoice::NextTurn, false),
+    )
+    .await;
+
+    assert_eq!(
+        backgrounded_before_interrupt(&with_helpers),
+        [json!("call-1"), json!("call-2")]
+    );
 
     let without_helpers = ScriptedSession::new().await;
     let run_id = without_helpers.hold_lead_turn("lead");
@@ -284,29 +304,54 @@ async fn an_interrupt_moves_each_foreground_helper_to_the_background_first() {
     assert_eq!(requests[0]["subtype"], "interrupt");
 }
 
+// Killed by forgetting a helper's call only at its `task_notification`, so an interrupt after the
+// call's result asks Claude Code to move a helper that already ended.
+#[tokio::test(start_paused = true)]
+async fn an_interrupt_moves_only_the_helpers_whose_calls_are_still_waited_on() {
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+    session.frame(&foreground_task_started(
+        "helper-1",
+        "local_agent",
+        "call-1",
+        None,
+    ));
+    session.frame(&foreground_task_started(
+        "helper-2",
+        "local_agent",
+        "call-2",
+        None,
+    ));
+    session.frame(&json!({
+        "type": "user",
+        "message": {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "call-1", "content": "done"}],
+        },
+    }));
+    settle().await;
+    apply(
+        &session,
+        interrupt(run_id, InterruptPendingChoice::NextTurn, false),
+    )
+    .await;
+
+    assert_eq!(backgrounded_before_interrupt(&session), [json!("call-2")]);
+}
+
 // Killed by sending the interrupt after a helper's move was cut mid-write, which would misframe
 // it, or by leaving that process running.
 #[tokio::test(start_paused = true)]
 async fn a_helper_move_cut_mid_write_stops_the_process_in_place_of_the_interrupt() {
     let session = ScriptedSession::new().await;
     let run_id = session.hold_lead_turn("lead");
-    let frame = json!({
-        "type": "system",
-        "subtype": "task_started",
-        "task_id": "helper-1",
-        "task_type": "local_agent",
-        "tool_use_id": "call-1",
-        "is_backgrounded": false,
-    });
-    session
-        .foreground_helpers
-        .lock()
-        .expect("the helpers' lock holds")
-        .observe_frame(
-            session.session_id,
-            "system/task_started",
-            &frame.to_string(),
-        );
+    session.frame(&foreground_task_started(
+        "helper-1",
+        "local_agent",
+        "call-1",
+        None,
+    ));
+    settle().await;
     session
         .channel
         .answer("background_tasks", ScriptedAnswer::WriteCut);

@@ -11,6 +11,7 @@
 //!   run or refuses it.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt;
@@ -25,6 +26,7 @@ use sidekicks_platforms::resolve_path_against;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_policy::shell_commands::unwrap_shell_command_line;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -41,7 +43,6 @@ use crate::port::permission_ask::{
     ProviderPermissionAskWithdrawal,
 };
 use crate::port::session_rules::SessionRulePort;
-use sidekicks_std::port_registration::PortRegistration;
 
 /// The tool Codex names a shell command by at its hooks.
 const CODEX_HOOK_SHELL_TOOL: &str = "Bash";
@@ -95,6 +96,9 @@ pub(crate) struct CodexCallChecksDependencies {
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
     /// Every provider's background work, which no call's command line may start.
     pub(crate) background_work: Arc<BackgroundWorkForms>,
+    /// The shells Codex may start a command's line with, whose `-lc` wrapper a call's line is
+    /// read without.
+    pub(crate) line_shells: Arc<[PathBuf]>,
     /// The run each call belongs to, and its limits.
     pub(crate) runs: Arc<dyn CodexCallRuns>,
     /// The driver's tasks, which its shutdown waits for; a held call's card is taken back on one.
@@ -203,7 +207,8 @@ impl CodexCallChecks {
                 | Value::Object(_) => None,
             })
             .filter(|command| !command.is_empty());
-        let Some(action) = read_hook_action(input, command.as_deref()) else {
+        let line_shells = &self.dependencies.line_shells;
+        let Some(action) = read_hook_action(input, command.as_deref(), line_shells) else {
             return Ok(None);
         };
         if let (ProviderAskAction::Command { .. }, Some(line)) = (&action, command)
@@ -408,13 +413,18 @@ struct HookToolInput {
     command: Option<Value>,
 }
 
-// What a hooked call would do: a command as the line its shell runs, a patch's files resolved
-// against the call's folder, or a tool server's tool by its hook name; any other tool is not held.
-fn read_hook_action(input: &CodexHookInput, command: Option<&str>) -> Option<ProviderAskAction> {
+// What a hooked call would do: a command as the line its shell runs, past the `-lc` wrapper of
+// any of `line_shells` or a system shell, a patch's files resolved against the call's folder, or a
+// tool server's tool by its hook name; any other tool is not held.
+fn read_hook_action(
+    input: &CodexHookInput,
+    command: Option<&str>,
+    line_shells: &[PathBuf],
+) -> Option<ProviderAskAction> {
     let tool_name = input.tool_name.as_deref()?;
     if tool_name == CODEX_HOOK_SHELL_TOOL {
         return command.map(|command| ProviderAskAction::Command {
-            command: unwrap_shell_command_line(command).into_owned(),
+            command: unwrap_shell_command_line(command, line_shells).into_owned(),
         });
     }
     if tool_name == CODEX_HOOK_PATCH_TOOL {
@@ -445,7 +455,7 @@ fn read_hook_action(input: &CodexHookInput, command: Option<&str>) -> Option<Pro
 #[cfg(test)]
 mod tests {
     use std::error::Error;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use futures::FutureExt;
     use futures::future::BoxFuture;
@@ -456,7 +466,6 @@ mod tests {
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
     use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-    use tokio::sync::Notify;
     use tokio_util::sync::CancellationToken;
     use tokio_util::task::TaskTracker;
 
@@ -466,8 +475,9 @@ mod tests {
     use crate::driver::codex::hooks::server::{
         CodexHookAnswer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
     };
+    use crate::port::permission_ask::test_port::RecordedAsks;
     use crate::port::permission_ask::{
-        PermissionAskPort, ProviderAskAction, ProviderPermissionAnswer, ProviderPermissionAsk,
+        PermissionAskPort, ProviderAskAction, ProviderPermissionAnswer,
         ProviderPermissionAskWithdrawal,
     };
     use crate::port::session_rules::SessionRulePort;
@@ -522,37 +532,6 @@ mod tests {
         }
     }
 
-    /// Records the cards raised and taken back, telling a waiter at each.
-    #[derive(Default)]
-    struct RecordingAsks {
-        taken: Mutex<Vec<ProviderPermissionAsk>>,
-        withdrawn: Mutex<Vec<ProviderPermissionAskWithdrawal>>,
-        changed: Notify,
-    }
-
-    impl PermissionAskPort for RecordingAsks {
-        fn take_ask(&self, ask: ProviderPermissionAsk) -> BoxFuture<'_, Result<(), PortFailure>> {
-            self.taken
-                .lock()
-                .expect("the record is not poisoned")
-                .push(ask);
-            self.changed.notify_one();
-            async { Ok(()) }.boxed()
-        }
-
-        fn withdraw_ask(
-            &self,
-            withdrawal: ProviderPermissionAskWithdrawal,
-        ) -> BoxFuture<'_, Result<(), PortFailure>> {
-            self.withdrawn
-                .lock()
-                .expect("the record is not poisoned")
-                .push(withdrawal);
-            self.changed.notify_one();
-            async { Ok(()) }.boxed()
-        }
-    }
-
     fn shell_call(call_id: &str) -> CodexHookCall {
         let Value::Object(arguments) = json!({
             "hook_event_name": "PreToolUse",
@@ -577,7 +556,7 @@ mod tests {
         let session_id =
             SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        let asks = Arc::new(RecordingAsks::default());
+        let asks = Arc::new(RecordedAsks::default());
         let permission_asks = Arc::new(PortRegistration::new("permission ask"));
         let ask_port: Arc<dyn PermissionAskPort> = asks.clone();
         assert!(permission_asks.register(ask_port).is_ok());
@@ -589,6 +568,7 @@ mod tests {
             session_rules,
             shell_lines: Arc::new(ShellLineReadingBound::new(4096)),
             background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
+            line_shells: Arc::new([]),
             runs: Arc::new(OneRun(CodexHookCallRun { session_id, run_id })),
             tasks: TaskTracker::new(),
         }));
@@ -603,8 +583,8 @@ mod tests {
         };
 
         let held = answer("call-1", CancellationToken::new());
-        asks.changed.notified().await;
-        let card = asks.taken.lock().expect("the record is not poisoned")[0].clone();
+        asks.changed().await;
+        let card = asks.taken()[0].clone();
         assert_eq!(card.request_id, "hook:call-1");
         assert_eq!(card.run_id, run_id);
         tokio::task::yield_now().await;
@@ -623,17 +603,12 @@ mod tests {
 
         let token = CancellationToken::new();
         let abandoned = answer("call-2", token.clone());
-        asks.changed.notified().await;
+        asks.changed().await;
         token.cancel();
         assert_eq!(abandoned.await.expect("the call's task ends"), None);
-        asks.changed.notified().await;
-        let withdrawn = asks
-            .withdrawn
-            .lock()
-            .expect("the record is not poisoned")
-            .clone();
+        asks.changed().await;
         assert_eq!(
-            withdrawn,
+            asks.withdrawn(),
             vec![ProviderPermissionAskWithdrawal {
                 session_id,
                 request_id: "hook:call-2".to_owned(),

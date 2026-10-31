@@ -93,7 +93,8 @@ pub enum IdentityPublicKey {
     },
 }
 
-/// A machine's identity key: the service's Ed25519 key, the one key a machine has.
+/// A machine's identity key: the service's Ed25519 key, which signs the machine's statements and
+/// certifies its channel key.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(
     tag = "algorithm",

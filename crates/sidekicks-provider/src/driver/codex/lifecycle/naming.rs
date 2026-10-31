@@ -4,15 +4,16 @@
 //! `thread/name/set`, so its own session list shows it. A conversation the person's own terminal
 //! already named keeps that name.
 
-mod lockdown;
+pub(crate) mod lockdown;
 #[cfg(test)]
 mod tests;
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
@@ -20,11 +21,12 @@ use tokio_util::sync::CancellationToken;
 
 use super::{CodexDriver, internal};
 use crate::driver::codex::app_server_protocol::{
-    AskForApproval, ConfigReadParams, SandboxMode, ThreadReadParams, ThreadSetNameParams,
-    ThreadSource, ThreadStartParams,
+    AskForApproval, SandboxMode, ThreadReadParams, ThreadSetNameParams, ThreadSource,
+    ThreadStartParams,
 };
 use crate::driver::codex::attachments::compose_codex_text_input;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
+use crate::driver::codex::config_read::read_codex_config;
 use crate::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
@@ -38,16 +40,14 @@ use crate::driver::codex::session::detached_conversation::{
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::CodexTurnStartParams;
-use crate::driver::codex::thread::view::{TURN_START_METHOD, read_thread, read_turn_id};
+use crate::driver::codex::thread::view::{
+    THREAD_START_METHOD, TURN_START_METHOD, read_thread, read_turn_id,
+};
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{NameSessionParams, run_naming_pass_until};
 use crate::runtime_binding::store::RuntimeBinding;
 use crate::spawned_version::ResolvedProviderExecutable;
-
-const CONFIG_READ_METHOD: &str = "config/read";
-
-const THREAD_START_METHOD: &str = "thread/start";
 
 const THREAD_READ_METHOD: &str = "thread/read";
 
@@ -153,7 +153,7 @@ impl CodexDriver {
                 tokio::select! {
                     () = cancel.cancelled() => return Ok(None),
                     () = tokio::time::sleep_until(deadline) => return Ok(None),
-                    service = self.registry.service_for(account.as_ref()) => (service?, None),
+                    service = self.registry.service_for(&account) => (service?, None),
                 }
             };
         tokio::select! {
@@ -189,7 +189,7 @@ impl CodexDriver {
             };
             let service = self
                 .registry
-                .service_for(leg.spawn_config.provider_account_id.as_ref())
+                .service_for(&leg.spawn_config.provider_account_id)
                 .await?;
             service
                 .ensure_started(service.dependencies().startup_timeout)
@@ -207,7 +207,7 @@ impl CodexDriver {
     }
 
     // The session's stored leg, as the run engine reads it; `None` for a session that never ran.
-    async fn read_session_leg(
+    pub(super) async fn read_session_leg(
         &self,
         session_id: SessionId,
     ) -> Result<Option<RuntimeBinding>, DriverError> {
@@ -265,7 +265,7 @@ async fn name_on_service(
     cancel: CancellationToken,
     deadline: Instant,
 ) -> Result<Option<String>, CodexError> {
-    let (events, mut frames) = CodexDetachedFrames::new();
+    let (events, frames) = CodexDetachedFrames::new();
     let service = &conversation.service;
     let connection = tokio::select! {
         biased;
@@ -273,10 +273,9 @@ async fn name_on_service(
         () = tokio::time::sleep_until(deadline) => return Ok(None),
         connection = service.open_detached_connection(events) => connection?,
     };
-    // The throwaway conversation is ephemeral, so it ends with the connection, dropped here.
     draw_title(
-        &connection,
-        &mut frames,
+        connection,
+        frames,
         &TitleRequest {
             thread_id: &conversation.thread_id,
             is_joined: service.kind() == CodexServiceKind::Joined,
@@ -321,14 +320,17 @@ enum TitleThread {
 
 // The title of `request`'s conversation drawn over `connection`, whose notifications arrive on
 // `frames`, as `start_title_thread` starts it; `None` once `cancel` fired or `deadline` passed,
-// either of which stops its turn.
+// either of which stops its turn. The connection is let go of as the pass ends, which ends its
+// ephemeral conversation, so the service can unload it.
 async fn draw_title(
-    connection: &CodexAppServerConnection,
-    frames: &mut mpsc::UnboundedReceiver<CodexDetachedFrame>,
+    connection: CodexAppServerConnection,
+    mut frames: mpsc::UnboundedReceiver<CodexDetachedFrame>,
     request: &TitleRequest<'_>,
     cancel: &CancellationToken,
     deadline: Instant,
 ) -> Result<Option<String>, CodexError> {
+    let connection = &connection;
+    let frames = &mut frames;
     run_naming_pass_until(cancel, deadline, |stop| async move {
         draw_title_until_stopped(connection, frames, request, &stop).await
     })
@@ -363,6 +365,8 @@ async fn draw_title_until_stopped(
         effort: effort.map(|effort| effort.parse().expect("the title effort is an effort")),
         service_tier: None,
         service_tier_for_turn: None,
+        // The title thread started with no environment, which the turn keeps.
+        environments: None,
     };
     let start = connection.request(TURN_START_METHOD, &turn);
     tokio::pin!(start);
@@ -415,16 +419,13 @@ async fn start_title_thread(
             return Ok(TitleThread::Named(given));
         }
     }
-    let config = connection
-        .request(
-            CONFIG_READ_METHOD,
-            &ConfigReadParams {
-                cwd: Some(request.working_directory.to_owned()),
-                include_layers: Some(false),
-            },
-        )
-        .await?;
-    let server_names = lockdown::read_config_server_names(&config)?;
+    let config = read_codex_config::<Map<String, Value>>(
+        connection,
+        Path::new(request.working_directory),
+        false,
+    )
+    .await?;
+    let server_names = lockdown::read_config_server_names(&config.config);
     let title_model = choose_title_model(Some(connection), Some(request.session_model)).await;
     let reply = connection
         .request(

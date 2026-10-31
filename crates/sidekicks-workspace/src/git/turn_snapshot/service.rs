@@ -562,7 +562,7 @@ impl TurnSnapshotService {
             )
             .expect("writing to a string cannot fail");
         }
-        let delete_call = GitCall::write([
+        let delete_call = GitCall::private_ref_write([
             git_dir_argument,
             "update-ref".into(),
             "--no-deref".into(),
