@@ -31,8 +31,9 @@ use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventDraft, SessionEventEmitError, SessionEventLinkage,
 };
 
+use super::errors::ProviderSessionError;
 use super::resume::ComposedResume;
-use super::{OpenedProcess, ProviderSessionError, ProviderSessions};
+use super::{OpenedProcess, ProviderSessions};
 
 /// What a side question is asked from: the session's binding its usage is recorded on, and the
 /// resume material its copy is forked from.

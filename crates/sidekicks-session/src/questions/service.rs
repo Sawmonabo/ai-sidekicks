@@ -51,7 +51,8 @@ use crate::questions::store::{
     settle_question_statement,
 };
 use crate::questions::waits::QuestionWaits;
-use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::engine::RunEngine;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 #[cfg(any(test, feature = "test-support"))]

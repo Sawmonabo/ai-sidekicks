@@ -14,7 +14,7 @@ use sidekicks_store::events::session::appender::{SessionEventAppendError, Sessio
 
 use crate::driver_resolution::LiveRunDriverError;
 use crate::interventions::interrupt_queue::InterruptQueueError;
-use crate::run::engine::RunEngineError;
+use crate::run::engine::errors::RunEngineError;
 
 /// Why a dispatch threw or could not run; its row moves to `failed` with a refusal's code, else
 /// its description.

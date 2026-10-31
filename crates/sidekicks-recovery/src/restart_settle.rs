@@ -21,7 +21,8 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_session::interventions::store::{read_pending_retries, settle_retry_after_restart};
-use sidekicks_session::run::engine::{RunEngine, RunEngineError};
+use sidekicks_session::run::engine::RunEngine;
+use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::provider_choice::run_end::{
     read_ended_runs_with_open_choices, settle_open_choices_of_ended_run,
 };

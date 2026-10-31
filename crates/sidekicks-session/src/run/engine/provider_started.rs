@@ -25,11 +25,10 @@ use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGateError};
 
 use crate::driver_resolution::read_run_driver;
 use crate::run::agent::RunAgentReader;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::live::ContinuingGuard;
 use crate::run::engine::start::{has_left_interrupted, setup_failure_message};
-use crate::run::engine::{
-    LiveAppend, RunEngine, RunEngineError, SubagentRunStart, with_cleanup_failures,
-};
+use crate::run::engine::{LiveAppend, RunEngine, SubagentRunStart, with_cleanup_failures};
 use crate::run::projection::insert_queued_run_statement;
 use crate::run::read::{RunRead, RunStateReader};
 use crate::run::refusals::RunRefusal;

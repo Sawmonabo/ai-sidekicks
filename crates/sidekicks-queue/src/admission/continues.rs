@@ -17,7 +17,7 @@ use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_session::queue_store::summary::summary_of;
 use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
 use sidekicks_session::run::agent::read_lead_agent_through;
-use sidekicks_session::run::engine::RunEngineError;
+use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::read::read_run_through;
 use sidekicks_session::run::start_request::RunContinueRequest;
 use sidekicks_std::keyed_lock::KeyHold;

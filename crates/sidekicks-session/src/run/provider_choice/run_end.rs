@@ -24,7 +24,7 @@ use sidekicks_store::events::session::appender::{
 
 use super::held::MovedAnswer;
 use super::{ChoiceDialog, is_settled_since, latest_request, settlement_guard};
-use crate::run::engine::RunEngineError;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::read::{RunStateReader, SessionRun, session_run_of_row};
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 

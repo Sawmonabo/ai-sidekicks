@@ -19,7 +19,7 @@ use super::{
     limit_record, record_interrupt, running_at, step_limit_reached, token_limit_reached,
 };
 use crate::questions::schema::schema_parts;
-use crate::run::engine::RunEngineError;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
 use crate::run::engine::tests::{
     continue_request, events, hand_limit_interrupter, started_turn, stored_events, token_limit,

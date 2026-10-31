@@ -35,8 +35,8 @@ use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate as _, R
 use tokio::sync::Notify;
 
 use super::Opening;
-use crate::provider_session::ProviderSessionError;
 use crate::provider_session::controls::SideQuestionSource;
+use crate::provider_session::errors::ProviderSessionError;
 use sidekicks_provider::driver::test_registry::new_run_id;
 
 // A move to Sandboxed in a repository whose git folder is gone is refused before the driver hears

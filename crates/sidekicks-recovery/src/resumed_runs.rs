@@ -24,7 +24,8 @@ use sidekicks_queue::delivery::{DeliveryError, QueueDelivery};
 use sidekicks_queue::provider_session::resumed_runs::{ResumedRuns, ResumedRunsIngress};
 use sidekicks_session::driver_resolution::{LiveRunDriverError, read_run_driver};
 use sidekicks_session::queue_store::QueueItemReader;
-use sidekicks_session::run::engine::{RunEngine, RunEngineError};
+use sidekicks_session::run::engine::RunEngine;
+use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::read::RunStateReader;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,

@@ -77,7 +77,8 @@ use crate::interventions::store::{
     insert_requested_intervention_statement, move_intervention_statement, run_at_version_statement,
     run_in_states_statement,
 };
-use crate::run::engine::{InterruptRoute, RunEngine, RunEngineError};
+use crate::run::engine::errors::RunEngineError;
+use crate::run::engine::{InterruptRoute, RunEngine};
 use crate::run::projection::advance_run_version_statement;
 use crate::run::read::{RunRead, read_run_through};
 use crate::run::refusals::RunRefusal;

@@ -33,10 +33,9 @@ use sidekicks_session::run::read::RunStateReader;
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
+use crate::provider_session::errors::ProviderSessionError;
 use crate::provider_session::resumed_runs::ResumedRuns;
-use crate::provider_session::{
-    OpenedSession, ProviderSessionError, ProviderSessions, close_unrecorded, posture_of,
-};
+use crate::provider_session::{OpenedSession, ProviderSessions, close_unrecorded, posture_of};
 
 /// A session's resume composed from its stored leg: the params its driver resumes it with, with no
 /// function legs, the posture and git folder the resumed process runs at, and the legs a caller

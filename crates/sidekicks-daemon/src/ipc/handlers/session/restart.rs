@@ -18,7 +18,8 @@ use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use sidekicks_queue::provider_session::{ProviderSessionError, ProviderSessions};
+use sidekicks_queue::provider_session::ProviderSessions;
+use sidekicks_queue::provider_session::errors::ProviderSessionError;
 
 /// Registers `session.restart` over `provider_sessions`, which run each restart under the
 /// session's transition lock, so none brings a process up while a close is ending the session or
@@ -120,7 +121,7 @@ mod tests {
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_ipc::registry::HandlerError;
     use sidekicks_provider::driver::PROVIDERS;
-    use sidekicks_queue::provider_session::ProviderSessionError;
+    use sidekicks_queue::provider_session::errors::ProviderSessionError;
 
     use super::restart_failure;
 
