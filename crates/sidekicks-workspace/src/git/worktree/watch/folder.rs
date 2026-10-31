@@ -30,7 +30,7 @@ use super::{
 };
 use crate::file_watch::{FileWatch, FileWatchError, FileWatchNotice, WatchedRoot};
 use crate::git::process::{GitError, read_git_common_folder};
-use crate::git::worktree::reads::read_tree_git_folder;
+use crate::git::worktree::reads::{GIT_FILE_NAME, read_tree_git_folder};
 
 /// Runs the folder `folder` of `target` until `signals.close` is canceled: starts its watches,
 /// answers `started` once they run and the branch was first checked, then reads them.
@@ -152,7 +152,7 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 .await
                 .map_err(FolderStartError::IgnoredPaths)?,
         );
-        let is_linked_tree = match tokio::fs::symlink_metadata(key.join(".git")).await {
+        let is_linked_tree = match tokio::fs::symlink_metadata(key.join(GIT_FILE_NAME)).await {
             Ok(metadata) => metadata.is_file(),
             Err(error) => {
                 tracing::warn!(

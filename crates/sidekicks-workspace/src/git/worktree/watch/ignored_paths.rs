@@ -15,8 +15,7 @@ use sidekicks_std::missing_entry::is_missing_entry;
 
 use crate::file_watch::{WalkFilter, WatchedRoot};
 use crate::git::process::{GitCall, GitError, GitRunner, background_read};
-
-const GIT_FOLDER_NAME: &str = ".git";
+use crate::git::worktree::reads::GIT_FILE_NAME;
 
 /// The file whose change may change what git ignores in the tree.
 pub(super) const IGNORE_FILE_NAME: &str = ".gitignore";
@@ -140,7 +139,7 @@ impl TreeCoverage {
     pub(super) fn keeps(&self, relative_path: &Path) -> bool {
         let mut components = relative_path.components();
         if let Some(Component::Normal(first)) = components.next()
-            && first == OsStr::new(GIT_FOLDER_NAME)
+            && first == OsStr::new(GIT_FILE_NAME)
         {
             return self.is_linked_tree && components.next().is_none();
         }
@@ -156,7 +155,7 @@ impl TreeCoverage {
 
 /// Whether `relative_path` is a linked tree's `.git` pointer file.
 pub(super) fn is_git_pointer(relative_path: &Path) -> bool {
-    relative_path == Path::new(GIT_FOLDER_NAME)
+    relative_path == Path::new(GIT_FILE_NAME)
 }
 
 /// The git-folder watch's roots, `git_folders` in order: the tree's own git folder first, keeping

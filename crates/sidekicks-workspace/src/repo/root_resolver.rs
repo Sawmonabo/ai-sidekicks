@@ -30,7 +30,7 @@ use crate::git::process::{
     GIT_FATAL_EXIT_CODE, GitCall, GitError, GitRunner, background_read, read_git_common_folder,
     strip_line_end,
 };
-use crate::git::worktree::reads::{ListedWorktree, read_listed_worktrees};
+use crate::git::worktree::reads::{GIT_FILE_NAME, ListedWorktree, read_listed_worktrees};
 use crate::repo::errors::RepoRefusal;
 use crate::trust_envelope::{components_equal, is_contained_within};
 
@@ -45,9 +45,6 @@ pub(crate) const ROOT_RESOLUTION_GIT_TIMEOUT: Duration = Duration::from_secs(10)
 /// case: anywhere else it could sit inside a quoted path of another fatal error, and git escapes
 /// control characters in a quoted path, so none can start a line of its own.
 const NOT_A_REPOSITORY_MARKER: &str = "fatal: not a git repository";
-
-/// The entry git's discovery looks for, a folder or a `gitdir:` file; it is only looked at.
-pub(crate) const GIT_ENTRY_NAME: &str = ".git";
 
 /// What an attach may keep about a path: every member absolute with each link resolved, and both
 /// roots readable when resolved.
@@ -491,7 +488,7 @@ async fn resolve_listed_tree(record: &ListedWorktree) -> Result<Option<PathBuf>,
 // but `NotFound`, so a `.git` git cannot read still counts, and a dangling `.git` link counts as
 // none, as it does for git. A look the file system does not answer in time is `notReadable`.
 async fn has_visible_git_entry(folder: &Path) -> Result<bool, RepoRefusal> {
-    let looked = read_within_ceiling(&folder.join(GIT_ENTRY_NAME), |entry| {
+    let looked = read_within_ceiling(&folder.join(GIT_FILE_NAME), |entry| {
         Ok(std::fs::metadata(entry).map(drop))
     })
     .await

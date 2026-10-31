@@ -45,8 +45,7 @@ use tokio_util::sync::CancellationToken;
 use crate::file_watch::{
     ChangeFeed, FileWatch, FileWatchError, FileWatchNotice, WalkFilter, WatchedRoot,
 };
-
-const GIT_METADATA_FOLDER_NAME: &str = ".git";
+use crate::git::worktree::reads::GIT_FILE_NAME;
 
 // The recent paths whose last reported signature is kept, to tell a repeated notice from a new
 // write; a path pushed out is reported once more on its next notice, which costs one extra version.
@@ -196,8 +195,7 @@ async fn open_watch<W: Watcher + Send + 'static>(
         .await
         .map_err(ManagedWorkspaceWatchError::FolderNotMade)?;
     let filter = WalkFilter::new(|relative_path: &Path| {
-        relative_path.components().nth(1)
-            != Some(Component::Normal(OsStr::new(GIT_METADATA_FOLDER_NAME)))
+        relative_path.components().nth(1) != Some(Component::Normal(OsStr::new(GIT_FILE_NAME)))
     });
     FileWatch::start(vec![WatchedRoot {
         path: workspaces_folder,
