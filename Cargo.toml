@@ -165,15 +165,13 @@ jsonschema = { version = "0.58.6", default-features = false }
 percent-encoding = "2.3.2"
 psl = "2.1.241"
 reqwest = { version = "0.13.5", features = ["brotli", "deflate", "gzip", "json", "stream"] }
-rmcp = {
-  version = "3.7.0",
-  features = [
-    "client",
-    "transport-child-process",
-    "transport-streamable-http-client",
-    "transport-streamable-http-server",
-  ]
-}
+rmcp.version = "3.7.0"
+rmcp.features = [
+  "client",
+  "transport-child-process",
+  "transport-streamable-http-client",
+  "transport-streamable-http-server",
+]
 rustls = "0.23.45"
 rustls-platform-verifier = "0.7.1"
 ryu-js = "1.0.3"
