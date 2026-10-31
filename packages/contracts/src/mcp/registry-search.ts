@@ -2,7 +2,7 @@
 // page of results the daemon answers with, untrusted data that fills the add form and nothing else.
 import { z } from "zod";
 
-import { mcpHttpAddressSchema, mcpRequestText } from "./server-config.js";
+import { mcpHttpAddressSchema, mcpRequestText } from "./request-bounds.js";
 
 /**
  * Searches the public MCP Registry for servers to add. The daemon makes the call,

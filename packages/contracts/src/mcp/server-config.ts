@@ -1,10 +1,13 @@
 // An MCP server's declaration: what a person submits, environment and header values write-only,
 // and its redacted read-back, which carries their names where the wire would carry values, so a
-// client rendering every read-back still cannot render a value or a token. The text and address
-// bounds every `mcp.*` request shares sit here too.
+// client rendering every read-back still cannot render a value or a token.
 import { z } from "zod";
 
-import { wireFreeFormString } from "../free-form-string.js";
+import {
+  MCP_REQUEST_TEXT_MAX_LEN,
+  mcpRequestText,
+  mcpServerAddressSchema,
+} from "./request-bounds.js";
 
 /**
  * The redacted read-back of a binding's declaration, by transport. The env map, header map and
@@ -36,25 +39,6 @@ export type McpServerConfigView =
       startupTimeoutSec?: number | undefined;
       toolTimeoutSec?: number | undefined;
     };
-
-/**
- * The longest command, argument, name, value, address or search text an `mcp.*`
- * request carries.
- */
-export const MCP_REQUEST_TEXT_MAX_LEN = 8192;
-
-/**
- * A request text of at most {@link MCP_REQUEST_TEXT_MAX_LEN} code points, named `fieldLabel` in a
- * refusal.
- */
-export const mcpRequestText = (fieldLabel: string): z.ZodString =>
-  wireFreeFormString(MCP_REQUEST_TEXT_MAX_LEN, fieldLabel);
-
-/** An `http:` or `https:` address; `http:` is legal because a server may listen on loopback. */
-export const mcpHttpAddressSchema: z.ZodURL = z.url({ protocol: /^https?$/u });
-
-/** An `http:` or `https:` address, taken as typed, a user name or password in it included. */
-export const mcpServerAddressSchema: z.ZodURL = mcpHttpAddressSchema.max(MCP_REQUEST_TEXT_MAX_LEN);
 
 const mcpTimeoutSecondsSchema = z.number().positive();
 

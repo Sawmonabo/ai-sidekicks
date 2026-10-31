@@ -1,8 +1,6 @@
 // MCP server governance shapes: what a server binding is, what the daemon reports about it, and
-// what a mutation did to the live sessions behind it, plus each `mcp.*` method's request and reply.
-// A server's declaration is in `mcp/server-config.ts`, a tool's override and reading in
-// `mcp/tool-settings.ts`, the registry search in `mcp/registry-search.ts`, and the method table,
-// event payloads and refusal codes in `mcp/governance.ts`.
+// what a mutation did to the live sessions behind it, plus the requests and replies of the
+// `mcp.*` methods that read, change or reach a configured server.
 //
 // Every governance mutation carries a `clientIdempotencyKey` that the caller mints: a retry of
 // one press must reuse it, and a key minted per call would make every retry a new
@@ -19,11 +17,10 @@ import { pluginTokenSchema } from "../plugin.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { isoDateTimeSchema } from "../internal/wire-scalars.js";
+import { mcpHttpAddressSchema, mcpServerAddressSchema } from "./request-bounds.js";
 import {
   McpServerConfigInputSchema,
   McpServerConfigViewSchema,
-  mcpHttpAddressSchema,
-  mcpServerAddressSchema,
   type McpServerConfigInput,
   type McpServerConfigView,
 } from "./server-config.js";
