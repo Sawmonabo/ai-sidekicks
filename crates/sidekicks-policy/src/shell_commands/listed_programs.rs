@@ -112,11 +112,11 @@ pub(super) fn standing_rule_of<W: WordText>(
 /// A program's name as the list's names would match it on a file system that ignores case or on
 /// Windows: ASCII case folded and a trailing `.exe`, in any case, taken off.
 pub(crate) fn folded_program_name(name: &str) -> String {
-    let mut folded = name.to_ascii_lowercase();
-    if folded.ends_with(".exe") {
-        folded.truncate(folded.len() - ".exe".len());
+    let folded = name.to_ascii_lowercase();
+    match folded.strip_suffix(".exe") {
+        Some(stem) => stem.to_owned(),
+        None => folded,
     }
-    folded
 }
 
 // Whether `name`, folded, is a listed name or an interpreter's versioned one.
