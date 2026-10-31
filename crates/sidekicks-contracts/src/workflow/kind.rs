@@ -23,6 +23,9 @@ use crate::wire::text::NonEmptyText;
 use crate::wire::{AnyValue, named_scalar};
 use crate::workflow::definition::document::WorkflowNodeKindId;
 
+/// The key of a workflow's Notify step's kind.
+pub const NOTIFY_KIND: &str = "output.notify";
+
 /// The name a person reads for each node kind the catalog ships, by the kind's key: the
 /// `displayName` that kind's spec carries, and the word a run graph's box reads.
 pub const WORKFLOW_NODE_KIND_NAMES: &[(&str, &str)] = &[
@@ -65,7 +68,7 @@ pub const WORKFLOW_NODE_KIND_NAMES: &[(&str, &str)] = &[
     ("flow.wait", "Wait"),
     ("flow.stopError", "Stop with error"),
     ("flow.executeWorkflow", "Execute workflow"),
-    ("output.notify", "Notify"),
+    (NOTIFY_KIND, "Notify"),
     ("output.saveArtifact", "Save as artifact"),
     ("output.writeSummary", "Write a summary"),
 ];

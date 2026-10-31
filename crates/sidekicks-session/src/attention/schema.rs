@@ -4,9 +4,11 @@
 //!
 //! The entries are a projection of the session events, written in each event's own write and
 //! rebuilt from the log; the deliveries, the seen marks and the counts are the daemon's own
-//! writes, which a rebuild leaves alone. No table refers to another, so a purge deletes them in any
-//! order. A provider's new build is never an entry row: the projection lists it from the provider
-//! drivers' record of each provider's builds, which this part's list therefore holds.
+//! writes, which a rebuild leaves alone. Only the web address's send queue refers to another
+//! table, the deliveries, so a purge's delete of a delivery takes its queued message with it and
+//! the purge deletes the rest in any order. A provider's new build is never an entry row: the
+//! projection lists it from the provider drivers' record of each provider's builds, which this
+//! part's list therefore holds.
 
 use sidekicks_contracts::attention::{
     AttentionBannerState, AttentionSeverity, AttentionTrigger, AttentionWebAddressState,
@@ -15,13 +17,18 @@ use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
 use strum::VariantArray as _;
 
+use crate::attention::delivery::outcome::delivery_outcome_schema_part;
+use crate::attention::delivery::web_address::queue::send_queue_schema_part;
+
 /// The runs' list, which a run's end reads to raise an entry only for a lead run, the provider
-/// drivers' list, whose record of each provider's builds the projection lists, and the attention
-/// tables' own part.
+/// drivers' list, whose record of each provider's builds the projection lists, the attention
+/// tables' own part, the delivery channels' outcome table and the web address's send queue.
 pub fn schema_parts() -> SchemaParts {
     crate::run::schema::schema_parts()
         .with_parts(sidekicks_provider::driver::schema::schema_parts())
         .with_part(SchemaPart::new("attention", attention_schema_sql()))
+        .with_part(delivery_outcome_schema_part())
+        .with_part(send_queue_schema_part())
 }
 
 fn attention_schema_sql() -> String {
@@ -65,9 +72,9 @@ CREATE INDEX idx_attention_entries_session ON attention_entries(session_id, reso
 -- A deleted workflow run's entries, and a step's wait as its step resolves.
 CREATE INDEX idx_attention_entries_workflow_run ON attention_entries(workflow_run_id)
   WHERE workflow_run_id IS NOT NULL;
--- The open entries of a moment, which the moment's next state resolves.
-CREATE INDEX idx_attention_entries_open_moment ON attention_entries(moment_id)
-  WHERE resolved_at IS NULL;
+-- A moment's entries: the open ones its next state resolves, and the later ones that tell whether
+-- a waiting web-address message still stands.
+CREATE INDEX idx_attention_entries_moment ON attention_entries(moment_id);
 
 -- What became of an entry's banner and web-address message, decided once per entry, and again
 -- for a handed-back wait's banner. No row, or a NULL banner_state, is an undecided banner.

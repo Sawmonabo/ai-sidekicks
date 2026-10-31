@@ -9,6 +9,7 @@
 //! and items from here; this module imports nothing from them.
 
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -26,11 +27,35 @@ use crate::wire::record::{JsonRecord, Record};
 use crate::wire::text::{BoundedText, NonEmptyText, branded_text};
 use crate::wire::{literal, named_scalar};
 use crate::workflow::definition::item::WorkflowPinnedItem;
+use crate::workflow::kind::NOTIFY_KIND;
 
 /// The message of the issue a document's read raises at a repeated node id (`nodes[i].id`). The
 /// daemon's refusal recognizes the rule by it and carries the repeat's `nodeIdDuplicate` finding,
 /// over the id at that path, as the issue's `params`.
 pub const NODE_ID_DUPLICATE_MESSAGE: &str = "this node id is already used by an earlier node";
+
+/// The longest workflow name a document holds, in code points: a session's bound, since a run's
+/// name is drawn where a session's is.
+pub const WORKFLOW_NAME_MAX_LEN: usize = 256;
+
+/// The longest notice a Notify step posts, in code points: the bound of the smallest chat
+/// message the web address's receivers take, so the notice reaches them whole.
+pub const NOTIFY_NOTICE_MAX_LEN: usize = 2_000;
+
+/// A workflow's name: one to [`WORKFLOW_NAME_MAX_LEN`] code points.
+pub type WorkflowName = BoundedText<1, WORKFLOW_NAME_MAX_LEN>;
+
+/// A Notify step's notice: one to [`NOTIFY_NOTICE_MAX_LEN`] code points.
+pub type WorkflowNotifyNotice = BoundedText<1, NOTIFY_NOTICE_MAX_LEN>;
+
+/// The Notify step's parameter holding its notice.
+const NOTIFY_NOTICE_PARAM: &str = "notice";
+
+/// The message of the issue a document's read raises at a Notify step's notice that does not read
+/// as a [`WorkflowNotifyNotice`].
+static NOTIFY_NOTICE_MESSAGE: LazyLock<String> = LazyLock::new(|| {
+    format!("a Notify step's notice is text of 1 to {NOTIFY_NOTICE_MAX_LEN} characters")
+});
 
 ts_constants! {
     /// The document schema version this contract reads and writes.
@@ -509,8 +534,10 @@ macro_rules! workflow_document {
             #[schemars(description = "The document schema version; always \"2\".")]
             pub schema_version: WorkflowDocumentSchemaVersion,
             /// The workflow's name.
-            #[schemars(description = "The workflow's name.")]
-            pub name: NonEmptyText,
+            #[schemars(description = format!(
+                "The workflow's name: 1 to {WORKFLOW_NAME_MAX_LEN} characters."
+            ))]
+            pub name: WorkflowName,
             /// The workflow's description.
             #[serde(
                 default,
@@ -571,8 +598,9 @@ macro_rules! workflow_document {
             pub tags: Option<TagList>,
         }
 
-        /// The members' checks, then each repeated node id at its `nodes[i].id`, with
-        /// [`NODE_ID_DUPLICATE_MESSAGE`].
+        /// The members' checks, each Notify step's notice that does not read as a
+        /// [`WorkflowNotifyNotice`] at its `nodes[i].params.notice`, then each repeated node id at
+        /// its `nodes[i].id`, with [`NODE_ID_DUPLICATE_MESSAGE`].
         impl garde::Validate for $name {
             type Context = ();
 
@@ -586,6 +614,18 @@ macro_rules! workflow_document {
                 garde::Validate::validate_into(&self.trigger, context, &mut trigger_path, report);
                 let mut nodes_path = || parent().join("nodes");
                 garde::Validate::validate_into(&self.nodes, context, &mut nodes_path, report);
+                for (index, node) in self.nodes.iter().enumerate() {
+                    if !is_notify_notice_readable(node) {
+                        report.append(
+                            parent()
+                                .join("nodes")
+                                .join(index)
+                                .join("params")
+                                .join(NOTIFY_NOTICE_PARAM),
+                            garde::Error::new(NOTIFY_NOTICE_MESSAGE.as_str()),
+                        );
+                    }
+                }
                 let mut pin_data_path = || parent().join("pin_data");
                 garde::Validate::validate_into(&self.pin_data, context, &mut pin_data_path, report);
                 let mut tags_path = || parent().join("tags");
@@ -648,6 +688,25 @@ impl WorkflowDraftDocument {
     }
 }
 
+/// Whether `node`'s notice reads as a [`WorkflowNotifyNotice`], or `node` is no Notify step or has
+/// no notice yet. A node's params are an open record by the ids its kind lists, so the notice is
+/// read through its type here; an expression is held to the bound as written.
+fn is_notify_notice_readable(node: &WorkflowNode) -> bool {
+    if node.kind.0.as_str() != NOTIFY_KIND {
+        return true;
+    }
+    node.params
+        .as_map()
+        .get(NOTIFY_NOTICE_PARAM)
+        .is_none_or(|notice| {
+            notice
+                .0
+                .as_str()
+                .and_then(|text| WorkflowNotifyNotice::new(text.to_owned()))
+                .is_some()
+        })
+}
+
 /// The index in `nodes` of each repeat of a node id among the trigger's and the other nodes', in
 /// document order; the trigger comes first, so it is never the repeat.
 fn repeated_node_indices<'a>(
@@ -669,7 +728,7 @@ fn repeated_node_indices<'a>(
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorkflowDocumentHashedBody {
     /// The workflow's name.
-    pub name: NonEmptyText,
+    pub name: WorkflowName,
     /// The workflow's description.
     #[serde(
         default,
@@ -759,7 +818,46 @@ mod tests {
     use garde::Validate;
     use serde_json::json;
 
-    use super::{NODE_ID_DUPLICATE_MESSAGE, WorkflowDocument, node};
+    use super::{
+        NODE_ID_DUPLICATE_MESSAGE, NOTIFY_NOTICE_MAX_LEN, NOTIFY_NOTICE_MESSAGE, WorkflowDocument,
+        node,
+    };
+
+    // A Notify step's notice past its bound is refused at its own place, and one at the bound is
+    // kept, so a saved definition never holds a notice the web address's receivers cut. Mutation:
+    // the notice check dropped from the document's validation.
+    #[test]
+    fn a_notify_notice_past_its_bound_is_refused() {
+        let document_with = |length: usize| -> WorkflowDocument {
+            let mut notify = node("n", "output.notify");
+            notify["params"] = json!({ "notice": "\u{e9}".repeat(length) });
+            serde_json::from_value(json!({
+                "schemaVersion": "2",
+                "name": "Deploy",
+                "trigger": node("t", "trigger.manual"),
+                "nodes": [node("a", "agent.run"), notify],
+                "edges": [],
+            }))
+            .expect("the document reads")
+        };
+        let report = document_with(NOTIFY_NOTICE_MAX_LEN + 1)
+            .validate()
+            .expect_err("a notice past its bound is refused");
+        let issues: Vec<(String, &str)> = report
+            .iter()
+            .map(|(path, error)| (path.to_string(), error.message()))
+            .collect();
+        assert_eq!(
+            issues,
+            vec![(
+                "nodes[1].params.notice".to_owned(),
+                NOTIFY_NOTICE_MESSAGE.as_str()
+            )]
+        );
+        document_with(NOTIFY_NOTICE_MAX_LEN)
+            .validate()
+            .expect("a notice at its bound is kept");
+    }
 
     #[test]
     fn each_repeated_node_id_is_refused_at_its_own_place() {

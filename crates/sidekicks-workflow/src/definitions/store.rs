@@ -23,10 +23,9 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
-use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowContentHash, WorkflowDefinitionId, WorkflowDocument, WorkflowDocumentSchemaVersion,
-    WorkflowNode, WorkflowVersionId, pick_workflow_document_hashed_body,
+    WorkflowName, WorkflowNode, WorkflowVersionId, pick_workflow_document_hashed_body,
 };
 use sidekicks_contracts::workflow::definition::item::WorkflowPinnedItem;
 use sidekicks_contracts::workflow::definition::methods::{
@@ -291,8 +290,7 @@ impl WorkflowDefinitionStore {
                     )
                 })
                 .await?;
-            hashed_body.name =
-                NonEmptyText::new(copy_name).expect("a copy's name holds its source's name");
+            hashed_body.name = copy_name;
             let first_version = FirstVersion {
                 name: &hashed_body.name,
                 hash: &hash_workflow_body(&hashed_body)?,
@@ -707,7 +705,7 @@ impl WorkflowDefinitionStore {
 /// body under that name, and the hash of the document as sent, which a Duplicate's lock carry
 /// compares with the copied version's.
 struct FirstVersion<'a> {
-    name: &'a NonEmptyText,
+    name: &'a WorkflowName,
     hash: &'a WorkflowDocumentHash,
     sent_content_hash: &'a WorkflowContentHash,
 }

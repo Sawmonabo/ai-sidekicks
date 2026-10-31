@@ -225,10 +225,14 @@ refusal_codes! {
     ArtifactNotFound = "artifact.notFound" (NotFound, 404);
     /// `data.fields.reason` names which bound it hit.
     ArtifactTooLarge = "artifact.tooLarge" (ResourceExhausted, 413);
-    /// `attention.delivery.test` for a channel that is not set up.
+    /// `attention.delivery.test` for a channel that is not set up, or
+    /// `attention.webAddress.secret.rotate` with no web address saved.
     AttentionDeliveryNotConfigured = "attention.delivery.notConfigured" (FailedPrecondition, 409);
     /// The keychain holding a channel's secret is locked or unavailable.
     AttentionDeliveryStoreUnavailable = "attention.delivery.storeUnavailable" (Unavailable, 503);
+    /// `attention.webAddress.update` with text that is not an `http` or `https` address with a
+    /// host; nothing is saved.
+    AttentionWebAddressNotAnAddress = "attention.webAddress.notAnAddress" (InvalidArgument, 422);
     /// `connection.initialize` with the right session token from a process the daemon itself
     /// started outside the person's terminals, such as a command an agent ran, from one a provider
     /// service the daemon holds a connection to started, or from one the system could not name or
