@@ -26,6 +26,7 @@ use self::command_string::{
 };
 pub use self::command_string::{PROVIDER_LINE_SHELLS, unwrap_shell_command_line};
 pub use self::listed_programs::StandingRule;
+pub(crate) use self::listed_programs::folded_program_name;
 use self::listed_programs::{FIND_COMMAND_PRIMARIES, command_wrapper, standing_rule_of};
 use self::reading_forms::ReadingForms;
 use self::words::{

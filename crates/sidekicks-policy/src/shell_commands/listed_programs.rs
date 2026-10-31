@@ -89,19 +89,47 @@ pub(super) fn command_wrapper(program: impl WordText) -> Option<CommandWrapper> 
 }
 
 /// What a standing rule on a command of `program` with `argument_words` may name. An
-/// interpreter's name with a version after its stem, as `python3.12` or `perl5.34`, is that
-/// interpreter's.
+/// interpreter's name with a version after its stem, as `python3.12` or `bun1.2`, is read through
+/// its stem's entry. A name off the list that folds to a listed one, as `GIT`, `SH` or `git.exe`
+/// does, takes none: a file system that ignores case, or Windows, runs the listed program under it.
 pub(super) fn standing_rule_of<W: WordText>(
     program: W,
+    argument_words: impl Iterator<Item = W>,
+) -> StandingRule {
+    if let Some(listed) = listed_program(program) {
+        return standing_rule_of_listed(listed, argument_words);
+    }
+    let name: String = program.chars().collect();
+    if let Some(listed) = versioned_interpreter(&name) {
+        standing_rule_of_listed(listed, argument_words)
+    } else if is_listed_when_folded(&name) {
+        StandingRule::Withheld
+    } else {
+        StandingRule::Program
+    }
+}
+
+/// A program's name as the list's names would match it on a file system that ignores case or on
+/// Windows: ASCII case folded and a trailing `.exe`, in any case, taken off.
+pub(crate) fn folded_program_name(name: &str) -> String {
+    let mut folded = name.to_ascii_lowercase();
+    if folded.ends_with(".exe") {
+        folded.truncate(folded.len() - ".exe".len());
+    }
+    folded
+}
+
+// Whether `name`, folded, is a listed name or an interpreter's versioned one.
+fn is_listed_when_folded(name: &str) -> bool {
+    let folded = folded_program_name(name);
+    listed_program(folded.as_str()).is_some() || versioned_interpreter(&folded).is_some()
+}
+
+// What a standing rule on a command of the program `listed` names, with `argument_words`, may name.
+fn standing_rule_of_listed<W: WordText>(
+    listed: ListedProgram,
     mut argument_words: impl Iterator<Item = W>,
 ) -> StandingRule {
-    let Some(listed) = listed_program(program) else {
-        return if is_versioned_interpreter(&program.chars().collect::<String>()) {
-            StandingRule::Withheld
-        } else {
-            StandingRule::Program
-        };
-    };
     match listed {
         ListedProgram::Shell(_)
         | ListedProgram::LineProgram(_)
@@ -135,9 +163,14 @@ pub(super) fn standing_rule_of<W: WordText>(
             // The last script word with a word after it, so a workspace named like one
             // (`yarn workspace run run build`) is read as the name it is. A script word past
             // other words with none after it is a plain word itself, as in `npm install run`.
+            // Past a script word the runner reads no option of its own, so the walk stops at the
+            // first word beginning with `-` (`pnpm run test -- run src/`).
             let mut script_word_index = None;
             let mut argument_words = argument_words.enumerate().peekable();
             while let Some((index, word)) = argument_words.next() {
+                if script_word_index.is_some() && word.starts_with("-") {
+                    break;
+                }
                 let is_script_word = RUNNER_SCRIPT_WORDS
                     .iter()
                     .any(|script_word| word.is(script_word));
@@ -152,16 +185,20 @@ pub(super) fn standing_rule_of<W: WordText>(
     }
 }
 
-// Whether `name` is an interpreter's stem followed by a version of digits and dots, as
-// `python3.12` is `python`'s.
-fn is_versioned_interpreter(name: &str) -> bool {
+// The entry of the interpreter `name` names with a version of digits and dots after its stem, as
+// `python3.12` names `python`'s.
+fn versioned_interpreter(name: &str) -> Option<ListedProgram> {
     let stem =
         name.trim_end_matches(|character: char| character.is_ascii_digit() || character == '.');
-    stem.len() < name.len()
-        && matches!(
-            listed_program(stem),
-            Some(ListedProgram::Interpreter | ListedProgram::ScriptRunningInterpreter)
+    if stem.len() == name.len() {
+        return None;
+    }
+    listed_program(stem).filter(|listed| {
+        matches!(
+            listed,
+            ListedProgram::Interpreter | ListedProgram::ScriptRunningInterpreter
         )
+    })
 }
 
 // The duration comes before the command.

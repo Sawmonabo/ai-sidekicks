@@ -355,6 +355,9 @@ const LIMIT: usize = 4096;
 // GNU xargs's `-a <file>` reads its words from the file, so the here-string is the line of the
 // shell it runs. Killed by `-a` left an ordinary option that takes a value.
 #[case::here_string_past_xargs_arg_file("xargs -a f sh <<< 'git push --force'", true)]
+// The label reads a program by its exact spelling, as the list names it; a name that only folds
+// to git takes no standing rule instead. Killed by the list looked up by the folded name.
+#[case::git_in_capitals("GIT push --force", false)]
 fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool) {
     let mut reader = ShellLineReader::new(LIMIT);
     let reading = reader.read(line);
