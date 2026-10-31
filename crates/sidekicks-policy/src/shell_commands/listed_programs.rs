@@ -36,18 +36,21 @@ pub(super) enum ListedProgram {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StandingRule {
     /// None: the program is a shell, hands a shell a line, runs the command after it, runs code
-    /// or a file no rule can see, deletes what its words name, is `find` with a command primary
-    /// or an action, or is a runner with an option before its script word.
+    /// or a file no rule can see, deletes what its words name, or is `find` with a command primary
+    /// or an action.
     Withheld,
     /// The program, with its first word where that reads as a subcommand.
     Program,
     /// `git` with the subcommand past its own options; `git` alone takes none.
     GitSubcommand,
-    /// A runner, the plain words before its script word, the script word (`run`, or npm's
-    /// `run-script`, `rum` or `urn`) and the script it names, as `npm run build` or `yarn workspace
-    /// web run build`; the runner and its script word alone take none.
+    /// A runner, the words before its script word, the script word (`run`, or npm's `run-script`,
+    /// `rum` or `urn`) and the script it names, as `npm run build` or `yarn workspace web run
+    /// build`; the runner and its script word alone take none. The words are not checked here:
+    /// the subject takes one only where each word before the script word reads as a package's
+    /// name, never an option, and the script word and the script read as script names.
     RunnerScript {
-        /// Where the script word stands among the command's argument words.
+        /// Where the script word stands among the command's argument words: the last one with a
+        /// word after it, or the first word when that is one with none after it.
         script_word_index: usize,
     },
 }
@@ -129,27 +132,22 @@ pub(super) fn standing_rule_of<W: WordText>(
             }
         }
         ListedProgram::ScriptRunner => {
-            // An option before the script word may take a value, so where the script word stands
-            // past one is not read. A script word past plain words with no word after it is a
-            // plain word itself, as in `npm install run`.
-            let mut follows_an_option = false;
+            // The last script word with a word after it, so a workspace named like one
+            // (`yarn workspace run run build`) is read as the name it is. A script word past
+            // other words with none after it is a plain word itself, as in `npm install run`.
+            let mut script_word_index = None;
             let mut argument_words = argument_words.enumerate().peekable();
             while let Some((index, word)) = argument_words.next() {
                 let is_script_word = RUNNER_SCRIPT_WORDS
                     .iter()
                     .any(|script_word| word.is(script_word));
                 if is_script_word && (index == 0 || argument_words.peek().is_some()) {
-                    return if follows_an_option {
-                        StandingRule::Withheld
-                    } else {
-                        StandingRule::RunnerScript {
-                            script_word_index: index,
-                        }
-                    };
+                    script_word_index = Some(index);
                 }
-                follows_an_option |= word.starts_with("-");
             }
-            StandingRule::Program
+            script_word_index.map_or(StandingRule::Program, |script_word_index| {
+                StandingRule::RunnerScript { script_word_index }
+            })
         }
     }
 }
@@ -159,7 +157,11 @@ pub(super) fn standing_rule_of<W: WordText>(
 fn is_versioned_interpreter(name: &str) -> bool {
     let stem =
         name.trim_end_matches(|character: char| character.is_ascii_digit() || character == '.');
-    stem.len() < name.len() && matches!(listed_program(stem), Some(ListedProgram::Interpreter))
+    stem.len() < name.len()
+        && matches!(
+            listed_program(stem),
+            Some(ListedProgram::Interpreter | ListedProgram::ScriptRunningInterpreter)
+        )
 }
 
 // The duration comes before the command.

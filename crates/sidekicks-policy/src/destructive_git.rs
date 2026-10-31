@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use sidekicks_contracts::approval::RememberedRuleSense;
+use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 
 use crate::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use crate::shell_commands::{
@@ -90,16 +91,23 @@ pub fn read_git_subcommand<W: WordText>(
 
 /// Whether a provider keeping `rule` as a prefix over its subject's words would also let a force
 /// push or a branch delete through: a command allow on `git` alone, `git push` or `git branch`,
-/// git named by its name, a path ending in it (`./git`) or zsh's `=git`. Such a rule is the
-/// daemon's alone, which answers each ask it covers and sends a destructive one to the card.
+/// git named by its name, a path ending in it (`./git`) or zsh's `=git`, in any case and with a
+/// trailing `.exe` or none, as a file system that ignores case or Windows runs it. The subject's
+/// words are split as the providers split them, on any whitespace. Such a rule is the daemon's
+/// alone, which answers each ask it covers and sends a destructive one to the card.
 pub fn covers_destructive_git(rule: &ProviderAskRule) -> bool {
     if rule.action != ProviderAskActionKind::Command || rule.sense != RememberedRuleSense::Allow {
         return false;
     }
-    let mut words = rule.subject.split(' ');
-    let program = words.next().map(program_name_of);
+    let mut words = rule
+        .subject
+        .split(is_ecmascript_whitespace)
+        .filter(|word| !word.is_empty());
+    let names_git = words
+        .next()
+        .is_some_and(|word| names_git(program_name_of(word)));
     let subcommand = words.next();
-    program == Some("git")
+    names_git
         && words.next().is_none()
         && subcommand.is_none_or(|subcommand| DESTRUCTIVE_GIT_SUBCOMMANDS.contains(&subcommand))
 }
@@ -111,6 +119,14 @@ fn program_name_of(written: &str) -> &str {
         Some((_, name)) => name,
         None => written.strip_prefix('=').unwrap_or(written),
     }
+}
+
+// Whether `name` runs git on a file system that ignores case or on Windows: `git` in any case,
+// with a trailing `.exe` in any case or none.
+fn names_git(name: &str) -> bool {
+    let (stem, extension) = name.split_at_checked("git".len()).unwrap_or((name, ""));
+    stem.eq_ignore_ascii_case("git")
+        && (extension.is_empty() || extension.eq_ignore_ascii_case(".exe"))
 }
 
 // The short options of git's subcommands that take a value, as git's `-h` option tables and its
