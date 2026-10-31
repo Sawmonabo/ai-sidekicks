@@ -218,7 +218,8 @@ mod tests {
         );
     }
 
-    // Killed by any order but the system's own fallback order.
+    // On macOS and Linux, killed by any order but the system's own fallback order; on Windows
+    // both fallbacks are PowerShell, so the order is not read there.
     #[test]
     fn a_fish_login_shell_takes_the_systems_first_fallback_shell() {
         assert_eq!(

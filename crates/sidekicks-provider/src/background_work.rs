@@ -268,6 +268,9 @@ mod tests {
     #[case::program_finder("xcrun claude --bg x", false)]
     #[case::git_pager_for_a_shell_string("GIT_PAGER='claude --bg x' sh -c 'git log'", false)]
     #[case::rebase_exec("git rebase --exec 'claude --bg x' HEAD~1", false)]
+    // A here-string on xargs's statement is the words xargs appends, never the line of the shell
+    // it runs. Killed by the shell xargs runs handed the here-string as its line.
+    #[case::here_string_into_xargs("xargs sh <<< 'claude --bg x'", false)]
     fn a_line_starts_background_work(#[case] line: &str, #[case] is_refused: bool) {
         let mut reader = ShellLineReader::new(LIMIT);
         let reading = reader.read(line);
