@@ -52,7 +52,7 @@ impl ChangeWake {
     fn on_path(
         path: &Path,
         kinds: EventKindMask,
-        is_wake: fn(&EventKind) -> bool,
+        is_wake: fn(EventKind) -> bool,
     ) -> io::Result<Self> {
         let (sender, wakes) = mpsc::channel(1);
         let watcher = watch_path(path, kinds, is_wake, sender)?;
@@ -121,7 +121,7 @@ const FOLDER_RENAME_KINDS: EventKindMask = EventKindMask::CREATE
     .union(ENDING_KINDS);
 
 // Whether `kind` is an entry renamed into the watched folder.
-fn is_rename_into(kind: &EventKind) -> bool {
+fn is_rename_into(kind: EventKind) -> bool {
     matches!(kind, EventKind::Modify(ModifyKind::Name(RenameMode::To)))
 }
 
@@ -170,7 +170,7 @@ impl WakeSender for thread_channel::SyncSender<io::Result<()>> {
 fn watch_path(
     path: &Path,
     kinds: EventKindMask,
-    is_wake: fn(&EventKind) -> bool,
+    is_wake: fn(EventKind) -> bool,
     sender: impl WakeSender,
 ) -> io::Result<INotifyWatcher> {
     let watched = path.to_path_buf();
@@ -185,7 +185,7 @@ fn watch_path(
                     tracing::debug!("a watch's folder or file ended after its reader ended");
                 }
             }
-            Ok(event) if event.need_rescan() || is_wake(&event.kind) => {
+            Ok(event) if event.need_rescan() || is_wake(event.kind) => {
                 if !sender.send_wake() {
                     tracing::debug!("a watch's change came after its reader ended");
                 }
