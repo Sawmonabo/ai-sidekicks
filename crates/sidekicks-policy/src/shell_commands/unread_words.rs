@@ -1,24 +1,24 @@
 //! The words a line the parser did not read whole still shows, read by a token scan: split at
-//! blanks and at the shell's operators, its quotes and backslashes dropped, its ANSI-C strings
-//! decoded, zsh's `=name` read as the name, a comment left out, and the value `env -S` splits put
-//! in its place as the words env splits it into.
+//! blanks and at the shell's operators outside quotes, its quotes and backslashes dropped, its
+//! ANSI-C strings decoded, zsh's `=name` read as the name, a comment left out, and the value
+//! `env -S` splits put in its place as the words env splits it into.
 
 use std::collections::VecDeque;
 use std::iter::Peekable;
 use std::str::Chars;
 
+use super::listed_programs::command_wrapper;
 use super::words::{WordBuilder, decode_ansi_c};
-use super::wrappers::command_wrapper;
 use super::{ShellLineReading, starts_variable_name};
 
 impl ShellLineReading {
     /// The line's words as the parser left them unread, split at blanks and at the shell's
-    /// operators, inside quotes as outside, into the runs between those operators: each word with
-    /// its quotes and backslashes dropped and its ANSI-C strings decoded, a word `=name` read as
-    /// `name`, whose path zsh puts there, and a comment's words, from a `#` that starts a word
-    /// outside quotes to the line's end, left out; in each run the value of an `env -S` is put in
-    /// its place as the words env splits it into. What a line not read whole still shows of its
-    /// commands.
+    /// operators outside quotes, into the runs between those operators: each word with its quotes
+    /// and backslashes dropped and its ANSI-C strings decoded, quoted text one word with the text
+    /// beside it, a word `=name` read as `name`, whose path zsh puts there, and a comment's words,
+    /// from a `#` that starts a word outside quotes to the line's end, left out; in each run the
+    /// value of an `env -S` is put in its place as the words env splits it into. What a line not
+    /// read whole still shows of its commands.
     pub fn unread_word_runs(&self) -> Vec<Vec<String>> {
         let mut runs = WordRuns {
             runs: vec![Vec::new()],
@@ -41,9 +41,8 @@ impl ShellLineReading {
                 '#' if is_bare && was_word_start => is_comment = true,
                 '$' if is_bare && characters.peek() == Some(&'\'') => {
                     characters.next();
-                    for decoded in ansi_c_text(&mut characters).chars() {
-                        runs.push(decoded);
-                    }
+                    let decoded = ansi_c_text(&mut characters);
+                    runs.word.push_str(&decoded);
                 }
                 // zsh puts the path of the program `name` in place of `=name`, ending in the name.
                 '=' if is_bare
@@ -59,10 +58,10 @@ impl ShellLineReading {
                     };
                 }
                 '\\' if !was_escaped && quote != Some('\'') => is_escaped = true,
+                other if !is_bare => runs.word.push(other),
                 other => {
                     runs.push(other);
-                    is_word_start =
-                        quote.is_none() && (is_operator(other) || other.is_whitespace());
+                    is_word_start = is_operator(other) || other.is_whitespace();
                 }
             }
         }

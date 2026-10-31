@@ -157,10 +157,10 @@ fn assert_unread(reading: &ShellLineReading) {
     vec![command("env", &[], &[])],
     false
 )]
-// xargs appends the words it reads from its input to the command.
-#[case::xargs_appends_its_input(
+// xargs's command is its words past its options; the words it reads from its input are not read.
+#[case::xargs_command_without_its_input(
     "xargs -0 git log",
-    vec![command("git", &["log", "{}"], &["xargs", "-0"])],
+    vec![command("git", &["log"], &["xargs", "-0"])],
     true
 )]
 // A split string's assignments come before its program, which here only the run decides, so env

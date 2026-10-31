@@ -9,6 +9,7 @@
 //! memory and each query's time grow with the line alone.
 
 mod command_string;
+mod listed_programs;
 pub mod reading_bound;
 mod reading_forms;
 mod unread_words;
@@ -20,16 +21,18 @@ use std::sync::Arc;
 
 use tree_sitter::{Node, Parser};
 
-use self::command_string::{CommandStringWords, command_string_words, reads_its_line_from_input};
-pub use self::command_string::{
-    PROVIDER_LINE_SHELLS, hands_a_shell_a_line, unwrap_shell_command_line,
+use self::command_string::{
+    CommandStringWords, command_string_words, reads_its_line_from_input, runs_its_words_as_a_line,
 };
+pub use self::command_string::{PROVIDER_LINE_SHELLS, unwrap_shell_command_line};
+pub use self::listed_programs::StandingRule;
+use self::listed_programs::{FIND_COMMAND_PRIMARIES, command_wrapper, standing_rule_of};
 use self::reading_forms::ReadingForms;
 use self::words::{
     BytePositions, JoinedWords, Piece, PieceTexts, ShellText, Word, WordBuilder, node_text, offset,
 };
 pub use self::words::{PositionedByte, ShellWord, WordText, is_option};
-use self::wrappers::{WrapperRead, WrapperRegion, command_wrapper, take_wrapper_words};
+use self::wrappers::{WrapperRead, take_wrapper_words};
 
 /// The simple commands of one line, nested ones included, in the order they appear, outer ones
 /// before those nested in them; `is_whole` is false when the parser could not read some of the
@@ -50,17 +53,19 @@ pub struct ShellLineReading {
 }
 
 // A command's words in the reading, by index: each wrapper's name and its own words from `first`
-// to `program`, then the program, then its arguments up to `end`; whether a folder named the
-// program or a wrapper; whether the text leaves the program's name to the run; and whether the
-// command runs a line it reads from its input.
+// to `program`, then the program, then its arguments up to `end`; the word of the line it reads
+// from its input on its own statement, a here-document's body or a here-string; whether a folder
+// named the program or a wrapper; whether the text leaves the program's name to the run; and
+// whether assignments come before it.
 #[derive(Clone, Copy)]
 struct CommandEntry {
     first: u32,
     program: u32,
     end: u32,
+    input_line: Option<u32>,
     is_named_by_path: bool,
     is_program_undecided: bool,
-    runs_a_line_from_its_input: bool,
+    has_leading_assignments: bool,
 }
 
 impl ShellLineReading {
@@ -172,13 +177,15 @@ impl<'r> ShellCommand<'r> {
         self.entry.is_program_undecided
     }
 
-    /// Whether the command runs a line it reads from its input rather than its words: a shell, or
-    /// `su`, handed no `-c` string, with no operand or one naming the input, such as `/dev/stdin`;
-    /// `source` or `.` of the same; a wrapper left with no command that runs a shell, as `sudo -s`,
-    /// `chroot <dir>` and `script` do; a command a wrapper before it hands its input's words, as
-    /// `xargs sudo -s` does; or a shell's line holding the words xargs reads from its input.
-    pub fn runs_a_line_from_its_input(self) -> bool {
-        self.entry.runs_a_line_from_its_input
+    /// Whether the shell's own assignments come before the command, as in `PAGER=less git log`.
+    pub fn has_leading_assignments(self) -> bool {
+        self.entry.has_leading_assignments
+    }
+
+    /// What a standing rule on this command may name, as the list's entry for its program gives
+    /// it; a program off the list takes its name and its first subcommand word.
+    pub fn standing_rule(self) -> StandingRule {
+        standing_rule_of(self.program(), self.argument_words())
     }
 
     /// The words after the program.
@@ -192,14 +199,6 @@ impl<'r> ShellCommand<'r> {
         (self.entry.first..self.entry.program).map(move |index| self.reading.word(index))
     }
 
-    /// Whether the program is a wrapper's name, as it is when one of the wrapper's options runs no
-    /// command, as `command -v` does, when its own words leave no command after them, as `sudo -s`
-    /// does, which runs a shell, when env refuses its split string or has split as much as the
-    /// line holds, or when a word only the run decides stops the read of its words.
-    pub fn is_program_a_wrapper(self) -> bool {
-        command_wrapper(self.program()).is_some()
-    }
-
     /// Whether the program, or a wrapper it ran through, was named with a folder, as `./cat` or
     /// `/usr/bin/env` name one, so it need not be the system program its name is.
     pub(crate) fn is_named_by_path(self) -> bool {
@@ -207,20 +206,25 @@ impl<'r> ShellCommand<'r> {
     }
 
     // The words this command hands a shell as each of its lines: an `eval`'s words, the string a
-    // shell runs with `-c`, or a command `su` hands one.
+    // shell runs with `-c`, a command `su` hands one, or the line it reads from its input.
     fn command_strings(self) -> impl Iterator<Item = JoinedWords<'r>> {
         let reading = self.reading;
         let arguments = &reading.words[self.entry.program as usize + 1..self.entry.end as usize];
+        let input_line = self
+            .entry
+            .input_line
+            .map(|index| (&reading.words[index as usize..=index as usize], 0));
         command_string_words(self.program(), self.argument_words())
             .into_iter()
-            .map(move |string| {
-                let (words, skipped_bytes) = match string {
-                    CommandStringWords::Joined { from, end } => (&arguments[from..end], 0),
-                    CommandStringWords::One {
-                        index,
-                        skipped_bytes,
-                    } => (&arguments[index..=index], skipped_bytes),
-                };
+            .map(move |string| match string {
+                CommandStringWords::Joined { from, end } => (&arguments[from..end], 0),
+                CommandStringWords::One {
+                    index,
+                    skipped_bytes,
+                } => (&arguments[index..=index], skipped_bytes),
+            })
+            .chain(input_line)
+            .map(move |(words, skipped_bytes)| {
                 JoinedWords::new(reading.texts(), &reading.pieces, words, skipped_bytes)
             })
     }
@@ -266,7 +270,8 @@ impl ShellLineReader {
     }
 
     /// Reads each line `command` hands a shell, an `eval`'s words joined by spaces, the string a
-    /// shell runs with `-c`, or a command `su` hands one, as `read` reads a line; none when the
+    /// shell runs with `-c`, a command `su` hands one, or the here-document or here-string a shell
+    /// reads as its input on the command's own statement, as `read` reads a line; none when the
     /// command hands a shell none.
     pub fn read_command_strings(
         &mut self,
@@ -276,6 +281,31 @@ impl ShellLineReader {
             .command_strings()
             .map(|text| self.read_text(text))
             .collect()
+    }
+
+    /// Reads each line a listed shell or `eval` in `run`, a run of a line's words not read whole,
+    /// hands a shell: the shell's `-c` string or its own grammar's line, or `eval`'s words joined
+    /// by spaces, as `read` reads a line.
+    pub fn read_run_strings(&mut self, run: &[String]) -> Vec<Arc<ShellLineReading>> {
+        let mut lines = Vec::new();
+        for (index, word) in run.iter().enumerate() {
+            let program = word.rsplit('/').next().unwrap_or(word);
+            if !runs_its_words_as_a_line(program) {
+                continue;
+            }
+            let arguments = &run[index + 1..];
+            for string in command_string_words(program, arguments.iter().map(String::as_str)) {
+                let line = match string {
+                    CommandStringWords::Joined { from, end } => arguments[from..end].join(" "),
+                    CommandStringWords::One {
+                        index,
+                        skipped_bytes,
+                    } => arguments[index][skipped_bytes..].to_owned(),
+                };
+                lines.push(self.read_text(line.as_str()));
+            }
+        }
+        lines
     }
 
     // The length is read first, so a repeat or a string past what is left builds nothing.
@@ -325,9 +355,16 @@ fn commands_in(
         if node.kind() == "variable_assignment" {
             assignments.push(builder.push_assignment(node));
         }
-        if push_command_words(node, builder, &mut pending, &mut read_body)
-            && let Some(command) = resolve_command(builder, &mut pending, &mut words)
+        let mut statement = StatementFacts::default();
+        if push_command_words(node, builder, &mut pending, &mut read_body, &mut statement)
+            && let Some((mut command, reads_its_input)) =
+                resolve_command(builder, &mut pending, &mut words)
         {
+            command.has_leading_assignments = statement.has_leading_assignments;
+            if reads_its_input && let Some(input) = statement.input {
+                command.input_line = Some(offset(words.len()));
+                words.push(input.push_word(builder));
+            }
             push_find_commands(builder, &mut words, command, &mut commands);
         }
         if reads_inside && cursor.goto_first_child() {
@@ -377,14 +414,66 @@ fn visit_redirect_arguments<'t>(redirect: Node<'t>, visit: &mut impl FnMut(Node<
     }
 }
 
-// Puts the words of a node that runs a command, its program first, in `pending`; false for any
-// other node. A redirected simple command is read at its statement, with the words its redirects'
-// grammar takes past their own as its arguments, and `read_body` keeps it from a second read.
-fn push_command_words(
-    node: Node<'_>,
+// What a statement gives the command it runs beside its words: the line a redirect of its input
+// hands it, and whether the shell's own assignments come before it.
+#[derive(Clone, Copy, Default)]
+struct StatementFacts<'t> {
+    input: Option<InputText<'t>>,
+    has_leading_assignments: bool,
+}
+
+// The text a redirect hands a command as its input: a here-string's word, or a here-document's
+// body.
+#[derive(Clone, Copy)]
+enum InputText<'t> {
+    HereString(Node<'t>),
+    HereDocument(Node<'t>),
+}
+
+impl InputText<'_> {
+    // The input as one word of the reading: a here-string as the shell passes its word, a
+    // here-document's body as its text.
+    fn push_word(self, builder: &mut WordBuilder<'_>) -> Word {
+        match self {
+            Self::HereString(word) => builder.push_word(word),
+            Self::HereDocument(body) => builder.push_text(body.byte_range()),
+        }
+    }
+
+    // The input `redirect` hands its command, when it is a here-string or a here-document on the
+    // command's input, descriptor 0.
+    fn of_redirect<'t>(redirect: Node<'t>, line: &str) -> Option<InputText<'t>> {
+        let is_on_input = redirect
+            .child_by_field_name("descriptor")
+            .is_none_or(|descriptor| node_text(descriptor, line) == "0");
+        if !is_on_input {
+            return None;
+        }
+        let mut cursor = redirect.walk();
+        let mut children = redirect.named_children(&mut cursor);
+        match redirect.kind() {
+            "herestring_redirect" => children
+                .find(|child| child.kind() != "file_descriptor")
+                .map(InputText::HereString),
+            "heredoc_redirect" => children
+                .find(|child| child.kind() == "heredoc_body")
+                .map(InputText::HereDocument),
+            _ => None,
+        }
+    }
+}
+
+// Puts the words of a node that runs a command, its program first, in `pending`, and what its
+// statement gives it in `statement`; false for any other node. A redirected simple command is read
+// at its statement, with the words its redirects' grammar takes past their own as its arguments
+// and the last here-string or here-document on its input, and `read_body` keeps it from a second
+// read.
+fn push_command_words<'t>(
+    node: Node<'t>,
     builder: &mut WordBuilder<'_>,
     pending: &mut VecDeque<Word>,
     read_body: &mut Option<usize>,
+    statement: &mut StatementFacts<'t>,
 ) -> bool {
     match node.kind() {
         "redirected_statement" => {
@@ -395,7 +484,7 @@ fn push_command_words(
                 return false;
             };
             *read_body = Some(command.id());
-            push_simple_command_words(command, builder, pending);
+            push_simple_command_words(command, builder, pending, statement);
             if !pending.is_empty() {
                 let mut cursor = node.walk();
                 for redirect in node.children_by_field_name("redirect", &mut cursor) {
@@ -403,10 +492,16 @@ fn push_command_words(
                         pending.push_back(builder.push_word(word));
                     });
                 }
+                let mut cursor = node.walk();
+                for redirect in node.named_children(&mut cursor) {
+                    if let Some(input) = InputText::of_redirect(redirect, builder.line()) {
+                        statement.input = Some(input);
+                    }
+                }
             }
         }
         "command" if *read_body == Some(node.id()) => return false,
-        "command" => push_simple_command_words(node, builder, pending),
+        "command" => push_simple_command_words(node, builder, pending, statement),
         // `export`, `declare`, `unset` and their kin are commands named by their keyword.
         "declaration_command" | "unset_command" => {
             push_keyword_command_words(node, builder, pending);
@@ -424,11 +519,13 @@ fn push_command_words(
 // without a bare `time [-p] [--]` or `coproc` before it, which the shell reads as keywords. A
 // `time` followed by any other option is kept as the `time` program: bash in POSIX mode runs that
 // program with the option, and its default mode would run the option as a command, which fails.
-// A `time` with no command after it is kept too, as the command the line runs.
-fn push_simple_command_words(
-    command: Node<'_>,
+// A `time` with no command after it is kept too, as the command the line runs. `statement` takes
+// whether assignments come before its name and the last here-string on its input.
+fn push_simple_command_words<'t>(
+    command: Node<'t>,
     builder: &mut WordBuilder<'_>,
     pending: &mut VecDeque<Word>,
+    statement: &mut StatementFacts<'t>,
 ) {
     let mut keyword = None;
     let mut cursor = command.walk();
@@ -450,7 +547,15 @@ fn push_simple_command_words(
                     pending.push_back(builder.push_word(literal));
                 }
                 Some("argument") => pending.push_back(builder.push_word(child)),
-                Some(_) | None => {}
+                Some("redirect") => {
+                    if let Some(input) = InputText::of_redirect(child, builder.line()) {
+                        statement.input = Some(input);
+                    }
+                }
+                Some(_) | None => {
+                    statement.has_leading_assignments |=
+                        pending.is_empty() && child.kind() == "variable_assignment";
+                }
             }
             is_first_child = false;
             if !cursor.goto_next_sibling() {
@@ -565,24 +670,23 @@ fn is_test_word(node: Node<'_>) -> bool {
         )
 }
 
-// The command `pending` runs, its words moved to `words`: the program is the first word that is
-// neither an assignment nor a wrapper that runs the command after its own options and operands,
-// each wrapper's name followed by the words it took and the assignments after them; a wrapper
-// whose read of its own words leaves it the program, or leaves no command after them, is the
-// program; a command of assignments alone runs none.
+// The command `pending` runs, its words moved to `words`, and whether it reads the line it runs
+// from its input: the program is the first word that is neither an assignment nor a wrapper that
+// runs the command after its own options and operands, each wrapper's name followed by the words
+// it took and the assignments after them; a wrapper whose read of its own words leaves it the
+// program, or leaves no command after them, is the program; a command of assignments alone runs
+// none.
 fn resolve_command(
     builder: &mut WordBuilder<'_>,
     pending: &mut VecDeque<Word>,
     words: &mut Vec<Word>,
-) -> Option<CommandEntry> {
+) -> Option<(CommandEntry, bool)> {
     let first_word = words.len();
     let piece_mark = builder.piece_count();
     let mut is_named_by_path = false;
     let mut can_folder_split = false;
-    let mut region = WrapperRegion::default();
     let mut last_wrapper = None;
-    // Whether a wrapper before the last one hands the command after it its input's words.
-    let mut is_last_wrapper_given_input = false;
+    let mut runs_a_shell_with_no_command = false;
     loop {
         while let Some(assignment) =
             pending.pop_front_if(|word| is_variable_assignment(builder.view(*word)))
@@ -594,23 +698,23 @@ fn resolve_command(
         }
         let Some(name) = pending.pop_front() else {
             // A wrapper whose own words use up the command is its program, as `sudo -s` is, which
-            // runs a shell reading its input, and the input's words a wrapper before it appends
-            // are its own words too.
+            // runs a shell reading its input.
             let Some(program) = last_wrapper else {
                 builder.truncate(piece_mark);
                 return None;
             };
             words.truncate(program + 1);
-            return Some(CommandEntry {
+            let entry = CommandEntry {
                 first: offset(first_word),
                 program: offset(program),
                 end: offset(program + 1),
+                input_line: None,
                 is_named_by_path,
                 is_program_undecided: can_folder_split
                     || !builder.view(words[program]).is_decided(),
-                runs_a_line_from_its_input: region.runs_a_shell_with_no_command
-                    || is_last_wrapper_given_input,
-            });
+                has_leading_assignments: false,
+            };
+            return Some((entry, runs_a_shell_with_no_command));
         };
         let basename = builder.basename(name);
         is_named_by_path |= basename.is_some();
@@ -619,38 +723,39 @@ fn resolve_command(
         let wrapper = command_wrapper(builder.view(program));
         words.push(program);
         let name_index = words.len() - 1;
-        is_last_wrapper_given_input = region.takes_input_words();
         let is_program = match wrapper {
-            Some(wrapper) => matches!(
-                take_wrapper_words(builder, wrapper, pending, words, &mut region),
-                WrapperRead::WrapperIsProgram
-            ),
+            Some(wrapper) => match take_wrapper_words(builder, wrapper, pending, words) {
+                WrapperRead::WrapperIsProgram => true,
+                WrapperRead::CommandFollows {
+                    runs_a_shell_with_no_command: runs_a_shell,
+                } => {
+                    runs_a_shell_with_no_command = runs_a_shell;
+                    false
+                }
+            },
             None => true,
         };
         if is_program {
             words.truncate(name_index + 1);
             words.extend(pending.drain(..));
-            let hands_a_shell_its_input = region.read_input_words(builder, words, name_index);
             let program = builder.view(words[name_index]);
             let argument_words = words[name_index + 1..]
                 .iter()
                 .map(|&word| builder.view(word));
-            return Some(CommandEntry {
+            let entry = CommandEntry {
                 first: offset(first_word),
                 program: offset(name_index),
                 end: offset(words.len()),
+                input_line: None,
                 is_named_by_path,
                 is_program_undecided: can_folder_split || !program.is_decided(),
-                runs_a_line_from_its_input: hands_a_shell_its_input
-                    || reads_its_line_from_input(program, argument_words),
-            });
+                has_leading_assignments: false,
+            };
+            return Some((entry, reads_its_line_from_input(program, argument_words)));
         }
         last_wrapper = Some(name_index);
     }
 }
-
-// The primaries of `find` that run the words after them as a command.
-const FIND_COMMAND_PRIMARIES: &[&str] = &["-exec", "-execdir", "-ok", "-okdir"];
 
 // Pushes `command` and every command a `find` among them runs: the words after each of its
 // `-exec`, `-execdir`, `-ok` and `-okdir` up to a `;`, or a `+` right after `{}`, read as a
@@ -702,7 +807,7 @@ fn push_find_commands(
                     }
                 })
                 .collect();
-            if let Some(run) = resolve_command(builder, &mut pending, words) {
+            if let Some((run, _)) = resolve_command(builder, &mut pending, words) {
                 unread.push(run);
             }
         }

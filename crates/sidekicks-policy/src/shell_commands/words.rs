@@ -4,6 +4,7 @@
 //! the shell expands into file names or alternatives kept as its source text in the line. A word
 //! is never copied out of its pieces, and each query on it costs the pieces it reads.
 
+mod brace_expansion;
 mod options;
 mod quote_removal;
 mod split_string;
@@ -15,6 +16,7 @@ use std::sync::{Arc, OnceLock};
 use memchr::{memchr, memchr_iter, memrchr};
 use tree_sitter::Node;
 
+use self::brace_expansion::holds_brace_expansion;
 pub use self::options::is_option;
 pub(super) use self::options::{long_option_named, short_option_named};
 pub(in crate::shell_commands) use self::quote_removal::decode_ansi_c;
@@ -47,9 +49,10 @@ enum PieceKind {
     QuotedExpansion,
     /// Text an escape or an ANSI-C string decoded, in the decoded buffer.
     Decoded,
-    /// A `${…}` that `env -S` expands inside decoded text, kept as that text in the decoded buffer,
-    /// or text standing for the words a program reads from its input, as xargs does.
+    /// A `${…}` that `env -S` expands inside decoded text, kept as that text in the decoded buffer.
     DecodedExpansion,
+    /// Text of the line in a word the shell expands into alternatives, a brace expansion's.
+    Alternatives,
 }
 
 impl PieceKind {
@@ -57,7 +60,7 @@ impl PieceKind {
     fn is_expansion(self) -> bool {
         matches!(
             self,
-            Self::Expansion | Self::QuotedExpansion | Self::DecodedExpansion
+            Self::Expansion | Self::QuotedExpansion | Self::DecodedExpansion | Self::Alternatives
         )
     }
 
@@ -278,19 +281,21 @@ impl<'r> ShellWord<'r> {
         self.pieces.iter().any(|piece| {
             matches!(
                 piece.kind,
-                PieceKind::Expansion | PieceKind::DecodedExpansion
+                PieceKind::Expansion | PieceKind::DecodedExpansion | PieceKind::Alternatives
             )
         })
     }
 
     /// Whether the word stands for words its text spells beside its own: a brace expansion's
-    /// alternatives, an ANSI-C string bash and zsh decode apart, or the words a program hands its
-    /// command from its input, as xargs does. A parameter, a substitution, an arithmetic
-    /// expansion, zsh's `=name` or a file-name pattern spells none: only the run decides it.
+    /// alternatives, a `{…}` holding an unquoted comma or a sequence, or an ANSI-C string bash and
+    /// zsh decode apart. A parameter, a substitution, an arithmetic expansion, zsh's `=name`, a
+    /// file-name pattern or a path `find` puts in place of `{}` spells none: only the run decides
+    /// it.
     pub fn spells_alternatives(self) -> bool {
-        self.pieces
-            .iter()
-            .any(|&piece| piece.kind.is_expansion() && !is_run_decided(self.texts.text(piece)))
+        self.pieces.iter().any(|&piece| {
+            piece.kind == PieceKind::Alternatives
+                || (piece.kind == PieceKind::Expansion && self.texts.text(piece).starts_with("$'"))
+        })
     }
 }
 
@@ -520,21 +525,55 @@ impl<'s> WordBuilder<'s> {
                 && characters.next() == Some('=')
                 && characters.next().is_some_and(starts_variable_name)
         });
+        // The word's unquoted text, each quoted or expanded part standing as one other byte, for
+        // the brace expansion the shell reads across its parts, and the pieces of that text.
+        let mut unquoted = String::new();
+        let mut unquoted_pieces = Vec::new();
+        let mut push_part = |builder: &mut Self, part: Node<'_>| {
+            let mark = builder.pieces.len();
+            builder.push_part(part);
+            let is_quoted_or_expanded = matches!(
+                part.kind(),
+                "string"
+                    | "raw_string"
+                    | "ansi_c_string"
+                    | "translated_string"
+                    | "simple_expansion"
+                    | "expansion"
+                    | "command_substitution"
+                    | "process_substitution"
+                    | "arithmetic_expansion"
+            );
+            if is_quoted_or_expanded {
+                unquoted.push('x');
+            } else {
+                unquoted.push_str(node_text(part, builder.line));
+                unquoted_pieces.extend(mark..builder.pieces.len());
+            }
+        };
         if node.kind() == "concatenation" {
             let mut cursor = node.walk();
             if cursor.goto_first_child() {
                 loop {
-                    self.push_part(cursor.node());
+                    push_part(self, cursor.node());
                     if !cursor.goto_next_sibling() {
                         break;
                     }
                 }
             }
         } else {
-            self.push_part(node);
+            push_part(self, node);
         }
         if is_equals_expansion && let Some(piece) = self.pieces.get_mut(first_piece) {
             piece.kind = undecided_kind(piece.kind);
+        }
+        if holds_brace_expansion(&unquoted) {
+            for index in unquoted_pieces {
+                let piece = &mut self.pieces[index];
+                if matches!(piece.kind, PieceKind::Literal | PieceKind::Expansion) {
+                    piece.kind = PieceKind::Alternatives;
+                }
+            }
         }
         word_from(&self.pieces, first_piece)
     }
@@ -552,19 +591,16 @@ impl<'s> WordBuilder<'s> {
         word_from(&self.pieces, first_piece)
     }
 
-    /// A word standing for the words a program reads from its input and appends to its command,
-    /// as xargs does: `{}` in the decoded buffer, whose words only the run decides.
-    pub(super) fn push_input_word(&mut self) -> Word {
+    /// The line's text at `range` as one word, as a here-document's body is the line a shell
+    /// reading it runs.
+    pub(super) fn push_text(&mut self, range: std::ops::Range<usize>) -> Word {
         let first_piece = self.pieces.len();
-        let start = offset(self.decoded.len());
-        self.decoded.push_str("{}");
-        let end = offset(self.decoded.len());
-        push_piece(&mut self.pieces, start, end, PieceKind::DecodedExpansion);
+        self.push_line(range, PieceKind::Literal);
         word_from(&self.pieces, first_piece)
     }
 
-    /// `word` with every piece one only the run decides, as a word holding the string xargs
-    /// replaces with its input's words is.
+    /// `word` with every piece one only the run decides, as a word holding the `{}` find puts a
+    /// path in place of is.
     pub(super) fn push_undecided_copy(&mut self, word: Word) -> Word {
         let first_piece = self.pieces.len();
         for index in word.pieces() {
@@ -802,15 +838,6 @@ fn is_dollar_expansion(texts: PieceTexts<'_>, piece: Piece) -> bool {
     ) && ((text.starts_with('$') && !text.starts_with("$'")) || text.starts_with('`'))
 }
 
-// Whether only the run decides the text of an undecided piece: a parameter, a substitution or an
-// arithmetic expansion, a process substitution, zsh's `=name`, or a file-name pattern with no
-// brace alternatives in it.
-fn is_run_decided(text: &str) -> bool {
-    (text.starts_with('$') && !text.starts_with("$'"))
-        || text.starts_with(['`', '<', '>', '='])
-        || (!text.contains('{') && (has_unescaped_pattern(text) || text.contains('(')))
-}
-
 // The bytes that leave a name past a pattern word's last `/` undecided: a pattern of its own, the
 // end of a group, quote or substitution that spans the `/`, or an escape.
 const NAME_UNDECIDING_BYTES: &[u8] = b"*?[]{}()^\\'\"$`";
@@ -823,7 +850,7 @@ fn push_piece(pieces: &mut Vec<Piece>, start: u32, end: u32, kind: PieceKind) {
 }
 
 // Whether an unquoted word holds a pattern character no backslash escapes: a glob's `*`, `?` or
-// `[`, a brace expansion's `{`, or zsh's `^`, which negates the pattern after it.
+// `[`, or zsh's `^`, which negates the pattern after it.
 fn has_unescaped_pattern(text: &str) -> bool {
     let mut bytes = text.bytes();
     while let Some(byte) = bytes.next() {
@@ -831,7 +858,7 @@ fn has_unescaped_pattern(text: &str) -> bool {
             b'\\' => {
                 bytes.next();
             }
-            b'*' | b'?' | b'[' | b'{' | b'^' => return true,
+            b'*' | b'?' | b'[' | b'^' => return true,
             _ => {}
         }
     }
