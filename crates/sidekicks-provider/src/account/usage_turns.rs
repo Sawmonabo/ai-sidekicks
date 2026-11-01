@@ -14,7 +14,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::usage::UsageTokenCountRecordedPayload;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -146,14 +146,9 @@ fn insert_usage_turn_statement(
             count_binding("@cache_read_tokens", recorded.cache_read_tokens),
             count_binding("@cache_write_tokens", recorded.cache_write_tokens),
             count_binding("@reasoning_tokens", recorded.reasoning_tokens),
-            (
-                Cow::Borrowed("@observed_credential_generation"),
-                Value::Integer(
-                    serde_json::to_value(recorded.credential_generation)
-                        .ok()
-                        .and_then(|generation| generation.as_i64())
-                        .expect("a credential generation is a safe integer"),
-                ),
+            credential_generation_binding(
+                "@observed_credential_generation",
+                recorded.credential_generation,
             ),
         ]),
         expected_row_count: None,
@@ -185,6 +180,22 @@ pub fn sessionless_usage_turn_statement(
     }
 }
 
+/// The binding of `generation`, a credential generation, as the integer its column stores.
+pub(crate) fn credential_generation_binding(
+    name: &'static str,
+    generation: CredentialGeneration,
+) -> (Cow<'static, str>, Value) {
+    (
+        Cow::Borrowed(name),
+        Value::Integer(
+            serde_json::to_value(generation)
+                .ok()
+                .and_then(|generation| generation.as_i64())
+                .expect("a credential generation is a safe integer"),
+        ),
+    )
+}
+
 fn model_binding(
     model_id: Option<&FreeFormText<EVENT_FIELD_MAX_LEN>>,
 ) -> (Cow<'static, str>, Value) {
@@ -204,13 +215,13 @@ fn count_binding(name: &'static str, count: Option<SafeInt<0>>) -> (Cow<'static,
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::{Connection, params, params_from_iter};
+    use rusqlite::params;
     use serde_json::{Value as Json, json};
     use sidekicks_store::database::schema::schema_parts;
-    use sidekicks_store::database::statement::named_bindings;
     use sidekicks_store::database::writer::test_file::test_envelope;
-    use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
-    use sidekicks_store::events::test_log::{AT, SessionTestLog};
+    use sidekicks_store::events::test_log::{
+        AT, SessionTestLog, run_write_statements, stored_envelope,
+    };
 
     use super::*;
 
@@ -268,40 +279,10 @@ mod tests {
         test_envelope(log.session_id, &event)
     }
 
-    // The stored form of `envelope` at `sequence`, as a rebuild reads it back from the log.
-    fn stored(envelope: &UnsequencedEventEnvelope, sequence: usize) -> EventEnvelope {
-        serde_json::from_value(json!({
-            "id": envelope.id.as_str(),
-            "sessionId": envelope.session_id(),
-            "sequence": sequence,
-            "occurredAt": envelope.occurred_at.as_str(),
-            "category": envelope.category(),
-            "type": "usage.tokenCount.recorded",
-            "payload": envelope.payload(),
-            "version": &*SESSION_EVENT_VERSION,
-        }))
-        .expect("the stored envelope reads")
-    }
-
-    fn run(connection: &Connection, statements: &[WriteStatement]) {
-        for statement in statements {
-            match &statement.bindings {
-                StatementBindings::None => connection.execute(&statement.sql, []),
-                StatementBindings::Positional(values) => {
-                    connection.execute(&statement.sql, params_from_iter(values))
-                }
-                StatementBindings::Named(values) => {
-                    connection.execute(&statement.sql, named_bindings(values).as_slice())
-                }
-            }
-            .expect("the projection's statement runs");
-        }
-    }
-
     // Writes each envelope's row as the append's own write does.
     fn append(log: &SessionTestLog, envelopes: &[UnsequencedEventEnvelope]) {
         for envelope in envelopes {
-            run(
+            run_write_statements(
                 &log.writer,
                 &usage_turn_projection_statements(envelope).expect("the payload reads"),
             );
@@ -314,12 +295,12 @@ mod tests {
         let mut statements = projection.clear_statements(&log.session_id);
         let mut fold = projection.fold(&log.session_id);
         for (sequence, envelope) in envelopes.iter().enumerate() {
-            let envelope = stored(envelope, sequence + 1);
+            let envelope = stored_envelope(envelope, sequence + 1);
             let event = SessionEvent::from_envelope(&envelope).expect("the event reads");
             fold.apply(&envelope, &event, &mut statements)
                 .expect("the fold takes the event");
         }
-        run(&log.writer, &statements);
+        run_write_statements(&log.writer, &statements);
     }
 
     // Every row, ordered by its turn id, each column as stored.

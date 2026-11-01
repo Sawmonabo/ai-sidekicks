@@ -170,7 +170,7 @@ impl RecordingUsage {
         *lock(&self.reported) = reported;
     }
 
-    /// Every set of quota windows taken so far, with its account, in order.
+    /// Every set of quota windows taken so far, a push or a whole set, with its account, in order.
     pub(crate) fn quota_windows(&self) -> Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)> {
         lock(&self.quota_windows).clone()
     }
@@ -206,6 +206,15 @@ impl UsageSink for RecordingUsage {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         lock(&self.quota_windows).push((provider_account_id, windows));
         ready(Ok(())).boxed()
+    }
+
+    fn record_whole_quota_windows(
+        &self,
+        provider: ProviderId,
+        provider_account_id: ProviderAccountId,
+        windows: Vec<ProviderQuotaWindow>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        self.record_quota_windows(provider, provider_account_id, windows)
     }
 }
 

@@ -6,7 +6,11 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use secrecy::SecretString;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
-use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
+use sidekicks_contracts::provider::account::record::{
+    PROVIDER_ACCOUNT_EMAIL_MAX_LEN, PROVIDER_ACCOUNT_ORG_ID_MAX_LEN,
+    PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN, PROVIDER_ACCOUNT_PLAN_MAX_LEN, ProviderAccountId,
+    ProviderAuthMode,
+};
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, PROVIDER_SIGN_IN_USER_CODE_MAX_LEN,
     PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN,
@@ -20,6 +24,7 @@ use crate::account::credential_home::CredentialHome;
 use crate::account::registry::HealthObservation;
 use crate::driver::ProviderAccountFolders;
 use crate::driver::contract::error::DriverError;
+use crate::port::usage_sink::ProviderQuotaWindow;
 
 /// A provider's own acts on one account's home, each run in the home the caller names and no
 /// other.
@@ -145,10 +150,10 @@ pub trait ProviderTokenStatusLegs: Send + Sync {
 
 /// What one limits read of an account's home answered, as the account plane stores it: each arm
 /// names what the provider said, never which provider said it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ProviderObservation {
     /// The provider answered with the account's limits.
-    Figures,
+    Figures(ProviderAccountFigures),
     /// The provider refused or throttled the read in its answer, so its last figures stand.
     RefusedInBand,
     /// The provider refused the read in its answer after refusing the account's sign-in on the
@@ -162,6 +167,45 @@ pub enum ProviderObservation {
     /// The provider answered with neither the account's limits nor a judgement of its sign-in, as
     /// a read it does not serve where it ran.
     Unanswered,
+}
+
+/// What a limits read that answered carried: the account's whole set of quota windows, the
+/// identity the provider reported with it, and when the provider last renewed the home's sign-in,
+/// each part empty or absent where the provider said nothing of it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ProviderAccountFigures {
+    /// Every quota window the read named.
+    pub windows: Vec<ProviderQuotaWindow>,
+    /// Who the provider says the account is.
+    pub identity: ObservedAccountIdentity,
+    /// When the provider last renewed the home's sign-in, read from its own durable mark.
+    pub refreshed_at: Option<WireInstant>,
+}
+
+/// The account's identity as the provider reported it, each member absent where it did not; a
+/// person's data, so its debug form names only which members are present.
+#[derive(Clone, Default, PartialEq, Eq)]
+pub struct ObservedAccountIdentity {
+    /// The account's email.
+    pub email: Option<FreeFormText<PROVIDER_ACCOUNT_EMAIL_MAX_LEN>>,
+    /// The plan, in the provider's own word.
+    pub plan: Option<FreeFormText<PROVIDER_ACCOUNT_PLAN_MAX_LEN>>,
+    /// The organization's id.
+    pub org_id: Option<FreeFormText<PROVIDER_ACCOUNT_ORG_ID_MAX_LEN>>,
+    /// The organization's name.
+    pub org_name: Option<FreeFormText<PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN>>,
+}
+
+impl std::fmt::Debug for ObservedAccountIdentity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ObservedAccountIdentity")
+            .field("has_email", &self.email.is_some())
+            .field("has_plan", &self.plan.is_some())
+            .field("has_org_id", &self.org_id.is_some())
+            .field("has_org_name", &self.org_name.is_some())
+            .finish()
+    }
 }
 
 /// A provider's limits read of one account's home, the background observer's one read, run in the
@@ -215,7 +259,7 @@ pub enum WindowTurnAnswer {
 
 /// What a pasted token's limits read by a turn answered: the reading its turn carried, as the
 /// account plane stores it, and what the turn spent, `None` where it ran no turn.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct TokenLimitsReading {
     /// What the turn's answer said of the account's limits and sign-in.
     pub observation: ProviderObservation,

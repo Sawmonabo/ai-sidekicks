@@ -1,6 +1,7 @@
 //! Codex's limits read of one account's home: `account/rateLimits/read` on the home's own
 //! service, or on a short-lived one started there for it, never on a service of another home. The
-//! read's windows are filed under the account and its reset credits kept on the account's row. A
+//! read answers its windows with the plan its reply named and the sign-in's last renewal from the
+//! home's `auth.json`, and keeps its reset credits on the account's row. A
 //! read that answers no figures reads as a lost sign-in when the home's own account read finds none
 //! signed in, or when it needed a renewal (an expired access token) and left the home's `auth.json`
 //! unchanged, twice in a row.
@@ -9,6 +10,8 @@ use std::path::Path;
 
 use jiff::Timestamp;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::ProviderAccountFolders;
@@ -18,7 +21,9 @@ use crate::driver::codex::auth_status::{CODEX_AUTH_PROBE_TIMEOUT, read_codex_aut
 use crate::driver::codex::rate_limits::{CodexRateLimitFiling, CodexRateLimitRead};
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::account::ProviderObservation;
+use crate::driver::contract::account::{
+    ObservedAccountIdentity, ProviderAccountFigures, ProviderObservation,
+};
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::DriverAuthProbeStatus;
 
@@ -56,8 +61,15 @@ pub(super) async fn observe_codex_limits(
         )
         .await?;
     let (observation, reset_credits) = match read {
-        LimitsRead::Read(read) if read.has_windows => (
-            ProviderObservation::Figures,
+        LimitsRead::Read(read) if !read.windows.is_empty() => (
+            ProviderObservation::Figures(ProviderAccountFigures {
+                identity: ObservedAccountIdentity {
+                    plan: read.plan.and_then(|plan| FreeFormText::new(plan).ok()),
+                    ..ObservedAccountIdentity::default()
+                },
+                refreshed_at: read_refreshed_at(&codex_home).await?,
+                windows: read.windows,
+            }),
             Some(read.reset_credits_available),
         ),
         LimitsRead::Read(read) => (
@@ -73,7 +85,7 @@ pub(super) async fn observe_codex_limits(
             .map_err(|error| DriverError::Internal(Box::new(error)))?;
     }
     match observation {
-        ProviderObservation::Figures => {
+        ProviderObservation::Figures(_) => {
             lock(&legs.dead_renewals).remove(&provider_account_id);
             Ok(observation)
         }
@@ -84,6 +96,17 @@ pub(super) async fn observe_codex_limits(
         | ProviderObservation::SignInGone
         | ProviderObservation::OutOfScope => Ok(observation),
     }
+}
+
+// When Codex last renewed the home's sign-in, from its `auth.json`; `None` where the file or its
+// mark is absent.
+async fn read_refreshed_at(codex_home: &Path) -> Result<Option<WireInstant>, DriverError> {
+    let auth_file = read_codex_auth_file(codex_home)
+        .await
+        .map_err(|error| DriverError::Internal(Box::new(error)))?;
+    Ok(auth_file
+        .and_then(|auth_file| auth_file.last_refresh)
+        .and_then(WireInstant::from_timestamp))
 }
 
 // Counts a read that answered no figures as a dead renewal when the access token in `before` had

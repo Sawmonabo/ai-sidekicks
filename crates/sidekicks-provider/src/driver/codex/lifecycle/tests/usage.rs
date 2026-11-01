@@ -54,6 +54,15 @@ impl UsageSink for GatedUsage {
         async { Ok(()) }.boxed()
     }
 
+    fn record_whole_quota_windows(
+        &self,
+        _provider: ProviderId,
+        _provider_account_id: ProviderAccountId,
+        _windows: Vec<ProviderQuotaWindow>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async { Ok(()) }.boxed()
+    }
+
     fn read_prior_emitted(
         &self,
         _session_id: SessionId,

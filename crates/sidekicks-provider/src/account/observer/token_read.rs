@@ -71,7 +71,7 @@ mod tests {
 
     use crate::account::observer::ReadAsker;
     use crate::account::observer::tests::{
-        Fixture, ScriptedLegs, claude, new_clock, read_reading, usage_rows,
+        Fixture, ScriptedLegs, claude, figures, new_clock, read_reading, usage_rows,
     };
     use crate::driver::contract::account::ProviderObservation;
     use crate::driver::schema::schema_parts;
@@ -105,7 +105,10 @@ mod tests {
 
         let reading = read_reading(fixture.read(&account, ReadAsker::Cadence).await);
 
-        assert_eq!(reading.observation, Some(ProviderObservation::Figures));
+        assert_eq!(
+            reading.observation,
+            Some(ProviderObservation::Figures(figures()))
+        );
         assert_eq!(fixture.legs.reads(), 0);
         assert_eq!(fixture.turns[&claude()].tokens_read(), ["pasted-token"]);
         assert_eq!(usage_rows(&database, &account), [(None::<String>, 1_i64)]);

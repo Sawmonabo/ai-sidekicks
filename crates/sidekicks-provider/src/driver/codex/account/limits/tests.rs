@@ -14,6 +14,7 @@ use sidekicks_contracts::provider::account::record::{
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -54,7 +55,8 @@ fn signed_in_account_read() -> (&'static str, Value) {
     )
 }
 
-/// Each set of quota windows the usage record took, with the account it was filed under.
+/// Each pushed set of quota windows the usage record took, with the account it was filed under; a
+/// whole set is the observer's to record, which no leg reaches.
 #[derive(Default)]
 struct RecordedWindows(Mutex<Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)>>);
 
@@ -73,6 +75,15 @@ impl UsageSink for RecordedWindows {
         windows: Vec<ProviderQuotaWindow>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         lock(&self.0).push((provider_account_id, windows));
+        async { Ok(()) }.boxed()
+    }
+
+    fn record_whole_quota_windows(
+        &self,
+        _provider: ProviderId,
+        _provider_account_id: ProviderAccountId,
+        _windows: Vec<ProviderQuotaWindow>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async { Ok(()) }.boxed()
     }
 
@@ -209,14 +220,16 @@ impl Fixture {
     }
 }
 
-// Killed by the windows filed under another account than the home's, by the read sent on the
-// service the account resolves to rather than its home's own (that home's start fails, so no
-// figures come), and by the reset credits left unwritten or kept when the next read carried none.
+// Killed by the windows filed or answered under another account than the home's, by the plan the
+// reply named dropped, by the read sent on the service the account resolves to rather than its
+// home's own (that home's start fails, so no figures come), and by the reset credits left
+// unwritten or kept when the next read carried none.
 #[tokio::test]
 async fn a_snapshot_becomes_windows_under_the_home_s_account_and_its_credits_land_in_the_row() {
     let mut fixture = Fixture::new(ProviderAuthMode::OauthSubscription).await;
     let snapshot = json!({
         "limitId": "codex",
+        "planType": "plus",
         "primary": {"usedPercent": 25, "windowDurationMins": 300, "resetsAt": 1_800_000_000},
         "secondary": {"usedPercent": 40, "windowDurationMins": 10_080},
     });
@@ -244,8 +257,22 @@ async fn a_snapshot_becomes_windows_under_the_home_s_account_and_its_credits_lan
         )
         .await;
 
-    assert_eq!(with_credits, ProviderObservation::Figures);
-    assert_eq!(without_credits, ProviderObservation::Figures);
+    let ProviderObservation::Figures(figures) = with_credits else {
+        panic!("the read answers figures, not {with_credits:?}");
+    };
+    assert_eq!(
+        figures
+            .windows
+            .iter()
+            .map(|window| (window.limit_id.as_str(), window.window_mins))
+            .collect::<Vec<_>>(),
+        [("codex", 300), ("codex", 10_080)]
+    );
+    assert_eq!(
+        figures.identity.plan.as_ref().map(FreeFormText::as_str),
+        Some("plus")
+    );
+    assert!(matches!(without_credits, ProviderObservation::Figures(_)));
     let recorded = lock(&fixture.recorded.0).clone();
     assert_eq!(recorded.len(), 1, "{recorded:?}");
     let (filed_under, windows) = &recorded[0];
@@ -319,7 +346,7 @@ async fn a_refused_read_is_judged_by_the_home_s_sign_in(
     let first = fixture.observe(&answers, None).await;
     let second = fixture.observe(&answers, None).await;
 
-    assert_eq!((first, second), (observation, observation));
+    assert_eq!((first, second), (observation.clone(), observation));
     assert!(lock(&fixture.recorded.0).is_empty());
 }
 

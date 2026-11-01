@@ -8,6 +8,8 @@
 //! - A provider whose reads each start a process reads one account at a time.
 //! - `Check now` answers the last read while it is under a minute old, and a hold's end while the
 //!   throttle ladder holds the account; the opt-out stops every read but `Check now`.
+//! - An answer with figures records its quota windows as the account's whole set, and the
+//!   identity and sign-in renewal the provider reported with it on the account's row.
 //! - The stored health: an answer with figures reads signed in and takes the account off the
 //!   ladder; a sign-in gone reads `reauthRequired`; a refused read climbs the ladder; a sign-in
 //!   refused on the way to the answer, or the second read in a row with no answer, reads
@@ -45,11 +47,14 @@ use crate::driver::contract::account::{
     ProviderObservation, ProviderObserveLegs, ProviderWindowTurnLegs,
 };
 use crate::driver::{AccountFoldersError, ProviderAccountFolders, ProviderAccountReader};
+use crate::port::usage_sink::UsageSink;
 
+mod figures;
 mod ladder;
 mod schedule;
 mod token_read;
 mod window_start;
+pub mod window_store;
 
 // How long a read may take before it counts as one with no answer; the legs set no bound.
 const READ_BOUND: Duration = Duration::from_mins(1);
@@ -80,8 +85,11 @@ pub struct ProviderAccountObserverDeps {
     pub token_custody: Arc<ProviderTokenCustody>,
     /// The daemon's read connections, which read each account's windows.
     pub database_reads: Arc<DatabaseReadPool>,
-    /// The daemon's database writer, which writes each turn's usage row.
+    /// The daemon's database writer, which writes each turn's usage row and what a read reported
+    /// of the account.
     pub database_writer: Arc<DatabaseWriter>,
+    /// The usage record, which takes each read's whole set of quota windows.
+    pub usage: Arc<dyn UsageSink>,
     /// Whether a turn is live on an account.
     pub live_turns: Arc<dyn AccountLiveTurns>,
     /// The lock every act in an account's home takes.
@@ -93,7 +101,7 @@ pub struct ProviderAccountObserverDeps {
 }
 
 /// One read of an account and when it was taken.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AccountReading {
     /// What the provider answered; `None` when the read could not start, failed or took too long.
     pub observation: Option<ProviderObservation>,
@@ -102,7 +110,7 @@ pub struct AccountReading {
 }
 
 /// What asking for an account's read answers.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum AccountReadAnswer {
     /// The read taken, joined in flight, or, for `Check now`, the last one while under a minute old.
     Read(AccountReading),
@@ -146,6 +154,9 @@ pub enum ProviderAccountObserverError {
     /// The account's job could not be scheduled.
     #[error(transparent)]
     Schedule(#[from] ScheduleError),
+    /// The read's quota windows could not be recorded.
+    #[error("the account's quota windows could not be recorded")]
+    WindowsNotRecorded(#[source] Box<dyn std::error::Error + Send + Sync>),
 }
 
 // Who asked for a read: it decides the opt-out, the minute's floor and the stored writer.
@@ -190,6 +201,7 @@ struct ObserverShared {
     token_custody: Arc<ProviderTokenCustody>,
     database_reads: Arc<DatabaseReadPool>,
     database_writer: Arc<DatabaseWriter>,
+    usage: Arc<dyn UsageSink>,
     // One per provider whose reads run one at a time; its window turns take it too.
     one_reader_at_a_time: HashMap<ProviderId, Arc<tokio::sync::Mutex<()>>>,
     live_turns: Arc<dyn AccountLiveTurns>,
@@ -222,6 +234,7 @@ impl ProviderAccountObserver {
                 token_custody: deps.token_custody,
                 database_reads: deps.database_reads,
                 database_writer: deps.database_writer,
+                usage: deps.usage,
                 one_reader_at_a_time,
                 live_turns: deps.live_turns,
                 scheduler: Arc::clone(&deps.scheduler),
@@ -458,7 +471,7 @@ impl ObserverShared {
             observation,
             read_at: ladder::wire_instant(now),
         };
-        self.store(&account.account_id, &reading, writer).await?;
+        self.store(&account, &reading, writer).await?;
         Ok(reading)
     }
 
@@ -490,19 +503,22 @@ impl ObserverShared {
         }
     }
 
-    // Stores what `reading` says of the account's health and its place on the ladder.
+    // Stores what `reading` says of the account: its figures, its health and its place on the
+    // ladder.
     async fn store(
         &self,
-        account_id: &ProviderAccountId,
+        account: &RegisteredAccount,
         reading: &AccountReading,
         writer: HealthObserver,
     ) -> Result<(), ProviderAccountObserverError> {
+        let account_id = &account.account_id;
         let now = self.wall_clock.now();
         let unanswered_before = lock(&self.accounts)
             .get(account_id)
             .map_or(0, |memory| memory.unanswered_in_a_row);
-        let (stored, unanswered_in_a_row) = match reading.observation {
-            Some(ProviderObservation::Figures) => {
+        let (stored, unanswered_in_a_row) = match &reading.observation {
+            Some(ProviderObservation::Figures(figures)) => {
+                self.store_figures(account, figures).await?;
                 self.registry.clear_read_hold(account_id).await?;
                 (Some((ProviderAccountHealthState::Authenticated, writer)), 0)
             }
