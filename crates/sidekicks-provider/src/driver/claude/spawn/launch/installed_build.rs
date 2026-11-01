@@ -10,6 +10,7 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
 
 use crate::capability::probe::CapabilityProbeExchange;
@@ -95,16 +96,20 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
         request: ClaudeOneTurnRequest<'a>,
     ) -> BoxFuture<'a, Result<ClaudeOneTurnReply, ClaudeLaunchError>>;
 
-    /// Asks a process that keeps nothing, started in `environment`, how it is signed in.
+    /// Asks a process that keeps nothing, started in `environment` on `provider_account_id`'s
+    /// account, how it is signed in.
     fn probe_sign_in(
         &self,
         environment: Vec<(String, String)>,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<String, ClaudeLaunchError>>;
 
-    /// Reads the model catalog from a process that keeps nothing, started in `environment`.
+    /// Reads the model catalog from a process that keeps nothing, started in `environment` on
+    /// `provider_account_id`'s account.
     fn read_model_catalog(
         &self,
         environment: Vec<(String, String)>,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ClaudeModelCatalogReading, ClaudeLaunchError>>;
 
     /// Reads the installed build's version and probes its capabilities, both from one process
@@ -156,27 +161,28 @@ impl ClaudeInstalledBuild {
             home_folder,
         }
     }
+}
 
-    // The build the command names in `environment` now.
-    async fn resolve(
-        command_search: &ProviderCommandSearch,
-        home_folder: &std::path::Path,
-        environment: Vec<(String, String)>,
-    ) -> Result<ResolvedProviderExecutable, DriverError> {
-        let command = DESCRIPTOR
-            .command_lookup(PathRules::NATIVE)
-            .and_then(|lookup| lookup.names.first())
-            .map_or_else(String::new, |name| (*name).to_owned());
-        let search_folders = list_command_folders(&DESCRIPTOR, home_folder, &environment);
-        resolve_provider_executable(
-            command_search,
-            &DESCRIPTOR.provider_id(),
-            command,
-            environment,
-            search_folders,
-        )
-        .await
-    }
+/// The Claude Code build the configured command names in `environment` now, found below
+/// `home_folder` when the environment's `PATH` holds none. Fails as the command cannot be resolved.
+pub(crate) async fn resolve_claude_build(
+    command_search: &ProviderCommandSearch,
+    home_folder: &std::path::Path,
+    environment: Vec<(String, String)>,
+) -> Result<ResolvedProviderExecutable, DriverError> {
+    let command = DESCRIPTOR
+        .command_lookup(PathRules::NATIVE)
+        .and_then(|lookup| lookup.names.first())
+        .map_or_else(String::new, |name| (*name).to_owned());
+    let search_folders = list_command_folders(&DESCRIPTOR, home_folder, &environment);
+    resolve_provider_executable(
+        command_search,
+        &DESCRIPTOR.provider_id(),
+        command,
+        environment,
+        search_folders,
+    )
+    .await
 }
 
 impl ClaudeProcessStarts for ClaudeInstalledBuild {
@@ -187,7 +193,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
         async move {
             let environment = request.spawn.legs.spawn_environment.clone();
             let executable =
-                Self::resolve(&self.command_search, &self.home_folder, environment).await?;
+                resolve_claude_build(&self.command_search, &self.home_folder, environment).await?;
             let brought_up = bring_up_claude_process(&self.launcher, &executable, request).await?;
             let process = brought_up.process;
             let handshake_process = Arc::clone(&process);
@@ -228,7 +234,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
             (Arc::clone(&self.launcher), Arc::clone(&self.command_search));
         let home_folder = self.home_folder.clone();
         async move {
-            let executable = Self::resolve(
+            let executable = resolve_claude_build(
                 &command_search,
                 &home_folder,
                 place.spawn_environment.clone(),
@@ -247,7 +253,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
             (Arc::clone(&self.launcher), Arc::clone(&self.command_search));
         let home_folder = self.home_folder.clone();
         async move {
-            let executable = Self::resolve(
+            let executable = resolve_claude_build(
                 &command_search,
                 &home_folder,
                 place.spawn_environment.clone(),
@@ -265,7 +271,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
         async move {
             let environment = request.spawn.legs.spawn_environment.clone();
             let executable =
-                Self::resolve(&self.command_search, &self.home_folder, environment).await?;
+                resolve_claude_build(&self.command_search, &self.home_folder, environment).await?;
             run_claude_one_turn(&self.launcher, &executable, request).await
         }
         .boxed()
@@ -274,11 +280,14 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
     fn probe_sign_in(
         &self,
         environment: Vec<(String, String)>,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<String, ClaudeLaunchError>> {
         async move {
             let executable =
-                Self::resolve(&self.command_search, &self.home_folder, environment).await?;
-            probe_claude_sign_in(&self.launcher, &executable).await
+                resolve_claude_build(&self.command_search, &self.home_folder, environment).await?;
+            probe_claude_sign_in(&self.launcher, &executable, Some(provider_account_id), None)
+                .await?
+                .into_signed_in_detail()
         }
         .boxed()
     }
@@ -286,11 +295,12 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
     fn read_model_catalog(
         &self,
         environment: Vec<(String, String)>,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ClaudeModelCatalogReading, ClaudeLaunchError>> {
         async move {
             let executable =
-                Self::resolve(&self.command_search, &self.home_folder, environment).await?;
-            read_claude_model_catalog(&self.launcher, &executable).await
+                resolve_claude_build(&self.command_search, &self.home_folder, environment).await?;
+            read_claude_model_catalog(&self.launcher, &executable, provider_account_id).await
         }
         .boxed()
     }
@@ -301,7 +311,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
     ) -> BoxFuture<'_, Result<GetCapabilitiesResult, DriverError>> {
         async move {
             let executable =
-                Self::resolve(&self.command_search, &self.home_folder, environment).await?;
+                resolve_claude_build(&self.command_search, &self.home_folder, environment).await?;
             let request = ProviderVersionHandshakeRequest {
                 provider: DESCRIPTOR.provider_id(),
                 client_name: DESCRIPTOR.id,
@@ -310,6 +320,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
             let short = ClaudeShortProcess::start_control_only(
                 &self.launcher,
                 &request.executable,
+                None,
                 None,
                 None,
                 None,
@@ -346,7 +357,8 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
     ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
         async move {
             let executable =
-                Self::resolve(&self.command_search, &self.home_folder, request.environment).await?;
+                resolve_claude_build(&self.command_search, &self.home_folder, request.environment)
+                    .await?;
             tokio::fs::create_dir_all(&request.working_folder)
                 .await
                 .map_err(ClaudeLaunchError::ControlOnlyFolder)?;
@@ -356,6 +368,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                 Some(request.working_folder),
                 None,
                 Some(request.provider_account_id),
+                None,
             )
             .await?;
             if let Err(error) = short.initialize().await {
@@ -374,7 +387,8 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
     ) -> BoxFuture<'_, Result<ClaudeMcpProbeProcess, ClaudeLaunchError>> {
         async move {
             let executable =
-                Self::resolve(&self.command_search, &self.home_folder, request.environment).await?;
+                resolve_claude_build(&self.command_search, &self.home_folder, request.environment)
+                    .await?;
             let working_folder = match request.working_folder {
                 Some(folder) => folder,
                 None => self.launcher.control_only_folder().await?,
@@ -385,6 +399,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                 request.arguments,
                 working_folder,
                 Some(request.provider_account_id),
+                None,
             )
             .await?;
             if let Err(error) = short.initialize().await {

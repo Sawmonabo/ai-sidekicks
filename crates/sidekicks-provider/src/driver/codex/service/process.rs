@@ -158,7 +158,7 @@ pub(crate) async fn start_managed_codex_service(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let RecordedChild { child, record } =
-        spawn_recorded_child(spawner, child_records, command).await?;
+        spawn_recorded_child(spawner, child_records, command, None).await?;
     let process_id = child.id();
     let (ends, ends_received) = watch::channel(None);
     let (exit, exit_received) = oneshot::channel();

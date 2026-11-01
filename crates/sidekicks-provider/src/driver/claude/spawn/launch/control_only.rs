@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
@@ -128,13 +129,15 @@ pub(crate) struct ClaudeShortProcess {
 
 impl ClaudeShortProcess {
     /// Starts `executable` with `arguments` in `working_folder`, under `provider_account_id`'s
-    /// account where given. Fails as the launcher's start does.
+    /// account where given, handed `token` where given and else the account's sealed one. Fails as
+    /// the launcher's start does.
     pub(crate) async fn start(
         launcher: &ClaudeProcessLauncher,
         executable: &ResolvedProviderExecutable,
         arguments: Vec<String>,
         working_folder: PathBuf,
         provider_account_id: Option<ProviderAccountId>,
+        token: Option<SecretString>,
     ) -> Result<Self, ClaudeLaunchError> {
         let (listener, arrivals) = ForwardedArrivals::open();
         let process = launcher
@@ -146,6 +149,7 @@ impl ClaudeShortProcess {
                     working_folder,
                     provider_session_id: mint_uuid_v7().to_string(),
                     provider_account_id,
+                    token,
                 },
                 listener,
                 None,
@@ -158,14 +162,15 @@ impl ClaudeShortProcess {
     }
 
     /// Starts a process that keeps nothing in `working_folder`, the daemon's empty folder where
-    /// `None`, on `model` and under `provider_account_id`'s account where given. Fails as the
-    /// launcher's start does.
+    /// `None`, on `model` and under `provider_account_id`'s account where given, handed `token`
+    /// as [`Self::start`] hands it. Fails as the launcher's start does.
     pub(crate) async fn start_control_only(
         launcher: &ClaudeProcessLauncher,
         executable: &ResolvedProviderExecutable,
         working_folder: Option<PathBuf>,
         model: Option<&str>,
         provider_account_id: Option<ProviderAccountId>,
+        token: Option<SecretString>,
     ) -> Result<Self, ClaudeLaunchError> {
         let working_folder = match working_folder {
             Some(folder) => folder,
@@ -177,6 +182,7 @@ impl ClaudeShortProcess {
             compose_claude_control_only_arguments(model),
             working_folder,
             provider_account_id,
+            token,
         )
         .await
     }
@@ -230,48 +236,98 @@ struct AccountSources {
     api_key_source: Option<Value>,
 }
 
-/// Brings a process up on the person's own home with nothing kept and answers how the
-/// `initialize` reply's account says it is signed in. Fails with `AuthenticationRequired` when it
-/// names no sign-in source, and as the start or `initialize` does.
+/// How an `initialize` reply's account says a process is signed in: the source Claude Code names
+/// for its token and for its API key, each `None` where it names none.
+#[derive(Default)]
+pub(crate) struct ClaudeSignInSources {
+    token_source: Option<String>,
+    api_key_source: Option<String>,
+}
+
+impl ClaudeSignInSources {
+    /// The source of the process's sign-in token, where it names one other than `none`, Claude
+    /// Code's word for no token.
+    pub(crate) fn token_source(&self) -> Option<&str> {
+        self.token_source
+            .as_deref()
+            .filter(|source| *source != CLAUDE_NO_SIGN_IN_SOURCE)
+    }
+
+    /// How the process is signed in, by the first source named: its token's, else its API key's.
+    /// Fails with `AuthenticationRequired` when that source is `none` or no source is named.
+    pub(crate) fn into_signed_in_detail(self) -> Result<String, ClaudeLaunchError> {
+        match self.token_source.or(self.api_key_source) {
+            Some(source) if source != CLAUDE_NO_SIGN_IN_SOURCE => {
+                Ok(format!("signed in through {source}"))
+            }
+            Some(_) | None => Err(ClaudeSessionError::AuthenticationRequired {
+                detail: "Claude Code names no sign-in on this home.".to_owned(),
+            }
+            .into()),
+        }
+    }
+}
+
+// The source an `initialize` reply names for a sign-in it does not have.
+const CLAUDE_NO_SIGN_IN_SOURCE: &str = "none";
+
+/// Brings a process up on the executable's home with nothing kept, under `provider_account_id`'s
+/// account where given and handed `token` as [`ClaudeShortProcess::start`] hands it, and answers
+/// the sign-in sources its `initialize` reply's account names, a blank one read as unnamed. Fails
+/// as the start or `initialize` does.
 pub(crate) async fn probe_claude_sign_in(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,
-) -> Result<String, ClaudeLaunchError> {
-    let short =
-        ClaudeShortProcess::start_control_only(launcher, executable, None, None, None).await?;
+    provider_account_id: Option<ProviderAccountId>,
+    token: Option<SecretString>,
+) -> Result<ClaudeSignInSources, ClaudeLaunchError> {
+    let short = ClaudeShortProcess::start_control_only(
+        launcher,
+        executable,
+        None,
+        None,
+        provider_account_id,
+        token,
+    )
+    .await?;
     let reply = short.initialize().await;
     short.close().await;
     let sources = reply?
         .and_then(|reply| serde_json::from_str::<InitializeAccount>(reply.get()).ok())
         .and_then(|reply| reply.account);
-    let source = sources.and_then(|sources| {
-        [sources.token_source, sources.api_key_source]
-            .into_iter()
-            .flatten()
-            .find_map(|source| {
-                source
-                    .as_str()
-                    .filter(|source| !source.is_empty())
-                    .map(str::to_owned)
-            })
-    });
-    match source {
-        Some(source) if source != "none" => Ok(format!("signed in through {source}")),
-        Some(_) | None => Err(ClaudeSessionError::AuthenticationRequired {
-            detail: "Claude Code names no sign-in on this home.".to_owned(),
-        }
-        .into()),
-    }
+    let named = |source: Option<Value>| {
+        source.and_then(|source| {
+            source
+                .as_str()
+                .filter(|source| !source.is_empty())
+                .map(str::to_owned)
+        })
+    };
+    Ok(sources
+        .map(|sources| ClaudeSignInSources {
+            token_source: named(sources.token_source),
+            api_key_source: named(sources.api_key_source),
+        })
+        .unwrap_or_default())
 }
 
-/// Reads the model catalog from a process that keeps nothing: its `initialize` reply and the
-/// context usage of the model it runs. Fails as the start or a request does.
+/// Reads the model catalog from a process that keeps nothing on `provider_account_id`'s account:
+/// its `initialize` reply and the context usage of the model it runs. Fails as the start or a
+/// request does.
 pub(crate) async fn read_claude_model_catalog(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,
+    provider_account_id: ProviderAccountId,
 ) -> Result<ClaudeModelCatalogReading, ClaudeLaunchError> {
-    let short =
-        ClaudeShortProcess::start_control_only(launcher, executable, None, None, None).await?;
+    let short = ClaudeShortProcess::start_control_only(
+        launcher,
+        executable,
+        None,
+        None,
+        Some(provider_account_id),
+        None,
+    )
+    .await?;
     let read = async {
         Ok::<_, ClaudeSessionError>(ClaudeModelCatalogReading {
             initialize: short.initialize().await?,

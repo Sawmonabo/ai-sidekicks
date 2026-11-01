@@ -168,6 +168,7 @@ pub(crate) async fn bring_up_claude_process(
                 working_folder: legs.working_directory.clone(),
                 provider_session_id: request.provider_session_id,
                 provider_account_id: Some(spawn.provider_account_id),
+                token: None,
             },
             request.listener,
             request.turn_holds,
@@ -266,6 +267,7 @@ mod tests {
     use crate::background_work::BackgroundWorkForms;
     use crate::command::running_set::unbound_running_command_sets;
     use crate::command::waiting_checks::SystemInputWaitReader;
+    use crate::driver::CurrentProviderAccount;
     use crate::driver::PROVIDERS;
     use crate::driver::child_records::UnrecordedChildren;
     use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeCommandPrograms};
@@ -277,6 +279,7 @@ mod tests {
     use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
     use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
     use crate::driver::test_registry::new_session_id;
+    use crate::driver::test_registry::registered_test_accounts;
     use crate::process_registry::ProviderProcessRegistry;
     use crate::run::posture::compose_execution_posture;
     use crate::runtime_binding::test_store::test_provider_account_id;
@@ -399,6 +402,7 @@ mod tests {
             spawner,
             Arc::new(UnrecordedChildren),
             Arc::new(ProviderProcessRegistry::default()),
+            registered_test_accounts(CurrentProviderAccount::NoneRegistered),
             folder.path(),
         );
 

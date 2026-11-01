@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
@@ -70,15 +71,17 @@ impl ClaudeHeldFigures {
         }
     }
 
-    /// Reads the figures of a session spawned on `legs` beside its spawn, so creating it waits on
-    /// nothing more, and answers the command choices it holds; a figure already held is not read
-    /// again. Never fails: a failed read is recorded and held as its reason.
+    /// Reads the figures of a session spawned on `legs` on `provider_account_id`'s account beside
+    /// its spawn, so creating it waits on nothing more, and answers the command choices it holds;
+    /// a figure already held is not read again. Never fails: a failed read is recorded and held as
+    /// its reason.
     pub(crate) fn read_creation_figures(
         &self,
         legs: &ClaudeSpawnBoundLegs,
+        provider_account_id: &ProviderAccountId,
     ) -> ClaudeHeldCommandChoices {
         let figures = self.current();
-        let place = folder_read_of(legs, &legs.model);
+        let place = folder_read_of(legs, &legs.model, provider_account_id);
         let session_id = legs.session_id;
         let creation = self.creation_read(&figures, &place);
         let choices_read = {
@@ -128,15 +131,21 @@ impl ClaudeHeldFigures {
     }
 
     /// Reads the reply reserve of the model `legs`' session runs on now, `running_model`, in its
-    /// own process that keeps nothing, where none is held for it at the session's endpoint.
+    /// own process that keeps nothing on `provider_account_id`'s account, where none is held for
+    /// it at the session's endpoint.
     #[expect(
         dead_code,
         reason = "the compaction bound's write reads the new model's reply reserve on a model \
                   change, to set Claude Code's compaction keys again"
     )]
-    pub(crate) fn read_reply_reserve_for(&self, legs: &ClaudeSpawnBoundLegs, running_model: &str) {
+    pub(crate) fn read_reply_reserve_for(
+        &self,
+        legs: &ClaudeSpawnBoundLegs,
+        running_model: &str,
+        provider_account_id: &ProviderAccountId,
+    ) {
         let figures = self.current();
-        let place = folder_read_of(legs, running_model);
+        let place = folder_read_of(legs, running_model, provider_account_id);
         let session_id = legs.session_id;
         let read = {
             let (starts, place, model) = (
@@ -193,11 +202,16 @@ impl ClaudeHeldFigures {
 }
 
 // Where a control-only process reads a figure of `legs`' session on `model`.
-fn folder_read_of(legs: &ClaudeSpawnBoundLegs, model: &str) -> ClaudeSessionFolderReadRequest {
+fn folder_read_of(
+    legs: &ClaudeSpawnBoundLegs,
+    model: &str,
+    provider_account_id: &ProviderAccountId,
+) -> ClaudeSessionFolderReadRequest {
     ClaudeSessionFolderReadRequest {
         spawn_environment: legs.spawn_environment.clone(),
         working_directory: legs.working_directory.clone(),
         model: model.to_owned(),
+        provider_account_id: provider_account_id.clone(),
     }
 }
 

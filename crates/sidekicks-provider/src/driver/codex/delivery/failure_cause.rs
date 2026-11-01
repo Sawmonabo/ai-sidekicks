@@ -128,7 +128,9 @@ mod tests {
     use futures::future::BoxFuture;
     use secrecy::SecretString;
     use serde_json::{Value, json};
-    use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+    use sidekicks_contracts::provider::account::record::{
+        CredentialGeneration, ProviderAccountId, ProviderAuthMode,
+    };
     use sidekicks_contracts::provider::driver::usage_limit::ProviderUsageLimitResetBoundary;
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::run::failure_cause::{ProviderFailureOrigin, RunFailureCause};
@@ -174,6 +176,15 @@ mod tests {
         {
             let generation = self.0.get(&provider_account_id).copied();
             async move { generation.ok_or_else(|| "no such account".into()) }.boxed()
+        }
+
+        fn read_observed_auth_mode(
+            &self,
+
+            _provider_account_id: ProviderAccountId,
+        ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn std::error::Error + Send + Sync>>>
+        {
+            async { Ok(None) }.boxed()
         }
 
         fn read_sealed_token(

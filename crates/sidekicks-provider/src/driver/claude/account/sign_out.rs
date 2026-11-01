@@ -6,20 +6,16 @@ use std::path::PathBuf;
 use std::process::Stdio;
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_platforms::{PathRules, read_child_exit, wrap_child_command};
+use sidekicks_platforms::{read_child_exit, wrap_child_command};
 use tokio::process::Command;
 
-use crate::command_search::list_command_folders;
 use crate::driver::ProviderAccountFolders;
-use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::ClaudeAccountLegs;
 use crate::driver::claude::spawn::environment::{
-    ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, ClaudeProcessHome,
-    compose_claude_process_environment, compose_claude_scratch_folder,
+    ClaudeAccountFolders, ClaudeProcessHome, compose_claude_scratch_folder,
 };
 use crate::driver::contract::error::DriverError;
-use crate::spawn_environment::SessionEnvironment;
-use crate::spawned_version::{ResolvedProviderExecutable, resolve_provider_executable};
+use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The arguments after the Claude Code command that sign its home out.
 const CLAUDE_SIGN_OUT_ARGUMENTS: [&str; 2] = ["auth", "logout"];
@@ -60,40 +56,14 @@ pub(super) async fn sign_out_claude_home(
     provider_account_id: ProviderAccountId,
     folders: ProviderAccountFolders,
 ) -> Result<(), DriverError> {
-    let data_folder = legs.data_folder.to_string_lossy();
-    let environment = compose_claude_process_environment(
-        ClaudeProcessEnvironmentRequest {
-            session: SessionEnvironment {
-                base: &legs.base_environment,
-                every_project_rows: &[],
-                project_rows: &[],
-                reserved_names: &legs.reserved_names,
-                rules: PathRules::NATIVE,
-            },
-            deny_env_vars: &[],
-            home: ClaudeProcessHome::Account {
-                folders: &ClaudeAccountFolders::from(&folders),
-                provider_account_id: &provider_account_id,
-            },
-            data_folder: &data_folder,
-        },
-        &[],
-    )
-    .map_err(|error| DriverError::Internal(Box::new(error)))?;
-    let command = DESCRIPTOR
-        .command_lookup(PathRules::NATIVE)
-        .and_then(|lookup| lookup.names.first())
-        .map_or_else(String::new, |name| (*name).to_owned());
-    let search_folders = list_command_folders(&DESCRIPTOR, &legs.home_folder, &environment);
-    let executable = resolve_provider_executable(
-        &legs.command_search,
-        &DESCRIPTOR.provider_id(),
-        command,
-        environment,
-        search_folders,
-    )
-    .await?;
-    let working_folder = compose_claude_scratch_folder(&data_folder, &provider_account_id);
+    let executable = legs
+        .resolve_build_on(ClaudeProcessHome::Account {
+            folders: &ClaudeAccountFolders::from(&folders),
+            provider_account_id: &provider_account_id,
+        })
+        .await?;
+    let working_folder =
+        compose_claude_scratch_folder(&legs.data_folder.to_string_lossy(), &provider_account_id);
     run_sign_out(legs, executable, working_folder)
         .await
         .map_err(|error| DriverError::Internal(Box::new(error)))
@@ -147,7 +117,7 @@ mod tests {
     use sidekicks_std::file::atomic_write::write_file_atomically;
 
     use crate::driver::ProviderAccountFolders;
-    use crate::driver::claude::account::ClaudeAccountLegs;
+    use crate::driver::claude::account::test_account_legs;
     use crate::driver::contract::account::ProviderAccountLegs;
     use crate::driver::test_registry::test_driver_services;
     use crate::runtime_binding::test_store::test_provider_account_id;
@@ -188,7 +158,7 @@ mod tests {
             "PATH".to_owned(),
             format!("{}:/usr/bin:/bin", programs.display()),
         )]);
-        let legs = ClaudeAccountLegs::new(&services);
+        let legs = test_account_legs(&services);
         let named = account_folders(root.path(), "one");
 
         legs.sign_out_home(test_provider_account_id(), named.clone())

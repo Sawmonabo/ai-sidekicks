@@ -9,6 +9,7 @@ use serde_json::json;
 use sidekicks_platforms::{ProgramStart, Spawner};
 use tokio::runtime::Handle;
 
+use crate::driver::CurrentProviderAccount;
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::claude::mcp::connectors::organization_mark::ClaudeConnectorListReading;
 use crate::driver::claude::mcp::connectors::{
@@ -25,6 +26,7 @@ use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::control_only::{
     CLAUDE_CONTROL_ONLY_ARGUMENTS, ClaudeShortProcess,
 };
+use crate::driver::test_registry::registered_test_accounts;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
@@ -58,6 +60,7 @@ async fn a_real_claude_code_reports_and_loads_connectors_and_organization_server
         Spawner::new(Handle::current()).expect("a spawner"),
         Arc::new(UnrecordedChildren),
         Arc::new(ProviderProcessRegistry::default()),
+        registered_test_accounts(CurrentProviderAccount::NoneRegistered),
         folder.path(),
     );
     let mut environment: Vec<(String, String)> = std::env::vars()
@@ -89,6 +92,7 @@ async fn a_real_claude_code_reports_and_loads_connectors_and_organization_server
         Some(read_folder),
         None,
         Some(account.clone()),
+        None,
     )
     .await
     .expect("the read's process starts");
@@ -229,6 +233,7 @@ async fn start_probe(
         arguments,
         working_folder,
         Some(test_provider_account_id()),
+        None,
     )
     .await
     .expect("the probe starts");

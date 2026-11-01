@@ -24,6 +24,7 @@ use sidekicks_platforms::{
 };
 
 use crate::command::running_set::takes_no_input;
+use crate::driver::claude::account_credentials::OAUTH_TOKEN_VARIABLE;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
@@ -31,6 +32,7 @@ use crate::driver::claude::mcp::{read_claude_mcp_servers, reread_claude_live_mcp
 use crate::driver::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, read_claude_row_choice,
 };
+use crate::driver::claude::spawn::environment::CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
@@ -198,6 +200,10 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         "CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT",
         // Joins the per-session memories the daemon keeps apart.
         "CLAUDE_CODE_REMOTE_MEMORY_DIR",
+        // A shell's own sign-in token, which would beat the account's.
+        OAUTH_TOKEN_VARIABLE,
+        // Names the pipe a pasted token is handed on, which only the daemon's start sets.
+        CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE,
     ],
     screen_reader_environment_names: &["CLAUDE_AX_SCREEN_READER"],
     voice_kinds: &[VoiceKind::Dictation],
