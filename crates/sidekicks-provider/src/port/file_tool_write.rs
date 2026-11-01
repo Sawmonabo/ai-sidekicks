@@ -1,12 +1,11 @@
 //! Where a driver reports each write its agent's own file tool makes, so a chat keeps one version
 //! per write even where the workspace's watch merges two writes into one report: a call opened on a
-//! path, then settled with the file's whole bytes as the tool's result gives them, or with no
-//! write.
+//! path, then settled with what the tool's result claims the file now holds, which the intake
+//! checks against the disk, or with no write.
 
 use std::error::Error;
 use std::path::PathBuf;
 
-use bytes::Bytes as ByteBuffer;
 use futures::future::BoxFuture;
 use sidekicks_contracts::session::id::SessionId;
 
@@ -25,10 +24,27 @@ pub struct FileToolWriteOpened {
 /// What a file tool's call left at its path.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FileToolWriteOutcome {
-    /// The file's whole bytes after the call, as its result gives them.
-    Written(ByteBuffer),
+    /// The call wrote, and its result says what the file now holds.
+    Claimed(FileToolWriteClaim),
     /// The call wrote nothing: it failed, was refused, or left the file as it was.
     NotWritten,
+    /// The call may have written, but its result does not say what.
+    Unread,
+}
+
+/// What a file tool's result says its call left in the file, before the disk confirms it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FileToolWriteClaim {
+    /// The file's whole text after the call, every CRLF pair as LF; a leading U+FEFF is ignored.
+    Text(String),
+    /// A unified diff over the newest stored version of `base_path`, the file a move came from,
+    /// or of the call's own path when it is `None`.
+    Patch {
+        /// The file a move came from, when the call moved one.
+        base_path: Option<PathBuf>,
+        /// The change as a unified diff.
+        unified_diff: String,
+    },
 }
 
 /// A file tool's call settled, by the id it opened under.

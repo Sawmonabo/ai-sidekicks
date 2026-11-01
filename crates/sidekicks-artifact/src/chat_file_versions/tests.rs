@@ -10,7 +10,8 @@ use sidekicks_contracts::artifacts::operations::{
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::WallClockTimer;
 use sidekicks_provider::port::file_tool_write::{
-    FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort as _, FileToolWriteSettled,
+    FileToolWriteClaim, FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort as _,
+    FileToolWriteSettled,
 };
 use sidekicks_workspace::managed::write_watcher::{
     ManagedWorkspaceReport, ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
@@ -291,7 +292,9 @@ async fn a_caught_up_instant_behind_a_held_report_is_stored_once_the_call_settle
             session_id: fixture.store.session_id,
             call_id: "edit".to_owned(),
             path,
-            outcome: FileToolWriteOutcome::Written(bytes::Bytes::from("from the tool")),
+            outcome: FileToolWriteOutcome::Claimed(FileToolWriteClaim::Text(
+                "from the tool".to_owned(),
+            )),
         })
         .await
         .expect("the call settles");
@@ -362,7 +365,7 @@ async fn tool_writes_merged_into_one_report_land_their_own_versions_in_call_orde
                 session_id: fixture.store.session_id,
                 call_id: call_id.to_owned(),
                 path: path.clone(),
-                outcome: FileToolWriteOutcome::Written(bytes::Bytes::from(bytes)),
+                outcome: FileToolWriteOutcome::Claimed(FileToolWriteClaim::Text(bytes.to_owned())),
             })
             .await
             .expect("the call settles");
