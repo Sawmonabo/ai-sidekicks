@@ -82,7 +82,19 @@ pub(super) struct StandInServices {
 pub(super) fn stand_in_services(
     program: impl FnOnce(TestCodexProgram) -> Arc<dyn CodexProgramResolver>,
 ) -> StandInServices {
-    let folder = short_socket_folder().expect("a scratch folder is made");
+    stand_in_services_in(
+        short_socket_folder().expect("a scratch folder is made"),
+        program,
+    )
+}
+
+/// The services of one test on the person's own Codex folder in `folder`, which they own and
+/// whose socket paths fit the system's bound on them, the stand-in resolved through what
+/// `program` makes of it.
+pub(super) fn stand_in_services_in(
+    folder: TempDir,
+    program: impl FnOnce(TestCodexProgram) -> Arc<dyn CodexProgramResolver>,
+) -> StandInServices {
     services_on(terminal_home(folder.path()), folder, program)
 }
 

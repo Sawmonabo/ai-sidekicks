@@ -26,6 +26,7 @@ use sidekicks_std::file::real_location::resolve_real_path;
 use sidekicks_std::missing_entry::is_missing_entry;
 use sidekicks_std::text_cut::cut_to_code_points;
 
+use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{
     GIT_FATAL_EXIT_CODE, GitCall, GitError, GitRunner, background_read, read_git_common_folder,
     strip_line_end,
@@ -45,9 +46,6 @@ pub(crate) const ROOT_RESOLUTION_GIT_TIMEOUT: Duration = Duration::from_secs(10)
 /// case: anywhere else it could sit inside a quoted path of another fatal error, and git escapes
 /// control characters in a quoted path, so none can start a line of its own.
 const NOT_A_REPOSITORY_MARKER: &str = "fatal: not a git repository";
-
-/// The entry git's discovery looks for, a folder or a `gitdir:` file; it is only looked at.
-pub(crate) const GIT_ENTRY_NAME: &str = ".git";
 
 /// What an attach may keep about a path: every member absolute with each link resolved, and both
 /// roots readable when resolved.

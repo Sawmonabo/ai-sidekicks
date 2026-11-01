@@ -29,6 +29,7 @@ use super::{
     WatcherShared, WatcherState,
 };
 use crate::file_watch::{FileWatch, FileWatchError, FileWatchNotice, WatchedRoot};
+use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{GitError, read_git_common_folder};
 use crate::git::worktree::reads::read_tree_git_folder;
 
@@ -152,7 +153,7 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 .await
                 .map_err(FolderStartError::IgnoredPaths)?,
         );
-        let is_linked_tree = match tokio::fs::symlink_metadata(key.join(".git")).await {
+        let is_linked_tree = match tokio::fs::symlink_metadata(key.join(GIT_ENTRY_NAME)).await {
             Ok(metadata) => metadata.is_file(),
             Err(error) => {
                 tracing::warn!(

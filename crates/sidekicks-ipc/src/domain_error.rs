@@ -20,12 +20,16 @@ pub struct DomainError {
     pub message: String,
     /// The refusal code, sent as the reply's `data.type`.
     pub code: RefusalCode,
-    /// Detail from where the refusal was raised, sent as `data.fields` once sanitized.
-    pub detail: Option<Map<String, Value>>,
+    /// Detail from where the refusal was raised, sent as `data.fields` once sanitized; boxed so
+    /// every `Result` that carries a refusal stays small.
+    pub detail: Option<Box<Map<String, Value>>>,
     /// The failure underneath, kept for the service log and never sent.
     #[source]
     pub source: Option<Box<dyn Error + Send + Sync>>,
 }
+
+// The budget every `Result` carrying a refusal keeps, and every error that wraps one.
+const _: () = assert!(size_of::<DomainError>() <= 56);
 
 impl DomainError {
     /// A refusal with `code`, with no detail and no failure underneath.
@@ -62,7 +66,7 @@ impl DomainError {
     #[must_use]
     pub fn with_detail(self, details: impl Serialize) -> Self {
         Self {
-            detail: Some(refusal_fields(details)),
+            detail: Some(Box::new(refusal_fields(details))),
             ..self
         }
     }

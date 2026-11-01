@@ -109,7 +109,7 @@ impl CodexDriver {
             .await?
         {
             Some(result) => Ok(result),
-            None => self.resume_session(params).await,
+            None => Box::pin(self.resume_session(params)).await,
         }
     }
 

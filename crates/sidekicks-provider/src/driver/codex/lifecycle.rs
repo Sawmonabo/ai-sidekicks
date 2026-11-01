@@ -76,6 +76,7 @@ use crate::driver::codex::session::recovery::{
 use crate::driver::codex::session::rewind::CodexConversationRewind;
 use crate::driver::codex::session::side_questions::CodexSideQuestions;
 use crate::driver::codex::session::slots::CodexSessionSlots;
+use crate::driver::codex::shells::read_codex_shells;
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::driver::{DriverServices, attachments::AttachmentResolver};
@@ -103,6 +104,8 @@ pub(crate) struct CodexDriver {
     runtime_bindings: Arc<dyn RuntimeBindingWriter>,
     shell_lines: Arc<sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound>,
     background_work: Arc<BackgroundWorkForms>,
+    // The shells Codex may start a command's line with, found as Codex finds them.
+    line_shells: Arc<[PathBuf]>,
     pending_compactions: PendingCompactionRegistry,
     /// The helpers stopped alone, whose later turns are interrupted at their start.
     pub(crate) stopped_helpers: Arc<CodexStoppedHelpers>,
@@ -184,6 +187,7 @@ impl CodexDriver {
             &services.home_folder,
         ));
         let link = Arc::new(CodexDriverLink::default());
+        let shells = read_codex_shells(&services.base_environment);
         let release = Arc::new(CodexConversationRelease::default());
         let command_channel_root = command_channel_root(&services.data_folder);
         let link_folder = program_link_folder(&services.data_folder);
@@ -214,6 +218,7 @@ impl CodexDriver {
                 additional_config_overrides: Vec::new(),
                 startup_timeout: CODEX_SERVICE_STARTUP_TIMEOUT,
                 dispatches_hook_mode: services.dispatches_hook_mode,
+                session_shell_kind: shells.session_kind,
                 events: Arc::new(CodexDriverServiceEvents::new(Arc::clone(&link))),
                 release: Arc::clone(&release),
                 drains: LastingServiceDrains::default(),
@@ -246,6 +251,7 @@ impl CodexDriver {
             runtime_bindings: Arc::clone(&services.runtime_bindings),
             shell_lines: Arc::clone(&services.shell_lines),
             background_work: Arc::clone(&services.background_work),
+            line_shells: shells.line_shells,
             pending_compactions: services.pending_compactions.clone(),
             stopped_helpers: Arc::new(CodexStoppedHelpers::new(tasks.clone())),
             processes: Arc::clone(&services.processes),
@@ -319,6 +325,7 @@ impl CodexDriver {
             },
             shell_lines: Arc::clone(&self.shell_lines),
             background_work: Arc::clone(&self.background_work),
+            line_shells: Arc::clone(&self.line_shells),
             project_rules: Arc::clone(&self.project_rules) as _,
             tasks: self.tasks.clone(),
         }));
@@ -415,6 +422,7 @@ impl CodexDriver {
                     tool_server_route: Arc::clone(&ports.tool_server_route),
                     reviewer_denials: Arc::clone(&ports.reviewer_denials),
                     pending_compactions: self.pending_compactions.clone(),
+                    session_relaunched: Arc::clone(&ports.session_relaunched),
                 },
                 runs: CodexRunCallDependencies {
                     run_routes: Arc::clone(&self.run_routes),

@@ -20,6 +20,7 @@ use crate::bootstrap::SecureDefaultsError;
 use crate::daemon::artifact_methods::ArtifactMethodsError;
 use crate::daemon::configuration::ConfigurationError;
 use crate::daemon::crash::monitor::CrashMonitorError;
+use crate::daemon::machine_settings::file::MachineSettingsFileError;
 use crate::daemon::process::database::DatabaseFileOpenError;
 use crate::daemon::process::jobs::JobScheduleError;
 use crate::daemon::process::method_inputs::MethodInputsError;
@@ -132,6 +133,9 @@ pub(crate) enum DaemonStartError {
     /// The services the method tables take could not be built.
     #[error(transparent)]
     MethodInputs(#[from] MethodInputsError),
+    /// The machine's settings could not be read for the web address's sender, so it did not start.
+    #[error("the web address's sender could not read the machine's settings")]
+    WebAddressSettings(#[source] MachineSettingsFileError),
     /// The attention entries a stop left could not be swept, so their decisions did not start.
     #[error(transparent)]
     Attention(#[from] AttentionServiceError),

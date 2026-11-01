@@ -14,7 +14,7 @@ use sidekicks_store::events::session::appender::{SessionEventAppendError, Sessio
 
 use crate::driver_resolution::LiveRunDriverError;
 use crate::interventions::interrupt_queue::InterruptQueueError;
-use crate::run::engine::RunEngineError;
+use crate::run::engine::errors::RunEngineError;
 
 /// Why a dispatch threw or could not run; its row moves to `failed` with a refusal's code, else
 /// its description.
@@ -64,7 +64,7 @@ impl From<RunEngineError> for DispatchError {
     fn from(error: RunEngineError) -> Self {
         match error {
             RunEngineError::Refused(refusal) => Self::Refused(refusal.into()),
-            RunEngineError::Provider(refusal) => Self::Refused(*refusal),
+            RunEngineError::Provider(refusal) => Self::Refused(refusal),
             error @ (RunEngineError::Change { .. }
             | RunEngineError::Released { .. }
             | RunEngineError::Gate { .. }
@@ -176,7 +176,7 @@ impl From<InterventionError> for HandlerError {
             | InterventionError::NoDriver(LiveRunDriverError::ProviderNotFound(refusal)) => {
                 Self::Refused(refusal)
             }
-            InterventionError::Engine(RunEngineError::Provider(refusal)) => Self::Refused(*refusal),
+            InterventionError::Engine(RunEngineError::Provider(refusal)) => Self::Refused(refusal),
             InterventionError::Engine(RunEngineError::Refused(refusal)) => {
                 Self::Refused(refusal.into())
             }

@@ -18,6 +18,8 @@ use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use sidekicks_mcp::binding::resolver::McpAttributionTable;
+use sidekicks_mcp::status::open_test_tracker;
 use sidekicks_platforms::Spawner;
 use sidekicks_provider::driver::SessionSpawnContextResolver;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
@@ -114,6 +116,8 @@ async fn port_over_a_leg(
         .create(session_id, leg)
         .await
         .expect("the leg is recorded");
+    // The session is in no project, so its relaunch's leg attributes at no root.
+    let (mcp_status, _subscriber, _first_observations) = open_test_tracker().await;
     let port = SessionDirectoryProviderPort::new(SessionDirectoryProviderPortDeps {
         pool: Arc::clone(&pool),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
@@ -122,6 +126,8 @@ async fn port_over_a_leg(
         settings: Arc::new(Unread),
         project_records: Arc::new(ProjectRecords::new(Arc::clone(&pool), Arc::new(Unread))),
         provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
+        mcp_status,
+        mcp_attribution: Arc::new(McpAttributionTable::default()),
     });
     PortOverLeg {
         port,

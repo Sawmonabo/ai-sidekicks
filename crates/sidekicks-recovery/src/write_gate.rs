@@ -430,7 +430,7 @@ mod tests {
                         Stage::Listing | Stage::Rebuilding | Stage::Damaged => "rebuilding",
                     };
                     assert_eq!(
-                        error.detail.map(Value::Object),
+                        error.detail.map(|detail| Value::Object(*detail)),
                         Some(json!({ "recovery": recovery }))
                     );
                 }

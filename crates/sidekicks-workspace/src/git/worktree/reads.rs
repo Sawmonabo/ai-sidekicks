@@ -44,8 +44,6 @@ pub(crate) const RECORD_COMMONDIR_FILE_NAME: &str = "commondir";
 /// The file in a linked tree's record that keeps the tree locked; `worktree add` writes it first
 /// and removes it once the tree is made, before the checkout hook runs.
 pub(crate) const RECORD_LOCK_FILE_NAME: &str = "locked";
-/// A linked tree's own `.git` file, which names its record.
-pub(crate) const GIT_FILE_NAME: &str = ".git";
 
 const REMOTE_REF_PREFIX: &[u8] = b"refs/remotes/";
 const REMOTE_HEAD_SUFFIX: &[u8] = b"/HEAD";

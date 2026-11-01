@@ -282,7 +282,7 @@ mod tests {
         };
         assert_eq!(refusal.code, RefusalCode::AgentProviderAxisInvalid);
         assert_eq!(
-            refusal.detail.map(Value::Object),
+            refusal.detail.map(|detail| Value::Object(*detail)),
             Some(json!({
                 "agentId": "0190f3a2-7b4c-7d1e-8f00-000000000002",
                 "axis": "modelId",

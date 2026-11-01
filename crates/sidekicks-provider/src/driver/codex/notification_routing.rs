@@ -2,12 +2,16 @@
 //! the session's task so no frame routes to an unmetered conversation. The session's conversation
 //! is bound at each establishment; each notification is then routed, its usage metered, its
 //! context window read, a compaction wait settled on its boundary, a helper's child run started
-//! and ended, and every frame the router keeps handed to the frame delivery.
+//! and ended, a tool server's startup on the session's own conversation reported to its status
+//! sink, and every frame the router keeps handed to the frame delivery.
+
+use std::collections::{HashMap, HashSet};
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::context_window::ContextWindowSource;
+use sidekicks_contracts::mcp::server::{McpServerName, McpServerStatus};
 use tokio::time::Instant;
 
 use crate::compaction_wait::PendingCompactionRegistry;
@@ -16,19 +20,23 @@ use crate::driver::codex::compaction::read_codex_compaction_boundary_position;
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
 use crate::driver::codex::delivery::frames::{CodexFrameDelivery, CodexFrameDispatch};
 use crate::driver::codex::event_normalizer::{
-    CODEX_THREAD_COMPACTED_METHOD, CODEX_THREAD_STARTED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD,
-    CODEX_TURN_COMPLETED_METHOD, classify_codex_frame_family_for_routing,
+    CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD, CODEX_THREAD_COMPACTED_METHOD,
+    CODEX_THREAD_STARTED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
+    classify_codex_frame_family_for_routing,
 };
+use crate::driver::codex::mcp::status_list::list_codex_mcp_server_statuses;
 use crate::driver::codex::service::supervisor::routing::{
     read_codex_child_thread_announcement, read_codex_frame_thread_id,
 };
 use crate::driver::codex::session::state::{CODEX_THREAD_FRAME_ROUTER_CONFIG, CodexSessionRecord};
 use crate::driver::codex::token_usage::read_codex_token_usage;
+use crate::driver::codex::tools::normalize_codex_mcp_server_status_notification;
 use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use crate::driver::mcp_server::status::{McpServerReading, McpServerStatusProducer};
 use crate::terminal_emission_gate::TerminalEmissionGate;
 use crate::thread_frame_router::{
     ChildRegistrationResult, ChildSpendAttribution, ChildThreadAnnouncement, RoutableProviderFrame,
@@ -38,6 +46,25 @@ use crate::usage_delta_accountant::{
     CumulativeUsageReading, MeteredUsageDelta, ThreadBaseEstablishment, UsageAxisCounts,
     UsageDeltaAccountant, WindowTelemetry, derive_window_telemetry,
 };
+
+/// What the tool servers' startups on a session's conversation said: the round that is starting,
+/// armed by its first `starting` and listed once every server it saw start has settled, and each
+/// server's newest startup reading, which a list leaves as it is.
+#[derive(Default)]
+pub(crate) struct CodexMcpServerStartups {
+    // The servers of the open round still starting; `None` between rounds.
+    round: Option<HashSet<McpServerName>>,
+    // Each server's newest startup reading and its text.
+    readings: HashMap<McpServerName, (McpServerReading, Option<String>)>,
+}
+
+impl CodexMcpServerStartups {
+    /// Whether no startup was heard since the conversation was bound.
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.round.is_none() && self.readings.is_empty()
+    }
+}
 
 /// One notification as the frame router sees it, kept whole so a held frame can be delivered once
 /// its conversation registers.
@@ -152,6 +179,8 @@ impl CodexSessionRouting {
     ) -> CodexRoutedFrames {
         self.accountant
             .establish_thread(thread_id.clone(), establishment);
+        // A new or resumed conversation reports its servers' startups afresh.
+        record.mcp_server_startups = CodexMcpServerStartups::default();
         let released = self.router.register_session_thread(thread_id);
         let mut routed = CodexRoutedFrames::default();
         for frame in released {
@@ -308,6 +337,7 @@ impl CodexSessionRouting {
             }
         }
         let frame = CodexRoutableFrame::read(method, params);
+        report_mcp_server_startup(record, &frame).await;
         self.route_frame(delivery, record, &frame, &mut routed)
             .await;
         routed
@@ -480,6 +510,89 @@ impl CodexSessionRouting {
     }
 }
 
+// Hands a tool server's startup on the session's own conversation to the status sink of the leg
+// it runs on, a row that breaks the reader's bound reported. A helper's conversation has no sink
+// of its own and one the session moved off is no longer its leg's, so their startups go nowhere.
+// Once the last server of a startup round settles, the leg lists its servers with their tools,
+// which a startup never names, on the session's task, so no list lands after a later startup.
+async fn report_mcp_server_startup(record: &mut CodexSessionRecord, frame: &CodexRoutableFrame) {
+    if frame.method != CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD
+        || frame.thread_id.as_deref() != Some(record.thread_id.as_str())
+    {
+        return;
+    }
+    let Some(producer) = record.on_mcp_server_status.clone() else {
+        return;
+    };
+    // Params that are not JSON read as none, which the reader refuses as not an object.
+    let notification: Value = serde_json::from_str(frame.params.get()).unwrap_or_default();
+    let read = normalize_codex_mcp_server_status_notification(&notification);
+    let startups = &mut record.mcp_server_startups;
+    let mut has_round_settled = false;
+    for emission in read.emissions {
+        let name = &emission.server_name;
+        if emission.reading == McpServerReading::Observed(McpServerStatus::Starting) {
+            startups
+                .round
+                .get_or_insert_with(HashSet::new)
+                .insert(name.clone());
+        } else if let Some(round) = &mut startups.round
+            && round.remove(name)
+        {
+            has_round_settled = round.is_empty();
+        }
+        startups.readings.insert(
+            name.clone(),
+            (emission.reading, emission.failure_text.clone()),
+        );
+        producer.report_status(emission);
+    }
+    for rejection in read.rejections {
+        report(
+            record,
+            DriverDiagnosticKind::McpServerStatusRejected,
+            Some(CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD),
+            &rejection.reason,
+            [],
+        );
+    }
+    if has_round_settled && record.mcp_server_startups.round.take().is_some() {
+        list_settled_mcp_servers(record, &producer).await;
+    }
+}
+
+// Lists the servers of the session's conversation with their tools on its service and hands each
+// to `producer` with the status and text its newest startup reported, so the list adds only the
+// tools; a list that fails is logged, the leg keeping what its startups reported.
+async fn list_settled_mcp_servers(record: &CodexSessionRecord, producer: &McpServerStatusProducer) {
+    let listed = match record.service.connection() {
+        Ok(connection) => {
+            list_codex_mcp_server_statuses(&connection, &record.thread_id, None).await
+        }
+        Err(error) => Err(error),
+    };
+    match listed {
+        Ok(emissions) => {
+            for mut emission in emissions {
+                if let Some((reading, failure_text)) = record
+                    .mcp_server_startups
+                    .readings
+                    .get(&emission.server_name)
+                {
+                    emission.reading = *reading;
+                    emission.failure_text.clone_from(failure_text);
+                }
+                producer.report_status(emission);
+            }
+        }
+        Err(error) => tracing::warn!(
+            session_id = %record.session_id,
+            error = &error as &(dyn std::error::Error + 'static),
+            "codex's mcp server list failed; the session's servers keep their startups, no tools"
+        ),
+    }
+}
+
 /// The members of a usage frame the window reading takes.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -563,4 +676,149 @@ fn report<const FIELDS: usize>(
         disposition_reason: disposition_reason.to_owned(),
         details,
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use serde_json::json;
+    use sidekicks_contracts::mcp::server::McpServerStatus;
+
+    use crate::driver::codex::session::test_fixture::status_sink::{
+        CountingStatusSink, mcp_server_startup,
+    };
+    use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
+    use crate::driver::mcp_server::status::McpServerReading;
+
+    // The other conversation is one the session moved off while a command of it runs, which the
+    // router still routes as the session's own. Killed by reporting a startup by its method alone,
+    // or by its route alone: the left conversation's server would reach the sink.
+    #[tokio::test(start_paused = true)]
+    async fn only_a_startup_on_the_sessions_own_conversation_reaches_its_status_sink() {
+        let mut session = TestCodexSession::start().await;
+        let sink = Arc::new(CountingStatusSink::default());
+        session.task.record.on_mcp_server_status = Some(Arc::clone(&sink) as _);
+        session
+            .task
+            .routing
+            .hold_thread("thread-left".to_owned(), true);
+
+        session
+            .task
+            .handle(mcp_server_startup("thread-left", "left", "ready", None))
+            .await;
+        session
+            .task
+            .handle(mcp_server_startup(TEST_THREAD, "github", "ready", None))
+            .await;
+
+        let reported = sink.reported();
+        let names: Vec<&str> = reported
+            .iter()
+            .map(|emission| emission.server_name.as_str())
+            .collect();
+        assert_eq!(names, ["github"]);
+    }
+
+    // One startup round lists once, after its last server settles, every page, each server with
+    // its tools and with its startup's status and text, so a failed server keeps its reason; a
+    // settle outside the round lists nothing. Killed by listing while a server of the round still
+    // starts, by the list's second page dropped, by the listed tools dropped, by the list's status
+    // or its empty text replacing the startup's, and by listing again on a settle outside the
+    // round.
+    #[tokio::test(start_paused = true)]
+    async fn a_startup_round_lists_its_servers_once_keeping_each_startups_status() {
+        let mut session = TestCodexSession::start().await;
+        let sink = Arc::new(CountingStatusSink::default());
+        session.task.record.on_mcp_server_status = Some(Arc::clone(&sink) as _);
+
+        for inbound in [
+            mcp_server_startup(TEST_THREAD, "github", "starting", None),
+            mcp_server_startup(TEST_THREAD, "docs", "starting", None),
+            mcp_server_startup(TEST_THREAD, "github", "ready", None),
+        ] {
+            session.task.handle(inbound).await;
+        }
+        let script = &mut session.scripted.script;
+        let answer = async {
+            let first = script.next_sent().await;
+            assert_eq!(first["method"], "mcpServerStatus/list");
+            assert_eq!(
+                first["params"],
+                json!({"threadId": TEST_THREAD, "detail": "toolsAndAuthOnly"})
+            );
+            script.answer(
+                &first,
+                &json!({
+                    "data": [{"name": "github", "runtimeStatus": "connected", "tools": {
+                        "search": {"name": "search"}
+                    }}],
+                    "nextCursor": "page-2"
+                }),
+            );
+            let second = script.next_sent().await;
+            assert_eq!(second["params"]["cursor"], "page-2");
+            script.answer(
+                &second,
+                &json!({"data": [{"name": "docs", "runtimeStatus": "failed", "tools": {
+                    "read": {"name": "read"}
+                }}]}),
+            );
+        };
+        tokio::join!(
+            session.task.handle(mcp_server_startup(
+                TEST_THREAD,
+                "docs",
+                "failed",
+                Some("handshake timed out")
+            )),
+            answer
+        );
+
+        let listed: Vec<_> = sink.reported()[4..]
+            .iter()
+            .map(|emission| {
+                (
+                    emission.server_name.as_str().to_owned(),
+                    emission.reading,
+                    emission.failure_text.clone(),
+                    emission
+                        .tool_names
+                        .as_ref()
+                        .map(|names| names.iter().map(|name| name.as_str().to_owned()).collect()),
+                )
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                (
+                    "github".to_owned(),
+                    McpServerReading::Observed(McpServerStatus::Connected),
+                    None,
+                    Some(vec!["search".to_owned()])
+                ),
+                (
+                    "docs".to_owned(),
+                    McpServerReading::Observed(McpServerStatus::Failed),
+                    Some("handshake timed out".to_owned()),
+                    Some(vec!["read".to_owned()])
+                ),
+            ]
+        );
+
+        session
+            .task
+            .handle(mcp_server_startup(TEST_THREAD, "reused", "ready", None))
+            .await;
+        let script = &mut session.scripted.script;
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), script.next_sent())
+                .await
+                .is_err(),
+            "a settle outside the round listed again"
+        );
+    }
 }

@@ -34,9 +34,10 @@ use tracing::Instrument as _;
 
 use crate::driver_resolution::{LiveRunDriverError, read_run_driver};
 use crate::interventions::store::is_limit_interrupt_pending;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::live::{CutGuard, StepInterruptGuard};
 use crate::run::engine::turns::{WriteWithResend, set_step_limit_reached};
-use crate::run::engine::{LiveAppend, RunEngine, RunEngineError, settled};
+use crate::run::engine::{LiveAppend, RunEngine, settled};
 use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::run::read::RunRead;
 use crate::run::refusals::RunRefusal;
@@ -741,7 +742,7 @@ impl From<LiveRunDriverError> for RunEngineError {
     /// binding on its chain is a fault of the driver's side.
     fn from(error: LiveRunDriverError) -> Self {
         match error {
-            LiveRunDriverError::ProviderNotFound(refusal) => Self::Provider(Box::new(refusal)),
+            LiveRunDriverError::ProviderNotFound(refusal) => Self::Provider(refusal),
             LiveRunDriverError::Unbound { run_id } => Self::Driver {
                 run_id,
                 source: Box::new(LiveRunDriverError::Unbound { run_id }),

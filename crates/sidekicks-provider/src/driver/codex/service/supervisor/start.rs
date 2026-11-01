@@ -2,8 +2,9 @@
 //! the loaded conversations and of the reported version, the launch on Codex's native program and
 //! the launch of a lasting service kept in its record. A service on an account home is a lasting
 //! service started or joined as `account` says, with the daemon's relay to its executor added
-//! before it answers; the capability read's is the daemon's own child, dialed once it listens,
-//! with no relay; the terminal service on the person's own Codex folder starts as `terminal` says.
+//! before it answers; the capability read's, and a read's transient one on the person's own Codex
+//! folder, are the daemon's own children, dialed once they listen, with no relay; the terminal
+//! service on that folder starts as `terminal` says.
 
 mod account;
 pub(crate) mod kept_records;
@@ -170,7 +171,12 @@ pub(super) async fn start_codex_service(
             start_relayed_service(&service, launch, &cancel, &executable).await
         }
         CodexHomeKind::CapabilityRead => {
-            start_capability_read_service(&service, launch, &cancel, &executable).await
+            start_own_child_service(&service, launch, &cancel, &executable).await
+        }
+        // A read's transient service on the folder is the daemon's own child, as the capability
+        // read's is.
+        CodexHomeKind::PersonalFolder if service.kind() == CodexServiceKind::Account => {
+            start_own_child_service(&service, launch, &cancel, &executable).await
         }
         CodexHomeKind::PersonalFolder => {
             start_terminal_service(&service, launch, &cancel, &executable, start_lock).await
@@ -236,9 +242,10 @@ fn compose_exec_relay(service: &Arc<CodexService>) -> Arc<CodexExecRelay> {
     )
 }
 
-// The capability read's service, the daemon's own child: launched with the shared switches alone,
-// dialed once it listens.
-async fn start_capability_read_service(
+// A service that is the daemon's own child, the capability read's or a read's transient one on
+// the person's own Codex folder: launched with the shared switches and the service's own, dialed
+// once it listens.
+async fn start_own_child_service(
     service: &Arc<CodexService>,
     launch: u64,
     cancel: &CancellationToken,
@@ -247,7 +254,7 @@ async fn start_capability_read_service(
     let process_launch = compose_launch(
         service,
         executable,
-        service.dependencies().additional_config_overrides.clone(),
+        service.launch_config_overrides(),
         service.socket_path(),
     )
     .await?;

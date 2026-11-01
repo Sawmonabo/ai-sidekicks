@@ -7,6 +7,7 @@ mod crash_monitor;
 pub(crate) mod damage_gate;
 pub(crate) mod database;
 pub(crate) mod jobs;
+mod mcp_attribution;
 mod method_inputs;
 pub(crate) mod method_tables;
 mod projections;
@@ -65,7 +66,8 @@ use sidekicks_store::database::connection::writer_open::{
 use sidekicks_store::machine::identity_key::MachineIdentity;
 use sidekicks_store::machine::local::read_or_mint_local_machine;
 use sidekicks_workspace::clone::service::CloneService;
-use sidekicks_workspace::git::process::{GitLimits, GitRunner, find_git_executable};
+use sidekicks_workspace::git::process::environment::find_git_executable;
+use sidekicks_workspace::git::process::{GitLimits, GitRunner};
 use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
 use sidekicks_workspace::git::worktree::setup::WorktreeSetupRunner;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
@@ -87,6 +89,7 @@ use crate::daemon::process::crash_monitor::CrashMonitor;
 use crate::daemon::process::damage_gate::DispatchDamageWatch;
 use crate::daemon::process::database::{DatabaseFile, DatabaseFileStart, open_database_file};
 use crate::daemon::process::jobs::{IdleMemoryCollect, JobDeps, schedule_jobs};
+use crate::daemon::process::mcp_attribution::McpAttributionFills;
 use crate::daemon::process::method_inputs::{
     MethodInputsStart, device_id_of, register_method_inputs,
 };
@@ -179,6 +182,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) providers: Option<Providers>,
     /// The providers' first capability reads, ended by the stop before the drivers.
     pub(crate) providers_registration: Option<ProvidersRegistration>,
+    /// The MCP attribution table's fills, ended by the stop before the drivers.
+    pub(crate) mcp_attribution_fills: Option<McpAttributionFills>,
     /// The repository services, whose watch, fetches and askpass broker the stop ends.
     pub(crate) repo: Option<RepoServices>,
     /// The repository services' background work, ended by the stop before the scheduler.
@@ -190,6 +195,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) session_attachments: Option<SessionAttachments>,
     /// The attention service's decision task, which ends with the work's stop and is waited out.
     pub(crate) attention: Option<JoinHandle<()>>,
+    /// The web address's sender, which ends with the work's stop and is waited out.
+    pub(crate) web_address_sender: Option<JoinHandle<()>>,
     /// The clone service, which owns the askpass broker; the stop closes it.
     pub(crate) clones: Option<Arc<CloneService>>,
     /// The live projects list, closed by the stop.
@@ -251,11 +258,13 @@ impl DaemonProcess {
             in_flight: None,
             providers: None,
             providers_registration: None,
+            mcp_attribution_fills: None,
             repo: None,
             repo_attachments: None,
             session: None,
             session_attachments: None,
             attention: None,
+            web_address_sender: None,
             clones: None,
             project_list_feed: None,
             worktree_setup: None,
@@ -578,12 +587,14 @@ impl DaemonProcess {
         .await?;
         let recovery = inputs.recovery;
         let attention = inputs.attention;
+        let web_address_sender = inputs.web_address_sender;
         self.project_list_feed = Some(inputs.project_list_feed);
         self.clones = inputs.clones;
         self.worktree_setup = Some(inputs.worktree_setup);
         self.workspace_work = Some(inputs.workspace_work);
         // Before the socket serves, so no creation is under way.
         settle_interrupted_creations(self.worktree_creator.insert(inputs.worktree_creator)).await;
+        let mcp_inventory = inputs.mcp_inventory;
         let session = self.session.insert(inputs.session);
         let queue = Arc::clone(&session.queue);
         let caller_check = CallerCheck::new(
@@ -654,6 +665,13 @@ impl DaemonProcess {
         // Right after the recovery pass, so the sweep reads what the last stop left before the
         // session services' follows begin.
         self.attention = Some(attention.start(self.work_stop.clone()).await?);
+        // After the sweep, so a delivery the stop left pending is decided before it is sent.
+        let send_settings = settings
+            .watch()
+            .await
+            .map_err(DaemonStartError::WebAddressSettings)?;
+        self.web_address_sender =
+            Some(web_address_sender.start(send_settings, self.work_stop.clone()));
         self.workspace_work
             .as_mut()
             .expect("the workspace services are built before their work begins")
@@ -693,6 +711,18 @@ impl DaemonProcess {
             () = self.work_stop.cancelled() => {}
         }
         self.check_stop("waiting for the providers' first reads")?;
+        // After the first reads, so each provider's read joins what its start runs.
+        self.mcp_attribution_fills = Some(McpAttributionFills::start(
+            mcp_inventory,
+            Arc::clone(
+                &self
+                    .repo
+                    .as_ref()
+                    .expect("the repository services are built before their work begins")
+                    .mounts,
+            ),
+            self.work_stop.clone(),
+        ));
         // Once the drivers are read, the runs a stop left waiting are delivered again.
         for (session_id, error) in queue
             .recover()

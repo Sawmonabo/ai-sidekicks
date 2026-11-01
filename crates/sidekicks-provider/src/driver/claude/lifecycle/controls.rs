@@ -1,19 +1,17 @@
 //! A session's controls and the reads of Claude Code itself: the starting level and a level move,
 //! a revoked rule, the models, modes, capabilities and sign-in, the Settings rows and the session
 //! options, the mode, the commands the daemon answers, a side question, a review, the command list
-//! a screen follows, and each session's inbox address.
+//! a screen follows, and each session's inbox addresser.
 
 use std::collections::HashSet;
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::ready;
-use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
-use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderRow, ProviderSessionOption,
@@ -24,13 +22,11 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::port_registration::PortRegistration;
 
 use super::{ClaudeDriver, internal};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
-use crate::driver::claude::inbox::address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::controls::{
     ClaudeSideQuestionCopy, claude_full_model_id, one_turn_legs, without_credential_prompts,
@@ -38,8 +34,8 @@ use crate::driver::claude::session::controls::{
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
-use crate::driver::claude::session::establishment::ClaudeSpawnSources;
 use crate::driver::claude::session::establishment::context::resolve_claude_spawn_context;
+use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::permission_level::{
     ClaudeStartingLevelSources, can_run_claude_level, is_offered_on_system, list_claude_modes,
     move_claude_permission_level, read_claude_sandbox_support, read_claude_starting_level,
@@ -69,7 +65,6 @@ use crate::driver::contract::params_and_results::{
     GetCapabilitiesResult, ListModelsParams, ListModesParams, ProviderReportedLevel,
 };
 use crate::driver::diagnostics::DriverDiagnosticKind;
-use crate::driver::ports::SessionPlace;
 use crate::driver::read_current_account;
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, DriverAuthProbeResult,
@@ -121,6 +116,7 @@ impl ClaudeDriver {
         params: StartingLevelParams,
     ) -> Result<StartingLevel, DriverError> {
         let environment = self
+            .sources
             .account_environment(&params.provider_account_id)
             .await?;
         let (offered, repository) = tokio::join!(
@@ -283,7 +279,7 @@ impl ClaudeDriver {
                 (None, Some(ended)) => ended.spawn_environment,
                 (None, None) => {
                     let account = self.resting_account(params.session_id).await?;
-                    self.account_environment(&account).await?
+                    self.sources.account_environment(&account).await?
                 }
             };
             let config_folder = account_config_folder(&spawn_environment);
@@ -345,14 +341,18 @@ impl ClaudeDriver {
                     .resolve_spawn_context(session_id, provider_account_id.clone())
                     .await
                     .map_err(DriverError::Internal)?;
-                self.account_process_environment(
+                self.sources.account_process_environment(
                     &context.account_folders,
                     &provider_account_id,
                     &[],
                     &[],
                 )?
             }
-            None => self.account_environment(&provider_account_id).await?,
+            None => {
+                self.sources
+                    .account_environment(&provider_account_id)
+                    .await?
+            }
         };
         let reading = self.starts.read_model_catalog(environment.clone()).await?;
         resolve_claude_model_catalog(reading, &self.figures.current(), &environment)
@@ -374,7 +374,7 @@ impl ClaudeDriver {
             // The check only finds the sandbox's programs and starts no Claude Code, so the folder
             // it names is never made.
             let folder = self.capability_read_folder();
-            let environment = self.process_environment(
+            let environment = self.sources.process_environment(
                 ClaudeProcessHome::Throwaway { folder: &folder },
                 &[],
                 &[],
@@ -436,7 +436,7 @@ impl ClaudeDriver {
                     .resolve_spawn_context(session_id, provider_account_id.clone())
                     .await
                     .map_err(DriverError::Internal)?;
-                let environment = self.account_process_environment(
+                let environment = self.sources.account_process_environment(
                     &context.account_folders,
                     &provider_account_id,
                     &[],
@@ -445,7 +445,10 @@ impl ClaudeDriver {
                 self.read_offered_levels(&environment, &context.working_directory)
                     .await
             } else {
-                let environment = self.account_environment(&provider_account_id).await?;
+                let environment = self
+                    .sources
+                    .account_environment(&provider_account_id)
+                    .await?;
                 self.read_offered_levels(&environment, &self.sources.home_folder)
                     .await
             }
@@ -501,7 +504,7 @@ impl ClaudeDriver {
             .map_err(internal)?;
         tokio::fs::create_dir_all(&folder).await.map_err(internal)?;
         let read = async {
-            let environment = self.process_environment(
+            let environment = self.sources.process_environment(
                 ClaudeProcessHome::Throwaway { folder: &folder },
                 &[],
                 &[],
@@ -529,7 +532,10 @@ impl ClaudeDriver {
         &self,
         provider_account_id: ProviderAccountId,
     ) -> Result<DriverAuthProbeResult, DriverError> {
-        let environment = self.account_environment(&provider_account_id).await?;
+        let environment = self
+            .sources
+            .account_environment(&provider_account_id)
+            .await?;
         Ok(match self.starts.probe_sign_in(environment).await {
             Ok(detail) => build_auth_probe_result(DriverAuthProbeStatus::Authenticated, &detail),
             Err(error) => {
@@ -561,7 +567,10 @@ impl ClaudeDriver {
             DESCRIPTOR.provider_id(),
         )
         .await?;
-        let environment = self.account_environment(&provider_account_id).await?;
+        let environment = self
+            .sources
+            .account_environment(&provider_account_id)
+            .await?;
         let settings_file = account_config_folder(&environment).join(SETTINGS_FILE_NAME);
         let place = ClaudeSessionFolderReadRequest {
             spawn_environment: environment,
@@ -834,58 +843,4 @@ async fn compose_resting_side_question_copy(
         provider_account_id: resume.provider_account_id,
         parent_provider_session_id: resume.resume_handle,
     })
-}
-
-/// Claude Code's inbox addresses over the places the daemon's start registers, composed once they
-/// are; a POSIX place carries the user id its socket folder names, a native Windows place's pipe
-/// needs none.
-pub(super) struct ClaudeRegisteredPlacesAddresser {
-    places: Arc<PortRegistration<Arc<[SessionPlace]>>>,
-    addresser: OnceLock<ClaudeSessionInboxAddresser>,
-}
-
-impl ClaudeRegisteredPlacesAddresser {
-    /// The addresser over the places registered on `places`, until then answering every place as
-    /// one the start did not list.
-    pub(super) fn new(places: Arc<PortRegistration<Arc<[SessionPlace]>>>) -> Self {
-        Self {
-            places,
-            addresser: OnceLock::new(),
-        }
-    }
-
-    fn answer<T>(&self, answer: impl FnOnce(&ClaudeSessionInboxAddresser) -> T) -> T {
-        if let Some(addresser) = self.addresser.get() {
-            return answer(addresser);
-        }
-        let Some(places) = self.places.port() else {
-            return answer(&ClaudeSessionInboxAddresser::new(std::iter::empty()));
-        };
-        answer(self.addresser.get_or_init(|| {
-            ClaudeSessionInboxAddresser::new(places.iter().filter_map(|place| {
-                let user_id = place.user_id?;
-                Some((
-                    place.place.clone(),
-                    PlaceInboxEnvironment {
-                        login_shell: &place.login_shell,
-                        user_id,
-                    },
-                ))
-            }))
-        }))
-    }
-}
-
-impl SessionInboxAddresser for ClaudeRegisteredPlacesAddresser {
-    fn session_inbox_address(
-        &self,
-        session_id: &SessionId,
-        place: Option<&Place>,
-    ) -> FilesystemPath {
-        self.answer(|addresser| addresser.session_inbox_address(session_id, place))
-    }
-
-    fn daemon_inbox_address(&self, place: Option<&Place>) -> FilesystemPath {
-        self.answer(|addresser| addresser.daemon_inbox_address(place))
-    }
 }

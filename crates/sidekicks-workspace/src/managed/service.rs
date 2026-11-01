@@ -34,14 +34,12 @@ use tokio::sync::oneshot::{self, error::TryRecvError};
 use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
+use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
 use crate::managed::write_watcher::{ManagedWorkspaceReport, ManagedWorkspaceWriteWatcher};
 use crate::repo::mount::service::{RepoMountService, RepoMountServiceError};
 
 const MANAGED_WORKSPACES_FOLDER_NAME: &str = "workspaces";
-
-// A workspace's own repository folder, the daemon's and not one of the chat's documents.
-const GIT_METADATA_FOLDER_NAME: &str = ".git";
 
 // `git init` writes a handful of files; a slow disk still finishes well inside this.
 const GIT_INIT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -440,9 +438,7 @@ fn count_files(folder: &Path) -> io::Result<Option<u64>> {
     let walk = WalkBuilder::new(folder)
         .standard_filters(false)
         .follow_links(false)
-        .filter_entry(|entry| {
-            entry.depth() != 1 || entry.file_name() != OsStr::new(GIT_METADATA_FOLDER_NAME)
-        })
+        .filter_entry(|entry| entry.depth() != 1 || entry.file_name() != OsStr::new(GIT_ENTRY_NAME))
         .build();
     let mut count = 0;
     for walked in walk {

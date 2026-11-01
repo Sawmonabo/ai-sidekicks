@@ -63,6 +63,7 @@ use crate::driver::codex::session::errors::{
 };
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::session::state::CODEX_THREAD_FRAME_ROUTER_CONFIG;
+use crate::driver::codex::shells::CodexShellKind;
 use crate::driver::codex::transport::connection::{
     CODEX_REQUEST_TIMEOUT, CodexAppServerConnection, CodexConnectionEvents,
     CodexConnectionHandlers, open_codex_connection, read_codex_object,
@@ -120,6 +121,9 @@ pub(crate) struct CodexServiceDependencies {
     /// Whether the daemon's program runs the hook mode a hook command starts, so the terminal
     /// service is started with the daemon's hooks.
     pub(crate) dispatches_hook_mode: bool,
+    /// The kind of shell Codex runs the terminal service's hook commands in, which they are
+    /// quoted for.
+    pub(crate) session_shell_kind: CodexShellKind,
     /// The session's recovery, told of exits, recoveries, crash loops and planned restarts.
     pub(crate) events: Arc<dyn CodexServiceEvents>,
     /// The conversations sessions moved off, which see each of their frames first.
@@ -191,6 +195,8 @@ pub(crate) struct CodexService {
     home: CodexServiceHome,
     socket: CodexServiceSocket,
     dependencies: Arc<CodexServiceDependencies>,
+    // The `-c` switches this service alone starts with, after the driver's.
+    config_overrides: Vec<String>,
     supervision: Mutex<Supervision>,
     inputs: mpsc::UnboundedSender<RunnerInput>,
     availability: watch::Sender<CodexServiceAvailability>,
@@ -215,13 +221,15 @@ pub(crate) struct CodexService {
 }
 
 impl CodexService {
-    /// A stopped service of `kind` on `home` listening on `socket`; its runner runs until the
-    /// service is let go of. Must be called within the daemon's runtime.
+    /// A stopped service of `kind` on `home` listening on `socket`, started with `config_overrides`
+    /// after the driver's own switches; its runner runs until the service is let go of. Must be
+    /// called within the daemon's runtime.
     pub(crate) fn new(
         home: CodexServiceHome,
         socket: CodexServiceSocket,
         kind: CodexServiceKind,
         dependencies: Arc<CodexServiceDependencies>,
+        config_overrides: Vec<String>,
     ) -> Arc<Self> {
         let (inputs, received) = mpsc::unbounded_channel();
         let service = Arc::new(Self {
@@ -229,6 +237,7 @@ impl CodexService {
             home,
             socket,
             dependencies,
+            config_overrides,
             supervision: Mutex::new(Supervision::new(kind)),
             inputs,
             availability: watch::Sender::new(CodexServiceAvailability::Stopped),
@@ -309,6 +318,17 @@ impl CodexService {
     /// never started again and its record goes once its process ends.
     pub(crate) fn mark_replaced(&self) {
         self.send(SupervisorEvent::Replaced);
+    }
+
+    /// The `-c` switches a launch of the service carries past the ones every service shares: the
+    /// driver's, then the service's own, so its own win where both set a key.
+    pub(crate) fn launch_config_overrides(&self) -> Vec<String> {
+        self.dependencies
+            .additional_config_overrides
+            .iter()
+            .chain(&self.config_overrides)
+            .cloned()
+            .collect()
     }
 
     /// The kind of service it is, as its last start found it; a session's recovery and a

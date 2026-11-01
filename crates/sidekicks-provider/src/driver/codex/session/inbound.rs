@@ -34,7 +34,8 @@ use crate::driver::codex::session::calls::CodexSessionReading;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::CodexInPlaceOutcome;
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
-use crate::driver::codex::session::recovery::{CodexDroppedTurns, CodexInPlaceResumeCall};
+use crate::driver::codex::session::recovery::CodexDroppedTurns;
+use crate::driver::codex::session::recovery::in_place_resume::CodexInPlaceResumeCall;
 use crate::driver::codex::session::rewind::CodexMessageTurn;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::error::DriverError;
@@ -168,7 +169,8 @@ pub(crate) enum CodexSessionCall {
         reply: oneshot::Sender<bool>,
     },
     /// Drops every turn the session held on a service whose process ended, with what waits on
-    /// them, and answers the runs they belonged to and the binding they ran under.
+    /// them, ends the status sink's leg that ran there, and answers the runs they belonged to and
+    /// the binding they ran under.
     DropTurns {
         /// Where the dropped runs and the binding go.
         reply: oneshot::Sender<CodexDroppedTurns>,

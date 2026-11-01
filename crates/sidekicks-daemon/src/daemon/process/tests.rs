@@ -152,7 +152,8 @@ impl TestHome {
     async fn start(&self, stop: CancellationToken) -> Result<DaemonProcess, DaemonStartFailure> {
         let data_folder = self.data_folder();
         create_missing_private_folders(&data_folder).expect("the data folder is made");
-        DaemonProcess::start(DaemonStartOptions {
+        // Boxed, since the start's future is past clippy's bound on one held on the stack.
+        Box::pin(DaemonProcess::start(DaemonStartOptions {
             home_folder: self.home.path().to_path_buf(),
             data_folder_lock: DataFolderLock::take(&data_folder).expect("the data folder is free"),
             run_folder: self.run_folder.clone(),
@@ -171,7 +172,7 @@ impl TestHome {
             credential_store: TestStoreAccess::new(CredentialStore::in_memory()) as _,
             service_log_files: open_service_log(&data_folder, io::sink()).files(),
             provider_registrations: PROVIDER_REGISTRATIONS,
-        })
+        }))
         .await
     }
 }

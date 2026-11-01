@@ -85,10 +85,11 @@ macro_rules! server_config {
         pub enum $name:ident {
             stdio { $($stdio:tt)* }
             remote { $($remote:tt)* }
+            $(ws $ws:tt)?
         }
     ) => {
         server_config! {
-            @union [$(#[doc = $doc])+] $name [$($stdio)*] [$($remote)*] [
+            @union [$(#[doc = $doc])+] $name [$($stdio)*] [$($remote)*] [$($ws)?] [
                 /// Whether the server is on; unset keeps the provider's value.
                 #[serde(
                     default,
@@ -127,7 +128,7 @@ macro_rules! server_config {
     };
     (
         @union [$(#[doc = $doc:literal])+] $name:ident [$($stdio:tt)*] [$($remote:tt)*]
-        [$($shared:tt)*]
+        [$($ws:tt)?] [$($shared:tt)*]
     ) => {
         $(#[doc = $doc])+
         #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -145,6 +146,10 @@ macro_rules! server_config {
             Http { $($remote)* $($shared)* },
             /// A server reached over server-sent events.
             Sse { $($remote)* $($shared)* },
+            $(
+                /// A server reached over a WebSocket.
+                Ws $ws,
+            )?
         }
     };
 }
@@ -309,6 +314,26 @@ server_config! {
             )]
             #[schemars(with = "String")]
             oauth_resource: Option<String>,
+        }
+        ws {
+            /// Its address, stripped.
+            url: String,
+            /// The names of the query parameters stripped from the address.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Vec<String>")]
+            url_query_param_names: Option<Vec<String>>,
+            /// The names of the headers sent when the connection opens.
+            #[serde(
+                default,
+                skip_serializing_if = "Option::is_none",
+                deserialize_with = "crate::wire::present"
+            )]
+            #[schemars(with = "Vec<String>")]
+            header_names: Option<Vec<String>>,
         }
     }
 }

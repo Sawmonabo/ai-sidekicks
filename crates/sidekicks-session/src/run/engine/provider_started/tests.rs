@@ -32,12 +32,13 @@ use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate, RunSet
 
 use crate::plan_holds::NoPlanHolds;
 use crate::questions::schema::schema_parts;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::test_fixture::{
     TestSessionPostures, append, end_run_aside, stored_run_state, test_engine, test_engine_on,
     test_engine_with,
 };
 use crate::run::engine::tests::{started_turn, turn_start};
-use crate::run::engine::{RunEngine, RunEngineError, SubagentRunStart};
+use crate::run::engine::{RunEngine, SubagentRunStart};
 use crate::run::start_request::RunStartRequest;
 
 // The posture at `level` over `git_folder`.

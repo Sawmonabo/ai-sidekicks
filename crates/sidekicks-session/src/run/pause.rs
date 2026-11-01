@@ -35,7 +35,8 @@ use sidekicks_store::database::connection::read_pool::{
 
 use crate::driver_resolution::{LiveRunDriverError, resolve_live_run_driver};
 use crate::interventions::store::run_at_version_statement;
-use crate::run::engine::{RunEngine, RunEngineError, RunResumeError};
+use crate::run::engine::RunEngine;
+use crate::run::engine::errors::{RunEngineError, RunResumeError};
 use crate::run::read::{
     RunRead, RunStateReader, read_run_provider, read_run_through, safe_run_version,
 };

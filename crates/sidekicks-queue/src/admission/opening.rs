@@ -29,7 +29,7 @@ use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLen
 use super::QueueAdmission;
 use crate::delivery::OpeningMessages;
 use crate::error::QueueError;
-use crate::provider_session::ProviderSessionError;
+use crate::provider_session::errors::ProviderSessionError;
 
 /// The message each run being started or continued opens with, until the start writes its
 /// outcome.

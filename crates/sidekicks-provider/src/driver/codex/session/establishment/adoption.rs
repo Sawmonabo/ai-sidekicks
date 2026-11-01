@@ -104,6 +104,8 @@ impl CodexSessionEstablishment {
                 .map(|level| level.as_str().to_owned()),
             declared_output_speed: None,
             reasoning_effort: None,
+            // The resume's own sink, bound to the binding it runs under.
+            on_mcp_server_status: params.on_mcp_server_status.clone(),
         });
         let helpers = find_loaded_helpers(&params.live_runs, &loaded);
         let registered: Vec<String> = std::iter::once(thread_id.clone())

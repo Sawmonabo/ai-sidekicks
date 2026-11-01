@@ -11,7 +11,6 @@ mod tests;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandBinding, ProviderCommandListResponse,
@@ -23,12 +22,13 @@ use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_store::data_folder::program_link_folder;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
-use self::controls::ClaudeRegisteredPlacesAddresser;
 use crate::command::askpass::command_askpass_program_path;
 use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::DriverServices;
 use crate::driver::attachments::AttachmentResolver;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::account_credentials::ClaudeSignInReader;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeCommandPrograms};
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::driver::claude::delivery::requests::answers::{
@@ -48,8 +48,10 @@ use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
+use crate::driver::claude::inbox::address::ClaudeRegisteredPlacesAddresser;
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::intervention::ClaudeInterventions;
+use crate::driver::claude::mcp::connectors::organization_mark::ClaudeOrganizationMarks;
 use crate::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
 use crate::driver::claude::run::controls::ClaudeRunControls;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
@@ -58,39 +60,35 @@ use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::run::self_started_turns::ClaudeSelfStartedTurns;
 use crate::driver::claude::run::settlement::ClaudeTurnSettlement;
 use crate::driver::claude::run::start::ClaudeRunStart;
+use crate::driver::claude::session::account_servers::ClaudeAccountServerReads;
 use crate::driver::claude::session::arrivals::task::ClaudeSessionTaskServices;
 use crate::driver::claude::session::context_reading::ClaudeContextReadings;
 use crate::driver::claude::session::controls::{ClaudeCommandListReader, ClaudeSessionControls};
+use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
 use crate::driver::claude::session::establishment::figures::ClaudeHeldFigures;
-use crate::driver::claude::session::establishment::{
-    ClaudeSessionEstablishment, ClaudeSpawnSources,
-};
+use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
-#[cfg(test)]
 use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
 use crate::driver::claude::session::permission_level::check_claude_command_sandbox;
 use crate::driver::claude::session::restart::ClaudeSessionRestarts;
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
-use crate::driver::claude::spawn::environment::{
-    ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, ClaudeProcessHome,
-    compose_claude_process_environment,
-};
 use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeInstalledBuild, ClaudeProcessStarts,
 };
 use crate::driver::contract::error::DriverError;
-use crate::driver::{DriverServices, ProviderAccountFolders};
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::repository_reader::RepositoryReading;
 use crate::port::run_host::RunHost;
 use crate::port::session_inbox_address::SessionInboxAddresser;
-use crate::spawn_environment::SessionEnvironment;
 
 /// The Claude Code driver: what it stores when built, and the session pieces it composes once.
 pub(crate) struct ClaudeDriver {
-    starts: Arc<dyn ClaudeProcessStarts>,
+    /// Every process the driver starts.
+    pub(crate) starts: Arc<dyn ClaudeProcessStarts>,
     figures: Arc<ClaudeHeldFigures>,
+    /// Each account's read of its connectors and organization servers.
+    pub(crate) account_servers: Arc<ClaudeAccountServerReads>,
     /// The daemon's services every session's process is started from.
     pub(crate) sources: Arc<ClaudeSpawnSources>,
     attachments: Arc<dyn AttachmentResolver>,
@@ -137,45 +135,87 @@ impl ClaudeDriver {
             Arc::clone(&services.command_search),
             services.home_folder.clone(),
         ));
-        Self::with_starts(services, starts)
+        Self::with_sign_in(
+            services,
+            starts,
+            ClaudeSignInReader::system(),
+            check_claude_command_sandbox,
+        )
     }
 
-    /// The driver over the shared services, starting every process through `starts`.
+    /// The driver over the shared services, starting every process through `starts` and reading
+    /// sign-ins from a keychain of the test's own, never the system's.
+    #[cfg(test)]
     pub(crate) fn with_starts(
         services: &DriverServices,
         starts: Arc<dyn ClaudeProcessStarts>,
     ) -> Self {
+        Self::with_test_sign_in(services, starts, check_claude_command_sandbox)
+    }
+
+    // The driver over the shared services, starting every process through `starts`, reading
+    // sign-ins from a keychain of the test's own and checking the command sandbox with
+    // `command_sandbox_check`.
+    #[cfg(test)]
+    fn with_test_sign_in(
+        services: &DriverServices,
+        starts: Arc<dyn ClaudeProcessStarts>,
+        command_sandbox_check: ClaudeCommandSandboxCheck,
+    ) -> Self {
+        Self::with_sign_in(
+            services,
+            starts,
+            ClaudeSignInReader::with_keychain(sidekicks_platforms::CredentialStore::in_memory()),
+            command_sandbox_check,
+        )
+    }
+
+    // The driver over the shared services, starting every process through `starts`, reading each
+    // account's claude.ai sign-in through `sign_in` and checking the command sandbox with
+    // `command_sandbox_check`.
+    fn with_sign_in(
+        services: &DriverServices,
+        starts: Arc<dyn ClaudeProcessStarts>,
+        sign_in: ClaudeSignInReader,
+        command_sandbox_check: ClaudeCommandSandboxCheck,
+    ) -> Self {
         let link_folder = program_link_folder(&services.data_folder);
+        let sources = Arc::new(ClaudeSpawnSources {
+            spawner: services.spawner.clone(),
+            command_sandbox_check,
+            runtime_bindings: Arc::clone(&services.runtime_bindings),
+            pool: Arc::clone(&services.pool),
+            execution_postures: Arc::clone(&services.execution_postures),
+            base_environment: Arc::clone(&services.base_environment),
+            reserved_names: Arc::clone(&services.reserved_names),
+            background_work: Arc::clone(&services.background_work),
+            data_folder: services.data_folder.clone(),
+            home_folder: services.home_folder.clone(),
+            processes: Arc::clone(&services.processes),
+            command_channels: Arc::new(ClaudeCommandChannels::new(
+                &services.data_folder,
+                ClaudeCommandPrograms {
+                    wrapper_program: command_wrapper_program_path(&link_folder),
+                    askpass_program: command_askpass_program_path(&link_folder),
+                },
+                Arc::clone(&services.caller_processes),
+                Arc::clone(&services.input_waits),
+                Arc::clone(&services.ports.command_output),
+            )),
+            ports: Arc::clone(&services.ports),
+        });
         Self {
             figures: Arc::new(ClaudeHeldFigures::new(
                 Arc::clone(&starts),
                 PathRules::NATIVE,
             )),
+            account_servers: Arc::new(ClaudeAccountServerReads::new(
+                Arc::clone(&starts),
+                Arc::clone(&sources),
+                ClaudeOrganizationMarks::new(sign_in),
+            )),
             starts,
-            sources: Arc::new(ClaudeSpawnSources {
-                spawner: services.spawner.clone(),
-                command_sandbox_check: check_claude_command_sandbox,
-                runtime_bindings: Arc::clone(&services.runtime_bindings),
-                pool: Arc::clone(&services.pool),
-                execution_postures: Arc::clone(&services.execution_postures),
-                base_environment: Arc::clone(&services.base_environment),
-                reserved_names: Arc::clone(&services.reserved_names),
-                background_work: Arc::clone(&services.background_work),
-                data_folder: services.data_folder.clone(),
-                home_folder: services.home_folder.clone(),
-                processes: Arc::clone(&services.processes),
-                command_channels: Arc::new(ClaudeCommandChannels::new(
-                    &services.data_folder,
-                    ClaudeCommandPrograms {
-                        wrapper_program: command_wrapper_program_path(&link_folder),
-                        askpass_program: command_askpass_program_path(&link_folder),
-                    },
-                    Arc::clone(&services.caller_processes),
-                    Arc::clone(&services.input_waits),
-                    Arc::clone(&services.ports.command_output),
-                )),
-                ports: Arc::clone(&services.ports),
-            }),
+            sources,
             attachments: Arc::clone(&services.attachments),
             staged_changes: services.staged_changes.clone(),
             pending_compactions: services.pending_compactions.clone(),
@@ -200,10 +240,7 @@ impl ClaudeDriver {
         dispatch: &Arc<dyn InboundDispatch>,
         command_sandbox_check: ClaudeCommandSandboxCheck,
     ) -> Result<Self, DriverError> {
-        let mut driver = Self::with_starts(services, starts);
-        Arc::get_mut(&mut driver.sources)
-            .expect("no session piece holds the sources before they compose")
-            .command_sandbox_check = command_sandbox_check;
+        let driver = Self::with_test_sign_in(services, starts, command_sandbox_check);
         let parts = driver.compose(engine, dispatch)?;
         drop(driver.parts.set(Arc::new(parts)));
         Ok(driver)
@@ -246,73 +283,6 @@ impl ClaudeDriver {
     async fn read_repository(&self, working_folder: &Path) -> Option<(RepositoryReading, bool)> {
         let repositories = self.sources.ports.repositories.port()?;
         read_claude_repository(&**repositories, working_folder).await
-    }
-
-    /// The environment a process starts with on `home`, with a session's environment rows where
-    /// given. Fails as the environment cannot be composed.
-    fn process_environment(
-        &self,
-        home: ClaudeProcessHome<'_>,
-        every_project_rows: &[EnvironmentRow],
-        project_rows: &[EnvironmentRow],
-    ) -> Result<Vec<(String, String)>, DriverError> {
-        let sources = &self.sources;
-        let data_folder = sources.data_folder.to_string_lossy();
-        compose_claude_process_environment(
-            ClaudeProcessEnvironmentRequest {
-                session: SessionEnvironment {
-                    base: &sources.base_environment,
-                    every_project_rows,
-                    project_rows,
-                    reserved_names: &sources.reserved_names,
-                    rules: PathRules::NATIVE,
-                },
-                deny_env_vars: &[],
-                home,
-                data_folder: &data_folder,
-            },
-            &[],
-        )
-        .map_err(internal)
-    }
-
-    /// The environment a process on `provider_account_id`'s home starts with, its folders as
-    /// `folders` give them. Fails as the environment cannot be composed.
-    fn account_process_environment(
-        &self,
-        folders: &ProviderAccountFolders,
-        provider_account_id: &ProviderAccountId,
-        every_project_rows: &[EnvironmentRow],
-        project_rows: &[EnvironmentRow],
-    ) -> Result<Vec<(String, String)>, DriverError> {
-        let folders = ClaudeAccountFolders::from(folders);
-        self.process_environment(
-            ClaudeProcessHome::Account {
-                folders: &folders,
-                provider_account_id,
-            },
-            every_project_rows,
-            project_rows,
-        )
-    }
-
-    /// The environment a process that keeps nothing starts with on `provider_account_id`'s home,
-    /// its folders read with no session. Fails `provider.account.notFound` or
-    /// `provider.account.credentialHome.unavailable` as the account's folders answer, and as they
-    /// cannot be read or the environment cannot be composed.
-    async fn account_environment(
-        &self,
-        provider_account_id: &ProviderAccountId,
-    ) -> Result<Vec<(String, String)>, DriverError> {
-        let folders = self
-            .sources
-            .ports
-            .provider_accounts
-            .require_port()
-            .map_err(internal)?
-            .resolve_account_folders(provider_account_id.clone())
-            .await?;
-        self.account_process_environment(&folders, provider_account_id, &[], &[])
     }
 
     // Every piece a session shares, wired over `engine` and its `dispatch`.
@@ -504,6 +474,7 @@ impl ClaudeDriver {
                 helpers,
                 task_services,
                 sources: Arc::clone(&self.sources),
+                account_servers: Arc::clone(&self.account_servers),
             }
         });
         let (restarts, run_start, run_controls, interventions, session_controls) =

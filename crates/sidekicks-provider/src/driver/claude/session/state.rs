@@ -28,6 +28,7 @@ use crate::driver::claude::frame_routing::ClaudeThreadUsageTally;
 use crate::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, ClaudeCommandChoices,
 };
+use crate::driver::claude::session::mcp_server_readings::ClaudeMcpServerReadings;
 use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::declarations::{
@@ -234,6 +235,8 @@ pub(crate) struct LiveClaudeSession {
     /// The socket the process listens on, the path the daemon chose and passed it at its start;
     /// `None` where none could be made.
     pub(crate) messaging_socket: Option<PathBuf>,
+    /// The last reading of each MCP server the process reported, and whether its leg ended.
+    pub(crate) mcp_server_readings: Mutex<ClaudeMcpServerReadings>,
 }
 
 impl LiveClaudeSession {

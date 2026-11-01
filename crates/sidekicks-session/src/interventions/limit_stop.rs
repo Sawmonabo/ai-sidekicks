@@ -36,7 +36,8 @@ use crate::interventions::store::{
     InterventionTransition, RequestedIntervention, insert_requested_intervention_statement,
     move_intervention_statement, no_pending_limit_interrupt_statement,
 };
-use crate::run::engine::{InterruptRoute, RunEngineError};
+use crate::run::engine::InterruptRoute;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::run::read::safe_run_version;
 

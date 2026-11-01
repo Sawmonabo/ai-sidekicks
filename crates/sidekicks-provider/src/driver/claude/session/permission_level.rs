@@ -23,7 +23,7 @@ use strum::VariantArray;
 use crate::driver::CommandSandboxAvailability;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::errors::{ClaudeSessionError, record_unheard_claude_failure};
-use crate::driver::claude::session::establishment::ClaudeSpawnSources;
+use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::ignored_settings::{
     ClaudeSettingsReadError, find_claude_setting, read_claude_managed_setting,
 };

@@ -447,8 +447,21 @@ pub struct AttentionSeenSubject {
 }
 
 /// The two ways a moment leaves the machine.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum AttentionDeliveryChannel {
     /// The person's web address.
     WebAddress,
@@ -457,8 +470,21 @@ pub enum AttentionDeliveryChannel {
 }
 
 /// How one delivery attempt ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum AttentionDeliveryResult {
     /// Accepted.
     Delivered,
@@ -472,21 +498,86 @@ pub enum AttentionDeliveryResult {
     SignInRefused,
     /// The mail server would not encrypt, so nothing was sent.
     NotEncrypted,
-    /// A test of saved web-address text with no scheme and host, so nothing was sent.
-    NotAnAddress,
+    /// The keychain could not be used or held no usable secret, so nothing was sent.
+    StoreUnavailable,
+}
+
+/// Why a channel's secret could not be used: the keychain is locked or cannot be opened, or the web
+/// address is saved with a signing secret that is missing or damaged. The email digest never reads
+/// `secretMissing` or `secretDamaged`, since a missing mail password is
+/// `attention.delivery.notConfigured`.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum AttentionDeliveryStoreUnavailableCause {
+    /// The keychain is locked.
+    Locked,
+    /// The keychain cannot be used now, or this machine has none the app can use.
+    Unavailable,
+    /// The web address's signing secret is missing from the keychain.
+    SecretMissing,
+    /// The web address's stored signing secret is not `whsec_` and base64.
+    SecretDamaged,
+}
+
+impl From<KeychainRefusalCause> for AttentionDeliveryStoreUnavailableCause {
+    /// The keychain's own cause.
+    fn from(cause: KeychainRefusalCause) -> Self {
+        match cause {
+            KeychainRefusalCause::Locked => Self::Locked,
+            KeychainRefusalCause::Unavailable => Self::Unavailable,
+        }
+    }
 }
 
 /// A channel's last attempt. `httpStatus` is the address's answer, `null` where it gave none;
-/// `undelivered` counts the messages given up on since the last delivery.
+/// `cause` is present exactly on a `storeUnavailable` attempt; `undelivered` counts the messages
+/// given up on since the last delivery.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
+#[garde(custom(|outcome: &Self, (): &()| {
+    if outcome.cause.is_some() == (outcome.result == AttentionDeliveryResult::StoreUnavailable) {
+        Ok(())
+    } else {
+        Err(garde::Error::new("cause is present exactly on a storeUnavailable attempt"))
+    }
+}))]
+#[schemars(extend(
+    "if" = {
+        "type": "object",
+        "properties": { "result": { "const": "storeUnavailable" } },
+        "required": ["result"],
+    },
+    "then" = { "type": "object", "properties": { "cause": true }, "required": ["cause"] },
+    "else" = { "type": "object", "not": { "required": ["cause"] } },
+))]
 pub struct AttentionDeliveryOutcome {
     /// When.
     #[garde(dive)]
     pub at: WireInstant,
     /// How it ended.
     pub result: AttentionDeliveryResult,
+    /// Why the secret could not be used, on a `storeUnavailable` attempt alone.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "AttentionDeliveryStoreUnavailableCause")]
+    pub cause: Option<AttentionDeliveryStoreUnavailableCause>,
     /// The address's HTTP status, or `null`.
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<BoundedInt<100, 599>>")]
@@ -495,17 +586,16 @@ pub struct AttentionDeliveryOutcome {
     pub undelivered: SafeInt<0>,
 }
 
-/// What the web address last did. The address is shown back as its host only, `null` when nothing
-/// is saved or the saved text has no scheme and host; neither the address nor its signing secret
-/// is ever sent.
+/// What the web address last did. The address is shown back as its scheme and host only, present
+/// exactly when an address is saved; neither the address nor its signing secret is ever sent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[garde(custom(|delivery: &Self, (): &()| {
-    if delivery.saved || delivery.host.is_none() {
+    if delivery.saved == delivery.host.is_some() {
         Ok(())
     } else {
-        Err(garde::Error::new("host is null when no address is saved"))
+        Err(garde::Error::new("host is present exactly when an address is saved"))
     }
 }))]
 #[schemars(extend(
@@ -515,11 +605,12 @@ pub struct AttentionDeliveryOutcome {
         "required": ["saved"],
     },
     "then" = { "type": "object", "properties": { "host": { "type": "null" } } },
+    "else" = { "type": "object", "properties": { "host": { "type": "string" } } },
 ))]
 pub struct AttentionWebAddressDelivery {
     /// Whether an address is saved.
     pub saved: bool,
-    /// The saved address's host, or `null`.
+    /// The saved address's scheme and host, or `null` when nothing is saved.
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<NonEmptyText>")]
     pub host: Option<NonEmptyText>,
@@ -590,27 +681,24 @@ pub struct AttentionMailPasswordUpdateRequest {
 }
 
 /// `attention.webAddress.update`: saves the web address, a secret because chat services put their
-/// token in it. Whatever is typed is saved as typed; a text that is not an address is kept, and
-/// each message to it fails and is counted as undelivered.
+/// token in it. Text that is not an `http` or `https` address with a host is refused and nothing
+/// is saved.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct AttentionWebAddressUpdateRequest {
-    /// The address as typed.
+    /// The address, with an `http` or `https` scheme and a host.
     pub address: AttentionDeliverySecret,
 }
 
-/// The saved address's host, `null` for a text with no scheme and host, and the signing secret the
-/// receiver checks each message with: minted by the first save and shown this once, `null` on
-/// every later save.
+/// The saved address's scheme and host, and the signing secret the receiver checks each message
+/// with: minted by the first save and shown this once, `null` on every later save.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct AttentionWebAddressUpdateResponse {
-    /// The host, or `null`.
-    #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<NonEmptyText>")]
-    pub host: Option<NonEmptyText>,
+    /// The saved address's scheme and host.
+    pub host: NonEmptyText,
     /// The signing secret, or `null`.
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<NonEmptyText>")]
@@ -712,14 +800,14 @@ methods! {
             mutating: true,
             params: AttentionWebAddressUpdateRequest,
             result: AttentionWebAddressUpdateResponse,
-            refusals: [AttentionDeliveryStoreUnavailable],
+            refusals: [AttentionWebAddressNotAnAddress, AttentionDeliveryStoreUnavailable],
         },
         /// Mints a new signing secret.
         AttentionWebAddressSecretRotate = mutation "attention.webAddress.secret.rotate" {
             mutating: true,
             params: EmptyPayload,
             result: AttentionWebAddressSecretRotateResponse,
-            refusals: [AttentionDeliveryStoreUnavailable],
+            refusals: [AttentionDeliveryNotConfigured, AttentionDeliveryStoreUnavailable],
         },
         /// Removes the web address.
         AttentionWebAddressDelete = mutation "attention.webAddress.delete" {
@@ -753,6 +841,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<AttentionSeenUpdateRequest>(),
         Definition::read::<AttentionDeliveryChannel>(),
         Definition::read::<AttentionDeliveryResult>(),
+        Definition::read::<AttentionDeliveryStoreUnavailableCause>(),
         Definition::read::<AttentionDeliveryOutcome>(),
         Definition::read::<AttentionWebAddressDelivery>(),
         Definition::read::<AttentionEmailDigestDelivery>(),
@@ -772,44 +861,4 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
 };
 
 #[cfg(test)]
-mod tests {
-    use garde::Validate as _;
-    use rstest::rstest;
-
-    use super::AttentionSubscribeRequest;
-    use crate::schema::closed_schema_for;
-
-    const SESSION: &str = "0190d2b4-7c3a-7e21-9a4b-5f6c7d8e9f01";
-
-    // The garde check and the schema both hold every narrowing rule, so the daemon and a client
-    // refuse the same request. Killed by dropping either garde check or the `dependentRequired`.
-    #[rstest]
-    #[case::whole_projection("{}", true)]
-    #[case::one_session(&format!(r#"{{"sessionId":"{SESSION}"}}"#), true)]
-    #[case::session_aggregate(&format!(r#"{{"sessionId":"{SESSION}","scope":"session"}}"#), true)]
-    #[case::one_run(
-        &format!(r#"{{"sessionId":"{SESSION}","scope":"run","runId":"run-1"}}"#),
-        true
-    )]
-    #[case::run_scope_without_run(&format!(r#"{{"sessionId":"{SESSION}","scope":"run"}}"#), false)]
-    #[case::run_with_session_scope(
-        &format!(r#"{{"sessionId":"{SESSION}","scope":"session","runId":"run-1"}}"#),
-        false
-    )]
-    #[case::run_without_scope(&format!(r#"{{"sessionId":"{SESSION}","runId":"run-1"}}"#), false)]
-    #[case::session_scope_without_session(r#"{"scope":"session"}"#, false)]
-    #[case::run_scope_without_session(r#"{"scope":"run","runId":"run-1"}"#, false)]
-    fn a_subscribe_request_narrows_only_as_its_session_and_scope_allow(
-        #[case] request: &str,
-        #[case] is_taken: bool,
-    ) {
-        let parsed: AttentionSubscribeRequest =
-            serde_json::from_str(request).expect("the case reads as a subscribe request");
-        assert_eq!(parsed.validate().is_ok(), is_taken, "garde: {request}");
-
-        let schema = closed_schema_for::<AttentionSubscribeRequest>().expect("the schema writes");
-        let check = jsonschema::validator_for(&schema).expect("the schema builds a check");
-        let json: serde_json::Value = serde_json::from_str(request).expect("the case is JSON");
-        assert_eq!(check.is_valid(&json), is_taken, "schema: {request}");
-    }
-}
+mod tests;

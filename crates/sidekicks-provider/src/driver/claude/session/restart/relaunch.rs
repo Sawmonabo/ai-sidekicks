@@ -20,18 +20,22 @@ use crate::driver::claude::session::ultracode::relaunch_claude_options;
 use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{DriverResumeResult, ResumeSessionParams};
+use crate::runtime_binding::resume::ResumeFunctionLegs;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 
 impl ClaudeSessionRestarts {
     /// Resumes through the establishment, which is gone only once the driver is, under a binding
     /// the session directory opened first where `is_recorded`, so what the resumed process delivers
-    /// at once is taken; a binding that cannot be opened fails the relaunch with no resume.
+    /// at once is taken; the process reports its MCP servers on the status sink the directory
+    /// answered for that binding, or, where the session keeps its binding, answered with no cursor
+    /// opened. A binding that cannot be opened, or legs that cannot be answered, fail the relaunch
+    /// with no resume.
     pub(super) async fn resume(
         &self,
         params: Option<ResumeSessionParams>,
         is_recorded: bool,
     ) -> ClaudeResumeAnswer {
-        let Some(params) = params else {
+        let Some(mut params) = params else {
             return relaunch_failure(
                 "The model the session ran on has no name the relaunch can carry.",
             );
@@ -39,31 +43,37 @@ impl ClaudeSessionRestarts {
         let Some(establishment) = self.establishment.upgrade() else {
             return relaunch_failure("The Claude Code driver has stopped.");
         };
-        if is_recorded
-            && let Err(error) = self
-                .open_relaunch_binding(params.session_id, params.binding_id.clone())
-                .await
+        match self
+            .open_relaunch_legs(params.session_id, params.binding_id.clone(), is_recorded)
+            .await
         {
-            return relaunch_failure(&describe_error(&error as &(dyn Error + 'static)));
+            Ok(legs) => params.on_mcp_server_status = legs.on_mcp_server_status,
+            Err(error) => {
+                return relaunch_failure(&describe_error(&error as &(dyn Error + 'static)));
+            }
         }
         establishment.resume(params).await
     }
 
-    // Has the session directory open the cursor of `binding_id`, the relaunch's binding.
-    async fn open_relaunch_binding(
+    // Has the session directory answer the function legs of `binding_id`, the relaunch's binding,
+    // opening its cursor first where `is_recorded`.
+    async fn open_relaunch_legs(
         &self,
         session_id: SessionId,
         binding_id: RuntimeBindingId,
-    ) -> Result<(), DriverError> {
+        is_recorded: bool,
+    ) -> Result<ResumeFunctionLegs, DriverError> {
         let listener = self
             .ports
             .session_relaunched
             .require_port()
             .map_err(|error| DriverError::Internal(Box::new(error)))?;
-        listener
-            .open_relaunch_binding(session_id, binding_id)
-            .await
-            .map_err(DriverError::Internal)
+        let legs = if is_recorded {
+            listener.open_relaunch_binding(session_id, binding_id)
+        } else {
+            listener.open_relaunch_legs(session_id, binding_id)
+        };
+        legs.await.map_err(DriverError::Internal)
     }
 
     /// Hands the session directory a relaunch's answer, so it records the binding or the failure; a
@@ -119,7 +129,9 @@ fn relaunch_failure(detail: &str) -> ClaudeResumeAnswer {
 /// The resume that brings `live` back on the legs and level it ran at, the person's later moves
 /// included, under the account it was admitted on, asking for the callback tools and Settings rows
 /// its process was asked for, which the session's own advisor and style still override, under a
-/// binding minted for it; `None` when the model it moved to has no name a resume carries.
+/// binding minted for it. It carries no status sink: the ended process's leg ends with it, and the
+/// relaunch hands in the one the session directory answers for the new binding. `None` when the
+/// model it moved to has no name a resume carries.
 pub(super) fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionParams> {
     let settings = lock(&live.settings).clone();
     let legs = &live.spawn_bound_legs;
@@ -145,7 +157,7 @@ pub(super) fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<Resume
         tool_servers: Some(legs.tool_servers.clone()),
         output_schema: legs.output_schema.clone(),
         provider_account_id: live.admitted_provider_account_id.clone(),
-        on_mcp_server_status: legs.on_mcp_server_status.clone(),
+        on_mcp_server_status: None,
         // This daemon's idle sleep still holds the session's jobs across the relaunch.
         kept_schedules: Vec::new(),
         // A relaunch the driver takes itself names no runs for the daemon to settle.

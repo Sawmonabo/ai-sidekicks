@@ -166,6 +166,7 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
         },
         CodexServiceKind::Terminal,
         dependencies,
+        Vec::new(),
     );
     service
         .ensure_started(startup_timeout)

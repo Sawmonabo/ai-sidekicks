@@ -105,6 +105,8 @@ pub struct StartRunParams {
     /// that applies it between turns sends it before this run's turn only when it differs from
     /// the level the process last applied; one that takes it per turn sends it with this turn.
     /// `None` keeps the level the process holds.
+    ///
+    /// [`CreateSessionParams`]: crate::driver::session_control::CreateSessionParams
     pub output_speed: Option<ProviderToken>,
     /// The session option values to apply between turns before this run's turn, like
     /// `outputSpeed`; an option left out keeps what the process holds.

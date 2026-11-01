@@ -1,15 +1,27 @@
 //! A shell word as the shell passes it to a program, held as pieces of the line it was read from
 //! and of its reading's one decoded buffer: quotes removed, backslash escapes undone, ANSI-C
-//! strings decoded, and every expansion, substitution and word the shell expands into file names
-//! or alternatives kept as its source text in the line. A word is never copied out of its pieces,
-//! and each query on it costs the pieces it reads.
+//! strings decoded where the shells decode them alike, and every expansion, substitution and word
+//! the shell expands into file names or alternatives kept as its source text in the line. A word
+//! is never copied out of its pieces, and each query on it costs the pieces it reads.
+
+mod brace_expansion;
+mod options;
+mod quote_removal;
+mod split_string;
+mod unexpanded_word;
 
 use std::fmt;
 use std::sync::{Arc, OnceLock};
 
 use memchr::{memchr, memchr_iter, memrchr};
-use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use tree_sitter::Node;
+
+use self::brace_expansion::holds_brace_expansion;
+pub use self::options::is_option;
+pub(super) use self::options::{long_option_named, short_option_named};
+pub(in crate::shell_commands) use self::quote_removal::decode_ansi_c;
+use self::quote_removal::{unescape_bare, unescape_double_quoted};
+use super::starts_variable_name;
 
 /// `count` as a reading's offset or count: its line is within the reader's limit, a system's
 /// argument bound far below 4 GiB, and its pieces and words are a small multiple of the line.
@@ -30,10 +42,32 @@ enum PieceKind {
     /// Text of the line that no quote or escape changes.
     Literal,
     /// An expansion, a substitution or a pattern the shell expands into file names or alternatives,
-    /// kept as its source text in the line.
+    /// or an ANSI-C string the shells decode apart, kept as its source text in the line.
     Expansion,
+    /// An expansion or a substitution inside double quotes, kept as its source text in the line,
+    /// which the shell splits into no further words.
+    QuotedExpansion,
     /// Text an escape or an ANSI-C string decoded, in the decoded buffer.
     Decoded,
+    /// A `${…}` that `env -S` expands inside decoded text, kept as that text in the decoded buffer.
+    DecodedExpansion,
+    /// Text of the line in a word the shell expands into alternatives, a brace expansion's.
+    Alternatives,
+}
+
+impl PieceKind {
+    // Whether the piece's text is only the run's to decide.
+    fn is_expansion(self) -> bool {
+        matches!(
+            self,
+            Self::Expansion | Self::QuotedExpansion | Self::DecodedExpansion | Self::Alternatives
+        )
+    }
+
+    // Whether the piece indexes the decoded buffer rather than the line.
+    fn is_in_decoded(self) -> bool {
+        matches!(self, Self::Decoded | Self::DecodedExpansion)
+    }
 }
 
 /// A byte range of the line, or of the decoded buffer for a decoded piece.
@@ -115,40 +149,37 @@ impl<'r> PieceTexts<'r> {
     }
 
     fn text(self, piece: Piece) -> &'r str {
-        let source = match piece.kind {
-            PieceKind::Literal | PieceKind::Expansion => self.line,
-            PieceKind::Decoded => self.decoded,
+        let source = if piece.kind.is_in_decoded() {
+            self.decoded
+        } else {
+            self.line
         };
         &source[piece.start as usize..piece.end as usize]
     }
 
     // The position of the last `byte` in `piece`, in the text the piece indexes.
     fn last_position(self, piece: Piece, byte: PositionedByte) -> Option<u32> {
-        match piece.kind {
-            PieceKind::Literal | PieceKind::Expansion => {
-                let positions = self.positions.of(self.line, byte);
-                let after = positions.partition_point(|&position| position < piece.end);
-                after
-                    .checked_sub(1)
-                    .map(|index| positions[index])
-                    .filter(|&position| position >= piece.start)
-            }
-            PieceKind::Decoded => memrchr(byte.byte(), self.text(piece).as_bytes())
-                .map(|position| piece.start + offset(position)),
+        if piece.kind.is_in_decoded() {
+            return memrchr(byte.byte(), self.text(piece).as_bytes())
+                .map(|position| piece.start + offset(position));
         }
+        let positions = self.positions.of(self.line, byte);
+        let after = positions.partition_point(|&position| position < piece.end);
+        after
+            .checked_sub(1)
+            .map(|index| positions[index])
+            .filter(|&position| position >= piece.start)
     }
 
     fn contains(self, piece: Piece, byte: PositionedByte) -> bool {
-        match piece.kind {
-            PieceKind::Literal | PieceKind::Expansion => {
-                let positions = self.positions.of(self.line, byte);
-                let first = positions.partition_point(|&position| position < piece.start);
-                positions
-                    .get(first)
-                    .is_some_and(|&position| position < piece.end)
-            }
-            PieceKind::Decoded => memchr(byte.byte(), self.text(piece).as_bytes()).is_some(),
+        if piece.kind.is_in_decoded() {
+            return memchr(byte.byte(), self.text(piece).as_bytes()).is_some();
         }
+        let positions = self.positions.of(self.line, byte);
+        let first = positions.partition_point(|&position| position < piece.start);
+        positions
+            .get(first)
+            .is_some_and(|&position| position < piece.end)
     }
 }
 
@@ -162,6 +193,11 @@ pub trait WordText: Copy {
     fn chars(self) -> impl Iterator<Item = char>;
     /// Whether `byte` occurs in the word.
     fn contains(self, byte: PositionedByte) -> bool;
+    /// Whether the shell passes the word as its text reads; a plain string always is.
+    fn is_decided(self) -> bool;
+    /// Whether the word stands for words its text spells beside its own, which a reading counts
+    /// wherever one of them would match; a plain string never does.
+    fn spells_alternatives(self) -> bool;
 }
 
 impl WordText for &str {
@@ -179,6 +215,14 @@ impl WordText for &str {
 
     fn contains(self, byte: PositionedByte) -> bool {
         memchr(byte.byte(), self.as_bytes()).is_some()
+    }
+
+    fn is_decided(self) -> bool {
+        true
+    }
+
+    fn spells_alternatives(self) -> bool {
+        false
     }
 }
 
@@ -211,13 +255,47 @@ impl<'r> ShellWord<'r> {
         self.pieces.iter().map(move |&piece| self.texts.text(piece))
     }
 
-    /// Whether the shell passes the word as read here: false when an expansion, a substitution or
-    /// a leading pattern makes its text, which only the line's run decides and which can split it
-    /// into several words, any of them an option.
-    pub(crate) fn is_decided(self) -> bool {
-        self.pieces
-            .iter()
-            .all(|piece| piece.kind != PieceKind::Expansion)
+    /// Whether the shell passes the word as read here: false when an expansion, a substitution, a
+    /// pattern or an ANSI-C string the shells decode apart makes its text, which only the line's
+    /// run decides and which can split it into several words, any of them an option.
+    pub fn is_decided(self) -> bool {
+        self.pieces.iter().all(|piece| !piece.kind.is_expansion())
+    }
+
+    /// Whether the word's first `bytes` bytes are passed as read here, none of them made by an
+    /// expansion, a substitution, a pattern or an ANSI-C string the shells decode apart.
+    pub(crate) fn is_decided_through(self, bytes: usize) -> bool {
+        let mut start = 0;
+        self.pieces.iter().all(|piece| {
+            let is_decided = start >= bytes || !piece.kind.is_expansion();
+            start += (piece.end - piece.start) as usize;
+            is_decided
+        })
+    }
+
+    /// Whether part of the word is an expansion, a substitution or a pattern outside double
+    /// quotes, which the shell can split or expand into several words, an ANSI-C string the
+    /// shells decode apart, or a `${…}` that `env -S` expands, however the line spelled it; a word
+    /// whose only undecided parts are double-quoted stays one word.
+    pub(crate) fn holds_unquoted_expansion(self) -> bool {
+        self.pieces.iter().any(|piece| {
+            matches!(
+                piece.kind,
+                PieceKind::Expansion | PieceKind::DecodedExpansion | PieceKind::Alternatives
+            )
+        })
+    }
+
+    /// Whether the word stands for words its text spells beside its own: a brace expansion's
+    /// alternatives, a `{…}` holding an unquoted comma or a sequence, or an ANSI-C string bash and
+    /// zsh decode apart. A parameter, a substitution, an arithmetic expansion, zsh's `=name`, a
+    /// file-name pattern or a path `find` puts in place of `{}` spells none: only the run decides
+    /// it.
+    pub fn spells_alternatives(self) -> bool {
+        self.pieces.iter().any(|&piece| {
+            piece.kind == PieceKind::Alternatives
+                || (piece.kind == PieceKind::Expansion && self.texts.text(piece).starts_with("$'"))
+        })
     }
 }
 
@@ -238,6 +316,14 @@ impl WordText for ShellWord<'_> {
         self.pieces
             .iter()
             .any(|&piece| self.texts.contains(piece, byte))
+    }
+
+    fn is_decided(self) -> bool {
+        ShellWord::is_decided(self)
+    }
+
+    fn spells_alternatives(self) -> bool {
+        ShellWord::spells_alternatives(self)
     }
 }
 
@@ -264,26 +350,36 @@ fn chunks_start_with<'a>(chunks: impl Iterator<Item = &'a str>, prefix: &str) ->
     rest.is_empty()
 }
 
-/// Words of a reading joined by single spaces, as `eval` joins its words; one word alone is the
-/// string a shell's `-c` runs.
+/// Words of a reading joined by single spaces, as `eval` joins its words, past their first
+/// `skipped_bytes` bytes; one word alone is the string a shell's `-c` runs, and one past an
+/// option's name the value `su --command=…` hands a shell.
 #[derive(Clone, Copy)]
 pub(super) struct JoinedWords<'r> {
     texts: PieceTexts<'r>,
     pieces: &'r [Piece],
     words: &'r [Word],
+    skipped_bytes: usize,
 }
 
 impl<'r> JoinedWords<'r> {
-    /// The words `words` of a reading with these texts and pieces.
-    pub(super) fn new(texts: PieceTexts<'r>, pieces: &'r [Piece], words: &'r [Word]) -> Self {
+    /// The words `words` of a reading with these texts and pieces, past their first
+    /// `skipped_bytes` bytes, which end on a character's boundary.
+    pub(super) fn new(
+        texts: PieceTexts<'r>,
+        pieces: &'r [Piece],
+        words: &'r [Word],
+        skipped_bytes: usize,
+    ) -> Self {
         Self {
             texts,
             pieces,
             words,
+            skipped_bytes,
         }
     }
 
     fn chunks(self) -> impl Iterator<Item = &'r str> {
+        let mut bytes_to_skip = self.skipped_bytes;
         self.words
             .iter()
             .enumerate()
@@ -292,6 +388,12 @@ impl<'r> JoinedWords<'r> {
                 separator
                     .into_iter()
                     .chain(ShellWord::new(self.texts, self.pieces, word).chunks())
+            })
+            .filter_map(move |chunk| {
+                let skipped = bytes_to_skip.min(chunk.len());
+                bytes_to_skip -= skipped;
+                let rest = &chunk[skipped..];
+                (!rest.is_empty()).then_some(rest)
             })
     }
 }
@@ -326,7 +428,7 @@ impl ShellText for JoinedWords<'_> {
             .words
             .iter()
             .map(|&word| ShellWord::new(self.texts, self.pieces, word).len());
-        words.sum::<usize>() + self.words.len().saturating_sub(1)
+        words.sum::<usize>() + self.words.len().saturating_sub(1) - self.skipped_bytes
     }
 
     fn is(self, line: &str) -> bool {
@@ -356,6 +458,10 @@ pub(super) struct WordBuilder<'s> {
     decoded: String,
     pieces: Vec<Piece>,
     positions: BytePositions,
+    // The bytes `env -S` splits may still read, the line's length at the start, and whether a
+    // split was left unread for want of them.
+    split_bytes_left: usize,
+    is_split_past_bound: bool,
 }
 
 impl<'s> WordBuilder<'s> {
@@ -366,6 +472,8 @@ impl<'s> WordBuilder<'s> {
             decoded: String::new(),
             pieces: Vec::new(),
             positions: BytePositions::default(),
+            split_bytes_left: line.len(),
+            is_split_past_bound: false,
         }
     }
 
@@ -374,12 +482,14 @@ impl<'s> WordBuilder<'s> {
         self.line
     }
 
-    /// The decoded buffer, the pieces and the byte positions, for the reading to own.
-    pub(super) fn finish(self) -> (Box<str>, Box<[Piece]>, BytePositions) {
+    /// The decoded buffer, the pieces and the byte positions, for the reading to own, and
+    /// whether an `env -S` split was left unread past the bound on what the splits read.
+    pub(super) fn finish(self) -> (Box<str>, Box<[Piece]>, BytePositions, bool) {
         (
             self.decoded.into_boxed_str(),
             self.pieces.into_boxed_slice(),
             self.positions,
+            self.is_split_past_bound,
         )
     }
 
@@ -400,82 +510,186 @@ impl<'s> WordBuilder<'s> {
     }
 
     /// Reads the literal `node` as a word: a concatenation joins its parts, and every kind no
-    /// quoting or escape changes reads as its text.
+    /// quoting or escape changes reads as its text, but for zsh's `=name` at the word's start,
+    /// which zsh expands into the path of the program `name`.
     pub(super) fn push_word(&mut self, node: Node<'_>) -> Word {
         let first_piece = self.pieces.len();
+        let first_part = if node.kind() == "concatenation" {
+            node.child(0)
+        } else {
+            Some(node)
+        };
+        let is_equals_expansion = first_part.is_some_and(|part| {
+            let mut characters = node_text(part, self.line).chars();
+            part.kind() == "word"
+                && characters.next() == Some('=')
+                && characters.next().is_some_and(starts_variable_name)
+        });
+        // The word's unquoted text, each quoted or expanded part standing as one other byte, for
+        // the brace expansion the shell reads across its parts, and the pieces of that text.
+        let mut unquoted = String::new();
+        let mut unquoted_pieces = Vec::new();
+        let mut push_part = |builder: &mut Self, part: Node<'_>| {
+            let mark = builder.pieces.len();
+            builder.push_part(part);
+            let is_quoted_or_expanded = matches!(
+                part.kind(),
+                "string"
+                    | "raw_string"
+                    | "ansi_c_string"
+                    | "translated_string"
+                    | "simple_expansion"
+                    | "expansion"
+                    | "command_substitution"
+                    | "process_substitution"
+                    | "arithmetic_expansion"
+            );
+            if is_quoted_or_expanded {
+                unquoted.push('x');
+            } else {
+                unquoted.push_str(node_text(part, builder.line));
+                unquoted_pieces.extend(mark..builder.pieces.len());
+            }
+        };
         if node.kind() == "concatenation" {
             let mut cursor = node.walk();
             if cursor.goto_first_child() {
                 loop {
-                    self.push_part(cursor.node());
+                    push_part(self, cursor.node());
                     if !cursor.goto_next_sibling() {
                         break;
                     }
                 }
             }
         } else {
-            self.push_part(node);
+            push_part(self, node);
+        }
+        if is_equals_expansion && let Some(piece) = self.pieces.get_mut(first_piece) {
+            piece.kind = undecided_kind(piece.kind);
+        }
+        if holds_brace_expansion(&unquoted) {
+            for index in unquoted_pieces {
+                let piece = &mut self.pieces[index];
+                if matches!(piece.kind, PieceKind::Literal | PieceKind::Expansion) {
+                    piece.kind = PieceKind::Alternatives;
+                }
+            }
         }
         word_from(&self.pieces, first_piece)
     }
 
-    /// The word's name without its folder, the text past its last `/`; `None` when the word has
-    /// no `/`, so names no folder.
-    pub(super) fn basename(&mut self, word: Word) -> Option<Word> {
+    /// Reads the assignment `node`, `NAME=value` or `NAME+=value`, as one word: its name and
+    /// operator as their text, then its value as `push_word` reads a word.
+    pub(super) fn push_assignment(&mut self, node: Node<'_>) -> Word {
+        let first_piece = self.pieces.len();
+        let value = node.child_by_field_name("value");
+        let name_end = value.map_or(node.end_byte(), |value| value.start_byte());
+        self.push_line(node.start_byte()..name_end, PieceKind::Literal);
+        if let Some(value) = value {
+            self.push_word(value);
+        }
+        word_from(&self.pieces, first_piece)
+    }
+
+    /// The line's text at `range` as one word, as a here-document's body is the line a shell
+    /// reading it runs.
+    pub(super) fn push_text(&mut self, range: std::ops::Range<usize>) -> Word {
+        let first_piece = self.pieces.len();
+        self.push_line(range, PieceKind::Literal);
+        word_from(&self.pieces, first_piece)
+    }
+
+    /// `word` with every piece one only the run decides, as a word holding the `{}` find puts a
+    /// path in place of is.
+    pub(super) fn push_undecided_copy(&mut self, word: Word) -> Word {
+        let first_piece = self.pieces.len();
+        for index in word.pieces() {
+            let piece = self.pieces[index];
+            self.pieces.push(Piece {
+                kind: undecided_kind(piece.kind),
+                ..piece
+            });
+        }
+        word_from(&self.pieces, first_piece)
+    }
+
+    /// The word's name without its folder, the text past its last `/`, and whether the folder
+    /// holds a `$` expansion outside double quotes, a parameter, a substitution or an arithmetic
+    /// expansion, which the shell can split into a program and its words; a pattern or a brace in
+    /// the folder changes no name, and a name past a pattern's last `/` holding no pattern itself
+    /// is decided. zsh's `=name` names the path of the program `name`, so its name is the text
+    /// past the `=`. `None` when the word names no folder.
+    pub(super) fn basename(&mut self, word: Word) -> Option<(Word, bool)> {
         let texts = PieceTexts::new(self.line, &self.decoded, &self.positions);
-        let (index, slash) = word.pieces().rev().find_map(|index| {
+        let Some((index, slash)) = word.pieces().rev().find_map(|index| {
             texts
                 .last_position(self.pieces[index], PositionedByte::Slash)
                 .map(|slash| (index, slash))
-        })?;
-        let first_piece = self.pieces.len();
+        }) else {
+            let first = word.first_piece as usize;
+            let piece = *self
+                .pieces
+                .get(first)
+                .filter(|_| first < word.end_piece as usize)?;
+            let name = texts.text(piece).strip_prefix('=')?;
+            let is_equals_name = piece.kind == PieceKind::Expansion
+                && !name
+                    .bytes()
+                    .any(|byte| NAME_UNDECIDING_BYTES.contains(&byte));
+            return is_equals_name.then(|| {
+                (
+                    self.word_from_inside(word, first, piece.start + 1, PieceKind::Literal),
+                    false,
+                )
+            });
+        };
+        let can_folder_split = self.pieces[word.first_piece as usize..index]
+            .iter()
+            .any(|&piece| is_dollar_expansion(texts, piece));
         let piece = self.pieces[index];
-        push_piece(&mut self.pieces, slash + 1, piece.end, piece.kind);
-        self.pieces
-            .extend_from_within(index + 1..word.end_piece as usize);
-        Some(word_from(&self.pieces, first_piece))
+        let name = Piece {
+            start: slash + 1,
+            ..piece
+        };
+        let is_name_plain = piece.kind == PieceKind::Expansion
+            && !texts
+                .text(name)
+                .bytes()
+                .any(|byte| NAME_UNDECIDING_BYTES.contains(&byte));
+        let name_kind = if is_name_plain {
+            PieceKind::Literal
+        } else {
+            piece.kind
+        };
+        Some((
+            self.word_from_inside(word, index, slash + 1, name_kind),
+            can_folder_split,
+        ))
     }
 
-    /// The words `env -S` splits `word` into: split on whitespace only inside its literal and
-    /// decoded pieces, so an expansion or substitution stays inside one word.
-    pub(super) fn split_on_whitespace(&mut self, word: Word) -> Vec<Word> {
-        let Self {
-            line,
-            decoded,
-            pieces,
-            ..
-        } = self;
-        let mut words = Vec::new();
-        let mut first_piece = pieces.len();
-        for index in word.pieces() {
-            let piece = pieces[index];
-            let text = match piece.kind {
-                PieceKind::Expansion => {
-                    pieces.push(piece);
-                    continue;
-                }
-                PieceKind::Literal => &line[piece.start as usize..piece.end as usize],
-                PieceKind::Decoded => &decoded[piece.start as usize..piece.end as usize],
-            };
-            let mut run_start = piece.start;
-            for (position, character) in text.char_indices() {
-                if !is_ecmascript_whitespace(character) {
-                    continue;
-                }
-                let position = piece.start + offset(position);
-                push_piece(pieces, run_start, position, piece.kind);
-                if pieces.len() > first_piece {
-                    words.push(word_from(pieces, first_piece));
-                    first_piece = pieces.len();
-                }
-                run_start = position + offset(character.len_utf8());
-            }
-            push_piece(pieces, run_start, piece.end, piece.kind);
-        }
-        if pieces.len() > first_piece {
-            words.push(word_from(pieces, first_piece));
-        }
-        words
+    /// The word's text past its first `bytes` bytes, as an option's value attached to it is;
+    /// `None` when nothing is left.
+    pub(super) fn word_after(&mut self, word: Word, bytes: usize) -> Option<Word> {
+        let mut skipped = 0;
+        let index = word.pieces().find(|&index| {
+            let piece = self.pieces[index];
+            skipped += (piece.end - piece.start) as usize;
+            skipped > bytes
+        })?;
+        let piece = self.pieces[index];
+        let start = piece.end - offset(skipped - bytes);
+        Some(self.word_from_inside(word, index, start, piece.kind))
+    }
+
+    // The rest of `word` from `start` inside its piece at `index`, that rest of the piece read as
+    // `kind`, as a word of its own.
+    fn word_from_inside(&mut self, word: Word, index: usize, start: u32, kind: PieceKind) -> Word {
+        let first_piece = self.pieces.len();
+        let piece = self.pieces[index];
+        push_piece(&mut self.pieces, start, piece.end, kind);
+        self.pieces
+            .extend_from_within(index + 1..word.end_piece as usize);
+        word_from(&self.pieces, first_piece)
     }
 
     fn push_line(&mut self, range: std::ops::Range<usize>, kind: PieceKind) {
@@ -495,6 +709,26 @@ impl<'s> WordBuilder<'s> {
         push_piece(&mut self.pieces, start, end, PieceKind::Decoded);
     }
 
+    // An ANSI-C string, `$'…'` at `range` of the line: decoded where bash and zsh decode it alike,
+    // else kept as its source text, which only the shell running the line decides.
+    fn push_ansi_c(&mut self, range: std::ops::Range<usize>) {
+        let line = self.line;
+        let body = &line[range.start + 2..range.end];
+        let decoded_mark = self.decoded.len();
+        if decode_ansi_c(body, &mut self.decoded) {
+            let start = offset(decoded_mark);
+            push_piece(
+                &mut self.pieces,
+                start,
+                offset(self.decoded.len()),
+                PieceKind::Decoded,
+            );
+        } else {
+            self.decoded.truncate(decoded_mark);
+            self.push_line(range, PieceKind::Expansion);
+        }
+    }
+
     fn push_part(&mut self, node: Node<'_>) {
         // A node the parser supplied for a missing token spans nothing.
         if node.is_missing() {
@@ -503,9 +737,9 @@ impl<'s> WordBuilder<'s> {
         let range = node.byte_range();
         let text = node_text(node, self.line);
         match node.kind() {
-            // A pattern at the start can expand into any file name, one that reads as an option
-            // too; one later in the word keeps the word's start.
-            "word" if text.starts_with(['*', '?', '[', '{']) => {
+            // A pattern anywhere in the word, zsh's `^` among them, can expand into any number of
+            // file names, so the shell may pass several words, any of them an option.
+            "word" if has_unescaped_pattern(text) => {
                 self.push_line(range, PieceKind::Expansion);
             }
             "word" if memchr(b'\\', text.as_bytes()).is_some() => {
@@ -514,10 +748,7 @@ impl<'s> WordBuilder<'s> {
             "raw_string" if text.len() >= 2 && text.starts_with('\'') && text.ends_with('\'') => {
                 self.push_line(range.start + 1..range.end - 1, PieceKind::Literal);
             }
-            "ansi_c_string" => {
-                let body = text.strip_prefix("$'").unwrap_or(text);
-                self.push_decoded(|value| decode_ansi_c(body, value));
-            }
+            "ansi_c_string" => self.push_ansi_c(range),
             "string" => self.push_double_quoted(node),
             // `$"…"` is a double-quoted string translated by the locale, which is not applied here.
             "translated_string" => match node.named_child(0) {
@@ -551,7 +782,7 @@ impl<'s> WordBuilder<'s> {
                     | "command_substitution"
                     | "arithmetic_expansion" => {
                         self.push_double_quoted_text(position..child.start_byte());
-                        self.push_line(child.byte_range(), PieceKind::Expansion);
+                        self.push_line(child.byte_range(), PieceKind::QuotedExpansion);
                         position = child.end_byte();
                     }
                     // The closing quote's token can start at the blanks after a line break, so
@@ -588,6 +819,29 @@ fn word_from(pieces: &[Piece], first_piece: usize) -> Word {
     }
 }
 
+// The kind of `kind`'s text when only the run decides it.
+fn undecided_kind(kind: PieceKind) -> PieceKind {
+    if kind.is_in_decoded() {
+        PieceKind::DecodedExpansion
+    } else {
+        PieceKind::Expansion
+    }
+}
+
+// Whether `piece` is a `$` expansion the shell can split: a parameter, a substitution or an
+// arithmetic expansion outside double quotes, never an ANSI-C string.
+fn is_dollar_expansion(texts: PieceTexts<'_>, piece: Piece) -> bool {
+    let text = texts.text(piece);
+    matches!(
+        piece.kind,
+        PieceKind::Expansion | PieceKind::DecodedExpansion
+    ) && ((text.starts_with('$') && !text.starts_with("$'")) || text.starts_with('`'))
+}
+
+// The bytes that leave a name past a pattern word's last `/` undecided: a pattern of its own, the
+// end of a group, quote or substitution that spans the `/`, or an escape.
+const NAME_UNDECIDING_BYTES: &[u8] = b"*?[]{}()^\\'\"$`";
+
 // A piece of the range, unless it is empty: no piece is.
 fn push_piece(pieces: &mut Vec<Piece>, start: u32, end: u32, kind: PieceKind) {
     if start < end {
@@ -595,163 +849,18 @@ fn push_piece(pieces: &mut Vec<Piece>, start: u32, end: u32, kind: PieceKind) {
     }
 }
 
-// An unquoted word: each backslash keeps the character after it, a backslash and a line break go
-// together, and a backslash ending the word stays.
-fn unescape_bare(text: &str, value: &mut String) {
-    let mut characters = text.chars();
-    while let Some(character) = characters.next() {
-        if character != '\\' {
-            value.push(character);
-            continue;
-        }
-        match characters.next() {
-            None => value.push('\\'),
-            Some('\n') => {}
-            Some(escaped) => value.push(escaped),
+// Whether an unquoted word holds a pattern character no backslash escapes: a glob's `*`, `?` or
+// `[`, or zsh's `^`, which negates the pattern after it.
+fn has_unescaped_pattern(text: &str) -> bool {
+    let mut bytes = text.bytes();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            b'\\' => {
+                bytes.next();
+            }
+            b'*' | b'?' | b'[' | b'^' => return true,
+            _ => {}
         }
     }
-}
-
-// Text inside double quotes: a backslash before `$`, `` ` ``, `"` or another backslash keeps that
-// character, a backslash and a line break go together, any other backslash stays, and one ending
-// the text is dropped.
-fn unescape_double_quoted(text: &str, value: &mut String) {
-    let mut characters = text.chars();
-    while let Some(character) = characters.next() {
-        if character != '\\' {
-            value.push(character);
-            continue;
-        }
-        match characters.next() {
-            None | Some('\n') => {}
-            Some(escaped @ ('$' | '`' | '"' | '\\')) => value.push(escaped),
-            Some(escaped) => {
-                value.push('\\');
-                value.push(escaped);
-            }
-        }
-    }
-}
-
-// An ANSI-C quoted string's body, `$'` already taken off, decoded as bash decodes it up to its
-// closing quote. A decoded NUL ends the string's value there, as it ends bash's C string; the
-// parts of a word after the string still join.
-fn decode_ansi_c(body: &str, value: &mut String) {
-    let characters: Vec<char> = body.chars().collect();
-    let limit = characters.len();
-    let mut position = 0;
-    while position < limit && characters[position] != '\'' {
-        if characters[position] != '\\' || position + 1 >= limit {
-            // A run of plain characters; a backslash at the end has nothing to escape.
-            while position < limit {
-                let character = characters[position];
-                if character == '\'' || (character == '\\' && position + 1 < limit) {
-                    break;
-                }
-                value.push(character);
-                position += 1;
-            }
-            continue;
-        }
-        let escape_start = position;
-        let escaped = characters[position + 1];
-        position += 2;
-        match escaped {
-            'a' => value.push('\u{7}'),
-            'b' => value.push('\u{8}'),
-            'e' | 'E' => value.push('\u{1b}'),
-            'f' => value.push('\u{c}'),
-            'n' => value.push('\n'),
-            'r' => value.push('\r'),
-            't' => value.push('\t'),
-            'v' => value.push('\u{b}'),
-            '\\' | '\'' | '"' | '?' => value.push(escaped),
-            '\n' => {}
-            'c' => match decode_control(&characters, position, value) {
-                Some(next) => position = next,
-                None => return,
-            },
-            'x' | 'u' | 'U' => {
-                let most_digits = match escaped {
-                    'x' => 2,
-                    'u' => 4,
-                    _ => 8,
-                };
-                let digits_start = position;
-                let mut code = 0_u32;
-                while position < limit && position - digits_start < most_digits {
-                    let Some(digit) = characters[position].to_digit(16) else {
-                        break;
-                    };
-                    code = code * 16 + digit;
-                    position += 1;
-                }
-                if position == digits_start {
-                    value.push('\\');
-                    value.push(escaped);
-                } else if code == 0 {
-                    return;
-                } else if let Some(decoded) = char::from_u32(code) {
-                    value.push(decoded);
-                } else {
-                    // A code no character has stays as it was written.
-                    value.extend(&characters[escape_start..position]);
-                }
-            }
-            '0'..='7' => {
-                let mut code = escaped.to_digit(8).expect("an octal digit");
-                while position < limit && position - escape_start - 1 < 3 {
-                    let Some(digit) = characters[position].to_digit(8) else {
-                        break;
-                    };
-                    code = code * 8 + digit;
-                    position += 1;
-                }
-                let byte = u8::try_from(code & 0xFF).expect("a value masked to one byte");
-                if byte == 0 {
-                    return;
-                }
-                value.push(char::from(byte));
-            }
-            _ => {
-                value.push('\\');
-                value.push(escaped);
-            }
-        }
-    }
-}
-
-// `\c` and its operand from `position`: the control character the operand names, `\c` as written
-// when the closing quote or the end follows. Returns the position past what it read, or `None`
-// when the operand names NUL, which ends the string's value.
-fn decode_control(characters: &[char], mut position: usize, value: &mut String) -> Option<usize> {
-    let limit = characters.len();
-    let Some(&operand) = characters.get(position).filter(|&&operand| operand != '\'') else {
-        value.push_str("\\c");
-        return Some(position);
-    };
-    position += 1;
-    if operand == '\\' {
-        // Bash writes a backslash operand as the pair `\c\\`; a lone backslash still decodes and
-        // leaves the character after it as written.
-        let is_pair = characters.get(position) == Some(&'\\');
-        value.push('\u{1c}');
-        if is_pair {
-            position += 1;
-        } else if position < limit {
-            value.push(characters[position]);
-            position += 1;
-        }
-        return Some(position);
-    }
-    let code = if operand == '?' {
-        0x7F
-    } else {
-        u32::from(operand) & 0x1F
-    };
-    if code == 0 {
-        return None;
-    }
-    value.push(char::from_u32(code).expect("a code below 0x80 is a character"));
-    Some(position)
+    false
 }

@@ -31,8 +31,9 @@ use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventDraft, SessionEventEmitError, SessionEventLinkage,
 };
 
+use super::errors::ProviderSessionError;
 use super::resume::ComposedResume;
-use super::{OpenedProcess, ProviderSessionError, ProviderSessions};
+use super::{OpenedProcess, ProviderSessions};
 
 /// What a side question is asked from: the session's binding its usage is recorded on, and the
 /// resume material its copy is forked from.
@@ -44,16 +45,28 @@ pub struct SideQuestionSource {
 }
 
 /// Why a level or mode move was not stored with the notice that tells every client of it; nothing
-/// of its write is kept.
+/// of its write is kept. Both failures are boxed, so the session errors that carry it stay small.
 #[derive(Debug, thiserror::Error)]
 pub enum MoveRecordError {
     /// The session took no write: `session.notFound` for one gone meanwhile, or its history's own
     /// refusal while it is rebuilt or damaged.
     #[error(transparent)]
-    Refused(#[from] DomainError),
+    Refused(Box<DomainError>),
     /// The notice was not drafted, or its write was not kept.
     #[error(transparent)]
-    Emit(#[from] SessionEventEmitError),
+    Emit(Box<SessionEventEmitError>),
+}
+
+impl From<DomainError> for MoveRecordError {
+    fn from(refusal: DomainError) -> Self {
+        Self::Refused(Box::new(refusal))
+    }
+}
+
+impl From<SessionEventEmitError> for MoveRecordError {
+    fn from(failure: SessionEventEmitError) -> Self {
+        Self::Emit(Box::new(failure))
+    }
 }
 
 impl ProviderSessions {

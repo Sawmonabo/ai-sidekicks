@@ -1,14 +1,16 @@
 //! The session directory's answers to the providers as the daemon's start builds them: the project
 //! records its reads share, the port that resolves each provider process's spawn context and
-//! records each relaunch, and the queue's composer of a session's opening.
+//! records each relaunch, and the queue's composer of a session's opening with each binding's
+//! function legs.
 
 use std::error::Error;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use sidekicks_mcp::binding::resolver::McpAttributionTable;
+use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_provider::driver::SessionSpawnContextResolver;
 use sidekicks_provider::driver::ports::{DriverPorts, SessionRelaunchListener};
-use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_queue::provider_session::{
     GitFolderReadError, ProviderSessionGitFolderReader, ProviderSessionOpening,
     ProviderSessionOpeningComposer,
@@ -42,6 +44,10 @@ pub(crate) struct ProviderPortStart<'start> {
     pub(crate) plan_holds: &'start dyn PlanHolds,
     /// The ports the drivers read, on which the port registers.
     pub(crate) ports: &'start DriverPorts,
+    /// The keeper of every MCP binding's status, on which each process's leg is opened.
+    pub(crate) mcp_status: Arc<McpServerStatusTracker>,
+    /// Which binding each server name a session reports resolves to at its root.
+    pub(crate) mcp_attribution: Arc<McpAttributionTable>,
 }
 
 /// The session directory's answers to the providers, and the project records they read.
@@ -68,6 +74,8 @@ pub(crate) fn build_provider_port(
         settings,
         plan_holds,
         ports,
+        mcp_status,
+        mcp_attribution,
     } = start;
     let project_records = Arc::new(ProjectRecords::new(
         Arc::clone(&reads),
@@ -82,6 +90,8 @@ pub(crate) fn build_provider_port(
             settings,
             project_records: Arc::clone(&project_records),
             provider_accounts: Arc::clone(&ports.provider_accounts),
+            mcp_status,
+            mcp_attribution,
         },
     ));
     ports
@@ -97,8 +107,7 @@ pub(crate) fn build_provider_port(
     })
 }
 
-// A session's opening as `port` composes it. No leg is handed a status sink of its tool servers,
-// since nothing in the daemon produces one for a binding yet.
+// A session's opening as `port` composes it, each binding's function legs among it.
 fn compose_opening(port: Arc<SessionDirectoryProviderPort>) -> ProviderSessionOpeningComposer {
     Arc::new(move |session_id, provider_account_id| {
         let port = Arc::clone(&port);
@@ -110,7 +119,7 @@ fn compose_opening(port: Arc<SessionDirectoryProviderPort>) -> ProviderSessionOp
                 provider: opening.provider,
                 git_folder: opening.git_folder,
                 create_params: opening.create_params,
-                function_legs_for: Arc::new(|_| ResumeFunctionLegs::default()),
+                function_legs_for: opening.function_legs_for,
             })
         }
         .boxed()

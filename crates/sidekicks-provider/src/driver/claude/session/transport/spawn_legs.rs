@@ -13,7 +13,7 @@ use crate::background_work::BackgroundWorkForms;
 use crate::driver::callback_tool::CallbackToolDispatcher;
 use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::mcp_server_status::McpServerStatusProducer;
+use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::run::posture::CredentialDenyPath;
 

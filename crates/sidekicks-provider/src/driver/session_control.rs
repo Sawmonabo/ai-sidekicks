@@ -45,7 +45,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::idle_sleep::KeptSchedule;
-use crate::driver::mcp_server_status::McpServerStatusProducer;
+use crate::driver::mcp_server::status::McpServerStatusProducer;
 
 /// The longest account or plan descriptor an authentication probe keeps, in code points; a longer
 /// one is cut, and dropping it loses only words, never the probe's status.

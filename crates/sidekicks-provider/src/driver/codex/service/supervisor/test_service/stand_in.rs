@@ -41,6 +41,13 @@ pub(crate) const HANG_UP_IGNORED_NAME: &str = "SIDEKICKS_TEST_HANG_UP_IGNORED";
 /// The file a stand-in's script keeps its last start's arguments in, one to a line.
 pub(crate) const LAUNCH_ARGUMENTS_FILE: &str = "codex-arguments";
 
+/// The file a stand-in appends each request it is sent to, whole and one to a line; only a test's
+/// program sets it.
+pub(crate) const REQUEST_RECORD_NAME: &str = "SIDEKICKS_TEST_REQUEST_RECORD";
+
+/// The reply a stand-in answers a config read with, as JSON text; only a test's program sets it.
+pub(crate) const CONFIG_READ_REPLY_NAME: &str = "SIDEKICKS_TEST_CONFIG_READ_REPLY";
+
 // The address a stand-in listens on, as its `--listen` names it; only its script sets it.
 const LISTEN_ADDRESS_NAME: &str = "SIDEKICKS_TEST_LISTEN_ADDRESS";
 
@@ -141,11 +148,12 @@ fn own_process_record() -> ProcessRecord {
 
 /// Serves as a Codex service where a stand-in's script started this program: on a real socket of
 /// its own, with the path its `--listen` names made a link to it, its launch recorded first,
-/// answering each connection as a start needs and recording each request in the script's record
-/// until the test program that wrote the script ends; or, started as Codex's executor on its
-/// standard input and output, as that executor. Returns at once where no script started it or its
-/// test program has already ended. Panics where its launch cannot be recorded, its socket cannot
-/// listen or its link cannot be made.
+/// answering each connection as a start needs, a config read with the reply its test program
+/// gives, and recording each request in the script's record, and whole in the test program's own
+/// record where one is named, until the test program that wrote the script ends; or, started as
+/// Codex's executor on its standard input and output, as that executor. Returns at once where no
+/// script started it or its test program has already ended. Panics where its launch cannot be
+/// recorded, its socket cannot listen or its link cannot be made.
 pub async fn serve_as_codex_service_stand_in() {
     let Ok(address) = std::env::var(LISTEN_ADDRESS_NAME) else {
         return;
@@ -174,6 +182,10 @@ pub async fn serve_as_codex_service_stand_in() {
     let record =
         PathBuf::from(std::env::var_os(CONNECTION_RECORD_NAME).expect("the record is named"));
     let daemon_socket = std::env::var_os(DAEMON_SOCKET_NAME).map(PathBuf::from);
+    let request_record = std::env::var_os(REQUEST_RECORD_NAME).map(PathBuf::from);
+    let config_read_reply: Option<serde_json::Value> = std::env::var(CONFIG_READ_REPLY_NAME)
+        .ok()
+        .map(|reply| serde_json::from_str(&reply).expect("the config read's reply is JSON"));
     let connections = Arc::new(AtomicUsize::new(0));
     // A stand-in outlives the daemon that launched it, so it ends with its test program however
     // that program ends, a kill included; a watch that fails ends it too.
@@ -193,10 +205,31 @@ pub async fn serve_as_codex_service_stand_in() {
             connections: Arc::clone(&connections),
             first_request: None,
         };
-        tokio::spawn(answer_as_codex_service(stream, move |method| {
-            recording.record(method);
-        }));
+        let request_record = request_record.clone();
+        tokio::spawn(answer_as_codex_service(
+            stream,
+            config_read_reply.clone(),
+            move |request| {
+                recording.record(request["method"].as_str().unwrap_or_default());
+                if let Some(request_record) = &request_record {
+                    record_request(request_record, request);
+                }
+            },
+        ));
     }
+}
+
+// Appends `request` whole to `record`, in one write of a whole line to a file opened to append, so
+// lines never interleave. Panics where it cannot be recorded.
+fn record_request(record: &Path, request: &serde_json::Value) {
+    let mut line = request.to_string();
+    line.push('\n');
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(record)
+        .and_then(|mut file| file.write_all(line.as_bytes()))
+        .expect("the request is recorded");
 }
 
 // Adds this process's launch on `codex_home` to the script's launches, in one write of a whole

@@ -20,7 +20,7 @@ use crate::questions::service::{
     HeldRequestAnswerer, QuestionError, QuestionRecording, QuestionsService, canceled_event,
 };
 use crate::questions::store::{open_waiting_question_statement, settle_question_statement};
-use crate::run::engine::RunEngineError;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 impl QuestionsService {

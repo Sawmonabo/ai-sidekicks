@@ -8,11 +8,12 @@ pub(crate) mod lockdown;
 #[cfg(test)]
 mod tests;
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
@@ -20,11 +21,12 @@ use tokio_util::sync::CancellationToken;
 
 use super::{CodexDriver, internal};
 use crate::driver::codex::app_server_protocol::{
-    AskForApproval, ConfigReadParams, SandboxMode, ThreadReadParams, ThreadSetNameParams,
-    ThreadSource, ThreadStartParams,
+    AskForApproval, SandboxMode, ThreadReadParams, ThreadSetNameParams, ThreadSource,
+    ThreadStartParams,
 };
 use crate::driver::codex::attachments::compose_codex_text_input;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
+use crate::driver::codex::config_read::read_codex_config;
 use crate::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
@@ -46,8 +48,6 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{NameSessionParams, run_naming_pass_until};
 use crate::runtime_binding::store::RuntimeBinding;
 use crate::spawned_version::ResolvedProviderExecutable;
-
-const CONFIG_READ_METHOD: &str = "config/read";
 
 const THREAD_READ_METHOD: &str = "thread/read";
 
@@ -265,7 +265,7 @@ async fn name_on_service(
     cancel: CancellationToken,
     deadline: Instant,
 ) -> Result<Option<String>, CodexError> {
-    let (events, mut frames) = CodexDetachedFrames::new();
+    let (events, frames) = CodexDetachedFrames::new();
     let service = &conversation.service;
     let connection = tokio::select! {
         biased;
@@ -273,10 +273,9 @@ async fn name_on_service(
         () = tokio::time::sleep_until(deadline) => return Ok(None),
         connection = service.open_detached_connection(events) => connection?,
     };
-    // The throwaway conversation is ephemeral, so it ends with the connection, dropped here.
     draw_title(
-        &connection,
-        &mut frames,
+        connection,
+        frames,
         &TitleRequest {
             thread_id: &conversation.thread_id,
             is_joined: service.kind() == CodexServiceKind::Joined,
@@ -321,14 +320,17 @@ enum TitleThread {
 
 // The title of `request`'s conversation drawn over `connection`, whose notifications arrive on
 // `frames`, as `start_title_thread` starts it; `None` once `cancel` fired or `deadline` passed,
-// either of which stops its turn.
+// either of which stops its turn. The connection is let go of as the pass ends, which ends its
+// ephemeral conversation, so the service can unload it.
 async fn draw_title(
-    connection: &CodexAppServerConnection,
-    frames: &mut mpsc::UnboundedReceiver<CodexDetachedFrame>,
+    connection: CodexAppServerConnection,
+    mut frames: mpsc::UnboundedReceiver<CodexDetachedFrame>,
     request: &TitleRequest<'_>,
     cancel: &CancellationToken,
     deadline: Instant,
 ) -> Result<Option<String>, CodexError> {
+    let connection = &connection;
+    let frames = &mut frames;
     run_naming_pass_until(cancel, deadline, |stop| async move {
         draw_title_until_stopped(connection, frames, request, &stop).await
     })
@@ -417,16 +419,13 @@ async fn start_title_thread(
             return Ok(TitleThread::Named(given));
         }
     }
-    let config = connection
-        .request(
-            CONFIG_READ_METHOD,
-            &ConfigReadParams {
-                cwd: Some(request.working_directory.to_owned()),
-                include_layers: Some(false),
-            },
-        )
-        .await?;
-    let server_names = lockdown::read_config_server_names(&config)?;
+    let config = read_codex_config::<Map<String, Value>>(
+        connection,
+        Path::new(request.working_directory),
+        false,
+    )
+    .await?;
+    let server_names = lockdown::read_config_server_names(&config.config);
     let title_model = choose_title_model(Some(connection), Some(request.session_model)).await;
     let reply = connection
         .request(

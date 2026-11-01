@@ -25,12 +25,10 @@ use sidekicks_std::missing_entry::is_gone;
 use sidekicks_store::database::schema::session_directory::ConvertedFileOutcome;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_workspace::git::GIT_ENTRY_NAME;
 use tokio::task::{JoinError, JoinSet};
 
 use crate::convert::SessionConversionError;
-
-// The workspace's own repository is the daemon's record of the chat, never one of its files.
-const GIT_METADATA_ENTRY_NAME: &str = ".git";
 
 // A file is written under this name, the session's id after it, in the folder it lands in, and
 // published under its own name once whole. Nothing but the session's conversion makes a file so
@@ -221,7 +219,9 @@ fn list_workspace_entries(
         for listed in listing {
             let listed = listed?;
             let name = listed.file_name();
-            if folder_key.is_empty() && name == GIT_METADATA_ENTRY_NAME {
+            // The workspace's own repository is the daemon's record of the chat, never one of its
+            // files.
+            if folder_key.is_empty() && name == GIT_ENTRY_NAME {
                 continue;
             }
             let relative = folder.join(&name);

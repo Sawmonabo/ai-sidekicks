@@ -19,7 +19,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use jiff::Timestamp;
@@ -37,6 +37,7 @@ use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::failure_episode::FailureEpisode;
 use sidekicks_std::scheduler::Scheduler;
+use sidekicks_std::scheduler::armed_instant::ArmedInstant;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -66,7 +67,9 @@ use crate::attention::retention::{
     ENTRY_SEQUENCE, advance_retention_statements, provider_build_retirement_statements,
 };
 use crate::attention::seen::write_seen;
-use crate::attention::service::build_retirement::RetirementSlot;
+use crate::attention::service::build_retirement::{
+    PROVIDER_BUILD_RETIREMENT_JOB, PROVIDER_BUILD_RETIREMENT_RETRY_JOB,
+};
 use crate::directory::lookups::SessionWriteError;
 
 /// The statements the service prepares on a read connection: the undecided entries, the sessions
@@ -173,9 +176,8 @@ pub struct AttentionService {
     presence: Arc<PresenceRegister>,
     launcher: Arc<BannerLauncher>,
     machine_device_id: DeviceId,
-    scheduler: Arc<Scheduler>,
     // The retirement of the next provider build line, armed on the wall clock.
-    retirement: Mutex<RetirementSlot>,
+    retirement: ArmedInstant,
 }
 
 /// Why the attention service could not read or write its rows.
@@ -290,8 +292,11 @@ impl AttentionService {
             presence: dependencies.presence,
             launcher: dependencies.launcher,
             machine_device_id: dependencies.machine_device_id,
-            scheduler: dependencies.scheduler,
-            retirement: Mutex::new(RetirementSlot::default()),
+            retirement: ArmedInstant::new(
+                dependencies.scheduler,
+                PROVIDER_BUILD_RETIREMENT_JOB,
+                PROVIDER_BUILD_RETIREMENT_RETRY_JOB,
+            ),
         }
     }
 

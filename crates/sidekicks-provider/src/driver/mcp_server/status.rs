@@ -6,16 +6,15 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
-use sidekicks_contracts::mcp::server::{McpServerName, McpServerStatus};
+use sidekicks_contracts::mcp::server::{McpServerName, McpServerStatus, McpToolName};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
-use sidekicks_ipc::redaction::scrub_credentials;
-use sidekicks_std::text_cut::cut_to_code_points;
+use sidekicks_ipc::redaction::sanitize_failure_reason;
 
 /// The most code points of a provider's error text a reading keeps: room past the error-message
-/// cap, which the daemon's sanitizer applies once paths and queries are gone.
-const FAILURE_TEXT_MAX_CODE_POINTS: usize = 4 * ERROR_MESSAGE_MAX_LEN;
+/// cap a notice applies when it sends the text.
+pub(crate) const FAILURE_TEXT_MAX_CODE_POINTS: usize = 4 * ERROR_MESSAGE_MAX_LEN;
 
 /// What a provider reported about one MCP server for a session: a status it observed, or that it
 /// switched the server off for this conversation or project.
@@ -28,7 +27,8 @@ pub enum McpServerReading {
 }
 
 /// What a driver reports for one MCP server: its name, bounded where the driver read it from
-/// provider output, its reading and the provider's own error text. It carries no leg identity:
+/// provider output, its reading, the provider's own error text and the server's tool names where
+/// the report lists them. It carries no leg identity:
 /// the producer it goes to is bound to the leg at spawn, so a driver cannot report for another leg.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct McpServerStatusEmission {
@@ -36,24 +36,34 @@ pub struct McpServerStatusEmission {
     pub(crate) server_name: McpServerName,
     /// What the provider reported.
     pub(crate) reading: McpServerReading,
-    /// The provider's error text for the server, untrusted, its credentials scrubbed before it
-    /// was cut to a bound; the rest of the sanitizing happens when it leaves the daemon.
+    /// The provider's error text for the server, untrusted, sanitized before it was cut to a
+    /// bound: its credentials, URL queries and paths outside a web address replaced.
     pub(crate) failure_text: Option<String>,
+    /// The names of the server's tools; `None` where the report carries no list, which is no
+    /// claim that the server has none.
+    pub(crate) tool_names: Option<Vec<McpToolName>>,
 }
 
-#[cfg(any(test, feature = "test-support"))]
 impl McpServerStatusEmission {
+    /// The server's name, which the daemon attributes to the binding a session serves it from.
+    pub fn server_name(&self) -> &McpServerName {
+        &self.server_name
+    }
+
     /// An emission as a driver's status reader builds one, for the tests of the crates that
     /// apply emissions.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new(
         server_name: McpServerName,
         reading: McpServerReading,
         failure_text: Option<String>,
+        tool_names: Option<Vec<McpToolName>>,
     ) -> Self {
         Self {
             server_name,
             reading,
             failure_text,
+            tool_names,
         }
     }
 }
@@ -71,9 +81,10 @@ pub struct McpServerStatusUpdate {
     pub server_name: McpServerName,
     /// What the provider reported.
     pub reading: McpServerReading,
-    /// The provider's error text for the server, untrusted, its credentials scrubbed and cut to a
-    /// bound; the daemon sanitizes the rest before it leaves.
+    /// The provider's error text for the server, untrusted, sanitized and cut to a bound.
     pub failure_text: Option<String>,
+    /// The names of the server's tools; `None` where the report carries no list.
+    pub tool_names: Option<Vec<McpToolName>>,
 }
 
 impl McpServerStatusUpdate {
@@ -90,13 +101,24 @@ impl McpServerStatusUpdate {
             server_name: emission.server_name,
             reading: emission.reading,
             failure_text: emission.failure_text,
+            tool_names: emission.tool_names,
         }
     }
 }
 
-/// The status sink the daemon hands a driver, bound to the leg at spawn. It returns nothing and
-/// is never awaited, so a slow reader cannot hold back the provider's status stream.
-pub type McpServerStatusProducer = Arc<dyn Fn(McpServerStatusEmission) + Send + Sync>;
+/// The status sink the daemon hands a driver, bound to the leg at spawn. Neither method returns
+/// anything or is awaited, so a slow reader cannot hold back the provider's status stream.
+pub trait McpServerStatusSink: Send + Sync {
+    /// Reports what the provider said about one server on the sink's leg.
+    fn report_status(&self, emission: McpServerStatusEmission);
+
+    /// Ends the sink's leg: the driver calls it once, as the leg's provider process ends, and the
+    /// daemon retires the leg's rows.
+    fn end_leg(&self);
+}
+
+/// The status sink a driver's carriers hold, shared between the readers of one leg.
+pub type McpServerStatusProducer = Arc<dyn McpServerStatusSink>;
 
 /// A raw row, line or notification a driver's status reader could not turn into a bounded
 /// emission. It is returned, never dropped, so a malformed row shows as a visible gap.
@@ -116,15 +138,18 @@ pub(crate) struct McpServerStatusIngestResult {
     pub(crate) rejections: Vec<McpServerStatusIngestRejection>,
 }
 
-/// Bounds one reported server: its name, its reading and its raw error text. The name is
-/// untrusted provider output: one that is not text, is blank, holds a NUL or passes its length
-/// bound comes back as a rejection instead of reaching the leg's producer. The error text has its
-/// credentials scrubbed whole, so a cut cannot split one past the scrub's reach, and is then cut
-/// to a bound in code points; one that is absent, not text or blank after the cut reads `None`.
+/// Bounds one reported server: its name, its reading and its raw error text, carrying the tool
+/// names the report lists, `None` where it lists none. The name is untrusted provider output: one
+/// that is not text, is blank, holds a NUL or passes its length bound comes back as a rejection
+/// instead of reaching the leg's producer. The error text has its credentials scrubbed, its URL
+/// queries stripped and its paths outside a web address redacted whole, so a cut cannot split one
+/// past the sanitizer's reach, and is then capped in code points; one that is absent, not text or
+/// blank after the cap reads `None`.
 pub(crate) fn bound_mcp_server_status_emission(
     server_name: &Value,
     reading: McpServerReading,
     raw_failure_text: &Value,
+    tool_names: Option<Vec<McpToolName>>,
 ) -> Result<McpServerStatusEmission, McpServerStatusIngestRejection> {
     let Some(server_name) = server_name.as_str() else {
         return Err(McpServerStatusIngestRejection {
@@ -135,14 +160,14 @@ pub(crate) fn bound_mcp_server_status_emission(
     };
     let failure_text = raw_failure_text
         .as_str()
-        .map(scrub_credentials)
-        .map(|text| cut_to_code_points(&text, FAILURE_TEXT_MAX_CODE_POINTS).to_owned())
+        .map(|text| sanitize_failure_reason(text, FAILURE_TEXT_MAX_CODE_POINTS))
         .filter(|text| !text.chars().all(is_ecmascript_whitespace));
     FreeFormText::new(server_name.to_owned())
         .map(|server_name| McpServerStatusEmission {
             server_name,
             reading,
             failure_text,
+            tool_names,
         })
         .map_err(|text_failure| McpServerStatusIngestRejection {
             reason: format!(
@@ -159,28 +184,49 @@ mod tests {
 
     use super::{FAILURE_TEXT_MAX_CODE_POINTS, McpServerReading, bound_mcp_server_status_emission};
 
-    // A token that straddles the bound is scrubbed whole: cut first, its prefix would fall under
-    // the token pattern's minimum length and reach the daemon as text.
+    // The error text leaves the bound with no credential, URL query or path: a token that straddles
+    // the bound is scrubbed whole, since cut first its prefix would fall under the token pattern's
+    // minimum length, and a program's path and a signed address's query are gone while the
+    // address's host and path stay. Killed by the scrub, the query strip or the path redaction
+    // dropped, and by the cut taken before them.
     #[test]
-    fn a_credential_across_the_bound_is_scrubbed_before_the_cut() {
-        let raw = format!(
+    fn a_failure_text_is_sanitized_whole_before_the_cut() {
+        let bound = |raw: String| {
+            bound_mcp_server_status_emission(
+                &json!("github"),
+                McpServerReading::Observed(McpServerStatus::Failed),
+                &Value::String(raw),
+                None,
+            )
+            .expect("the row passes the bound")
+            .failure_text
+            .expect("the error text is kept")
+        };
+
+        let straddling = bound(format!(
             "{} ghp_abcdefghijklmnop",
             "x".repeat(FAILURE_TEXT_MAX_CODE_POINTS - 8)
-        );
-
-        let emission = bound_mcp_server_status_emission(
-            &json!("github"),
-            McpServerReading::Observed(McpServerStatus::Failed),
-            &Value::String(raw),
-        )
-        .expect("the row passes the bound");
-
-        let failure_text = emission.failure_text.expect("the error text is kept");
-        assert!(!failure_text.contains("ghp_"), "the token's prefix is kept");
+        ));
+        assert!(!straddling.contains("ghp_"), "the token's prefix is kept");
         assert!(
-            failure_text.ends_with("***"),
+            straddling.ends_with("***"),
             "{}",
-            &failure_text[failure_text.len() - 16..]
+            &straddling[straddling.len() - 16..]
         );
+
+        let located = bound(
+            "spawn /Users/alice/bin/notes-server ENOENT; SSE error at \
+             https://mcp.example.com/sse?sig=signed-secret-value"
+                .to_owned(),
+        );
+        for kept in [
+            "/Users/alice",
+            "notes-server",
+            "sig=",
+            "signed-secret-value",
+        ] {
+            assert!(!located.contains(kept), "{kept} is kept: {located}");
+        }
+        assert!(located.contains("https://mcp.example.com/sse"), "{located}");
     }
 }

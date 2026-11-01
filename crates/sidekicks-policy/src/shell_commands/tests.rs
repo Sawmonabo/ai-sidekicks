@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use proptest::prelude::*;
 use rstest::rstest;
 
@@ -11,7 +13,7 @@ const LIMIT: usize = 64;
 struct ReadCommand {
     program: String,
     argument_words: Vec<String>,
-    wrappers: Vec<String>,
+    wrapper_words: Vec<String>,
 }
 
 impl From<ShellCommand<'_>> for ReadCommand {
@@ -22,16 +24,19 @@ impl From<ShellCommand<'_>> for ReadCommand {
                 .argument_words()
                 .map(|word| word.to_string())
                 .collect(),
-            wrappers: command.wrappers().map(|word| word.to_string()).collect(),
+            wrapper_words: command
+                .wrapper_words()
+                .map(|word| word.to_string())
+                .collect(),
         }
     }
 }
 
-fn command(program: &str, argument_words: &[&str], wrappers: &[&str]) -> ReadCommand {
+fn command(program: &str, argument_words: &[&str], wrapper_words: &[&str]) -> ReadCommand {
     ReadCommand {
         program: program.to_owned(),
         argument_words: argument_words.iter().map(|&word| word.to_owned()).collect(),
-        wrappers: wrappers.iter().map(|&wrapper| wrapper.to_owned()).collect(),
+        wrapper_words: wrapper_words.iter().map(|&word| word.to_owned()).collect(),
     }
 }
 
@@ -67,38 +72,42 @@ fn assert_unread(reading: &ShellLineReading) {
     ],
     true
 )]
-#[case::env_unset("env -u HOME git push", vec![command("git", &["push"], &["env"])], true)]
+#[case::env_unset(
+    "env -u HOME git push",
+    vec![command("git", &["push"], &["env", "-u", "HOME"])],
+    true
+)]
 #[case::sudo_user(
     "sudo -u root rm -rf /tmp/x",
-    vec![command("rm", &["-rf", "/tmp/x"], &["sudo"])],
+    vec![command("rm", &["-rf", "/tmp/x"], &["sudo", "-u", "root"])],
     true
 )]
 #[case::timeout_duration(
     "timeout 5 git fetch",
-    vec![command("git", &["fetch"], &["timeout"])],
+    vec![command("git", &["fetch"], &["timeout", "5"])],
     true
 )]
 #[case::env_split_string(
     "env -S 'git push -f'",
-    vec![command("git", &["push", "-f"], &["env"])],
+    vec![command("git", &["push", "-f"], &["env", "-S", "git push -f"])],
     true
 )]
 #[case::env_split_string_keeps_a_substitution_whole(
     r#"env -S "git $(echo push) -f""#,
     vec![
-        command("git", &["$(echo push)", "-f"], &["env"]),
+        command("git", &["$(echo push)", "-f"], &["env", "-S", "git $(echo push) -f"]),
         command("echo", &["push"], &[]),
     ],
     true
 )]
 #[case::env_split_string_drops_every_blank_run(
     "env -S '  git  push -f  '",
-    vec![command("git", &["push", "-f"], &["env"])],
+    vec![command("git", &["push", "-f"], &["env", "-S", "  git  push -f  "])],
     true
 )]
 #[case::env_assignment_before_the_program(
     "env FOO=1 git push --force",
-    vec![command("git", &["push", "--force"], &["env"])],
+    vec![command("git", &["push", "--force"], &["env", "FOO=1"])],
     true
 )]
 #[case::env_name_starting_with_a_digit_is_the_program(
@@ -109,6 +118,56 @@ fn assert_unread(reading: &ShellLineReading) {
 #[case::env_name_holding_a_dash_is_the_program(
     "env FOO-BAR=1 x",
     vec![command("FOO-BAR=1", &["x"], &["env"])],
+    true
+)]
+// A word only the run decides where a wrapper reads an option that may take a value leaves the
+// wrapper the program, and so does env's split string or one env refuses whatever the run
+// supplies.
+#[case::undecided_option_of_a_wrapper(
+    "sudo -$o root git push --force",
+    vec![
+        command("sudo", &["-$o", "root", "git", "push", "--force"], &[])
+    ],
+    true
+)]
+#[case::undecided_program_of_a_split_string(
+    "env -S'${P} push -f'",
+    vec![command("env", &["${P}", "push", "-f"], &[])],
+    true
+)]
+#[case::split_string_env_refuses(
+    "env -S'$P push' git push -f",
+    vec![command("env", &["git", "push", "-f"], &[])],
+    true
+)]
+// A line break outside quotes parts env's words as a space does.
+#[case::split_string_line_break(
+    "env -S'A=1\nx git push --force'",
+    vec![command(
+        "x",
+        &["git", "push", "--force"],
+        &["env", "-SA=1\nx git push --force", "A=1"],
+    )],
+    true
+)]
+// Splits nested in splits read no more bytes in all than the line holds; past that, env is left
+// the program of the rest and the line reads not whole.
+#[case::split_strings_past_the_line(
+    "env -S-S-S-Sx",
+    vec![command("env", &[], &[])],
+    false
+)]
+// xargs's command is its words past its options; the words it reads from its input are not read.
+#[case::xargs_command_without_its_input(
+    "xargs -0 git log",
+    vec![command("git", &["log"], &["xargs", "-0"])],
+    true
+)]
+// A split string's assignments come before its program, which here only the run decides, so env
+// is left the program.
+#[case::undecided_program_after_a_split_assignment(
+    "env -S'A=1 ${P} push'",
+    vec![command("env", &["${P}", "push"], &[])],
     true
 )]
 #[case::assignments_only("FOO=1 BAR=2", vec![], true)]
@@ -174,22 +233,6 @@ fn assert_unread(reading: &ShellLineReading) {
 )]
 #[case::escaped_program(r"g\it push -f", vec![command("git", &["push", "-f"], &[])], true)]
 #[case::ansi_c_program(r"$'\147it' push -f", vec![command("git", &["push", "-f"], &[])], true)]
-#[case::ansi_c_nul_ends_its_part(
-    r"$'gi\0zz't push -f",
-    vec![command("git", &["push", "-f"], &[])],
-    true
-)]
-#[case::ansi_c_hex_nul_ends_its_part(
-    r"$'gi\x00zz't push -f",
-    vec![command("git", &["push", "-f"], &[])],
-    true
-)]
-#[case::ansi_c_control_nul_ends_its_part(
-    r"$'gi\c@zz't push -f",
-    vec![command("git", &["push", "-f"], &[])],
-    true
-)]
-#[case::ansi_c_nul_keeps_later_parts(r"$'a\0b'c", vec![command("ac", &[], &[])], true)]
 #[case::quoted_program_part(
     r#""gi"t push -f"#,
     vec![command("git", &["push", "-f"], &[])],
@@ -199,7 +242,7 @@ fn assert_unread(reading: &ShellLineReading) {
 // Bash in POSIX mode runs the `time` program with an option the keyword does not take.
 #[case::time_program_option(
     "time -o f npm run build",
-    vec![command("npm", &["run", "build"], &["time"])],
+    vec![command("npm", &["run", "build"], &["time", "-o", "f"])],
     true
 )]
 #[case::export_assignment("export FOO=1", vec![command("export", &[], &[])], true)]
@@ -231,7 +274,7 @@ fn reads_the_commands_of_a_line(
     let mut commands = Vec::new();
     for command in reading.commands() {
         commands.push(ReadCommand::from(command));
-        if let Some(command_string) = reader.read_command_string(command) {
+        for command_string in reader.read_command_strings(command) {
             commands.extend(commands_of(&command_string));
         }
     }
@@ -244,13 +287,18 @@ fn reads_the_commands_of_a_line(
 }
 
 // A line of nested levels built to the test's limit, read on a thread with the stack of
-// tokio's blocking threads; the line's memory and time must grow with its length alone.
+// tokio's blocking threads; the line's memory and time must grow with its length alone. Nested
+// splits stop at the bound on what they read, so that line reads not whole.
 #[rstest]
-#[case::an_escape_at_every_level(r#""\$x$("#, r#")""#)]
-#[case::env_split_strings(r#"env -S "$("#, r#")""#)]
-#[case::evals("eval $(", ")")]
-#[case::substitutions("$(", ")")]
-fn reads_a_line_nested_to_the_limit(#[case] open: &str, #[case] close: &str) {
+#[case::an_escape_at_every_level(r#""\$x$("#, r#")""#, true)]
+#[case::env_split_strings(r#"env -S "$("#, r#")""#, false)]
+#[case::evals("eval $(", ")", true)]
+#[case::substitutions("$(", ")", true)]
+fn reads_a_line_nested_to_the_limit(
+    #[case] open: &str,
+    #[case] close: &str,
+    #[case] is_whole: bool,
+) {
     const NEST_LIMIT: usize = 1 << 20;
     let levels = (NEST_LIMIT - 1) / (open.len() + close.len());
     let line = format!("{}x{}", open.repeat(levels), close.repeat(levels));
@@ -262,7 +310,7 @@ fn reads_a_line_nested_to_the_limit(#[case] open: &str, #[case] close: &str) {
         .join()
         .expect("the read ends without a panic");
 
-    assert!(reading.is_whole());
+    assert_eq!(reading.is_whole(), is_whole);
     assert_eq!(reading.commands().len(), levels + 1);
     let innermost = reading.commands().last().expect("the line runs commands");
     assert_eq!(ReadCommand::from(innermost), command("x", &[], &[]));
@@ -322,14 +370,16 @@ fn a_string_read_again_costs_nothing_and_reads_the_same() {
         .next()
         .expect("the line runs `bash`");
     let inner_reading = reader
-        .read_command_string(shell)
+        .read_command_strings(shell)
+        .pop()
         .expect("`bash -c` runs a string");
     // A string spending what is left of the bound.
     let filler = "x".repeat(2 * LIMIT - line.len() - inner.len());
     assert!(reader.read(&filler).is_whole());
 
     let reread = reader
-        .read_command_string(shell)
+        .read_command_strings(shell)
+        .pop()
         .expect("`bash -c` runs a string");
 
     assert!(Arc::ptr_eq(&reread, &inner_reading));
@@ -343,21 +393,93 @@ fn a_string_read_again_costs_nothing_and_reads_the_same() {
 #[rstest]
 #[case::provider_wrapper(
     r#"/bin/zsh -lc "rm -rf 'my build' && echo done""#,
+    &[],
     "rm -rf 'my build' && echo done"
 )]
-#[case::operator_outside_the_argv("bash -lc 'x' && y", "bash -lc 'x' && y")]
-#[case::wrapper_before_the_shell("env bash -lc 'x'", "env bash -lc 'x'")]
-#[case::wrapper_before_a_joined_argv("env bash -lc 'x y'", "env bash -lc 'x y'")]
-fn unwraps_only_a_shell_handed_its_whole_line(#[case] line: &str, #[case] expected: &str) {
-    assert_eq!(unwrap_shell_command_line(line), expected);
+#[case::operator_outside_the_argv("bash -lc 'x' && y", &[], "bash -lc 'x' && y")]
+#[case::wrapper_before_the_shell("env bash -lc 'x'", &[], "env bash -lc 'x'")]
+#[case::wrapper_before_a_joined_argv("env bash -lc 'x y'", &[], "env bash -lc 'x y'")]
+// A shell outside `/bin` and `/usr/bin` is the provider's only when it is one it starts lines with.
+#[case::provider_shell_path(
+    "/opt/homebrew/bin/zsh -lc 'ls -la'",
+    &["/opt/homebrew/bin/zsh"],
+    "ls -la"
+)]
+#[case::shell_of_another_kind_the_provider_runs(
+    "/opt/homebrew/bin/bash -lc 'ls -la'",
+    &["/opt/homebrew/bin/zsh", "/opt/homebrew/bin/bash"],
+    "ls -la"
+)]
+#[case::other_shell_path(
+    "/opt/homebrew/bin/zsh -lc 'ls -la'",
+    &[],
+    "/opt/homebrew/bin/zsh -lc 'ls -la'"
+)]
+#[case::shell_path_not_the_providers(
+    "/tmp/x/zsh -lc 'ls -la'",
+    &["/opt/homebrew/bin/zsh"],
+    "/tmp/x/zsh -lc 'ls -la'"
+)]
+// A provider's shell whose kind is no line shell is never unwrapped.
+#[case::provider_shell_of_another_kind(
+    "fish -lc 'ls -la'",
+    &["/opt/homebrew/bin/fish"],
+    "fish -lc 'ls -la'"
+)]
+fn unwraps_only_a_shell_handed_its_whole_line(
+    #[case] line: &str,
+    #[case] provider_shells: &[&str],
+    #[case] expected: &str,
+) {
+    let provider_shells: Vec<&Path> = provider_shells.iter().map(Path::new).collect();
+
+    assert_eq!(unwrap_shell_command_line(line, &provider_shells), expected);
 }
 
 // Words the parser or the reader reads as more than a program's name.
 const RESERVED_NAMES: &[&str] = &[
-    "if", "then", "else", "elif", "fi", "case", "esac", "for", "select", "in", "while", "until",
-    "do", "done", "function", "declare", "typeset", "export", "readonly", "local", "unset",
-    "unsetenv", "time", "coproc", "env", "exec", "command", "nohup", "timeout", "nice", "sudo",
+    "if",
+    "then",
+    "else",
+    "elif",
+    "fi",
+    "case",
+    "esac",
+    "for",
+    "select",
+    "in",
+    "while",
+    "until",
+    "do",
+    "done",
+    "function",
+    "declare",
+    "typeset",
+    "export",
+    "readonly",
+    "local",
+    "unset",
+    "unsetenv",
+    "time",
+    "coproc",
+    "env",
+    "exec",
+    "command",
+    "nohup",
+    "timeout",
+    "gtimeout",
+    "nice",
+    "gnice",
+    "sudo",
+    "doas",
     "xargs",
+    "stdbuf",
+    "setsid",
+    "ionice",
+    "chrt",
+    "taskset",
+    "caffeinate",
+    "arch",
 ];
 
 proptest! {
@@ -377,7 +499,11 @@ proptest! {
         prop_assert!(reading.is_whole(), "{line:?}");
         prop_assert_eq!(
             commands_of(&reading),
-            vec![ReadCommand { program, argument_words, wrappers: Vec::new() }]
+            vec![ReadCommand {
+                program,
+                argument_words,
+                wrapper_words: Vec::new(),
+            }]
         );
     }
 }

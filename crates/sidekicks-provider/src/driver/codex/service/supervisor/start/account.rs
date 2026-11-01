@@ -56,7 +56,7 @@ pub(super) async fn start_account_home_service(
     let process_launch = compose_launch(
         service,
         executable,
-        dependencies.additional_config_overrides.clone(),
+        service.launch_config_overrides(),
         &socket,
     )
     .await?;

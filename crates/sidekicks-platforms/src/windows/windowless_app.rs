@@ -8,10 +8,6 @@ use crate::windowless_app::WindowlessLaunch;
 
 /// Starts nothing: Windows does not find the app's program yet. Always fails with `Unsupported`,
 /// which means no app was started.
-#[expect(
-    clippy::unused_async,
-    reason = "the macOS start awaits its `open`, and every system answers the one signature"
-)]
 pub async fn launch_app_windowless(_spawner: &Spawner) -> io::Result<WindowlessLaunch> {
     Err(io::Error::new(
         ErrorKind::Unsupported,

@@ -494,7 +494,9 @@ mod tests {
         assert_eq!(refusal.code, RefusalCode::PreviewPortNotShared);
         assert_eq!(
             refusal.detail,
-            Some(refusal_fields(json!({ "port": listened_port.get() })))
+            Some(Box::new(refusal_fields(
+                json!({ "port": listened_port.get() })
+            )))
         );
         let accepted = listener.accept();
         assert!(

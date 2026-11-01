@@ -26,7 +26,8 @@ use crate::driver::codex::session::fork::{CodexForkDependencies, move_codex_sess
 use crate::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
 };
-use crate::driver::codex::session::recovery::{drop_codex_turns, resume_codex_session_in_place};
+use crate::driver::codex::session::recovery::drop_codex_turns;
+use crate::driver::codex::session::recovery::in_place_resume::resume_codex_session_in_place;
 use crate::driver::codex::session::rewind::{
     read_codex_message_turn, record_codex_message_turns, revert_codex_turns,
 };
@@ -157,6 +158,8 @@ pub(crate) async fn run_codex_session_call(
             let _unheard = reply.send(restored);
         }
         CodexSessionCall::DropTurns { reply } => {
+            // The status sink's leg ran on the process that ended, so it ends with the turns.
+            task.record.end_mcp_server_status_leg();
             let _unheard = reply.send(drop_codex_turns(task, dependencies));
         }
         CodexSessionCall::EndSafetyHolds { reply } => {

@@ -13,6 +13,7 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::approval::RememberedScopeKind;
 use sidekicks_contracts::question::{QuestionAnswer, QuestionPrompt};
 use sidekicks_platforms::PathRules;
+use sidekicks_workspace::git::GIT_ENTRY_NAME;
 
 use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
 use crate::driver::claude::session::permissions::{
@@ -310,7 +311,7 @@ pub(crate) async fn read_claude_repository(
     let owned = join_all(
         [
             reading.root.clone(),
-            reading.root.join(".git"),
+            reading.root.join(GIT_ENTRY_NAME),
             reading.root.join(".claude"),
         ]
         .map(|entry| async move { repositories.is_owned_by_user(&entry).await }),

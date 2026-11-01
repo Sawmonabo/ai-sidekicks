@@ -87,6 +87,7 @@ mod linux;
 mod machine_name;
 #[cfg(target_os = "macos")]
 mod macos;
+mod managed_preference;
 mod memory;
 mod own_root;
 mod path;
@@ -94,6 +95,7 @@ mod pinned_process;
 mod pipe_reader;
 #[cfg(unix)]
 mod posix;
+mod powershell_literal;
 mod process_containment;
 mod process_identity;
 mod process_start;
@@ -162,7 +164,7 @@ pub use credential_store::blocking::BlockingCredentialStore;
 pub use credential_store::seal::{CredentialSeal, SealFailure, SealHeader, SealKey};
 pub use credential_store::{
     CredentialStore, CredentialStoreError, SecretStoreOffer, StoreAccount, StoreOpener,
-    secret_store_offer,
+    login_keychain, secret_store_offer,
 };
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 pub use executable_search::{find_executables, is_path_command, user_programs_folder};
@@ -239,6 +241,8 @@ pub use macos::code_signature::DesktopClientRequirement;
 pub use macos::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "macos")]
 pub use macos::input_wait::{may_wait_for_input, read_input_wait};
+#[cfg(target_os = "macos")]
+pub use macos::managed_preference::read_managed_preference;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::memory::process_footprint;
 #[cfg(target_os = "macos")]
@@ -272,6 +276,8 @@ pub use macos::{
 };
 #[cfg(target_os = "macos")]
 pub use macos::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
+#[cfg(not(target_os = "macos"))]
+pub use managed_preference::read_managed_preference;
 pub use memory::physical_memory;
 pub use own_root::OwnRootError;
 #[cfg(not(target_os = "macos"))]
@@ -315,7 +321,7 @@ pub const RUNS_COMMAND_WRAPPER: bool = false;
 #[cfg(unix)]
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(unix)]
-pub use posix::current_user::current_user_id;
+pub use posix::current_user::{current_user_id, current_user_name};
 #[cfg(unix)]
 pub use posix::disk::{
     flush_file, flush_folder, flush_open_file, is_on_network_file_system, read_exact_at,
@@ -425,6 +431,7 @@ pub use posix::thread_cpu_time::thread_cpu_time;
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
+pub use powershell_literal::quote_powershell_literal;
 #[cfg(any(test, feature = "test-support"))]
 pub use process_containment::CAN_TAKE_IN_ORPHANS;
 pub use process_containment::{
@@ -452,7 +459,10 @@ pub use session_child::SessionCommand;
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
 pub use shell_folder_start::ShellFolderStart;
-pub use shell_line_command::{command_shell, shell_line_command};
+pub use shell_line_command::{
+    FALLBACK_LINE_SHELLS, LINE_SHELL_PROGRAMS, LineShellProgram, ULTIMATE_FALLBACK_LINE_SHELL,
+    command_shell, shell_line_command,
+};
 pub use shell_start::{DOES_SHELL_MODE_KEEP_ITS_FOLDER, SHELL_START_CONFIRMATION};
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
 pub use socket::connection::found_no_listener;
@@ -517,7 +527,7 @@ pub use windows::credential_store::CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER;
 #[cfg(target_os = "windows")]
 pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(target_os = "windows")]
-pub use windows::current_user::current_user_id;
+pub use windows::current_user::{current_user_id, current_user_name};
 #[cfg(target_os = "windows")]
 pub use windows::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "windows")]

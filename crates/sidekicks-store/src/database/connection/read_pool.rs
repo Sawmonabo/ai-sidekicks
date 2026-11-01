@@ -22,6 +22,12 @@ use crate::database::connection::setup::open_database_reader;
 /// reads beside long ones on the blocking pool sets it.
 pub(crate) const READ_POOL_SIZE: usize = 4;
 
+/// The read-only connections the pool holds at most, for a test that holds every one of them.
+#[cfg(any(test, feature = "test-support"))]
+pub fn read_pool_size() -> usize {
+    READ_POOL_SIZE
+}
+
 const CLOSE_OPERATION: &str = "closing the database read pool";
 
 /// How long a read holds its connection: a long one (a page of events, a whole log) leaves one

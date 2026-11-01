@@ -1,6 +1,8 @@
 # Code is spelled in American English; documents are not checked.
 [default]
 locale = "en-us"
+# GNU `grep` takes the option `--colour` beside `--color`, and its read-only rules list both.
+extend-ignore-re = ["--colour"]
 
 # ICU4X's `writeable` crate and its trait.
 [default.extend-identifiers]

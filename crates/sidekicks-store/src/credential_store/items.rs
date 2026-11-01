@@ -162,8 +162,9 @@ impl SecretItems {
         }))
     }
 
-    /// The items filed under `service`.
-    pub(crate) fn keychain(self: &Arc<Self>, service: KeychainService) -> ItemsKeychain {
+    /// The items filed under `service`, which a feature reads and writes through its
+    /// [`SecretKeychain`].
+    pub fn keychain(self: &Arc<Self>, service: KeychainService) -> ItemsKeychain {
         ItemsKeychain {
             items: Arc::clone(self),
             service,
@@ -580,7 +581,7 @@ impl SecretItems {
 
 /// One keychain service's items wherever this run keeps them; every call waits for the place
 /// inside its one time.
-pub(crate) struct ItemsKeychain {
+pub struct ItemsKeychain {
     /// The run's secret items.
     items: Arc<SecretItems>,
     /// The service the items are filed under.

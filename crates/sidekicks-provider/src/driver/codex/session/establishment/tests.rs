@@ -11,13 +11,18 @@ use crate::driver::codex::service::supervisor::test_service::{
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::codex_session_inbound;
+use crate::driver::codex::session::test_fixture::status_sink::{
+    CountingStatusSink, mcp_server_startup,
+};
 use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, TestCodexSession, create_session_params, fork_reply, no_turns,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::error_causes::ProviderAxis;
+use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
 use crate::process_identity::ProviderProcessIds as _;
+use crate::runtime_binding::resume::ResumeFunctionLegs;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 
 // Killed by dropping the profile's read-back, and by dropping the let-go of the conversation a
@@ -109,13 +114,14 @@ async fn a_start_refuses_an_effort_its_models_row_does_not_list_before_any_conve
 }
 
 // Resumes the test session's conversation in place on a second service whose process is
-// `process_id` and which the session is attached to, its script answering the resume and its
-// history, the mode's update with `mode_answer` (an error where it holds one) and the auth read
-// a failure is classified by.
+// `process_id` and which the session is attached to, reporting on `function_legs`, its script
+// answering the resume and its history, the mode's update with `mode_answer` (an error where it
+// holds one) and the auth read a failure is classified by.
 async fn resume_on_second_service(
     session: &mut TestCodexSession,
     process_id: u32,
     mode_answer: Value,
+    function_legs: ResumeFunctionLegs,
 ) -> (ScriptedCodexService, DriverResumeResult) {
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let establishment = session.establishment(folder.path());
@@ -151,6 +157,7 @@ async fn resume_on_second_service(
         &mut task,
         Arc::clone(&second.service),
         mint_runtime_binding_id(),
+        function_legs,
         || async { false },
     );
     let resumed = tokio::select! {
@@ -171,6 +178,7 @@ async fn a_resume_whose_mode_update_fails_leaves_the_record_and_the_new_service_
         &mut session,
         4242,
         json!({"error": {"code": -32600, "message": "the mode is refused"}}),
+        ResumeFunctionLegs::default(),
     )
     .await;
 
@@ -195,7 +203,9 @@ async fn an_established_session_is_kept_under_its_service_process_until_it_lets_
     let session_id = session.task.record.session_id;
     let folder = tempfile::tempdir().expect("the test makes a folder");
 
-    let (second, result) = resume_on_second_service(&mut session, 4242, json!({})).await;
+    let (second, result) =
+        resume_on_second_service(&mut session, 4242, json!({}), ResumeFunctionLegs::default())
+            .await;
 
     assert!(matches!(result, DriverResumeResult::Resumed { .. }));
     assert!(Arc::ptr_eq(&session.task.record.service, &second.service));
@@ -233,4 +243,44 @@ async fn an_established_session_is_kept_under_its_service_process_until_it_lets_
         .expect("the next session's service process is recorded");
     assert_eq!(next.process_id, 4242);
     assert_ne!(next.spawn_sequence, identity.spawn_sequence);
+}
+
+// A resume in place ends the leg the record held once, reports on the resumed conversation's own
+// leg, and forgets the startups the left conversation reported, so a server it left starting
+// cannot hold back the new round's list. Killed by leaving the old leg open, by keeping the old
+// producer, by ending the new leg, and by keeping the old startups.
+#[tokio::test(start_paused = true)]
+async fn a_resume_in_place_ends_the_held_leg_and_reports_on_its_own() {
+    let mut session = TestCodexSession::start().await;
+    let old_sink = Arc::new(CountingStatusSink::default());
+    let new_sink = Arc::new(CountingStatusSink::default());
+    session.task.record.on_mcp_server_status =
+        Some(Arc::clone(&old_sink) as McpServerStatusProducer);
+    session
+        .task
+        .handle(mcp_server_startup(TEST_THREAD, "github", "starting", None))
+        .await;
+    let legs = ResumeFunctionLegs {
+        on_mcp_server_status: Some(Arc::clone(&new_sink) as McpServerStatusProducer),
+    };
+
+    let (_second, result) = resume_on_second_service(&mut session, 4242, json!({}), legs).await;
+
+    assert!(matches!(result, DriverResumeResult::Resumed { .. }));
+    assert_eq!(old_sink.ends(), 1, "the held leg ends once");
+    assert_eq!(new_sink.ends(), 0, "the resumed leg stays open");
+    let held = session
+        .task
+        .record
+        .on_mcp_server_status
+        .as_ref()
+        .expect("the record holds the resumed leg's producer");
+    assert!(Arc::ptr_eq(
+        held,
+        &(Arc::clone(&new_sink) as McpServerStatusProducer)
+    ));
+    assert!(
+        session.task.record.mcp_server_startups.is_empty(),
+        "the left conversation's startups were kept"
+    );
 }

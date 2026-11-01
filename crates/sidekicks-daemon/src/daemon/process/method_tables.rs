@@ -13,6 +13,7 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_recovery::damaged_history::DamagedHistory;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::write_gate::RecoveryWriteGate;
+use sidekicks_session::attention::delivery::web_address::sender::WebAddressSender;
 use sidekicks_session::attention::service::AttentionService;
 use sidekicks_session::changes::SessionChanges;
 use sidekicks_session::convert::SessionConversion;
@@ -63,6 +64,7 @@ use crate::ipc::handlers::attention::register_attention_methods;
 use crate::ipc::handlers::driver::{DriverMethodSources, register_driver_methods};
 use crate::ipc::handlers::highlight::register_highlight_read;
 use crate::ipc::handlers::machine::folder::register_machine_folders;
+use crate::ipc::handlers::mcp::{McpMethodSources, register_mcp_methods};
 use crate::ipc::handlers::presence::register_presence_methods;
 use crate::ipc::handlers::project::clone::register_project_clone_methods;
 use crate::ipc::handlers::project::register_project_methods;
@@ -130,6 +132,8 @@ pub(crate) struct MethodTableServices {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// The event log, which the session and run-state subscriptions read.
     pub(crate) event_log: Arc<EventLogService>,
+    /// The `mcp.*` methods' sources.
+    pub(crate) mcp_methods: McpMethodSources,
     /// Each session's live safety holds.
     pub(crate) run_safety_holds: Arc<RunSafetyHolds>,
     /// The sessions, which the transcript reads go through.
@@ -180,6 +184,8 @@ pub(crate) struct MethodTableServices {
     pub(crate) presence: Arc<PresenceRegister>,
     /// The attention entries' projection, banner settles and seen marks.
     pub(crate) attention: Arc<AttentionService>,
+    /// The web address's sender, which the delivery methods run on.
+    pub(crate) web_address_sender: Arc<WebAddressSender>,
     /// The repository mount methods' inputs.
     pub(crate) repo_mounts: RepoMountMethods,
     /// The workspace lifecycle, which binds a session to a mount and lists its workspaces.
@@ -199,11 +205,11 @@ pub(crate) struct MethodTableServices {
 }
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
-/// data, the drivers, the approvals, the runs and their agents' commands and turns, the sessions,
-/// attention, the repositories, the projects, the folders, workspaces and worktrees, the sessions'
-/// create and convert, the machine's folders and the devices present. The handshake, the
-/// subscriptions' cancel and the artifact store's table are registered by the start beside them.
-/// Fails when a method is registered twice.
+/// data, the drivers, the approvals, the runs and their agents' commands and turns, the MCP
+/// servers, the sessions, attention, the repositories, the projects, the folders, workspaces and
+/// worktrees, the sessions' create and convert, the machine's folders and the devices present. The
+/// handshake, the subscriptions' cancel and the artifact store's table are registered by the start
+/// beside them. Fails when a method is registered twice.
 pub(crate) fn register_method_tables(
     builder: &mut MethodRegistryBuilder,
     services: MethodTableServices,
@@ -234,6 +240,7 @@ pub(crate) fn register_method_tables(
         Arc::clone(&services.session_search.index),
     )?;
     register_session_list(builder, services.list_feed)?;
+    register_mcp_methods(builder, services.mcp_methods)?;
     register_session_event_subscribe(builder, services.event_log, Arc::clone(&services.providers))?;
     register_session_draft_update(builder, services.drafts)?;
     register_session_changes(builder, services.session_changes)?;
@@ -249,7 +256,7 @@ pub(crate) fn register_method_tables(
     register_session_groups(builder, services.session_groups)?;
     register_session_links(builder, services.links, services.related_ranking)?;
     register_session_recovery_methods(builder, services.damaged_history)?;
-    register_attention_methods(builder, services.attention)?;
+    register_attention_methods(builder, services.attention, services.web_address_sender)?;
     register_question_resolve(builder, services.questions)?;
     register_highlight_read(builder, services.highlighter)?;
     register_terminal_write(builder, services.shells.input_lookup())?;

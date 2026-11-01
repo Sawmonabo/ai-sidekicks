@@ -32,6 +32,7 @@ use crate::driver::contract::params_and_results::{
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
+use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::message_handing::MessageHanding;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
@@ -328,6 +329,22 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>>;
+
+    /// Reads the provider's MCP servers for `request`: what its config, its project roots, its
+    /// plugins and its accounts declare, and what each root's sessions load. A refresh reads again
+    /// what the driver keeps between reads; the request's probe scope names the bindings the driver
+    /// probes, each started as the driver's own declaration of it says.
+    fn read_mcp_servers(
+        &self,
+        request: McpServersReadRequest,
+    ) -> BoxFuture<'_, Result<ProviderMcpServersReading, DriverError>>;
+
+    /// Asks each live session of the provider to report its MCP servers' status again, which the
+    /// inventory calls once a refresh's reading has replaced what reported names resolve to; a
+    /// provider whose sessions report again on their own asks nothing.
+    fn reread_live_mcp_statuses(&self) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
 
     /// Compacts the bound session's provider-side context on the person's request (gated on
     /// `contextCompaction`), settling on the provider's own compaction evidence, never on the
