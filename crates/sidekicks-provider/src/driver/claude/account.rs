@@ -8,6 +8,22 @@
         reason = "the driver hands its account legs to the account plane once it is wired"
     )
 )]
+mod limits;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the driver hands its account legs to the account plane once it is wired"
+    )
+)]
+mod read_folder;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the driver hands its account legs to the account plane once it is wired"
+    )
+)]
 mod sign_out;
 #[cfg_attr(
     not(test),
@@ -28,6 +44,7 @@ use sidekicks_contracts::provider::account::record::{ProviderAccountId, Provider
 use sidekicks_platforms::{PathRules, Spawner};
 
 use crate::command_search::ProviderCommandSearch;
+use crate::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
 use crate::driver::claude::spawn::environment::{
     ClaudeProcessEnvironmentRequest, ClaudeProcessHome, compose_claude_process_environment,
 };
@@ -41,7 +58,8 @@ use crate::spawned_version::ResolvedProviderExecutable;
 
 /// What Claude Code's account legs start their processes from: the installed build, found as a
 /// session's is, the environment every Claude Code process is composed over, and the driver's
-/// launcher, which every Claude Code process the driver keeps starts through.
+/// launcher, which every Claude Code process the driver keeps starts through; and the driver's
+/// models each account's limits read names, which its sessions' events read their windows by.
 #[cfg_attr(
     not(test),
     expect(
@@ -57,6 +75,7 @@ pub(crate) struct ClaudeAccountLegs {
     data_folder: PathBuf,
     base_environment: Arc<[(String, String)]>,
     reserved_names: Arc<ReservedEnvironmentNames>,
+    usage_probe_models: Arc<ClaudeUsageProbeModels>,
 }
 
 #[cfg_attr(
@@ -67,9 +86,13 @@ pub(crate) struct ClaudeAccountLegs {
     )
 )]
 impl ClaudeAccountLegs {
-    /// The legs over the shared services, starting their kept processes through `launcher`; they
-    /// hold handles and do no I/O.
-    pub(crate) fn new(services: &DriverServices, launcher: Arc<ClaudeProcessLauncher>) -> Self {
+    /// The legs over the shared services, starting their kept processes through `launcher` and
+    /// noting each limits read's models in `usage_probe_models`; they hold handles and do no I/O.
+    pub(crate) fn new(
+        services: &DriverServices,
+        launcher: Arc<ClaudeProcessLauncher>,
+        usage_probe_models: Arc<ClaudeUsageProbeModels>,
+    ) -> Self {
         Self {
             spawner: services.spawner.clone(),
             launcher,
@@ -78,6 +101,7 @@ impl ClaudeAccountLegs {
             data_folder: services.data_folder.clone(),
             base_environment: Arc::clone(&services.base_environment),
             reserved_names: Arc::clone(&services.reserved_names),
+            usage_probe_models,
         }
     }
 
@@ -130,7 +154,7 @@ impl ProviderTokenStatusLegs for ClaudeAccountLegs {
 }
 
 /// The legs over `services`, starting their kept processes through a launcher of their own that
-/// reads tokens through `services`' accounts port.
+/// reads tokens through `services`' accounts port, and noting models in a map of their own.
 #[cfg(test)]
 pub(crate) fn test_account_legs(services: &DriverServices) -> ClaudeAccountLegs {
     let launcher = ClaudeProcessLauncher::new(
@@ -140,5 +164,5 @@ pub(crate) fn test_account_legs(services: &DriverServices) -> ClaudeAccountLegs 
         Arc::clone(&services.ports.provider_accounts),
         &services.data_folder,
     );
-    ClaudeAccountLegs::new(services, Arc::new(launcher))
+    ClaudeAccountLegs::new(services, Arc::new(launcher), Arc::default())
 }
