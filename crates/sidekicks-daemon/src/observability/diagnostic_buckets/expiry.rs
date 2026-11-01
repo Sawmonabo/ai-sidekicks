@@ -2,8 +2,8 @@
 //! than the bound, so a file is kept as long as its newest line is young enough. It covers the
 //! daemon's service log files and each provider service's log and kept tail in `logs/`, every
 //! diagnostic bucket, the crash dumps and crash reports, and the provider diagnostic folders in
-//! each account home, and asks each account home's driver to expire what its provider keeps there
-//! beyond those folders. A file still being written, the one the service log holds open, a running
+//! each account home and each provider's switching home, and asks each such home's driver to
+//! expire what its provider keeps there beyond those folders. A file still being written, the one the service log holds open, a running
 //! provider service's log, a partial crash dump or a crash-safe write's temporary file in either
 //! crash folder, which the crash pass removes itself once no writer holds it, is never deleted, and
 //! a running service's log past its cap is cut instead. A file in `logs/` that is no diagnostic log
@@ -20,7 +20,9 @@ use std::time::{Duration, SystemTime};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_platforms::atomic_write_target_of;
-use sidekicks_provider::account::homes::{account_home_diagnostic_folders, read_account_homes};
+use sidekicks_provider::account::homes::{
+    account_home_diagnostic_folders, read_account_homes, switching_homes,
+};
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::service_log::{
@@ -156,29 +158,36 @@ async fn run_expiry(
         deps.data_folder.join(CRASH_REPORTS_FOLDER_NAME),
     ];
     let mut folders = diagnostic_bucket_folders(&deps.data_folder).to_vec();
-    let mut driven_homes: Vec<(Arc<dyn ProviderDriver>, PathBuf)> = Vec::new();
+    let mut homes: Vec<(String, PathBuf)> = switching_homes(&deps.drivers, &deps.data_folder)
+        .into_iter()
+        .map(|switching_home| (switching_home.provider, switching_home.home))
+        .collect();
     match read_account_homes(&deps.reads, &meter).await {
-        Ok(account_homes) => {
-            for account_home in account_homes {
-                folders.extend(account_home_diagnostic_folders(
-                    &deps.drivers,
-                    &account_home.provider,
-                    &account_home.home,
-                ));
-                // An account whose provider no driver answers has nothing more to expire.
-                if let Some((_, driver)) = deps
-                    .drivers
-                    .drivers()
-                    .find(|(provider, _)| provider.as_str() == account_home.provider)
-                {
-                    driven_homes.push((Arc::clone(driver), account_home.home));
-                }
-            }
-        }
+        Ok(account_homes) => homes.extend(
+            account_homes
+                .into_iter()
+                .map(|account_home| (account_home.provider, account_home.home)),
+        ),
         Err(failure) => tracing::warn!(
             error = &failure as &(dyn Error + 'static),
             "the account homes' diagnostics could not be expired"
         ),
+    }
+    let mut driven_homes: Vec<(Arc<dyn ProviderDriver>, PathBuf)> = Vec::new();
+    for (home_provider, home) in homes {
+        folders.extend(account_home_diagnostic_folders(
+            &deps.drivers,
+            &home_provider,
+            &home,
+        ));
+        // A home whose provider no driver answers has nothing more to expire.
+        if let Some((_, driver)) = deps
+            .drivers
+            .drivers()
+            .find(|(provider, _)| provider.as_str() == home_provider)
+        {
+            driven_homes.push((Arc::clone(driver), home));
+        }
     }
     let expired = meter
         .run_blocking(move || {
