@@ -12,6 +12,7 @@ use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, Refu
 use sidekicks_platforms::{ChildExit, ServiceRegistrationError};
 
 use crate::commands::daemon::status::describe_cannot_start;
+use crate::commands::open::AddressHandlerMissingError;
 use crate::confirmation::ConfirmationUnavailableError;
 
 /// A process exit code the command line returns.
@@ -168,8 +169,9 @@ fn describe_daemon_exit(exit: &ChildExit, cannot_start: Option<&DaemonCannotStar
 
 /// How a failed run ends, from the first cause in its chain that names an ending: an argument
 /// refusal or a confirmation no one can answer, a failure the command line found itself by its
-/// kind, a daemon that is not answering, a closed output pipe, the daemon's error by its number (a
-/// domain refusal by its category), a call canceled after a Ctrl-C; any other failure is a
+/// kind, an app for an address that is not there, a daemon that is not answering, a closed output
+/// pipe, the daemon's error by its number (a domain refusal by its category), a call canceled after
+/// a Ctrl-C; any other failure is a
 /// software error. Fails with [`UnmappedExitCodeError`] for a daemon number with no exit code.
 pub(crate) fn exit_code_for_failure(
     failure: &anyhow::Error,
@@ -180,6 +182,9 @@ pub(crate) fn exit_code_for_failure(
         }
         if let Some(command_failure) = cause.downcast_ref::<CommandFailure>() {
             return Ok(ProcessEnding::Exit(command_failure.exit_code()));
+        }
+        if cause.is::<AddressHandlerMissingError>() {
+            return Ok(ProcessEnding::Exit(ExitCode::Unavailable));
         }
         if let Some(client_error) = cause.downcast_ref::<ClientError>() {
             return exit_code_for_client_error(client_error);
@@ -269,6 +274,7 @@ mod tests {
     use sidekicks_platforms::{ChildExit, ServiceRegistrationError};
 
     use super::{CommandFailure, ExitCode, ProcessEnding, exit_code_for_failure};
+    use crate::commands::open::AddressHandlerMissingError;
     use crate::confirmation::ConfirmationUnavailableError;
     use crate::program::Cli;
 
@@ -421,6 +427,10 @@ mod tests {
     #[case::no_terminal_to_confirm(
         ConfirmationUnavailableError.into(),
         ProcessEnding::Exit(ExitCode::Usage)
+    )]
+    #[case::no_app_for_the_address(
+        AddressHandlerMissingError.into(),
+        ProcessEnding::Exit(ExitCode::Unavailable)
     )]
     #[case::not_answering(
         ClientError::Unavailable {

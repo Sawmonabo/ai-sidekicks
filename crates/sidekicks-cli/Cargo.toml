@@ -31,6 +31,7 @@ anstyle-query.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 fast_qr.workspace = true
+futures.workspace = true
 garde.workspace = true
 icu_decimal.workspace = true
 icu_locale_core.workspace = true

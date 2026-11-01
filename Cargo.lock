@@ -8388,6 +8388,7 @@ dependencies = [
  "anyhow",
  "clap",
  "fast_qr",
+ "futures",
  "garde",
  "icu_decimal",
  "icu_locale_core",
