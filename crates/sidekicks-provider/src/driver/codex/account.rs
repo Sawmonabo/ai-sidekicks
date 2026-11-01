@@ -139,6 +139,7 @@ impl CodexAccountLegs {
             },
             CodexServiceKind::Account,
             compose_short_lived_dependencies(&self.dependencies),
+            Vec::new(),
         );
         let answer = act(&service).await;
         service.stop().await;
@@ -195,12 +196,14 @@ fn compose_short_lived_dependencies(
         spawner: shared.spawner.clone(),
         provider_services: Arc::clone(&shared.provider_services),
         processes: Arc::clone(&shared.processes),
+        child_records: Arc::clone(&shared.child_records),
         program: Arc::clone(&shared.program),
         data_folder: shared.data_folder.clone(),
         logs_folder: shared.logs_folder.clone(),
         additional_config_overrides,
         startup_timeout: shared.startup_timeout,
         dispatches_hook_mode: shared.dispatches_hook_mode,
+        session_shell_kind: shared.session_shell_kind,
         events: Arc::clone(&shared.events),
         release: Arc::clone(&shared.release),
         drains: LastingServiceDrains::default(),

@@ -251,7 +251,9 @@ async fn no_refusal_or_printed_account_carries_a_home_path() {
                 printed.push(format!("{refusal:?}"));
                 printed.extend(error_chain(&refusal));
             }
-            other => panic!("expected a refusal, got {other:?}"),
+            other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
+                panic!("expected a refusal, got {other:?}")
+            }
         }
     }
     let blocked_folder = full_folder.path().to_string_lossy().into_owned();

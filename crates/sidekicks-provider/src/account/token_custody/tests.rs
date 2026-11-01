@@ -391,7 +391,9 @@ async fn a_refused_seal_answers_its_cause_and_writes_nothing(#[case] cause: Keyc
         RefusalCode::ProviderAccountCredentialSealRefused
     );
     assert_eq!(
-        refusal.detail.map(serde_json::Value::Object),
+        refusal
+            .detail
+            .map(|detail| serde_json::Value::Object(*detail)),
         Some(
             serde_json::to_value(ProviderAccountCredentialSealRefusedDetails { cause })
                 .expect("the details write")

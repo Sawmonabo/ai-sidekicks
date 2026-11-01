@@ -369,4 +369,11 @@ impl RuntimeBindingWriter for TakenBindingWrites {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         ready(Ok(())).boxed()
     }
+    fn move_account(
+        &self,
+        _binding_id: RuntimeBindingId,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        ready(Ok(())).boxed()
+    }
 }

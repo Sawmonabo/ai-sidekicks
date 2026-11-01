@@ -316,6 +316,10 @@ pub(crate) struct ReadHold {
 
 /// One registered account as the registry stores it.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is one setting or mark the account's row stores"
+)]
 pub struct RegisteredAccount {
     /// The account's id.
     pub account_id: ProviderAccountId,
@@ -423,6 +427,10 @@ impl ProviderAccountRegistry {
 
     /// Removes the home of `minted`, an account no sign-in admitted. Fails when the home cannot
     /// be removed.
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "abandoning consumes the minted account, so it cannot be admitted after"
+    )]
     pub fn abandon(&self, minted: MintedAccount) -> Result<(), ProviderAccountRegistryError> {
         remove_credential_home(&minted.home).map_err(ProviderAccountRegistryError::CredentialHome)
     }

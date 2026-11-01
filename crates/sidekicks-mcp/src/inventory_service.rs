@@ -25,7 +25,7 @@ use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::wire::text::{TextError, is_ecmascript_whitespace};
 use sidekicks_ipc::redaction::{sanitize_failure_chain, sanitize_failure_reason};
-use sidekicks_provider::account_homes::{AccountHome, AccountHomesReadError, read_account_homes};
+use sidekicks_provider::account::homes::{AccountHome, AccountHomesReadError, read_account_homes};
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::mcp_server::read::{
