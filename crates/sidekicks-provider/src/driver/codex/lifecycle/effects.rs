@@ -16,6 +16,7 @@ use crate::driver::codex::server_requests::CodexAskKind;
 use crate::driver::codex::session::lifecycle_call::let_go_codex_session_record;
 use crate::driver::run_control::RunToolBoundary;
 use crate::port::plan::ProviderPlan;
+use crate::port::question::ProviderQuestion;
 
 /// The link to the session pieces, set once they are composed.
 #[derive(Default)]
@@ -108,6 +109,31 @@ impl CodexFrameEffects for CodexDriverEffects {
                     turn_id,
                     item_id,
                     "a plan codex proposed could not be recorded"
+                );
+            }
+        });
+    }
+
+    // Recorded outside the run's line of questions, since its run does not wait on it.
+    fn question_asked(&self, question: ProviderQuestion) {
+        let Some(parts) = self.link.parts() else {
+            return;
+        };
+        let Some(questions) = parts.ports.questions.port().cloned() else {
+            return;
+        };
+        let session_id = question.session_id.to_string();
+        let item_id = question.request_id.clone();
+        parts.tasks.spawn(async move {
+            if let Err(error) = questions
+                .record_question_in_turn(question, None, true)
+                .await
+            {
+                tracing::warn!(
+                    error = &*error as &(dyn std::error::Error + 'static),
+                    session_id,
+                    item_id,
+                    "a question codex asked without waiting could not be recorded"
                 );
             }
         });

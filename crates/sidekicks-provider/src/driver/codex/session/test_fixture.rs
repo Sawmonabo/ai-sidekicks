@@ -95,6 +95,7 @@ use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, PROVIDERS, ProviderAccountFolders,
     ProviderAccountReader, SessionSpawnContext, SessionSpawnContextResolver,
 };
+use crate::port::question::ProviderQuestion;
 use crate::port::run_host::RunHost;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_registry::ProviderProcessRegistry;
@@ -841,4 +842,6 @@ impl CodexFrameEffects for NoEffects {
     fn on_tool_boundary(&self, _boundary: RunToolBoundary) {}
 
     fn plan_proposed(&self, _run: &CodexRowRun, _text: &str, _turn_id: &str, _item_id: &str) {}
+
+    fn question_asked(&self, _question: ProviderQuestion) {}
 }
