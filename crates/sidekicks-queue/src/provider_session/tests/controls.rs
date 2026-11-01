@@ -39,6 +39,8 @@ use crate::provider_session::controls::SideQuestionSource;
 use crate::provider_session::errors::ProviderSessionError;
 use sidekicks_provider::driver::test_registry::new_run_id;
 
+mod recorded_mode;
+
 // A move to Sandboxed in a repository whose git folder is gone is refused before the driver hears
 // of it as `workspace.rootUnavailable`, the stored level left as it was, whether the session's
 // process runs, is down, or was never opened by this daemon; a move to Read-only, whose posture
