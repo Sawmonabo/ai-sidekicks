@@ -486,6 +486,7 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
         | SessionEvent::ApprovalRuleRevoked(_)
         | SessionEvent::ApprovalReviewerFlagged(_)
         | SessionEvent::PlanHoldEnded(_)
+        | SessionEvent::PlanHandOffFailed(_)
         | SessionEvent::QuestionAsked(_)
         | SessionEvent::QuestionOpened(_)
         | SessionEvent::QuestionCanceled(_)

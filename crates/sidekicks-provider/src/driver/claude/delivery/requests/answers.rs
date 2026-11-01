@@ -1,8 +1,9 @@
 //! A held request's answer in Claude Code's own words, and the rule an ask's answer made, kept
-//! once the answer went: a question goes back as the question tool's `answers`, keyed by each
-//! question's own text, through the route it came by; an ask's allow hands back the call's input,
-//! corrected where the person corrected it, with a project allow's rule for Claude Code to write;
-//! a refusal carries the decline's reason.
+//! once the answer went: a question goes back as the question tool's `answers` and the picked
+//! options' previews as its `annotations`, each keyed by the question's own text, through the
+//! route it came by; an ask's allow hands back the call's input, corrected where the person
+//! corrected it, with a project allow's rule for Claude Code to write; a refusal carries the
+//! decline's reason.
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -76,7 +77,9 @@ pub(crate) enum ClaudeAskAnswerError {
 }
 
 /// The question tool's answer in the shape its route takes: an ask's `allow` with the input, or
-/// the question hook's `allow` with it, each carrying `answers`, one per question in order.
+/// the question hook's `allow` with it, each carrying `answers`, one per answered question, and
+/// `annotations` with the preview of each picked option that carried one; never `notes` or
+/// `response`, since `response` replaces every answer the agent reads.
 pub(crate) fn compose_claude_question_answer(
     question: &ClaudeHeldQuestion,
     answers: &[QuestionAnswer],
@@ -86,6 +89,10 @@ pub(crate) fn compose_claude_question_answer(
         "answers".to_owned(),
         Value::Object(compose_question_answers(&question.questions, answers)),
     );
+    let annotations = compose_question_annotations(&question.questions, answers);
+    if !annotations.is_empty() {
+        updated_input.insert("annotations".to_owned(), Value::Object(annotations));
+    }
     match question.route {
         ClaudeQuestionRoute::Ask => json!({"behavior": "allow", "updatedInput": updated_input}),
         ClaudeQuestionRoute::Hook => compose_pre_tool_use_allow(Some(updated_input)),
@@ -183,6 +190,36 @@ fn compose_question_answers(
                     Value::from(texts.join(", ")),
                 )
             })
+        })
+        .collect()
+}
+
+// The question tool's `annotations`, keyed by each question's own text: the preview of the option
+// picked, the first of several picked that carries one; a question whose pick carries none, or
+// whose answer was typed or skipped, has no key.
+fn compose_question_annotations(
+    questions: &[QuestionPrompt],
+    answers: &[QuestionAnswer],
+) -> Map<String, Value> {
+    questions
+        .iter()
+        .zip(answers)
+        .filter_map(|(question, answer)| {
+            let QuestionAnswer::Picked { labels } = answer else {
+                return None;
+            };
+            let preview = labels.as_slice().iter().find_map(|label| {
+                question
+                    .options
+                    .iter()
+                    .find(|option| option.label == *label)?
+                    .preview
+                    .as_deref()
+            })?;
+            Some((
+                question.text.as_str().to_owned(),
+                json!({"preview": preview}),
+            ))
         })
         .collect()
 }

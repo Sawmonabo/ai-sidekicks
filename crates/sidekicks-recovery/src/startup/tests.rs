@@ -14,7 +14,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_provider::port::plan::ProviderPlan;
+use sidekicks_provider::port::plan::{ProviderPlan, mint_plan_id};
 use sidekicks_session::run::engine::test_fixture::{insert_running_run, stored_run_state};
 use sidekicks_store::database::writer::test_file::test_run_id;
 use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
@@ -47,9 +47,11 @@ async fn a_pass_settles_what_a_restart_left_in_a_session_in_order() {
     let fixture = PassFixture::new().await;
     let session_id = fixture.store.session_id;
     let ended_run = fixture.store.run_id;
-    let plan_id = fixture
+    let plan_id = mint_plan_id();
+    fixture
         .plans()
         .take_plan(ProviderPlan {
+            plan_id,
             session_id,
             run_id: ended_run,
             text: "# The plan\n\nBuild it.".to_owned(),

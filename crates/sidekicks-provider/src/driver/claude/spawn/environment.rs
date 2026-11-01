@@ -1,8 +1,8 @@
 //! The one place a Claude Code process's environment is composed: the session's environment with
 //! the run's credential variables and the withheld names removed, then the variables the app sets
-//! on every Claude Code process, and the home it runs on: an account's folders with the scratch
-//! folder the daemon keeps under its own data folder for each account, or a throwaway folder that
-//! holds all three for one read.
+//! on every Claude Code process, the question tool's switches among them, and the home it runs on:
+//! an account's folders with the scratch folder the daemon keeps under its own data folder for
+//! each account, or a throwaway folder that holds all three for one read.
 
 use std::path::{Path, PathBuf};
 
@@ -39,6 +39,13 @@ pub(crate) const CLAUDE_PROVIDER_SWITCH_VARIABLES: [&str; 6] = [
 /// The switch Claude Code reads, with `ANTHROPIC_BASE_URL` and a token, to make its provider the
 /// gateway.
 pub(crate) const CLAUDE_GATEWAY_SWITCH_VARIABLE: &str = "CLAUDE_CODE_USE_GATEWAY";
+
+// The question tool's two switches: options carry markdown previews, and the tool also asks text
+// and number questions under a title; unset, a process the daemon starts asks neither.
+const CLAUDE_QUESTION_VARIABLES: [(&str, &str); 2] = [
+    ("CLAUDE_CODE_QUESTION_PREVIEW_FORMAT", "markdown"),
+    ("CLAUDE_CODE_QUESTION_EXTENDED", "1"),
+];
 
 /// The folders of an account the daemon manages, which Claude Code reads through
 /// `CLAUDE_CONFIG_DIR` and `CLAUDE_SECURESTORAGE_CONFIG_DIR`; each an absolute path.
@@ -133,8 +140,9 @@ pub(crate) fn claude_text_variable<'environment>(
         .filter(|value| !value.is_empty())
 }
 
-/// The whole environment a session process, a relaunch or the sign-in check starts with, with
-/// `additional_mandated_pairs` (a pair a caller sets on this one process) over it. Fails as
+/// The whole environment a session process, a relaunch or the sign-in check starts with, the
+/// question tool's previews and extended questions switched on, with `additional_mandated_pairs`
+/// (a pair a caller sets on this one process) over it. Fails as
 /// `build_provider_process_environment` does: a mandated name claimed twice, or an account or
 /// scratch folder that is relative or ends up empty.
 pub(crate) fn compose_claude_process_environment(
@@ -165,6 +173,11 @@ pub(crate) fn compose_claude_process_environment(
         ),
         ("CLAUDE_CODE_TMPDIR".to_owned(), scratch_folder),
     ];
+    let mandated_pairs: Vec<(String, String)> = CLAUDE_QUESTION_VARIABLES
+        .iter()
+        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+        .chain(additional_mandated_pairs.iter().cloned())
+        .collect();
     build_provider_process_environment(
         &ProviderEnvironmentRequest {
             session: request.session,
@@ -172,7 +185,7 @@ pub(crate) fn compose_claude_process_environment(
             deny_env_vars: request.deny_env_vars,
             credential_homes: &credential_homes,
         },
-        additional_mandated_pairs,
+        &mandated_pairs,
     )
 }
 
@@ -201,10 +214,14 @@ mod tests {
     };
 
     // Killed by a scratch folder shared across accounts, which a purge of one account would sweep
-    // for every other, and by a shell's own value winning over the account's.
+    // for every other, by a shell's own value winning over the account's or over the question
+    // tool's switches, and by either switch left off.
     #[test]
-    fn the_account_s_own_scratch_folder_is_set_over_the_shells_value() {
-        let base = vec![("CLAUDE_CODE_TMPDIR".to_owned(), "/tmp/shell".to_owned())];
+    fn the_app_s_own_values_are_set_over_the_shells() {
+        let base = vec![
+            ("CLAUDE_CODE_TMPDIR".to_owned(), "/tmp/shell".to_owned()),
+            ("CLAUDE_CODE_QUESTION_EXTENDED".to_owned(), "0".to_owned()),
+        ];
         let reserved_names = ReservedEnvironmentNames::of_providers(&[]);
         let folders = ClaudeAccountFolders {
             config_folder: "/accounts/one/config".to_owned(),
@@ -233,6 +250,14 @@ mod tests {
         assert_eq!(
             PathRules::Posix.environment_value(&environment, "CLAUDE_CODE_TMPDIR"),
             Some("/data/claude-scratch/accounts/account-1")
+        );
+        assert_eq!(
+            PathRules::Posix.environment_value(&environment, "CLAUDE_CODE_QUESTION_EXTENDED"),
+            Some("1")
+        );
+        assert_eq!(
+            PathRules::Posix.environment_value(&environment, "CLAUDE_CODE_QUESTION_PREVIEW_FORMAT"),
+            Some("markdown")
         );
         assert_eq!(
             compose_claude_process_environment(request("data"), &[]),

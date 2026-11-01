@@ -2,9 +2,11 @@
 //! provider and a plan item on the other; the daemon turns either into one plan record the screen
 //! renders (`plan.proposed`) and one call answers (`plan.resolve`), and records the outcome as
 //! `plan.accepted`, `plan.handedOff` or `plan.kept` so the system messages survive a reload. A held
-//! request that ends with no answer settles the plan `open` with `plan.hold.ended`. The first
-//! answer settles the plan everywhere; a later answer reads back the state it settled to rather
-//! than applying again.
+//! request that ends with no answer, or a newer plan of the same session, settles the plan `open`
+//! with `plan.hold.ended`, and a hand-off whose fresh session is gone before its first turn returns
+//! the plan to `waiting` the same way. A hand-off step that did not finish is recorded as
+//! `plan.handOff.failed`. The first answer settles the plan everywhere; a later answer reads back
+//! the state it settled to rather than applying again.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -116,8 +118,10 @@ pub struct PlanKeptPayload {
     pub device_id: DeviceId,
 }
 
-/// Why a held plan request ended with no verdict: its turn was interrupted, the provider withdrew
-/// it, or its run ended, a restart of the background service among the ways a run ends.
+/// Why a plan's hold ended with no verdict: its turn was interrupted, the provider withdrew its
+/// request, its run ended (a restart of the background service among the ways a run ends), a newer
+/// plan of the same session took its place, or the fresh session it was handed to was archived,
+/// closed or purged before its first turn was admitted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum PlanHoldEndedReason {
@@ -127,10 +131,16 @@ pub enum PlanHoldEndedReason {
     Withdrawn,
     /// Its run ended.
     RunEnded,
+    /// A newer plan of the same session took its place.
+    Superseded,
+    /// The fresh session it was handed to was archived, closed or purged before its first turn was
+    /// admitted, so the plan waits again, holding no request.
+    FreshSessionGone,
 }
 
-/// `plan.hold.ended`: the provider request a plan held ended with no verdict, so the plan settles
-/// `open`; its card closes on every device and the plan stays readable.
+/// `plan.hold.ended`: the plan's hold ended with no verdict. The plan settles `open`, its card
+/// closing on every device and the plan staying readable, except after `freshSessionGone`, where it
+/// waits again with its card up.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PlanHoldEndedPayload {
@@ -154,6 +164,63 @@ pub struct PlanHandedOffPayload {
     pub fresh_session_id: SessionId,
     /// The device whose verdict it was.
     pub device_id: DeviceId,
+}
+
+/// A step of a hand-off after the plan reads handed off, in the order they run: the fresh
+/// session's birth, its folder's bind, the planning transcript's file, the plan's copy into the
+/// fresh session, its activation, and the plan sent as its first message.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    VariantArray,
+    IntoStaticStr,
+)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum PlanHandOffStep {
+    /// The fresh session's birth.
+    Birth,
+    /// The bind of the folder it works in.
+    Bind,
+    /// The planning transcript's file.
+    TranscriptFile,
+    /// The plan's copy into the fresh session.
+    SeedPlan,
+    /// The fresh session's activation.
+    Activation,
+    /// The plan sent as the fresh session's first message.
+    SeedMessage,
+}
+
+/// `plan.handOff.failed`: a hand-off step did not finish; the plan stays handed off, and the next
+/// `fresh` verdict runs the unfinished steps again.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlanHandOffFailedPayload {
+    /// The plan.
+    pub plan_id: PlanId,
+    /// The fresh session.
+    pub fresh_session_id: SessionId,
+    /// The step that did not finish.
+    pub step: PlanHandOffStep,
+}
+
+/// The details a `plan.handOffUnfinished` refusal carries: the fresh session and the step that did
+/// not finish.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlanHandOffUnfinishedDetails {
+    /// The fresh session.
+    pub fresh_session_id: SessionId,
+    /// The step that did not finish.
+    pub step: PlanHandOffStep,
 }
 
 /// The session a `fresh` verdict mints: the provider it runs and the level it starts at, the
@@ -238,7 +305,18 @@ methods! {
             mutating: true,
             params: PlanResolveRequest,
             result: PlanResolveResponse,
-            refusals: [PlanNotFound, SessionPermissionLevelNotOffered],
+            refusals: [
+                PlanNotFound,
+                PlanHandOffUnfinished,
+                SessionPermissionLevelNotOffered,
+                SessionAlreadyClosed,
+                SessionChangeRefused,
+                ProviderAccountCurrentNotSet,
+                ProviderAccountNotRegistered,
+                AgentProviderAxisInvalid,
+                AgentQueueItemPersistenceUnavailable,
+                AgentQueueItemRunChanged,
+            ],
         },
     ];
 }
@@ -256,6 +334,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<PlanHoldEndedReason>(),
         Definition::read::<PlanHoldEndedPayload>().checked(),
         Definition::read::<PlanHandedOffPayload>().checked(),
+        Definition::read::<PlanHandOffStep>(),
+        Definition::read::<PlanHandOffFailedPayload>().checked(),
+        Definition::read::<PlanHandOffUnfinishedDetails>(),
         Definition::read::<PlanFreshSession>(),
         Definition::read::<PlanResolveRequest>().checked(),
         Definition::read::<PlanResolveResponse>().checked(),

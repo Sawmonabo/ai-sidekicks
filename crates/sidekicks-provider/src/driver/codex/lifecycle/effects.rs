@@ -15,7 +15,7 @@ use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
 use crate::driver::codex::server_requests::CodexAskKind;
 use crate::driver::codex::session::lifecycle_call::let_go_codex_session_record;
 use crate::driver::run_control::RunToolBoundary;
-use crate::port::plan::ProviderPlan;
+use crate::port::plan::{ProviderPlan, mint_plan_id};
 use crate::port::question::ProviderQuestion;
 
 /// The link to the session pieces, set once they are composed.
@@ -94,6 +94,7 @@ impl CodexFrameEffects for CodexDriverEffects {
             return;
         };
         let plan = ProviderPlan {
+            plan_id: mint_plan_id(),
             session_id: run.session_id,
             run_id: run.run_id,
             text: text.to_owned(),
