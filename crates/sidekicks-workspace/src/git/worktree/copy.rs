@@ -16,7 +16,7 @@ use sidekicks_std::file::clone_or_copy::clone_or_copy;
 
 /// What a copy does with what its destination already has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TreeCopyPolicy {
+pub enum TreeCopyPolicy {
     /// A setup's copy into a tree: an entry the tree already has is kept and logged, never copied
     /// over, and a folder both have is copied into.
     KeepExisting,
@@ -27,7 +27,7 @@ pub(crate) enum TreeCopyPolicy {
 
 /// What a copy tells its follower as it goes, so a progress figure can read how much of the file
 /// under way has reached its destination.
-pub(crate) trait TreeCopyFollower: Sync {
+pub trait TreeCopyFollower: Sync {
     /// The copy begins the file at `destination`.
     fn file_began(&self, destination: &Path);
 
@@ -37,7 +37,7 @@ pub(crate) trait TreeCopyFollower: Sync {
 
 /// Why a copy stopped; what it copied before stays where it is.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum TreeCopyError {
+pub enum TreeCopyError {
     /// The walk of the source failed.
     #[error("the folder to copy could not be read")]
     Walk(#[source] ignore::Error),
@@ -63,7 +63,7 @@ enum EntryCopy {
 /// Copies `source`, a folder, a file or a link, to `destination` under `policy`, telling
 /// `follower` of each file. Blocks on the file system, so it runs on a blocking thread. Fails with
 /// the walk's failure or the first entry that could not be copied.
-pub(crate) fn copy_tree(
+pub fn copy_tree(
     source: &Path,
     destination: &Path,
     policy: TreeCopyPolicy,

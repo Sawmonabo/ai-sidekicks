@@ -14,6 +14,7 @@
 //!   resumes a hold where it stood.
 //! - The limit resets an account can redeem are kept from its last limits read, none where that
 //!   read carried no count.
+//! - An account's one memory import is kept on its row once it has run.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -172,6 +173,15 @@ static RECORD_RESET_CREDITS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE provider_accounts
      SET reset_credits_available = @reset_credits_available, updated_at = {DATABASE_NOW_SQL}
+   WHERE account_id = @account_id AND removal_intent = 0"
+    )
+});
+
+static RECORD_MEMORY_IMPORT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE provider_accounts
+     SET memory_import_outcome = @outcome, memory_import_count = @count,
+         memory_imported_at = @imported_at, updated_at = {DATABASE_NOW_SQL}
    WHERE account_id = @account_id AND removal_intent = 0"
     )
 });
@@ -638,6 +648,34 @@ impl ProviderAccountRegistry {
                     Cow::Borrowed("@reset_credits_available"),
                     available.map_or(Value::Null, |count| Value::Integer(i64::from(count))),
                 ),
+            ]),
+            expected_row_count: Some(1),
+        }])
+        .await
+        .map(drop)
+    }
+
+    /// Stores `outcome` as `account_id`'s one memory import. Fails with
+    /// [`ProviderAccountRegistryError::NotFound`] for an account not registered or being removed.
+    pub(super) async fn record_memory_import(
+        &self,
+        account_id: &ProviderAccountId,
+        outcome: &ProviderAccountMemoryImportOutcome,
+    ) -> Result<(), ProviderAccountRegistryError> {
+        let (count, imported_at) = match outcome {
+            ProviderAccountMemoryImportOutcome::Imported { count, imported_at } => (
+                Value::Integer(i64::try_from(count.get()).expect("a safe integer fits an i64")),
+                Some(imported_at.as_str()),
+            ),
+            ProviderAccountMemoryImportOutcome::NothingToImport {} => (Value::Null, None),
+        };
+        self.write(vec![WriteStatement {
+            sql: Cow::Borrowed(RECORD_MEMORY_IMPORT_SQL.as_str()),
+            bindings: StatementBindings::Named(vec![
+                text_binding("@account_id", account_id.as_str()),
+                text_binding("@outcome", outcome.into()),
+                (Cow::Borrowed("@count"), count),
+                nullable_text_binding("@imported_at", imported_at),
             ]),
             expected_row_count: Some(1),
         }])

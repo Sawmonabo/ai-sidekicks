@@ -5,12 +5,14 @@
 //! readiness derived from those rows, the one resolver of a provider's current account and of an
 //! account's folders before a spawn, the broker of each provider's own sign-in, the custody of
 //! each pasted token, the usage turns the daemon keeps per account, the lock every act in an
-//! account's home takes, and the background observer that reads each account's limits.
+//! account's home takes, the one-time import of the person's own memory into an account's home,
+//! and the background observer that reads each account's limits.
 
 pub mod credential_home;
 pub mod errors;
 pub mod home_lock;
 pub mod homes;
+pub mod memory_import;
 pub mod observer;
 pub mod readiness;
 pub mod registry;

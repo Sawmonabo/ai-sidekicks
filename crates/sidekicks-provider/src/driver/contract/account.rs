@@ -2,6 +2,9 @@
 //! own acts on one account's home, named for the act, so the plane reads one object per provider
 //! and never branches on which provider it is.
 
+use std::io;
+use std::path::PathBuf;
+
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use secrecy::SecretString;
@@ -227,6 +230,27 @@ pub trait ProviderObserveLegs: Send + Sync {
     /// Whether a turn's end on an account is followed by a read of it, since the provider's turns
     /// bring no full reading of their own.
     fn reads_at_turn_end(&self) -> bool;
+}
+
+/// One of the person's own provider memory stores, a folder their own home holds, and the folders
+/// the memory import copies it into, each absolute.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MemoryImportStore {
+    /// The folder of the person's own memory, only ever read; it may not stand.
+    pub source: PathBuf,
+    /// Where it is copied, never over a file already there.
+    pub destinations: Vec<PathBuf>,
+}
+
+/// Where a provider keeps the person's own memory and where the memory import copies it for one
+/// account, so the import itself never names a provider.
+pub trait ProviderMemoryImportLegs: Send + Sync {
+    /// The person's own memory stores, each with the folders it is copied into for the account
+    /// whose home is `home`; a store whose folder does not stand holds no memory to copy. Lists
+    /// folders of the person's own home and writes nothing, so it blocks and runs off the
+    /// runtime's threads. Fails with the system's error when a folder of the person's own home
+    /// cannot be listed.
+    fn memory_import_stores(&self, home: &CredentialHome) -> io::Result<Vec<MemoryImportStore>>;
 }
 
 /// What one smallest turn in an account's home spent, as the provider reported it: the model and
