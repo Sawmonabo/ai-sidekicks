@@ -1,8 +1,10 @@
 //! A person's send: into a paused run, which it resumes, into a session whose lead run changes
 //! between the send's read and its write, with a skill its provider does not list, and repeated
-//! under its key after its account was removed; and a review queued as the session's next item,
+//! under its key after its account was removed; a review queued as the session's next item,
 //! which opens a run of its own, takes no edit and is sent again once not delivered, a retry
-//! carrying none of a message's extras.
+//! carrying none of a message's extras; and a plan message, which goes as a review does, opens its
+//! run as a message carrying its plan, takes no edit, is sent again only in its own words, and is
+//! removed by a person only when it builds the plan, never when it seeds a hand-off.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -12,10 +14,11 @@ use serde_json::json;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::queue::{
-    AgentQueueItemCreateRequest, AgentQueueItemCreateResponse, QueueItemId,
-    QueueItemNotDeliveredReason, QueuedSkillPick,
+    AgentQueueItemCancelRequest, AgentQueueItemCreateRequest, AgentQueueItemCreateResponse,
+    PlanMessage, PlanMessageKind, QueueItemId, QueueItemNotDeliveredReason, QueuedSkillPick,
 };
 use sidekicks_contracts::session::controls::methods::{
     SessionCodeReviewStartRequest, SessionReviewTarget,
@@ -186,15 +189,7 @@ impl Fixture {
         .await
         .expect("the review answers")
         .expect("the review is queued");
-        match queued {
-            AgentQueueItemCreateResponse::Queued { queue_item_id, .. }
-            | AgentQueueItemCreateResponse::Admitted { queue_item_id, .. } => queue_item_id,
-            other @ (AgentQueueItemCreateResponse::Superseded { .. }
-            | AgentQueueItemCreateResponse::Canceled { .. }
-            | AgentQueueItemCreateResponse::NotDelivered { .. }) => {
-                panic!("the review waits or is admitted: {other:?}")
-            }
-        }
+        queue_item_id_of(&queued)
     }
 
     /// Sends again, or edits, the item `replaces` as a person's send naming it does, and answers
@@ -522,4 +517,308 @@ async fn a_send_repeated_after_its_account_was_removed_answers_the_saved_one() {
         "{answer:?}"
     );
     assert_eq!(fixture.count_items(), 1);
+}
+
+/// The words of the plan messages the tests send.
+const PLAN_MESSAGE_TEXT: &str = "Implement the plan.";
+
+/// The device whose verdict the tests' plan messages carry out.
+const VERDICT_DEVICE: &str = "device-verdict";
+
+impl Fixture {
+    /// Sends the daemon's plan message of `kind` for `plan_id` under `key`, for the verdict of
+    /// [`VERDICT_DEVICE`], and answers the queued item's id.
+    async fn send_plan_message(
+        &self,
+        plan_id: PlanId,
+        kind: PlanMessageKind,
+        key: ClientUuid,
+    ) -> QueueItemId {
+        let queued = timeout(
+            WAIT,
+            self.queue.send_plan_message(
+                self.session_id,
+                PlanMessage {
+                    plan_id,
+                    kind,
+                    source_session_id: None,
+                },
+                FreeFormText::new(PLAN_MESSAGE_TEXT.to_owned()).expect("a test message"),
+                key,
+                DeviceId::new(VERDICT_DEVICE.to_owned()).expect("a test device id"),
+            ),
+        )
+        .await
+        .expect("the plan message answers")
+        .expect("the plan message is queued");
+        queue_item_id_of(&queued)
+    }
+
+    /// Removes the lead's item `item_id` as a person's removal does.
+    async fn cancel_item(&self, item_id: QueueItemId) -> Result<(), QueueError> {
+        timeout(
+            WAIT,
+            self.queue.cancel(AgentQueueItemCancelRequest {
+                queue_item_id: item_id,
+                child_handle: None,
+            }),
+        )
+        .await
+        .expect("the removal answers")
+        .map(|_| ())
+    }
+
+    /// The `user.message.sent` payload recorded for `item_id`.
+    fn sent_message_payload(&self, item_id: QueueItemId) -> serde_json::Value {
+        let payload: String = self
+            .database
+            .reader()
+            .query_row(
+                "SELECT payload FROM session_events
+                 WHERE type = 'user.message.sent'
+                   AND json_extract(payload, '$.queueItemId') = ?1",
+                [item_id.to_string()],
+                |row| row.get(0),
+            )
+            .expect("the test reads the item's transcript row");
+        serde_json::from_str(&payload).expect("a stored payload is JSON")
+    }
+
+    /// The events the session's log holds.
+    fn count_events(&self) -> i64 {
+        self.database
+            .reader()
+            .query_row("SELECT COUNT(*) FROM session_events", [], |row| row.get(0))
+            .expect("the test counts the log's events")
+    }
+}
+
+/// The id of the item a queued send answers.
+fn queue_item_id_of(queued: &AgentQueueItemCreateResponse) -> QueueItemId {
+    match queued {
+        AgentQueueItemCreateResponse::Queued { queue_item_id, .. }
+        | AgentQueueItemCreateResponse::Admitted { queue_item_id, .. } => *queue_item_id,
+        other @ (AgentQueueItemCreateResponse::Superseded { .. }
+        | AgentQueueItemCreateResponse::Canceled { .. }
+        | AgentQueueItemCreateResponse::NotDelivered { .. }) => {
+            panic!("the send waits or is admitted: {other:?}")
+        }
+    }
+}
+
+/// A new plan's id.
+fn new_plan_id() -> PlanId {
+    PlanId::try_from(mint_uuid_v7()).expect("a minted UUID is a plan id")
+}
+
+/// The opening a plan message's run starts with: its words alone.
+fn plan_message_opening() -> RunOpeningItem {
+    RunOpeningItem::Message {
+        content: FreeFormText::new(PLAN_MESSAGE_TEXT.to_owned()).expect("a test message"),
+        attachments: Vec::new(),
+        skills: Vec::new(),
+    }
+}
+
+// A plan message sent behind a running turn waits for that run's end: a message the person sends
+// after it is steered into the turn, and the plan message is neither steered nor started; a send
+// again under its key answers the same item and queues nothing more. Killed by a plan message
+// steered into the running turn, and by a second send under its key making a second item.
+#[tokio::test]
+async fn a_plan_message_behind_a_running_turn_is_never_handed_into_it() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("running");
+    bind_run_to_first_provider(&fixture.database, run_id);
+    let plan_id = new_plan_id();
+    let key = client_key();
+
+    let plan_message_id = fixture
+        .send_plan_message(plan_id, PlanMessageKind::Build, key.clone())
+        .await;
+    let message_id = timeout(WAIT, fixture.send())
+        .await
+        .expect("the send answers")
+        .expect("the send is saved");
+    let again = fixture
+        .send_plan_message(plan_id, PlanMessageKind::Build, key)
+        .await;
+    fixture.queue.stop().await;
+
+    assert_eq!(again, plan_message_id);
+    assert_eq!(fixture.count_items(), 2);
+    assert_eq!(calls.steers(), [(message_id, false)]);
+    assert!(calls.starts().is_empty(), "{:?}", calls.starts());
+    let plan_message = fixture.stored_item(plan_message_id);
+    assert_eq!(plan_message.target_run_id, Some(run_id));
+    assert_eq!(plan_message.state, RecordedQueueItemState::Queued);
+}
+
+// A plan message on a session with no live run opens a run of its own at once, through the driver
+// as a message of its words alone, and reads admitted; its transcript row is `user.message.sent`
+// naming the verdict's device as its actor and carrying the plan, with no voice origin. Killed by
+// a plan message opened as a review, a row naming another actor, one without the plan, and the
+// plan put on the message's origin.
+#[tokio::test]
+async fn a_plan_message_at_rest_opens_a_run_of_its_own_recorded_with_its_plan() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let plan_id = new_plan_id();
+
+    let item_id = fixture
+        .send_plan_message(plan_id, PlanMessageKind::Build, client_key())
+        .await;
+    fixture.queue.stop().await;
+
+    let item = fixture.stored_item(item_id);
+    let run_id = item
+        .target_run_id
+        .expect("the plan message waits for its run");
+    assert_eq!(calls.starts(), [(run_id, item_id)]);
+    assert_eq!(calls.opening_items(), [plan_message_opening()]);
+    assert_eq!(item.state, RecordedQueueItemState::Admitted);
+    let sent = fixture.sent_message_payload(item_id);
+    assert_eq!(sent["actor"], json!(VERDICT_DEVICE));
+    assert_eq!(sent["deviceId"], json!(VERDICT_DEVICE));
+    assert_eq!(sent["message"], json!(PLAN_MESSAGE_TEXT));
+    assert_eq!(
+        sent["planMessage"],
+        json!({ "planId": plan_id, "kind": "build" })
+    );
+    assert!(sent.get("origin").is_none(), "{sent}");
+}
+
+// An edit naming a plan message that waits behind a running turn is refused
+// `agent.queueItem.changeRefused` with the reason `planMessage`, and the plan message keeps
+// waiting, nothing written. Killed by an edit admitted like a message's.
+#[tokio::test]
+async fn an_edit_of_a_waiting_plan_message_is_refused() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("running");
+    bind_run_to_first_provider(&fixture.database, run_id);
+    let item_id = fixture
+        .send_plan_message(new_plan_id(), PlanMessageKind::Build, client_key())
+        .await;
+    let events = fixture.count_events();
+
+    let edited = fixture.replace_item(item_id).await;
+    fixture.queue.stop().await;
+
+    let Err(QueueError::Refused(DomainError { code, detail, .. })) = edited else {
+        panic!("the edit is refused, got {edited:?}");
+    };
+    assert_eq!(code, RefusalCode::AgentQueueItemChangeRefused);
+    assert_eq!(
+        detail.expect("the refusal names its reason")["reason"],
+        json!("planMessage")
+    );
+    assert_eq!(fixture.count_items(), 1);
+    assert_eq!(fixture.count_events(), events);
+    assert_eq!(
+        fixture.stored_state(item_id),
+        RecordedQueueItemState::Queued
+    );
+}
+
+// A plan message whose run failed to start reads not delivered: a retry in other words is refused
+// `agent.queueItem.changeRefused`, `notDelivered`, and one in its own words queues the same plan
+// message again, the failed one superseded, opening a run of its own as the same message with its
+// plan on the new row. Killed by a retry in other words that is sent, and by a retry sent as the
+// person's message.
+#[tokio::test]
+async fn a_plan_message_not_delivered_goes_again_only_in_its_own_words() {
+    let calls = Arc::new(DriverCalls::default());
+    calls.start_failures_left.store(1, Ordering::SeqCst);
+    let fixture = fixture(recording_driver(&calls)).await;
+    let plan_id = new_plan_id();
+    let failed_id = fixture
+        .send_plan_message(plan_id, PlanMessageKind::Seed, client_key())
+        .await;
+    fixture.queue.stop().await;
+    assert_eq!(
+        fixture.stored_state(failed_id),
+        RecordedQueueItemState::NotDelivered {
+            reason: QueueItemNotDeliveredReason::Failed {}
+        }
+    );
+
+    let other_words = fixture.replace_item(failed_id).await;
+    let own_words = fixture
+        .replace_item_carrying(failed_id, |request| {
+            request.content =
+                FreeFormText::new(PLAN_MESSAGE_TEXT.to_owned()).expect("a test message");
+        })
+        .await
+        .expect("the retry is queued");
+    fixture.queue.stop().await;
+
+    let Err(QueueError::Refused(DomainError { code, detail, .. })) = other_words else {
+        panic!("the retry in other words is refused, got {other_words:?}");
+    };
+    assert_eq!(code, RefusalCode::AgentQueueItemChangeRefused);
+    assert_eq!(
+        detail.expect("the refusal names its reason")["reason"],
+        json!("notDelivered")
+    );
+    let retried_id = queue_item_id_of(&own_words);
+    let retried = fixture.stored_item(retried_id);
+    assert_eq!(retried.body, fixture.stored_item(failed_id).body);
+    assert_eq!(retried.state, RecordedQueueItemState::Admitted);
+    assert_eq!(
+        fixture.stored_state(failed_id),
+        RecordedQueueItemState::Superseded
+    );
+    assert_eq!(
+        calls.opening_items(),
+        [plan_message_opening(), plan_message_opening()]
+    );
+    assert_eq!(
+        fixture.sent_message_payload(retried_id)["planMessage"],
+        json!({ "planId": plan_id, "kind": "seed" })
+    );
+}
+
+// A person's removal of a waiting build message is admitted as any message of theirs and reads
+// canceled, while one of a hand-off's seed is refused `agent.queueItem.changeRefused`,
+// `handOffSeed`, the seed still waiting and nothing written. Killed by a seed a person cancels,
+// and by a build message's removal refused as a seed's.
+#[tokio::test]
+async fn a_person_removes_a_build_message_but_never_a_hand_off_s_seed() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("running");
+    bind_run_to_first_provider(&fixture.database, run_id);
+    let build_id = fixture
+        .send_plan_message(new_plan_id(), PlanMessageKind::Build, client_key())
+        .await;
+    let seed_id = fixture
+        .send_plan_message(new_plan_id(), PlanMessageKind::Seed, client_key())
+        .await;
+
+    fixture
+        .cancel_item(build_id)
+        .await
+        .expect("the build message is removed");
+    let events = fixture.count_events();
+    let seed_canceled = fixture.cancel_item(seed_id).await;
+    fixture.queue.stop().await;
+
+    assert_eq!(
+        fixture.stored_state(build_id),
+        RecordedQueueItemState::Canceled
+    );
+    let Err(QueueError::Refused(DomainError { code, detail, .. })) = seed_canceled else {
+        panic!("the seed's removal is refused, got {seed_canceled:?}");
+    };
+    assert_eq!(code, RefusalCode::AgentQueueItemChangeRefused);
+    assert_eq!(
+        detail.expect("the refusal names its reason")["reason"],
+        json!("handOffSeed")
+    );
+    assert_eq!(
+        fixture.stored_state(seed_id),
+        RecordedQueueItemState::Queued
+    );
+    assert_eq!(fixture.count_events(), events);
 }

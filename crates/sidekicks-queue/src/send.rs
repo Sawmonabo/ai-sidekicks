@@ -1,12 +1,12 @@
 //! Writes a send to a session's lead: a person's new message, which goes into the lead run that is
 //! live, continues the current one resting interrupted, or starts the next one; a review of the
-//! session's changes, which goes the same way but is never handed into a running or continued
-//! turn, so it opens a run of its own once the messages before it went; an edit of a waiting
-//! message, which takes its place; and a retry of an item not delivered, which goes again as a new
-//! message with the same words and files, or as the same review, while the failed one reads
-//! superseded. Each is one write, taken under the queue's session lock its caller holds. A send
-//! into a paused or pausing run answers the run to resume, which the caller resumes once it has let
-//! the lock go.
+//! session's changes, or a message the daemon sends for a plan's verdict, which goes the same way
+//! but is never handed into a running or continued turn, so it opens a run of its own once the
+//! messages before it went; an edit of a waiting message, which takes its place; and a retry of an
+//! item not delivered, which goes again as a new message with the same words and files, as the same
+//! review or as the same plan message, while the failed one reads superseded. Each is one write,
+//! taken under the queue's session lock its caller holds. A send into a paused or pausing run
+//! answers the run to resume, which the caller resumes once it has let the lock go.
 
 use std::sync::Arc;
 
@@ -15,7 +15,9 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::orchestration::OrchestrationRunConfig;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{AgentQueueItemChangeRefusedReason, QueueItemId};
+use sidekicks_contracts::run::queue::{
+    AgentQueueItemChangeRefusedReason, MessageContent, PlanMessage, QueueItemId,
+};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::id::SessionId;
@@ -67,8 +69,9 @@ pub(crate) struct QueueSendMessage {
     pub(crate) client_idempotency_key: ClientUuid,
 }
 
-/// What a send writes: a person's message from their device, or a review of the session's changes
-/// the daemon queues as the session's next item, which opens a run of its own.
+/// What a send writes: a person's message from their device, a review of the session's changes
+/// the daemon queues as the session's next item, or a message the daemon sends for a plan's
+/// verdict; a review and a plan message each open a run of their own.
 pub(crate) enum QueueSendItem {
     /// A person's message.
     Message {
@@ -88,6 +91,23 @@ pub(crate) enum QueueSendItem {
         /// The account the run this review opens is admitted against, resolved before the send.
         provider_account_id: ProviderAccountId,
         /// The limits the run this review opens is admitted with, read before the send.
+        run_config: Option<OrchestrationRunConfig>,
+    },
+    /// A plan message.
+    PlanMessage {
+        /// The new item.
+        item_id: QueueItemId,
+        /// The plan it carries out and what it is for.
+        plan_message: PlanMessage,
+        /// The words it opens its run with.
+        text: MessageContent,
+        /// The device whose verdict it carries out, or that sends it again.
+        device_id: DeviceId,
+        /// The send's own key.
+        client_idempotency_key: ClientUuid,
+        /// The account the run it opens is admitted against, resolved before the send.
+        provider_account_id: ProviderAccountId,
+        /// The limits the run it opens is admitted with, read before the send.
         run_config: Option<OrchestrationRunConfig>,
     },
 }
@@ -134,12 +154,12 @@ impl QueueSends {
     }
 
     /// A new item: a message into the lead run that is live, the current one resting interrupted,
-    /// or as the opening of the next one; a review waits for the same run, behind its turn or the
-    /// messages its continue opens with, or opens the next one. `retries` names a not-delivered
-    /// message it sends again, which reads superseded in the same write. Called under `hold`;
-    /// refuses a session closed or being purged, a retry whose message left meanwhile, a key spent
-    /// meanwhile answers the item it saved, and a lead run that changed under every attempt
-    /// refuses `agent.queueItem.runChanged`.
+    /// or as the opening of the next one; a review or a plan message waits for the same run, behind
+    /// its turn or the messages its continue opens with, or opens the next one. `retries` names a
+    /// not-delivered message it sends again, which reads superseded in the same write. Called under
+    /// `hold`; refuses a session closed or being purged, a retry whose message left meanwhile, a
+    /// key spent meanwhile answers the item it saved, and a lead run that changed under every
+    /// attempt refuses `agent.queueItem.runChanged`.
     pub(crate) async fn send(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -147,7 +167,10 @@ impl QueueSends {
         retries: Option<QueueItemRecord>,
     ) -> Result<WrittenSend, QueueError> {
         let session_id = *hold.key();
-        let is_review = matches!(item, QueueSendItem::Review { .. });
+        let opens_own_run = match &item {
+            QueueSendItem::Message { .. } => false,
+            QueueSendItem::Review { .. } | QueueSendItem::PlanMessage { .. } => true,
+        };
         let mut attempt = 1;
         loop {
             let (live_run_id, interrupted_run_id) = self.read_lead_runs(session_id).await?;
@@ -197,9 +220,9 @@ impl QueueSends {
                 Err(SendFailure::Error(error)) => return Err(*error),
             };
             let resumes = match live_run_id {
-                // A review waits behind the live run's turn; the run's end moves it on to a run of
-                // its own.
-                Some(_) if is_review => None,
+                // A review or a plan message waits behind the live run's turn; the run's end moves
+                // it on to a run of its own.
+                Some(_) if opens_own_run => None,
                 Some(_) => {
                     self.deps
                         .delivery
@@ -230,11 +253,12 @@ impl QueueSends {
     }
 
     /// Replaces the lead's item `replaces_queue_item_id`: a message still waiting is edited in its
-    /// place, and an item not delivered is sent again, a message with its own words and files and
-    /// a review as the same review, the send's words unread. Called under `hold`; refuses an item
-    /// the lead's queue of the session does not hold, an edit of a waiting review, one that has
-    /// left the queue otherwise, a retry of a message in other words than its own, and a review's
-    /// retry that carries files, skills, an answered question or a speed.
+    /// place, and an item not delivered is sent again, a message with its own words and files, a
+    /// review as the same review, the send's words unread, and a plan message as the same plan
+    /// message. Called under `hold`; refuses an item the lead's queue of the session does not
+    /// hold, an edit of a waiting review or plan message, one that has left the queue otherwise, a
+    /// retry of a message or a plan message in other words than its own, and a review's retry that
+    /// carries files, skills, an answered question or a speed.
     pub(crate) async fn replace(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -281,17 +305,37 @@ impl QueueSends {
                 ),
             )
             .into()),
+            (
+                QueueItemBody::PlanMessage { plan_message, text },
+                RecordedQueueItemState::NotDelivered { .. },
+            ) => {
+                if message.body.content != *text {
+                    return Err(not_own_words_refusal(replaces.id).into());
+                }
+                let item = QueueSendItem::PlanMessage {
+                    item_id: message.item_id,
+                    plan_message: plan_message.clone(),
+                    text: text.clone(),
+                    device_id,
+                    client_idempotency_key: message.client_idempotency_key,
+                    provider_account_id: message.provider_account_id,
+                    run_config: message.run_config,
+                };
+                self.send(hold, item, Some(replaces)).await
+            }
+            (QueueItemBody::PlanMessage { .. }, RecordedQueueItemState::Queued) => {
+                Err(change_refused(
+                    AgentQueueItemChangeRefusedReason::PlanMessage,
+                    &format!(
+                        "Queue item {} is a queued plan message, which carries no words to edit",
+                        replaces.id
+                    ),
+                )
+                .into())
+            }
             (QueueItemBody::Message(replaced), RecordedQueueItemState::NotDelivered { .. }) => {
                 if message.body.content != replaced.content {
-                    return Err(change_refused(
-                        AgentQueueItemChangeRefusedReason::NotDelivered,
-                        &format!(
-                            "Queue item {} reads not delivered; only its own words can be sent \
-                             again",
-                            replaces.id
-                        ),
-                    )
-                    .into());
+                    return Err(not_own_words_refusal(replaces.id).into());
                 }
                 // Its question was marked answered by the first send's row, so the new row marks
                 // it no second time.
@@ -318,7 +362,9 @@ impl QueueSends {
                 })
             }
             (
-                QueueItemBody::Message(_) | QueueItemBody::Review { .. },
+                QueueItemBody::Message(_)
+                | QueueItemBody::Review { .. }
+                | QueueItemBody::PlanMessage { .. },
                 RecordedQueueItemState::Admitted
                 | RecordedQueueItemState::Superseded
                 | RecordedQueueItemState::Canceled,
@@ -490,11 +536,17 @@ fn admitted_with(item: &QueueSendItem) -> (&ProviderAccountId, &Option<Orchestra
             provider_account_id,
             run_config,
             ..
+        }
+        | QueueSendItem::PlanMessage {
+            provider_account_id,
+            run_config,
+            ..
         } => (provider_account_id, run_config),
     }
 }
 
-// The row `item` writes for `run_id`: a message under its device and key, a review under its key.
+// The row `item` writes for `run_id`: a message or a plan message under its device and key, a
+// review under its key.
 fn new_item(
     session_id: SessionId,
     item: &QueueSendItem,
@@ -519,6 +571,22 @@ fn new_item(
             None,
             Some(client_idempotency_key.clone()),
         ),
+        QueueSendItem::PlanMessage {
+            item_id,
+            plan_message,
+            text,
+            device_id,
+            client_idempotency_key,
+            ..
+        } => (
+            *item_id,
+            QueueItemBody::PlanMessage {
+                plan_message: plan_message.clone(),
+                text: text.clone(),
+            },
+            Some(device_id.clone()),
+            Some(client_idempotency_key.clone()),
+        ),
     };
     NewQueueItem {
         id,
@@ -530,6 +598,16 @@ fn new_item(
         replaces_queue_item_id,
         now: WireInstant::now(),
     }
+}
+
+// The refusal of a retry of `queue_item_id`, read not delivered, in other words than its own.
+fn not_own_words_refusal(queue_item_id: QueueItemId) -> DomainError {
+    change_refused(
+        AgentQueueItemChangeRefusedReason::NotDelivered,
+        &format!(
+            "Queue item {queue_item_id} reads not delivered; only its own words can be sent again"
+        ),
+    )
 }
 
 // The refusal of a send whose session's lead run kept changing under every attempt.
