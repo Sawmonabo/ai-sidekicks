@@ -6,6 +6,7 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
 use super::ClaudeRequestSession;
+use super::answers::{ClaudeQuestionRoute, compose_claude_question_refusal};
 use crate::driver::claude::run::controls::claude_dialog_session;
 use crate::driver::claude::session::scripted::channel::ScriptedWrite;
 use crate::driver::claude::session::scripted::daemon_services::PortCall;
@@ -80,6 +81,15 @@ async fn a_withdrawal_reaches_the_approval_pipeline_only_once_the_ask_did() {
 async fn a_questions_answers_are_keyed_by_its_words_with_several_picks_joined() {
     let session = ScriptedSession::new().await;
     session.hold_lead_turn("lead");
+    let port: Arc<dyn QuestionPort> = Arc::new(QuestionCard::default());
+    assert!(
+        session
+            .requests
+            .dependencies
+            .questions
+            .register(port)
+            .is_ok()
+    );
     session.request(
         "question",
         &json!({
@@ -220,6 +230,42 @@ async fn a_question_whose_take_failed_is_withdrawn_and_refused() {
     assert_eq!(answers.len(), 1);
     assert_eq!(answers[0].0, "question");
     assert_eq!(answers[0].1["behavior"], "deny");
+}
+
+// A question with no questions card registered is answered refused at once, so the agent never
+// waits on a request nothing can show. Killed by leaving the request held.
+#[tokio::test(start_paused = true)]
+async fn a_question_with_no_card_is_refused_at_once() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    session.request(
+        "question",
+        &json!({
+            "subtype": "can_use_tool",
+            "tool_name": "AskUserQuestion",
+            "tool_use_id": "call-1",
+            "input": {"questions": [{"question": "Which name?", "header": "Name", "options": []}]},
+        }),
+    );
+    settle().await;
+
+    let answers: Vec<_> = session
+        .channel
+        .writes()
+        .into_iter()
+        .filter_map(|write| match write {
+            ScriptedWrite::Answer { request_id, answer } => Some((request_id, answer)),
+            ScriptedWrite::Control(_) | ScriptedWrite::User(_) | ScriptedWrite::Terminate => None,
+        })
+        .collect();
+    assert_eq!(
+        answers,
+        [(
+            "question".to_owned(),
+            compose_claude_question_refusal(ClaudeQuestionRoute::Ask)
+        )]
+    );
+    assert_eq!(session.requests.open_request_count(session.session_id), 0);
 }
 
 // A question Claude Code let go of while its record's write was queued, whose write then fails, is

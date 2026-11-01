@@ -43,8 +43,8 @@ pub struct ProviderPlanHoldEnd {
     pub reason: PlanHoldEndedReason,
 }
 
-/// The plan record's intake, registered through a `PortRegistration`. Until it is registered, a
-/// plan stays with the provider: no record is written and no verdict can answer it.
+/// The plan record's intake, registered through a `PortRegistration`. A plan that cannot reach
+/// it, unregistered or failing to record, is refused at its provider at once and records nothing.
 pub trait PlanPort: Send + Sync {
     /// Records `plan` under its `plan_id`. An error when it could not be recorded.
     fn take_plan(

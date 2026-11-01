@@ -176,6 +176,29 @@ impl RequestTables {
             .map(|(request_id, _)| request_id.as_str())
     }
 
+    /// The plans the session holds that were recorded before the recording `admission`, each by
+    /// its request id and its own recording.
+    pub(super) fn held_plans_before(
+        &self,
+        session_id: SessionId,
+        admission: u64,
+    ) -> Vec<(String, u64)> {
+        self.by_session
+            .get(&session_id)
+            .map(|requests| {
+                requests
+                    .pending
+                    .iter()
+                    .filter(|(_, pending)| {
+                        matches!(pending.held, HeldRequest::Plan { .. })
+                            && pending.admission < admission
+                    })
+                    .map(|(request_id, pending)| (request_id.clone(), pending.admission))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     /// Whether the recording `admission` is still pending.
     pub(super) fn is_pending(
         &self,

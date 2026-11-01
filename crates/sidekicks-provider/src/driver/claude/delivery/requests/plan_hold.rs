@@ -1,21 +1,45 @@
 //! The plan Claude Code proposes as it asks to leave plan mode, held for the person's verdict: its
 //! request is admitted under its own id like a question, the plan handed to the plan record on a
 //! task of its own under the id minted here, and the request kept open until a verdict answers it
-//! or Claude Code withdraws it. A withdrawal while the record is written is reported once it is.
+//! or Claude Code withdraws it. A withdrawal while the record is written is reported once it is. A
+//! plan that cannot be recorded is refused at once, and once a newer plan is recorded the older
+//! plans the session holds are answered to wait for the person.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanId};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 
-use super::pending::HeldRequest;
-use super::{ClaudeInboundRequests, ClaudeRequestSession, record_hand_off_failure};
+use super::pending::{HeldRequest, RequestTables};
+use super::{
+    ClaudeInboundRequests, ClaudeRequestSession, close_recording, record_hand_off_failure,
+    write_answer,
+};
+use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
+use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::driver::diagnostics::{
+    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
+};
 use crate::port::plan::{ProviderPlan, ProviderPlanHoldEnd, mint_plan_id};
 use crate::record_readers::read_non_empty_string;
+
+// The wire a plan request arrives on.
+const PLAN_REQUEST_WIRE: &str = "control_request/can_use_tool";
+
+// Why a plan that could not be put to the person is refused, which the agent reads in place of a
+// verdict.
+const PLAN_UNSHOWN_REASON: &str =
+    "The plan could not be put to the person, so it was not answered.";
+
+// What a plan the person is still reviewing is answered, so the agent stays in plan mode and waits.
+const PLAN_KEPT_REASON: &str =
+    "The person is still reviewing the plan. Stop and wait for their next message.";
 
 impl ClaudeInboundRequests {
     /// The request the session holds open for the plan `plan_id`, from the moment it is admitted.
@@ -37,8 +61,10 @@ impl ClaudeInboundRequests {
     }
 
     // Holds the plan the request carries, Claude Code's `plan` text and the plan file it wrote
-    // beside it, under a plan id minted before the take, so a verdict finds it once admitted. Left
-    // held when it carries no plan text or no plan record is registered.
+    // beside it, under a plan id minted before the take, so a verdict finds it once admitted. One
+    // with no plan text, no plan record registered or a take that fails is refused, unless Claude
+    // Code let it go meanwhile; once the take returns, the older plans the session holds are
+    // answered to wait, since the newer one stands in their place.
     pub(super) async fn hold_plan(
         &self,
         session: &ClaudeRequestSession<'_>,
@@ -48,23 +74,42 @@ impl ClaudeInboundRequests {
         input: Map<String, Value>,
     ) {
         let session_id = session.stream.session_id();
+        let account_id = session.stream.provider_account_id().clone();
         let plan_id = mint_plan_id();
         let held = HeldRequest::Plan { plan_id };
-        let wire = "control_request/can_use_tool";
         let Some((admitted, admission, _let_go)) = self
-            .admit(session, &request_id, run, tool_call_id, held, wire)
+            .admit(
+                session,
+                &request_id,
+                run,
+                tool_call_id,
+                held,
+                PLAN_REQUEST_WIRE,
+            )
             .await
         else {
             return;
         };
-        let Some(text) = input
+        let text = input
             .get("plan")
             .and_then(Value::as_str)
-            .filter(|text| !text.trim().is_empty())
-        else {
-            return;
-        };
-        let Some(port) = self.dependencies.plans.port().cloned() else {
+            .filter(|text| !text.trim().is_empty());
+        let (Some(text), Some(port)) = (text, self.dependencies.plans.port().cloned()) else {
+            let cause = if text.is_none() {
+                "the request carried no plan text"
+            } else {
+                "no plan record is registered"
+            };
+            record_plan_not_recorded(session_id, &account_id, &request_id, cause.to_owned());
+            deny_plan_request(
+                &self.tables,
+                &*session.channel,
+                session_id,
+                &request_id,
+                admission,
+                PLAN_UNSHOWN_REASON,
+            )
+            .await;
             return;
         };
         let plan = ProviderPlan {
@@ -76,17 +121,56 @@ impl ClaudeInboundRequests {
                 .and_then(|path| FilesystemPath::new(path.to_owned()).ok()),
             holds_request: true,
         };
-        let tables = Arc::clone(&self.tables);
+        let (tables, channel) = (Arc::clone(&self.tables), Arc::clone(&session.channel));
         tokio::spawn(async move {
             let taken = port.take_plan(plan).await;
-            if let Err(error) = &taken {
-                record_hand_off_failure(session_id, admitted, error.as_ref());
+            let (is_withdrawn, is_held, older) = {
+                let mut tables = lock(&tables);
+                let is_withdrawn =
+                    tables.end_plan_take(session_id, &request_id, admission, taken.is_ok());
+                let is_held = tables.is_pending(session_id, &request_id, admission);
+                let older = match taken {
+                    Ok(()) => tables.held_plans_before(session_id, admission),
+                    Err(_) => Vec::new(),
+                };
+                (is_withdrawn, is_held, older)
+            };
+            if let Err(error) = taken {
+                record_plan_not_recorded(
+                    session_id,
+                    &account_id,
+                    &request_id,
+                    describe_error(error.as_ref()),
+                );
+                // One Claude Code let go of meanwhile is not answered, since its id may already
+                // name a new request.
+                if is_held {
+                    deny_plan_request(
+                        &tables,
+                        &*channel,
+                        session_id,
+                        &request_id,
+                        admission,
+                        PLAN_UNSHOWN_REASON,
+                    )
+                    .await;
+                }
+                return;
             }
-            // Claude Code's withdrawal while the record was written is reported now that it is;
-            // a plan that was never recorded has no hold to end.
-            let is_withdrawn =
-                lock(&tables).end_plan_take(session_id, &request_id, admission, taken.is_ok());
-            if !is_withdrawn || taken.is_err() {
+            // The newer plan's record set the older ones aside, so their requests wait no more.
+            for (older_request_id, older_admission) in older {
+                deny_plan_request(
+                    &tables,
+                    &*channel,
+                    session_id,
+                    &older_request_id,
+                    older_admission,
+                    PLAN_KEPT_REASON,
+                )
+                .await;
+            }
+            // Claude Code's withdrawal while the record was written is reported now that it is.
+            if !is_withdrawn {
                 return;
             }
             if let Err(error) = port
@@ -106,6 +190,45 @@ pub(super) fn withdrawn_hold_end(session_id: SessionId, plan_id: PlanId) -> Prov
         plan_id,
         reason: PlanHoldEndedReason::Withdrawn,
     }
+}
+
+// Answers the plan request recorded as `admission` `deny` with `message` and lets it go; one whose
+// answer could not be written is let go too, since nothing else will answer it.
+async fn deny_plan_request(
+    tables: &Mutex<RequestTables>,
+    channel: &dyn ClaudeProcessChannel,
+    session_id: SessionId,
+    request_id: &str,
+    admission: u64,
+    message: &str,
+) {
+    let denial = json!({"behavior": "deny", "message": message});
+    if let Err(error) =
+        write_answer(tables, channel, session_id, request_id, admission, &denial).await
+    {
+        record_hand_off_failure(session_id, "plan", &error);
+        close_recording(tables, session_id, request_id, admission);
+    }
+}
+
+// Records a plan request refused because its plan could not be recorded, and why.
+fn record_plan_not_recorded(
+    session_id: SessionId,
+    account_id: &ProviderAccountId,
+    request_id: &str,
+    cause: String,
+) {
+    emit_driver_diagnostic(&DriverDiagnosticRecord {
+        provider: DESCRIPTOR.provider_id(),
+        provider_account_id: Some(account_id.clone()),
+        kind: DriverDiagnosticKind::PlanNotRecorded,
+        raw_wire_type: Some(PLAN_REQUEST_WIRE.to_owned()),
+        disposition_reason: cause,
+        details: Map::from_iter([
+            ("sessionId".to_owned(), Value::from(session_id.to_string())),
+            ("requestId".to_owned(), Value::from(request_id)),
+        ]),
+    });
 }
 
 #[cfg(test)]

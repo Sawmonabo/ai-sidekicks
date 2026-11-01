@@ -3,8 +3,9 @@
 //! plan a plan turn proposes as it asks to leave plan mode, the reviewer's blocks, the choices, a
 //! tool server's messages and the withdrawals. Each ask, question and plan is recorded pending,
 //! attributed to its run's execution on the session's task and handed to its service on a task of
-//! its own once admitted; with no service registered it stays pending at Claude Code. The pending
-//! requests are the session's open asks, which a `Send now` row waits out.
+//! its own once admitted; with no service registered an ask stays pending at Claude Code, while a
+//! question or a plan is refused. The pending requests are the session's open asks, which a
+//! `Send now` row waits out.
 
 pub(crate) mod answers;
 mod pending;
@@ -571,7 +572,21 @@ impl ClaudeInboundRequests {
         else {
             return;
         };
+        // With no questions card registered, the agent is refused rather than left waiting.
         let Some(port) = self.dependencies.questions.port().cloned() else {
+            let refusal = compose_claude_question_refusal(route);
+            let refused = write_answer(
+                &self.tables,
+                &*session.channel,
+                session_id,
+                &request_id,
+                admission,
+                &refusal,
+            )
+            .await;
+            if let Err(error) = refused {
+                record_hand_off_failure(session_id, admitted, &error);
+            }
             return;
         };
         let question = ProviderQuestion {
