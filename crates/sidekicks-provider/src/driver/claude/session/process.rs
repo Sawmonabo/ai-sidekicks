@@ -16,6 +16,7 @@ use std::time::Duration;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use process_wrap::tokio::ChildWrapper;
+use secrecy::SecretString;
 use serde::Serialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -23,7 +24,7 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{
-    ChildEnd, ChildExit, ProgramStart, Spawner, ask_child_to_stop, read_child_exit,
+    ChildEnd, ChildExit, ProgramStart, Spawner, ask_child_to_stop, read_child_exit, secret_pipe,
 };
 use sidekicks_std::output_tail::{OutputTail, read_output_chunks};
 use tokio::io::AsyncRead;
@@ -35,7 +36,7 @@ use self::stdin::ClaudeInputWriter;
 pub(crate) use self::stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
 use self::stdout::ClaudeOutputReader;
 use crate::driver::child_records::{
-    ChildRecord, DaemonChildRecords, RecordedChild, spawn_recorded_child,
+    ChildRecord, ChildSecret, DaemonChildRecords, RecordedChild, spawn_recorded_child,
 };
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::control_requests::ClaudeControlRequests;
@@ -52,6 +53,7 @@ use crate::driver::claude::session::transport::inbound::{
 use crate::driver::claude::session::transport::user_message::{
     ClaudeUserFrame, ClaudeWriteAttempt,
 };
+use crate::driver::claude::spawn::environment::CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE;
 use crate::driver::diagnostics::OnceReportedDiagnostics;
 use crate::process_exit::compose_process_exit;
 use crate::process_identity::ProviderProcessIdentity;
@@ -84,6 +86,10 @@ pub(crate) struct ClaudeProcessLaunch {
     /// The account whose home it runs on, named in its diagnostics; `None` for a short read that
     /// names no account.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The pasted token the process signs in with, handed on the pipe its environment names and
+    /// never as a variable; the launcher reads the one sealed for the account where this is
+    /// `None`.
+    pub(crate) token: Option<SecretString>,
 }
 
 /// One stream frame the process wrote, with the facts it is routed by.
@@ -148,8 +154,10 @@ pub(crate) struct ClaudeCodeProcess {
 impl ClaudeCodeProcess {
     /// Starts the process on `spawner`'s thread, recorded in `child_records` until its reap and
     /// its spawn counted in `registry`, with its reader handing what it writes to `listener` and
-    /// releasing `turn_holds`' turn at a turn-ending lead `result`. Fails with the record's error,
-    /// the spawn's, or the spawner's when its thread has ended.
+    /// releasing `turn_holds`' turn at a turn-ending lead `result`; the launch's token is handed on
+    /// a pipe the process alone inherits. Fails with the record's error, the spawn's, the
+    /// spawner's when its thread has ended, and as `Unsupported` for a token on a system with no
+    /// such pipe.
     pub(crate) async fn start(
         spawner: &Spawner,
         child_records: &Arc<dyn DaemonChildRecords>,
@@ -168,8 +176,24 @@ impl ClaudeCodeProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        let secret = launch
+            .token
+            .map(|token| {
+                let pipe = secret_pipe().ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::Unsupported,
+                        "this system has no pipe to hand Claude Code its token on",
+                    )
+                })?;
+                Ok::<_, io::Error>(ChildSecret {
+                    pipe,
+                    variable: CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE,
+                    secret: token,
+                })
+            })
+            .transpose()?;
         let RecordedChild { mut child, record } =
-            spawn_recorded_child(spawner, child_records, command).await?;
+            spawn_recorded_child(spawner, child_records, command, secret).await?;
         let identity = ProviderProcessIdentity {
             process_id: child
                 .id()
@@ -664,6 +688,7 @@ mod tests {
             working_folder: folder.path().to_owned(),
             provider_session_id: "conversation".to_owned(),
             provider_account_id: None,
+            token: None,
         };
 
         let process = ClaudeCodeProcess::start(

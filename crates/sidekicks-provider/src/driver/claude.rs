@@ -31,6 +31,7 @@ use crate::driver::claude::mcp::{read_claude_mcp_servers, reread_claude_live_mcp
 use crate::driver::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, read_claude_row_choice,
 };
+use crate::driver::claude::spawn::environment::CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
@@ -198,6 +199,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         "CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT",
         // Joins the per-session memories the daemon keeps apart.
         "CLAUDE_CODE_REMOTE_MEMORY_DIR",
+        // Names the pipe a pasted token is handed on, which only the daemon's start sets.
+        CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE,
     ],
     screen_reader_environment_names: &["CLAUDE_AX_SCREEN_READER"],
     voice_kinds: &[VoiceKind::Dictation],

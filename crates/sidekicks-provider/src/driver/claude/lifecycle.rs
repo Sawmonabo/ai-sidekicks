@@ -130,6 +130,7 @@ impl ClaudeDriver {
             services.spawner.clone(),
             Arc::clone(&services.child_records),
             Arc::clone(&services.processes),
+            Arc::clone(&services.ports.provider_accounts),
             &services.data_folder,
         ));
         let starts = Arc::new(ClaudeInstalledBuild::new(

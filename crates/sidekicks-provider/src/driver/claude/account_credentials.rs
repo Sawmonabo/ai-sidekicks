@@ -87,8 +87,9 @@ impl ClaudeSignInReader {
     /// The sign-in of the Claude Code process `environment` starts: the environment's own token,
     /// with the scopes Claude Code gives it, else the record in its credential folder's file, else
     /// the keychain item named for that folder. A sign-in token file descriptor the environment
-    /// names is passed over, since the daemon's spawn closes every inherited descriptor and Claude
-    /// Code then signs in with the stored record. Where none holds a record with an access token
+    /// names is passed over: the daemon withholds that variable from every environment it
+    /// composes and sets it only as it starts a process, on a pipe that process alone reads. Where
+    /// none holds a record with an access token
     /// it is absent, unless a store that may hold one could not be read; each reason is logged at
     /// debug.
     pub(crate) async fn read(&self, environment: &[(String, String)]) -> ClaudeSignInReading {

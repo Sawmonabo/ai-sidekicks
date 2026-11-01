@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use serde_json::Value;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio::sync::{Notify, mpsc, oneshot};
 
 use super::channel::{ScriptedAnswer, ScriptedChannel};
@@ -328,6 +329,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
     fn probe_sign_in(
         &self,
         _environment: Vec<(String, String)>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<String, ClaudeLaunchError>> {
         async { Err(spawn_failure("no sign-in scripted")) }.boxed()
     }

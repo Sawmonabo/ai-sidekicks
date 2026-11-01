@@ -82,6 +82,7 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
     fn probe_sign_in(
         &self,
         _environment: Vec<(String, String)>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<String, ClaudeLaunchError>> {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }

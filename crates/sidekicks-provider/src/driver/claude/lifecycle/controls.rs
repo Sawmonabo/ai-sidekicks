@@ -537,21 +537,31 @@ impl ClaudeDriver {
             .sources
             .account_environment(&provider_account_id)
             .await?;
-        Ok(match self.starts.probe_sign_in(environment).await {
-            Ok(detail) => build_auth_probe_result(DriverAuthProbeStatus::Authenticated, &detail),
-            Err(error) => {
-                let is_signed_out = matches!(
-                    &error,
-                    ClaudeLaunchError::Session(ClaudeSessionError::AuthenticationRequired { .. })
-                );
-                let status = if is_signed_out {
-                    DriverAuthProbeStatus::Unauthenticated
-                } else {
-                    DriverAuthProbeStatus::Indeterminate
-                };
-                build_auth_probe_result(status, &error.to_string())
-            }
-        })
+        Ok(
+            match self
+                .starts
+                .probe_sign_in(environment, provider_account_id)
+                .await
+            {
+                Ok(detail) => {
+                    build_auth_probe_result(DriverAuthProbeStatus::Authenticated, &detail)
+                }
+                Err(error) => {
+                    let is_signed_out = matches!(
+                        &error,
+                        ClaudeLaunchError::Session(
+                            ClaudeSessionError::AuthenticationRequired { .. }
+                        )
+                    );
+                    let status = if is_signed_out {
+                        DriverAuthProbeStatus::Unauthenticated
+                    } else {
+                        DriverAuthProbeStatus::Indeterminate
+                    };
+                    build_auth_probe_result(status, &error.to_string())
+                }
+            },
+        )
     }
 
     /// `Output style` and `Advisor`, each with the app's pick in `app_values` or what a new
