@@ -26,8 +26,7 @@ pub use socket::answer_wake_connection;
 
 /// The socket the helper serves, in a folder only root can write; the console user's service
 /// connects to it.
-pub const WAKE_HELPER_SOCKET_PATH: &str =
-    "/var/run/io.github.sawmonabo.ai-sidekicks.wake-helper/wake.sock";
+pub const WAKE_HELPER_SOCKET_PATH: &str = "/var/run/sidekicks-wake-helper/wake.sock";
 
 // How long before the asked time the machine wakes.
 const WAKE_LEAD: Duration = Duration::from_mins(1);
