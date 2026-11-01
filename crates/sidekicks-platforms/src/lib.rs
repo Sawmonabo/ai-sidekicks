@@ -361,6 +361,8 @@ pub use posix::run_folder::{
     RUN_FOLDER_FILE_MODE, check_private_run_folder, create_private_run_folder, daemon_run_folder,
 };
 #[cfg(unix)]
+pub use posix::secret_pipe::{SecretPipe, secret_pipe};
+#[cfg(unix)]
 pub use posix::shell_folder_start::shell_folder_start;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::shell_start::{
@@ -581,6 +583,8 @@ pub use windows::real_path::real_path;
 pub use windows::run_folder::{
     RUN_FOLDER_FILE_MODE, check_private_run_folder, create_private_run_folder, daemon_run_folder,
 };
+#[cfg(target_os = "windows")]
+pub use windows::secret_pipe::{SecretPipe, secret_pipe};
 #[cfg(target_os = "windows")]
 pub use windows::session_child::{SessionChild, start_session_child};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
