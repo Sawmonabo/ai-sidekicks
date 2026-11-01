@@ -29,7 +29,6 @@ use sidekicks_contracts::provider::account::record::{
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_std::random_hex::random_hex;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::statement::{
@@ -43,6 +42,8 @@ use crate::account::credential_home::{
     CredentialHome, create_credential_home, remove_credential_home,
 };
 use crate::account::errors::ProviderAccountRegistryError;
+
+pub mod removal;
 
 /// The statements the account plane prepares on a read connection: every account, a provider's
 /// accounts, one account, every account id with its removal intent, one account's read hold, and
@@ -69,10 +70,6 @@ static SELECT_PROVIDER_ACCOUNTS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 static SELECT_ACCOUNT_SQL: LazyLock<String> =
     LazyLock::new(|| format!("{ACCOUNT_COLUMNS_SQL} AND account_id = ?"));
-
-// Every row, those whose removal has begun included.
-const SELECT_ACCOUNT_REMOVAL_INTENTS_SQL: &str =
-    "SELECT account_id, removal_intent FROM provider_accounts ORDER BY account_id";
 
 // The provider's first account becomes its current one; a later one leaves the mark where it is.
 static INSERT_ACCOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -149,9 +146,6 @@ static RECORD_TOKEN_REPLACEMENT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-const DELETE_MARKED_ACCOUNT_SQL: &str =
-    "DELETE FROM provider_accounts WHERE account_id = @account_id AND removal_intent = 1";
-
 const SELECT_READ_HOLD_SQL: &str = "
   SELECT read_hold_rung, read_held_until
     FROM provider_accounts
@@ -189,24 +183,6 @@ static RECORD_RESET_CREDITS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE provider_accounts
      SET reset_credits_available = @reset_credits_available, updated_at = {DATABASE_NOW_SQL}
-   WHERE account_id = @account_id AND removal_intent = 0"
-    )
-});
-
-// A step parked on the account holds its removal: it expects no row.
-static WAITING_STEP_GUARD_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT 1 FROM workflow_steps
-   WHERE wait_account_id = @account_id AND status = '{waiting}' AND wait_cause = '{account}'",
-        waiting = <&'static str>::from(WorkflowStepStatus::Waiting),
-        account = <&'static str>::from(WorkflowWaitCause::Account),
-    )
-});
-
-static MARK_REMOVAL_INTENT_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "UPDATE provider_accounts
-     SET removal_intent = 1, updated_at = {DATABASE_NOW_SQL}
    WHERE account_id = @account_id AND removal_intent = 0"
     )
 });
@@ -281,16 +257,6 @@ pub struct AccountAdmission {
     pub health: HealthObservation,
     /// The mode the provider's own status read reported, `None` where none was observed.
     pub observed_auth_mode: Option<ProviderAuthMode>,
-}
-
-/// Every stored account id split by its removal intent: the registered accounts, and those whose
-/// removal has begun.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct AccountIdsByRemovalIntent {
-    /// Accounts not marked for removal.
-    pub registered: Vec<ProviderAccountId>,
-    /// Accounts marked for removal whose rows are still stored.
-    pub marked: Vec<ProviderAccountId>,
 }
 
 /// The per-account switches `provider.account.update` changes; `None` leaves one as it is.
@@ -571,51 +537,6 @@ impl ProviderAccountRegistry {
         self.read(account_id).await
     }
 
-    /// Every stored account id, split by whether its removal has begun. Fails when the accounts
-    /// cannot be read.
-    pub async fn read_account_ids_by_removal_intent(
-        &self,
-    ) -> Result<AccountIdsByRemovalIntent, ProviderAccountRegistryError> {
-        self.reads
-            .read(ReadLength::Short, |connection| {
-                let mut ids = AccountIdsByRemovalIntent::default();
-                let mut statement =
-                    connection.prepare_cached(SELECT_ACCOUNT_REMOVAL_INTENTS_SQL)?;
-                let mut rows = statement.query([])?;
-                while let Some(row) = rows.next()? {
-                    let account_id = text_column(row, 0, |text| {
-                        ProviderAccountId::new(text).ok_or(StoredValueRefused("account id"))
-                    })?;
-                    if row.get::<_, bool>(1)? {
-                        ids.marked.push(account_id);
-                    } else {
-                        ids.registered.push(account_id);
-                    }
-                }
-                Ok(ids)
-            })
-            .await
-    }
-
-    /// Deletes the row of `account_id`, whose removal has begun, its quota readings and usage
-    /// turns going with it; its home stays on disk. Fails with
-    /// [`ProviderAccountRegistryError::NotFound`] when no marked row of that id is stored.
-    pub async fn delete_marked_account(
-        &self,
-        account_id: &ProviderAccountId,
-    ) -> Result<(), ProviderAccountRegistryError> {
-        self.write(vec![WriteStatement {
-            sql: Cow::Borrowed(DELETE_MARKED_ACCOUNT_SQL),
-            bindings: StatementBindings::Named(vec![text_binding(
-                "@account_id",
-                account_id.as_str(),
-            )]),
-            expected_row_count: Some(1),
-        }])
-        .await
-        .map(drop)
-    }
-
     /// `account_id`'s place on the read's throttle ladder. Fails with
     /// [`ProviderAccountRegistryError::NotFound`] for an account not registered or being removed.
     pub(super) async fn read_hold(
@@ -698,40 +619,6 @@ impl ProviderAccountRegistry {
         }])
         .await
         .map(drop)
-    }
-
-    /// Marks `account_id` for removal, the first write of its removal: refused while a workflow
-    /// step waits on the account. Fails with [`ProviderAccountRegistryError::StepWaiting`] then,
-    /// and with [`ProviderAccountRegistryError::NotFound`] for an account not registered or
-    /// already marked; either way nothing is marked.
-    pub async fn mark_removal_intent(
-        &self,
-        account_id: &ProviderAccountId,
-    ) -> Result<(), ProviderAccountRegistryError> {
-        let bindings =
-            StatementBindings::Named(vec![text_binding("@account_id", account_id.as_str())]);
-        match self
-            .writer
-            .write(vec![
-                WriteStatement {
-                    sql: Cow::Borrowed(WAITING_STEP_GUARD_SQL.as_str()),
-                    bindings: bindings.clone(),
-                    expected_row_count: Some(0),
-                },
-                WriteStatement {
-                    sql: Cow::Borrowed(MARK_REMOVAL_INTENT_SQL.as_str()),
-                    bindings,
-                    expected_row_count: Some(1),
-                },
-            ])
-            .await
-        {
-            Ok(_) => Ok(()),
-            Err(error) if error.refused_statement_index() == Some(0) => {
-                Err(ProviderAccountRegistryError::StepWaiting)
-            }
-            Err(error) => Err(refusal_or_failure(error)),
-        }
     }
 
     /// Changes `account_id`'s per-account switches as `change` names and answers the account.
