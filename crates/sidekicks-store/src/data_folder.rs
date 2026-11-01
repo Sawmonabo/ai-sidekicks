@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::session::id::SessionId;
 
 pub mod lock;
 
@@ -18,6 +19,9 @@ const SERVICE_LOG_FOLDER_NAME: &str = "logs";
 const PLUGINS_FOLDER_NAME: &str = "plugins";
 // The folder in the data folder that holds the links the daemon's modes run by.
 const PROGRAM_LINK_FOLDER_NAME: &str = "bin";
+
+// The folder in the data folder that holds each session's own storage folder.
+const SESSION_STORAGE_FOLDER_NAME: &str = "sessions";
 
 /// The service's data folder under `home`, which holds its store, its logs and its lock.
 pub fn data_folder(home: &Path) -> PathBuf {
@@ -47,4 +51,12 @@ pub fn plugin_home(home: &Path, provider_id: &ProviderId) -> PathBuf {
 /// by, which the daemon makes at its start, since the program's own folder may not be writable.
 pub fn program_link_folder(data_folder: &Path) -> PathBuf {
     data_folder.join(PROGRAM_LINK_FOLDER_NAME)
+}
+
+/// Session `session_id`'s own storage folder in `data_folder`, which holds the files the daemon
+/// keeps for that session alone and goes with the session's purge.
+pub fn session_storage_folder(data_folder: &Path, session_id: &SessionId) -> PathBuf {
+    data_folder
+        .join(SESSION_STORAGE_FOLDER_NAME)
+        .join(session_id.text().as_str())
 }
