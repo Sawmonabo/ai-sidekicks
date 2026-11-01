@@ -74,7 +74,7 @@ use crate::port::permission_ask::{
     PermissionAskPort, ProviderAnswerRule, ProviderPermissionAnswer, ProviderPermissionAsk,
     ProviderPermissionAskWithdrawal, ProviderRuleNotKeptError,
 };
-use crate::port::plan::{PlanPort, ProviderPlan};
+use crate::port::plan::{PlanPort, ProviderPlan, mint_plan_id};
 use crate::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort,
     QuestionTurnError, take_question_in_turn,
@@ -534,6 +534,7 @@ impl ClaudeInboundRequests {
             return;
         };
         let plan = ProviderPlan {
+            plan_id: mint_plan_id(),
             session_id,
             run_id: run.run_id,
             text: text.to_owned(),

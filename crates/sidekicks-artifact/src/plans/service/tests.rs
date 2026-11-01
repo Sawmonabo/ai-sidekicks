@@ -24,12 +24,14 @@ use crate::plans::store::StoredPlanHolds;
 use crate::test_store::ArtifactTestStore;
 
 // A plan is kept as a `summary` artifact naming it, and `artifact.published` and the
-// `plan.proposed` that names the artifact land in one write, the artifact first. The list shows it
-// as a plan with its first heading and `waiting`, its session's activity reading waiting, then
-// `open` once its hold ends, the activity back to its running run's; a manifest of the same plan in
-// the session it was handed off to lists there as accepted. Killed by appending `plan.proposed`
-// before or without its artifact, by a missing artifact id, by dropping the join on the plan, by
-// dropping the fresh-session rule, and by a waiting-plan condition that never holds.
+// `plan.proposed` that names the artifact land in one write, the artifact first, both under the
+// plan id the driver minted before the take. The list shows it as a plan with its first heading and
+// `waiting`, its session's activity reading waiting, then `open` once its hold ends, the activity
+// back to its running run's; a manifest of the same plan in the session it was handed off to lists
+// there as accepted. Killed by appending `plan.proposed` before or without its artifact, by a
+// missing artifact id, by a plan id the record mints in place of the driver's, by dropping the join
+// on the plan, by dropping the fresh-session rule, and by a waiting-plan condition that never
+// holds.
 #[tokio::test]
 async fn a_plan_is_its_artifact_then_its_record_and_lists_with_its_word() {
     let fixture = Fixture::new().await;
@@ -38,6 +40,7 @@ async fn a_plan_is_its_artifact_then_its_record_and_lists_with_its_word() {
 
     let proposed = fixture.payloads("plan.proposed");
     assert_eq!(proposed.len(), 1);
+    assert_eq!(proposed[0]["planId"], json!(plan_id));
     let artifact_id = proposed[0]["artifactId"]
         .as_str()
         .expect("an artifact id")

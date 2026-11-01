@@ -12,7 +12,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::manifest::ArtifactType;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanId};
+use sidekicks_contracts::plan::PlanHoldEndedReason;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_provider::port::plan::{PlanPort, ProviderPlan, ProviderPlanHoldEnd};
@@ -89,9 +89,10 @@ impl PlansService {
     }
 
     /// Records `plan` `waiting`: its artifact, `artifact.published`, the plan's row and
-    /// `plan.proposed` naming the artifact, in one write. Answers the minted plan id. Fails with
-    /// `session.notFound` or `agent.run.notFound`, as the store fails, or as the write does.
-    pub async fn take_plan(&self, plan: ProviderPlan) -> Result<PlanId, PlanError> {
+    /// `plan.proposed` naming the artifact, in one write, under the plan id its driver minted.
+    /// Fails with `session.notFound` or `agent.run.notFound`, as the store fails, or as the write
+    /// does, a plan id already recorded among them.
+    pub async fn take_plan(&self, plan: ProviderPlan) -> Result<(), PlanError> {
         let metadata = match &plan.plan_file_path {
             Some(path) => file_name_metadata(path.as_str()),
             None => JsonRecord::default(),
@@ -105,8 +106,7 @@ impl PlansService {
             metadata,
         };
         let appender = Arc::clone(&self.appender);
-        let plan_id = self
-            .publisher
+        self.publisher
             .store_daemon_payload(payload, move |mut manifest| async move {
                 let proposed = compose_plan_proposed_payload(plan, manifest.artifact_id);
                 manifest.plan_id = Some(proposed.plan_id);
@@ -117,7 +117,6 @@ impl PlansService {
                     manifest,
                 } = published_manifest_write(manifest);
                 statements.push(insert_plan_statement(&proposed, &created_at));
-                let plan_id = proposed.plan_id;
                 let event = SessionEventDraft::of_session(
                     proposed.session_id,
                     &SessionEvent::PlanProposed(proposed),
@@ -135,10 +134,10 @@ impl PlansService {
                     )
                     .await
                     .map_err(|failure| manifest_write_failure(&manifest, failure))?;
-                Ok::<_, ArtifactError>(plan_id)
+                Ok::<_, ArtifactError>(())
             })
             .await?;
-        Ok(plan_id)
+        Ok(())
     }
 
     /// Reopens the plan `hold_end` names, recording `plan.hold.ended` with its reason, when it
@@ -205,7 +204,7 @@ impl PlanPort for PlansService {
     fn take_plan(
         &self,
         plan: ProviderPlan,
-    ) -> BoxFuture<'_, Result<PlanId, Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         PlansService::take_plan(self, plan)
             .map(|taken| taken.map_err(Into::into))
             .boxed()
