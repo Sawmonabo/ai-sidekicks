@@ -30,6 +30,7 @@ use sidekicks_contracts::provider::account::record::{
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::WallClock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::{ScheduleError, Scheduler};
@@ -47,6 +48,7 @@ use crate::account::token_custody::{ProviderTokenCustody, TokenCustodyError};
 use crate::driver::contract::account::{
     ProviderObservation, ProviderObserveLegs, ProviderWindowTurnLegs,
 };
+use crate::driver::contract::error::DriverError;
 use crate::driver::{AccountFoldersError, ProviderAccountFolders, ProviderAccountReader};
 use crate::port::usage_sink::UsageSink;
 
@@ -159,6 +161,27 @@ pub enum ProviderAccountObserverError {
     /// The read's quota windows could not be recorded.
     #[error("the account's quota windows could not be recorded")]
     WindowsNotRecorded(#[source] Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl From<ProviderAccountObserverError> for HandlerError {
+    /// An account not registered or whose home cannot be used refuses as the registry and the
+    /// folders' read answer it, and a pasted token as its custody does; every other failure is
+    /// the daemon's own.
+    fn from(error: ProviderAccountObserverError) -> Self {
+        match error {
+            ProviderAccountObserverError::Registry(failure) => failure.into(),
+            ProviderAccountObserverError::Folders(failure) => DriverError::from(failure).into(),
+            ProviderAccountObserverError::Token(failure) => failure.into(),
+            error @ (ProviderAccountObserverError::ProviderUnobserved
+            | ProviderAccountObserverError::ReadFailed(_)
+            | ProviderAccountObserverError::WindowStartFailed(_)
+            | ProviderAccountObserverError::ReadEnded(_)
+            | ProviderAccountObserverError::Schedule(_)
+            | ProviderAccountObserverError::WindowsNotRecorded(_)) => {
+                Self::Internal(Box::new(error))
+            }
+        }
+    }
 }
 
 // Who asked for a read: it decides the opt-out, the minute's floor and the stored writer.

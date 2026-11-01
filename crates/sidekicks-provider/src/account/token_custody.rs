@@ -166,7 +166,7 @@ impl ProviderTokenCustody {
             let admission = AccountAdmission {
                 display_label: Some(registration.display_label),
                 billing_mode: registration.billing_mode,
-                health,
+                health: Some(health),
                 observed_auth_mode: Some(observed_auth_mode),
             };
             Ok(self.registry.admit(minted, &admission).await?)
