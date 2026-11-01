@@ -56,7 +56,9 @@
               standard streams (`_setmode`), macOS's input-wait reads (`proc_pidinfo`'s thread and \
               work-loop lists and BSD information, `proc_pidfdinfo`, `proc_piddynkqueueinfo`), the \
               Linux input-wait test's page mapping (`mmap`, `munmap`) and macOS's user temp folder \
-              (`confstr`) are C interfaces too"
+              (`confstr`) and the wake helper's power-event calls (`IOPMSchedulePowerEvent`, \
+              `IOPMCancelScheduledPowerEvent`) and socket peer read (`getpeereid`) are C \
+              interfaces too"
 )]
 
 mod atomic_write;
@@ -257,6 +259,11 @@ pub use macos::read_command_argument_limit;
 pub use macos::responsibility::become_own_root;
 #[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
+#[cfg(target_os = "macos")]
+pub use macos::wake_helper::{
+    PowerEvents, SystemPowerEvents, WAKE_HELPER_SOCKET_PATH, WakeBookings, WakeRefusal, WakeReply,
+    answer_wake_connection, serve_wake_helper,
+};
 #[cfg(target_os = "macos")]
 pub use macos::windowless_app::launch_app_windowless;
 #[cfg(target_os = "macos")]

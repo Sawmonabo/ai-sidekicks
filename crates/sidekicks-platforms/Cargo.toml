@@ -18,6 +18,10 @@ ignored = [
   "objc2-service-management",
 ]
 
+[[bin]]
+name = "sidekicks-wake-helper"
+path = "src/bin/wake_helper.rs"
+
 [dependencies]
 alacritty_terminal.workspace = true
 base64.workspace = true

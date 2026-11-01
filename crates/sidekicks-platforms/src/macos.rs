@@ -29,6 +29,7 @@ pub(crate) mod scratch_volume;
 pub(crate) mod session_child;
 pub(crate) mod shell_start_confirmation;
 pub(crate) mod system_locale;
+pub(crate) mod wake_helper;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 pub(crate) mod watch;

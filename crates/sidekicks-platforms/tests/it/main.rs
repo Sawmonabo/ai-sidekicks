@@ -6,3 +6,5 @@ mod fork_count;
 mod no_fork;
 #[cfg(unix)]
 mod secret_pipe;
+#[cfg(target_os = "macos")]
+mod wake_helper;
