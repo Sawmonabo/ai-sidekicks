@@ -1,9 +1,9 @@
 //! The `provider.account.*` methods over the account registry, the sign-in broker, the token
 //! custody and the background observer: the list, register, update and delete, the probe, the
-//! home's reset, and the brokered sign-in with its code and its cancel. Who may call them is the
-//! gateway's admission and nothing here; each mutation reads its calling device, which the sign-in
-//! takes as its origin and every other names in the service log, and publishes the account it
-//! changed on the subscription's stream.
+//! home's reset, the brokered sign-in with its code and its cancel, and the memory import. Who may
+//! call them is the gateway's admission and nothing here; each mutation reads its calling device,
+//! which the sign-in takes as its origin and every other names in the service log, and publishes
+//! the account it changed on the subscription's stream.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,12 +22,15 @@ use sidekicks_provider::account::sign_in::{
 };
 use sidekicks_provider::account::token_custody::ProviderTokenCustody;
 use sidekicks_provider::driver::ProviderAccountReader;
-use sidekicks_provider::driver::contract::account::ProviderAccountLegs;
+use sidekicks_provider::driver::contract::account::{
+    ProviderAccountLegs, ProviderMemoryImportLegs,
+};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 mod credential_home;
 mod list;
+mod memory_import;
 mod probe;
 mod registration;
 mod sign_in;
@@ -52,6 +55,8 @@ pub(crate) struct ProviderAccountMethodSources {
     pub(crate) account_reader: Arc<dyn ProviderAccountReader>,
     /// Each provider's own acts on an account's home, the reset's sign-out among them.
     pub(crate) account_legs: HashMap<ProviderId, Arc<dyn ProviderAccountLegs>>,
+    /// Where each provider keeps the person's own memory, and where the memory import lands it.
+    pub(crate) memory_import_legs: HashMap<ProviderId, Arc<dyn ProviderMemoryImportLegs>>,
     /// The lock every act in an account's home takes.
     pub(crate) home_lock: Arc<AccountHomeLock>,
     /// The sessions with a turn live on an account, which hold its removal.
@@ -64,8 +69,8 @@ pub(crate) struct ProviderAccountMethodSources {
     pub(crate) machine_device_id: DeviceId,
 }
 
-/// Registers every `provider.account.*` method but the current-account switch, the memory import,
-/// the usage read and the subscription, over `sources`. Fails the start when a method is already
+/// Registers every `provider.account.*` method but the current-account switch, the usage read and
+/// the subscription, over `sources`. Fails the start when a method is already
 /// registered.
 pub(crate) fn register_provider_account_methods(
     registry: &mut MethodRegistryBuilder,
@@ -76,7 +81,8 @@ pub(crate) fn register_provider_account_methods(
     registration::register_provider_account_registration(registry, &sources)?;
     probe::register_provider_account_probe(registry, &sources)?;
     credential_home::register_provider_account_credential_home_reset(registry, &sources)?;
-    sign_in::register_provider_account_sign_in(registry, &sources)
+    sign_in::register_provider_account_sign_in(registry, &sources)?;
+    memory_import::register_provider_account_memory_import(registry, &sources)
 }
 
 impl ProviderAccountMethodSources {
