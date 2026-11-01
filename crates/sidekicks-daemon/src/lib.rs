@@ -12,5 +12,6 @@ pub(crate) mod highlight;
 pub(crate) mod ipc;
 pub(crate) mod observability;
 pub(crate) mod orchestration;
+pub(crate) mod plan_verdict;
 pub mod program;
 pub(crate) mod remote;
