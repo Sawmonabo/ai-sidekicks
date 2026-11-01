@@ -7,8 +7,10 @@
 //! the wakes of a folder's and a file's watch, whether a terminal's program waits for input, the
 //! machine's wakes from sleep, whether it runs on AC power, a wall-clock timer, the login keychain,
 //! a program's managed preferences, the Region setting's locale and hour cycle, the app's start
-//! with no window and the shells the live test opens on a folder.
+//! with no window, the shells the live test opens on a folder, the wake helper, the move of named
+//! sign-ins between the keychain and files, and a command run behind the administrator prompt.
 
+pub(crate) mod administrator_prompt;
 pub(crate) mod bash_start;
 pub(crate) mod caller_process;
 pub(crate) mod code_signature;
@@ -28,6 +30,7 @@ pub(crate) mod responsibility;
 pub(crate) mod scratch_volume;
 pub(crate) mod session_child;
 pub(crate) mod shell_start_confirmation;
+pub(crate) mod sign_in_move;
 pub(crate) mod system_locale;
 pub(crate) mod wake_helper;
 pub(crate) mod wake_watch;
