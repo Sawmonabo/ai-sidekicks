@@ -16,13 +16,16 @@ use crate::driver::claude::session::scripted::{ScriptedSession, settle};
 use crate::driver::diagnostics::RecordedEvents;
 use crate::port::plan::{PlanPort, ProviderPlan, ProviderPlanHoldEnd};
 
-// A plan record that keeps each plan taken and each hold ended, whose takes wait while held and
-// fail once told to.
+// A plan record that keeps each plan taken, each hold ended and the plans waiting, whose takes
+// wait while held, each on a gate of its own, and fail once told to. A take that passes its gate
+// commits: it sets aside every plan still waiting, as the record's write does.
 #[derive(Default)]
 struct PlanRecord {
     taken: Mutex<Vec<ProviderPlan>>,
     hold_ends: Mutex<Vec<ProviderPlanHoldEnd>>,
-    take_gate: Mutex<Option<Arc<Semaphore>>>,
+    waiting: Arc<Mutex<Vec<PlanId>>>,
+    is_holding: Mutex<bool>,
+    take_gates: Mutex<Vec<Arc<Semaphore>>>,
     is_failing: Mutex<bool>,
 }
 
@@ -40,17 +43,24 @@ impl PlanRecord {
 
     // Holds every take started from now until released.
     fn hold_takes(&self) {
-        *lock(&self.take_gate) = Some(Arc::new(Semaphore::new(0)));
+        *lock(&self.is_holding) = true;
     }
 
     fn fail_takes(&self) {
         *lock(&self.is_failing) = true;
     }
 
+    // Lets every held take through, and every later one.
     fn release_takes(&self) {
-        if let Some(gate) = lock(&self.take_gate).take() {
+        *lock(&self.is_holding) = false;
+        for gate in lock(&self.take_gates).iter() {
             gate.close();
         }
+    }
+
+    // Lets the take started `index`th through, the first being 0.
+    fn release_take(&self, index: usize) {
+        lock(&self.take_gates)[index].close();
     }
 
     fn taken(&self) -> Vec<ProviderPlan> {
@@ -60,25 +70,35 @@ impl PlanRecord {
     fn hold_ends(&self) -> Vec<ProviderPlanHoldEnd> {
         lock(&self.hold_ends).clone()
     }
+
+    fn waiting(&self) -> Vec<PlanId> {
+        lock(&self.waiting).clone()
+    }
 }
 
 impl PlanPort for PlanRecord {
     fn take_plan(
         &self,
         plan: ProviderPlan,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<Vec<PlanId>, Box<dyn Error + Send + Sync>>> {
+        let plan_id = plan.plan_id;
         lock(&self.taken).push(plan);
-        let gate = lock(&self.take_gate).clone();
+        let gate = lock(&self.is_holding).then(|| {
+            let gate = Arc::new(Semaphore::new(0));
+            lock(&self.take_gates).push(Arc::clone(&gate));
+            gate
+        });
         let is_failing = *lock(&self.is_failing);
+        let waiting = Arc::clone(&self.waiting);
         async move {
             if let Some(gate) = gate {
-                // The gate only ever closes, which lets every take through.
+                // The gate only ever closes, which lets the take through.
                 let _closed = gate.acquire().await;
             }
             if is_failing {
                 return Err("the plan record could not be written".into());
             }
-            Ok(())
+            Ok(std::mem::replace(&mut *lock(&waiting), vec![plan_id]))
         }
         .boxed()
     }
@@ -348,4 +368,41 @@ async fn a_newer_plan_recorded_lets_the_older_go() {
         Some("newer")
     );
     assert_eq!(record.hold_ends(), []);
+}
+
+// Two plans whose records commit in the reverse of their asking: the plan committed last waits with
+// its request held, and the one its record set aside is answered to wait. Killed by choosing the
+// plans to answer by the order they were asked.
+#[tokio::test(start_paused = true)]
+async fn the_plan_recorded_last_stands_whatever_order_they_were_asked() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    let record = PlanRecord::registered(&session, true);
+    session.request("first", &plan_exit());
+    session.request("second", &plan_exit());
+    settle().await;
+    let (first, second) = (record.taken()[0].plan_id, record.taken()[1].plan_id);
+
+    record.release_take(1);
+    settle().await;
+    assert!(!has_answer(&session), "the second set nothing aside");
+    record.release_take(0);
+    settle().await;
+
+    assert_eq!(record.waiting(), [first]);
+    assert_eq!(answers(&session), [denial("second", PLAN_KEPT_REASON)]);
+    assert_eq!(
+        session
+            .requests
+            .held_plan_request(session.session_id, first)
+            .as_deref(),
+        Some("first")
+    );
+    assert!(
+        session
+            .requests
+            .held_plan_request(session.session_id, second)
+            .is_none()
+    );
+    assert_eq!(session.requests.open_request_count(session.session_id), 1);
 }

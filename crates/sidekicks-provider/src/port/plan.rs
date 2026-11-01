@@ -46,11 +46,12 @@ pub struct ProviderPlanHoldEnd {
 /// The plan record's intake, registered through a `PortRegistration`. A plan that cannot reach
 /// it, unregistered or failing to record, is refused at its provider at once and records nothing.
 pub trait PlanPort: Send + Sync {
-    /// Records `plan` under its `plan_id`. An error when it could not be recorded.
+    /// Records `plan` under its `plan_id` and answers the ids of the older plans its record set
+    /// aside. An error when it could not be recorded.
     fn take_plan(
         &self,
         plan: ProviderPlan,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+    ) -> BoxFuture<'_, Result<Vec<PlanId>, Box<dyn Error + Send + Sync>>>;
 
     /// Reopens a waiting plan whose held request ended; one whose request is not held, or that is
     /// settled, stays as it is. An error when the record could not be written.

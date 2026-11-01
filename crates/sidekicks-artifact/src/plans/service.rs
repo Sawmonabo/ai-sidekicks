@@ -13,7 +13,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::artifacts::manifest::ArtifactType;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::plan::PlanHoldEndedReason;
+use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanId};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_provider::port::plan::{PlanPort, ProviderPlan, ProviderPlanHoldEnd};
@@ -96,10 +96,11 @@ impl PlansService {
     /// Records `plan` `waiting`: its artifact, `artifact.published`, the plan's row and
     /// `plan.proposed` naming the artifact, in one write, under the plan id its driver minted. The
     /// same write reopens every older plan of the session still waiting, each with
-    /// `plan.hold.ended {superseded}` first, read under the session's append lock. Fails with
-    /// `session.notFound` or `agent.run.notFound`, as the store fails, or as the write does, a plan
-    /// id already recorded among them, and then nothing of it is written.
-    pub async fn take_plan(&self, plan: ProviderPlan) -> Result<(), PlanError> {
+    /// `plan.hold.ended {superseded}` first, read under the session's append lock; answers the ids
+    /// of the plans it reopened. Fails with `session.notFound` or `agent.run.notFound`, as the
+    /// store fails, or as the write does, a plan id already recorded among them, and then nothing
+    /// of it is written.
+    pub async fn take_plan(&self, plan: ProviderPlan) -> Result<Vec<PlanId>, PlanError> {
         let metadata = match &plan.plan_file_path {
             Some(path) => file_name_metadata(path.as_str()),
             None => JsonRecord::default(),
@@ -145,7 +146,7 @@ impl PlansService {
                         .await?;
                     let mut transactional_prelude = statements.clone();
                     let mut preceding_events = Vec::with_capacity(older.len() + 1);
-                    for plan_id in older {
+                    for &plan_id in &older {
                         let (statement, ended) =
                             hold_end_write(session_id, plan_id, PlanHoldEndedReason::Superseded);
                         transactional_prelude.push(statement);
@@ -165,7 +166,7 @@ impl PlansService {
                         )
                         .await;
                     match appended {
-                        Ok(_receipt) => return Ok::<_, ArtifactError>(()),
+                        Ok(_receipt) => return Ok::<_, ArtifactError>(older),
                         // A write queued before the lock settled an older plan after the read; it
                         // committed before this one, so the read again sees it.
                         Err(failure)
@@ -180,8 +181,8 @@ impl PlansService {
                     }
                 }
             })
-            .await?;
-        Ok(())
+            .await
+            .map_err(PlanError::from)
     }
 
     /// Reopens the plan `hold_end` names, recording `plan.hold.ended` with its reason, when it
@@ -248,7 +249,7 @@ impl PlanPort for PlansService {
     fn take_plan(
         &self,
         plan: ProviderPlan,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<Vec<PlanId>, Box<dyn Error + Send + Sync>>> {
         PlansService::take_plan(self, plan)
             .map(|taken| taken.map_err(Into::into))
             .boxed()

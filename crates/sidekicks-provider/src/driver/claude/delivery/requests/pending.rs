@@ -157,15 +157,8 @@ impl RequestTables {
         take == Some(PlanTake::Withdrawn)
     }
 
-    /// The id of the request held for the plan `plan_id`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the plan verdict answers the request it finds here"
-        )
-    )]
-    pub(super) fn held_plan(&self, session_id: SessionId, plan_id: PlanId) -> Option<&str> {
+    /// The id and the recording of the request held for the plan `plan_id`.
+    pub(super) fn held_plan(&self, session_id: SessionId, plan_id: PlanId) -> Option<(&str, u64)> {
         self.by_session
             .get(&session_id)?
             .pending
@@ -173,30 +166,7 @@ impl RequestTables {
             .find(|(_, pending)| {
                 matches!(pending.held, HeldRequest::Plan { plan_id: held } if held == plan_id)
             })
-            .map(|(request_id, _)| request_id.as_str())
-    }
-
-    /// The plans the session holds that were recorded before the recording `admission`, each by
-    /// its request id and its own recording.
-    pub(super) fn held_plans_before(
-        &self,
-        session_id: SessionId,
-        admission: u64,
-    ) -> Vec<(String, u64)> {
-        self.by_session
-            .get(&session_id)
-            .map(|requests| {
-                requests
-                    .pending
-                    .iter()
-                    .filter(|(_, pending)| {
-                        matches!(pending.held, HeldRequest::Plan { .. })
-                            && pending.admission < admission
-                    })
-                    .map(|(request_id, pending)| (request_id.clone(), pending.admission))
-                    .collect()
-            })
-            .unwrap_or_default()
+            .map(|(request_id, pending)| (request_id.as_str(), pending.admission))
     }
 
     /// Whether the recording `admission` is still pending.

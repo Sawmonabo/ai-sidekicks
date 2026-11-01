@@ -2,8 +2,8 @@
 //! request is admitted under its own id like a question, the plan handed to the plan record on a
 //! task of its own under the id minted here, and the request kept open until a verdict answers it
 //! or Claude Code withdraws it. A withdrawal while the record is written is reported once it is. A
-//! plan that cannot be recorded is refused at once, and once a newer plan is recorded the older
-//! plans the session holds are answered to wait for the person.
+//! plan that cannot be recorded is refused at once, and once a newer plan is recorded the held
+//! requests of the older plans its record set aside are answered to wait for the person.
 
 use std::sync::{Arc, Mutex};
 
@@ -57,14 +57,14 @@ impl ClaudeInboundRequests {
     ) -> Option<String> {
         self.lock()
             .held_plan(session_id, plan_id)
-            .map(str::to_owned)
+            .map(|(request_id, _admission)| request_id.to_owned())
     }
 
     // Holds the plan the request carries, Claude Code's `plan` text and the plan file it wrote
     // beside it, under a plan id minted before the take, so a verdict finds it once admitted. One
     // with no plan text, no plan record registered or a take that fails is refused, unless Claude
-    // Code let it go meanwhile; once the take returns, the older plans the session holds are
-    // answered to wait, since the newer one stands in their place.
+    // Code let it go meanwhile; once the take returns, the held requests of the plans its record
+    // set aside are answered to wait, since the newer one stands in their place.
     pub(super) async fn hold_plan(
         &self,
         session: &ClaudeRequestSession<'_>,
@@ -100,6 +100,9 @@ impl ClaudeInboundRequests {
             } else {
                 "no plan record is registered"
             };
+            // The take that never starts ends here, so the session keeps no mark of it.
+            self.lock()
+                .end_plan_take(session_id, &request_id, admission, false);
             record_plan_not_recorded(session_id, &account_id, &request_id, cause.to_owned());
             deny_plan_request(
                 &self.tables,
@@ -124,16 +127,22 @@ impl ClaudeInboundRequests {
         let (tables, channel) = (Arc::clone(&self.tables), Arc::clone(&session.channel));
         tokio::spawn(async move {
             let taken = port.take_plan(plan).await;
-            let (is_withdrawn, is_held, older) = {
+            let (is_withdrawn, is_held, set_aside) = {
                 let mut tables = lock(&tables);
                 let is_withdrawn =
                     tables.end_plan_take(session_id, &request_id, admission, taken.is_ok());
                 let is_held = tables.is_pending(session_id, &request_id, admission);
-                let older = match taken {
-                    Ok(()) => tables.held_plans_before(session_id, admission),
+                let set_aside: Vec<(String, u64)> = match &taken {
+                    Ok(superseded) => superseded
+                        .iter()
+                        .filter_map(|&older| tables.held_plan(session_id, older))
+                        .map(|(older_request_id, older_admission)| {
+                            (older_request_id.to_owned(), older_admission)
+                        })
+                        .collect(),
                     Err(_) => Vec::new(),
                 };
-                (is_withdrawn, is_held, older)
+                (is_withdrawn, is_held, set_aside)
             };
             if let Err(error) = taken {
                 record_plan_not_recorded(
@@ -157,8 +166,8 @@ impl ClaudeInboundRequests {
                 }
                 return;
             }
-            // The newer plan's record set the older ones aside, so their requests wait no more.
-            for (older_request_id, older_admission) in older {
+            // The newer plan's record set these plans aside, so their requests wait no more.
+            for (older_request_id, older_admission) in set_aside {
                 deny_plan_request(
                     &tables,
                     &*channel,
