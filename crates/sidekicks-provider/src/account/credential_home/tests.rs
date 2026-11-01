@@ -31,9 +31,9 @@ fn claude() -> ProviderId {
     ProviderId::new("claude".to_owned()).expect("the Claude Code provider id")
 }
 
-// Account legs whose sign-out records the account and folders it ran for and succeeds.
+/// Account legs whose sign-out records the account and folders it ran for and succeeds.
 #[derive(Default)]
-struct RecordedSignOuts(Mutex<Vec<(ProviderAccountId, ProviderAccountFolders)>>);
+pub(crate) struct RecordedSignOuts(Mutex<Vec<(ProviderAccountId, ProviderAccountFolders)>>);
 
 impl ProviderAccountLegs for RecordedSignOuts {
     fn sign_out_home(

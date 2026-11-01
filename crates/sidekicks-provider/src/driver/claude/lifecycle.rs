@@ -95,7 +95,8 @@ pub(crate) struct ClaudeDriver {
     staged_changes: StagedChangesWorktrees,
     pending_compactions: PendingCompactionRegistry,
     shell_lines: Arc<ShellLineReadingBound>,
-    usage_probe_models: Arc<ClaudeUsageProbeModels>,
+    /// The model each account's latest limits read named for its weekly window over one model.
+    pub(crate) usage_probe_models: Arc<ClaudeUsageProbeModels>,
     inbox_addresser: Arc<ClaudeRegisteredPlacesAddresser>,
     // One capability read at a time, since each makes and removes the same folder.
     capability_read: tokio::sync::Mutex<()>,

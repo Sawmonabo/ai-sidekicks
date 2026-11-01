@@ -237,8 +237,8 @@ fn folders(minted: &MintedAccount) -> ProviderAccountFolders {
     }
 }
 
-// Every file and folder under `root`, each file with its bytes.
-fn snapshot(root: &Path) -> BTreeMap<String, Option<Vec<u8>>> {
+/// Every file and folder under `root`, each file with its bytes.
+pub(crate) fn snapshot(root: &Path) -> BTreeMap<String, Option<Vec<u8>>> {
     let mut entries = BTreeMap::new();
     let mut folders = vec![root.to_owned()];
     while let Some(folder) = folders.pop() {

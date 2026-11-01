@@ -69,6 +69,9 @@ pub enum TokenCustodyError {
     /// The keychain holds no token for the account.
     #[error("no token is sealed for the account")]
     NotSealed,
+    /// The keychain could not destroy the account's sealed token.
+    #[error("the sealed token could not be destroyed")]
+    Destroying(#[source] KeychainRefusal),
     /// The registry could not read or write the account.
     #[error(transparent)]
     Registry(#[from] ProviderAccountRegistryError),
@@ -94,7 +97,8 @@ impl From<TokenCustodyError> for HandlerError {
             error @ (TokenCustodyError::NoStatusRead
             | TokenCustodyError::Sweep(_)
             | TokenCustodyError::Unsealing(_)
-            | TokenCustodyError::NotSealed) => Self::Internal(Box::new(error)),
+            | TokenCustodyError::NotSealed
+            | TokenCustodyError::Destroying(_)) => Self::Internal(Box::new(error)),
         }
     }
 }
@@ -205,6 +209,20 @@ impl ProviderTokenCustody {
             .await
             .map_err(TokenCustodyError::Unsealing)?
             .ok_or(TokenCustodyError::NotSealed)
+    }
+
+    /// Destroys the token sealed for `account_id`, whose removal has begun; an account with none
+    /// sealed is left as it is. Fails with [`TokenCustodyError::Destroying`] when the keychain
+    /// refuses, the item kept for the start's sweep.
+    pub async fn destroy_token(
+        &self,
+        account_id: &ProviderAccountId,
+    ) -> Result<(), TokenCustodyError> {
+        self.keychain
+            .remove(account_id.as_str())
+            .await
+            .map(drop)
+            .map_err(TokenCustodyError::Destroying)
     }
 
     /// The start's sweep: destroys every sealed item no registered row names, then deletes each

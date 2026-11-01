@@ -44,6 +44,7 @@ use crate::driver::contract::account::{
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
+use crate::driver::test_registry::new_session_id;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
 };
@@ -258,8 +259,12 @@ impl UsageSink for RecordedWholeSets {
 pub(super) struct TestLiveTurns(pub(super) AtomicBool);
 
 impl AccountLiveTurns for TestLiveTurns {
-    fn has_live_turn(&self, _provider_account_id: &ProviderAccountId) -> bool {
-        self.0.load(Ordering::SeqCst)
+    fn sessions_with_live_turns(&self, _provider_account_id: &ProviderAccountId) -> Vec<SessionId> {
+        if self.0.load(Ordering::SeqCst) {
+            vec![new_session_id()]
+        } else {
+            Vec::new()
+        }
     }
 }
 
