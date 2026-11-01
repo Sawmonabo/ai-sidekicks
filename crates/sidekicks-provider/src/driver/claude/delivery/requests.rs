@@ -10,6 +10,7 @@
 pub(crate) mod answers;
 mod pending;
 mod plan_hold;
+mod question_prompts;
 
 use std::error::Error;
 use std::io;
@@ -18,11 +19,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
-use sidekicks_contracts::question::{QuestionOption, QuestionPrompt};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -36,6 +35,7 @@ use self::answers::{
 };
 use self::pending::{HeldRequest, PendingRequest, RequestTables};
 use self::plan_hold::withdrawn_hold_end;
+use self::question_prompts::read_question_prompts;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::ask_action::read_claude_ask_action;
 use crate::driver::claude::delivery::claude_delivery_origin;
@@ -556,7 +556,7 @@ impl ClaudeInboundRequests {
         input: Map<String, Value>,
     ) {
         let session_id = session.stream.session_id();
-        let questions = read_question_prompts(&input);
+        let questions = read_question_prompts(session_id, &input);
         let held = HeldRequest::Question(ClaudeHeldQuestion {
             route,
             input,
@@ -780,56 +780,6 @@ fn read_input(input: Option<&RawValue>) -> Map<String, Value> {
     input
         .and_then(|input| serde_json::from_str::<Map<String, Value>>(input.get()).ok())
         .unwrap_or_default()
-}
-
-// The question tool's questions as the questions card asks them; a malformed one is left out.
-fn read_question_prompts(input: &Map<String, Value>) -> Vec<QuestionPrompt> {
-    let Some(questions) = input.get("questions").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    questions
-        .iter()
-        .filter_map(Value::as_object)
-        .filter_map(|question| {
-            let text = read_non_empty_text(question, "question")?;
-            let options = question
-                .get("options")
-                .and_then(Value::as_array)
-                .map(Vec::as_slice)
-                .unwrap_or_default()
-                .iter()
-                .filter_map(Value::as_object)
-                .filter_map(|option| {
-                    Some(QuestionOption {
-                        label: read_non_empty_text(option, "label")?,
-                        description: read_non_empty_string(option, "description")
-                            .map(str::to_owned),
-                        preview: None,
-                    })
-                })
-                .collect();
-            Some(QuestionPrompt {
-                header: read_non_empty_text(question, "header"),
-                text,
-                heading: None,
-                description: None,
-                options,
-                several_answers: question.get("multiSelect") == Some(&Value::Bool(true)),
-                secret: false,
-                required: None,
-                default: None,
-                minimum: None,
-                maximum: None,
-                step: None,
-                unit: None,
-                placeholder: None,
-            })
-        })
-        .collect()
-}
-
-fn read_non_empty_text(source: &Map<String, Value>, key: &str) -> Option<NonEmptyText> {
-    read_non_empty_string(source, key).and_then(|text| NonEmptyText::new(text.to_owned()))
 }
 
 fn record_hand_off_failure(session_id: SessionId, kind: &str, error: &(dyn Error + 'static)) {

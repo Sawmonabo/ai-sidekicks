@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use serde_json::{Value, json};
-use sidekicks_contracts::question::QuestionAnswer;
+use sidekicks_contracts::question::{QuestionAnswer, QuestionDefault};
 use sidekicks_contracts::wire::list::BoundedVec;
+use sidekicks_contracts::wire::number::Number;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
 use super::ClaudeRequestSession;
@@ -75,13 +76,17 @@ async fn a_withdrawal_reaches_the_approval_pipeline_only_once_the_ask_did() {
     );
 }
 
-// Killed by keying an answer by anything but its question's own words, and by sending one pick of
-// several.
+// The extended form's members reach the record, and the answer goes back as Claude Code reads it.
+// Killed by keying an answer by anything but its question's own words, by sending one pick of
+// several, by sending `response`, by a preview sent for an option not picked, and by a key for a
+// skipped question.
 #[tokio::test(start_paused = true)]
-async fn a_questions_answers_are_keyed_by_its_words_with_several_picks_joined() {
+async fn a_questions_record_carries_its_extended_form_and_its_answer_goes_back_keyed_by_its_words()
+{
     let session = ScriptedSession::new().await;
     session.hold_lead_turn("lead");
-    let port: Arc<dyn QuestionPort> = Arc::new(QuestionCard::default());
+    let card = Arc::new(QuestionCard::default());
+    let port: Arc<dyn QuestionPort> = card.clone();
     assert!(
         session
             .requests
@@ -97,6 +102,7 @@ async fn a_questions_answers_are_keyed_by_its_words_with_several_picks_joined() 
             "tool_name": "AskUserQuestion",
             "tool_use_id": "call-1",
             "input": {
+                "title": "Deck setup",
                 "questions": [
                     {
                         "question": "Which colors?",
@@ -104,13 +110,71 @@ async fn a_questions_answers_are_keyed_by_its_words_with_several_picks_joined() 
                         "multiSelect": true,
                         "options": [{"label": "Red"}, {"label": "Blue"}, {"label": "Green"}],
                     },
-                    {"question": "Which name?", "header": "Name", "options": []},
+                    {
+                        "question": "Which layout?",
+                        "header": "Layout",
+                        "options": [
+                            {"label": "Grid", "preview": "grid mock"},
+                            {"label": "List", "preview": "list mock"},
+                        ],
+                    },
+                    {
+                        "question": "Which theme?",
+                        "header": "Theme",
+                        "options": [{"label": "Dark", "preview": "dark mock"}, {"label": "Light"}],
+                    },
+                    {
+                        "question": "How many slides?",
+                        "header": "Slides",
+                        "kind": "number",
+                        "min": 1,
+                        "max": 20,
+                        "step": 1,
+                        "defaultValue": 5,
+                        "unit": "slides",
+                    },
+                    {
+                        "question": "Which name?",
+                        "header": "Name",
+                        "kind": "text",
+                        "description": "Shown on the cover",
+                        "placeholder": "Ada",
+                    },
                 ],
             },
         }),
     );
     settle().await;
 
+    let taken = card.taken();
+    assert_eq!(taken.len(), 1);
+    let questions = &taken[0].questions;
+    assert!(
+        questions
+            .iter()
+            .all(|question| question.heading == Some(text("Deck setup")))
+    );
+    assert_eq!(
+        questions[1].options[1].preview.as_deref(),
+        Some("list mock")
+    );
+    let number = &questions[3];
+    assert_eq!(
+        (number.minimum, number.maximum, number.step),
+        (Number::new(1.0), Number::new(20.0), Number::new(1.0))
+    );
+    assert_eq!(
+        number.default,
+        Number::new(5.0).map(QuestionDefault::Number)
+    );
+    assert_eq!(number.unit, Some(text("slides")));
+    assert_eq!(questions[4].placeholder, Some(text("Ada")));
+    assert_eq!(questions[4].description, Some(text("Shown on the cover")));
+
+    let picked = |labels: &[&str]| QuestionAnswer::Picked {
+        labels: BoundedVec::new(labels.iter().map(|label| text(label)).collect())
+            .expect("the picks fit"),
+    };
     session
         .requests
         .respond(
@@ -118,11 +182,11 @@ async fn a_questions_answers_are_keyed_by_its_words_with_several_picks_joined() 
             "question",
             ProviderRequestAnswer::Question {
                 answers: vec![
-                    QuestionAnswer::Picked {
-                        labels: BoundedVec::new(vec![text("Red"), text("Blue")])
-                            .expect("two picks fit"),
-                    },
-                    QuestionAnswer::Typed { text: text("Ada") },
+                    picked(&["Red", "Blue"]),
+                    picked(&["List"]),
+                    picked(&["Light"]),
+                    QuestionAnswer::Typed { text: text("8") },
+                    QuestionAnswer::Skipped {},
                 ],
             },
         )
@@ -139,10 +203,21 @@ async fn a_questions_answers_are_keyed_by_its_words_with_several_picks_joined() 
         })
         .collect();
     assert_eq!(answers.len(), 1);
+    let updated_input = &answers[0]["updatedInput"];
     assert_eq!(
-        answers[0]["updatedInput"]["answers"],
-        json!({"Which colors?": "Red, Blue", "Which name?": "Ada"})
+        updated_input["answers"],
+        json!({
+            "Which colors?": "Red, Blue",
+            "Which layout?": "List",
+            "Which theme?": "Light",
+            "How many slides?": "8",
+        })
     );
+    assert_eq!(
+        updated_input["annotations"],
+        json!({"Which layout?": {"preview": "list mock"}})
+    );
+    assert!(updated_input.get("response").is_none());
 }
 
 // Claude Code withdraws a question while its record's write is still queued: the withdrawal finds
