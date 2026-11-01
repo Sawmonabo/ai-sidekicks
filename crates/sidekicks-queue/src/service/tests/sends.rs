@@ -202,7 +202,7 @@ impl Fixture {
     }
 
     /// Sends again the item `replaces` with what `carry` adds to the send, and answers the send.
-    async fn replace_item_carrying(
+    pub(super) async fn replace_item_carrying(
         &self,
         replaces: QueueItemId,
         carry: impl FnOnce(&mut AgentQueueItemCreateRequest),
@@ -520,7 +520,7 @@ async fn a_send_repeated_after_its_account_was_removed_answers_the_saved_one() {
 }
 
 /// The words of the plan messages the tests send.
-const PLAN_MESSAGE_TEXT: &str = "Implement the plan.";
+pub(super) const PLAN_MESSAGE_TEXT: &str = "Implement the plan.";
 
 /// The device whose verdict the tests' plan messages carry out.
 const VERDICT_DEVICE: &str = "device-verdict";
@@ -528,7 +528,7 @@ const VERDICT_DEVICE: &str = "device-verdict";
 impl Fixture {
     /// Sends the daemon's plan message of `kind` for `plan_id` under `key`, for the verdict of
     /// [`VERDICT_DEVICE`], and answers the queued item's id.
-    async fn send_plan_message(
+    pub(super) async fn send_plan_message(
         &self,
         plan_id: PlanId,
         kind: PlanMessageKind,
@@ -585,7 +585,7 @@ impl Fixture {
     }
 
     /// The events the session's log holds.
-    fn count_events(&self) -> i64 {
+    pub(super) fn count_events(&self) -> i64 {
         self.database
             .reader()
             .query_row("SELECT COUNT(*) FROM session_events", [], |row| row.get(0))
@@ -594,7 +594,7 @@ impl Fixture {
 }
 
 /// The id of the item a queued send answers.
-fn queue_item_id_of(queued: &AgentQueueItemCreateResponse) -> QueueItemId {
+pub(super) fn queue_item_id_of(queued: &AgentQueueItemCreateResponse) -> QueueItemId {
     match queued {
         AgentQueueItemCreateResponse::Queued { queue_item_id, .. }
         | AgentQueueItemCreateResponse::Admitted { queue_item_id, .. } => *queue_item_id,
@@ -607,7 +607,7 @@ fn queue_item_id_of(queued: &AgentQueueItemCreateResponse) -> QueueItemId {
 }
 
 /// A new plan's id.
-fn new_plan_id() -> PlanId {
+pub(super) fn new_plan_id() -> PlanId {
     PlanId::try_from(mint_uuid_v7()).expect("a minted UUID is a plan id")
 }
 

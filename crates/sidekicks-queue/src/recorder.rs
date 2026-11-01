@@ -33,10 +33,10 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_session::queue_store::send_now::clear_sent_now_statement;
 use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemExit, QueueItemOutcome, QueueItemReader, QueueItemRecord,
-    admit_undelivered_statement, current_interrupted_lead_run_statement,
-    insert_queue_item_statement, leave_queued_statement, no_live_lead_run_statement,
-    placement_statements, retarget_statement, run_live_statement, session_takes_messages_statement,
-    supersede_undelivered_statement,
+    admit_undelivered_statement, cancel_undelivered_statement,
+    current_interrupted_lead_run_statement, insert_queue_item_statement, leave_queued_statement,
+    no_live_lead_run_statement, placement_statements, retarget_statement, run_live_statement,
+    session_takes_messages_statement, supersede_undelivered_statement,
 };
 use sidekicks_session::run::projection::insert_queued_run_statement;
 use sidekicks_store::database::connection::read_pool::{
@@ -380,6 +380,21 @@ impl QueueRecorder {
         Ok(())
     }
 
+    /// Cancels `item`, which reads not delivered, with its event in one write, so no retry sends
+    /// it again. Fails as [`QueueRecordError`] says, refused when the item no longer reads not
+    /// delivered; nothing is written then.
+    pub(crate) async fn record_undelivered_cancel(
+        &self,
+        item: &QueueItemRecord,
+        now: &WireInstant,
+    ) -> Result<(), QueueRecordError> {
+        let draft = SessionEventDraft::of_session(item.session_id, &canceled_event(item))?;
+        self.append_with(draft, vec![cancel_undelivered_statement(&item.id, now)])
+            .await?;
+        self.raise_committed(std::slice::from_ref(item), false);
+        Ok(())
+    }
+
     /// Queues the run `queued` for the session's waiting `items`, pointing each at it, in one
     /// write. Fails as [`QueueRecordError`] says, refused when a lead run is live or one of the
     /// items has left `queued`; nothing is written then.
@@ -499,13 +514,7 @@ pub(crate) fn outcome_draft_of(
 ) -> Result<(SessionEventDraft, WriteStatement), SessionEventDraftError> {
     let event = match outcome {
         QueueItemOutcome::Admitted { run_id } => admitted_event(item, *run_id),
-        QueueItemOutcome::Canceled => {
-            SessionEvent::AgentQueueItemCanceled(AgentQueueItemCanceledPayload {
-                session_id: item.session_id,
-                queue_item_id: item.id,
-                state: AgentQueueItemCanceledState::Value,
-            })
-        }
+        QueueItemOutcome::Canceled => canceled_event(item),
         QueueItemOutcome::NotDelivered { reason } => {
             SessionEvent::AgentQueueItemNotDelivered(AgentQueueItemNotDeliveredPayload {
                 session_id: item.session_id,
@@ -519,6 +528,15 @@ pub(crate) fn outcome_draft_of(
         SessionEventDraft::of_session(item.session_id, &event)?,
         leave_queued_statement(&item.id, &QueueItemExit::Outcome(outcome.clone()), now),
     ))
+}
+
+// The `agent.queueItem.canceled` event of `item`.
+fn canceled_event(item: &QueueItemRecord) -> SessionEvent {
+    SessionEvent::AgentQueueItemCanceled(AgentQueueItemCanceledPayload {
+        session_id: item.session_id,
+        queue_item_id: item.id,
+        state: AgentQueueItemCanceledState::Value,
+    })
 }
 
 // The `agent.queueItem.admitted` event of `item` taken by `run_id`.

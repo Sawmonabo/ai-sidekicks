@@ -1,16 +1,17 @@
 //! The run queue: a person's sends to a session's lead, the reviews of a session's changes queued
-//! as its next item, the messages the daemon sends for a plan's verdict, and the edit, removal and
-//! reorder of the messages still waiting. A send is written whole before anything acts on it. Every
-//! decision on a session's waiting messages is taken under the queue's one lock per session, so a
-//! send, a change and a run's end never interleave; a skill pick is resolved before the lock, so a
-//! read waiting at the memory gate never holds the session's writes. A change to a message a
-//! provider was handed takes it back first, and one the provider does not give back reads not
-//! delivered and leaves the change. A send into a paused or pausing run resumes it once the lock is
-//! let go.
+//! as its next item, the messages the daemon sends for a plan's verdict and their withdrawal once
+//! what they carry out has ended, and the edit, removal and reorder of the messages still waiting.
+//! A send is written whole before anything acts on it. Every decision on a session's waiting
+//! messages is taken under the queue's one lock per session, so a send, a change and a run's end
+//! never interleave; a skill pick is resolved before the lock, so a read waiting at the memory gate
+//! never holds the session's writes. A change to a message a provider was handed takes it back
+//! first, and one the provider does not give back reads not delivered and leaves the change. A send
+//! into a paused or pausing run resumes it once the lock is let go.
 
 mod interrupt;
 #[cfg(test)]
 mod tests;
+pub mod withdrawal;
 
 use std::sync::{Arc, LazyLock, Weak};
 
@@ -75,15 +76,15 @@ use crate::send::{QueueSendItem, QueueSendMessage, QueueSends, QueueSendsDeps};
 use crate::session_lock::{QueueSessionLock, UnreleasedInterrupts};
 
 /// The statements the run queue's reads prepare that no other reading service's set holds: a queue
-/// item by its id and by a send's idempotency key, a session's newest lead run that has not ended
-/// and its current lead run, the sessions with a lead message waiting for a run that ended or has
-/// not started, a session's interrupts whose release left their choice unsettled and the sessions
-/// holding one, the trigger of a run's newest interrupted end, and the queue stream's reads of the
-/// changes after a cursor and of the waiting items from the first place and after a place. Its
-/// other reads (a session's queue, the messages waiting for a run, a run's row, its provider, its
-/// agent and account, a session's state, its lead and its step bound) are in the idle sleep's, the
-/// run engine's and the run pause's sets.
-pub const RUN_QUEUE_STATEMENT_CAPACITY: usize = 11;
+/// item by its id, by a send's idempotency key and by the plan a plan message carries out, a
+/// session's newest lead run that has not ended and its current lead run, the sessions with a lead
+/// message waiting for a run that ended or has not started, a session's interrupts whose release
+/// left their choice unsettled and the sessions holding one, the trigger of a run's newest
+/// interrupted end, and the queue stream's reads of the changes after a cursor and of the waiting
+/// items from the first place and after a place. Its other reads (a session's queue, the messages
+/// waiting for a run, a run's row, its provider, its agent and account, a session's state, its lead
+/// and its step bound) are in the idle sleep's, the run engine's and the run pause's sets.
+pub const RUN_QUEUE_STATEMENT_CAPACITY: usize = 12;
 
 // The detail of a queued run ended because every message it was queued for was removed.
 static EMPTIED_RUN_DETAIL: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -513,36 +514,7 @@ impl RunQueue {
         if let QueueWithdrawal::Unreturned(reason) = withdrawal {
             return Err(unreturned_refusal(item.id, reason).into());
         }
-        let run_id = item.target_run_id;
-        let is_last_of_queued_run = match run_id {
-            Some(run_id) => self.is_queued_run_emptied_by(run_id, &[item.id]).await?,
-            None => false,
-        };
-        match run_id {
-            Some(run_id) if is_last_of_queued_run => {
-                self.admission
-                    .end_queued_run(
-                        &hold,
-                        run_id,
-                        vec![(item, QueueItemOutcome::Canceled)],
-                        EMPTIED_RUN_DETAIL.clone(),
-                    )
-                    .await?;
-            }
-            _ => {
-                let is_lead = item.child_handle.is_none();
-                self.recorder
-                    .record_outcome(&item, QueueItemOutcome::Canceled, &WireInstant::now())
-                    .await?;
-                self.delivery.forget(&[item.id]);
-                // A message the provider kept no longer holds back the interrupted run's continue.
-                if let Some(run_id) = run_id.filter(|_| is_lead) {
-                    self.lifecycle
-                        .continue_interrupted_run(&hold, run_id, false)
-                        .await?;
-                }
-            }
-        }
+        self.settle_canceled(&hold, item).await?;
         Ok(AgentQueueItemCancelResponse {
             queue_item_id: item_id,
             state: AgentQueueItemCanceledState::Value,
@@ -670,6 +642,47 @@ impl RunQueue {
                 return;
             }
         }
+    }
+
+    // Settles `item`, waiting and given back by its provider, canceled: removing the last message
+    // of a run that has not started ends that run `failed` in the same write, and a lead message
+    // no longer holds back its interrupted run's continue. Called under `hold`.
+    async fn settle_canceled(
+        &self,
+        hold: &KeyHold<'_, SessionId>,
+        item: QueueItemRecord,
+    ) -> Result<(), QueueError> {
+        let run_id = item.target_run_id;
+        let is_last_of_queued_run = match run_id {
+            Some(run_id) => self.is_queued_run_emptied_by(run_id, &[item.id]).await?,
+            None => false,
+        };
+        match run_id {
+            Some(run_id) if is_last_of_queued_run => {
+                self.admission
+                    .end_queued_run(
+                        hold,
+                        run_id,
+                        vec![(item, QueueItemOutcome::Canceled)],
+                        EMPTIED_RUN_DETAIL.clone(),
+                    )
+                    .await?;
+            }
+            _ => {
+                let is_lead = item.child_handle.is_none();
+                self.recorder
+                    .record_outcome(&item, QueueItemOutcome::Canceled, &WireInstant::now())
+                    .await?;
+                self.delivery.forget(&[item.id]);
+                // A message the provider kept no longer holds back the interrupted run's continue.
+                if let Some(run_id) = run_id.filter(|_| is_lead) {
+                    self.lifecycle
+                        .continue_interrupted_run(hold, run_id, false)
+                        .await?;
+                }
+            }
+        }
+        Ok(())
     }
 
     // Resumes the paused or pausing run a send went into, off the session's lock, so the message
