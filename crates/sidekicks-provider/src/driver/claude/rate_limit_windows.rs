@@ -32,6 +32,11 @@ impl ClaudeUsageProbeModels {
         lock(&self.0).insert(account, display_name);
     }
 
+    /// Drops the model `account`'s limits reads named, once the account is removed.
+    pub(crate) fn forget(&self, account: &ProviderAccountId) {
+        lock(&self.0).remove(account);
+    }
+
     fn model_of(&self, account: &ProviderAccountId) -> Option<String> {
         lock(&self.0).get(account).cloned()
     }
@@ -115,23 +120,37 @@ mod tests {
 
     // Killed by a window keeping Claude Code's own name, by a wrong length, by a scoped window
     // named before any limits read named its model, by one named for another account's read (the
-    // read keyed by anything but the session's account), and by reading a window that is no
-    // account limit.
+    // read keyed by anything but the session's account), by one named for an account since
+    // removed (the model kept past its account), and by reading a window that is no account
+    // limit.
     #[rstest]
-    #[case::five_hour("five_hour", None, Some(("session", 300)))]
-    #[case::seven_day("seven_day", None, Some(("weekly_all", 10_080)))]
+    #[case::five_hour("five_hour", None, false, Some(("session", 300)))]
+    #[case::seven_day("seven_day", None, false, Some(("weekly_all", 10_080)))]
     #[case::scoped(
         "seven_day_overage_included",
         Some(ACCOUNT),
+        false,
         Some(("weekly_scoped:Opus", 10_080))
     )]
-    #[case::scoped_before_any_read("seven_day_overage_included", None, None)]
-    #[case::scoped_read_on_another_account("seven_day_overage_included", Some(OTHER_ACCOUNT), None)]
-    #[case::per_model_key("seven_day_opus", Some(ACCOUNT), None)]
-    #[case::overage("overage", Some(ACCOUNT), None)]
+    #[case::scoped_before_any_read("seven_day_overage_included", None, false, None)]
+    #[case::scoped_read_on_another_account(
+        "seven_day_overage_included",
+        Some(OTHER_ACCOUNT),
+        false,
+        None
+    )]
+    #[case::scoped_after_the_account_is_forgotten(
+        "seven_day_overage_included",
+        Some(ACCOUNT),
+        true,
+        None
+    )]
+    #[case::per_model_key("seven_day_opus", Some(ACCOUNT), false, None)]
+    #[case::overage("overage", Some(ACCOUNT), false, None)]
     fn each_event_window_reads_as_its_account_limit(
         #[case] name: &str,
         #[case] probed_account: Option<&str>,
+        #[case] is_forgotten: bool,
         #[case] expected: Option<(&str, i64)>,
     ) {
         let members = json!({
@@ -140,6 +159,9 @@ mod tests {
         let probe_models = ClaudeUsageProbeModels::default();
         if let Some(probed_account) = probed_account {
             probe_models.note(account(probed_account), "Opus".to_owned());
+        }
+        if is_forgotten {
+            probe_models.forget(&account(ACCOUNT));
         }
 
         let windows = read_claude_quota_windows(

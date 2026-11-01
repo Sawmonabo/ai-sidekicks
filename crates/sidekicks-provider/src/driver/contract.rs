@@ -515,6 +515,10 @@ pub trait ProviderDriver: Send + Sync {
     /// must answer them; `None` for a provider whose sessions answer no inbox.
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>>;
 
+    /// Drops what the driver keeps in memory for `provider_account_id`'s account, which has been
+    /// removed; an account it keeps nothing for is left as it is.
+    fn forget_account(&self, provider_account_id: &ProviderAccountId);
+
     /// Deletes what the provider keeps for its own diagnosis in account home `home` from before
     /// `cutoff`, beyond the descriptor's folders, which the expiry deletes itself, and answers the
     /// rows it deleted; blocking. Does nothing unless the provider keeps more; fails when that

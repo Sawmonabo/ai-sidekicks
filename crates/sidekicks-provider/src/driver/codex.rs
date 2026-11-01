@@ -676,6 +676,9 @@ impl ProviderDriver for CodexDriver {
         None
     }
 
+    // The Codex driver keys nothing it holds in memory by account.
+    fn forget_account(&self, _provider_account_id: &ProviderAccountId) {}
+
     fn expire_account_home_diagnostics(
         &self,
         home: &Path,

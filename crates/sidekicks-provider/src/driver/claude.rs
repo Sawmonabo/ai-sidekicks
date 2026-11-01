@@ -680,6 +680,10 @@ impl ProviderDriver for ClaudeDriver {
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>> {
         self.session_inbox_addresser()
     }
+
+    fn forget_account(&self, provider_account_id: &ProviderAccountId) {
+        self.usage_probe_models.forget(provider_account_id);
+    }
 }
 
 /// A pick as Claude Code takes it: the name and folder `skill.list` gave, both checked non-empty.

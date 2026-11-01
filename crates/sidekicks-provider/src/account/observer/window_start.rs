@@ -270,7 +270,10 @@ impl ObserverShared {
         self.window_timers
             .arm(&provider_account_id, windows.next_reset(now))?;
         if !windows.has_unstarted_closed_window(now)
-            || self.live_turns.has_live_turn(&provider_account_id)
+            || !self
+                .live_turns
+                .sessions_with_live_turns(&provider_account_id)
+                .is_empty()
         {
             return Ok(());
         }

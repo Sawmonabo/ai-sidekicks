@@ -207,4 +207,4 @@ async fn run_on_blocking_thread(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

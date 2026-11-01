@@ -28,6 +28,7 @@ use sidekicks_contracts::provider::account::record::{
     ProviderAccountHealthState, ProviderAccountId,
 };
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::WallClock;
 use sidekicks_std::mutex_lock::lock;
@@ -65,10 +66,11 @@ const CHECK_NOW_FLOOR: jiff::SignedDuration = jiff::SignedDuration::from_mins(1)
 // Reads in a row with no answer after which the account reads as not told.
 const UNANSWERED_BEFORE_INDETERMINATE: u32 = 2;
 
-/// Whether a turn is live on an account, read through the bindings the daemon keeps.
+/// The turns live on an account, read through the bindings the daemon keeps.
 pub trait AccountLiveTurns: Send + Sync {
-    /// Whether any turn is live on `provider_account_id`'s account now.
-    fn has_live_turn(&self, provider_account_id: &ProviderAccountId) -> bool;
+    /// The sessions with a turn live on `provider_account_id`'s account now, each once; empty
+    /// when none is.
+    fn sessions_with_live_turns(&self, provider_account_id: &ProviderAccountId) -> Vec<SessionId>;
 }
 
 /// What the observer is built over.
@@ -398,7 +400,11 @@ impl ObserverShared {
         {
             return Ok(AccountReadAnswer::Read(last.clone()));
         }
-        if self.live_turns.has_live_turn(&provider_account_id) {
+        if !self
+            .live_turns
+            .sessions_with_live_turns(&provider_account_id)
+            .is_empty()
+        {
             return Ok(AccountReadAnswer::NotNow { last });
         }
         let now = self.wall_clock.now();

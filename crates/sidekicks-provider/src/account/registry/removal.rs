@@ -1,12 +1,19 @@
-//! An account's removal in the registry: its intent marked, refused while a workflow step waits
-//! on the account, every stored id read with that mark, and a marked row deleted with its quota
-//! readings and usage turns.
+//! An account's removal: refused while a session runs on the account or a workflow step waits on
+//! it, then its intent marked, its sealed token destroyed, its row deleted with its quota readings
+//! and usage turns, and what each driver keeps in memory for it dropped. Its home stays on disk
+//! as it is. A crash between those writes leaves a marked row, which the start's sweep finishes.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::account::methods::ProviderAccountInUseDetails;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
@@ -15,6 +22,9 @@ use sidekicks_store::database::stored_column::text_column;
 
 use super::{ProviderAccountRegistry, StoredValueRefused, refusal_or_failure};
 use crate::account::errors::ProviderAccountRegistryError;
+use crate::account::observer::AccountLiveTurns;
+use crate::account::token_custody::{ProviderTokenCustody, TokenCustodyError};
+use crate::driver::registry::ProviderRegistry;
 
 // Every row, those whose removal has begun included.
 const SELECT_ACCOUNT_REMOVAL_INTENTS_SQL: &str =
@@ -51,7 +61,65 @@ pub struct AccountIdsByRemovalIntent {
     pub marked: Vec<ProviderAccountId>,
 }
 
+/// Why an account's removal failed; a refusal leaves the account registered as it was.
+#[derive(Debug, thiserror::Error)]
+pub enum ProviderAccountRemovalError {
+    /// Sessions run on the account, so its removal was not begun.
+    #[error("sessions are running on the provider account")]
+    SessionsRunning(BoundedVec<SessionId, 1, { usize::MAX }>),
+    /// The registry refused or failed the removal's writes.
+    #[error(transparent)]
+    Registry(#[from] ProviderAccountRegistryError),
+    /// The account's sealed token could not be destroyed; its marked row is left for the start's
+    /// sweep.
+    #[error(transparent)]
+    TokenCustody(#[from] TokenCustodyError),
+}
+
+impl From<ProviderAccountRemovalError> for HandlerError {
+    /// Running sessions refuse `provider.account.inUse` naming them; a registry or custody failure
+    /// answers as its own.
+    fn from(error: ProviderAccountRemovalError) -> Self {
+        match error {
+            ProviderAccountRemovalError::SessionsRunning(session_ids) => Self::Refused(
+                DomainError::new(
+                    "Sessions are running on the provider account",
+                    RefusalCode::ProviderAccountInUse,
+                )
+                .with_detail(ProviderAccountInUseDetails { session_ids }),
+            ),
+            ProviderAccountRemovalError::Registry(failure) => failure.into(),
+            ProviderAccountRemovalError::TokenCustody(failure) => failure.into(),
+        }
+    }
+}
+
 impl ProviderAccountRegistry {
+    /// Removes `account_id`: refused while `live_turns` names a session on it, then its intent
+    /// marked, its token in `token_custody` destroyed, its row deleted with its quota readings and
+    /// usage turns, and every driver in `drivers` told to forget it; its home is left as it is.
+    /// Fails with [`ProviderAccountRemovalError::SessionsRunning`] and with
+    /// [`ProviderAccountRegistryError::StepWaiting`] or [`ProviderAccountRegistryError::NotFound`]
+    /// with nothing written, and when a later write fails, the marked row kept for the sweep.
+    pub async fn remove_account(
+        &self,
+        account_id: &ProviderAccountId,
+        live_turns: &dyn AccountLiveTurns,
+        token_custody: &ProviderTokenCustody,
+        drivers: &ProviderRegistry,
+    ) -> Result<(), ProviderAccountRemovalError> {
+        if let Some(sessions) = BoundedVec::new(live_turns.sessions_with_live_turns(account_id)) {
+            return Err(ProviderAccountRemovalError::SessionsRunning(sessions));
+        }
+        self.mark_removal_intent(account_id).await?;
+        token_custody.destroy_token(account_id).await?;
+        self.delete_marked_account(account_id).await?;
+        for (_, driver) in drivers.drivers() {
+            driver.forget_account(account_id);
+        }
+        Ok(())
+    }
+
     /// Every stored account id, split by whether its removal has begun. Fails when the accounts
     /// cannot be read.
     pub async fn read_account_ids_by_removal_intent(
@@ -131,3 +199,6 @@ impl ProviderAccountRegistry {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
