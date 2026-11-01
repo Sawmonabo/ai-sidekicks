@@ -60,6 +60,9 @@ ts_constants! {
     /// The named account is not signed in, so it is refused as a switch target before anything
     /// moves.
     PROVIDER_ACCOUNT_NOT_AUTHENTICATED_CODE = RefusalCode::ProviderAccountNotAuthenticated;
+    /// The account's one memory import has already run, so it is not run again.
+    PROVIDER_ACCOUNT_MEMORY_ALREADY_IMPORTED_CODE =
+        RefusalCode::ProviderAccountMemoryAlreadyImported;
 }
 
 /// Edits an account's descriptive settings; an omitted member is unchanged. The provider, the
@@ -280,7 +283,7 @@ pub struct ProviderAccountProbeResponse {
 }
 
 /// Copies the person's own provider memory into this account's home, once, never overwriting a
-/// file, and answers with the outcome the account keeps, so a repeat never copies twice.
+/// file, and answers with the outcome the account keeps; a repeat is refused and copies nothing.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -529,6 +532,7 @@ methods! {
             refusals: [
                 ProviderAccountPermissionDenied,
                 ProviderAccountNotFound,
+                ProviderAccountMemoryAlreadyImported,
                 ProviderAccountCredentialHomeUnavailable,
             ],
         },

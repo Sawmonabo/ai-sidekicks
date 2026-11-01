@@ -1,5 +1,6 @@
 //! The Codex driver's account legs: Codex's own acts on one account's home, each sent on the
-//! service that home's own Codex runs, or on a short-lived one started there for the act.
+//! service that home's own Codex runs, or on a short-lived one started there for the act, and
+//! where its memory import reads and lands.
 
 #[cfg_attr(
     not(test),
@@ -26,7 +27,17 @@ mod limits;
 )]
 mod sign_out;
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the driver hands its account legs to the account plane once it is wired"
+    )
+)]
+mod memory;
+
 use std::collections::HashMap;
+use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -34,6 +45,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
+use crate::account::credential_home::CredentialHome;
 use crate::account::registry::ProviderAccountRegistry;
 use crate::driver::ProviderAccountFolders;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
@@ -44,7 +56,8 @@ use crate::driver::codex::service::supervisor::{
     CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
 use crate::driver::contract::account::{
-    ProviderAccountLegs, ProviderObservation, ProviderObserveLegs,
+    MemoryImportStore, ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObservation,
+    ProviderObserveLegs,
 };
 use crate::driver::contract::error::DriverError;
 
@@ -180,6 +193,12 @@ impl ProviderObserveLegs for CodexAccountLegs {
     /// turn's end brings its reading and needs no read.
     fn reads_at_turn_end(&self) -> bool {
         false
+    }
+}
+
+impl ProviderMemoryImportLegs for CodexAccountLegs {
+    fn memory_import_stores(&self, home: &CredentialHome) -> io::Result<Vec<MemoryImportStore>> {
+        memory::codex_memory_import_stores(self, home)
     }
 }
 

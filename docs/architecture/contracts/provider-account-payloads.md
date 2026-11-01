@@ -486,7 +486,7 @@ interface ProviderAccountProbeResponse {
 // (`~/.ai-sidekicks/agent-memory/<name>/`), never overwriting a file that is there, and counts them
 // in the same figure; that folder is shared by every account because an agent's notes belong to the
 // agent. The two homes are never joined, no symbolic link is followed out of a source folder, and a
-// repeat call answers the recorded outcome. The outcome is also written to the account
+// repeat call is refused `provider.account.memory.alreadyImported`, copying nothing. The outcome is also written to the account
 // (`ProviderAccount.memoryImport`) and published as `accountChanged`.
 interface ProviderAccountMemoryImportRequest {
   accountId: ProviderAccountId;

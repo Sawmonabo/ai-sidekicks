@@ -322,6 +322,11 @@ impl CodexServiceRegistry {
         })
     }
 
+    /// The person's own Codex folder, the one home the terminal service runs on.
+    pub(crate) fn personal_home(&self) -> PathBuf {
+        self.homes.terminal_reach_home().codex_home
+    }
+
     /// Every service the registry holds, the replaced ones left out.
     pub(crate) fn services(&self) -> Vec<Arc<CodexService>> {
         self.lock().by_home.values().cloned().collect()

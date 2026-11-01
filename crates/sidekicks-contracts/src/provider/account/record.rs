@@ -280,9 +280,18 @@ pub enum MemoryImportOutcomeKind {
 }
 
 /// How the account's one memory import went: `imported` counts what was copied and when,
-/// `nothingToImport` found nothing. The outcome is kept, so a repeat answers it again.
+/// `nothingToImport` found nothing. The outcome is kept on the account, and a repeat is refused.
 #[derive(
-    Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate, VariantNames,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    garde::Validate,
+    VariantNames,
+    IntoStaticStr,
 )]
 #[serde(
     tag = "outcome",

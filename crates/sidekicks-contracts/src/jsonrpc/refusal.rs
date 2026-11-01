@@ -427,6 +427,10 @@ refusal_codes! {
     /// `provider.account.delete` refused because a run bound to the account is live or a workflow
     /// step waits on it.
     ProviderAccountInUse = "provider.account.inUse" (FailedPrecondition, 409);
+    /// `provider.account.memory.import` refused because the account's one memory import has
+    /// already run; its outcome stays on the account and nothing is copied again.
+    ProviderAccountMemoryAlreadyImported = "provider.account.memory.alreadyImported"
+        (FailedPrecondition, 409);
     /// The account's sign-in is gone or the provider refused it: `provider.account.current.update`
     /// named a known-dead target (its stored reading is `reauthRequired`, or its last limits read
     /// showed its provider sign-in gone), or a provider call such as a voice call needed a sign-in.
