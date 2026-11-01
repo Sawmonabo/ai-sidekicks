@@ -1,8 +1,9 @@
 //! The plan record's intake: a plan a driver hands is kept as a `summary` artifact and recorded
-//! `waiting` in one write, `artifact.published` before the `plan.proposed` that names it, and a
-//! held request the provider let go reopens its plan. No held request outlives the daemon, so at
-//! start every plan still waiting on one is reopened the same way. Nothing settles a plan on
-//! elapsed time, and no plan moves its run.
+//! `waiting` in one write, `artifact.published` before the `plan.proposed` that names it, which
+//! also reopens every older plan of the session still waiting, `superseded`, so one plan waits per
+//! session; and a held request the provider let go reopens its plan. No held request outlives the
+//! daemon, so at start every plan still waiting on one is reopened the same way. Nothing settles a
+//! plan on elapsed time, and no plan moves its run.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -21,6 +22,7 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
@@ -29,7 +31,9 @@ use crate::manifest_write::{
     PublishedManifestWrite, manifest_write_failure, published_manifest_write,
 };
 use crate::plans::record::compose_plan_proposed_payload;
-use crate::plans::store::{hold_end_write, insert_plan_statement, read_held_plans};
+use crate::plans::store::{
+    hold_end_write, insert_plan_statement, read_held_plans, read_waiting_plans_of_session,
+};
 use crate::publish::{ArtifactPublishService, DaemonPayload};
 use crate::refusals::ArtifactError;
 use crate::validation::file_name_metadata;
@@ -39,9 +43,10 @@ pub mod test_fixture;
 #[cfg(test)]
 mod tests;
 
-/// The statements [`PlansService`] prepares on a read connection: the plans of every run still
-/// waiting on a held request (`HELD_PLANS_SQL`).
-pub const PLANS_STATEMENT_CAPACITY: usize = 1;
+/// The statements [`PlansService`] prepares on a read connection: the plans of a session still
+/// waiting on a held request (`HELD_PLANS_SQL`), and those still waiting on a held request or on
+/// none (`WAITING_PLANS_OF_SESSION_SQL`).
+pub const PLANS_STATEMENT_CAPACITY: usize = 2;
 
 /// The media type a plan's artifact is kept under.
 const PLAN_MEDIA_TYPE: &str = "text/markdown";
@@ -89,9 +94,11 @@ impl PlansService {
     }
 
     /// Records `plan` `waiting`: its artifact, `artifact.published`, the plan's row and
-    /// `plan.proposed` naming the artifact, in one write, under the plan id its driver minted.
-    /// Fails with `session.notFound` or `agent.run.notFound`, as the store fails, or as the write
-    /// does, a plan id already recorded among them.
+    /// `plan.proposed` naming the artifact, in one write, under the plan id its driver minted. The
+    /// same write reopens every older plan of the session still waiting, each with
+    /// `plan.hold.ended {superseded}` first, read under the session's append lock. Fails with
+    /// `session.notFound` or `agent.run.notFound`, as the store fails, or as the write does, a plan
+    /// id already recorded among them, and then nothing of it is written.
     pub async fn take_plan(&self, plan: ProviderPlan) -> Result<(), PlanError> {
         let metadata = match &plan.plan_file_path {
             Some(path) => file_name_metadata(path.as_str()),
@@ -106,9 +113,11 @@ impl PlansService {
             metadata,
         };
         let appender = Arc::clone(&self.appender);
+        let reads = Arc::clone(&self.reads);
         self.publisher
             .store_daemon_payload(payload, move |mut manifest| async move {
                 let proposed = compose_plan_proposed_payload(plan, manifest.artifact_id);
+                let session_id = proposed.session_id;
                 manifest.plan_id = Some(proposed.plan_id);
                 let created_at = manifest.created_at.clone();
                 let PublishedManifestWrite {
@@ -117,24 +126,59 @@ impl PlansService {
                     manifest,
                 } = published_manifest_write(manifest);
                 statements.push(insert_plan_statement(&proposed, &created_at));
+                let take_statements = statements.len();
                 let event = SessionEventDraft::of_session(
-                    proposed.session_id,
+                    session_id,
                     &SessionEvent::PlanProposed(proposed),
                 )
                 .expect("a plan.proposed payload has no check a plan's text can break");
-                appender
-                    .append(
-                        event,
-                        SessionEventLinkage {
-                            occurred_at: Some(created_at),
-                            transactional_prelude: statements,
-                            preceding_events: vec![published],
-                            ..SessionEventLinkage::default()
-                        },
-                    )
-                    .await
-                    .map_err(|failure| manifest_write_failure(&manifest, failure))?;
-                Ok::<_, ArtifactError>(())
+                let hold = SESSION_APPEND_LOCK.acquire(session_id).await;
+                let mut is_read_again = false;
+                loop {
+                    let older = reads
+                        .read(ReadLength::Short, move |reader| {
+                            Ok::<_, ArtifactError>(read_waiting_plans_of_session(
+                                reader,
+                                &session_id,
+                            )?)
+                        })
+                        .await?;
+                    let mut transactional_prelude = statements.clone();
+                    let mut preceding_events = Vec::with_capacity(older.len() + 1);
+                    for plan_id in older {
+                        let (statement, ended) =
+                            hold_end_write(session_id, plan_id, PlanHoldEndedReason::Superseded);
+                        transactional_prelude.push(statement);
+                        preceding_events.push(ended);
+                    }
+                    preceding_events.push(published.clone());
+                    let appended = appender
+                        .append_held(
+                            &hold,
+                            event.clone(),
+                            SessionEventLinkage {
+                                occurred_at: Some(created_at.clone()),
+                                transactional_prelude,
+                                preceding_events,
+                                ..SessionEventLinkage::default()
+                            },
+                        )
+                        .await;
+                    match appended {
+                        Ok(_receipt) => return Ok::<_, ArtifactError>(()),
+                        // A write queued before the lock settled an older plan after the read; it
+                        // committed before this one, so the read again sees it.
+                        Err(failure)
+                            if !is_read_again
+                                && failure
+                                    .refused_statement_index()
+                                    .is_some_and(|index| index >= take_statements) =>
+                        {
+                            is_read_again = true;
+                        }
+                        Err(failure) => return Err(manifest_write_failure(&manifest, failure)),
+                    }
+                }
             })
             .await?;
         Ok(())
@@ -181,7 +225,7 @@ impl PlansService {
 
     // The hold's end in one write, nothing written when the guard finds the plan holding none.
     async fn end_hold(&self, held: HeldPlan, reason: PlanHoldEndedReason) -> Result<(), PlanError> {
-        let (statement, event) = hold_end_write(held, reason);
+        let (statement, event) = hold_end_write(held.session_id, held.plan_id, reason);
         let appended = self
             .appender
             .append(
