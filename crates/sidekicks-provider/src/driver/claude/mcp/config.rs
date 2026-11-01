@@ -316,9 +316,9 @@ struct ClaudeInstalledPlugin {
     install_path: PathBuf,
 }
 
-/// A JSON file read into `File`: `None` where the daemon cannot read it or it does not parse as
-/// `File`, the error on any other read failure.
-pub(super) async fn read_json_file<File: DeserializeOwned>(
+// A JSON file read into `File`: `None` where the daemon cannot read it or it does not parse as
+// `File`, the error on any other read failure.
+async fn read_json_file<File: DeserializeOwned>(
     path: &Path,
 ) -> Result<Option<File>, ClaudeSettingsReadError> {
     let bytes = match tokio::fs::read(path).await {

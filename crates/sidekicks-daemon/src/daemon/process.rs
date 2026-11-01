@@ -90,7 +90,7 @@ use crate::daemon::process::method_inputs::{MethodInputsStart, register_method_i
 use crate::daemon::process::method_tables::gate_chain;
 use crate::daemon::process::providers::{
     ProviderStart, Providers, ProvidersRegistration, build_providers, hydrate_capabilities,
-    register_providers, sweep_left_staged_worktrees,
+    register_providers, sweep_left_sign_in_folders, sweep_left_staged_worktrees,
 };
 use crate::daemon::process::repo_services::{
     RepoAttachments, RepoServiceStart, RepoServices, build_repo_services, start_repo_attachments,
@@ -491,6 +491,7 @@ impl DaemonProcess {
         });
         hydrate_capabilities(&providers).await;
         sweep_left_staged_worktrees(&providers).await;
+        sweep_left_sign_in_folders(&providers).await;
         // A channel a previous run left served processes that ended with it; a new one takes new
         // keys, so a folder left behind is only logged.
         if let Err(error) = remove_channel_folders(&data_folder).await {

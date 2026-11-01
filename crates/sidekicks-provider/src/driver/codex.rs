@@ -624,4 +624,8 @@ impl ProviderDriver for CodexDriver {
     ) -> BoxFuture<'_, Result<ProviderSignInTakeover, DriverError>> {
         self.sign_in_with_own_client(request).boxed()
     }
+
+    fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.remove_left_sign_in_folders().boxed()
+    }
 }

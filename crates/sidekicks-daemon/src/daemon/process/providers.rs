@@ -396,6 +396,20 @@ pub(crate) async fn sweep_left_staged_worktrees(providers: &Providers) {
     }
 }
 
+/// Removes the folders of MCP sign-ins a stopped daemon left, each driver its own, before any
+/// call can start a sign-in, each failure logged.
+pub(crate) async fn sweep_left_sign_in_folders(providers: &Providers) {
+    for (provider, driver) in providers.registry.drivers() {
+        if let Err(error) = driver.remove_left_sign_in_folders().await {
+            tracing::warn!(
+                provider = provider.as_str(),
+                error = &error as &(dyn std::error::Error + 'static),
+                "the MCP sign-in folders a previous run left were not removed"
+            );
+        }
+    }
+}
+
 /// The providers' registration running on its own task, which the start waits for before the run
 /// queue's recovery and the stop ends before the drivers.
 pub(crate) struct ProvidersRegistration {

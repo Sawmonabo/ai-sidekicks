@@ -131,7 +131,11 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
 async fn a_naming_pass_whose_one_turn_never_answers_ends_with_none_at_its_deadline() {
     let fixture = ScriptedDriver::new();
     let one_turn = Arc::new(UnansweredOneTurn::default());
-    let driver = ClaudeDriver::with_starts(&fixture.services, Arc::clone(&one_turn) as _);
+    let driver = ClaudeDriver::with_starts(
+        &fixture.services,
+        Arc::clone(&one_turn) as _,
+        fixture.starts.keychain.clone(),
+    );
     let session_id = new_session_id();
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
     fixture.record_session_leg(session_id, account, "stored-conversation");

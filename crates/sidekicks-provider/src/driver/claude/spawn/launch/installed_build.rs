@@ -122,8 +122,8 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
     ) -> BoxFuture<'_, Result<ClaudeAccountServerAnswers, ClaudeLaunchError>>;
 
     /// Brings up, initialized, the one process that keeps nothing of an MCP server's sign-in,
-    /// started as `start` names and loading only the server its file declares; the caller drives
-    /// it and closes it.
+    /// started as `start` names and loading the server its file declares, that one alone where
+    /// `start` says so; the caller drives it and closes it.
     fn start_mcp_sign_in(
         &self,
         start: ClaudeMcpSignInStart,
@@ -396,11 +396,14 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
         async move {
             let executable =
                 Self::resolve(&self.command_search, &self.home_folder, start.environment).await?;
+            let strict = start
+                .loads_only_its_servers
+                .then(|| "--strict-mcp-config".to_owned());
             let arguments = CLAUDE_CONTROL_ONLY_ARGUMENTS
                 .into_iter()
                 .map(str::to_owned)
+                .chain(strict)
                 .chain([
-                    "--strict-mcp-config".to_owned(),
                     "--mcp-config".to_owned(),
                     start.servers_file.to_string_lossy().into_owned(),
                 ])
