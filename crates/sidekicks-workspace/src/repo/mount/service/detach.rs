@@ -169,8 +169,8 @@ impl RepoMountService {
     ) -> Result<DetachTry, RepoMountServiceError> {
         let repo_mount_id = request.repo_mount_id;
         let row = self.read_row(repo_mount_id).await?;
-        // A chat's managed workspace goes only with its chat's purge; the origin never changes, so
-        // the row read decides it.
+        // A chat's managed workspace goes only with the last holding chat's purge; the origin never
+        // changes, so the row read decides it.
         if row.origin != MountOrigin::Attached {
             return Err(RepoRefusal::MountManaged { repo_mount_id }.into());
         }

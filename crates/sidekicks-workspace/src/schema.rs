@@ -1,5 +1,5 @@
-//! The projects, clone start keys, repository mounts and workspaces tables, which the daemon's
-//! schema runs with the rest. Every closed set a column holds is written from its enum.
+//! The projects, clone start keys, repository mounts, chat folder holds and workspaces tables,
+//! which the daemon's schema runs with the rest. Every closed set a column holds is written from its enum.
 
 use std::sync::LazyLock;
 
@@ -40,8 +40,8 @@ pub enum MountOrigin {
 }
 
 /// The workspace part of the daemon's schema: projects and their clone starts' keys, then the
-/// repository mounts that name them, then the workspaces bound to those mounts, in foreign-key
-/// order.
+/// repository mounts that name them, then the chats holding each chat folder and the workspaces
+/// bound to those mounts, in foreign-key order.
 pub(crate) static WORKSPACE_SCHEMA_SQL: LazyLock<String> = LazyLock::new(workspace_schema_sql);
 
 /// The store's list and the workspace part.
@@ -142,7 +142,9 @@ CREATE TABLE repo_mounts (
   -- is a chat's git-initialized workspace the daemon owns.
   origin          TEXT NOT NULL DEFAULT '{attached_origin}'
                   CHECK(origin IN ({mount_origins})),
-  -- The one chat a managed mount belongs to; event-sourced, so no foreign key.
+  -- The chat a managed mount's folder is made for, whose id names the folder; it never changes and
+  -- is not the folder's one owner: the chats working in it hold it (managed_folder_holds).
+  -- Event-sourced, so no foreign key.
   managed_session_id TEXT,
   -- The project an attached mount serves; NULL on a chat's managed mount, and
   -- on a detached mount once its project is forgotten.
@@ -179,6 +181,17 @@ CREATE UNIQUE INDEX idx_repo_mounts_active_project
   ON repo_mounts(project_id) WHERE state = '{attached_state}';
 -- A project's sessions, which its rules reach, found through every mount it attached.
 CREATE INDEX idx_repo_mounts_project ON repo_mounts(project_id);
+
+-- Every chat working in a chat's managed folder: the chat it is made for, from the mount's own
+-- insert, and each chat a plan hands off to in it. The folder goes only with its last holder's
+-- purge. session_id is event-sourced, so no foreign key.
+CREATE TABLE managed_folder_holds (
+  repo_mount_id TEXT NOT NULL REFERENCES repo_mounts(id),
+  session_id    TEXT NOT NULL,
+  PRIMARY KEY (repo_mount_id, session_id)
+) STRICT;
+
+CREATE INDEX idx_managed_folder_holds_session ON managed_folder_holds(session_id);
 
 CREATE TABLE workspaces (
   id              TEXT PRIMARY KEY,
