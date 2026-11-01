@@ -23,6 +23,7 @@ use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::integer::SafeInt;
+use crate::wire::text::ComposedText;
 
 branded_uuid_id! {
     /// The daemon-minted id of one plan record, stable across a reload and every device.
@@ -210,6 +211,8 @@ pub struct PlanHandOffFailedPayload {
     pub fresh_session_id: SessionId,
     /// The step that did not finish.
     pub step: PlanHandOffStep,
+    /// Why the step did not finish, in the words of its failure.
+    pub cause: ComposedText,
 }
 
 /// The details a `plan.handOffUnfinished` refusal carries: the fresh session and the step that did
