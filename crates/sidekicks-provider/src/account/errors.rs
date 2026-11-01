@@ -16,6 +16,9 @@ pub enum ProviderAccountRegistryError {
     /// No account of that id is registered, or its removal has begun.
     #[error("the provider account is not registered")]
     NotFound,
+    /// Another account of the provider holds that typed name, compared by its fold.
+    #[error("another account of the provider holds that name")]
+    DisplayLabelTaken,
     /// A workflow step is waiting on the account, so its removal was not begun.
     #[error("a workflow step is waiting on the provider account")]
     StepWaiting,
@@ -37,7 +40,8 @@ pub enum ProviderAccountRegistryError {
 }
 
 impl From<ProviderAccountRegistryError> for HandlerError {
-    /// An unregistered account refuses `provider.account.notFound`, a waiting step
+    /// An unregistered account refuses `provider.account.notFound`, a name another account holds
+    /// `provider.account.displayLabelTaken`, a waiting step
     /// `provider.account.inUse`, and a home that could not be made
     /// `provider.account.credentialHome.unavailable`; every other failure is the daemon's own.
     fn from(error: ProviderAccountRegistryError) -> Self {
@@ -45,6 +49,10 @@ impl From<ProviderAccountRegistryError> for HandlerError {
             ProviderAccountRegistryError::NotFound => Self::Refused(DomainError::new(
                 "The provider account is not registered",
                 RefusalCode::ProviderAccountNotFound,
+            )),
+            ProviderAccountRegistryError::DisplayLabelTaken => Self::Refused(DomainError::new(
+                "Another account of the provider holds that name",
+                RefusalCode::ProviderAccountDisplayLabelTaken,
             )),
             ProviderAccountRegistryError::StepWaiting => Self::Refused(DomainError::new(
                 "A workflow step is waiting on the provider account",

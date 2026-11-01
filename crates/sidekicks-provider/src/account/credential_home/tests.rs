@@ -75,10 +75,10 @@ async fn a_reset_leaves_a_husked_home_that_reads_signed_out_and_keeps_its_folder
             &AccountAdmission {
                 display_label: None,
                 billing_mode: BillingMode::Subscription,
-                health: HealthObservation {
+                health: Some(HealthObservation {
                     state: ProviderAccountHealthState::Authenticated,
                     observed_at: WireInstant::now(),
-                },
+                }),
                 observed_auth_mode: None,
             },
         )

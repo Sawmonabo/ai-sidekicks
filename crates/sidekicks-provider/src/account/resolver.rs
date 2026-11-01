@@ -26,8 +26,10 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{closed_word, text_column};
 
-use crate::account::credential_home::{CredentialHomeCondition, classify_credential_home};
-use crate::account::registry::query_registered_account;
+use crate::account::credential_home::{
+    CredentialHome, CredentialHomeCondition, classify_credential_home,
+};
+use crate::account::registry::record::query_registered_account;
 use crate::account::token_custody::read_sealed_token;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
@@ -110,10 +112,29 @@ impl ProviderAccounts {
     }
 }
 
+/// The folders of `provider`'s account whose home is `home`: the home is its configuration folder,
+/// and its credential store is the folder its provider names under the home, the home itself
+/// where it names none. Looks at no folder.
+pub fn credential_home_folders(
+    provider: &ProviderId,
+    home: &CredentialHome,
+) -> ProviderAccountFolders {
+    let configuration_folder = home.path().to_path_buf();
+    let store_components = descriptor_of(provider.as_str()).map_or(&[][..], |descriptor| {
+        descriptor.account_home_credential_store_folder
+    });
+    let credential_store_folder = store_components
+        .iter()
+        .fold(configuration_folder.clone(), |path, part| path.join(part));
+    ProviderAccountFolders {
+        configuration_folder,
+        credential_store_folder,
+    }
+}
+
 impl ProviderAccountReader for ProviderAccounts {
-    // The account's home is its configuration folder, and its credential store is the folder its
-    // provider names under the home, the home itself where it names none. The folder is looked at
-    // on the read's blocking thread.
+    // The folders of a registered account whose home stands; the folder is looked at on the
+    // read's blocking thread.
     fn resolve_account_folders(
         &self,
         provider_account_id: ProviderAccountId,
@@ -130,18 +151,10 @@ impl ProviderAccountReader for ProviderAccounts {
                             Err(AccountFoldersError::CredentialHomeUnavailable)
                         }
                         Ok(CredentialHomeCondition::Husked | CredentialHomeCondition::SignedIn) => {
-                            let home = account.credential_home.path().to_path_buf();
-                            let store_components = descriptor_of(account.provider.as_str())
-                                .map_or(&[][..], |descriptor| {
-                                    descriptor.account_home_credential_store_folder
-                                });
-                            let credential_store_folder = store_components
-                                .iter()
-                                .fold(home.clone(), |path, part| path.join(part));
-                            Ok(ProviderAccountFolders {
-                                configuration_folder: home,
-                                credential_store_folder,
-                            })
+                            Ok(credential_home_folders(
+                                &account.provider,
+                                &account.credential_home,
+                            ))
                         }
                         Err(error) => Err(AccountFoldersError::Read(Box::new(error))),
                     }

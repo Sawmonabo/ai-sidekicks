@@ -17,6 +17,7 @@ use sidekicks_contracts::provider::account::record::{
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::{
     create_missing_private_folders, create_new_private_folder, make_folder_link, remove_tree,
 };
@@ -192,6 +193,17 @@ pub async fn reset_credential_home(
     Ok(registry
         .record_home_reset(&account_id, &WireInstant::now())
         .await?)
+}
+
+impl From<CredentialHomeResetError> for HandlerError {
+    /// A refused or failed sign-out answers as the driver's error, and a registry failure as the
+    /// registry answers it.
+    fn from(error: CredentialHomeResetError) -> Self {
+        match error {
+            CredentialHomeResetError::SignOut(failure) => failure.into(),
+            CredentialHomeResetError::Registry(failure) => failure.into(),
+        }
+    }
 }
 
 // Runs a file-system step off the runtime's threads, its failure a home that could not be made or

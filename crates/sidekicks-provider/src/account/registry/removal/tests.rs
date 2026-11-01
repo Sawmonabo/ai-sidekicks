@@ -12,6 +12,7 @@ use sidekicks_contracts::provider::account::record::{
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::credential_store::SecretKeychain;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
@@ -78,7 +79,11 @@ impl Fixture {
         };
         // The workflow crate's table, cut to the columns the guard reads.
         fixture
-            .run("CREATE TABLE workflow_steps (wait_account_id TEXT, status TEXT, wait_cause TEXT)")
+            .run(
+                "CREATE TABLE workflow_steps (
+                   workflow_run_id TEXT, wait_account_id TEXT, status TEXT, wait_cause TEXT
+                 )",
+            )
             .await;
         fixture
             .keychain
@@ -188,9 +193,10 @@ enum Holder {
 }
 
 /// A step parked on the account, or a session running on it, refuses the removal
-/// `provider.account.inUse`, the session named, and leaves the account registered with its token,
-/// its readings and every driver's memory of it. Fails when the guarded statement on the waiting
-/// step is dropped, and when the running sessions are not read before the intent is marked.
+/// `provider.account.inUse`, naming the step's workflow run or the session, and leaves the account
+/// registered with its token, its readings and every driver's memory of it. Fails when the waiting
+/// steps or the running sessions are not read before the intent is marked, and when a parked step
+/// is refused without its workflow run named.
 #[rstest]
 #[case::parked_step(Holder::ParkedStep)]
 #[case::running_session(Holder::RunningSession)]
@@ -200,17 +206,30 @@ async fn a_held_account_refuses_its_removal_and_keeps_everything(#[case] holder:
     // Any call to forget the account fails the test.
     let drivers = registry_of_first_provider(Arc::new(MockProviderDriver::new()));
     let mut live_sessions = Vec::new();
-    match holder {
+    let named = match holder {
         Holder::ParkedStep => {
             fixture
                 .run(
-                    "INSERT INTO workflow_steps (wait_account_id, status, wait_cause)
-                     VALUES (@account_id, 'waiting', 'account')",
+                    "INSERT INTO workflow_steps (workflow_run_id, wait_account_id, status, wait_cause)
+                     VALUES ('0190a3b4-0000-7000-8000-000000000001', @account_id, 'waiting',
+                             'account')",
                 )
                 .await;
+            ProviderAccountInUseDetails::WaitingSteps {
+                workflow_run_ids: BoundedVec::new(vec![
+                    WorkflowRunId::new("0190a3b4-0000-7000-8000-000000000001")
+                        .expect("a test workflow run id"),
+                ])
+                .expect("one run"),
+            }
         }
-        Holder::RunningSession => live_sessions.push(new_session_id()),
-    }
+        Holder::RunningSession => {
+            live_sessions.push(new_session_id());
+            ProviderAccountInUseDetails::Sessions {
+                session_ids: BoundedVec::new(live_sessions.clone()).expect("one session"),
+            }
+        }
+    };
 
     let refused = fixture
         .remove(live_sessions.clone(), &drivers)
@@ -221,15 +240,11 @@ async fn a_held_account_refuses_its_removal_and_keeps_everything(#[case] holder:
         panic!("a held account answers a refusal");
     };
     assert_eq!(refusal.code, RefusalCode::ProviderAccountInUse);
-    let named = BoundedVec::new(live_sessions).map(|session_ids| {
-        serde_json::to_value(ProviderAccountInUseDetails { session_ids })
-            .expect("the details write")
-    });
     assert_eq!(
         refusal
             .detail
             .map(|detail| serde_json::Value::Object(*detail)),
-        named
+        Some(serde_json::to_value(named).expect("the details write"))
     );
     let ids = fixture
         .registry

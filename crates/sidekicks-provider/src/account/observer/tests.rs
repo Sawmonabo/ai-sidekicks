@@ -430,10 +430,10 @@ impl Fixture {
                 &AccountAdmission {
                     display_label: None,
                     billing_mode: BillingMode::Subscription,
-                    health: HealthObservation {
+                    health: Some(HealthObservation {
                         state: ProviderAccountHealthState::Authenticated,
                         observed_at: super::ladder::wire_instant(self.clock.now()),
-                    },
+                    }),
                     observed_auth_mode,
                 },
             )

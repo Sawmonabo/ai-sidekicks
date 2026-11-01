@@ -56,7 +56,7 @@ pub fn derive_provider_readiness(
                         .expect("a provider with no current account has an account to choose"),
                     },
                 },
-                CurrentAccount::Resolved(account) => resolved_account_readiness(account),
+                CurrentAccount::Resolved(account) => derive_account_readiness(account),
             }
         })
         .collect()
@@ -84,9 +84,9 @@ fn resolve_current_account<'account>(
         })
 }
 
-// The resolved account's stored health as its arm, with the remedy that arm calls for; an account
-// never observed is undecided.
-fn resolved_account_readiness(account: &RegisteredAccount) -> ProviderReadiness {
+/// The readiness of `account` as its provider's resolved one: its stored health as the arm, with
+/// the remedy that arm calls for; an account never observed is undecided.
+pub fn derive_account_readiness(account: &RegisteredAccount) -> ProviderReadiness {
     let provider = account.provider.clone();
     let resolved_account_id = account.account_id.clone();
     let Some(health) = &account.health else {

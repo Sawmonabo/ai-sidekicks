@@ -124,11 +124,11 @@ impl Fixture {
                 &AccountAdmission {
                     display_label: None,
                     billing_mode: BillingMode::Subscription,
-                    health: HealthObservation {
+                    health: Some(HealthObservation {
                         state: ProviderAccountHealthState::Authenticated,
                         observed_at: WireInstant::try_from("2026-10-29T18:00:00.000Z".to_owned())
                             .expect("a wire instant"),
-                    },
+                    }),
                     observed_auth_mode: Some(observed_auth_mode),
                 },
             )

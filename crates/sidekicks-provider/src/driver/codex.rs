@@ -32,8 +32,9 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::permission_level::list_codex_modes;
+use crate::driver::codex::service::registry::CODEX_SWITCHING_HOME_FOLDER;
 #[cfg(any(test, feature = "test-support"))]
-use crate::driver::codex::service::registry::{CODEX_SWITCHING_HOME_FOLDER, CodexServiceRegistry};
+use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{

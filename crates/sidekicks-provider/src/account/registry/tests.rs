@@ -42,7 +42,7 @@ pub(crate) async fn register(
             &AccountAdmission {
                 display_label: None,
                 billing_mode: BillingMode::Subscription,
-                health: observation(ProviderAccountHealthState::Authenticated),
+                health: Some(observation(ProviderAccountHealthState::Authenticated)),
                 observed_auth_mode: None,
             },
         )

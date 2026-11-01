@@ -15,6 +15,7 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use super::derive_provider_readiness;
 use crate::account::credential_home::CredentialHome;
 use crate::account::registry::{HealthObservation, RegisteredAccount};
+use crate::driver::contract::account::ObservedAccountIdentity;
 
 const OBSERVED_AT: &str = "2026-10-29T12:00:00.000Z";
 
@@ -54,6 +55,11 @@ fn row(
         window_start_enabled: true,
         wake_for_window_start_enabled: false,
         observed_auth_mode,
+        display_label: None,
+        observed_identity: ObservedAccountIdentity::default(),
+        signed_in_at: None,
+        last_refresh_observed_at: None,
+        memory_import: None,
     }
 }
 
