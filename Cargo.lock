@@ -8379,6 +8379,7 @@ version = "0.0.0"
 dependencies = [
  "base16ct 1.0.0",
  "bytes",
+ "diffy",
  "fast_image_resize",
  "file-format",
  "flate2",
