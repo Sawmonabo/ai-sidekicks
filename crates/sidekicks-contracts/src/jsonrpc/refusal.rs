@@ -399,6 +399,12 @@ refusal_codes! {
     /// from the account; `data.fields` carries the reset time when the provider gives one.
     ProviderAccountAllowanceExhausted = "provider.account.allowanceExhausted"
         (ResourceExhausted, 429);
+    /// The place the daemon keeps its secrets would not destroy a removed account's token, so the
+    /// removal stopped with the account marked; it no longer reads as registered, and the next
+    /// start destroys the token and finishes the removal. `data.fields.cause` is `locked` or
+    /// `unavailable`.
+    ProviderAccountCredentialDestroyRefused = "provider.account.credentialDestroyRefused"
+        (Unavailable, 503);
     /// The account's credential home is missing, unreadable, or structurally unusable.
     ProviderAccountCredentialHomeUnavailable = "provider.account.credentialHome.unavailable"
         (Unavailable, 503);
@@ -418,7 +424,8 @@ refusal_codes! {
     /// provider's other account names, trimmed and compared by full Unicode case folding
     /// (`foldName`).
     ProviderAccountDisplayLabelTaken = "provider.account.displayLabelTaken" (AlreadyExists, 409);
-    /// `provider.account.delete` refused because a run bound to the account is live.
+    /// `provider.account.delete` refused because a run bound to the account is live or a workflow
+    /// step waits on it.
     ProviderAccountInUse = "provider.account.inUse" (FailedPrecondition, 409);
     /// The account's sign-in is gone or the provider refused it: `provider.account.current.update`
     /// named a known-dead target (its stored reading is `reauthRequired`, or its last limits read

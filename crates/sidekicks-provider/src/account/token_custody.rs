@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use secrecy::SecretString;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::account::methods::ProviderAccountCredentialDestroyRefusedDetails;
 use sidekicks_contracts::provider::account::record::{
     BillingMode, DisplayLabel, ProviderAccountHealthState, ProviderAccountId, ProviderAuthMode,
 };
@@ -79,7 +80,8 @@ pub enum TokenCustodyError {
 
 impl From<TokenCustodyError> for HandlerError {
     /// A token the keychain could not seal refuses `provider.account.credentialSealRefused` with
-    /// its cause, one the provider did not accept `provider.account.tokenNotAccepted`, and a
+    /// its cause, and one it could not destroy `provider.account.credentialDestroyRefused` with
+    /// its cause; one the provider did not accept `provider.account.tokenNotAccepted`, and a
     /// registry failure as the registry answers it; every other failure is the daemon's own.
     fn from(error: TokenCustodyError) -> Self {
         match error {
@@ -87,6 +89,11 @@ impl From<TokenCustodyError> for HandlerError {
                 refusal,
                 RefusalCode::ProviderAccountCredentialSealRefused,
                 |cause| ProviderAccountCredentialSealRefusedDetails { cause },
+            )),
+            TokenCustodyError::Destroying(refusal) => Self::Refused(DomainError::keychain_refused(
+                refusal,
+                RefusalCode::ProviderAccountCredentialDestroyRefused,
+                |cause| ProviderAccountCredentialDestroyRefusedDetails { cause },
             )),
             TokenCustodyError::NotAccepted => Self::Refused(DomainError::new(
                 "The provider did not accept that token",
@@ -97,8 +104,7 @@ impl From<TokenCustodyError> for HandlerError {
             error @ (TokenCustodyError::NoStatusRead
             | TokenCustodyError::Sweep(_)
             | TokenCustodyError::Unsealing(_)
-            | TokenCustodyError::NotSealed
-            | TokenCustodyError::Destroying(_)) => Self::Internal(Box::new(error)),
+            | TokenCustodyError::NotSealed) => Self::Internal(Box::new(error)),
         }
     }
 }

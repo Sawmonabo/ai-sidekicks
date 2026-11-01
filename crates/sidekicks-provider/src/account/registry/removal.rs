@@ -1,5 +1,5 @@
 //! An account's removal: refused while a session runs on the account or a workflow step waits on
-//! it, then its intent marked, its sealed token destroyed, its row deleted with its quota readings
+//! it, naming the sessions or the workflow runs, then its intent marked, its sealed token destroyed, its row deleted with its quota readings
 //! and usage turns, and what each driver keeps in memory for it dropped. Its home stays on disk
 //! as it is. A crash between those writes leaves a marked row, which the start's sweep finishes.
 
@@ -11,6 +11,7 @@ use sidekicks_contracts::provider::account::methods::ProviderAccountInUseDetails
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
@@ -33,13 +34,24 @@ const SELECT_ACCOUNT_REMOVAL_INTENTS_SQL: &str =
 const DELETE_MARKED_ACCOUNT_SQL: &str =
     "DELETE FROM provider_accounts WHERE account_id = @account_id AND removal_intent = 1";
 
-// A step parked on the account holds its removal: it expects no row.
-static WAITING_STEP_GUARD_SQL: LazyLock<String> = LazyLock::new(|| {
+// The steps parked waiting on the account.
+static WAITING_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT 1 FROM workflow_steps
+        "FROM workflow_steps
    WHERE wait_account_id = @account_id AND status = '{waiting}' AND wait_cause = '{account}'",
         waiting = <&'static str>::from(WorkflowStepStatus::Waiting),
         account = <&'static str>::from(WorkflowWaitCause::Account),
+    )
+});
+
+// A step parked on the account holds its removal: it expects no row.
+static WAITING_STEP_GUARD_SQL: LazyLock<String> =
+    LazyLock::new(|| format!("SELECT 1 {}", *WAITING_STEPS_SQL));
+
+static SELECT_WAITING_WORKFLOW_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT DISTINCT workflow_run_id {} ORDER BY workflow_run_id",
+        *WAITING_STEPS_SQL
     )
 });
 
@@ -67,6 +79,9 @@ pub enum ProviderAccountRemovalError {
     /// Sessions run on the account, so its removal was not begun.
     #[error("sessions are running on the provider account")]
     SessionsRunning(BoundedVec<SessionId, 1, { usize::MAX }>),
+    /// Workflow runs have a step parked waiting on the account, so its removal was not begun.
+    #[error("a workflow step is waiting on the provider account")]
+    StepsWaiting(BoundedVec<WorkflowRunId, 1, { usize::MAX }>),
     /// The registry refused or failed the removal's writes.
     #[error(transparent)]
     Registry(#[from] ProviderAccountRegistryError),
@@ -77,8 +92,8 @@ pub enum ProviderAccountRemovalError {
 }
 
 impl From<ProviderAccountRemovalError> for HandlerError {
-    /// Running sessions refuse `provider.account.inUse` naming them; a registry or custody failure
-    /// answers as its own.
+    /// Running sessions and waiting steps refuse `provider.account.inUse` naming the sessions or
+    /// the workflow runs; a registry or custody failure answers as its own.
     fn from(error: ProviderAccountRemovalError) -> Self {
         match error {
             ProviderAccountRemovalError::SessionsRunning(session_ids) => Self::Refused(
@@ -86,7 +101,14 @@ impl From<ProviderAccountRemovalError> for HandlerError {
                     "Sessions are running on the provider account",
                     RefusalCode::ProviderAccountInUse,
                 )
-                .with_detail(ProviderAccountInUseDetails { session_ids }),
+                .with_detail(ProviderAccountInUseDetails::Sessions { session_ids }),
+            ),
+            ProviderAccountRemovalError::StepsWaiting(workflow_run_ids) => Self::Refused(
+                DomainError::new(
+                    "A workflow step is waiting on the provider account",
+                    RefusalCode::ProviderAccountInUse,
+                )
+                .with_detail(ProviderAccountInUseDetails::WaitingSteps { workflow_run_ids }),
             ),
             ProviderAccountRemovalError::Registry(failure) => failure.into(),
             ProviderAccountRemovalError::TokenCustody(failure) => failure.into(),
@@ -98,8 +120,8 @@ impl ProviderAccountRegistry {
     /// Removes `account_id`: refused while `live_turns` names a session on it, then its intent
     /// marked, its token in `token_custody` destroyed, its row deleted with its quota readings and
     /// usage turns, and every driver in `drivers` told to forget it; its home is left as it is.
-    /// Fails with [`ProviderAccountRemovalError::SessionsRunning`] and with
-    /// [`ProviderAccountRegistryError::StepWaiting`] or [`ProviderAccountRegistryError::NotFound`]
+    /// Fails with [`ProviderAccountRemovalError::SessionsRunning`],
+    /// [`ProviderAccountRemovalError::StepsWaiting`] or [`ProviderAccountRegistryError::NotFound`]
     /// with nothing written, and when a later write fails, the marked row kept for the sweep.
     pub async fn remove_account(
         &self,
@@ -111,13 +133,43 @@ impl ProviderAccountRegistry {
         if let Some(sessions) = BoundedVec::new(live_turns.sessions_with_live_turns(account_id)) {
             return Err(ProviderAccountRemovalError::SessionsRunning(sessions));
         }
-        self.mark_removal_intent(account_id).await?;
+        // The mark's guard refuses a step parked since the read, which the next read then names.
+        loop {
+            if let Some(runs) = BoundedVec::new(self.read_waiting_workflow_runs(account_id).await?)
+            {
+                return Err(ProviderAccountRemovalError::StepsWaiting(runs));
+            }
+            match self.mark_removal_intent(account_id).await {
+                Err(ProviderAccountRegistryError::StepWaiting) => {}
+                marked => break marked?,
+            }
+        }
         token_custody.destroy_token(account_id).await?;
         self.delete_marked_account(account_id).await?;
         for (_, driver) in drivers.drivers() {
             driver.forget_account(account_id);
         }
         Ok(())
+    }
+
+    // The workflow runs with a step parked waiting on `account_id`.
+    async fn read_waiting_workflow_runs(
+        &self,
+        account_id: &ProviderAccountId,
+    ) -> Result<Vec<WorkflowRunId>, ProviderAccountRegistryError> {
+        let account_id = account_id.clone();
+        self.reads
+            .read(ReadLength::Short, move |connection| {
+                let mut statement = connection.prepare_cached(&SELECT_WAITING_WORKFLOW_RUNS_SQL)?;
+                let runs = statement
+                    .query_map(
+                        rusqlite::named_params! { "@account_id": account_id.as_str() },
+                        |row| text_column(row, 0, |text| WorkflowRunId::new(&text)),
+                    )?
+                    .collect::<Result<_, _>>()?;
+                Ok(runs)
+            })
+            .await
     }
 
     /// Every stored account id, split by whether its removal has begun. Fails when the accounts
