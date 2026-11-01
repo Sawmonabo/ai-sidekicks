@@ -457,10 +457,7 @@ impl ProviderAccountRegistry {
     ) -> Result<RegisteredAccount, ProviderAccountRegistryError> {
         self.reads
             .read(ReadLength::Short, move |connection| {
-                connection
-                    .prepare_cached(&SELECT_ACCOUNT_SQL)?
-                    .query_row([account_id.as_str()], read_account)
-                    .optional()?
+                query_registered_account(connection, &account_id)?
                     .ok_or(ProviderAccountRegistryError::NotFound)
             })
             .await
@@ -864,6 +861,17 @@ fn query_accounts(
             .collect::<Result<_, _>>()?,
     };
     Ok(accounts)
+}
+
+/// The registered account `account_id`, `None` for one not registered or being removed.
+pub(super) fn query_registered_account(
+    connection: &Connection,
+    account_id: &ProviderAccountId,
+) -> rusqlite::Result<Option<RegisteredAccount>> {
+    connection
+        .prepare_cached(&SELECT_ACCOUNT_SQL)?
+        .query_row([account_id.as_str()], read_account)
+        .optional()
 }
 
 fn read_account(row: &Row<'_>) -> rusqlite::Result<RegisteredAccount> {

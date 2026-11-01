@@ -9,8 +9,9 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
 use sidekicks_mcp::status::McpServerStatusTracker;
-use sidekicks_provider::driver::SessionSpawnContextResolver;
+use sidekicks_provider::account::resolver::ProviderAccounts;
 use sidekicks_provider::driver::ports::{DriverPorts, SessionRelaunchListener};
+use sidekicks_provider::driver::{ProviderAccountReader, SessionSpawnContextResolver};
 use sidekicks_queue::provider_session::{
     GitFolderReadError, ProviderSessionGitFolderReader, ProviderSessionOpening,
     ProviderSessionOpeningComposer,
@@ -61,8 +62,9 @@ pub(crate) struct ProviderPort {
 }
 
 /// Builds the project records and the session directory's port over `start`, and registers the
-/// port as the drivers' spawn-context resolver and relaunch listener. Fails when either port is
-/// registered already, which only a second call does.
+/// port as the drivers' spawn-context resolver and relaunch listener and the daemon's accounts
+/// reader beside it. Fails when any of the three is registered already, which only a second call
+/// does.
 pub(crate) fn build_provider_port(
     start: ProviderPortStart<'_>,
 ) -> Result<ProviderPort, PortRegistrationError> {
@@ -81,6 +83,9 @@ pub(crate) fn build_provider_port(
         Arc::clone(&reads),
         Arc::new(ProjectSessionActivityReader::new(plan_holds)),
     ));
+    ports.provider_accounts.register(
+        Arc::new(ProviderAccounts::new(Arc::clone(&reads))) as Arc<dyn ProviderAccountReader>
+    )?;
     let port = Arc::new(SessionDirectoryProviderPort::new(
         SessionDirectoryProviderPortDeps {
             pool: reads,
