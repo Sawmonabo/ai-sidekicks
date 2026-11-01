@@ -303,6 +303,14 @@ impl ProviderAccountReader for HomeFolders {
         async { Err("no generation in the observer's tests".into()) }.boxed()
     }
 
+    fn read_observed_auth_mode(
+        &self,
+
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
+
     fn read_sealed_token(
         &self,
         _provider_account_id: ProviderAccountId,

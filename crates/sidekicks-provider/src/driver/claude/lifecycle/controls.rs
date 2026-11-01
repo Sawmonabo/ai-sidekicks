@@ -121,7 +121,11 @@ impl ClaudeDriver {
             .account_environment(&params.provider_account_id)
             .await?;
         let (offered, repository) = tokio::join!(
-            self.read_offered_levels(&environment, &params.working_folder),
+            self.read_offered_levels(
+                &environment,
+                &params.working_folder,
+                params.provider_account_id.clone(),
+            ),
             self.read_repository(&params.working_folder),
         );
         let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
@@ -355,7 +359,10 @@ impl ClaudeDriver {
                     .await?
             }
         };
-        let reading = self.starts.read_model_catalog(environment.clone()).await?;
+        let reading = self
+            .starts
+            .read_model_catalog(environment.clone(), provider_account_id)
+            .await?;
         resolve_claude_model_catalog(reading, &self.figures.current(), &environment)
     }
 
@@ -443,15 +450,23 @@ impl ClaudeDriver {
                     &[],
                     &[],
                 )?;
-                self.read_offered_levels(&environment, &context.working_directory)
-                    .await
+                self.read_offered_levels(
+                    &environment,
+                    &context.working_directory,
+                    provider_account_id,
+                )
+                .await
             } else {
                 let environment = self
                     .sources
                     .account_environment(&provider_account_id)
                     .await?;
-                self.read_offered_levels(&environment, &self.sources.home_folder)
-                    .await
+                self.read_offered_levels(
+                    &environment,
+                    &self.sources.home_folder,
+                    provider_account_id,
+                )
+                .await
             }
         };
         Ok(list_claude_modes(|level| {
@@ -460,15 +475,17 @@ impl ClaudeDriver {
     }
 
     /// Which levels the account `environment` composes and this system run in `working_folder`:
-    /// the account's catalog and the command sandbox, read at once. A catalog that cannot be read
+    /// `provider_account_id`'s catalog and the command sandbox, read at once. A catalog that cannot be read
     /// offers no Reviewed and is recorded.
     async fn read_offered_levels(
         &self,
         environment: &[(String, String)],
         working_folder: &Path,
+        provider_account_id: ProviderAccountId,
     ) -> ClaudeOfferedLevels {
         let (catalog, can_run_sandbox) = tokio::join!(
-            self.starts.read_model_catalog(environment.to_vec()),
+            self.starts
+                .read_model_catalog(environment.to_vec(), provider_account_id),
             read_claude_sandbox_support(&self.sources, environment, working_folder, None),
         );
         let auto_mode_models = match catalog {
@@ -587,6 +604,7 @@ impl ClaudeDriver {
             spawn_environment: environment,
             working_directory: self.sources.home_folder.clone(),
             model: CLAUDE_DEFAULT_MODEL.to_owned(),
+            provider_account_id,
         };
         let (choices, settings) = tokio::join!(
             self.figures.read_command_choices(&place),
@@ -854,7 +872,10 @@ async fn compose_resting_side_question_copy(
     )
     .await?;
     let catalog = starts
-        .read_model_catalog(legs.spawn_environment.clone())
+        .read_model_catalog(
+            legs.spawn_environment.clone(),
+            resume.provider_account_id.clone(),
+        )
         .await?;
     let declaration = read_claude_initialize_declaration(catalog.initialize.as_deref());
     let parent_cumulative = read_prior_emitted(

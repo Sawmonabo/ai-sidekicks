@@ -218,6 +218,7 @@ mod tests {
         CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE, ClaudeAccountFolders,
         ClaudeProcessEnvironmentRequest, ClaudeProcessHome, compose_claude_process_environment,
     };
+    use crate::driver::claude::account_credentials::OAUTH_TOKEN_VARIABLE;
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::spawn_environment::{
         ReservedEnvironmentNames, SessionEnvironment, SpawnEnvironmentError,
@@ -265,18 +266,25 @@ mod tests {
         );
     }
 
-    // Killed by the token descriptor's variable left off the withheld names, where a shell's empty
-    // or stale value would reach Claude Code, which only the daemon's start sets, and by a read on
-    // an account's store kept in the account's own configuration home.
+    // Killed by either token variable left off the withheld names: a shell's own token would beat
+    // the account's, and a shell's empty or stale descriptor would reach Claude Code, which only
+    // the daemon's start sets. Also killed by a read on an account's store kept in the account's
+    // own configuration home.
     #[test]
-    fn a_read_on_an_account_s_store_takes_no_token_descriptor_from_the_shell() {
+    fn a_read_on_an_account_s_store_takes_no_token_variable_from_the_shell() {
         let reserved_names = ReservedEnvironmentNames::of_providers(&[]);
 
         for inherited in ["", "7"] {
-            let base = vec![(
-                CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE.to_owned(),
-                inherited.to_owned(),
-            )];
+            let base = vec![
+                (
+                    CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE.to_owned(),
+                    inherited.to_owned(),
+                ),
+                (
+                    OAUTH_TOKEN_VARIABLE.to_owned(),
+                    "sk-ant-oat01-shell-token".to_owned(),
+                ),
+            ];
             let request = ClaudeProcessEnvironmentRequest {
                 session: SessionEnvironment {
                     base: &base,
@@ -297,6 +305,7 @@ mod tests {
 
             let value = |name| PathRules::Posix.environment_value(&environment, name);
             assert_eq!(value(CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE), None);
+            assert_eq!(value(OAUTH_TOKEN_VARIABLE), None);
             assert_eq!(value("CLAUDE_CONFIG_DIR"), Some("/data/read"));
             assert_eq!(
                 value("CLAUDE_SECURESTORAGE_CONFIG_DIR"),

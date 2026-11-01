@@ -19,7 +19,9 @@ use rusqlite::params;
 use secrecy::SecretString;
 use serde_json::{Map, Value};
 use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::provider::account::record::{
+    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
@@ -147,6 +149,14 @@ impl ProviderAccountReader for TestProviderAccounts {
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("credential generation").into()) }.boxed()
+    }
+
+    fn read_observed_auth_mode(
+        &self,
+
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
     }
 
     fn read_sealed_token(

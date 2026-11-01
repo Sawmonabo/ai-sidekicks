@@ -87,8 +87,8 @@ pub(crate) struct ClaudeProcessLaunch {
     /// names no account.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// The pasted token the process signs in with, handed on the pipe its environment names and
-    /// never as a variable; the launcher reads the one sealed for the account where this is
-    /// `None`.
+    /// never as a variable; the launcher reads the one sealed for a pasted token's account where
+    /// this is `None`.
     pub(crate) token: Option<SecretString>,
 }
 

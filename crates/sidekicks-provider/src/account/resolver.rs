@@ -17,7 +17,9 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::{Connection, OptionalExtension, named_params};
 use secrecy::SecretString;
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::provider::account::record::{
+    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
+};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_store::credential_store::SecretKeychain;
 use sidekicks_store::database::connection::read_pool::{
@@ -174,6 +176,22 @@ impl ProviderAccountReader for ProviderAccounts {
                 .read(ReadLength::Short, move |connection| {
                     query_registered_account(connection, &provider_account_id)?
                         .map(|account| account.credential_generation)
+                        .ok_or_else(|| "the account is not registered".into())
+                })
+                .await
+        }
+        .boxed()
+    }
+
+    fn read_observed_auth_mode(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.reads
+                .read(ReadLength::Short, move |connection| {
+                    query_registered_account(connection, &provider_account_id)?
+                        .map(|account| account.observed_auth_mode)
                         .ok_or_else(|| "the account is not registered".into())
                 })
                 .await

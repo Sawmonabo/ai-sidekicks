@@ -311,15 +311,23 @@ pub(crate) async fn probe_claude_sign_in(
         .unwrap_or_default())
 }
 
-/// Reads the model catalog from a process that keeps nothing: its `initialize` reply and the
-/// context usage of the model it runs. Fails as the start or a request does.
+/// Reads the model catalog from a process that keeps nothing on `provider_account_id`'s account:
+/// its `initialize` reply and the context usage of the model it runs. Fails as the start or a
+/// request does.
 pub(crate) async fn read_claude_model_catalog(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,
+    provider_account_id: ProviderAccountId,
 ) -> Result<ClaudeModelCatalogReading, ClaudeLaunchError> {
-    let short =
-        ClaudeShortProcess::start_control_only(launcher, executable, None, None, None, None)
-            .await?;
+    let short = ClaudeShortProcess::start_control_only(
+        launcher,
+        executable,
+        None,
+        None,
+        Some(provider_account_id),
+        None,
+    )
+    .await?;
     let read = async {
         Ok::<_, ClaudeSessionError>(ClaudeModelCatalogReading {
             initialize: short.initialize().await?,

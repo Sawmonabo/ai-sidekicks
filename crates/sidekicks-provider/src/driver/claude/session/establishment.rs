@@ -500,7 +500,9 @@ impl ClaudeSessionEstablishment {
                 return Err(refusal.into());
             }
         };
-        let command_choices = self.figures.read_creation_figures(&legs);
+        let command_choices = self
+            .figures
+            .read_creation_figures(&legs, &provider_account_id);
         Ok(ClaudeSessionStart {
             claim,
             agent_id: request.agent_id,

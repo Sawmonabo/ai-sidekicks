@@ -16,7 +16,9 @@ use serde_json::{Map, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::provider::account::record::{
+    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
@@ -131,6 +133,15 @@ impl ProviderAccountReader for FolderContexts {
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn std::error::Error + Send + Sync>>> {
         async { Err("the scripted sessions read no account's credential generation".into()) }
             .boxed()
+    }
+
+    fn read_observed_auth_mode(
+        &self,
+
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn std::error::Error + Send + Sync>>>
+    {
+        async { Ok(None) }.boxed()
     }
 
     fn read_sealed_token(

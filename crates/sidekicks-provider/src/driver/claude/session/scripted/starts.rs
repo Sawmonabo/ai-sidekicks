@@ -337,6 +337,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
     fn read_model_catalog(
         &self,
         environment: Vec<(String, String)>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ClaudeModelCatalogReading, ClaudeLaunchError>> {
         let initialize = {
             let mut tables = self.lock();

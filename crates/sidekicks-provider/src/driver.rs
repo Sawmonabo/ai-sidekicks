@@ -12,7 +12,9 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::provider::account::record::{
+    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
+};
 use sidekicks_contracts::provider::id::{ProviderId, is_provider_id};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
@@ -578,7 +580,7 @@ pub trait SessionSpawnContextResolver: Send + Sync {
 }
 
 /// Reads the accounts a provider runs on: an account's folders before any session runs on it, its
-/// credential generation and its sealed token. The daemon registers it on
+/// credential generation, how it signs in and its sealed token. The daemon registers it on
 /// [`DriverPorts::provider_accounts`].
 pub trait ProviderAccountReader: Send + Sync {
     /// The folders of `provider_account_id`'s account, read with no session, before one exists.
@@ -602,6 +604,14 @@ pub trait ProviderAccountReader: Send + Sync {
         &self,
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>>;
+
+    /// How `provider_account_id`'s account signs in, as the provider last reported it; `None` where
+    /// no reading was stored. A pasted token's account reads `OauthToken`, and only that account
+    /// has a token sealed to read. Fails when the account is not registered or cannot be read.
+    fn read_observed_auth_mode(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>>;
 
     /// The token sealed for `provider_account_id`'s account, which only the provider's own child
     /// is handed; `None` where the account signs in through its home instead. Fails when the

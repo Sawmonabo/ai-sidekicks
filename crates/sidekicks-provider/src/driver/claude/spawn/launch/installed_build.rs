@@ -104,10 +104,12 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<String, ClaudeLaunchError>>;
 
-    /// Reads the model catalog from a process that keeps nothing, started in `environment`.
+    /// Reads the model catalog from a process that keeps nothing, started in `environment` on
+    /// `provider_account_id`'s account.
     fn read_model_catalog(
         &self,
         environment: Vec<(String, String)>,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ClaudeModelCatalogReading, ClaudeLaunchError>>;
 
     /// Reads the installed build's version and probes its capabilities, both from one process
@@ -293,11 +295,12 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
     fn read_model_catalog(
         &self,
         environment: Vec<(String, String)>,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ClaudeModelCatalogReading, ClaudeLaunchError>> {
         async move {
             let executable =
                 resolve_claude_build(&self.command_search, &self.home_folder, environment).await?;
-            read_claude_model_catalog(&self.launcher, &executable).await
+            read_claude_model_catalog(&self.launcher, &executable, provider_account_id).await
         }
         .boxed()
     }
