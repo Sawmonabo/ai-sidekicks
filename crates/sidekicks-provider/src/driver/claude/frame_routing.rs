@@ -160,9 +160,12 @@ impl ClaudeFrameRouting {
             ClaudeUsageEstablishment::Resume {
                 prior_emitted_thread_id,
             } => ThreadBaseEstablishment::Resume {
-                prior_emitted_cumulative: self
-                    .read_prior_emitted(session_id, prior_emitted_thread_id)
-                    .await,
+                prior_emitted_cumulative: read_prior_emitted(
+                    &self.usage,
+                    session_id,
+                    prior_emitted_thread_id,
+                )
+                .await,
             },
         };
         band.accountant
@@ -306,33 +309,38 @@ impl ClaudeFrameRouting {
             band.usage_tally.unrouted.extend(released_routed.metered);
         }
     }
+}
 
-    // The daemon's own sum for a resumed thread; an unregistered usage record or a failed read is
-    // recorded, the base then zero, so the first reading meters what came before again.
-    async fn read_prior_emitted(&self, session_id: SessionId, thread_id: &str) -> UsageAxisCounts {
-        let failure = match self.usage.require_port() {
-            Ok(sink) => match sink
-                .read_prior_emitted(session_id, thread_id.to_owned())
-                .await
-            {
-                Ok(counts) => return counts,
-                Err(error) => describe_error(error.as_ref()),
-            },
-            Err(error) => describe_error(&error),
-        };
-        report(
-            session_id,
-            DriverDiagnosticKind::UsageResumeBaseUnavailable,
-            None,
-            "the daemon's own emitted usage sum could not be read, so the resumed thread meters \
-             from zero and its first reading counts what came before again",
-            [
-                ("threadId", Value::from(thread_id)),
-                ("failure", Value::from(failure)),
-            ],
-        );
-        UsageAxisCounts::default()
-    }
+/// The daemon's own emitted sum for `thread_id` on `session_id` through `usage`, the base a resumed
+/// thread or a copy of its conversation meters from; an unregistered usage record or a failed read
+/// is recorded, the base then zero, so the first reading counts what came before again.
+pub(crate) async fn read_prior_emitted(
+    usage: &PortRegistration<Arc<dyn UsageSink>>,
+    session_id: SessionId,
+    thread_id: &str,
+) -> UsageAxisCounts {
+    let failure = match usage.require_port() {
+        Ok(sink) => match sink
+            .read_prior_emitted(session_id, thread_id.to_owned())
+            .await
+        {
+            Ok(counts) => return counts,
+            Err(error) => describe_error(error.as_ref()),
+        },
+        Err(error) => describe_error(&error),
+    };
+    report(
+        session_id,
+        DriverDiagnosticKind::UsageResumeBaseUnavailable,
+        None,
+        "the daemon's own emitted usage sum could not be read, so the resumed thread meters \
+         from zero and its first reading counts what came before again",
+        [
+            ("threadId", Value::from(thread_id)),
+            ("failure", Value::from(failure)),
+        ],
+    );
+    UsageAxisCounts::default()
 }
 
 // Usage is metered ahead of suppression, so a helper's spend counts though its rows do not; the

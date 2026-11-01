@@ -51,6 +51,7 @@ use crate::driver::session_control::{
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
 use crate::port::running_command_publisher::RunningCommandParams;
+use crate::port::usage_sink::MeteredUsageOwner;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::posture::compose_execution_posture;
 use crate::run::state_entry::RunStateEntry;
@@ -377,12 +378,12 @@ async fn a_staged_reviews_command_is_stopped_and_moved_on_the_reviews_own_proces
 }
 
 // Killed by running a side question in the session's own posture instead of plan mode, on the
-// alias instead of its full id, by refusing one on a session at rest, by metering the copy's turn
-// from the session's reported base instead of from zero (a `result`'s usage is its own turn's), and
-// by a copy that keeps an askpass or channel variable or sets only `GIT_TERMINAL_PROMPT` of the
+// alias instead of its full id, by refusing one on a session at rest, by metering the fork's total
+// from zero or the live parent's cumulative read as zero instead of less the parent's, and by a
+// copy that keeps an askpass or channel variable or sets only `GIT_TERMINAL_PROMPT` of the
 // no-prompt environment.
 #[tokio::test(start_paused = true)]
-async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_own_turn() {
+async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_the_fork_less_the_parent() {
     let fixture = ScriptedDriver::new();
     fixture
         .services
@@ -416,12 +417,25 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
         })
         .await
         .expect("the session opens");
+    let live_start = fixture.starts.take_started().pop().expect("a start");
+    let routes = &fixture
+        .driver
+        .composed_parts()
+        .expect("composed")
+        .run_start
+        .routes;
+    let parent_message = json!({"type": "assistant", "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "message": {"id": "message-1", "role": "assistant", "content": [],
+            "usage": {"input_tokens": 120, "output_tokens": 15}}});
+    hand_scripted_frame(&*live_start.listener, routes, live_session, &parent_message);
     let resting_session = new_session_id();
     fixture.starts.script_catalog(json!({"models": [
         {"value": "opus", "displayName": "Opus", "resolvedModel": FULL_MODEL_ID},
     ]}));
     fixture.usage.report_prior(counts(100, 10));
-    fixture.starts.script_one_turn(one_turn_reply("live", None));
+    fixture
+        .starts
+        .script_one_turn(one_turn_reply("live", Some(counts(180, 40))));
     fixture
         .starts
         .script_one_turn(one_turn_reply("at rest", Some(counts(150, 30))));
@@ -502,6 +516,7 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
         .usage
         .metered()
         .into_iter()
+        .filter(|metered| matches!(metered.owner, MeteredUsageOwner::SideQuestion))
         .map(|metered| {
             (
                 metered.session_id,
@@ -510,7 +525,13 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
             )
         })
         .collect();
-    assert_eq!(metered, [(resting_session, Some(150), Some(30))]);
+    assert_eq!(
+        metered,
+        [
+            (live_session, Some(60), Some(25)),
+            (resting_session, Some(50), Some(20)),
+        ]
+    );
 }
 
 // Killed by answering a side question the model refused as an internal failure.
