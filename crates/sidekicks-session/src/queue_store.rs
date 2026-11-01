@@ -17,12 +17,13 @@ use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::artifacts::attachment_reference::AttachmentReferenceList;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{
-    MessageContent, PlanMessage, QueueItemId, QueueItemNotDeliveredKind,
+    MessageContent, PlanMessage, PlanMessageKind, QueueItemId, QueueItemNotDeliveredKind,
     QueueItemNotDeliveredReason, QueueItemState,
 };
 use sidekicks_contracts::run::state::RunState;
@@ -267,6 +268,10 @@ static ADMIT_UNDELIVERED_SQL: LazyLock<String> =
 static SUPERSEDE_UNDELIVERED_SQL: LazyLock<String> =
     LazyLock::new(|| leave_not_delivered_sql(QueueItemState::Superseded));
 
+// A message read not delivered and withdrawn once what it carried out ended.
+static CANCEL_UNDELIVERED_SQL: LazyLock<String> =
+    LazyLock::new(|| leave_not_delivered_sql(QueueItemState::Canceled));
+
 static RETARGET_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE queue_items SET target_run_id = @run_id, updated_at = @now
@@ -451,6 +456,21 @@ static SELECT_QUEUE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// The lead's plan message of one plan and kind that a retry has not superseded; a retry
+// supersedes the item it sends again, so at most one such item stands.
+static SELECT_PLAN_MESSAGE_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {COLUMNS} FROM queue_items
+  WHERE session_id = @session_id AND child_handle IS NULL
+    AND json_extract(payload, '$.kind') = 'planMessage'
+    AND json_extract(payload, '$.plan_message.planId') = @plan_id
+    AND json_extract(payload, '$.plan_message.kind') = @kind
+    AND state <> '{}'
+  {QUEUE_ORDER} LIMIT 1",
+        <&'static str>::from(QueueItemState::Superseded)
+    )
+});
+
 /// The queued messages that target one run, bound to its id at the one `?`, in queue order; a
 /// write that must find none uses it as its guard.
 pub(crate) static SELECT_WAITING_FOR_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -532,6 +552,12 @@ pub fn admit_undelivered_statement(id: &QueueItemId, now: &WireInstant) -> Write
 /// reads not delivered.
 pub fn supersede_undelivered_statement(id: &QueueItemId, now: &WireInstant) -> WriteStatement {
     item_change_statement(&SUPERSEDE_UNDELIVERED_SQL, id, now)
+}
+
+/// The statement that cancels an item read not delivered, so no retry sends it again; refused
+/// unless it reads not delivered.
+pub fn cancel_undelivered_statement(id: &QueueItemId, now: &WireInstant) -> WriteStatement {
+    item_change_statement(&CANCEL_UNDELIVERED_SQL, id, now)
 }
 
 /// The statement that points a waiting item at the run it now goes to; refused once it has left.
@@ -653,6 +679,27 @@ impl<'reader> QueueItemReader<'reader> {
             .prepare_cached(&SELECT_BY_KEY_SQL)?
             .query_row(
                 [session_id.text().as_str(), client_idempotency_key.as_str()],
+                record_of,
+            )
+            .optional()
+    }
+
+    /// The session's plan message of `kind` for `plan_id` that no retry superseded, whatever key
+    /// it was sent under, or `None`.
+    pub fn get_plan_message(
+        &self,
+        session_id: &SessionId,
+        plan_id: &PlanId,
+        kind: PlanMessageKind,
+    ) -> rusqlite::Result<Option<QueueItemRecord>> {
+        self.reader
+            .prepare_cached(&SELECT_PLAN_MESSAGE_SQL)?
+            .query_row(
+                named_params! {
+                    "@session_id": session_id.text().as_str(),
+                    "@plan_id": plan_id.text().as_str(),
+                    "@kind": <&'static str>::from(kind),
+                },
                 record_of,
             )
             .optional()
