@@ -116,7 +116,8 @@ pub(crate) struct ClaudeSessionParts {
     /// Applies steers and interruptions.
     pub(crate) interventions: Arc<ClaudeInterventions>,
     cuts: Arc<ClaudeConversationCuts>,
-    session_controls: Arc<ClaudeSessionControls>,
+    /// Build or Plan, side questions, reviews and the other controls on a whole session.
+    pub(crate) session_controls: Arc<ClaudeSessionControls>,
     goals: Arc<ClaudeGoalCommands>,
     reviewer: Arc<ClaudeReviewerCapture>,
 }

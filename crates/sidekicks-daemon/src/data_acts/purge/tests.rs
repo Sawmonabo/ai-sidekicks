@@ -193,6 +193,7 @@ pub(crate) async fn test_purge(
         shells: Arc::clone(&shells.table),
         conversations,
         managed_workspaces,
+        data_folder: home.path().to_path_buf(),
         snapshots: Arc::new(TurnSnapshotService::new(
             test_git_runner(),
             Arc::clone(&reads),

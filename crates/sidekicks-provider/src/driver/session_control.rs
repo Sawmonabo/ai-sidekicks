@@ -3,7 +3,7 @@
 //! resume, close and naming, the helper policy and tool servers it opens with, the level and mode a
 //! new session starts at, the live permission-level and mode moves, a revoked rule's removal, the
 //! session's goal, the commands the daemon answers itself, the side question and the review, the
-//! live command list, the move onto a fork or a new provider build, the sign-in probe, and the
+//! hand-over brief's summary, the live command list, the move onto a fork or a new provider build, the sign-in probe, and the
 //! purge of the provider's own copy of its conversations.
 
 use std::path::PathBuf;
@@ -22,6 +22,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::ProviderOptionSetting;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
+use sidekicks_contracts::provider::driver::declared_loss::DeclaredLossKind;
 use sidekicks_contracts::provider::driver::length_limits::{
     PROVIDER_FAILURE_DETAIL_MAX_LEN, PROVIDER_FALLBACK_ACTION_MAX_LEN,
 };
@@ -468,6 +469,55 @@ pub struct AskSideQuestionParams {
     /// The session's newest resume material, composed as a resume's is, which the copy is forked
     /// from when no live process runs the session; `None` for a session with no conversation yet.
     pub resume: Option<ResumeSessionParams>,
+}
+
+/// Params of `export_handover_brief`: the session's summary taken on a throwaway copy of its
+/// conversation, leaving the session's own conversation as it was.
+#[derive(Clone)]
+pub struct ExportHandoverBriefParams {
+    /// The session.
+    pub session_id: SessionId,
+    /// The session's binding, which the copy's usage is recorded on.
+    pub binding_id: RuntimeBindingId,
+    /// The session's newest resume material, composed as a resume's is, which the copy is forked
+    /// from where the driver forks the stored conversation.
+    pub resume: ResumeSessionParams,
+}
+
+/// Which summary a hand-over brief carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HandoverSummaryKind {
+    /// The provider's own summary of the conversation, its own framing taken out.
+    ProviderSummary,
+    /// The copy's answer to the fixed template.
+    Template,
+}
+
+/// What `export_handover_brief` answers: the summary, which kind it is, and what it could not
+/// carry. It is never the brief's message, which the daemon composes around it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DriverHandoverBriefResult {
+    /// The summary's text, never blank.
+    pub summary: String,
+    /// Which summary it is.
+    pub kind: HandoverSummaryKind,
+    /// What the summary could not carry, never empty.
+    pub declared_losses: Vec<DeclaredLossKind>,
+}
+
+impl DriverHandoverBriefResult {
+    /// `summary` as a brief's summary of `kind`, declaring the conversation summarized and the
+    /// provider's private reasoning left behind, which no summary carries.
+    pub(crate) fn summarized(summary: String, kind: HandoverSummaryKind) -> Self {
+        Self {
+            summary,
+            kind,
+            declared_losses: vec![
+                DeclaredLossKind::ProviderPrivateReasoning,
+                DeclaredLossKind::ConversationHistorySummarized,
+            ],
+        }
+    }
 }
 
 /// Params of `answer_session_command`: the text the person sent, before any run is made for it.

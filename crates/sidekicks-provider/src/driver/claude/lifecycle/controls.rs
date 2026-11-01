@@ -23,14 +23,14 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
 
-use super::{ClaudeDriver, internal};
+use super::{ClaudeDriver, ClaudeSessionParts, internal};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
 use crate::driver::claude::frame_routing::read_prior_emitted;
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::controls::{
-    ClaudeSideQuestionCopy, claude_full_model_id, without_credential_prompts,
+    ClaudeCopyComposition, ClaudeSideQuestionCopy, claude_full_model_id, without_credential_prompts,
 };
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
@@ -688,21 +688,7 @@ impl ClaudeDriver {
     ) -> Result<(), DriverError> {
         let parts = self.parts()?;
         let session_id = params.session_id;
-        let copy = match parts.run_start.live_session(session_id) {
-            Ok(live) => {
-                let parent = parts.interventions.session_thread_cumulative(&live)?;
-                ready(Ok(ClaudeSideQuestionCopy::of_live(&live, parent))).boxed()
-            }
-            Err(no_live_session) => match params.resume {
-                Some(resume) => compose_resting_side_question_copy(
-                    Arc::clone(&self.sources),
-                    Arc::clone(&self.starts),
-                    resume,
-                )
-                .boxed(),
-                None => return Err(no_live_session.into()),
-            },
-        };
+        let copy = self.compose_copy(parts, session_id, params.resume)?;
         let hold = parts
             .establishment
             .task_services
@@ -720,6 +706,32 @@ impl ClaudeDriver {
                 hold,
             )
             .await
+    }
+
+    /// The copy of `session_id`'s conversation a one-turn process runs on: the live process's own,
+    /// else the one `resume` names, composed once awaited. Fails `NoLiveSession` for a session at
+    /// rest with no resume material.
+    pub(crate) fn compose_copy(
+        &self,
+        parts: &ClaudeSessionParts,
+        session_id: SessionId,
+        resume: Option<ResumeSessionParams>,
+    ) -> Result<ClaudeCopyComposition, DriverError> {
+        Ok(match parts.run_start.live_session(session_id) {
+            Ok(live) => {
+                let parent = parts.interventions.session_thread_cumulative(&live)?;
+                ready(Ok(ClaudeSideQuestionCopy::of_live(&live, parent))).boxed()
+            }
+            Err(no_live_session) => match resume {
+                Some(resume) => compose_resting_side_question_copy(
+                    Arc::clone(&self.sources),
+                    Arc::clone(&self.starts),
+                    resume,
+                )
+                .boxed(),
+                None => return Err(no_live_session.into()),
+            },
+        })
     }
 
     /// Follows the session's live command list; while the session pieces cannot be composed no

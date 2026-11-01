@@ -17,7 +17,7 @@ pub(crate) mod crash_window;
 pub(crate) mod declared_output_speed;
 pub mod driver;
 pub(crate) mod event_disposition;
-pub(crate) mod hand_over;
+pub mod hand_over;
 pub mod inbound_json;
 pub mod left_conversations;
 pub(crate) mod lenient_json;

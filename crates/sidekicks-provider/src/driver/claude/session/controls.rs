@@ -113,6 +113,11 @@ pub(crate) struct ClaudeSessionControls {
     tables: Arc<Mutex<ClaudeControlTables>>,
 }
 
+/// The copy a one-turn process runs on, composed once awaited; fails as its context, legs or
+/// model catalog cannot be read.
+pub(crate) type ClaudeCopyComposition =
+    BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>;
+
 /// The copy a side question runs on: the legs at the session's full model id, the account and the
 /// conversation copied.
 pub(crate) struct ClaudeSideQuestionCopy {
@@ -317,12 +322,13 @@ impl ClaudeSessionControls {
         binding_id: RuntimeBindingId,
         side_question_id: SideQuestionId,
         question: String,
-        copy: BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>,
+        copy: ClaudeCopyComposition,
         usage: &PortRegistration<Arc<dyn UsageSink>>,
         _hold: ClaudeSideQuestionHold,
     ) -> Result<(), DriverError> {
+        let copy = copy.await.map_err(DriverError::Internal)?;
         let reply = self
-            .run_side_question(copy, question.clone(), &binding_id, usage)
+            .run_copy_turn(&copy, question.clone(), &binding_id, usage)
             .await?;
         let row = side_question_row(session_id, side_question_id, question, reply)?;
         self.deliver(session_id, InboundDelivery::SessionEvent { row })
@@ -502,23 +508,22 @@ impl ClaudeSessionControls {
         Ok(attached)
     }
 
-    // The side question's one turn on its copy, and its usage metered on `binding_id` once the
-    // model answered.
-    async fn run_side_question(
+    /// One turn on `copy` in plan mode sending `text`, its usage metered on `binding_id` through
+    /// `usage` once the model answered. Fails as the copy's turn fails.
+    pub(crate) async fn run_copy_turn(
         &self,
-        copy: BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>,
-        question: String,
+        copy: &ClaudeSideQuestionCopy,
+        text: String,
         binding_id: &RuntimeBindingId,
         usage: &PortRegistration<Arc<dyn UsageSink>>,
     ) -> Result<ClaudeOneTurnReply, DriverError> {
-        let copy = copy.await.map_err(DriverError::Internal)?;
         let reply = self
             .run_one_turn(
                 &copy.legs,
                 copy.provider_account_id.clone(),
                 Some(copy.parent_provider_session_id.clone()),
                 Some(ClaudePermissionMode::Plan),
-                question,
+                text,
                 CancellationToken::new(),
             )
             .await?;

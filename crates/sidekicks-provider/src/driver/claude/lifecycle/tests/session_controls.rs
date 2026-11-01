@@ -58,10 +58,10 @@ use crate::run::state_entry::RunStateEntry;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 // The full id the build resolves the session's `opus` to.
-const FULL_MODEL_ID: &str = "claude-opus-4-7";
+pub(super) const FULL_MODEL_ID: &str = "claude-opus-4-7";
 
 // A one-turn reply answering `text`, reporting `usage` where given.
-fn one_turn_reply(text: &str, usage: Option<UsageAxisCounts>) -> ClaudeOneTurnReply {
+pub(super) fn one_turn_reply(text: &str, usage: Option<UsageAxisCounts>) -> ClaudeOneTurnReply {
     ClaudeOneTurnReply {
         text: text.to_owned(),
         provider_message_id: None,
@@ -71,11 +71,12 @@ fn one_turn_reply(text: &str, usage: Option<UsageAxisCounts>) -> ClaudeOneTurnRe
             cumulative,
             declared_per_turn: None,
         }),
+        compaction_summary: None,
     }
 }
 
 // Input and output counts.
-fn counts(input: u64, output: u64) -> UsageAxisCounts {
+pub(super) fn counts(input: u64, output: u64) -> UsageAxisCounts {
     UsageAxisCounts {
         input: Some(input),
         output: Some(output),
@@ -473,6 +474,7 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_the_fork_l
         model: FULL_MODEL_ID.to_owned(),
         resume_handle: Some(resume_handle),
         permission_mode: Some(ClaudePermissionMode::Plan),
+        text: "Why?".to_owned(),
     };
     assert_eq!(
         fixture.starts.take_one_turns(),
