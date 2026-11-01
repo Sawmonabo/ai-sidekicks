@@ -141,6 +141,31 @@ impl Fixture {
             .expect("the report is kept");
     }
 
+    /// Opens the file tool's call `call_id` on `name`.
+    async fn open_call(&self, call_id: &str, name: &str) {
+        self.versions
+            .open_file_tool_write(FileToolWriteOpened {
+                session_id: self.store.session_id,
+                call_id: call_id.to_owned(),
+                path: self.workspace.join(name),
+            })
+            .await
+            .expect("the call is held");
+    }
+
+    /// Settles the file tool's call `call_id` on `name` with `outcome`.
+    async fn settle_call(&self, call_id: &str, name: &str, outcome: FileToolWriteOutcome) {
+        self.versions
+            .settle_file_tool_write(FileToolWriteSettled {
+                session_id: self.store.session_id,
+                call_id: call_id.to_owned(),
+                path: self.workspace.join(name),
+                outcome,
+            })
+            .await
+            .expect("the call settles");
+    }
+
     /// The session's file entries, each with its path, its newest media type and its count.
     async fn file_entries(&self) -> Vec<(String, serde_json::Value, u64)> {
         list_artifacts(&self.store.reads, self.store.session_id)
@@ -260,16 +285,7 @@ async fn a_caught_up_instant_is_stored_once_the_writes_ahead_of_it_are_recorded(
 #[tokio::test]
 async fn a_caught_up_instant_behind_a_held_report_is_stored_once_the_call_settles() {
     let fixture = fixture().await;
-    let path = fixture.workspace.join("notes.txt");
-    fixture
-        .versions
-        .open_file_tool_write(FileToolWriteOpened {
-            session_id: fixture.store.session_id,
-            call_id: "edit".to_owned(),
-            path: path.clone(),
-        })
-        .await
-        .expect("the call is held");
+    fixture.open_call("edit", "notes.txt").await;
     fixture.write_file("notes.txt", "on disk");
     let earlier = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
     let latest = SystemTime::UNIX_EPOCH + Duration::from_secs(2_000);
@@ -287,20 +303,11 @@ async fn a_caught_up_instant_behind_a_held_report_is_stored_once_the_call_settle
         .await;
     let stored_while_held = fixture.stored_instants();
     fixture
-        .versions
-        .settle_file_tool_write(FileToolWriteSettled {
-            session_id: fixture.store.session_id,
-            call_id: "edit".to_owned(),
-            path,
-            outcome: FileToolWriteOutcome::Claimed(FileToolWriteClaim::Text(
-                "from the tool".to_owned(),
-            )),
-        })
-        .await
-        .expect("the call settles");
+        .settle_call("edit", "notes.txt", text_claim("on disk"))
+        .await;
 
     assert_eq!(stored_while_held, []);
-    assert_eq!(fixture.stored_instants(), [(latest, 2)]);
+    assert_eq!(fixture.stored_instants(), [(latest, 1)]);
 }
 
 /// A folder is one entry over the empty payload, and a second report of it, or of a file whose
@@ -338,41 +345,86 @@ async fn a_folder_and_an_unchanged_file_write_no_second_version() {
 
 /// Two file tool writes the watch merged into one report still land two versions, in the order
 /// their calls opened though they settled the other way, and the report that waited for them
-/// adds none when the disk holds the second.
+/// adds none when the disk holds the second; killed by counting a later call only while it is
+/// still open, which drops the first claim the disk no longer holds.
 #[tokio::test]
 async fn tool_writes_merged_into_one_report_land_their_own_versions_in_call_order() {
     let fixture = fixture().await;
-    let path = fixture.workspace.join("notes.txt");
     for call_id in ["first", "second"] {
-        fixture
-            .versions
-            .open_file_tool_write(FileToolWriteOpened {
-                session_id: fixture.store.session_id,
-                call_id: call_id.to_owned(),
-                path: path.clone(),
-            })
-            .await
-            .expect("the call is held");
+        fixture.open_call(call_id, "notes.txt").await;
     }
     fixture.write_file("notes.txt", "second");
     fixture
         .report("notes.txt", ManagedWorkspaceWriteKind::File)
         .await;
-    for (call_id, bytes) in [("second", "second"), ("first", "first")] {
+    for call_id in ["second", "first"] {
         fixture
-            .versions
-            .settle_file_tool_write(FileToolWriteSettled {
-                session_id: fixture.store.session_id,
-                call_id: call_id.to_owned(),
-                path: path.clone(),
-                outcome: FileToolWriteOutcome::Claimed(FileToolWriteClaim::Text(bytes.to_owned())),
-            })
-            .await
-            .expect("the call settles");
+            .settle_call(call_id, "notes.txt", text_claim(call_id))
+            .await;
     }
 
     assert_eq!(
         fixture.version_bytes("notes.txt").await,
         ["first", "second"]
     );
+}
+
+/// A claim the disk does not hold, with no later call on its path, keeps no version, and the
+/// report that waited for it records the disk once; killed by keeping the unverified claim.
+#[tokio::test]
+async fn an_unexplained_claim_the_disk_does_not_hold_keeps_no_version() {
+    let fixture = fixture().await;
+    fixture.open_call("edit", "notes.txt").await;
+    fixture.write_file("notes.txt", "on disk");
+    fixture
+        .report("notes.txt", ManagedWorkspaceWriteKind::File)
+        .await;
+    fixture
+        .settle_call("edit", "notes.txt", text_claim("from the tool"))
+        .await;
+
+    assert_eq!(fixture.version_bytes("notes.txt").await, ["on disk"]);
+}
+
+/// A patch over a moved file applies to the newest stored version of the file it came from, and
+/// the disk holding the result keeps it; a patch that does not apply to the newest stored version
+/// keeps nothing. Killed by applying a move's patch to its destination's version, or by keeping
+/// the disk when a patch does not apply.
+#[tokio::test]
+async fn a_patch_applies_to_the_newest_version_of_its_base_or_keeps_nothing() {
+    let fixture = fixture().await;
+    for (name, bytes) in [("source.txt", "a\nb\n"), ("moved.txt", "x\n")] {
+        fixture.write_file(name, bytes);
+        fixture.report(name, ManagedWorkspaceWriteKind::File).await;
+    }
+    let patch = |base_path| {
+        FileToolWriteOutcome::Claimed(FileToolWriteClaim::Patch {
+            base_path,
+            unified_diff: "@@ -1,2 +1,2 @@\n a\n-b\n+B\n".to_owned(),
+        })
+    };
+
+    fixture.open_call("move", "moved.txt").await;
+    fixture.write_file("moved.txt", "a\nB\n");
+    fixture
+        .settle_call(
+            "move",
+            "moved.txt",
+            patch(Some(fixture.workspace.join("source.txt"))),
+        )
+        .await;
+    let after_move = fixture.version_bytes("moved.txt").await;
+    fixture.open_call("update", "moved.txt").await;
+    fixture.write_file("moved.txt", "a\nC\n");
+    fixture
+        .settle_call("update", "moved.txt", patch(None))
+        .await;
+
+    assert_eq!(after_move, ["x\n", "a\nB\n"]);
+    assert_eq!(fixture.version_bytes("moved.txt").await, after_move);
+}
+
+/// A file tool's claim of the whole text `text`.
+fn text_claim(text: &str) -> FileToolWriteOutcome {
+    FileToolWriteOutcome::Claimed(FileToolWriteClaim::Text(text.to_owned()))
 }

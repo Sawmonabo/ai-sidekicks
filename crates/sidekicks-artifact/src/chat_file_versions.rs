@@ -3,11 +3,15 @@
 //! the store as they were at the write, so a later write never changes an earlier version.
 //!
 //! - The workspace's watch reports a path, not its bytes, and can merge two writes into one report,
-//!   so a write the agent's own file tool made is also taken from the tool's result. A path's tool
-//!   writes land in the order their calls opened, and the watch's report of a path waits while a
-//!   call on it is open, then reads the disk.
-//! - A report whose bytes equal the path's newest version writes nothing, so a write a tool's
-//!   result already kept, a restore and a repeated report add no version.
+//!   so each call of the agent's own file tool is kept too: its result claims what the file holds
+//!   after it, a whole text or a patch over the newest stored version of the file it came from, and
+//!   the claim is checked against the disk. A claim the disk holds keeps the disk's bytes; one the
+//!   disk does not hold keeps its text in the disk file's form when a later call on the path
+//!   explains the difference, and nothing otherwise. A path's tool writes land in the order their
+//!   calls opened, and the watch's report of a path waits while a call on it is open, then reads
+//!   the disk.
+//! - A report whose bytes equal the path's newest version writes nothing, so a write a tool's call
+//!   already kept, a restore and a repeated report add no version.
 //! - A folder is one manifest at its creation over the empty payload, and has no later version.
 //! - A file gone when its report is read was removed after the write: it writes no version.
 //! - The writes of one path run one at a time, so its numbers follow the order the writes landed.
@@ -253,7 +257,7 @@ impl ChatFileVersions {
             return Ok(());
         };
         let _path_hold = self.path_lock.acquire(key.clone()).await;
-        let (outcomes, is_report_due) = {
+        let (outcomes, is_call_still_held, is_report_due) = {
             let mut guard = self.lock_held_writes();
             let held_paths = &mut guard.paths;
             let call = held_paths
@@ -275,48 +279,57 @@ impl ChatFileVersions {
                 held.calls.pop_front();
                 outcomes.push(outcome);
             }
-            let is_report_due = held.calls.is_empty() && held.is_report_waiting;
-            if held.calls.is_empty() {
+            let is_call_still_held = !held.calls.is_empty();
+            let is_report_due = !is_call_still_held && held.is_report_waiting;
+            if !is_call_still_held {
                 held_paths.remove(&key);
             }
-            (outcomes, is_report_due)
+            (outcomes, is_call_still_held, is_report_due)
         };
-        let recorded = self.record_settled(&key, outcomes, is_report_due).await;
+        let recorded = self
+            .record_settled(&key, outcomes, is_call_still_held, is_report_due)
+            .await;
         if is_report_due {
             self.finish_due_report().await;
         }
         recorded
     }
 
-    // Records the settled calls' written bytes in order, then the path's disk when `is_report_due`.
+    // Records the settled calls' claims in order, then the path's disk when `is_report_due`. A
+    // claim the disk does not hold is kept in the disk's form only when a later call on the path
+    // explains the difference: a later one in `outcomes`, or one still held when
+    // `is_call_still_held`.
     async fn record_settled(
         &self,
         key: &WorkspacePath,
         outcomes: Vec<FileToolWriteOutcome>,
+        is_call_still_held: bool,
         is_report_due: bool,
     ) -> Result<(), ChatFileVersionError> {
-        for outcome in outcomes {
-            if let FileToolWriteOutcome::Claimed(FileToolWriteClaim::Text(text)) = outcome {
-                let file_path = self.file_path_of(key);
-                let claimed =
-                    tokio::task::spawn_blocking(move || claimed_version(&text, &file_path))
-                        .await
-                        .map_err(ArtifactError::from)?
-                        .map_err(ArtifactError::from)?;
-                match claimed {
-                    ClaimedVersion::Disk => {
-                        self.record_version(
-                            key,
-                            PathWrite::OnDisk(ManagedWorkspaceWriteKind::File),
-                        )
+        let call_count = outcomes.len();
+        for (index, outcome) in outcomes.into_iter().enumerate() {
+            let FileToolWriteOutcome::Claimed(claim) = outcome else {
+                continue;
+            };
+            let Some(claim) = self.resolve_claim(key, claim).await? else {
+                continue;
+            };
+            let file_path = self.file_path_of(key);
+            let claimed = tokio::task::spawn_blocking(move || claim.version_of(&file_path))
+                .await
+                .map_err(ArtifactError::from)?
+                .map_err(ArtifactError::from)?;
+            let is_explained = index + 1 < call_count || is_call_still_held;
+            match claimed {
+                ClaimedVersion::Disk => {
+                    self.record_version(key, PathWrite::OnDisk(ManagedWorkspaceWriteKind::File))
                         .await?;
-                    }
-                    ClaimedVersion::Rebuilt(bytes) => {
-                        self.record_version(key, PathWrite::ToolResult(bytes.into()))
-                            .await?;
-                    }
-                    ClaimedVersion::Nothing => {}
                 }
+                ClaimedVersion::Rebuilt(bytes) if is_explained => {
+                    self.record_version(key, PathWrite::ToolResult(bytes.into()))
+                        .await?;
+                }
+                ClaimedVersion::Rebuilt(_) | ClaimedVersion::Nothing => {}
             }
         }
         if is_report_due {
@@ -324,6 +337,37 @@ impl ChatFileVersions {
                 .await?;
         }
         Ok(())
+    }
+
+    // What `claim` on `key` is checked against the disk with: its text, or its patch with the
+    // stored file of the newest version of its base, the file a move came from or else `key`;
+    // none when the base lies outside the chat's workspace or has no version.
+    async fn resolve_claim(
+        &self,
+        key: &WorkspacePath,
+        claim: FileToolWriteClaim,
+    ) -> Result<Option<ResolvedClaim>, ArtifactError> {
+        let (base_path, unified_diff) = match claim {
+            FileToolWriteClaim::Text(text) => return Ok(Some(ResolvedClaim::Text(text))),
+            FileToolWriteClaim::Patch {
+                base_path,
+                unified_diff,
+            } => (base_path, unified_diff),
+        };
+        let base_key = match base_path {
+            Some(base_path) => match self.workspace_path_of(key.0, &base_path) {
+                Some(base_key) => base_key,
+                None => return Ok(None),
+            },
+            None => key.clone(),
+        };
+        Ok(self
+            .read_newest_content_hash(&base_key)
+            .await?
+            .map(|base_hash| ResolvedClaim::Patch {
+                base_file: self.payloads.object_path_of(&base_hash),
+                unified_diff,
+            }))
     }
 
     // Counts a due report done, and stores the caught-up instant it held back when it was the last.
@@ -498,6 +542,45 @@ impl FileToolWritePort for ChatFileVersions {
                 .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
         }
         .boxed()
+    }
+}
+
+/// A claim ready to check against the disk, its patch's base found in the store.
+enum ResolvedClaim {
+    /// The file's whole text after the call.
+    Text(String),
+    /// A unified diff over the stored bytes at `base_file`.
+    Patch {
+        base_file: PathBuf,
+        unified_diff: String,
+    },
+}
+
+impl ResolvedClaim {
+    /// The version this claim keeps of the file at `file_path`, as [`claimed_version`] finds it;
+    /// nothing from a patch that does not apply to its base, or a base that is not UTF-8. Fails as
+    /// a read fails.
+    fn version_of(self, file_path: &Path) -> io::Result<ClaimedVersion> {
+        let text = match self {
+            Self::Text(text) => text,
+            Self::Patch {
+                base_file,
+                unified_diff,
+            } => {
+                let Ok(base) = String::from_utf8(std::fs::read(base_file)?) else {
+                    return Ok(ClaimedVersion::Nothing);
+                };
+                // A diff that does not parse or apply claims nothing to check the disk against.
+                let Some(patched) = diffy::Patch::from_str(&unified_diff)
+                    .ok()
+                    .and_then(|patch| diffy::apply(&base, &patch).ok())
+                else {
+                    return Ok(ClaimedVersion::Nothing);
+                };
+                patched.replace("\r\n", "\n")
+            }
+        };
+        claimed_version(&text, file_path)
     }
 }
 
