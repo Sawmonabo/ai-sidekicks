@@ -1,6 +1,7 @@
 //! The `queue_items` rows: the statements that write them, each guarded so a change decided from a
 //! stale read is refused whole, and the reads of a queue in its order. A row is never deleted while
-//! its session is kept; a message's words ride its payload beside its `user.message.sent` row.
+//! its session is kept; a message's words, and a plan message's, ride its payload beside its
+//! `user.message.sent` row.
 
 pub mod send_now;
 pub mod summary;
@@ -21,8 +22,8 @@ use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{
-    MessageContent, QueueItemId, QueueItemNotDeliveredKind, QueueItemNotDeliveredReason,
-    QueueItemState,
+    MessageContent, PlanMessage, QueueItemId, QueueItemNotDeliveredKind,
+    QueueItemNotDeliveredReason, QueueItemState,
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
@@ -44,9 +45,10 @@ use sidekicks_store::database::stored_column::{
 use crate::directory::lookups::ENDED_SESSION_STATES_SQL;
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
-/// What a queued item carries, as its payload stores it under its `kind`: a person's message, or
-/// a review of the session's changes, which opens a run of its own and is never handed into a
-/// running or continued turn.
+/// What a queued item carries, as its payload stores it under its `kind`: a person's message, a
+/// review of the session's changes, or a message the daemon sends for a plan's verdict; a review
+/// and a plan message each open a run of their own and are never handed into a running or
+/// continued turn.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum QueueItemBody {
@@ -57,14 +59,21 @@ pub enum QueueItemBody {
         /// What the review covers.
         target: SessionReviewTarget,
     },
+    /// A message the daemon sends for a plan's verdict.
+    PlanMessage {
+        /// The plan it carries out and what it is for.
+        plan_message: PlanMessage,
+        /// The words it opens its run with.
+        text: MessageContent,
+    },
 }
 
 impl QueueItemBody {
-    /// The message the item carries, `None` for a review.
+    /// The person's message the item carries, `None` for a review or a plan message.
     pub fn as_message(&self) -> Option<&QueueMessageBody> {
         match self {
             Self::Message(message) => Some(message),
-            Self::Review { .. } => None,
+            Self::Review { .. } | Self::PlanMessage { .. } => None,
         }
     }
 }
@@ -161,7 +170,8 @@ pub struct NewQueueItem {
     pub body: QueueItemBody,
     /// The run it goes to.
     pub target_run_id: RunId,
-    /// The device that sent it; absent on a review the daemon queues.
+    /// The device that sent it, or whose verdict a plan message carries out; absent on a review
+    /// the daemon queues.
     pub device_id: Option<DeviceId>,
     /// The send's own key; absent on a review the daemon queues.
     pub client_idempotency_key: Option<ClientUuid>,
@@ -221,7 +231,7 @@ pub const QUEUE_ORDER: &str = "ORDER BY position, created_at DESC, id";
 
 // Changes no row when the send's key was already spent in the session, so the write that carries
 // it is refused and nothing saved is replaced; an item with no key never conflicts. Only a
-// person's send and a review reach here, so the queue is the lead's.
+// person's send, a review and a plan message reach here, so the queue is the lead's.
 static INSERT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO queue_items
