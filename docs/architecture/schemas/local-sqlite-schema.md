@@ -564,12 +564,17 @@ CREATE TABLE artifact_manifests (
   content_hash       TEXT NOT NULL,                -- the payload's SHA-256, 'sha256:<hex>'
   size_bytes         INTEGER NOT NULL,             -- the payload's length, measured by the daemon
   metadata           TEXT NOT NULL DEFAULT '{}',   -- JSON: the file name and the media type
-  -- A chat's file or folder: its path in the managed workspace; NULL for every other artifact.
+  -- A chat's file or folder: its path in the chat folder; NULL for every other artifact.
   workspace_path     TEXT,
-  -- Counts from 1 within (session_id, workspace_path); 1 for every other artifact.
+  -- The chat folder's managed mount the path lies in, whichever chat holding it wrote the path;
+  -- NULL for every other artifact. No foreign key, as on session_id, so the folder's last purge
+  -- removes its rows in its own order.
+  repo_mount_id      TEXT,
+  -- Counts from 1 within (repo_mount_id, workspace_path); 1 for every other artifact.
   version_number     INTEGER NOT NULL DEFAULT 1 CHECK(version_number >= 1),
   plan_id            TEXT,                         -- the plan record whose text this is; NULL otherwise
-  created_at         TEXT NOT NULL                 -- RFC 3339 UTC, ms precision
+  created_at         TEXT NOT NULL,                -- RFC 3339 UTC, ms precision
+  CHECK ((workspace_path IS NULL) = (repo_mount_id IS NULL))
 ) STRICT;
 
 CREATE INDEX idx_artifact_manifests_session ON artifact_manifests(session_id);
@@ -578,8 +583,10 @@ CREATE INDEX idx_artifact_manifests_hash ON artifact_manifests(content_hash);
 -- SQLite treats each NULL as distinct, so only a client's publishes dedupe.
 CREATE UNIQUE INDEX idx_artifact_manifests_client_idempotency_key
   ON artifact_manifests(session_id, client_idempotency_key);
+-- A chat folder path's versions, and the next version's number counted on a write.
 CREATE UNIQUE INDEX idx_artifact_manifests_path_version
-  ON artifact_manifests(session_id, workspace_path, version_number) WHERE workspace_path IS NOT NULL;
+  ON artifact_manifests(repo_mount_id, workspace_path, version_number)
+  WHERE workspace_path IS NOT NULL;
 CREATE INDEX idx_artifact_manifests_plan ON artifact_manifests(plan_id) WHERE plan_id IS NOT NULL;
 
 -- Owner: Plan-011
