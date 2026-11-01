@@ -11,7 +11,6 @@
 //!   recorded key answers the session that key made, finishing it first when it was left
 //!   `provisioning`.
 
-mod account;
 mod provisioning;
 #[cfg(test)]
 mod tests;
@@ -48,6 +47,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::account::resolver::{current_account_guard, select_current_account};
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::LeadBindingCheckParams;
@@ -75,7 +75,6 @@ use sidekicks_workspace::schema::MountOrigin;
 use sidekicks_workspace::service::{WorkspaceService, WorkspaceServiceError};
 
 use crate::console_state::INSERT_CONSOLE_STATE_SQL;
-use crate::create::account::{ResolvedAccount, read_current_account};
 use crate::create::provisioning::{SessionFinishFailure, SessionToFinish};
 
 /// The statements the creation's reads keep prepared on each read connection: a recorded create,
@@ -199,11 +198,12 @@ pub struct SessionCreation {
 #[derive(Debug, thiserror::Error)]
 pub enum SessionCreateError {
     /// A refusal sent with its code: `project.notFound`, `repoMount.notFound`,
-    /// `session.group.refused`, `session.notFound`, `provider.account.notRegistered` or
-    /// `provider.account.current.notSet`.
+    /// `session.group.refused` or `session.notFound`.
     #[error(transparent)]
     Refused(#[from] DomainError),
-    /// The lead's driver refused or failed, `agent.providerAxisInvalid` among its refusals.
+    /// The lead's driver refused or failed, `agent.providerAxisInvalid` among its refusals, or the
+    /// lead's provider has no current account: `provider.account.notRegistered` or
+    /// `provider.account.current.notSet`.
     #[error(transparent)]
     Driver(#[from] DriverError),
     /// The bind of the session to its mount was refused or failed.
@@ -264,6 +264,14 @@ impl From<SessionCreateError> for HandlerError {
             | SessionCreateError::Finish(_)) => Self::Internal(Box::new(fault)),
         }
     }
+}
+
+/// The account a lead runs on, with the guard that keeps it current inside the session's first
+/// write.
+struct ResolvedAccount {
+    provider_account_id: ProviderAccountId,
+    // Refuses the write once the account is no longer its provider's current one.
+    guard: WriteStatement,
 }
 
 /// What a request asks for, whichever shape it has.
@@ -572,15 +580,25 @@ impl SessionCreation {
         })
     }
 
+    // The lead's provider's current account with its guard. Refuses
+    // `provider.account.notRegistered` or `provider.account.current.notSet` where it has none.
     async fn resolve_account(
         &self,
         provider: &ProviderId,
     ) -> Result<ResolvedAccount, SessionCreateError> {
         let provider = provider.clone();
         self.reads
-            .read(ReadLength::Short, move |connection| {
-                read_current_account(connection, &provider)
-            })
+            .read(
+                ReadLength::Short,
+                move |connection| -> Result<_, SessionCreateError> {
+                    let provider_account_id =
+                        select_current_account(connection, &provider)?.into_required()?;
+                    Ok(ResolvedAccount {
+                        guard: current_account_guard(&provider_account_id, &provider),
+                        provider_account_id,
+                    })
+                },
+            )
             .await
     }
 
