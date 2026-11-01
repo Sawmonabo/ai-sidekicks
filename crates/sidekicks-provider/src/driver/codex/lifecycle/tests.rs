@@ -7,6 +7,7 @@ mod capability_read;
 mod commands;
 mod controls;
 mod intake;
+mod questions;
 mod resume;
 mod rule_revoke;
 mod sessions;
