@@ -3,6 +3,7 @@
 //! damaged history, and the flush a quit sends, which reaches the serving socket's record of
 //! mutating calls.
 
+use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
 use sidekicks_artifact::payload_store::PayloadStore;
@@ -39,6 +40,8 @@ pub(crate) struct StoredDataMethodsStart<'start> {
     pub(crate) database: &'start DatabaseFile,
     /// The repository services, whose turn snapshots and managed workspaces a purge deletes.
     pub(crate) repo: &'start RepoServices,
+    /// The service's data folder, whose session storage folders a purge deletes.
+    pub(crate) data_folder: &'start Path,
     /// The session services.
     pub(crate) session_services: &'start SessionServices,
     /// The artifact store's payloads, which a purge unlinks once no manifest names them.
@@ -85,6 +88,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
     let StoredDataMethodsStart {
         database,
         repo,
+        data_folder,
         session_services,
         payloads,
         shells,
@@ -112,6 +116,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
             providers,
         )),
         managed_workspaces: Arc::clone(&repo.workspaces),
+        data_folder: data_folder.to_path_buf(),
         snapshots: Arc::clone(&repo.snapshots),
         project_rules: Arc::clone(&session_services.approvals.rules),
         list_feed: Arc::clone(&session_services.list_feed),
