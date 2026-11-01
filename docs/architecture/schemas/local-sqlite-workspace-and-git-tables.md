@@ -56,7 +56,7 @@ CREATE TABLE repo_mounts (
                       CHECK(origin IN ('attached', 'managed')),
                                               -- 'attached' = a project's folder the person attached or cloned; 'managed' = a chat's
                                               -- git-initialized workspace the daemon owns (Spec-001 §Required Behavior; ADR-030)
-  managed_session_id  TEXT,                   -- the one chat a managed mount belongs to (event-sourced session id, no FK, matching session_id columns elsewhere)
+  managed_session_id  TEXT,                   -- the chat a managed mount's folder is made for, whose id names the folder; never changes and is not the folder's one owner: the chats working in it hold it (managed_folder_holds). Event-sourced session id, no FK, matching session_id columns elsewhere
   project_id          TEXT REFERENCES projects(id) ON DELETE SET NULL,
                                               -- the project an attached mount serves; NULL on a chat's managed mount, and on a
                                               -- detached mount once the detach forgot its project. A re-attach writes its new row
@@ -87,6 +87,18 @@ CREATE UNIQUE INDEX idx_repo_mounts_active_project
   ON repo_mounts(project_id) WHERE state = 'attached';
 -- A project's sessions, which its rules reach, found through every mount it attached.
 CREATE INDEX idx_repo_mounts_project ON repo_mounts(project_id);
+
+-- Every chat working in a chat's managed folder: the chat it is made for, written in the mount's own
+-- insert, and each chat a plan hands off to in it, written before that chat is born and only while
+-- the planning chat holds the folder and is not marked for purge. The bind admits a holder alone; the
+-- folder goes only with its last holder's purge.
+CREATE TABLE managed_folder_holds (
+  repo_mount_id  TEXT NOT NULL REFERENCES repo_mounts(id),
+  session_id     TEXT NOT NULL,               -- event-sourced session id, no FK, matching session_id columns elsewhere
+  PRIMARY KEY (repo_mount_id, session_id)
+) STRICT;
+
+CREATE INDEX idx_managed_folder_holds_session ON managed_folder_holds(session_id);
 
 -- Owner: Plan-006
 CREATE TABLE workspaces (

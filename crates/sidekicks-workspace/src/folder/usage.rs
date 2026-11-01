@@ -1,7 +1,8 @@
 //! The folders the service can reach and who uses each: every attached mount, a project's folder or
 //! a chat's own workspace, and each standing worktree the daemon made, listed after its project's
 //! folder; and, for one mount, where it came from, its project's name and the sessions bound to it,
-//! which the mount read adds to the mount's own row.
+//! which the mount read adds to the mount's own row. A chat's folder comes from its earliest live
+//! holder: of the chats holding it and not marked for purge, the one bound to it first.
 
 use std::collections::HashMap;
 use std::io;
@@ -17,6 +18,7 @@ use sidekicks_contracts::repo::folders::{
 };
 use sidekicks_contracts::repo::mount::{RepoMountId, RepoMountState, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
@@ -36,23 +38,49 @@ use crate::schema::MountOrigin;
 /// The distinct statements the folder reads keep prepared on each read connection.
 pub const REPO_FOLDER_USAGE_STATEMENT_CAPACITY: usize = 4;
 
-const MOUNT_ORIGIN_COLUMNS: &str = "mount.id, mount.canonical_root, mount.origin,
-       mount.project_id, mount.managed_session_id, project.name, mount.place
+// A mount's row with its origin's facts; for a chat's folder, its earliest live holder: holders
+// marked for purge or not yet born after the rest, then the earliest bound, as the bound sessions
+// read orders them, and a holder not yet bound last.
+static MOUNT_ORIGIN_COLUMNS: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "mount.id, mount.canonical_root, mount.origin, mount.project_id,
+       (SELECT hold.session_id
+          FROM managed_folder_holds AS hold
+          LEFT JOIN sessions AS holder ON holder.id = hold.session_id
+          LEFT JOIN workspaces AS workspace
+            ON workspace.repo_mount_id = hold.repo_mount_id
+           AND workspace.session_id = hold.session_id AND workspace.state <> '{archived}'
+         WHERE hold.repo_mount_id = mount.id
+         GROUP BY hold.session_id
+         ORDER BY MAX(coalesce(holder.state = '{purge_requested}', 1)) ASC,
+                  MIN(workspace.created_at) IS NULL ASC, MIN(workspace.created_at) ASC,
+                  hold.session_id ASC
+         LIMIT 1),
+       project.name, mount.place
   FROM repo_mounts AS mount
-  LEFT JOIN projects AS project ON project.id = mount.project_id";
+  LEFT JOIN projects AS project ON project.id = mount.project_id",
+        archived = <&'static str>::from(WorkspaceState::Archived),
+        purge_requested = <&'static str>::from(SessionState::PurgeRequested),
+    )
+});
 
 static ATTACHED_MOUNTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT {MOUNT_ORIGIN_COLUMNS}
+        "SELECT {}
  WHERE mount.state = '{}'
  ORDER BY mount.attached_at ASC, mount.id ASC",
+        *MOUNT_ORIGIN_COLUMNS,
         <&'static str>::from(RepoMountState::Attached)
     )
 });
 
 // Unscoped by state, as the mount read answers for a detached mount too.
-static MOUNT_SQL: LazyLock<String> =
-    LazyLock::new(|| format!("SELECT {MOUNT_ORIGIN_COLUMNS} WHERE mount.id = @repo_mount_id"));
+static MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {} WHERE mount.id = @repo_mount_id",
+        *MOUNT_ORIGIN_COLUMNS
+    )
+});
 
 static STANDING_WORKTREES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -143,7 +171,7 @@ struct MountOriginRow {
     canonical_root: FilesystemPath,
     origin: MountOrigin,
     project_id: Option<ProjectId>,
-    managed_session_id: Option<SessionId>,
+    earliest_holder: Option<SessionId>,
     project_name: Option<ProjectName>,
     place: Option<Place>,
 }
@@ -263,7 +291,7 @@ impl RepoFolderUsage {
                     )
                     .optional()?
                     .filter(|mount| {
-                        mount.project_id.is_some() || mount.managed_session_id.is_some()
+                        mount.project_id.is_some() || mount.origin == MountOrigin::Managed
                     })
                     .ok_or(RepoRefusal::MountNotFound { repo_mount_id })?;
                 let used_by = connection
@@ -293,7 +321,7 @@ fn mount_origin_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MountOriginRow>
         canonical_root: text_column(row, 1, FilesystemPath::new)?,
         origin: text_column(row, 2, closed_word)?,
         project_id: optional_text_column(row, 3, |text| ProjectId::new(&text))?,
-        managed_session_id: optional_text_column(row, 4, |text| SessionId::new(&text))?,
+        earliest_holder: optional_text_column(row, 4, |text| SessionId::new(&text))?,
         project_name: optional_text_column(row, 5, ProjectName::new)?,
         place: optional_text_column(row, 6, |text| serde_json::from_str::<Place>(&text))?,
     })
@@ -317,15 +345,16 @@ fn read_standing_worktrees(
         .collect()
 }
 
-// A managed mount names its chat; any other names the project it serves. The rows' checks tie a
-// managed mount to its chat and a project's mount, while it can be read, to its project.
+// A managed mount names its earliest live holder; any other names the project it serves. A managed
+// mount is written with its founding chat's hold and deleted with its last, and the rows' checks tie
+// a project's mount, while it can be read, to its project.
 fn origin_of(mount: &MountOriginRow) -> RepoMountOrigin {
     match mount.origin {
         MountOrigin::Managed => RepoMountOrigin::Managed {
             repo_mount_id: mount.id,
             session_id: mount
-                .managed_session_id
-                .expect("a managed mount's row names its chat"),
+                .earliest_holder
+                .expect("a managed mount is held until it is deleted"),
         },
         MountOrigin::Attached => RepoMountOrigin::Attached {
             repo_mount_id: mount.id,
@@ -349,4 +378,94 @@ async fn using_session_count(
         .ok()
         .and_then(SafeInt::new)
         .expect("a count of sessions read is a safe integer"))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use sidekicks_contracts::repo::folders::RepoMountOrigin;
+    use sidekicks_contracts::repo::mount::RepoMountId;
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::session::methods::SessionState;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+
+    use super::{REPO_FOLDER_USAGE_STATEMENT_CAPACITY, RepoFolderUsage};
+    use crate::git::worktree::occupancy::MountOccupancyReader;
+    use crate::git::worktree::schema::schema_parts;
+    use crate::test_rows::PARENT_ROWS_AT;
+
+    const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e80";
+    // The fresh chat's id sorts before the planning chat's, so only the bound order puts the
+    // planning chat first.
+    const FRESH_SESSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
+    const PLANNING_SESSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e82";
+
+    async fn origin_session(usage: &RepoFolderUsage) -> SessionId {
+        let repo_mount_id = RepoMountId::new(MOUNT_ID).expect("the id is a UUID");
+        match usage
+            .read_usage(&repo_mount_id)
+            .await
+            .expect("the chat's folder reads")
+            .origin
+        {
+            RepoMountOrigin::Managed { session_id, .. } => session_id,
+            other @ (RepoMountOrigin::Attached { .. } | RepoMountOrigin::Worktree { .. }) => {
+                panic!("a chat's folder, not {other:?}")
+            }
+        }
+    }
+
+    // Catches the origin read from the chat the folder is made for, and a purged holder named:
+    // the planning chat, bound first, is the origin until it is marked for purge and once its
+    // purge has taken its hold, when the fresh chat holding the folder is.
+    #[tokio::test]
+    async fn a_chat_folders_origin_names_its_earliest_live_holder() {
+        let database = TestDatabase::new(schema_parts());
+        let rows = database.opener()().expect("the database is made with its schema");
+        insert_session_row(&rows, PLANNING_SESSION_ID, None, None);
+        insert_session_row(&rows, FRESH_SESSION_ID, None, None);
+        rows.execute_batch(&format!(
+            "INSERT INTO repo_mounts (id, machine_id, local_path, canonical_root, origin, \
+             managed_session_id, attached_at, updated_at) VALUES ('{MOUNT_ID}', 'machine', \
+             '/chats/planning', '/chats/planning', 'managed', '{PLANNING_SESSION_ID}', \
+             '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}');
+             INSERT INTO managed_folder_holds (repo_mount_id, session_id) VALUES \
+             ('{MOUNT_ID}', '{PLANNING_SESSION_ID}'), ('{MOUNT_ID}', '{FRESH_SESSION_ID}');
+             INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, created_at, \
+             updated_at) VALUES \
+             ('planning', '{PLANNING_SESSION_ID}', '{MOUNT_ID}', 'boundRoot', \
+             '2026-10-14T09:30:00.000Z', '2026-10-14T09:30:00.000Z'), \
+             ('fresh', '{FRESH_SESSION_ID}', '{MOUNT_ID}', 'boundRoot', \
+             '2026-10-14T09:31:00.000Z', '2026-10-14T09:31:00.000Z')"
+        ))
+        .expect("the planning chat's folder, its holds and workspaces are admitted");
+        let reads = Arc::new(DatabaseReadPool::new(
+            database.path(),
+            REPO_FOLDER_USAGE_STATEMENT_CAPACITY,
+        ));
+        let usage = RepoFolderUsage::new(Arc::clone(&reads), MountOccupancyReader::new(reads));
+        let planning = SessionId::new(PLANNING_SESSION_ID).expect("a session id");
+        let fresh = SessionId::new(FRESH_SESSION_ID).expect("a session id");
+
+        assert_eq!(origin_session(&usage).await, planning);
+        rows.execute(
+            "UPDATE sessions SET state = ?1 WHERE id = ?2",
+            [
+                <&'static str>::from(SessionState::PurgeRequested),
+                PLANNING_SESSION_ID,
+            ],
+        )
+        .expect("the planning chat is marked for purge");
+        assert_eq!(origin_session(&usage).await, fresh);
+        rows.execute_batch(&format!(
+            "DELETE FROM workspaces WHERE session_id = '{PLANNING_SESSION_ID}';
+             DELETE FROM managed_folder_holds WHERE session_id = '{PLANNING_SESSION_ID}';
+             DELETE FROM sessions WHERE id = '{PLANNING_SESSION_ID}'"
+        ))
+        .expect("the planning chat's purge takes its rows");
+        assert_eq!(origin_session(&usage).await, fresh);
+    }
 }

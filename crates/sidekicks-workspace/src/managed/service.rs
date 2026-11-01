@@ -1,14 +1,14 @@
 //! A chat's managed workspace: the git-initialized folder `<home>/.ai-sidekicks/workspaces/<session
-//! id>` the daemon makes at the chat's create and registers as the chat's managed mount, kept while
-//! the chat is archived, and deleted whole when the chat is purged or when its create stopped
-//! before the chat was born. It holds the one watch over every chat's workspace, which walks at its
+//! id>` the daemon makes at the chat's create and registers as the chat's managed mount, held by
+//! that chat and every chat a plan hands off to in it, kept while they are archived, and deleted
+//! whole when its last holder is purged or when its create stopped before the chat was born. It holds the one watch over every chat's workspace, which walks at its
 //! start for every write since the instant its owner hands it, and starts it again whenever a
 //! create finds the folder holding them gone, since the watch ends with it, or the watch ended;
 //! the watch started again walks for every write made since the earlier one last told them all,
 //! or for every entry in a folder made again. A clean stop lets the watch send the batch under
 //! way, and [`ManagedWorkspaceService::whole_since`] then names the instant the next start walks
 //! from. Each change the watch names recounts the files in that chat's folder onto its managed
-//! mount's row, which the sessions list reads as the chat's document count.
+//! mount's row, which the sessions list reads as the document count of every chat holding it.
 
 use std::error::Error;
 use std::ffi::OsStr;
@@ -159,8 +159,8 @@ impl ManagedWorkspaceService {
     /// chat makes in one sent on `reports`; starts the watch that reports them, walking first for
     /// every write since `missed_since` (the instant [`Self::whole_since`] named at the last clean
     /// stop, or the one the reader of `reports` kept once it had recorded every write a walk sent
-    /// ahead of it), and the task that recounts a chat's files on each change and names the chat
-    /// to `list_feed` when its count moved. Dropping the service ends both.
+    /// ahead of it), and the task that recounts a chat folder's files on each change and names
+    /// every chat holding the folder to `list_feed` when its count moved. Dropping the service ends both.
     pub fn new(
         home_folder: &Path,
         place: Option<Place>,
@@ -352,7 +352,8 @@ impl ManagedWorkspaceService {
 
 // Recounts the files in every chat's folder once at the start, since a change made while the
 // daemon was down reaches no watch, then in each folder the watch names, and stores the count on
-// the chat's managed mount, naming the chat to the sessions list when it moved. A count that
+// the folder's managed mount, naming every chat holding the folder to the sessions list when it
+// moved. A count that
 // cannot be read or stored is logged and left as it was until the folder's next change.
 async fn count_documents(
     workspaces_folder: PathBuf,
@@ -396,8 +397,11 @@ async fn count_documents(
                 }
             };
             match repo_mounts.record_document_count(session_id, count).await {
-                Ok(true) => list_feed.refresh_session(session_id),
-                Ok(false) => {}
+                Ok(holders) => {
+                    for holder in holders {
+                        list_feed.refresh_session(holder);
+                    }
+                }
                 Err(error) => tracing::warn!(
                     error = &error as &(dyn Error + 'static),
                     "a chat's document count could not be stored; it stays as it was"
@@ -592,42 +596,69 @@ mod tests {
             .expect("the chat's mount row reads")
     }
 
-    // The chat's document count once the sessions list is next named the chat.
+    // The folder's document count once a move has named both its holders to the sessions list,
+    // each move naming every holder in id order.
     async fn next_document_count(
         named: &mut mpsc::UnboundedReceiver<SessionId>,
         database: &TestDatabase,
-        session_id: SessionId,
+        holders: [SessionId; 2],
     ) -> i64 {
-        let named = timeout(WAIT, named.recv())
-            .await
-            .expect("the sessions list is named the chat in time")
-            .expect("the service keeps naming chats");
-        assert_eq!(named, session_id);
-        stored_document_count(database, session_id)
+        let mut named_holders = Vec::new();
+        for _ in holders {
+            named_holders.push(
+                timeout(WAIT, named.recv())
+                    .await
+                    .expect("the sessions list is named a holder in time")
+                    .expect("the service keeps naming chats"),
+            );
+        }
+        assert_eq!(named_holders, holders);
+        stored_document_count(database, holders[0])
     }
 
-    // Catches a count left unwritten, the `.git` folder counted, a removal that leaves the count
-    // high, and a count that moves without the sessions list being named the chat: the chat's row
-    // follows the files written into and removed from its folder, and each move names the chat.
+    // Catches the founding hold left out of the mount's insert write, a count left unwritten, the
+    // `.git` folder counted, a removal that leaves the count high, and a move naming the founding
+    // chat alone: the chat's folder is held by it from its create, its row follows the files
+    // written into and removed from it, and each move names every chat holding it.
     #[tokio::test]
-    async fn a_chats_document_count_follows_its_folder_and_names_the_chat_to_the_list() {
+    async fn a_chat_folders_document_count_follows_it_and_names_every_holder_to_the_list() {
         let home = tempfile::tempdir().expect("a scratch home");
         let database = TestDatabase::new(schema_parts());
         let (writes_sender, _writes) = mpsc::channel(64);
         let (mut named, service) = start_service(&home, &database, writes_sender).await;
-        let session_id =
+        let planning =
             SessionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e72").expect("a session id");
+        let fresh = SessionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e73").expect("a session id");
         let workspace = service
-            .create(session_id)
+            .create(planning)
             .await
             .expect("the workspace is made");
-        assert_eq!(stored_document_count(&database, session_id), 0);
+        let rows = database.reader();
+        let holds = rows
+            .prepare("SELECT session_id FROM managed_folder_holds WHERE repo_mount_id = ?1")
+            .expect("the holds read prepares")
+            .query_map([workspace.repo_mount_id.text().as_str()], |row| {
+                row.get::<_, String>(0)
+            })
+            .expect("the holds read")
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .expect("each hold reads");
+        assert_eq!(holds, [planning.text().as_str()]);
+        assert_eq!(stored_document_count(&database, planning), 0);
+        rows.execute(
+            "INSERT INTO managed_folder_holds (repo_mount_id, session_id) VALUES (?1, ?2)",
+            [
+                workspace.repo_mount_id.text().as_str(),
+                fresh.text().as_str(),
+            ],
+        )
+        .expect("the fresh chat's hold is admitted");
 
         fs::write(workspace.path.join("plan.md"), "plan").expect("a file is written");
         fs::create_dir(workspace.path.join("notes")).expect("a folder is made");
         fs::write(workspace.path.join("notes").join("draft.md"), "draft").expect("written");
-        while next_document_count(&mut named, &database, session_id).await != 2 {}
+        while next_document_count(&mut named, &database, [planning, fresh]).await != 2 {}
         fs::remove_file(workspace.path.join("plan.md")).expect("the file is removed");
-        while next_document_count(&mut named, &database, session_id).await != 1 {}
+        while next_document_count(&mut named, &database, [planning, fresh]).await != 1 {}
     }
 }
