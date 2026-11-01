@@ -40,8 +40,8 @@ use crate::git::local::GitSettledPayload;
 use crate::mcp::governance::McpServerSignInCompletedPayload;
 use crate::orchestration::AgentRunRejectedPayload;
 use crate::plan::{
-    PlanAcceptedPayload, PlanHandedOffPayload, PlanHoldEndedPayload, PlanKeptPayload,
-    PlanProposedPayload,
+    PlanAcceptedPayload, PlanHandOffFailedPayload, PlanHandedOffPayload, PlanHoldEndedPayload,
+    PlanKeptPayload, PlanProposedPayload,
 };
 use crate::question::{QuestionAskedPayload, QuestionCanceledPayload, QuestionOpenedPayload};
 use crate::relay::RelayPinRefusedPayload;
@@ -80,7 +80,7 @@ use crate::session::convert::SessionConvertedPayload;
 use crate::session::events::{
     SessionAdvisorChangedPayload, SessionCreatedPayload, SessionLifecycleChangePayload,
     SessionMarkChangePayload, SessionOutputStyleChangedPayload,
-    SessionProviderStatusReportedPayload, SessionRenamedPayload,
+    SessionProviderStatusReportedPayload, SessionReactivatedPayload, SessionRenamedPayload,
 };
 use crate::session::goal::{SessionGoalClearedPayload, SessionGoalUpdatedPayload};
 use crate::session::recovery::SessionDamagedEventsSkippedPayload;
@@ -347,6 +347,8 @@ session_events! {
     PlanKept(PlanKeptPayload) = "plan.kept",
     /// Emitted when the provider request a plan held ends with no verdict.
     PlanHoldEnded(PlanHoldEndedPayload) = "plan.hold.ended",
+    /// Emitted when a step of a plan's hand-off did not finish.
+    PlanHandOffFailed(PlanHandOffFailedPayload) = "plan.handOff.failed",
     /// Emitted when an agent, tool server or workflow step asks the person a question.
     QuestionAsked(#[garde(dive)] QuestionAskedPayload) = "question.asked"
         => read(question_asked_run),
@@ -413,7 +415,7 @@ session_events! {
     /// Emitted when a session is archived.
     SessionArchived(SessionLifecycleChangePayload) = "session.archived",
     /// Emitted when an archived session is reactivated.
-    SessionReactivated(SessionLifecycleChangePayload) = "session.reactivated",
+    SessionReactivated(SessionReactivatedPayload) = "session.reactivated",
     /// Emitted when a session is closed.
     SessionClosed(SessionLifecycleChangePayload) = "session.closed",
     /// Emitted when a session is pinned.

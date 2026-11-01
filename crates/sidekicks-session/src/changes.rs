@@ -15,8 +15,8 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::events::{
-    SessionLifecycleChangePayload, SessionMarkChangePayload, SessionRenameOrigin,
-    SessionRenamedPayload,
+    SessionLifecycleChangePayload, SessionMarkChangePayload, SessionReactivatedPayload,
+    SessionReactivatedState, SessionRenameOrigin, SessionRenamedPayload,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{
@@ -311,12 +311,12 @@ impl SessionChanges {
         self.change(session_id, None, |facts| {
             refuse_unchangeable_session(&session_id, facts.state)?;
             Ok((facts.state == SessionState::Archived).then(|| {
-                lifecycle_event(
-                    SessionEvent::SessionReactivated,
+                SessionEvent::SessionReactivated(SessionReactivatedPayload {
                     session_id,
-                    SessionState::Archived,
-                    SessionState::Active,
-                )
+                    previous_state: Some(SessionState::Archived),
+                    state: SessionReactivatedState::Active,
+                    actor: None,
+                })
             }))
         })
         .await?;
