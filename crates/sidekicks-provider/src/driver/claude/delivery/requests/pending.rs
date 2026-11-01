@@ -1,10 +1,12 @@
 //! The requests each session holds pending: recorded before they are attributed, so a withdrawal
 //! that comes first finds them, marked once handed on to their service, and closed by an answer or
 //! a withdrawal, the last close telling every waiter on the session's open asks. Each one closed or
-//! recorded over is let go, which a question's take reads as its asker leaving.
+//! recorded over is let go, which a question's take reads as its asker leaving. A held plan's take
+//! is marked while it runs, so a withdrawal meanwhile is reported once by the take itself.
 
 use std::collections::HashMap;
 
+use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -18,6 +20,11 @@ pub(super) enum HeldRequest {
     Ask(ClaudeHeldAsk),
     /// A question.
     Question(ClaudeHeldQuestion),
+    /// A plan, held for its verdict under the id its record is written under.
+    Plan {
+        /// The plan's id.
+        plan_id: PlanId,
+    },
 }
 
 impl HeldRequest {
@@ -26,6 +33,7 @@ impl HeldRequest {
         match self {
             Self::Ask(_) => "permissionAsk",
             Self::Question(_) => "question",
+            Self::Plan { .. } => "plan",
         }
     }
 }
@@ -37,18 +45,29 @@ pub(super) struct PendingRequest {
     pub(super) held: HeldRequest,
     /// Its recording's number, so a close finds this recording and not a later one under the id.
     pub(super) admission: u64,
-    /// Whether its service has it.
+    /// Whether its service has it: an ask or a question once admitted, a plan once its take
+    /// recorded it.
     pub(super) is_handed_on: bool,
     /// Canceled once it is closed or recorded over, so a question's take still writing its record
     /// withdraws it once the record lands.
     let_go: CancellationToken,
 }
 
-// One session's pending requests, and the waiters told when the last one closes.
+// Where a held plan's take stands while it runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PlanTake {
+    Running,
+    // Claude Code withdrew the request meanwhile, which the take reports once it recorded the plan.
+    Withdrawn,
+}
+
+// One session's pending requests, the waiters told when the last one closes, and the plan takes
+// still running, by their recording's admission.
 #[derive(Default)]
 struct SessionRequests {
     pending: HashMap<String, PendingRequest>,
     on_closed: Vec<oneshot::Sender<()>>,
+    plan_takes: HashMap<u64, PlanTake>,
 }
 
 /// Every session's pending requests.
@@ -92,20 +111,69 @@ impl RequestTables {
     }
 
     /// Marks the recording `admission` handed on and answers its letting go, which a question's
-    /// take waits on; `None` when it was closed or recorded again.
+    /// take waits on; `None` when it was closed or recorded again. A plan is marked as its take
+    /// starting instead, since its service has it only once the take recorded it.
     pub(super) fn mark_handed_on(
         &mut self,
         session_id: SessionId,
         request_id: &str,
         admission: u64,
     ) -> Option<CancellationToken> {
-        let pending = self
-            .by_session
-            .get_mut(&session_id)
-            .and_then(|requests| requests.pending.get_mut(request_id))
+        let requests = self.by_session.get_mut(&session_id)?;
+        let pending = requests
+            .pending
+            .get_mut(request_id)
             .filter(|pending| pending.admission == admission)?;
-        pending.is_handed_on = true;
+        match pending.held {
+            HeldRequest::Ask(_) | HeldRequest::Question(_) => pending.is_handed_on = true,
+            HeldRequest::Plan { .. } => {
+                requests.plan_takes.insert(admission, PlanTake::Running);
+            }
+        }
         Some(pending.let_go.clone())
+    }
+
+    /// Ends the take of the plan recorded as `admission`: one `is_recorded` and still pending is
+    /// marked handed on. Answers whether Claude Code withdrew it while the take ran, said once.
+    pub(super) fn end_plan_take(
+        &mut self,
+        session_id: SessionId,
+        request_id: &str,
+        admission: u64,
+        is_recorded: bool,
+    ) -> bool {
+        let Some(requests) = self.by_session.get_mut(&session_id) else {
+            return false;
+        };
+        let take = requests.plan_takes.remove(&admission);
+        if is_recorded
+            && let Some(pending) = requests
+                .pending
+                .get_mut(request_id)
+                .filter(|pending| pending.admission == admission)
+        {
+            pending.is_handed_on = true;
+        }
+        take == Some(PlanTake::Withdrawn)
+    }
+
+    /// The id of the request held for the plan `plan_id`.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the plan verdict answers the request it finds here"
+        )
+    )]
+    pub(super) fn held_plan(&self, session_id: SessionId, plan_id: PlanId) -> Option<&str> {
+        self.by_session
+            .get(&session_id)?
+            .pending
+            .iter()
+            .find(|(_, pending)| {
+                matches!(pending.held, HeldRequest::Plan { plan_id: held } if held == plan_id)
+            })
+            .map(|(request_id, _)| request_id.as_str())
     }
 
     /// Whether the recording `admission` is still pending.
@@ -145,6 +213,25 @@ impl RequestTables {
         Some(closed)
     }
 
+    /// Closes a request Claude Code withdrew, as [`Self::close`] does; a plan whose take still runs
+    /// is marked withdrawn, so its take reports it.
+    pub(super) fn withdraw(
+        &mut self,
+        session_id: SessionId,
+        request_id: &str,
+    ) -> Option<PendingRequest> {
+        let withdrawn = self.close(session_id, request_id)?;
+        if let HeldRequest::Plan { .. } = withdrawn.held
+            && let Some(take) = self
+                .by_session
+                .get_mut(&session_id)
+                .and_then(|requests| requests.plan_takes.get_mut(&withdrawn.admission))
+        {
+            *take = PlanTake::Withdrawn;
+        }
+        Some(withdrawn)
+    }
+
     /// How many of the session's requests are open.
     pub(super) fn open_count(&self, session_id: SessionId) -> usize {
         self.by_session
@@ -163,7 +250,8 @@ impl RequestTables {
         Some(receiver)
     }
 
-    /// Takes every request the session holds and lets each go, letting its waiters go unanswered.
+    /// Takes every request the session holds and lets each go, letting its waiters go unanswered;
+    /// a plan take still running then reports nothing.
     pub(super) fn take_session(
         &mut self,
         session_id: SessionId,
