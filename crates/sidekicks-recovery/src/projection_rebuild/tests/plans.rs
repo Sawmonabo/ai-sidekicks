@@ -16,15 +16,14 @@ use super::{rebuild_whole, table_rows};
 
 const PLAN_ROWS_SQL: &str = "SELECT * FROM plans ORDER BY id";
 
-// The rows a rebuild writes from the log are the rows the live writes wrote: a plan proposed and
-// left waiting, one kept with its device and instant, and one whose hold ended. Killed by a fold
-// arm that drops an event or writes another column than its live write.
+// The rows a rebuild writes from the log are the rows the live writes wrote: a Codex plan the next
+// plan supersedes, that plan kept with its device and instant, and a last one whose hold ended.
+// Killed by a fold arm that drops an event or writes another column than its live write.
 #[tokio::test]
 async fn a_rebuild_writes_the_plan_rows_the_live_writes_wrote() {
     let fixture = Fixture::new().await;
     fixture.take(false).await;
     let kept = fixture.take(true).await;
-    let lost = fixture.take(true).await;
     let device_id = DeviceId::new("device-1".to_owned()).expect("a device id");
     let kept_at = WireInstant::try_from("2026-10-21T05:00:00.000Z".to_owned())
         .expect("the test's instant reads");
@@ -56,6 +55,7 @@ async fn a_rebuild_writes_the_plan_rows_the_live_writes_wrote() {
         )
         .await
         .expect("the verdict is written");
+    let lost = fixture.take(true).await;
     fixture
         .plans
         .end_plan_hold(ProviderPlanHoldEnd {
