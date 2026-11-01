@@ -44,12 +44,12 @@ use crate::driver::run_control::{
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
-    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
-    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
-    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
-    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
+    DriverResumeResult, ExportHandoverBriefParams, MoveSessionToForkParams,
+    MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
+    ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
+    SessionCommandAnswer, SetSessionGoalParams, StartingLevel, StartingLevelParams,
+    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
@@ -497,6 +497,15 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: AskSideQuestionParams,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// Takes the session's summary for a hand-over brief on a throwaway copy of its conversation,
+    /// the session's own conversation left as it was and starting no turn; the copy's one turn is
+    /// metered on the session's binding. Answers the provider's own summary, or where it cannot be
+    /// read the copy's answer to the fixed template, saying which; fails as the copy's turn fails.
+    fn export_handover_brief(
+        &self,
+        params: ExportHandoverBriefParams,
+    ) -> BoxFuture<'_, Result<DriverHandoverBriefResult, DriverError>>;
 
     /// Follows the session's live command list (gated on `providerCommands`): `listener` gets the
     /// current list and each change until the returned subscription drops.

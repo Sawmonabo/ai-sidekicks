@@ -283,7 +283,7 @@ impl CodexDriver {
 
     /// The session pieces, composed on first use. Fails while the run engine, its dispatch or the
     /// queue's binding of the daemon's own turns is not registered yet.
-    fn parts(&self) -> Result<&Arc<CodexDriverParts>, DriverError> {
+    pub(super) fn parts(&self) -> Result<&Arc<CodexDriverParts>, DriverError> {
         if let Some(parts) = self.parts.get() {
             return Ok(parts);
         }

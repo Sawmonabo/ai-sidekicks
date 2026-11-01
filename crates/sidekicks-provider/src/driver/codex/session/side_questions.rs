@@ -14,7 +14,6 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -40,9 +39,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::{AskForApproval, ThreadForkParams};
 use crate::driver::codex::attachments::compose_codex_text_input;
 use crate::driver::codex::delivery::memory::read_codex_error_kind;
-use crate::driver::codex::event_normalizer::{
-    CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
-};
+use crate::driver::codex::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
 use crate::driver::codex::permission_level::compose_codex_profile_name;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::routing::read_codex_frame_thread_id;
@@ -51,6 +48,9 @@ use crate::driver::codex::session::detached_conversation::{
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::CodexSessionEstablishment;
+use crate::driver::codex::session::side_questions::copy_turn::{
+    CopyFrameReading, CopyTurn, CopyTurnFailure, read_copy_frame,
+};
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::thread::settings::{
@@ -60,10 +60,8 @@ use crate::driver::codex::thread::settings::{
 use crate::driver::codex::thread::view::{
     TURN_START_METHOD, assert_active_permission_profile, read_thread, read_turn_id,
 };
-use crate::driver::codex::token_usage::read_codex_token_usage;
-use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
-use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::driver::error_causes::{
@@ -76,12 +74,6 @@ use crate::run::delivery::{InboundDelivery, SessionScopedRow};
 use crate::usage_delta_accountant::{ThreadBaseEstablishment, UsageDeltaAccountant};
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
-
-/// The item type of the copy's reply.
-const CODEX_AGENT_MESSAGE_ITEM_TYPE: &str = "agentMessage";
-
-/// Why a copy's turn gave no answer when Codex named no error.
-const NO_ANSWER_DETAIL: &str = "The copy's turn ended with no answer.";
 
 /// The `codexErrorInfo` arms of a turn Codex's policy refused.
 const CODEX_POLICY_REFUSALS: [&str; 2] = ["cyberPolicy", "misalignmentPolicyViolation"];
@@ -117,26 +109,6 @@ struct CodexSideQuestion {
     stop: CancellationToken,
     // The copy's turn, once its start answered.
     turn_id: Option<String>,
-}
-
-// The members of a copy's frame the side question reads.
-#[derive(Deserialize)]
-struct CopyFrame {
-    item: Option<CopyItem>,
-    turn: Option<CopyTurn>,
-}
-
-#[derive(Deserialize)]
-struct CopyItem {
-    #[serde(rename = "type")]
-    item_type: Option<String>,
-    text: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct CopyTurn {
-    status: Option<String>,
-    error: Option<Value>,
 }
 
 /// What one frame of a copy did.
@@ -182,32 +154,19 @@ impl CodexSideQuestion {
     // Reads one frame of the copy: its reply is kept, its usage metered, and its turn's end
     // answered.
     fn take_frame(&mut self, method: &str, params: &RawValue) -> CopyFrameTaken {
-        match method {
-            CODEX_ITEM_COMPLETED_METHOD => {
-                if let Some(text) = read_codex_object::<CopyFrame>(params.get())
-                    .and_then(|frame| frame.item)
-                    .filter(|item| item.item_type.as_deref() == Some(CODEX_AGENT_MESSAGE_ITEM_TYPE))
-                    .and_then(|item| item.text)
-                    .filter(|text| !text.is_empty())
-                {
-                    self.answer = Some(text);
-                }
+        match read_copy_frame(method, params, &mut self.accountant) {
+            CopyFrameReading::Reply(text) => {
+                self.answer = Some(text);
                 CopyFrameTaken::Kept(None)
             }
-            CODEX_THREAD_TOKEN_USAGE_METHOD => CopyFrameTaken::Kept(
-                read_codex_token_usage(params)
-                    .and_then(|reading| self.accountant.meter_reading(reading))
-                    .map(|delta| MeteredUsage {
-                        session_id: self.session_id,
-                        binding_id: self.binding_id.clone(),
-                        owner: MeteredUsageOwner::SideQuestion,
-                        delta,
-                    }),
-            ),
-            CODEX_TURN_COMPLETED_METHOD => CopyFrameTaken::Ended(
-                read_codex_object::<CopyFrame>(params.get()).and_then(|frame| frame.turn),
-            ),
-            _ => CopyFrameTaken::Kept(None),
+            CopyFrameReading::Usage(delta) => CopyFrameTaken::Kept(Some(MeteredUsage {
+                session_id: self.session_id,
+                binding_id: self.binding_id.clone(),
+                owner: MeteredUsageOwner::SideQuestion,
+                delta,
+            })),
+            CopyFrameReading::Ended(turn) => CopyFrameTaken::Ended(turn),
+            CopyFrameReading::Other => CopyFrameTaken::Kept(None),
         }
     }
 }
@@ -578,9 +537,9 @@ fn compose_copy_fork(
     (fork, read_only_profile)
 }
 
-// Starts the copy's one turn on `question`, its commands on the daemon's relay in
-// `working_directory` as the session's own, and answers the turn's id.
-async fn start_turn(
+/// Starts the copy's one turn on `question`, its commands on the daemon's relay in
+/// `working_directory` as the session's own, and answers the turn's id.
+pub(crate) async fn start_turn(
     connection: &CodexAppServerConnection,
     copy_thread_id: &str,
     working_directory: &Path,
@@ -607,10 +566,10 @@ async fn start_turn(
     read_turn_id(&reply, TURN_START_METHOD)
 }
 
-// Forks the resting session's stored conversation that `resume` names into a read-only copy on the
-// account's service, over a connection of its own; the service and the copy. Fails as
-// `ask_at_rest` fails.
-async fn fork_resting_copy(
+/// Forks the resting session's stored conversation that `resume` names into a read-only copy on the
+/// account's service, over a connection of its own; the service and the copy. Fails as
+/// `ask_at_rest` fails.
+pub(crate) async fn fork_resting_copy(
     establishment: &CodexSessionEstablishment,
     resume: &ResumeSessionParams,
 ) -> Result<(Arc<CodexService>, CodexRestingCopy), CodexError> {
@@ -636,12 +595,12 @@ async fn fork_resting_copy(
 
 /// A resting session's copy: the connection of its own it runs on, where that connection's
 /// notifications arrive, its conversation and the model it runs.
-struct CodexRestingCopy {
-    connection: CodexAppServerConnection,
-    frames: mpsc::UnboundedReceiver<CodexDetachedFrame>,
-    thread_id: String,
-    model: String,
-    working_directory: PathBuf,
+pub(crate) struct CodexRestingCopy {
+    pub(crate) connection: CodexAppServerConnection,
+    pub(crate) frames: mpsc::UnboundedReceiver<CodexDetachedFrame>,
+    pub(crate) thread_id: String,
+    pub(crate) model: String,
+    pub(crate) working_directory: PathBuf,
 }
 
 // Reads a resting session's copy's frames until its turn ended and delivers its answer, its cost
@@ -682,23 +641,34 @@ async fn read_copy_turn(
         }
         match question.take_frame(&method, &params) {
             CopyFrameTaken::Kept(Some(metered)) => {
-                if let Some(sink) = usage.port()
-                    && let Err(error) = sink.record_metered(metered).await
-                {
-                    CodexTransportDiagnostic::PortDeliveryFailed {
-                        provider_account_id: Some(question.provider_account_id.clone()),
-                        port: CodexDeliveryPort::Usage,
-                        session_id: Some(question.session_id),
-                        error,
-                    }
-                    .report();
-                }
+                file_copy_usage(usage, metered, &question.provider_account_id).await;
             }
             CopyFrameTaken::Kept(None) => {}
             CopyFrameTaken::Ended(turn) => return turn,
         }
     }
     None
+}
+
+/// Files a copy's metered usage through `usage`, reporting a refused record under the copy's
+/// account; with no usage record registered it goes nowhere.
+pub(crate) async fn file_copy_usage(
+    usage: &PortRegistration<Arc<dyn UsageSink>>,
+    metered: MeteredUsage,
+    provider_account_id: &ProviderAccountId,
+) {
+    let session_id = metered.session_id;
+    if let Some(sink) = usage.port()
+        && let Err(error) = sink.record_metered(metered).await
+    {
+        CodexTransportDiagnostic::PortDeliveryFailed {
+            provider_account_id: Some(provider_account_id.clone()),
+            port: CodexDeliveryPort::Usage,
+            session_id: Some(session_id),
+            error,
+        }
+        .report();
+    }
 }
 
 // Takes the live copy off its session's routing, stops its turn where it started, as a throwaway
@@ -753,9 +723,7 @@ async fn deliver_answer(
         ..
     } = question;
     let answer = answer.and_then(|answer| FreeFormText::new(answer.replace('\0', "")).ok());
-    let is_completed = turn.as_ref().is_some_and(|turn| {
-        turn.status.as_deref().and_then(CodexTurnStatus::read) == Some(CodexTurnStatus::Completed)
-    });
+    let is_completed = CopyTurn::is_completed(turn.as_ref());
     let outcome = match answer {
         Some(answer) if is_completed => {
             Box::pin(dispatch_delivery(
@@ -828,15 +796,10 @@ fn unanswered(
             &DESCRIPTOR.provider_id(),
             "Codex gave the side question no answer",
             RefusalCode::ProviderUnavailable,
-            CopyTurnFailure(words("message").unwrap_or(NO_ANSWER_DETAIL).to_owned()),
+            CopyTurnFailure::of(error),
         ))),
     }
 }
-
-/// Codex's own words for a copy's turn that ended with no answer.
-#[derive(Debug, thiserror::Error)]
-#[error("{0}")]
-struct CopyTurnFailure(String);
 
 fn failure_detail(words: &str) -> FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN> {
     bound_failure_detail(words, UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone())
@@ -857,6 +820,7 @@ pub(crate) async fn wait_for_side_question_answer(
     answer.await.unwrap_or(Ok(()))
 }
 
+pub(crate) mod copy_turn;
 #[cfg(test)]
 pub(crate) mod test_copies;
 #[cfg(test)]

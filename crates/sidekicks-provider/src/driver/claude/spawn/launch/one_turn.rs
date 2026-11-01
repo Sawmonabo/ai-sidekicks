@@ -69,6 +69,8 @@ struct OneTurnReading {
     provider_message_id: Option<String>,
     // The last refusal.
     refusal: Option<RunFailureCause>,
+    // The text of the last compaction summary.
+    compaction_summary: Option<String>,
 }
 
 /// The reply of one unkept turn.
@@ -82,6 +84,44 @@ pub(crate) struct ClaudeOneTurnReply {
     pub(crate) refusal: Option<RunFailureCause>,
     /// The cumulative usage the `result` reports, where it carries any.
     pub(crate) usage: Option<ClaudeCumulativeUsageObservation>,
+    /// The text of the summary a compaction in the turn wrote, where one did.
+    pub(crate) compaction_summary: Option<String>,
+}
+
+// The members of a lead `user` frame a compaction summary is read from: Claude Code marks the
+// summary's echo `isReplay: false`, a person's message's `true`, and a tool result's not at all.
+#[derive(Deserialize)]
+struct UserFrame {
+    #[serde(rename = "isReplay", default, deserialize_with = "read_lenient")]
+    is_replay: Option<bool>,
+    #[serde(default)]
+    message: Option<UserFrameMessage>,
+}
+
+#[derive(Deserialize)]
+struct UserFrameMessage {
+    #[serde(default)]
+    content: Value,
+}
+
+// The text of a compaction summary's echo: its content as one string, else its text blocks joined.
+fn read_compaction_summary(frame_text: &str) -> Option<String> {
+    let frame = serde_json::from_str::<UserFrame>(frame_text).ok()?;
+    if frame.is_replay != Some(false) {
+        return None;
+    }
+    match frame.message?.content {
+        Value::String(text) => Some(text),
+        Value::Array(blocks) => Some(
+            blocks
+                .iter()
+                .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+                .filter_map(|block| block.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::Object(_) => None,
+    }
 }
 
 // The members of a lead `result` frame the reply reads.
@@ -229,6 +269,11 @@ fn read_lead_frame(frame: &ClaudeStreamFrame, reading: &mut OneTurnReading) {
         return;
     }
     match frame_kind {
+        "user" => {
+            if let Some(summary) = read_compaction_summary(&frame.text) {
+                reading.compaction_summary = Some(summary);
+            }
+        }
         "assistant" => {
             let Ok(message) = serde_json::from_str::<ClaudeMessageFrame>(&frame.text) else {
                 return;
@@ -282,6 +327,7 @@ fn read_reply(
         provider_message_id: reading.provider_message_id,
         refusal: reading.refusal,
         usage: frame.observation.cumulative_usage.clone(),
+        compaction_summary: reading.compaction_summary,
     })
 }
 

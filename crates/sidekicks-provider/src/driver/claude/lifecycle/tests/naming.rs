@@ -63,6 +63,7 @@ async fn a_naming_pass_at_rest_runs_its_one_turn_in_no_mode_of_its_own() {
         provider_message_id: None,
         refusal: None,
         usage: None,
+        compaction_summary: None,
     });
 
     let named = fixture

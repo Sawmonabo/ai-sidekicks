@@ -71,6 +71,8 @@ pub(crate) struct ScriptedOneTurnRecord {
     pub(crate) resume_handle: Option<String>,
     /// The mode it runs in in place of its level's own.
     pub(crate) permission_mode: Option<ClaudePermissionMode>,
+    /// The one message it is sent.
+    pub(crate) text: String,
 }
 
 #[derive(Default)]
@@ -313,6 +315,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 model: request.spawn.legs.model.clone(),
                 resume_handle: request.resume_handle,
                 permission_mode: request.permission_mode,
+                text: request.text.text.clone(),
             });
             tables
                 .one_turn_environments

@@ -53,12 +53,12 @@ use crate::driver::run_control::{
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
-    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
-    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
-    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
-    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
+    DriverResumeResult, ExportHandoverBriefParams, MoveSessionToForkParams,
+    MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
+    ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
+    SessionCommandAnswer, SetSessionGoalParams, StartingLevel, StartingLevelParams,
+    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
@@ -79,6 +79,7 @@ mod delivery;
 mod event_normalizer;
 mod frame_routing;
 mod goals;
+mod hand_over;
 mod handshake_register;
 mod hooks;
 pub(crate) mod inbox;
@@ -665,6 +666,13 @@ impl ProviderDriver for ClaudeDriver {
         params: AskSideQuestionParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         self.ask_side_question(params).boxed()
+    }
+
+    fn export_handover_brief(
+        &self,
+        params: ExportHandoverBriefParams,
+    ) -> BoxFuture<'_, Result<DriverHandoverBriefResult, DriverError>> {
+        self.export_handover_brief(params).boxed()
     }
 
     fn subscribe_provider_commands(
