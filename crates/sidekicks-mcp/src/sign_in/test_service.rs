@@ -114,6 +114,9 @@ impl Harness {
     }
 }
 
+/// One token request's form: its fields, in order.
+pub(crate) type TokenForm = Vec<(String, String)>;
+
 /// A fake authorization server on a loopback port: its address and the requests it got.
 pub(crate) struct FakeAuthorizationServer {
     /// The server's address, which is also its issuer.
@@ -123,7 +126,7 @@ pub(crate) struct FakeAuthorizationServer {
     /// The token requests it got.
     pub(crate) token_requests: Arc<AtomicUsize>,
     /// The form of each token request, in order.
-    pub(crate) token_forms: Arc<Mutex<Vec<Vec<(String, String)>>>>,
+    pub(crate) token_forms: Arc<Mutex<Vec<TokenForm>>>,
 }
 
 /// The token endpoint's answer when the fake refuses a code: the server's own words, which no

@@ -94,7 +94,7 @@ pub enum McpRefusal {
         binding: McpServerBindingRef,
         /// The keychain's refusal, whose cause goes on the wire.
         #[source]
-        source: KeychainRefusal,
+        source: Box<KeychainRefusal>,
     },
 }
 
@@ -136,11 +136,15 @@ impl From<McpRefusal> for DomainError {
             McpRefusal::ServerSignOutFailed { binding, source } => {
                 return Self {
                     message,
-                    ..Self::keychain_refused(source, RefusalCode::McpServerSignOutFailed, |cause| {
-                        let mut fields = binding_fields(&binding);
-                        fields.extend(refusal_fields(json!({ "cause": cause })));
-                        fields
-                    })
+                    ..Self::keychain_refused(
+                        *source,
+                        RefusalCode::McpServerSignOutFailed,
+                        |cause| {
+                            let mut fields = binding_fields(&binding);
+                            fields.extend(refusal_fields(json!({ "cause": cause })));
+                            fields
+                        },
+                    )
                 };
             }
         };

@@ -1,5 +1,5 @@
 //! The keychain custody of each MCP server's sign-in: one item per server, under its canonical
-//! address, holding rmcp's stored credentials, access token included, and for a DPoP sign-in the
+//! address, holding rmcp's stored credentials, access token included, and for a `DPoP` sign-in the
 //! proof key's scalar, written whole by one verified write, so a token is never kept beside
 //! another sign-in's key.
 //!
@@ -23,7 +23,7 @@ use subtle::ConstantTimeEq as _;
 
 use crate::sign_in::canonical_server_address;
 
-/// A DPoP proof key's 32-byte P-256 scalar, wiped when it drops.
+/// A `DPoP` proof key's 32-byte P-256 scalar, wiped when it drops.
 pub(crate) type DpopKeyScalar = SecretBox<[u8; 32]>;
 
 /// A server's sign-in as its keychain item holds it.
@@ -203,7 +203,7 @@ impl McpCredentialStore {
 #[async_trait]
 impl CredentialStore for McpCredentialStore {
     async fn load(&self) -> Result<Option<StoredCredentials>, AuthError> {
-        let held = self.held().await.map_err(store_error)?;
+        let held = self.held().await.map_err(|error| store_error(&error))?;
         Ok(held.map(|held| held.credentials.clone()))
     }
 
@@ -213,7 +213,7 @@ impl CredentialStore for McpCredentialStore {
             KeyOnSave::Held => self
                 .read_through(&mut state)
                 .await
-                .map_err(store_error)?
+                .map_err(|error| store_error(&error))?
                 .and_then(|held| held.dpop_key.clone()),
             KeyOnSave::Attempt(dpop_key) => dpop_key.clone(),
         };
@@ -226,7 +226,7 @@ impl CredentialStore for McpCredentialStore {
         self.keychain
             .write_verified(&self.server.account, &item)
             .await
-            .map_err(|refusal| store_error(refusal.into()))?;
+            .map_err(|refusal| store_error(&SignInCustodyError::from(refusal)))?;
         *state = HeldState::Read(Some(Arc::new(sign_in)));
         Ok(())
     }
@@ -234,7 +234,7 @@ impl CredentialStore for McpCredentialStore {
     async fn clear(&self) -> Result<(), AuthError> {
         self.remove()
             .await
-            .map_err(|refusal| store_error(refusal.into()))?;
+            .map_err(|refusal| store_error(&SignInCustodyError::from(refusal)))?;
         Ok(())
     }
 
@@ -245,7 +245,11 @@ impl CredentialStore for McpCredentialStore {
         credentials: &StoredCredentials,
     ) -> Result<(), AuthError> {
         let mut state = self.server.held.lock().await;
-        let Some(held) = self.read_through(&mut state).await.map_err(store_error)? else {
+        let Some(held) = self
+            .read_through(&mut state)
+            .await
+            .map_err(|error| store_error(&error))?
+        else {
             return Ok(());
         };
         if !is_same_credentials(&held.credentials, credentials) {
@@ -254,14 +258,14 @@ impl CredentialStore for McpCredentialStore {
         self.keychain
             .remove(&self.server.account)
             .await
-            .map_err(|refusal| store_error(refusal.into()))?;
+            .map_err(|refusal| store_error(&SignInCustodyError::from(refusal)))?;
         *state = HeldState::Read(None);
         Ok(())
     }
 }
 
 // rmcp's store error, which carries text alone: the refusal's words, which name no value.
-fn store_error(error: SignInCustodyError) -> AuthError {
+fn store_error(error: &SignInCustodyError) -> AuthError {
     AuthError::CredentialStoreError(error.to_string())
 }
 
@@ -286,6 +290,10 @@ mod dpop_key_text {
 
     use super::DpopKeyScalar;
 
+    #[expect(
+        clippy::ref_option,
+        reason = "serde's `serialize_with` hands the field by reference"
+    )]
     pub(super) fn serialize<S: Serializer>(
         dpop_key: &Option<Arc<DpopKeyScalar>>,
         serializer: S,

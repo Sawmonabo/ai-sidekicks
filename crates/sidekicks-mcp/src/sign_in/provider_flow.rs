@@ -89,6 +89,11 @@ impl SignInService {
     /// address the browser opens once a driver names one. Refuses with
     /// `mcp.server.signInUnsupported` when no provider offers a flow for the server, and with
     /// `mcp.server.signInFailed`, carrying the cause, when a flow could not be started.
+    #[expect(
+        clippy::result_large_err,
+        reason = "the refusal names the binding the reply carries; the handler turns it into the \
+                  reply's error at once"
+    )]
     pub(super) async fn run_provider_flow(
         self: &Arc<Self>,
         target: &SignInTarget,

@@ -192,9 +192,11 @@ async fn redeem(
                 error = &error as &(dyn std::error::Error + 'static),
                 "an MCP sign-in's code was not redeemed and kept"
             );
-            Err(match error {
-                AuthError::CredentialStoreError(_) => SignInFailureReason::SignInNotSaved,
-                _ => SignInFailureReason::CodeNotRedeemed,
+            // rmcp's error is open to new variants, so only the store's refusal is named.
+            Err(if matches!(error, AuthError::CredentialStoreError(_)) {
+                SignInFailureReason::SignInNotSaved
+            } else {
+                SignInFailureReason::CodeNotRedeemed
             })
         }
         Err(elapsed) => {
@@ -299,7 +301,7 @@ mod tests {
 
         assert_eq!(status, "400");
         assert_eq!(server.token_requests.load(Ordering::SeqCst), 0);
-        assert!(harness.completions().is_empty());
+        assert_eq!(harness.completions(), Vec::<serde_json::Value>::new());
 
         let (status, location) = return_to(
             &browser_url,

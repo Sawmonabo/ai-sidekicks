@@ -67,10 +67,10 @@ pub(super) fn lay_out(
 }
 
 /// The account piece `number` of `generation` is filed under, for the item under `account`.
-pub(super) fn piece_account(account: &str, generation: &Generation, number: u64) -> String {
+pub(super) fn piece_account(account: &str, generation: Generation, number: u64) -> String {
     format!(
         "{account}#{}-{number}",
-        base16ct::lower::encode_string(generation)
+        base16ct::lower::encode_string(&generation)
     )
 }
 
@@ -127,7 +127,7 @@ impl<'stored> Head<'stored> {
         &'call self,
         account: &'call str,
     ) -> impl Iterator<Item = String> + 'call {
-        (1..=self.count).map(move |number| piece_account(account, &self.generation, number))
+        (1..=self.count).map(move |number| piece_account(account, self.generation, number))
     }
 
     /// The whole value: the first piece joined to `pieces`, or `None` when they do not match the

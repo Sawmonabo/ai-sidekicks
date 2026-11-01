@@ -303,12 +303,12 @@ fn client_document_address(
     if !takes_documents || !takes_public_clients {
         return None;
     }
-    let callback_id = listed_callback_id(redirect_address)?;
+    let callback = listed_callback(redirect_address)?;
     let mut document = relay.0.clone();
     {
         let mut segments = document.path_segments_mut().ok()?;
         segments.pop_if_empty().extend(["oauth", "mcp"]);
-        if let Some(callback_id) = callback_id {
+        if let ListedCallback::Own(callback_id) = callback {
             segments.push(callback_id);
         }
         segments.push("client.json");
@@ -316,10 +316,16 @@ fn client_document_address(
     Some(document.into())
 }
 
-// The callback a redirect the relay's document lists carries: `None` for the shared
-// `http://127.0.0.1:<port>/callback`, the id for `/callback/<id>`; nothing for any other address,
+// A callback the relay's document lists: the shared `http://127.0.0.1:<port>/callback`, or
+// `/callback/<id>` with its own id.
+enum ListedCallback<'address> {
+    Shared,
+    Own(&'address str),
+}
+
+// The callback a redirect the relay's document lists carries; nothing for any other address,
 // which the document does not list.
-fn listed_callback_id(redirect_address: &Url) -> Option<Option<&str>> {
+fn listed_callback(redirect_address: &Url) -> Option<ListedCallback<'_>> {
     let is_listed_form = redirect_address.scheme() == "http"
         && redirect_address.host() == Some(Host::Ipv4(std::net::Ipv4Addr::LOCALHOST))
         && redirect_address.port().is_some_and(|port| port > 0)
@@ -335,8 +341,8 @@ fn listed_callback_id(redirect_address: &Url) -> Option<Option<&str>> {
         return None;
     }
     match (segments.next(), segments.next()) {
-        (None, _) => Some(None),
-        (Some(id), None) if !id.is_empty() => Some(Some(id)),
+        (None, _) => Some(ListedCallback::Shared),
+        (Some(id), None) if !id.is_empty() => Some(ListedCallback::Own(id)),
         (Some(_), _) => None,
     }
 }

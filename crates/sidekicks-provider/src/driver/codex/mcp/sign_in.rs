@@ -658,7 +658,7 @@ mod tests {
                         }
                         Some(OAUTH_LOGIN_METHOD) => {
                             let saved = json!({"docs|key": saved(
-                                &request["params"]["name"].as_str().expect("a name"),
+                                request["params"]["name"].as_str().expect("a name"),
                                 SERVER_ADDRESS,
                                 SIGNED_IN_ACCESS,
                             )});

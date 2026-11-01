@@ -2,9 +2,10 @@
 //!
 //! - **The launch.** A binding reached at an address signs in; a program the provider starts or a
 //!   connector of a provider account is refused before anything is sent or bound. Then, in order:
-//!   the server's metadata is discovered, the redirect receiver is bound so the redirect carries its
-//!   port, the client is chosen, a `DPoP` key is made for this attempt when the server takes `DPoP`
-//!   proofs, and the authorization address is built, pushed where the server takes pushed requests.
+//!   the server's metadata is discovered, the redirect receiver is bound so the redirect carries
+//!   its port, the client is chosen, a `DPoP` key is made for this attempt when the server takes
+//!   `DPoP` proofs, and the authorization address is built, pushed where the server takes pushed
+//!   requests.
 //!   The address goes back to the caller and nothing here keeps it.
 //! - **One attempt per server.** Attempts are kept by the server's canonical address. A new launch
 //!   ends the attempt before it, an attempt ends 15 minutes after it opened, and `close` ends
@@ -51,7 +52,7 @@ use crate::sign_in::registration::{
 };
 
 /// How long an attempt waits for the browser's return before it ends.
-pub(super) const ATTEMPT_LIFETIME: Duration = Duration::from_secs(15 * 60);
+pub(super) const ATTEMPT_LIFETIME: Duration = Duration::from_mins(15);
 
 /// The metadata field (RFC 9449 §5.1) listing the proof algorithms the server takes.
 const DPOP_SIGNING_ALGORITHMS: &str = "dpop_signing_alg_values_supported";
@@ -274,6 +275,11 @@ impl SignInService {
     /// opens, which nothing else holds; refuses with `mcp.server.signInUnsupported` when the
     /// binding or the server offers no sign-in the daemon or a provider can run, and
     /// `mcp.server.signInFailed` when one could not be started.
+    #[expect(
+        clippy::result_large_err,
+        reason = "the refusal names the binding the reply carries; the handler turns it into the \
+                  reply's error at once"
+    )]
     pub(crate) async fn launch(
         self: &Arc<Self>,
         target: &SignInTarget,
@@ -705,7 +711,7 @@ mod tests {
             Err(McpRefusal::ServerSignInUnsupported { .. })
         ));
         // A replaced attempt appends nothing.
-        assert!(harness.completions().is_empty());
+        assert_eq!(harness.completions(), Vec::<serde_json::Value>::new());
     }
 
     #[tokio::test]
@@ -719,10 +725,14 @@ mod tests {
         };
 
         tokio::time::pause();
+        // The attempt's timer arms its sleep on its task's first poll, which must come first.
+        tokio::task::yield_now().await;
         tokio::time::advance(ATTEMPT_LIFETIME + Duration::from_secs(1)).await;
+        // The mark is written on the database writer's own thread, so the wait runs on the real
+        // clock, bounded.
+        tokio::time::resume();
         let mut is_marked = false;
-        for _ in 0..1_000 {
-            tokio::task::yield_now().await;
+        for _ in 0..500 {
             is_marked = harness
                 .admitted_clients
                 .read(&server.address)
@@ -732,13 +742,14 @@ mod tests {
             if is_marked {
                 break;
             }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
         assert!(is_marked);
         assert!(!is_listening(port).await);
         assert!(super::lock(&harness.service.attempts).by_address.is_empty());
         // An attempt that ran out appends nothing.
-        assert!(harness.completions().is_empty());
+        assert_eq!(harness.completions(), Vec::<serde_json::Value>::new());
     }
 
     #[rstest]

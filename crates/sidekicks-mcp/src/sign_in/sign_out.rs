@@ -63,13 +63,18 @@ impl SignInService {
     /// no sign-in held signs out at once. Refuses with `mcp.server.signOutFailed`, carrying the
     /// keychain's cause, when the keychain refuses to read or delete the sign-in, which then stays
     /// held and in use.
+    #[expect(
+        clippy::result_large_err,
+        reason = "the refusal names the binding the reply carries; the handler turns it into the \
+                  reply's error at once"
+    )]
     pub(crate) async fn sign_out(&self, target: &SignInTarget) -> Result<(), McpRefusal> {
         let Some(server) = addressed_server(target) else {
             return Ok(());
         };
         let refused = |source| McpRefusal::ServerSignOutFailed {
             binding: target.binding.clone(),
-            source,
+            source: Box::new(source),
         };
         let store = self.custody.credential_store(&server.address);
         let held = match store.held().await {

@@ -184,7 +184,7 @@ impl CredentialStore {
         let generation = pieces::fresh_generation().map_err(CredentialStoreError::no_generation)?;
         let (head, item_pieces) = pieces::lay_out(value, self.entry_capacity, generation);
         for (number, piece) in (1..).zip(item_pieces) {
-            let piece_account = pieces::piece_account(account, &generation, number);
+            let piece_account = pieces::piece_account(account, generation, number);
             self.entry(service, &piece_account)?
                 .set_secret(piece)
                 .map_err(CredentialStoreError::from_store_error)?;

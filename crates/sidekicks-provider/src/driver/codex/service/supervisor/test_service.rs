@@ -472,6 +472,7 @@ impl CodexServiceEvents for ExitsHeard {
 
 /// A Codex stand-in: as the executor it answers the relay's `initialize` and waits on its input;
 /// as the service it waits, the test's listener answering in its place.
+#[cfg(test)]
 pub(crate) const STAND_IN_CODEX: &str = r#"#!/bin/sh
 case " $* " in
   *" exec-server "*)

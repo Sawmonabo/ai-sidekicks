@@ -86,7 +86,7 @@ pub(crate) enum SignInAuthorizationError {
     Address(#[from] url::ParseError),
     /// The access token holds bytes a header cannot carry.
     #[error("the MCP server's access token cannot be sent in a header")]
-    HeaderValue,
+    HeaderValue(#[source] reqwest::header::InvalidHeaderValue),
 }
 
 /// The authorizer of one server's requests under the sign-in the daemon holds for it.
@@ -178,7 +178,7 @@ impl SignInAuthorizer {
             ),
             (
                 HeaderName::from_static(DPOP_PROOF_HEADER_NAME),
-                HeaderValue::from_str(&proof).map_err(|_| SignInAuthorizationError::HeaderValue)?,
+                HeaderValue::from_str(&proof).map_err(SignInAuthorizationError::HeaderValue)?,
             ),
         ])
     }
@@ -231,7 +231,7 @@ impl SignInAuthorizer {
         }
         match retry_refused_proof(|| self.manager.refresh_token()).await {
             Ok(_) => Ok(true),
-            Err(error) if matches!(error, SignInAuthorizationError::SignInRequired) => Ok(false),
+            Err(SignInAuthorizationError::SignInRequired) => Ok(false),
             Err(error) => Err(error),
         }
     }
@@ -310,7 +310,7 @@ fn authorization_value(
     access_token: &str,
 ) -> Result<HeaderValue, SignInAuthorizationError> {
     let mut value = HeaderValue::from_str(&format!("{scheme} {access_token}"))
-        .map_err(|_| SignInAuthorizationError::HeaderValue)?;
+        .map_err(SignInAuthorizationError::HeaderValue)?;
     value.set_sensitive(true);
     Ok(value)
 }

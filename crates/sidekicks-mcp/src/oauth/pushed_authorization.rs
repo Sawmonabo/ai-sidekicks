@@ -216,15 +216,12 @@ async fn push(
             .timeout(PUSHED_AUTHORIZATION_TIMEOUT)
             .body(body.clone())
     };
-    let response = match dpop {
-        Some(dpop) => {
-            send_signed(http, dpop.key, dpop.nonce, Method::POST, endpoint, finish).await?
-        }
-        None => {
-            let request = http.request(Method::POST, endpoint.clone());
-            let sent = finish(request).send().await.map_err(DpopSendError::from)?;
-            read_response(sent).await?
-        }
+    let response = if let Some(dpop) = dpop {
+        send_signed(http, dpop.key, dpop.nonce, Method::POST, endpoint, finish).await?
+    } else {
+        let request = http.request(Method::POST, endpoint.clone());
+        let sent = finish(request).send().await.map_err(DpopSendError::from)?;
+        read_response(sent).await?
     };
     read_answer(&response)
 }

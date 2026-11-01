@@ -22,8 +22,8 @@
 //!   each hop is judged against the server's own policy.
 //! - **The per-server client.** It holds the server's `DPoP` key slot, filled once discovery shows
 //!   `DPoP`, and the authorization server's nonce slot; it signs token, pushed authorization and
-//!   revocation requests through the signed send, applies each call's timeout, and keeps the outcome of the
-//!   last registration request it sent.
+//!   revocation requests through the signed send, applies each call's timeout, and keeps the
+//!   outcome of the last registration request it sent.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
@@ -113,18 +113,19 @@ impl OAuthHttpPools {
         )
     )]
     pub(crate) fn new() -> Result<Self, reqwest::Error> {
-        let proxy_hosts = PROXY_VARIABLES
+        let proxy_hosts: Arc<[String]> = PROXY_VARIABLES
             .iter()
             .filter_map(|variable| std::env::var(variable).ok())
             .filter_map(|proxy| proxy_host(&proxy))
             .collect();
-        Self::with_lookup(Arc::new(SystemLookup), proxy_hosts)
+        let lookup: Arc<dyn Resolve> = Arc::new(SystemLookup);
+        Self::with_lookup(&lookup, &proxy_hosts)
     }
 
     // The pools resolving through `lookup`, with `unfiltered_hosts` left alone.
     fn with_lookup(
-        lookup: Arc<dyn Resolve>,
-        unfiltered_hosts: Arc<[String]>,
+        lookup: &Arc<dyn Resolve>,
+        unfiltered_hosts: &Arc<[String]>,
     ) -> Result<Self, reqwest::Error> {
         let build = |reach| {
             reqwest::Client::builder()
@@ -132,8 +133,8 @@ impl OAuthHttpPools {
                 .redirect(reqwest::redirect::Policy::none())
                 .dns_resolver(Arc::new(FilteredResolver {
                     reach,
-                    lookup: Arc::clone(&lookup),
-                    unfiltered_hosts: Arc::clone(&unfiltered_hosts),
+                    lookup: Arc::clone(lookup),
+                    unfiltered_hosts: Arc::clone(unfiltered_hosts),
                 }))
                 .build()
         };
@@ -515,13 +516,16 @@ impl AddressPolicy {
             Some(AddressClass::Loopback) => ServerReach::Loopback,
             Some(AddressClass::Private) => ServerReach::Private,
             Some(AddressClass::Public | AddressClass::Blocked) => ServerReach::Public,
-            None if server
-                .host_str()
-                .is_some_and(|host| is_loopback_name(&normalized_host(host))) =>
-            {
-                ServerReach::Loopback
+            None => {
+                if server
+                    .host_str()
+                    .is_some_and(|host| is_loopback_name(&normalized_host(host)))
+                {
+                    ServerReach::Loopback
+                } else {
+                    ServerReach::Public
+                }
             }
-            None => ServerReach::Public,
         };
         Self { reach, server_ip }
     }
@@ -611,12 +615,14 @@ impl AddressClass {
 // The IPv4 address an IPv6 address carries: mapped, compatible, NAT64 (`64:ff9b::/96`) or 6to4
 // (`2002::/16`). Teredo and local NAT64 are blocked by their own prefixes instead.
 fn embedded_ipv4(address: Ipv6Addr) -> Option<Ipv4Addr> {
-    let [a, b, c, d, e, f, g, h] = address.segments();
-    let low = Ipv4Addr::from((u32::from(g) << 16) | u32::from(h));
-    match [a, b, c, d, e, f] {
-        [0, 0, 0, 0, 0, 0xffff] | [0x64, 0xff9b, 0, 0, 0, 0] => Some(low),
-        [0, 0, 0, 0, 0, 0] if !address.is_loopback() && !address.is_unspecified() => Some(low),
-        [0x2002, ..] => Some(Ipv4Addr::from((u32::from(b) << 16) | u32::from(c))),
+    let segments = address.segments();
+    let last_two = Ipv4Addr::from((u32::from(segments[6]) << 16) | u32::from(segments[7]));
+    match segments {
+        [0, 0, 0, 0, 0, 0xffff, ..] | [0x64, 0xff9b, 0, 0, 0, 0, ..] => Some(last_two),
+        [0, 0, 0, 0, 0, 0, ..] if !address.is_loopback() && !address.is_unspecified() => {
+            Some(last_two)
+        }
+        [0x2002, high, low, ..] => Some(Ipv4Addr::from((u32::from(high) << 16) | u32::from(low))),
         _ => None,
     }
 }
@@ -715,8 +721,8 @@ mod tests {
             .iter()
             .map(|(name, ip)| (*name, vec![ip.parse().expect("an address")]))
             .collect();
-        OAuthHttpPools::with_lookup(Arc::new(StaticLookup(lookup)), Arc::new([]))
-            .expect("the pools build")
+        let lookup: Arc<dyn Resolve> = Arc::new(StaticLookup(lookup));
+        OAuthHttpPools::with_lookup(&lookup, &Arc::from([])).expect("the pools build")
     }
 
     fn server(text: &str) -> McpServerAddress {

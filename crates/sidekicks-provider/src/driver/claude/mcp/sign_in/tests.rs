@@ -238,6 +238,7 @@ async fn a_claude_takeover_leaves_the_persons_saved_sign_ins_as_they_were() {
 #[tokio::test]
 async fn a_sign_in_saved_in_the_keychain_is_read_and_its_item_removed() {
     let scripted = ScriptedDriver::new();
+    std::fs::create_dir_all(&scripted.home).expect("the person's home is made");
     std::fs::write(scripted.home.join(".claude.json"), PERSON_CONFIG)
         .expect("the person's config is written");
     scripted.starts.script_mcp_sign_in(
@@ -342,6 +343,7 @@ async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_e
 #[tokio::test]
 async fn a_dropped_sign_in_leaves_no_folder_and_the_sweep_removes_a_left_one() {
     let scripted = ScriptedDriver::new();
+    std::fs::create_dir_all(&scripted.home).expect("the person's home is made");
     std::fs::write(scripted.home.join(".claude.json"), PERSON_CONFIG)
         .expect("the person's config is written");
     scripted.starts.script_mcp_sign_in(
