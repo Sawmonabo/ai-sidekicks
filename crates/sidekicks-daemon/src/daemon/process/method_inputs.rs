@@ -336,6 +336,7 @@ pub(crate) async fn register_method_inputs(
     ));
     let port = build_provider_port(ProviderPortStart {
         reads: Arc::clone(&reads),
+        provider_tokens: Arc::new(secret_items.keychain(KeychainService::ProviderTokens)),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
         binding_cursors: Arc::clone(&binding_cursors),
         git: git.clone(),

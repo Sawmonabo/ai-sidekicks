@@ -248,6 +248,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     account_home_memory_folder: None,
     // The home of the one service every session that follows the current account runs in.
     switching_home_folder: Some(CODEX_SWITCHING_HOME_FOLDER),
+    // `auth.json` sits in the home `CODEX_HOME` names.
+    account_home_credential_store_folder: &[],
     shell_prefix_command: None,
     token_limits_read_by_turn: false,
 };

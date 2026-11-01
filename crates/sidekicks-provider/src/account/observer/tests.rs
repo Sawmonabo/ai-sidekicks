@@ -297,6 +297,13 @@ impl ProviderAccountReader for HomeFolders {
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
         async { Err("no generation in the observer's tests".into()) }.boxed()
     }
+
+    fn read_sealed_token(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
 }
 
 pub(super) fn claude() -> ProviderId {

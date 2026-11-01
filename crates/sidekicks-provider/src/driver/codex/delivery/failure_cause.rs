@@ -126,6 +126,7 @@ mod tests {
 
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
+    use secrecy::SecretString;
     use serde_json::{Value, json};
     use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
     use sidekicks_contracts::provider::driver::usage_limit::ProviderUsageLimitResetBoundary;
@@ -173,6 +174,14 @@ mod tests {
         {
             let generation = self.0.get(&provider_account_id).copied();
             async move { generation.ok_or_else(|| "no such account".into()) }.boxed()
+        }
+
+        fn read_sealed_token(
+            &self,
+            _provider_account_id: ProviderAccountId,
+        ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn std::error::Error + Send + Sync>>>
+        {
+            async { Ok(None) }.boxed()
         }
     }
 

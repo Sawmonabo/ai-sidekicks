@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use secrecy::SecretString;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
@@ -420,6 +421,13 @@ impl ProviderAccountReader for OneFolder {
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn std::error::Error + Send + Sync>>> {
         async { Err("the test reads no generation".into()) }.boxed()
+    }
+
+    fn read_sealed_token(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn std::error::Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
     }
 }
 

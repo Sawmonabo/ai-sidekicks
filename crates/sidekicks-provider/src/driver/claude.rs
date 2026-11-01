@@ -256,6 +256,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // Each agent's user-scope memory, which every account's agents share with the daemon's own.
     account_home_memory_folder: Some(&["agent-memory"]),
     switching_home_folder: None,
+    // The sign-in's own folder, which `CLAUDE_SECURESTORAGE_CONFIG_DIR` names.
+    account_home_credential_store_folder: &["store"],
     shell_prefix_command: Some(command_shape::CLAUDE_SHELL_PREFIX_COMMAND),
     token_limits_read_by_turn: true,
 };

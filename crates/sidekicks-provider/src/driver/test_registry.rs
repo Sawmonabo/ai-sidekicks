@@ -16,6 +16,7 @@ use std::sync::Mutex;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use rusqlite::params;
+use secrecy::SecretString;
 use serde_json::{Map, Value};
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
@@ -146,6 +147,13 @@ impl ProviderAccountReader for TestProviderAccounts {
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("credential generation").into()) }.boxed()
+    }
+
+    fn read_sealed_token(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
     }
 }
 
