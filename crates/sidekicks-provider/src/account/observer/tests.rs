@@ -14,6 +14,8 @@ use sidekicks_contracts::provider::account::record::{
     ProviderAuthMode,
 };
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{WallClock, WallClockWait};
@@ -37,14 +39,16 @@ use crate::account::registry::{
 use crate::account::token_custody::ProviderTokenCustody;
 use crate::account::token_custody::tests::ScriptedKeychain;
 use crate::driver::contract::account::{
-    ProviderObservation, ProviderObserveLegs, ProviderWindowTurnLegs, TokenLimitsReading,
-    WindowTurnAnswer, WindowTurnSpend,
+    ObservedAccountIdentity, ProviderAccountFigures, ProviderObservation, ProviderObserveLegs,
+    ProviderWindowTurnLegs, TokenLimitsReading, WindowTurnAnswer, WindowTurnSpend,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
 };
+use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 // A wall clock the test sets; nothing here arms its timer.
 pub(super) struct TestClock(Mutex<SystemTime>);
@@ -147,7 +151,7 @@ impl ProviderWindowTurnLegs for ScriptedTurns {
         lock(&self.tokens_read).push(token.expose_secret().to_owned());
         async {
             Ok(TokenLimitsReading {
-                observation: ProviderObservation::Figures,
+                observation: ProviderObservation::Figures(figures()),
                 spend: Some(turn_spend()),
             })
         }
@@ -176,7 +180,7 @@ impl ProviderObserveLegs for ScriptedLegs {
             self.reading_now.fetch_sub(1, Ordering::SeqCst);
             let answer = lock(&self.answers)
                 .pop_front()
-                .unwrap_or(Some(ProviderObservation::Figures));
+                .unwrap_or(Some(ProviderObservation::Figures(figures())));
             answer.ok_or_else(|| DriverError::from(AccountFoldersError::NotFound))
         }
         .boxed()
@@ -188,6 +192,65 @@ impl ProviderObserveLegs for ScriptedLegs {
 
     fn reads_at_turn_end(&self) -> bool {
         true
+    }
+}
+
+// A read's figures that name one five-hour window and nothing of the account.
+pub(super) fn figures() -> ProviderAccountFigures {
+    ProviderAccountFigures {
+        windows: vec![ProviderQuotaWindow {
+            limit_id: "session".to_owned(),
+            window_mins: 300,
+            used_percent: 40.0,
+            resets_at: None,
+        }],
+        ..ProviderAccountFigures::default()
+    }
+}
+
+// Each whole set of quota windows the observer recorded, with its account.
+#[derive(Default)]
+pub(super) struct RecordedWholeSets(Mutex<Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)>>);
+
+impl RecordedWholeSets {
+    pub(super) fn sets(&self) -> Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)> {
+        lock(&self.0).clone()
+    }
+}
+
+impl UsageSink for RecordedWholeSets {
+    fn record_metered(
+        &self,
+        _metered: MeteredUsage,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async { Ok(()) }.boxed()
+    }
+
+    fn record_quota_windows(
+        &self,
+        _provider: ProviderId,
+        _provider_account_id: ProviderAccountId,
+        _windows: Vec<ProviderQuotaWindow>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async { Err("the observer records only whole sets".into()) }.boxed()
+    }
+
+    fn record_whole_quota_windows(
+        &self,
+        _provider: ProviderId,
+        provider_account_id: ProviderAccountId,
+        windows: Vec<ProviderQuotaWindow>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        lock(&self.0).push((provider_account_id, windows));
+        async { Ok(()) }.boxed()
+    }
+
+    fn read_prior_emitted(
+        &self,
+        _session_id: SessionId,
+        _thread_id: String,
+    ) -> BoxFuture<'_, Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>> {
+        async { Ok(UsageAxisCounts::default()) }.boxed()
     }
 }
 
@@ -254,6 +317,7 @@ pub(super) struct Fixture {
     pub(super) keychain: Arc<ScriptedKeychain>,
     pub(super) legs: Arc<ScriptedLegs>,
     pub(super) turns: HashMap<ProviderId, Arc<ScriptedTurns>>,
+    pub(super) usage: Arc<RecordedWholeSets>,
     pub(super) observer: ProviderAccountObserver,
 }
 
@@ -302,6 +366,7 @@ impl Fixture {
                 )
             })
             .collect();
+        let usage = Arc::new(RecordedWholeSets::default());
         let observer = ProviderAccountObserver::new(ProviderAccountObserverDeps {
             registry: Arc::clone(&registry),
             account_reader: Arc::new(HomeFolders(Arc::clone(&registry))),
@@ -314,6 +379,7 @@ impl Fixture {
             )),
             database_reads: reads,
             database_writer: Arc::clone(&writer),
+            usage: Arc::clone(&usage) as Arc<dyn UsageSink>,
             live_turns: Arc::clone(&live_turns) as Arc<dyn AccountLiveTurns>,
             home_lock: Arc::clone(&home_lock),
             scheduler: Arc::clone(&scheduler),
@@ -329,6 +395,7 @@ impl Fixture {
             keychain,
             legs,
             turns,
+            usage,
             observer,
         }
     }
@@ -429,7 +496,7 @@ enum Stored {
 // the first refusal or never, and by a background write that moves the generation.
 #[rstest]
 #[case::figures_clear_the_ladder(
-    vec![Some(ProviderObservation::RefusedInBand), Some(ProviderObservation::Figures)],
+    vec![Some(ProviderObservation::RefusedInBand), Some(ProviderObservation::Figures(figures()))],
     Stored::AtLastRead(ProviderAccountHealthState::Authenticated),
     0
 )]
@@ -617,7 +684,7 @@ async fn check_now_answers_the_last_read_inside_a_minute_and_the_wait_during_a_h
         data_folder.path(),
         new_clock(),
         ScriptedLegs::answering([
-            Some(ProviderObservation::Figures),
+            Some(ProviderObservation::Figures(figures())),
             Some(ProviderObservation::RefusedInBand),
         ]),
     )
@@ -702,4 +769,90 @@ async fn a_dictation_read_joins_the_five_minute_read_in_flight() {
     assert_eq!(dictation, cadence);
     assert_eq!(fixture.legs.reads(), 1);
     assert_eq!(fixture.legs.most_at_once.load(Ordering::SeqCst), 1);
+}
+
+// Each read with figures records its windows as the account's whole set and writes each identity
+// column and the renewal time from what that read reported, an absent one keeping the stored
+// value. Killed by the set not recorded or recorded as a push (the sink refuses a push), and by
+// an absent member written as NULL over the one an earlier read reported.
+#[tokio::test]
+async fn a_read_s_figures_record_the_whole_set_and_each_reported_identity_column() {
+    let database = TestDatabase::new(schema_parts());
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let refreshed_at =
+        WireInstant::try_from("2026-10-29T18:00:00.000Z".to_owned()).expect("a wire instant");
+    let first = ProviderAccountFigures {
+        identity: ObservedAccountIdentity {
+            email: Some(reported("the reported email")),
+            org_id: Some(reported("org-1")),
+            ..ObservedAccountIdentity::default()
+        },
+        refreshed_at: Some(refreshed_at.clone()),
+        ..figures()
+    };
+    let second = ProviderAccountFigures {
+        identity: ObservedAccountIdentity {
+            plan: Some(reported("max")),
+            org_id: Some(reported("org-2")),
+            ..ObservedAccountIdentity::default()
+        },
+        ..figures()
+    };
+    let fixture = Fixture::open(
+        &database,
+        data_folder.path(),
+        new_clock(),
+        ScriptedLegs::answering([
+            Some(ProviderObservation::Figures(first)),
+            Some(ProviderObservation::Figures(second)),
+        ]),
+    )
+    .await;
+    let account = fixture.register().await;
+
+    for _ in 0..2 {
+        fixture.clock.advance(Duration::from_mins(6));
+        read_reading(fixture.read(&account, ReadAsker::Cadence).await);
+    }
+
+    assert_eq!(
+        fixture.usage.sets(),
+        [
+            (account.account_id.clone(), figures().windows),
+            (account.account_id.clone(), figures().windows),
+        ]
+    );
+    let stored: [Option<String>; 5] = rusqlite::Connection::open(database.path())
+        .expect("the database opens")
+        .query_row(
+            "SELECT observed_account_email, observed_account_plan, observed_account_org_id,
+                    observed_account_org_name, last_refresh_observed_at
+               FROM provider_accounts WHERE account_id = ?",
+            [account.account_id.as_str()],
+            |row| {
+                Ok([
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ])
+            },
+        )
+        .expect("the account's row reads");
+    assert_eq!(
+        stored,
+        [
+            Some("the reported email".to_owned()),
+            Some("max".to_owned()),
+            Some("org-2".to_owned()),
+            None,
+            Some(refreshed_at.as_str().to_owned()),
+        ]
+    );
+}
+
+// A value the provider reported, as its identity member holds it.
+fn reported<const MAX: usize>(text: &str) -> FreeFormText<MAX> {
+    FreeFormText::new(text.to_owned()).expect("a reported value")
 }

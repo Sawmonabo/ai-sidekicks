@@ -44,11 +44,14 @@ struct FiledRateLimits {
     is_unfiled_reading_logged: bool,
 }
 
-/// What one whole read of an account's rate limits answered beside the windows it filed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// What one whole read of an account's rate limits answered: every window it named, the plan its
+/// reply named, and its reset credits.
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct CodexRateLimitRead {
-    /// Whether the reply named any window.
-    pub(crate) has_windows: bool,
+    /// Every window the reply named, the account's whole set.
+    pub(crate) windows: Vec<ProviderQuotaWindow>,
+    /// The plan the reply named, in Codex's own word.
+    pub(crate) plan: Option<String>,
     /// The limit resets the account can redeem, `None` where the reply carried no count.
     pub(crate) reset_credits_available: Option<u32>,
 }
@@ -63,8 +66,8 @@ impl CodexRateLimitFiling {
         }
     }
 
-    /// Reads the account's rate limits whole on `service`, keeps them as its readings, files them
-    /// and answers what else the reply said. Fails as the read fails, the readings then left as
+    /// Reads the account's rate limits whole on `service`, keeps them as its readings, files the
+    /// windows that moved and answers what the reply said. Fails as the read fails, the readings then left as
     /// they were.
     pub(crate) async fn read(
         &self,
@@ -90,7 +93,12 @@ impl CodexRateLimitFiling {
             })?;
         let observation = observe_codex_rate_limit_read(&reply);
         let read = CodexRateLimitRead {
-            has_windows: observation.windows().next().is_some(),
+            windows: compose_codex_quota_windows(&observation),
+            plan: reply
+                .get("rateLimits")
+                .and_then(|snapshot| snapshot.get("planType"))
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             reset_credits_available: reply
                 .get("rateLimitResetCredits")
                 .and_then(|credits| credits.get("availableCount"))
@@ -207,11 +215,14 @@ fn compose_codex_quota_windows(
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     use super::{
         ProviderQuotaWindow, compose_codex_quota_windows, keep_recorded_codex_quota_windows,
         select_changed_codex_quota_windows,
+    };
+    use crate::account::observer::window_store::tests::{
+        Reading, append, file as file_reading, log_with_account, rows,
     };
     use crate::driver::codex::usage_limit_signal::{
         observe_codex_rate_limit_read, observe_codex_rate_limit_update,
@@ -227,6 +238,38 @@ mod tests {
         let changed = select_changed_codex_quota_windows(filed, &windows);
         keep_recorded_codex_quota_windows(filed, windows, !is_refused);
         changed
+    }
+
+    // A limit's two windows swapped between its primary and secondary slots, read whole, leave
+    // each stored window under its own length with its own figures, so no label moves with the
+    // slot. Killed by a window keyed or named by its slot.
+    #[test]
+    fn windows_swapped_between_the_slots_keep_their_rows() {
+        let log = log_with_account();
+        let read = |second, primary: Value, secondary: Value| Reading {
+            second,
+            is_whole_set: true,
+            windows: compose_codex_quota_windows(&observe_codex_rate_limit_read(&json!({
+                "rateLimits": {"limitId": "codex", "primary": primary, "secondary": secondary},
+            }))),
+        };
+        let five_hours = |used| json!({"usedPercent": used, "windowDurationMins": 300});
+        let week = |used| json!({"usedPercent": used, "windowDurationMins": 10_080});
+
+        append(&log, &file_reading(&read(0, five_hours(5), week(30))));
+        append(&log, &file_reading(&read(1, week(40), five_hours(10))));
+
+        let stored: Vec<(String, i64, f64)> = rows(&log)
+            .into_iter()
+            .map(|(limit_id, window_mins, used_percent, ..)| (limit_id, window_mins, used_percent))
+            .collect();
+        assert_eq!(
+            stored,
+            [
+                ("codex".to_owned(), 300, 10.0),
+                ("codex".to_owned(), 10_080, 40.0)
+            ]
+        );
     }
 
     // Each reading is merged and composed as the service's are, then compared with what was
