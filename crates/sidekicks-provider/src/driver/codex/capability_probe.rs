@@ -23,7 +23,8 @@ use crate::driver::codex::service::supervisor::connection_events::DetachedConnec
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::view::TURN_START_METHOD;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::driver::contract::{DriverError, GetCapabilitiesResult};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::GetCapabilitiesResult;
 
 /// What starts the deserializer's refusal of an unknown method, before its quoted name.
 const UNKNOWN_VARIANT_OPENING: &str = "unknown variant `";

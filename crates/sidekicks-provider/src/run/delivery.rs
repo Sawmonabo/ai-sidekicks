@@ -200,8 +200,9 @@ pub enum LateEventAbsorbReason {
 
 /// What the dispatch did with a delivery. `AskAdmitted` is a permission ask of the current
 /// execution, which the caller hands to the approval pipeline; `ChildRunStarted` carries the
-/// child's new run, which the caller keeps for the subagent's later deliveries; an appended row
-/// carries the id of the event written for it.
+/// child's new run, which the caller keeps for the subagent's later deliveries, and
+/// `ChildRunRefused` the run of a subagent the daemon refused and ended, which the caller stops;
+/// an appended row carries the id of the event written for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InboundOutcome {
     /// The binding's next turn opened.
@@ -215,6 +216,14 @@ pub enum InboundOutcome {
     ChildRunStarted {
         /// Its run.
         run_id: RunId,
+    },
+    /// The subagent's run was refused at its setup and ended `failed`, the subagent still running
+    /// in its provider.
+    ChildRunRefused {
+        /// Its ended run.
+        run_id: RunId,
+        /// Why its setup refused it.
+        reason: RunSetupRefusal,
     },
     /// The live state went to the run's state stream.
     Published,
@@ -239,6 +248,17 @@ pub enum InboundOutcome {
     },
 }
 
+/// Why the daemon refused a run at its setup, in the refusing gate's own words as the run's
+/// failure cause records them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RunSetupRefusal {
+    /// The refusal's cause, such as a writable root that no longer resolves.
+    pub cause: String,
+    /// Whether the session's permission level cannot run, its posture rejected, rather than any
+    /// other setup failure.
+    pub is_posture_rejection: bool,
+}
+
 impl InboundOutcome {
     /// The id of the event a delivery was written as; `None` where nothing was written.
     pub(crate) fn event_id(&self) -> Option<&FreeFormText<EVENT_FIELD_MAX_LEN>> {
@@ -247,6 +267,7 @@ impl InboundOutcome {
             Self::TurnOpened
             | Self::Transitioned { .. }
             | Self::ChildRunStarted { .. }
+            | Self::ChildRunRefused { .. }
             | Self::Published
             | Self::AskAdmitted
             | Self::Absorbed { .. } => None,

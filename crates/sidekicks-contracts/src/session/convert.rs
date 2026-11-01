@@ -1,5 +1,6 @@
 //! Converting a chat to a project: the request, the copy's outcome, the `session.converted`
-//! payload and the read of the files the copy skipped.
+//! payload, the read of the files the copy skipped, and the details of a refused or incomplete
+//! conversion.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -8,6 +9,7 @@ use strum::{IntoStaticStr, VariantArray};
 use crate::free_form_string::{FILE_PATH_MAX_LEN, FilesystemPath};
 use crate::jsonrpc::page::{PAGE_MAX_BYTES, fits_one_page};
 use crate::method::KeyedRequest;
+use crate::place::Place;
 use crate::repo::mount::RepoMountId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
@@ -154,7 +156,7 @@ pub struct SessionConversionSkippedFileListRequest {
 #[schemars(inline)]
 #[garde(allow_unvalidated)]
 pub struct SessionConvertSkippedFilesContinuing {
-    /// The files, in path order.
+    /// The files, in the order of their path keys.
     #[garde(custom(fits_one_page))]
     #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub files:
@@ -172,7 +174,7 @@ pub struct SessionConvertSkippedFilesContinuing {
 #[schemars(inline)]
 #[garde(allow_unvalidated)]
 pub struct SessionConvertSkippedFilesTerminal {
-    /// The files, in path order.
+    /// The files, in the order of their path keys.
     #[garde(custom(fits_one_page))]
     #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub files:
@@ -181,7 +183,10 @@ pub struct SessionConvertSkippedFilesTerminal {
     pub has_more: False,
 }
 
-/// One page of the files a conversion did not copy, in path order, split on `hasMore`.
+/// One page of the files a conversion did not copy, in the order of their path keys, split on
+/// `hasMore`. A path key is the path's stable bytes compared byte by byte: on macOS and Linux the
+/// path's own bytes, on Windows its UTF-16 units as two little-endian bytes each, so the order
+/// follows no text collation and a client keeps it as given.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 pub enum SessionConversionSkippedFileListResponse {
@@ -191,11 +196,88 @@ pub enum SessionConversionSkippedFileListResponse {
     Terminal(#[garde(dive)] SessionConvertSkippedFilesTerminal),
 }
 
+/// Why a `session.conversion.refused` refusal turned the convert away; a session that is not a chat
+/// is refused with no reason.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum SessionConversionRefusedReason {
+    /// The chat has no managed workspace to convert.
+    NoManagedWorkspace,
+    /// The `clientIdempotencyKey` belongs to another session's conversion.
+    IdempotencyKeyReused,
+    /// The chat's conversion into another folder stopped part way.
+    ConversionUnfinished,
+    /// The folder is outside the chat's place, which never changes.
+    FolderInAnotherPlace,
+}
+
+/// The details of a `session.conversion.refused` refusal: its reason, the mount of the stopped
+/// conversion a `conversionUnfinished` names, and the chat's place a `folderInAnotherPlace` names.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionConversionRefusedDetails {
+    /// Why; absent for a session that is not a chat.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SessionConversionRefusedReason")]
+    pub reason: Option<SessionConversionRefusedReason>,
+    /// The mount the stopped conversion copies into.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "RepoMountId")]
+    pub repo_mount_id: Option<RepoMountId>,
+    /// The chat's place.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Place")]
+    pub place: Option<Place>,
+}
+
+/// The details of a `session.conversion.incomplete` failure: what the conversion did before it
+/// stopped. The session still reads as a chat.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionConversionIncompleteDetails {
+    /// The session.
+    pub session_id: SessionId,
+    /// The mount the repository is attached as.
+    pub repo_mount_id: RepoMountId,
+    /// Files copied into it so far.
+    pub copied_count: SafeInt<0>,
+    /// Files not copied so far.
+    pub skipped_count: SafeInt<0>,
+    /// Whether the session was bound to the project.
+    pub is_bound: bool,
+}
+
 /// The module's TypeScript face.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "session/convert",
     doc: "Converting a chat to a project: the request, the copy's outcome, the \
-          `session.converted` payload and the read of the files the copy skipped.",
+          `session.converted` payload, the read of the files the copy skipped, and the details \
+          of a refused or incomplete conversion.",
     definitions: &[
         Definition::read::<SessionConvertRequest>().checked(),
         Definition::read::<SessionConvertSkipReason>(),
@@ -205,6 +287,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionConvertSkippedFileCursor>(),
         Definition::read::<SessionConversionSkippedFileListRequest>().checked(),
         Definition::read::<SessionConversionSkippedFileListResponse>().checked(),
+        Definition::read::<SessionConversionRefusedReason>(),
+        Definition::read::<SessionConversionRefusedDetails>(),
+        Definition::read::<SessionConversionIncompleteDetails>(),
     ],
     constants: &[],
     method_tables: &[],

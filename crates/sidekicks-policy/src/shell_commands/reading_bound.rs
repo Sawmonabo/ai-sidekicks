@@ -1,6 +1,8 @@
 //! The daemon-wide bound on shell-line bytes being read: an ask's reads wait, in arrival order,
-//! until the lines in flight leave room for its line, so their parses together hold at most one
-//! limit's worth of line bytes, however many agents ask at once.
+//! until the lines in flight leave room for its line, so the lines in flight together come to at
+//! most one limit's worth of bytes, however many agents ask at once. Each ask's reader parses its
+//! line, at most one reading of it with its here-document starts requoted, and the strings its
+//! commands hand a shell, at most twice the limit in all.
 
 use std::sync::Arc;
 

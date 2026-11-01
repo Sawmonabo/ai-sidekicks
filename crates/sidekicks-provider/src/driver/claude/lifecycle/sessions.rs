@@ -24,7 +24,8 @@ use crate::driver::claude::session::purge::{ClaudePurgePlace, purge_claude_conve
 use crate::driver::claude::session::restart::ClaudeSessionStanding;
 use crate::driver::claude::session::restart::ended_process::ClaudeEndedConversation;
 use crate::driver::claude::session::slots::ClaudeCloseStart;
-use crate::driver::contract::{DriverError, SessionProcessState};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
@@ -245,14 +246,13 @@ impl ClaudeDriver {
         let live = self
             .composed_parts()
             .and_then(|parts| parts.slots().live_session(params.session_id));
-        let account = match &live {
-            Some(live) => live.admitted_provider_account_id.clone(),
-            None => {
-                let Some(leg) = self.read_session_leg(params.session_id).await? else {
-                    return Ok(None);
-                };
-                leg.spawn_config.provider_account_id
-            }
+        let account = if let Some(live) = &live {
+            live.admitted_provider_account_id.clone()
+        } else {
+            let Some(leg) = self.read_session_leg(params.session_id).await? else {
+                return Ok(None);
+            };
+            leg.spawn_config.provider_account_id
         };
         name_claude_session(
             live.as_deref(),

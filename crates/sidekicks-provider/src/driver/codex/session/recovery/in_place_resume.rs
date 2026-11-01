@@ -4,20 +4,16 @@
 
 use std::sync::Arc;
 
-use serde::Deserialize;
-use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 
 use super::CodexWriterLeft;
-use crate::driver::codex::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::calls::{CodexSessionCallDependencies, CodexSessionTask};
 use crate::driver::codex::session::establishment::{
     CodexInPlaceOutcome, CodexSessionEstablishment,
 };
-use crate::driver::codex::transport::connection::read_codex_object;
-use crate::driver::codex::turn_evidence::CodexTurnStatus;
+use crate::driver::codex::session::owed_turn_ends::end_owed_codex_turns;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 
 /// One resume in place, as a call carries it to the session's task.
@@ -55,48 +51,14 @@ pub(crate) async fn resume_codex_session_in_place(
         .resume_in_place(task, service, binding_id, function_legs, writer_left)
         .await;
     let mut routed = resumed.routed;
-    for listed in resumed.listed_turns {
-        let is_owed = task.record.active_turn_run(&listed.id).is_some()
-            || task.record.ending_turn_ids().contains(&listed.id.as_str());
-        if !is_owed || is_turn_in_progress(&listed.turn) {
-            continue;
-        }
-        let Some(params) = compose_turn_completed_params(&task.record.thread_id, &listed.turn)
-        else {
-            continue;
-        };
-        let ended = task
-            .routing
-            .route_notification(
-                &dependencies.forks.delivery,
-                task.record,
-                CODEX_TURN_COMPLETED_METHOD.to_owned(),
-                params,
-            )
-            .await;
-        routed.extend(ended);
-    }
+    routed.extend(
+        end_owed_codex_turns(
+            &mut *task.routing,
+            &dependencies.forks.delivery,
+            &mut *task.record,
+            &resumed.listed_turns,
+        )
+        .await,
+    );
     (resumed.outcome, routed)
-}
-
-// Whether a listed turn still runs.
-fn is_turn_in_progress(turn: &RawValue) -> bool {
-    #[derive(Deserialize)]
-    struct ListedTurnStatus {
-        status: Option<String>,
-    }
-    read_codex_object::<ListedTurnStatus>(turn.get())
-        .and_then(|listed| listed.status)
-        .and_then(|status| CodexTurnStatus::read(&status))
-        == Some(CodexTurnStatus::InProgress)
-}
-
-// The params of the `turn/completed` Codex sent for a listed turn: the conversation and the turn.
-fn compose_turn_completed_params(thread_id: &str, turn: &RawValue) -> Option<Box<RawValue>> {
-    let thread_id = serde_json::to_string(thread_id).ok()?;
-    RawValue::from_string(format!(
-        r#"{{"threadId":{thread_id},"turn":{}}}"#,
-        turn.get()
-    ))
-    .ok()
 }

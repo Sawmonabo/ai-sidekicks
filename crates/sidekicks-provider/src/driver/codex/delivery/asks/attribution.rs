@@ -20,7 +20,7 @@ use crate::driver::codex::server_requests::{
 use crate::driver::codex::service::supervisor::routing::read_codex_ask_thread_id;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 
 /// Where a decided ask's decision goes; a dropped sender refuses the ask.
 pub(crate) type CodexAskDecisionSender =
@@ -87,10 +87,10 @@ pub(crate) fn attribute_codex_ask(
         .filter(|thread_id| *thread_id != record.thread_id)
         .and_then(|thread_id| record.delivery.child_run_by_thread_id.get(&thread_id));
     if let Some(child) = child {
-        return match &child.started {
-            Some(started) => CodexRoutedAskAttribution::Attributed {
+        return match &child.bound {
+            Some(bound) => CodexRoutedAskAttribution::Attributed {
                 owner: CodexAskOwner {
-                    run_id: started.child_run_id,
+                    run_id: bound.child_run_id,
                     binding_id: child.binding_id.clone(),
                 },
             },

@@ -14,7 +14,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
-use sidekicks_workspace::git::process::GIT_TERMINAL_PROMPT_OFF;
+use sidekicks_workspace::git::process::environment::GIT_TERMINAL_PROMPT_OFF;
 
 use crate::background_work::BackgroundWorkForms;
 use crate::callback_tools::host::{
@@ -26,18 +26,18 @@ use crate::callback_tools::spawn_binding::{
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
-use crate::driver::claude::session::establishment::ClaudeSpawnSources;
+use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::posture::{digest_output_schema, find_posture_divergence};
 use crate::driver::claude::session::settings_file::ClaudeSettingsFileError;
 use crate::driver::claude::session::state::{ClaudeSpawnBinding, LiveClaudeSession};
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::account_home::write_claude_home_retention;
 use crate::driver::claude::spawn::environment::{
-    ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, ClaudeProcessHome,
-    compose_claude_process_environment,
+    CLAUDE_RESUME_INTERRUPTED_TURN_KEY, ClaudeAccountFolders, ClaudeProcessEnvironmentRequest,
+    ClaudeProcessHome, compose_claude_process_environment,
 };
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::StartRunParams;
+use crate::driver::contract::params_and_results::StartRunParams;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::run::posture::{
@@ -96,6 +96,8 @@ pub(crate) struct ClaudeSpawnLegsRequest {
     pub(crate) command_channel: Option<Arc<ClaudeCommandChannel>>,
     /// Where it runs.
     pub(crate) context: ClaudeSpawnContext,
+    /// Whether the process resumes a conversation whose interrupted turn it continues.
+    pub(crate) continues_interrupted_turn: bool,
 }
 
 /// The daemon's services a spawn's legs are built with.
@@ -154,8 +156,9 @@ pub(crate) enum ClaudeSpawnLegsError {
 
 /// Builds the legs every spawn path starts a process from, offering no callback tools and
 /// installing no registry: the account home's retention set, git kept from asking on a terminal,
-/// and a command channel's variables where one opened. Fails when the retention cannot be
-/// written, the curated credential list cannot be resolved or the environment cannot be built.
+/// a command channel's variables where one opened, and the key that continues an interrupted turn
+/// where the request asks it. Fails when the retention cannot be written, the curated credential
+/// list cannot be resolved or the environment cannot be built.
 pub(crate) async fn build_claude_spawn_bound_legs(
     request: ClaudeSpawnLegsRequest,
     services: &ClaudeSpawnLegServices<'_>,
@@ -182,6 +185,12 @@ pub(crate) async fn build_claude_spawn_bound_legs(
                 .iter()
                 .flat_map(|channel| channel.environment().iter().cloned()),
         )
+        .chain(request.continues_interrupted_turn.then(|| {
+            (
+                CLAUDE_RESUME_INTERRUPTED_TURN_KEY.to_owned(),
+                "1".to_owned(),
+            )
+        }))
         .collect::<Vec<_>>();
     let spawn_environment = compose_claude_process_environment(
         ClaudeProcessEnvironmentRequest {

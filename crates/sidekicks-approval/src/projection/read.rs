@@ -70,6 +70,7 @@ fn projection_row_of(
         resolution,
         session_id: _,
         ask_id: _,
+        tool_call_id: _,
     } = stored;
     let reason = resource_descriptor
         .prompt

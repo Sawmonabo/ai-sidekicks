@@ -74,6 +74,17 @@ pub fn wrap_child_command(mut command: Command, daemon_pid: u32) -> CommandWrap 
     wrap
 }
 
+/// Wraps `command` as a child of the daemon `daemon_pid` leading a process group of its own, so a
+/// later start's sweep of the daemon's leftover children ends what it started with it, while the
+/// daemon's own stop still reaches the child alone: prepared as [`prepare_child_command`] prepares
+/// it, the group set through the spawn itself, and `signal`, `start_kill` and a dropped handle
+/// reach only the child. The caller spawns it on the daemon's spawner thread; the spawn fails as
+/// [`prepare_child_command`] says.
+pub fn wrap_leading_child_command(mut command: Command, daemon_pid: u32) -> CommandWrap {
+    command.process_group(0);
+    wrap_child_command(command, daemon_pid)
+}
+
 /// Wraps `command` as a child of the daemon `daemon_pid` leading a process group of its own, so
 /// what it started can be ended with it: prepared as [`prepare_child_command`] prepares it;
 /// `start_kill` and `signal` on its handle reach the whole group, while dropping the handle kills

@@ -14,9 +14,10 @@ use tokio::task::JoinError;
 
 use super::objects::RestoredObjects;
 use super::record::TakenRecord;
+use crate::git::GIT_ENTRY_NAME;
 use crate::git::worktree::flush::{DiskFlushError, flush_to_disk};
 use crate::git::worktree::kept_copy::folder_move::FolderPlacement;
-use crate::git::worktree::reads::{BRANCH_REF_PREFIX, GIT_FILE_NAME};
+use crate::git::worktree::reads::BRANCH_REF_PREFIX;
 
 // A reftable repository keeps every ref in the tables under this folder, which no other ref store
 // makes; the list names the tables in order.
@@ -111,7 +112,7 @@ pub(super) async fn flush_put_back_writes(
         "flushing the put-back",
     )?;
     let restored = writes.restored;
-    let files = [writes.target_folder.join(GIT_FILE_NAME)]
+    let files = [writes.target_folder.join(GIT_ENTRY_NAME)]
         .into_iter()
         .chain(record.files)
         .chain(copied_tree.files)

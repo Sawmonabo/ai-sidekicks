@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use crate::agent::definition::AgentId;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::method::methods;
-use crate::method_descriptor::EmptyPayload;
 use crate::provider::driver::capabilities::{ProviderMode, ProviderModel};
 use crate::provider::driver::commands::ProviderCommandListResponse;
 use crate::provider::driver::compaction::AgentRunContextCompactResponse;
@@ -42,6 +41,15 @@ ts_constants! {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct ProviderModelListRequest {
+    /// The session.
+    pub session_id: SessionId,
+}
+
+/// The request of `provider.mode.list`: the session whose level control reads the report.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
+pub struct ProviderModeListRequest {
     /// The session.
     pub session_id: SessionId,
 }
@@ -175,8 +183,8 @@ pub enum ProviderModeReport {
     Failed(ProviderModesFailed),
 }
 
-/// The reply of `provider.mode.list`: one outcome per installed provider, in the provider table's
-/// order.
+/// The reply of `provider.mode.list`: one outcome per installed provider, the session's own
+/// provider first, then the provider table's order.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -219,12 +227,12 @@ methods! {
             result: ProviderModelListResponse,
             refusals: [SessionNotFound, ProviderUnavailable, ProviderTimeout],
         },
-        /// Lists each provider's modes.
+        /// Lists each provider's modes for a session's level control.
         ProviderModeList = query "provider.mode.list" {
             mutating: false,
-            params: EmptyPayload,
+            params: ProviderModeListRequest,
             result: ProviderModeListResponse,
-            refusals: [ProviderUnavailable, ProviderTimeout],
+            refusals: [SessionNotFound, ProviderUnavailable, ProviderTimeout],
         },
         /// Compacts one run's provider-side context.
         AgentRunContextCompact = mutation "agent.run.context.compact" {
@@ -265,6 +273,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           grouped by provider.",
     definitions: &[
         Definition::read::<ProviderModelListRequest>(),
+        Definition::read::<ProviderModeListRequest>(),
         Definition::read::<ProviderReadFailure>(),
         Definition::read::<ProviderModelsListed>(),
         Definition::read::<ProviderModelsFailed>(),

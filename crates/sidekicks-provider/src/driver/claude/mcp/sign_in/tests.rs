@@ -20,7 +20,7 @@ use crate::driver::claude::account_credentials::{
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::scripted::starts::ScriptedSignInPlace;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
     ProviderSignInBrowser, ProviderSignInTakeover, ProviderSignInTakeoverRequest,
 };

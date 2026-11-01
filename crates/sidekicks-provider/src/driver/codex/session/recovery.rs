@@ -50,7 +50,7 @@ use crate::driver::codex::session::slots::{
     CodexRecoveryGeneration, CodexSessionClaim, CodexSessionSlots,
 };
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
-use crate::driver::contract::bound_failure_detail;
+use crate::driver::contract::error::bound_failure_detail;
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,

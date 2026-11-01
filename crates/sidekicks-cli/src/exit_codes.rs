@@ -6,7 +6,7 @@ use std::io;
 
 use sidekicks_client::error::ClientError;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
-use sidekicks_contracts::jsonrpc::refusal::{KnownRefusalCategory, RefusalCategory};
+use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
 
 /// A process exit code the command line returns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,9 +171,8 @@ mod tests {
     use sidekicks_client::error::{ClientError, LinkFault, RemoteError};
     use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
     use sidekicks_contracts::jsonrpc::message::{ConnectionUnavailableReason, JsonRpcErrorData};
-    use sidekicks_contracts::jsonrpc::refusal::{
-        KnownRefusalCategory, RefusalCategory, RefusalCode,
-    };
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
 
     use super::{ExitCode, ProcessEnding, exit_code_for_failure};
     use crate::program::Cli;

@@ -38,7 +38,8 @@ use sidekicks_contracts::worktree::lifecycle::{RemovedWorktreeId, WorktreeId};
 use sidekicks_contracts::worktree::removed::{
     RemovedWorktree, WorktreeRemovedListRequest, WorktreeRemovedListResponse,
 };
-use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::keyed_lock::{HeldWorkEnd, KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::processor_bound::map_with_processor_bound;
 use sidekicks_std::settle_all::SettleFailures;
@@ -46,7 +47,6 @@ use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLen
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::database::writer::DatabaseWriter;
 use tokio::sync::Semaphore;
-use tokio::task::JoinError;
 use tokio_util::task::TaskTracker;
 
 use self::rows::{
@@ -62,9 +62,7 @@ use crate::git::worktree::claims::KeptCopyClaims;
 use crate::git::worktree::copy::progress::WorktreeCopiesUnderWay;
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::kept_copy::folder_move::FolderMoveTools;
-use crate::git::worktree::kept_copy::held_work::{
-    HeldWorkEnd, HeldWorkSubject, held_answer, log_landed_late,
-};
+use crate::git::worktree::kept_copy::held_work::{HeldWorkSubject, log_landed_late};
 use crate::git::worktree::kept_copy::{
     KeptCopyRowWrites, KeptCopyTools, KeptWorktreeState, RowWriteError, delete_kept_copy,
     measure_kept_copy,
@@ -115,12 +113,20 @@ pub enum RemovedWorktreeStoreError {
     /// A read, a write, a git call or a file step failed; a put-back undid every step first.
     #[error(transparent)]
     Failed(Box<dyn Error + Send + Sync>),
-    /// The task that ran the call under the kept copy's lock ended before it finished.
-    #[error("the kept worktree's call ended before it finished")]
-    Interrupted(#[source] JoinError),
-    /// The call under the kept copy's lock ended without an answer.
+    /// The task that ran the call under the kept copy's lock ended without answering.
     #[error("the kept worktree's call ended without an answer")]
-    Unanswered,
+    Unanswered(#[from] HeldWorkEnd),
+}
+
+impl From<RemovedWorktreeStoreError> for HandlerError {
+    /// A refusal is answered with its code; every other failure is a fault.
+    fn from(error: RemovedWorktreeStoreError) -> Self {
+        match error {
+            RemovedWorktreeStoreError::Refused(refusal) => Self::Refused(refusal.into()),
+            fault @ (RemovedWorktreeStoreError::Failed(_)
+            | RemovedWorktreeStoreError::Unanswered(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 impl RemovedWorktreeStoreError {
@@ -454,8 +460,7 @@ impl RemovedWorktreeStore {
         removed_worktree_id: RemovedWorktreeId,
     ) -> Result<(), RemovedWorktreeStoreError> {
         let store = Arc::clone(self);
-        let landed = self
-            .deps
+        self.deps
             .kept_copy_lock
             .run_held(
                 removed_worktree_id,
@@ -470,8 +475,7 @@ impl RemovedWorktreeStore {
                     HeldWorkSubject::KeptCopy(removed_worktree_id),
                 ),
             )
-            .await;
-        held_answer(landed)
+            .await?
     }
 
     // The row as the list shows it, `None` for a copy put back whose tree stands sound or is gone.
@@ -820,15 +824,6 @@ fn put_back_copy(kept: &RemovedWorktreeRow) -> WorktreeCopy {
         name: kept.worktree_name.clone(),
         copied_bytes: SafeInt::ZERO,
         total_bytes: SafeInt::ZERO,
-    }
-}
-
-impl From<HeldWorkEnd> for RemovedWorktreeStoreError {
-    fn from(end: HeldWorkEnd) -> Self {
-        match end {
-            HeldWorkEnd::Unanswered => Self::Unanswered,
-            HeldWorkEnd::Interrupted(interrupted) => Self::Interrupted(interrupted),
-        }
     }
 }
 

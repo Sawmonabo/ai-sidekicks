@@ -49,13 +49,14 @@ pub struct TestPermissionCheck {
 
 /// The rules and the check over the database at `path`, recording through `events` and `writer`,
 /// raising cards through `approvals`, with the posture files and the agent-memory folder in
-/// `home`.
+/// `home`, deciding workflow starts by `authorizer`, the built-in rules where `None`.
 pub fn test_permission_check(
     path: &Path,
     events: &Arc<SessionEventAppender>,
     writer: &Arc<DatabaseWriter>,
     approvals: &Arc<ApprovalService>,
     home: &Path,
+    authorizer: Option<Authorizer>,
 ) -> TestPermissionCheck {
     let shell_lines = Arc::new(ShellLineReadingBound::new(LINE_LIMIT));
     let machine_id =
@@ -102,7 +103,10 @@ pub fn test_permission_check(
                 name: "test".to_owned(),
             },
         )),
-        authorizer: Arc::new(Authorizer::load_built_in().expect("the built-in rules load")),
+        authorizer: Arc::new(
+            authorizer
+                .unwrap_or_else(|| Authorizer::load_built_in().expect("the built-in rules load")),
+        ),
         agent_memory_folder: home.to_path_buf(),
     }));
     TestPermissionCheck {

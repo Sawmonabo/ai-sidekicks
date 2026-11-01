@@ -2,90 +2,13 @@
 //! `data.category` a client acts on when it does not know the code, and the HTTP status a control
 //! plane route answers it with. TypeScript gets the codes as one string union.
 
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::VariantArray;
 
 use crate::jsonrpc::error_code::JsonRpcErrorCode;
+use crate::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
 use crate::typescript::{Definition, TypeScriptModule};
 
-/// What a client can do about a refusal, sent as `data.category` beside its code so a client that
-/// meets a code newer than itself still acts on it: one of the categories this build knows, or the
-/// text of one a newer build sends, so a newer daemon's refusal is still read as a refusal.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(untagged)]
-pub enum RefusalCategory {
-    /// A category this build knows.
-    Known(KnownRefusalCategory),
-    /// A category a newer build sends and this one does not know, its wire text kept; no refusal
-    /// this build makes carries one, since each code's category is a known one.
-    Unknown(String),
-}
-
-impl RefusalCategory {
-    /// The category's wire text.
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Known(known) => known.as_str(),
-            Self::Unknown(text) => text.as_str(),
-        }
-    }
-}
-
-/// The categories this build knows: the canonical gRPC status codes.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
-)]
-#[serde(rename_all = "camelCase")]
-pub enum KnownRefusalCategory {
-    /// Fix what it sent.
-    InvalidArgument,
-    /// Stop naming the thing, or refresh its list.
-    NotFound,
-    /// Pick another name or use the existing thing.
-    AlreadyExists,
-    /// Change the state first (finish, stop, sign in), then send again.
-    FailedPrecondition,
-    /// Read again and retry: it lost a race or acted on an old version.
-    Aborted,
-    /// Get a valid credential.
-    Unauthenticated,
-    /// Nothing: this caller may not do this.
-    PermissionDenied,
-    /// Wait, or send less.
-    ResourceExhausted,
-    /// Retry the same call later.
-    Unavailable,
-    /// Nothing here: this provider, account, model or build does not offer it.
-    Unimplemented,
-    /// Retry; a deadline passed.
-    DeadlineExceeded,
-    /// Nothing: the caller canceled.
-    Canceled,
-    /// Report it: the service failed.
-    Internal,
-}
-
-impl KnownRefusalCategory {
-    /// The category's wire text, as its serde form writes it.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::InvalidArgument => "invalidArgument",
-            Self::NotFound => "notFound",
-            Self::AlreadyExists => "alreadyExists",
-            Self::FailedPrecondition => "failedPrecondition",
-            Self::Aborted => "aborted",
-            Self::Unauthenticated => "unauthenticated",
-            Self::PermissionDenied => "permissionDenied",
-            Self::ResourceExhausted => "resourceExhausted",
-            Self::Unavailable => "unavailable",
-            Self::Unimplemented => "unimplemented",
-            Self::DeadlineExceeded => "deadlineExceeded",
-            Self::Canceled => "canceled",
-            Self::Internal => "internal",
-        }
-    }
-}
+pub mod category;
 
 /// Declares [`RefusalCode`] from one line per code: its variant, its wire text and, in
 /// parentheses, its category and its HTTP status, no status for a code that rides only the
@@ -210,14 +133,18 @@ refusal_codes! {
         (InvalidArgument, 422);
     /// Agent does not exist in the session (`data.fields`: `agentId`).
     AgentNotFound = "agent.notFound" (NotFound, 404);
-    /// A provider-axis member on `agent.config.update` or `session.create` names something the
-    /// machine cannot honor: an unregistered driver, a model absent from the target driver's
+    /// A provider-axis member names something the machine cannot honor. `agent.config.update`
+    /// refuses an unregistered driver, a model absent from the target driver's
     /// `provider.model.list`, an effort absent from that model's `effortLevels`, a larger window
     /// (the `largerWindow` axis) the target model's catalog does not offer at that figure, an
     /// output-speed value absent from the `outputSpeedLevels` published for the
     /// target model (its own list where its provider publishes one per model, else the driver's),
     /// a session option the target driver does not declare, or a session option's value outside
     /// the target driver's declaration of it or one the provider reports this session cannot run.
+    /// `session.create` refuses an unregistered driver and a session option the driver does not
+    /// declare or whose value its declaration refuses; the model is the driver's to accept when it
+    /// starts the session, and an effort the model does not list is refused at the first run's
+    /// start.
     AgentProviderAxisInvalid = "agent.providerAxisInvalid" (InvalidArgument, 422);
     /// A change to a waiting message refused: a removal (`agent.queueItem.cancel`) or an edit
     /// (`agent.queueItem.create` with `replacesQueueItemId`) of a message the agent has already
@@ -298,10 +225,14 @@ refusal_codes! {
     ArtifactNotFound = "artifact.notFound" (NotFound, 404);
     /// `data.fields.reason` names which bound it hit.
     ArtifactTooLarge = "artifact.tooLarge" (ResourceExhausted, 413);
-    /// `attention.delivery.test` for a channel that is not set up.
+    /// `attention.delivery.test` for a channel that is not set up, or
+    /// `attention.webAddress.secret.rotate` with no web address saved.
     AttentionDeliveryNotConfigured = "attention.delivery.notConfigured" (FailedPrecondition, 409);
     /// The keychain holding a channel's secret is locked or unavailable.
     AttentionDeliveryStoreUnavailable = "attention.delivery.storeUnavailable" (Unavailable, 503);
+    /// `attention.webAddress.update` with text that is not an `http` or `https` address with a
+    /// host; nothing is saved.
+    AttentionWebAddressNotAnAddress = "attention.webAddress.notAnAddress" (InvalidArgument, 422);
     /// `connection.initialize` with the right session token from a process the daemon itself
     /// started outside the person's terminals, such as a command an agent ran, from one a provider
     /// service the daemon holds a connection to started, or from one the system could not name or
@@ -608,7 +539,8 @@ refusal_codes! {
     RepoMountReattachConflict = "repoMount.reattachConflict" (FailedPrecondition, 409);
     /// `repoMount.reattach` refused, writing nothing.
     RepoMountReattachRefused = "repoMount.reattachRefused" (FailedPrecondition, 409);
-    /// Canonical repository root could not be resolved for the supplied path.
+    /// A path's canonical repository root could not be resolved, or a folder a request named
+    /// (a mount, a clone's parent) names no complete location, does not exist or cannot be read.
     RepoMountRootResolutionFailed = "repoMount.rootResolutionFailed" (InvalidArgument, 422);
     /// A call the client canceled with `$/cancelRequest` before the daemon reached its commit
     /// point.
@@ -879,24 +811,3 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     constants: &[],
     method_tables: &[],
 };
-
-#[cfg(test)]
-mod tests {
-    use serde_json::json;
-    use strum::VariantArray as _;
-
-    use super::{KnownRefusalCategory, RefusalCategory};
-
-    // The untagged form takes its first arm that reads, so a known category's text must read as
-    // `Known`, and each one's `as_str` must be the text serde writes.
-    #[test]
-    fn every_known_category_reads_from_its_text_as_known_and_writes_as_its_text() {
-        for &known in KnownRefusalCategory::VARIANTS {
-            let read: RefusalCategory =
-                serde_json::from_value(json!(known.as_str())).expect("a category's text reads");
-            assert_eq!(read, RefusalCategory::Known(known));
-            let written = serde_json::to_value(known).expect("a category writes");
-            assert_eq!(written, json!(known.as_str()));
-        }
-    }
-}

@@ -3,7 +3,7 @@
 //! handed up, and a close that leaves no request waiting.
 
 mod asks;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) mod scripted_service;
 
 use std::collections::{HashMap, HashSet};

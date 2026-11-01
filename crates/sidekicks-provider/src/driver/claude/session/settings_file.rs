@@ -58,9 +58,9 @@ pub(crate) enum ClaudeSettingsFileError {
     Write {
         /// The settings file.
         path: PathBuf,
-        /// The crash-safe write's failure.
+        /// The crash-safe write's failure, boxed so the error stays small.
         #[source]
-        failure: AtomicWriteError,
+        failure: Box<AtomicWriteError>,
     },
 }
 
@@ -142,7 +142,7 @@ pub(crate) async fn write_settings_file(
         .await
         .map_err(|failure| ClaudeSettingsFileError::Write {
             path: file.to_path_buf(),
-            failure,
+            failure: Box::new(failure),
         })
 }
 

@@ -24,6 +24,7 @@ use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::port::question::QuestionPort;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::outbound_http::outbound_client_builder;
 use sidekicks_std::port_registration::PortRegistration;
 
 use crate::client::connection::McpServerConnection;
@@ -73,8 +74,7 @@ impl McpClient {
     ) -> Result<Self, McpClientError> {
         // No `timeout` or `read_timeout`: either would cut a quiet event stream; each request
         // keeps its own bound.
-        let http = reqwest::Client::builder()
-            .pool_max_idle_per_host(IDLE_CONNECTIONS_PER_HOST)
+        let http = outbound_client_builder(IDLE_CONNECTIONS_PER_HOST)
             .build()
             .map_err(McpClientError::HttpClient)?;
         Ok(Self {

@@ -15,6 +15,7 @@ use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::repo::mount::{RepoMountId, RepoMountState};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -413,8 +414,8 @@ fn restored_worktree_binding(
     name: &'static str,
     worktree_id: Option<&WorktreeId>,
 ) -> (Cow<'static, str>, Value) {
-    let text = worktree_id.map(|worktree_id| worktree_id.text());
-    nullable_text_binding(name, text.as_ref().map(|text| text.as_str()))
+    let text = worktree_id.map(WorktreeId::text);
+    nullable_text_binding(name, text.as_ref().map(UuidText::as_str))
 }
 
 /// The listed kept copies, newest first: one project's, or every project's. Fails with SQLite's
@@ -531,7 +532,7 @@ fn removed_worktree_of(row: &Row<'_>) -> rusqlite::Result<RemovedWorktreeRow> {
     ) {
         (Some(name), Some(commit)) => Some(PutBackBranch { name, commit }),
         // The table's checks set both or neither.
-        (Some(_), None) | (None, Some(_)) | (None, None) => None,
+        (Some(_), None) | (None, _) => None,
     };
     let put_back_mark = match (
         optional_text_column(row, 16, FilesystemPath::new)?,
@@ -544,7 +545,7 @@ fn removed_worktree_of(row: &Row<'_>) -> rusqlite::Result<RemovedWorktreeRow> {
             new_branch: restoring_branch,
         }),
         // The table's checks set both or neither.
-        (Some(_), None) | (None, Some(_)) | (None, None) => None,
+        (Some(_), None) | (None, _) => None,
     };
     let size_bytes = match row.get_ref(13)? {
         ValueRef::Null => None,

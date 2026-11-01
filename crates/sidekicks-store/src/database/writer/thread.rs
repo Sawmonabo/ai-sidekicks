@@ -47,28 +47,35 @@ const CHECKPOINT_OPERATION: &str = "running a WAL checkpoint";
 const OPTIMIZE_OPERATION: &str = "running PRAGMA optimize";
 const CLOSE_OPERATION: &str = "closing the writer's connection";
 
-/// The batches that committed a write: the thread's count of them, and the read run after each.
+/// The batches that committed a write: the thread's count of them, and the reads run after each.
 pub(super) struct ThreadCommits {
     /// The thread's count of the batches that committed a write.
     pub(super) count: u64,
-    after_commit: Option<CommitRead>,
+    after_commits: Vec<CommitRead>,
 }
 
 impl ThreadCommits {
-    /// No batch counted yet, `after_commit` run after each one that commits a write.
-    pub(super) fn new(after_commit: Option<CommitRead>) -> Self {
+    /// No batch counted yet, each of `after_commits` run in order after each one that commits a
+    /// write.
+    pub(super) fn new(after_commits: Vec<CommitRead>) -> Self {
         Self {
             count: 0,
-            after_commit,
+            after_commits,
         }
     }
 
-    // Counts a batch that committed a write and runs the read after it; answers the read's failure.
-    fn count_commit(&mut self, connection: &Connection) -> Option<rusqlite::Error> {
+    // Counts a batch that committed a write and runs every read after it, a failed one skipping
+    // none after it; answers each failed read's name and failure in order.
+    fn count_commit(&mut self, connection: &Connection) -> Vec<(&'static str, rusqlite::Error)> {
         self.count += 1;
-        self.after_commit
-            .as_mut()
-            .and_then(|read| read(connection).err())
+        self.after_commits
+            .iter_mut()
+            .filter_map(|commit_read| {
+                (commit_read.read)(connection)
+                    .err()
+                    .map(|failure| (commit_read.name, failure))
+            })
+            .collect()
     }
 }
 
@@ -340,15 +347,18 @@ fn run_batch(
     let mut outcomes = Vec::with_capacity(jobs.len());
     match run_transaction(connection, encoder, jobs, stop, &mut outcomes) {
         Ok(()) => {
-            let after_commit_failure = outcomes
+            let after_commit_failures = if outcomes
                 .iter()
                 .any(|outcome| matches!(outcome, WriteJobOutcome::Committed { .. }))
-                .then(|| commits.count_commit(connection))
-                .flatten();
+            {
+                commits.count_commit(connection)
+            } else {
+                Vec::new()
+            };
             Ok(CommittedBatch {
                 outcomes,
                 commit_count: commits.count,
-                after_commit_failure,
+                after_commit_failures,
             })
         }
         Err(failure) => Err(Box::new(FailedBatch {

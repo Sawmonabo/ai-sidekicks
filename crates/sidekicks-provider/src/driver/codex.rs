@@ -4,6 +4,8 @@ use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(any(test, feature = "test-support"))]
+use std::sync::Mutex;
 use std::time::SystemTime;
 
 use futures::FutureExt;
@@ -25,16 +27,23 @@ use sidekicks_platforms::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
     WindowsSystemFolder,
 };
+#[cfg(any(test, feature = "test-support"))]
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::permission_level::list_codex_modes;
-use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
-use crate::driver::contract::{
-    ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
-    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
-    RespondToRequestParams, SessionProcessState, StartRunParams,
+#[cfg(any(test, feature = "test-support"))]
+use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
+    ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
@@ -90,11 +99,13 @@ mod notification_routing;
 mod output_speed;
 mod permission_level;
 mod rate_limits;
+mod release_notes;
 mod rules;
 mod run;
 mod server_requests;
 mod service;
 mod session;
+mod shells;
 mod thread;
 mod token_usage;
 mod tools;
@@ -105,10 +116,18 @@ mod usage_limit_signal;
 mod vendored_schema;
 mod version;
 
+#[cfg(any(test, feature = "test-support"))]
+pub use service::supervisor::test_service::{
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, ScriptedCodexService,
+    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
+    write_codex_service_script,
+};
+
 /// Codex's fixed facts.
 pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     id: "codex",
     name: "Codex",
+    release_notes_address: release_notes::release_notes_address,
     plan_words: &[
         ("free", "Free"),
         ("go", "Go"),
@@ -233,6 +252,28 @@ pub(super) fn build(services: &DriverServices) -> Arc<dyn ProviderDriver> {
     Arc::new(CodexDriver::new(services))
 }
 
+/// The service registry the next driver [`build_over_scripted_service`] builds holds.
+#[cfg(any(test, feature = "test-support"))]
+static NEXT_SCRIPTED_REGISTRY: Mutex<Option<Arc<CodexServiceRegistry>>> = Mutex::new(None);
+
+/// Holds `scripted`'s service for the next driver [`build_over_scripted_service`] builds, every
+/// account resolving to its home.
+#[cfg(any(test, feature = "test-support"))]
+pub(super) fn hold_scripted_service(scripted: &ScriptedCodexService) {
+    *lock(&NEXT_SCRIPTED_REGISTRY) = Some(CodexServiceRegistry::holding(scripted));
+}
+
+/// Builds the Codex driver as [`build`] does, its registry holding the service
+/// [`hold_scripted_service`] last held, which it takes. Panics when no service is held.
+#[cfg(any(test, feature = "test-support"))]
+pub(super) fn build_over_scripted_service(services: &DriverServices) -> Arc<dyn ProviderDriver> {
+    let mut driver = CodexDriver::new(services);
+    driver.registry = lock(&NEXT_SCRIPTED_REGISTRY)
+        .take()
+        .expect("a scripted service is held before its driver is built");
+    Arc::new(driver)
+}
+
 /// Codex takes a message the run queue hands a running turn as a steer between its steps, has no
 /// verb that takes one back, keeps nothing past its run, and marks no message as priority.
 const CODEX_MESSAGE_HANDING: MessageHanding = MessageHanding {
@@ -241,6 +282,9 @@ const CODEX_MESSAGE_HANDING: MessageHanding = MessageHanding {
     kept_by_process: false,
     reads_priority_message: false,
 };
+
+/// The session options the Codex driver declares: none.
+const CODEX_SESSION_OPTIONS: &[ProviderSessionOption] = &[];
 
 impl ProviderDriver for CodexDriver {
     fn create_session(
@@ -441,7 +485,21 @@ impl ProviderDriver for CodexDriver {
         self.list_models(params).boxed()
     }
 
-    fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
+    // Codex takes any model id, and the effort levels sit in the catalog its service lists, so the
+    // start checks the effort; Codex declares no session option, so any option is refused.
+    fn check_lead_binding(&self, params: LeadBindingCheckParams) -> Result<(), DriverError> {
+        ProviderAxisInvalid::check_options(
+            params.agent_id,
+            params.options.as_ref(),
+            CODEX_SESSION_OPTIONS,
+        )
+        .map_err(DriverError::from)
+    }
+
+    fn list_modes(
+        &self,
+        _params: ListModesParams,
+    ) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
         ready(Ok(list_codex_modes())).boxed()
     }
 
@@ -495,25 +553,28 @@ impl ProviderDriver for CodexDriver {
         self.write_command_input(params).boxed()
     }
 
+    // A Codex session is never slept: its service is shared by every session on the account and
+    // holds no process of the session's own, so a sleep would free nothing. It reports no hold and
+    // answers every sleep and wake as awake.
     fn idle_sleep_holds(
         &self,
-        session_id: SessionId,
+        _session_id: SessionId,
     ) -> BoxFuture<'_, Result<IdleSleepHolds, DriverError>> {
-        self.idle_sleep_holds(session_id).boxed()
+        ready(Ok(IdleSleepHolds::default())).boxed()
     }
 
     fn sleep_session(
         &self,
-        session_id: SessionId,
+        _session_id: SessionId,
     ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>> {
-        self.sleep_session(session_id).boxed()
+        ready(Ok(SessionSleepState::Awake)).boxed()
     }
 
     fn wake_session(
         &self,
-        session_id: SessionId,
+        _session_id: SessionId,
     ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>> {
-        self.wake_session(session_id).boxed()
+        ready(Ok(SessionSleepState::Awake)).boxed()
     }
 
     fn task_list_change(&self, call: &ToolCallRecord<'_>) -> Option<TaskListChange> {
@@ -534,6 +595,11 @@ impl ProviderDriver for CodexDriver {
         self.observed_output_speed_for(*session_id)
     }
 
+    // Codex reports no permission mode of its own.
+    fn reported_level(&self, _session_id: &SessionId) -> Option<ProviderReportedLevel> {
+        None
+    }
+
     fn read_rows(
         &self,
         app_values: ProviderRowValues,
@@ -552,9 +618,8 @@ impl ProviderDriver for CodexDriver {
         self.apply_row_value(params).boxed()
     }
 
-    // Codex declares no session option.
     fn session_options(&self) -> BoxFuture<'_, Result<Vec<ProviderSessionOption>, DriverError>> {
-        ready(Ok(Vec::new())).boxed()
+        ready(Ok(CODEX_SESSION_OPTIONS.to_vec())).boxed()
     }
 
     // With no option declared, there is none to observe.

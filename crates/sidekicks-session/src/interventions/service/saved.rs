@@ -19,7 +19,7 @@ use super::{InterventionService, InterventionTarget, RowMove};
 use crate::interventions::store::{
     SavedIntervention, read_intervention, read_intervention_by_idempotency_key,
 };
-use crate::run::engine::RunEngineError;
+use crate::run::engine::errors::RunEngineError;
 
 impl InterventionService {
     /// The intervention saved on `run_id` under `key`, if one is. Fails as the read fails.

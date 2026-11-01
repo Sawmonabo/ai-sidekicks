@@ -23,16 +23,24 @@ use sidekicks_platforms::{
     WindowsSystemFolder,
 };
 
+use crate::command::running_set::takes_no_input;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
+use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
-use crate::driver::claude::mcp::read_claude_mcp_servers;
-use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
-use crate::driver::contract::{
-    ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
-    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
-    RespondToRequestParams, SessionProcessState, StartRunParams,
+use crate::driver::claude::mcp::{read_claude_mcp_servers, reread_claude_live_mcp_statuses};
+use crate::driver::claude::session::establishment::context::{
+    CLAUDE_ADVISOR_ROW_ID, read_claude_row_choice,
 };
+use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
+    ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
+};
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
@@ -79,6 +87,7 @@ mod lifecycle;
 mod mcp;
 mod output_speed;
 mod rate_limit_windows;
+mod release_notes;
 mod run;
 mod session;
 mod settings_rows;
@@ -93,6 +102,7 @@ mod version;
 pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     id: "claude",
     name: "Claude Code",
+    release_notes_address: release_notes::release_notes_address,
     plan_words: &[],
     built_in_tools: &tools::CLAUDE_BUILT_IN_TOOLS,
     command: ProviderCommand {
@@ -360,6 +370,10 @@ impl ProviderDriver for ClaudeDriver {
         Some(CLAUDE_PICTURE_BASE64_LIMIT)
     }
 
+    fn session_advisor_pick(&self, app_values: &ProviderRowValues) -> Option<Option<String>> {
+        read_claude_row_choice(app_values, CLAUDE_ADVISOR_ROW_ID)
+    }
+
     // Each Claude Code session runs a process of its own, so the account weighs nothing here.
     fn starts_process(
         &self,
@@ -473,8 +487,23 @@ impl ProviderDriver for ClaudeDriver {
         self.list_models(params).boxed()
     }
 
-    fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
-        self.list_modes().boxed()
+    // Claude Code's start decides a model its catalog does not list, and the effort levels sit in
+    // a catalog only a running process reads, so the start checks both; the session options are
+    // the driver's own.
+    fn check_lead_binding(&self, params: LeadBindingCheckParams) -> Result<(), DriverError> {
+        ProviderAxisInvalid::check_options(
+            params.agent_id,
+            params.options.as_ref(),
+            &Self::session_options(),
+        )
+        .map_err(DriverError::from)
+    }
+
+    fn list_modes(
+        &self,
+        params: ListModesParams,
+    ) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
+        self.list_modes(params).boxed()
     }
 
     fn get_capabilities(&self) -> BoxFuture<'_, Result<GetCapabilitiesResult, DriverError>> {
@@ -492,7 +521,15 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         request: McpServersReadRequest,
     ) -> BoxFuture<'_, Result<ProviderMcpServersReading, DriverError>> {
-        read_claude_mcp_servers(self, request).boxed()
+        async move {
+            let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
+            read_claude_mcp_servers(self, managed_settings_folder.as_deref(), request).await
+        }
+        .boxed()
+    }
+
+    fn reread_live_mcp_statuses(&self) -> BoxFuture<'_, ()> {
+        reread_claude_live_mcp_statuses(self).boxed()
     }
 
     fn compact_context(
@@ -524,14 +561,15 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         params: WriteCommandInputParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        ready(self.write_command_input(&params)).boxed()
+        // Claude Code's commands take no input, so the person's input is refused.
+        ready(Err(takes_no_input(&params.command.command_id).into())).boxed()
     }
 
     fn idle_sleep_holds(
         &self,
         session_id: SessionId,
     ) -> BoxFuture<'_, Result<IdleSleepHolds, DriverError>> {
-        self.idle_sleep_holds(session_id).boxed()
+        ready(Ok(self.idle_sleep_holds(session_id))).boxed()
     }
 
     fn sleep_session(
@@ -549,7 +587,7 @@ impl ProviderDriver for ClaudeDriver {
     }
 
     fn task_list_change(&self, call: &ToolCallRecord<'_>) -> Option<TaskListChange> {
-        self.task_list_change(call)
+        read_claude_task_list_change(call)
     }
 
     fn stop_helper_at_token_limit(
@@ -564,6 +602,10 @@ impl ProviderDriver for ClaudeDriver {
         session_id: &SessionId,
     ) -> Option<ProviderOutputSpeedState> {
         self.observed_output_speed_for(*session_id)
+    }
+
+    fn reported_level(&self, session_id: &SessionId) -> Option<ProviderReportedLevel> {
+        self.reported_level(*session_id)
     }
 
     fn read_rows(
@@ -660,21 +702,19 @@ fn picked_skill_of(pick: QueuedSkillPick) -> PickedSkill {
 mod tests {
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::run::queue::QueuedSkillPick;
-    use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
     use crate::driver::claude::lifecycle::ClaudeDriver;
     use crate::driver::contract::ProviderDriver;
     use crate::driver::run_control::PickedSkill;
-    use crate::driver::test_registry::test_driver_services;
+    use crate::driver::test_registry::{fixed_session_id, test_driver_services};
     use crate::runtime_binding::test_store::test_provider_account_id;
 
     // Killed by answering no skill, which drops every pick from the stored message.
     #[tokio::test]
     async fn each_skill_pick_is_answered_in_order_by_its_name_and_folder() {
         let driver = ClaudeDriver::new(&test_driver_services());
-        let session_id =
-            SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id");
+        let session_id = fixed_session_id();
         let pick = |name: &str, folder: &str| QueuedSkillPick {
             name: FreeFormText::new(name.to_owned()).expect("a valid name"),
             folder_path: FilesystemPath::new(folder.to_owned()).expect("a valid folder"),

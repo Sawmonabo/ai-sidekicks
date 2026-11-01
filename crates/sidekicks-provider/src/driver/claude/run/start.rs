@@ -34,7 +34,8 @@ use crate::driver::claude::session::transport::user_message::{
     ClaudeUserContentBlock, ClaudeWriteAttempt, ClaudeWriteDelivery, compose_claude_user_frame,
 };
 use crate::driver::claude::spawn::legs::assert_claude_spawn_bound_realization;
-use crate::driver::contract::{DriverError, StartRunParams};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::StartRunParams;
 use crate::driver::run_control::{DaemonTurnBindingResolver, DriverRunRefusal};
 use crate::outbound_text::OutboundText;
 use crate::port::inbound_dispatch::InboundDispatch;
@@ -476,7 +477,8 @@ mod tests {
     use crate::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
-    use crate::driver::contract::{DriverError, RunOpening, RunOpeningItem, StartRunParams};
+    use crate::driver::contract::error::DriverError;
+    use crate::driver::contract::params_and_results::{RunOpening, RunOpeningItem, StartRunParams};
     use crate::driver::run_control::{ResumeRunParams, WaitingMessage};
     use crate::driver::test_registry::new_run_id;
     use crate::outbound_text::{OutboundText, OutboundTextOrigin};

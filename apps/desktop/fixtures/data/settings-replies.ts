@@ -23,7 +23,6 @@
 // answered write.
 
 import {
-  MCP_TOOL_OVERRIDE_FACETS,
   type McpApplicationGrade,
   type McpClearToolOverrideRequest,
   type McpListResponse,
@@ -33,11 +32,14 @@ import {
   type McpServerInventoryEntry,
   type McpSetToolOverrideRequest,
   type McpToolOverrideApplication,
-  type McpToolOverrideFacet,
   type McpToolOverrideMutationResult,
+} from "@ai-sidekicks/contracts/mcp/server";
+import {
+  MCP_TOOL_OVERRIDE_FACETS,
+  type McpToolOverrideFacet,
   type McpToolReading,
   type McpToolSetting,
-} from "@ai-sidekicks/contracts/mcp/server";
+} from "@ai-sidekicks/contracts/mcp/tool-settings";
 import type {
   ProviderAccountNotification,
   ProviderAccount,

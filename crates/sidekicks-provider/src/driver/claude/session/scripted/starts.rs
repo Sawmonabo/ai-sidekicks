@@ -1,9 +1,10 @@
 //! Every process start answered by a script instead of a Claude Code program: a session's process
 //! is the next scripted channel, declaring the next scripted `initialize` reply; a one-turn process
-//! answers the next scripted reply; a catalog, figures or account read answers the next scripted
-//! reading; the MCP server probe's process is the next scripted probe channel; an MCP sign-in's
-//! process is the next scripted channel, the next scripted saved sign-ins kept where it was
-//! scripted to keep them: its credential folder's file, or the keychain item named for that folder.
+//! answers the next scripted reply; a catalog or figures read answers the next scripted reading;
+//! an account read's process and the MCP server probe's process are the next scripted channels;
+//! an MCP sign-in's process is the next scripted channel, the next scripted saved sign-ins kept
+//! where it was scripted to keep them: its credential folder's file, or the keychain item named
+//! for that folder.
 //! Each start is recorded with what it asked for.
 
 use std::collections::{HashSet, VecDeque};
@@ -14,20 +15,21 @@ use futures::future::BoxFuture;
 use secrecy::SecretString;
 use serde_json::Value;
 use sidekicks_platforms::CredentialStore;
-use tokio::sync::{Notify, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
 
-use super::channel::ScriptedChannel;
+use super::channel::{ScriptedAnswer, ScriptedChannel};
 use crate::driver::claude::account_credentials::{
     CLAUDE_CREDENTIALS_FILE, SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account,
     claude_keychain_service,
 };
-use crate::driver::claude::mcp::connectors::{
-    ClaudeAccountServerAnswers, ClaudeAccountServersReadRequest,
+use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
+use crate::driver::claude::mcp::machine_probe::{
+    ClaudeMcpProbeProcess, ClaudeMcpProbeProcessRequest,
 };
-use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
 use crate::driver::claude::mcp::sign_in::{ClaudeMcpSignInChannel, ClaudeMcpSignInStart};
 use crate::driver::claude::session::answered_commands::ClaudeAttachedAdvisor;
-use crate::driver::claude::session::process::ClaudeProcessListener;
+use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
+use crate::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
@@ -40,12 +42,14 @@ use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::bring_up::{
     ClaudeBringUpRequest, ClaudeSettingsReadback,
 };
+use crate::driver::claude::spawn::launch::control_only::ClaudeShortProcessArrival;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::{DriverError, GetCapabilitiesResult};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::GetCapabilitiesResult;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::runtime_binding::test_store::spawned_build;
 
@@ -64,6 +68,8 @@ pub(crate) struct ScriptedStartRecord {
     pub(crate) step_bound: Option<u32>,
     /// The mode it starts in in place of its level's own.
     pub(crate) permission_mode: Option<ClaudePermissionMode>,
+    /// The environment it starts with.
+    pub(crate) environment: Vec<(String, String)>,
 }
 
 /// One one-turn process the driver asked for.
@@ -90,12 +96,12 @@ struct ScriptedStartTables {
     one_turn_replies: VecDeque<ClaudeOneTurnReply>,
     one_turns: Vec<ScriptedOneTurnRecord>,
     one_turn_environments: Vec<Vec<(String, String)>>,
-    account_server_answers: VecDeque<(Value, Value)>,
+    account_server_channels: VecDeque<Arc<ScriptedChannel>>,
     account_server_holds: VecDeque<oneshot::Receiver<()>>,
     account_server_reads: usize,
     sign_ins: VecDeque<(Arc<ScriptedChannel>, Value, ScriptedSignInPlace)>,
     sign_in_starts: Vec<ScriptedSignInStart>,
-    mcp_probe_channels: VecDeque<Arc<ScriptedChannel>>,
+    mcp_probes: VecDeque<(Arc<ScriptedChannel>, Vec<Value>)>,
     mcp_probe_starts: Vec<ClaudeMcpProbeProcessRequest>,
     started: Vec<ScriptedStartRecord>,
     next_process_id: u32,
@@ -186,9 +192,15 @@ impl ScriptedStarts {
     /// Scripts the next account read to answer `mcp_status` and `settings`, in place of answers
     /// that carry no list and no settings.
     pub(crate) fn script_account_servers(&self, mcp_status: Value, settings: Value) {
-        self.lock()
-            .account_server_answers
-            .push_back((mcp_status, settings));
+        let channel = Arc::new(ScriptedChannel::default());
+        channel.answer("mcp_status", ScriptedAnswer::Reply(mcp_status));
+        channel.answer("get_settings", ScriptedAnswer::Reply(settings));
+        self.script_account_servers_read(channel);
+    }
+
+    /// Scripts the next account read's process to be `channel`.
+    pub(crate) fn script_account_servers_read(&self, channel: Arc<ScriptedChannel>) {
+        self.lock().account_server_channels.push_back(channel);
     }
 
     /// Holds the next account read, once counted, until the returned sender fires or drops.
@@ -221,9 +233,10 @@ impl ScriptedStarts {
         std::mem::take(&mut self.lock().account_server_reads)
     }
 
-    /// Scripts the next MCP server probe's process to be `channel`.
-    pub(crate) fn script_mcp_probe(&self, channel: Arc<ScriptedChannel>) {
-        self.lock().mcp_probe_channels.push_back(channel);
+    /// Scripts the next MCP server probe's process to be `channel`, `frames` written once its
+    /// `initialize` is answered.
+    pub(crate) fn script_mcp_probe(&self, channel: Arc<ScriptedChannel>, frames: Vec<Value>) {
+        self.lock().mcp_probes.push_back((channel, frames));
     }
 
     /// Takes every MCP server probe's start recorded so far, each with its command line.
@@ -293,6 +306,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                     advisor: request.spawn.legs.advisor.clone(),
                     step_bound: request.spawn.step_bound,
                     permission_mode: request.permission_mode,
+                    environment: request.spawn.legs.spawn_environment.clone(),
                 });
                 (
                     channel,
@@ -404,15 +418,18 @@ impl ClaudeProcessStarts for ScriptedStarts {
         async { Err(DriverError::Internal("no capabilities scripted".into())) }.boxed()
     }
 
-    fn read_account_servers(
+    fn start_account_servers_read(
         &self,
         _request: ClaudeAccountServersReadRequest,
-    ) -> BoxFuture<'_, Result<ClaudeAccountServerAnswers, ClaudeLaunchError>> {
-        let (answers, hold) = {
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
+        let (channel, hold) = {
             let mut tables = self.lock();
             tables.account_server_reads += 1;
             (
-                tables.account_server_answers.pop_front(),
+                tables
+                    .account_server_channels
+                    .pop_front()
+                    .unwrap_or_default(),
                 tables.account_server_holds.pop_front(),
             )
         };
@@ -421,21 +438,8 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 // A dropped sender releases the read too.
                 hold.await.unwrap_or(());
             }
-            let raw = |value: &Value| {
-                Some(serde_json::value::to_raw_value(value).expect("a scripted reply serializes"))
-            };
-            Ok(match answers {
-                Some((mcp_status, settings)) => ClaudeAccountServerAnswers {
-                    mcp_status: raw(&mcp_status),
-                    settings: raw(&settings),
-                    build_version: None,
-                },
-                None => ClaudeAccountServerAnswers {
-                    mcp_status: None,
-                    settings: None,
-                    build_version: None,
-                },
-            })
+            let channel: Arc<dyn ClaudeProcessChannel> = channel;
+            Ok(channel)
         }
         .boxed()
     }
@@ -489,16 +493,28 @@ impl ClaudeProcessStarts for ScriptedStarts {
     fn start_mcp_probe(
         &self,
         request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
-        let channel = {
+    ) -> BoxFuture<'_, Result<ClaudeMcpProbeProcess, ClaudeLaunchError>> {
+        let probe = {
             let mut tables = self.lock();
             tables.mcp_probe_starts.push(request);
-            tables.mcp_probe_channels.pop_front()
+            tables.mcp_probes.pop_front()
         };
         async move {
-            let channel: Arc<dyn ClaudeProcessChannel> =
-                channel.ok_or_else(|| spawn_failure("no probe scripted"))?;
-            Ok(channel)
+            let (channel, frames) = probe.ok_or_else(|| spawn_failure("no probe scripted"))?;
+            let (sender, arrivals) = mpsc::unbounded_channel();
+            for frame in frames {
+                let text = frame.to_string();
+                let observation = ClaudeStreamFrameRead::read(&text)
+                    .expect("a test frame is an object")
+                    .into_observation();
+                sender
+                    .send(ClaudeShortProcessArrival::Frame(Box::new(
+                        ClaudeStreamFrame { text, observation },
+                    )))
+                    .expect("the arrivals are held");
+            }
+            let channel: Arc<dyn ClaudeProcessChannel> = channel;
+            Ok(ClaudeMcpProbeProcess { channel, arrivals })
         }
         .boxed()
     }

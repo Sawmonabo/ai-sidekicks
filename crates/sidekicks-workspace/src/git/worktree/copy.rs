@@ -4,14 +4,6 @@
 //! one (its mode kept either way), and each link is made again pointing where it pointed. A setup's
 //! copy into a tree keeps what the tree has; a kept or put-back copy goes into a folder of its own
 //! and keeps each file's and link's times.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the setup's copy step, and the kept and put-back copies and their progress"
-    )
-)]
-
 pub mod progress;
 
 use std::fs::{self, FileTimes, Metadata, Permissions};

@@ -151,7 +151,7 @@ async fn delete_now_removes_the_kept_copy_no_cleanup_pass_touches() {
         .await
         .expect("the cleanup pass runs");
     assert!(kept_folder.is_dir());
-    assert!(!read_pins().await.is_empty());
+    assert_ne!(read_pins().await, "");
     assert!(keeper.kept.lock().expect("the keeper's list").is_empty());
 
     fixture

@@ -25,7 +25,9 @@ use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::CurrentProviderAccount;
-use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver, RunOpeningItem};
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::params_and_results::RunOpeningItem;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_session::queue_store::{QueueItemBody, QueueItemRecord, RecordedQueueItemState};
 use tokio::time::timeout;
@@ -187,7 +189,11 @@ impl Fixture {
         match queued {
             AgentQueueItemCreateResponse::Queued { queue_item_id, .. }
             | AgentQueueItemCreateResponse::Admitted { queue_item_id, .. } => queue_item_id,
-            other => panic!("the review waits or is admitted: {other:?}"),
+            other @ (AgentQueueItemCreateResponse::Superseded { .. }
+            | AgentQueueItemCreateResponse::Canceled { .. }
+            | AgentQueueItemCreateResponse::NotDelivered { .. }) => {
+                panic!("the review waits or is admitted: {other:?}")
+            }
         }
     }
 

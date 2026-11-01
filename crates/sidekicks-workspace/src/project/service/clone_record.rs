@@ -316,7 +316,8 @@ impl ProjectService {
             local_path: FilesystemPath::new(folder.to_string_lossy().into_owned())?,
             place: None,
         };
-        let target = self.mounts.resolve_attach_target(&request).await?;
+        let resolved = self.mounts.resolve_folder(&request).await?;
+        let target = self.mounts.attach_target_of(&resolved).await?;
         let activate = WriteStatement {
             sql: Cow::Borrowed(ACTIVATE_CLONED_PROJECT_SQL.as_str()),
             bindings: StatementBindings::Named(vec![

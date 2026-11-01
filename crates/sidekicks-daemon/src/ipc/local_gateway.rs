@@ -13,6 +13,7 @@ use interprocess::local_socket::tokio::{Listener, Stream};
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
 use sidekicks_ipc::registry::{Dispatch, MethodRegistry, TransportId};
 use sidekicks_ipc::stream::subscriptions::Subscriptions;
@@ -81,6 +82,8 @@ pub(crate) struct GatewayServices {
     pub(crate) negotiator: Arc<ProtocolNegotiator>,
     /// The open subscriptions, ended per connection as it closes.
     pub(crate) subscriptions: Arc<Subscriptions>,
+    /// The devices' heartbeats, each connection's dropped as it closes.
+    pub(crate) presence: Arc<PresenceRegister>,
     /// The listener's and the connections' observers.
     pub(crate) hooks: Arc<dyn SupervisionHooks>,
 }

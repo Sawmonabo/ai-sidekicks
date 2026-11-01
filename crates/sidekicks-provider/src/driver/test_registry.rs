@@ -1,8 +1,9 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build
 //! takes, the table's first providers answered by stand-in drivers, a run bound to the first one,
-//! the session inbox addresser the table's own drivers answer, and an accounts reader answering
-//! one current account; the run, session and message ids the drivers' tests mint, and the run
-//! queue's intake as a driver tells it.
+//! the session inbox addresser the table's own drivers answer, an accounts reader answering one
+//! current account, the table with Codex's driver over a scripted service, and the stand-in Codex
+//! service a test program runs as itself; the run, session and message ids the drivers' tests
+//! mint, and the run queue's intake as a driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -45,6 +46,12 @@ use crate::command::waiting_checks::SystemInputWaitReader;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
+use crate::driver::child_records::UnrecordedChildren;
+pub use crate::driver::codex::{
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, ScriptedCodexService,
+    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
+    write_codex_service_script,
+};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::ports::DriverPorts;
 #[cfg(test)]
@@ -54,7 +61,7 @@ use crate::driver::ports::{
 use crate::driver::registry::ProviderRegistry;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, DriverServices, PROVIDER_REGISTRATIONS, PROVIDERS,
-    ProviderAccountFolders, ProviderAccountReader, ProviderRegistration,
+    ProviderAccountFolders, ProviderAccountReader, ProviderRegistration, codex,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::process_registry::ProviderProcessRegistry;
@@ -146,10 +153,10 @@ pub fn registered_test_accounts(
 }
 
 /// The shared services every driver's build takes, with every port unregistered, the spawn
-/// contexts among them, no attachment or binding rebind served, the read pool on a database no
-/// test opens, every folder under a relative one that no test makes, and a set of held provider
-/// services of its own, which a test reads through its field. Called on a tokio runtime, which
-/// the spawner thread starts on.
+/// contexts among them, no attachment or binding rebind served, no child recorded, the read pool
+/// on a database no test opens, every folder under a relative one that no test makes, and a set of
+/// held provider services of its own, which a test reads through its field. Called on a tokio
+/// runtime, which the spawner thread starts on.
 pub fn test_driver_services() -> DriverServices {
     let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
     let folder = PathBuf::from("driver-services");
@@ -181,6 +188,7 @@ pub fn test_driver_services() -> DriverServices {
         command_search: Arc::new(ProviderCommandSearch::new(spawner.clone())),
         pending_compactions: PendingCompactionRegistry::default(),
         processes: Arc::new(ProviderProcessRegistry::default()),
+        child_records: Arc::new(UnrecordedChildren),
         provider_services: Arc::new(ProviderServiceProcesses::default()),
         runtime_bindings: Arc::new(NothingServed),
         shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),
@@ -236,6 +244,28 @@ pub fn registrations_of_first_providers(
     table
 }
 
+/// The table's providers in its order, each built as the table builds it but Codex, whose driver's
+/// registry holds `scripted`'s service, every account resolving to its home; the next build from
+/// it takes that service, so each daemon start over it is given its service by its own call.
+pub fn registrations_over_scripted_codex(
+    scripted: &ScriptedCodexService,
+) -> &'static [ProviderRegistration] {
+    codex::hold_scripted_service(scripted);
+    // A start keeps its table for its whole life, and a test makes one or two.
+    PROVIDER_REGISTRATIONS
+        .iter()
+        .map(|registration| ProviderRegistration {
+            descriptor: registration.descriptor,
+            build: if registration.descriptor.id == codex::DESCRIPTOR.id {
+                codex::build_over_scripted_service
+            } else {
+                registration.build
+            },
+        })
+        .collect::<Vec<_>>()
+        .leak()
+}
+
 /// Binds `run_id` in `database` to the table's first provider, as a live runtime binding does, so a
 /// test may bind several runs, and answers the binding's id.
 pub fn bind_run_to_first_provider(database: &TestDatabase, run_id: RunId) -> RuntimeBindingId {
@@ -279,8 +309,14 @@ pub fn new_run_id() -> RunId {
 
 /// A minted session id.
 #[cfg(test)]
-pub(super) fn new_session_id() -> SessionId {
+pub(crate) fn new_session_id() -> SessionId {
     SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
+}
+
+/// One fixed session id, for a test that names its session in several places.
+#[cfg(test)]
+pub(crate) fn fixed_session_id() -> SessionId {
+    SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id")
 }
 
 /// A minted id of a queued message.

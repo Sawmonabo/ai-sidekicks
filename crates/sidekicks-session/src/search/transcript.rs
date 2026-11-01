@@ -24,7 +24,7 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText, TextError};
 use sidekicks_contracts::wire::{False, True};
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_search::index::{SearchIndex, SearchIndexError, SearchQuery, SessionFind};
 use sidekicks_store::database::stored_column::rowid_column;
 

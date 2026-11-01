@@ -1,7 +1,7 @@
-//! The Codex home one service runs on, and the three kinds of service the daemon keeps there: one
-//! it starts as its own child, the lasting one on the person's own Codex folder that terminals
-//! join, and one already there that is not the daemon's, which it only joins; and how the driver
-//! resolves the home an account runs in.
+//! The Codex home one service runs on, and the three kinds of service the daemon keeps there: its
+//! own on an account home or the capability read's, the lasting one on the person's own Codex
+//! folder that terminals join, and one already there that is not the daemon's, which it only
+//! joins; and how the driver resolves the home an account runs in.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -15,7 +15,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use crate::driver::ProviderAccountReader;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::registry::CodexHomeResolver;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 
 /// The person's own Codex folder under their home, where `CODEX_HOME` names none.
 const CODEX_PERSONAL_HOME_FOLDER_NAME: &str = ".codex";
@@ -62,9 +62,10 @@ impl CodexServiceHome {
 /// who may stop it. A session's recovery and a conversation's purge read it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexServiceKind {
-    /// The daemon's own child, prepared as every child of the daemon is, which the daemon's stop
-    /// ends and which carries no hook switch: on an account home, the capability read's and an MCP
-    /// sign-in's.
+    /// The daemon's own service with no hook switch: on an account home a lasting service kept in
+    /// its record, which a daemon restart keeps running and the next start joins, and on the
+    /// capability read's home and an MCP sign-in's the daemon's own child, which the daemon's stop
+    /// ends.
     Account,
     /// The lasting service on the person's own Codex folder that terminals join: started by the
     /// daemon in a session of its own with the daemon's two hooks, kept in its record, outliving a

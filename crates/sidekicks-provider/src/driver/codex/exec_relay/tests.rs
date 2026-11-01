@@ -16,7 +16,7 @@ use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::Spawner;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
-use sidekicks_workspace::git::process::NO_PROMPT_ENVIRONMENT;
+use sidekicks_workspace::git::process::environment::NO_PROMPT_ENVIRONMENT;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader, DuplexStream, Lines};
 use tokio::runtime::Handle;
 use tokio_tungstenite::tungstenite::Message;
@@ -38,6 +38,7 @@ use crate::command::channel::test_support::{
 use crate::command::running_set::RunningCommandSets;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::command::waiting_checks::SystemInputWaitReader;
+use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
@@ -48,7 +49,7 @@ use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket
 use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
 use crate::driver::codex::thread::settings::compose_codex_relay_environments;
 use crate::driver::codex::thread::view::{THREAD_START_METHOD, TURN_START_METHOD};
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::test_registry::new_run_id;
 use crate::driver::test_registry::{new_session_id, test_driver_services};
 use crate::port::running_command_publisher::{
@@ -368,7 +369,7 @@ fn wraps_a_start_with_its_name_and_terminal() {
 // skipping the wrapper for a start that carries `shellSnapshot`, by wrapping a copy's start or
 // giving it the askpass, by setting only git's terminal prompt off, and by keeping a refused start.
 #[tokio::test]
-async fn wraps_a_sessions_start_and_gives_a_copys_start_no_way_to_ask() {
+async fn wraps_a_sessions_start_and_gives_a_copy_s_start_no_way_to_ask() {
     let folder = tempfile::tempdir().expect("a test folder");
     let session_id = new_session_id();
     let relay = relay_reporting_to(
@@ -784,6 +785,7 @@ async fn run_parity_turn(
             environment,
         }),
         Arc::new(UnheardEvents),
+        Arc::new(UnrecordedChildren),
     );
     let socket = folder.path().join("codex.sock");
     let service = CodexService::new(

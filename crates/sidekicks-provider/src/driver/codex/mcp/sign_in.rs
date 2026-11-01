@@ -26,16 +26,16 @@ use url::Url;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::McpServerOauthLoginParams;
 use crate::driver::codex::config_read::read_codex_config;
-use crate::driver::codex::lifecycle::naming::lockdown::MCP_SERVERS_KEY;
 use crate::driver::codex::mcp::config::plugins::read_plugin_server_entries;
 use crate::driver::codex::mcp::config::server_entry::ENABLED_MEMBER;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::codex::transport::connection::{
     CodexConnectionEvents, CodexForgottenRequest, read_codex_object,
 };
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
     BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInBrowser, ProviderSignInTakeover,
     ProviderSignInTakeoverRequest,
@@ -204,9 +204,10 @@ async fn read_sign_in_entry(
     let name = binding_server_name(binding);
     let entry = match binding {
         McpServerBindingRef::Connector { .. } => {
-            return Err(DriverError::NoPersonServerEntry(NoPersonServerEntry {
+            return Err(NoPersonServerEntry {
                 binding: binding.clone(),
-            }));
+            }
+            .into());
         }
         McpServerBindingRef::Plugin { .. } => {
             read_plugin_server_entries(&plugin_home(home_folder, &DESCRIPTOR.provider_id()))
@@ -531,6 +532,7 @@ mod tests {
         CODEX_CREDENTIALS_FILE, OAUTH_LOGIN_COMPLETED_METHOD, OAUTH_LOGIN_METHOD,
         read_codex_saved_sign_in, sign_in_with_codex_client,
     };
+    use crate::driver::child_records::UnrecordedChildren;
     use crate::driver::codex::DESCRIPTOR;
     use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
     use crate::driver::codex::service::registry::{
@@ -540,7 +542,7 @@ mod tests {
         STAND_IN_CODEX, UnheardEvents, script_codex_service, test_codex_service_dependencies,
     };
     use crate::driver::codex::service::supervisor::{CodexProgramResolver, CodexServiceSocket};
-    use crate::driver::contract::DriverError;
+    use crate::driver::contract::error::DriverError;
     use crate::driver::contract::sign_in::{ProviderSignInBrowser, ProviderSignInTakeoverRequest};
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::spawned_version::ResolvedProviderExecutable;
@@ -709,6 +711,7 @@ mod tests {
             folder.path(),
             Arc::new(SignInStandIn { program }),
             Arc::new(UnheardEvents),
+            Arc::new(UnrecordedChildren),
         );
         let person_home = CodexServiceHome {
             codex_home: folder.path().join("home"),

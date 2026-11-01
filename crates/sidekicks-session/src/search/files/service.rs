@@ -18,12 +18,9 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use futures::FutureExt as _;
 use futures::future::{BoxFuture, Shared};
-use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::WorkingTreeChangeMode;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{
     SessionFileSearchEntry, SessionFileSearchEntryKind, SessionFileSearchRequest,
     SessionFileSearchResponse,
@@ -49,10 +46,15 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::task::JoinError;
 use tokio_util::task::TaskTracker;
 
+use crate::refusals::working_folder_missing;
 use crate::search::files::listing::{ListingError, WorkingFolderListing, list_working_folder};
 
 /// The statements the file search prepares on a read connection: the session's working folder.
 pub const FILE_SEARCH_STATEMENT_CAPACITY: usize = 1;
+
+// Why a session whose working folder is not in place, yet or any more, cannot be searched.
+const CANNOT_SEARCH: &str =
+    "The session's working folder is not in place, so it cannot be searched.";
 
 /// The most rows one `@` search answers.
 const FILE_SEARCH_RESULT_MAX: usize = 50;
@@ -396,7 +398,7 @@ impl FileSearchService {
             })
             .await?;
         let Some(folder) = working_folder.working_folder else {
-            return Err(working_folder_missing(&session_id).into());
+            return Err(working_folder_missing(&session_id, CANNOT_SEARCH).into());
         };
         if let Some(Place::Wsl(wsl)) = &working_folder.place {
             return Err(GitError::WslPlace {
@@ -411,7 +413,7 @@ impl FileSearchService {
         {
             Ok(root) => root,
             Err(error) if is_gone(&error) => {
-                return Err(working_folder_missing(&session_id)
+                return Err(working_folder_missing(&session_id, CANNOT_SEARCH)
                     .with_source(error)
                     .into());
             }
@@ -564,16 +566,6 @@ async fn follow_folder_changes(
 fn lock_listings(listings: &Mutex<KeptListings>) -> MutexGuard<'_, KeptListings> {
     // The map holds no invariant a panicking holder could break.
     lock(listings)
-}
-
-/// `session.workingFolder.missing`: the session's working folder is not in place, yet or any
-/// more, so it cannot be searched. The session's id goes out as the refusal's detail.
-fn working_folder_missing(session_id: &SessionId) -> DomainError {
-    DomainError::new(
-        "The session's working folder is not in place, so it cannot be searched.",
-        RefusalCode::SessionWorkingFolderMissing,
-    )
-    .with_detail(json!({ "sessionId": session_id }))
 }
 
 // The listing's entries as rows, a path the row's type refuses left out and, for a file,

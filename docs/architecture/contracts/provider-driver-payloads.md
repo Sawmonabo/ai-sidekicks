@@ -78,7 +78,10 @@ interface ProviderDriver {
   // The provider's catalog for a session's model control, read against the account the params
   // name, or the provider's default account where they name none.
   listModels(params: ListModelsParams): Promise<ProviderModel[]>;
-  listModes(): Promise<ProviderMode[]>;
+  // The levels the provider runs for a session's level control, read against the model the params
+  // name on their account, or the provider's current account where they name none; with no
+  // model, the levels this system runs.
+  listModes(params: ListModesParams): Promise<ProviderMode[]>;
   getCapabilities(): Promise<GetCapabilitiesResult>;
   probeAuth(): Promise<DriverAuthProbeResult>;
   // Compose the hand-over brief a session on a DIFFERENT provider is started from, on a throwaway
@@ -232,6 +235,16 @@ interface ListModelsParams {
   providerAccountId: ProviderAccountId | null;
 }
 
+// The DRIVER-FACING params of `listModes`. For the session's own provider the daemon names the
+// session, its own bound account (`null` for the provider's current account) and the model the
+// session's lead runs on now; for every other provider it names none of them, and that provider
+// lists the levels this system runs.
+interface ListModesParams {
+  sessionId: SessionId | null;
+  providerAccountId: ProviderAccountId | null;
+  model: string | null;
+}
+
 // Why one provider's models or modes could not be read. `code` is the refusal the read answered
 // (`provider.timeout`, `provider.unavailable`, `provider.commandPath.notRunnable` for a command
 // path the person typed with nothing runnable at it, ...); `providerFailureDetail` is the
@@ -254,8 +267,10 @@ interface ProviderModelListResponse {
   providers: ProviderModelReport[];
 }
 
-// `provider.mode.list` answers the same way: one outcome per installed provider in the provider
-// table's order, its modes or the failure their read answered, a provider not installed left out.
+// `provider.mode.list {sessionId}` answers the same way, refused `session.notFound` for a session
+// the daemon does not hold: one outcome per installed provider, the session's own provider first
+// and then the provider table's order, its modes or the failure their read answered, a provider not
+// installed left out.
 type ProviderModeReport =
   | { providerName: ProviderId; modes: ProviderMode[] }
   | { providerName: ProviderId; failure: ProviderReadFailure };
@@ -657,9 +672,8 @@ interface ApplyInterventionResponse {
 // rollback: undo cuts the conversation IN PLACE through `rewindConversation`.
 interface MoveSessionToForkParams {
   sessionId: SessionId;
-  // the normalized session position of the message the fork carries history up to and including
-  // (the vocabulary `DriverResumeResult.sessionPosition` reports); the driver maps it to its
-  // provider's own anchor
+  // the normalized session position of the message the fork carries history up to and including;
+  // the driver maps it to its provider's own anchor
   position: number;
   // the session's leg — the run's live runtime binding, daemon-resolved at dispatch (run→bindings
   // is 1:many, so `sessionId` alone cannot name it); no client payload carries it
@@ -722,14 +736,15 @@ type DriverGoalResult =
 // silent-replacement structurally inexpressible: the failure variant has no `bindingId`, so a
 // successful resume cannot be conflated with a failed one. Spec-004 §Fallback Behavior requires
 // that resume failure "surface `providerFailure` detail and a visible `recoveryNeeded` condition;
-// it must not silently create a replacement provider session under the same canonical run." The
-// `resumed` variant's REQUIRED `sessionPosition` is the driver's normalized monotonic position —
-// turn/event ordinal, the same number-cursor convention as `lastAppliedSequence`/`afterSequence` in
-// persistence-payloads.md — which the daemon compares against its recorded position; divergence
-// reconciliation (halt-for-human, rollback markers as the position floor) is Spec-013's, per
-// ADR-016's rule that the local log is authoritative. The compare also catches a provider silently
-// returning a fresh session on resume (e.g. Claude on a working-directory mismatch): a fresh
-// session's position cannot match the recorded one. Timestamps for the resumed case live on
+// it must not silently create a replacement provider session under the same canonical run." After a
+// `resumed` result the daemon compares the provider's record with its own by provider id at the
+// grain of each step; divergence reconciliation (halt-for-human, rollback markers as the floor) is
+// Spec-013's, per ADR-016's rule that the local log is authoritative. The driver reports `resumed`
+// only for the provider session its handle names, so a provider silently returning a fresh session
+// on resume (e.g. Claude on a working-directory mismatch) is caught: Codex refuses a
+// `thread/resume` reply naming another thread, and Claude Code's first `system/init` after a resume
+// naming another session fails the run with `providerFailure` and `recoveryNeeded` before any row
+// of that turn is written. Timestamps for the resumed case live on
 // `runtime_bindings.updated_at` (Plan-003 T2.1); the result shape carries only the
 // discriminated-union semantic payload.
 type DriverResumeResult =
@@ -741,7 +756,6 @@ type DriverResumeResult =
   | {
       status: "resumed";
       bindingId: string;
-      sessionPosition: number;
       // The conversation the session runs on now, which the daemon records on the binding: the
       // handle it was given, or a new one where the provider continues the conversation in a new
       // thread, as Codex does, reopening a conversation by forking it with the session's whole

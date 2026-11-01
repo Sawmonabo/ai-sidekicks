@@ -13,7 +13,7 @@ use super::count_live_runs_after_commits;
 pub async fn counted_log(database: &TestDatabase) -> (TestLog, watch::Receiver<u32>) {
     let (after_commit, live_runs) = count_live_runs_after_commits();
     let options = DatabaseWriterOptions {
-        after_commit: Some(after_commit),
+        after_commits: vec![after_commit],
         ..DatabaseWriterOptions::default()
     };
     (open_log_with(database, options).await, live_runs)

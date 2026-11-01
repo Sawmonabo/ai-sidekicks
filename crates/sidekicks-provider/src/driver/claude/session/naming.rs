@@ -16,8 +16,8 @@ use tokio_util::sync::CancellationToken;
 use crate::driver::claude::session::conversation_file::conversation_file_of;
 use crate::driver::claude::session::conversation_file::title::append_claude_custom_title;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
-use crate::driver::claude::session::establishment::ClaudeSpawnSources;
 use crate::driver::claude::session::establishment::context::resolve_claude_spawn_context;
+use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::session::restart::ended_process::ClaudeEndedConversation;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
@@ -32,7 +32,7 @@ use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnRequest;
 use crate::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{NameSessionParams, run_naming_pass_until};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
@@ -200,6 +200,7 @@ async fn compose_naming_legs(
             provider_account_id,
             command_channel: None,
             context,
+            continues_interrupted_turn: false,
         },
         &ClaudeSpawnLegServices::of(sources),
     )

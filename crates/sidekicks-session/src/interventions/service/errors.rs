@@ -6,8 +6,7 @@ use sidekicks_contracts::run::intervention::{InterventionId, InterventionState};
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::driver::contract::DriverError;
-use sidekicks_provider::driver::error_causes::RequestUnanswered;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::settle_all::SettleFailures;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
@@ -15,7 +14,7 @@ use sidekicks_store::events::session::appender::{SessionEventAppendError, Sessio
 
 use crate::driver_resolution::LiveRunDriverError;
 use crate::interventions::interrupt_queue::InterruptQueueError;
-use crate::run::engine::RunEngineError;
+use crate::run::engine::errors::RunEngineError;
 
 /// Why a dispatch threw or could not run; its row moves to `failed` with a refusal's code, else
 /// its description.
@@ -69,6 +68,7 @@ impl From<RunEngineError> for DispatchError {
             error @ (RunEngineError::Change { .. }
             | RunEngineError::Released { .. }
             | RunEngineError::Gate { .. }
+            | RunEngineError::NoSessionPosture { .. }
             | RunEngineError::NoResolvedPosture { .. }
             | RunEngineError::Driver { .. }
             | RunEngineError::LimitInterrupterGone { .. }
@@ -142,7 +142,7 @@ pub enum InterventionError {
         /// The intervention.
         intervention_id: InterventionId,
         /// What the dispatch threw.
-        dispatch: DispatchError,
+        dispatch: Box<DispatchError>,
         /// Why the failure was not recorded.
         #[source]
         record: SessionEventAppendError,
@@ -173,10 +173,10 @@ impl From<InterventionError> for HandlerError {
     fn from(error: InterventionError) -> Self {
         match error {
             InterventionError::Refused(refusal)
-            | InterventionError::Engine(RunEngineError::Provider(refusal))
             | InterventionError::NoDriver(LiveRunDriverError::ProviderNotFound(refusal)) => {
                 Self::Refused(refusal)
             }
+            InterventionError::Engine(RunEngineError::Provider(refusal)) => Self::Refused(refusal),
             InterventionError::Engine(RunEngineError::Refused(refusal)) => {
                 Self::Refused(refusal.into())
             }
@@ -189,6 +189,7 @@ impl From<InterventionError> for HandlerError {
                 RunEngineError::Change(_)
                 | RunEngineError::Released(_)
                 | RunEngineError::Gate { .. }
+                | RunEngineError::NoSessionPosture { .. }
                 | RunEngineError::NoResolvedPosture { .. }
                 | RunEngineError::Driver { .. }
                 | RunEngineError::LimitInterrupterGone { .. }
@@ -214,10 +215,13 @@ impl From<InterventionError> for HandlerError {
 pub(super) fn failure_text_of(error: &DispatchError) -> String {
     match error {
         DispatchError::Refused(refusal)
-        | DispatchError::NoDriver(LiveRunDriverError::ProviderNotFound(refusal))
-        | DispatchError::Driver(
-            DriverError::Refused(refusal) | DriverError::Unanswered(RequestUnanswered { refusal }),
-        ) => refusal.code.as_str().to_owned(),
+        | DispatchError::NoDriver(LiveRunDriverError::ProviderNotFound(refusal)) => {
+            refusal.code.as_str().to_owned()
+        }
+        DispatchError::Driver(DriverError::Refused(refusal)) => refusal.code.as_str().to_owned(),
+        DispatchError::Driver(DriverError::Unanswered(unanswered)) => {
+            unanswered.refusal.code.as_str().to_owned()
+        }
         DispatchError::NoDriver(LiveRunDriverError::Unbound { .. })
         | DispatchError::Driver(_)
         | DispatchError::Engine(_)

@@ -1,12 +1,12 @@
 //! The Codex services of one driver, one per credential home: a session on an account the app
-//! manages shares that account's service, and the person's own Codex folder holds the terminal
-//! service while terminal reach is on, which no session of the app runs on. A service listens on
-//! the home's own control socket, which a terminal's plain `codex` joins, except for a planned
-//! restart's second service, which takes a socket of its own beside it under a name no daemon
-//! start reuses, the home's socket then pointed at it. The capability read and each MCP sign-in
-//! run one short-lived service of their own on a folder of the daemon's own, which the registry
-//! never holds, and a read on the person's own folder with no fitting service there runs one on a
-//! socket of its own beside it.
+//! manages shares that account's lasting service, which a daemon restart keeps running, and the
+//! person's own Codex folder holds the terminal service while terminal reach is on, which no
+//! session of the app runs on. A service listens on the home's own control socket, which a
+//! terminal's plain `codex` joins, except for a planned restart's second service, which takes a
+//! socket of its own beside it under a name no daemon start reuses, the home's socket then pointed
+//! at it. The capability read and each MCP sign-in run one short-lived service of their own on a
+//! folder of the daemon's own, which the registry never holds, and a read on the person's own
+//! folder with no fitting service there runs one on a socket of its own beside it.
 
 pub(crate) mod personal_folder_read;
 
@@ -27,13 +27,14 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::record::recorded_home_keys;
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
-#[cfg(test)]
+use crate::driver::codex::service::supervisor::start::kept_records::stop_kept_services;
+#[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::supervisor::test_service::ScriptedCodexService;
 use crate::driver::codex::service::supervisor::{
     CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::service_log::provider_service_log_file_of_key;
 
@@ -45,7 +46,7 @@ const CODEX_HOME_SOCKET_NAME: &str = "app-server-control.sock";
 
 /// The folder under the daemon's data folder the capability read's service runs in as its home,
 /// made empty before each read and removed after it.
-pub(crate) const CODEX_CAPABILITY_READ_FOLDER: &str = "codex-capability-read";
+const CODEX_CAPABILITY_READ_FOLDER: &str = "codex-capability-read";
 
 /// The folder under the daemon's data folder each MCP sign-in through Codex's own client makes
 /// its own folder in, removed after the sign-in.
@@ -146,7 +147,7 @@ impl CodexServiceRegistry {
     /// folder with [`CodexServiceRegistry::remove_capability_read_home`] whether the read
     /// succeeded or failed. Fails when the folder cannot be emptied or made.
     pub(crate) async fn capability_read_service(&self) -> Result<Arc<CodexService>, DriverError> {
-        let codex_home = self.capability_read_home();
+        let codex_home = capability_read_home(&self.dependencies.data_folder);
         self.remove_capability_read_home().await?;
         tokio::fs::create_dir_all(&codex_home)
             .await
@@ -157,14 +158,7 @@ impl CodexServiceRegistry {
     /// Removes the capability read's folder and everything its service wrote there; a folder
     /// already gone is removed. Fails as the removal fails.
     pub(crate) async fn remove_capability_read_home(&self) -> Result<(), DriverError> {
-        remove_own_folder(&self.capability_read_home()).await
-    }
-
-    // The capability read's home: its folder under the data folder.
-    fn capability_read_home(&self) -> PathBuf {
-        self.dependencies
-            .data_folder
-            .join(CODEX_CAPABILITY_READ_FOLDER)
+        remove_own_folder(&capability_read_home(&self.dependencies.data_folder)).await
     }
 
     /// A service of its own for one MCP server's sign-in, on `codex_home`, a folder of the
@@ -195,7 +189,6 @@ impl CodexServiceRegistry {
             Vec::new(),
         )
     }
-
     /// Whether terminal reach is on, read from the service: the person's own folder's service is
     /// the one terminal reach names, and it is up or on its way back up. One that failed to start,
     /// ended in a crash loop or was stopped reads as off.
@@ -423,9 +416,11 @@ impl CodexServiceRegistry {
     }
 
     /// Shuts every service down for good, the replaced ones included, and answers once every one
-    /// has: the daemon's own are stopped, a joined one only disconnected, under `Restart` the
-    /// terminal service keeps running, and every drain's wait is called off, its service draining
-    /// on by itself. Each stop reports its own failure.
+    /// has: the daemon's own are stopped, a joined one only disconnected, under `Restart` every
+    /// lasting service, the terminal service and each account home's, keeps running in its record
+    /// for the next start to join, and under `Stop` every service a record still keeps is stopped
+    /// too, one a former daemon kept that this one never joined among them; every drain's wait is
+    /// called off, its service draining on by itself. Each stop reports its own failure.
     pub(crate) async fn shutdown(&self, intent: DaemonStopIntent) {
         // A stop never waits on a drain: each drains on by itself, its record left marked.
         self.dependencies.drains.call_off();
@@ -442,6 +437,12 @@ impl CodexServiceRegistry {
                 .collect()
         };
         join_all(services.iter().map(|service| service.shutdown(intent))).await;
+        match intent {
+            DaemonStopIntent::Stop => {
+                stop_kept_services(self.dependencies.data_folder.clone()).await;
+            }
+            DaemonStopIntent::Restart => {}
+        }
     }
 
     /// The logs of the lasting services that may run now: each one the registry holds, a replaced
@@ -481,7 +482,7 @@ impl CodexServiceRegistry {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl CodexServiceRegistry {
     /// A registry holding `scripted`'s service as its home's, every account resolving to that
     /// home.
@@ -516,10 +517,10 @@ impl CodexServiceRegistry {
 }
 
 /// A home resolver answering the one home a test names for every account and for terminal reach.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) struct OneHome(pub(crate) CodexServiceHome);
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl CodexHomeResolver for OneHome {
     fn codex_home_for<'call>(
         &'call self,
@@ -576,6 +577,11 @@ async fn remove_own_folder(folder: &Path) -> Result<(), DriverError> {
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
         Err(error) => Err(DriverError::Internal(Box::new(error))),
     }
+}
+
+/// The capability read's home: its folder under the daemon's `data_folder`.
+pub(crate) fn capability_read_home(data_folder: &Path) -> PathBuf {
+    data_folder.join(CODEX_CAPABILITY_READ_FOLDER)
 }
 
 /// The home's own control socket.

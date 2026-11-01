@@ -13,12 +13,13 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::file::bounded_read::read_within_ceiling;
 use sidekicks_store::database::stored_column::{StoredJsonFault, parse_stored_json_object};
-use sidekicks_store::database::writer::WriteError;
+use sidekicks_store::events::session::appender::SessionEventEmitError;
 
 use crate::errors::{
     WorkspaceRefusal, WorkspaceServiceInvariantError, WorkspaceServiceInvariantKind,
 };
 use crate::projector::FilesystemPathProbe;
+use crate::service::WorkspaceServiceError;
 
 /// The JSON path in `repo_mounts.metadata` of the mount's identity anchor: the git common folder,
 /// each link resolved, that its attach recorded.
@@ -26,7 +27,6 @@ pub(crate) const COMMON_DIR_METADATA_PATH: &str = "$.commonDir";
 
 /// The JSON path in `workspaces.metadata` of why a `rootLost` workspace's last preparation failed,
 /// the one metadata key that reaches the wire.
-#[expect(dead_code, reason = "the workspace service's bind and preparation")]
 pub(crate) const LAST_ERROR_METADATA_PATH: &str = "$.lastError";
 
 /// The JSON path in `workspaces.metadata` of the folder the bind admitted, where a `boundRoot` run
@@ -74,7 +74,6 @@ pub(crate) async fn probe_filesystem_path(
 /// relative path, `~`, or a Windows root with no drive (`\repos\app`). Fails with
 /// [`WorkspaceServiceInvariantKind::NonAbsoluteExecutionRoot`], whose message does not echo the
 /// candidate.
-#[expect(dead_code, reason = "the workspace service's bind and preparation")]
 pub(crate) fn assert_absolute_execution_root(
     candidate: &Path,
     workspace_id: WorkspaceId,
@@ -94,7 +93,6 @@ pub(crate) fn assert_absolute_execution_root(
 
 /// Refuses a worktree on a chat's managed mount, the one mode rule: a chat works only in its own
 /// folder. Fails with [`WorkspaceRefusal::ModeUnsupported`].
-#[expect(dead_code, reason = "the workspace service's bind and preparation")]
 pub(crate) fn assert_mode_offered(
     execution_mode: ExecutionMode,
     is_managed_mount: bool,
@@ -107,35 +105,21 @@ pub(crate) fn assert_mode_offered(
     }
 }
 
-/// Why a write that expected to change one workspace row was not kept.
-#[expect(dead_code, reason = "the workspace service's bind and preparation")]
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum SingleRowWriteError {
-    /// The row left the state the write expected before it committed, so neither the write nor
-    /// its event was kept: an illegal transition.
-    #[error(transparent)]
-    Moved(#[from] WorkspaceServiceInvariantError),
-    /// The writer failed the write for another reason.
-    #[error(transparent)]
-    Write(#[from] WriteError),
-}
-
-/// `written`, a write whose guarded statement expects one row, with a refusal of that statement
-/// read as the row having moved: [`SingleRowWriteError::Moved`] of kind
+/// `appended`, an event append whose prelude's guarded statement expects one row, with a refusal of
+/// that statement read as the row having moved: [`WorkspaceServiceError::Invariant`] of kind
 /// [`WorkspaceServiceInvariantKind::IllegalStateTransition`], naming `moved_subject` (the row
 /// that failed the guard, such as the repo mount for a bind's conditional insert) and keeping the
-/// refusal as its cause. Any other failure passes through as [`SingleRowWriteError::Write`].
-#[expect(dead_code, reason = "the workspace service's bind and preparation")]
-pub(crate) fn expect_single_row_changed<Written>(
-    written: Result<Written, WriteError>,
+/// refusal as its cause. Any other failure passes through as [`WorkspaceServiceError::Append`].
+pub(crate) fn expect_single_row_changed<Appended>(
+    appended: Result<Appended, SessionEventEmitError>,
     workspace_id: WorkspaceId,
     attempted_action: &str,
     moved_subject: &str,
-) -> Result<Written, SingleRowWriteError> {
-    match written {
-        Ok(written) => Ok(written),
+) -> Result<Appended, WorkspaceServiceError> {
+    match appended {
+        Ok(appended) => Ok(appended),
         Err(error) if error.refused_statement_index().is_some() => {
-            Err(SingleRowWriteError::Moved(WorkspaceServiceInvariantError {
+            Err(WorkspaceServiceInvariantError {
                 message: format!(
                     "cannot {attempted_action} workspace \"{workspace_id}\": {moved_subject} left \
                      its expected state before the write committed"
@@ -143,16 +127,16 @@ pub(crate) fn expect_single_row_changed<Written>(
                 kind: WorkspaceServiceInvariantKind::IllegalStateTransition,
                 workspace_id: Some(workspace_id),
                 source: Some(Box::new(error)),
-            }))
+            }
+            .into())
         }
-        Err(error) => Err(SingleRowWriteError::Write(error)),
+        Err(error) => Err(WorkspaceServiceError::Append(error)),
     }
 }
 
 /// The `lastError` a workspace row's `metadata` holds, `None` when it holds none or a value that
 /// is not text. Fails with [`StoredJsonFault`] when the blob is no JSON object: only SQLite's JSON
 /// functions write it, so that is a corrupt row.
-#[expect(dead_code, reason = "the workspace service's bind and preparation")]
 pub(crate) fn read_last_error(metadata: &str) -> Result<Option<String>, StoredJsonFault> {
     let members = parse_stored_json_object(metadata)?;
     Ok(members

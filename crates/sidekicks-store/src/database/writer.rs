@@ -60,10 +60,30 @@ pub(crate) type EndReason = Arc<dyn Error + Send + Sync + 'static>;
 /// It runs only for a write that committed, whether or not its caller still waits.
 pub(crate) type CommitHook = Box<dyn FnOnce(&[SafeInt<0>]) + Send>;
 
-/// Run on the writer's thread, on its connection, right after each batch that committed a write and
-/// before any caller of the batch hears, so what it reads follows the commits in their order. Its
-/// failure is told to the [`WriteFailureListener`] and fails no write.
-pub type CommitRead = Box<dyn FnMut(&Connection) -> rusqlite::Result<()> + Send>;
+/// A read run on the writer's thread, on its connection, right after each batch that committed a
+/// write and before any caller of the batch hears, so what it reads follows the commits in their
+/// order. Its failure is logged under its name and told to the [`WriteFailureListener`], fails no
+/// write and skips no later read.
+pub struct CommitRead {
+    /// What the read is for, in plain words, which its failure's log names.
+    name: &'static str,
+    read: ConnectionRead,
+}
+
+type ConnectionRead = Box<dyn FnMut(&Connection) -> rusqlite::Result<()> + Send>;
+
+impl CommitRead {
+    /// The read `read`, which a failure's log names by `name`, what it is for in plain words.
+    pub fn new(
+        name: &'static str,
+        read: impl FnMut(&Connection) -> rusqlite::Result<()> + Send + 'static,
+    ) -> Self {
+        Self {
+            name,
+            read: Box::new(read),
+        }
+    }
+}
 
 /// Told of each failure SQLite raised for a write, a batch or a checkpoint, before its caller. It
 /// runs on the write queue's task, so it does only quick work, and one that ends the writer holds
@@ -83,8 +103,8 @@ pub struct DatabaseWriterOptions {
     pub writes_held_until: Option<oneshot::Receiver<Result<(), WritesHeldError>>>,
     /// Told of each failure SQLite raised for a write, a batch or a checkpoint, before its caller.
     pub on_write_failed: Option<WriteFailureListener>,
-    /// Read on the writer's connection after each batch that committed a write.
-    pub after_commit: Option<CommitRead>,
+    /// Read on the writer's connection, in order, after each batch that committed a write.
+    pub after_commits: Vec<CommitRead>,
 }
 
 /// A committed write: what each statement did and each event row's sequence, in the write's order.
@@ -288,7 +308,7 @@ impl DatabaseWriter {
     where
         OpenError: Error + Send + Sync + 'static,
     {
-        let after_commit = options.after_commit.take();
+        let after_commits = std::mem::take(&mut options.after_commits);
         // A copy and the one request it serves beside it.
         let (requests, thread_requests) = mpsc::channel(2);
         let (opened, has_opened) = oneshot::channel();
@@ -300,7 +320,7 @@ impl DatabaseWriter {
             std::thread::Builder::new()
                 .name(WRITER_THREAD_NAME.to_owned())
                 .spawn(move || {
-                    let commits = thread::ThreadCommits::new(after_commit);
+                    let commits = thread::ThreadCommits::new(after_commits);
                     thread::run(
                         open,
                         opened,

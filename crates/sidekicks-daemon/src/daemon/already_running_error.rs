@@ -12,8 +12,6 @@ use sidekicks_store::data_folder::lock::{HeldDataFolder, write_data_folder_held}
 pub(crate) enum HeldPlace {
     /// The data folder, held by the other daemon's lock on its lock file.
     DataFolder {
-        /// The data folder.
-        path: PathBuf,
         /// The holder's process id as it recorded it, when the record could be read.
         process_id: Option<u32>,
     },
@@ -24,7 +22,7 @@ pub(crate) enum HeldPlace {
 impl Display for HeldPlace {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::DataFolder { process_id, .. } => write_data_folder_held(formatter, *process_id),
+            Self::DataFolder { process_id } => write_data_folder_held(formatter, *process_id),
             Self::Socket(path) => write!(
                 formatter,
                 "The background service is already running on the socket {}.",
@@ -51,7 +49,6 @@ impl From<HeldDataFolder> for DaemonAlreadyRunningError {
     fn from(held: HeldDataFolder) -> Self {
         Self {
             held_place: HeldPlace::DataFolder {
-                path: held.path,
                 process_id: held.process_id,
             },
             source: Some(Box::new(held.source)),

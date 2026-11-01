@@ -26,6 +26,7 @@ pub(crate) mod user_scope;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 pub(crate) mod watch;
+pub(crate) mod windowless_app;
 
 use std::ffi::OsString;
 use std::io::{self, ErrorKind};
@@ -100,6 +101,11 @@ pub fn windows_drive_mounts() -> io::Result<Vec<PathBuf>> {
 /// Whether a reader that keeps a file open reads it through a memory map rather than by reads at
 /// an offset: no, since only macOS's footprint measures a mapped file smaller.
 pub const SHOULD_MEMORY_MAP_READS: bool = false;
+
+/// Whether the daemon's credential store keeps its items in a file in the data folder: yes, since
+/// systemd's credential service seals each item into the daemon's own `secrets.json`, or the file
+/// keeps it plain where the service cannot seal.
+pub const CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER: bool = true;
 
 /// A bound in bytes that no single argument a program can start with reaches: 32 pages, the
 /// kernel's limit on one argument string, which counts its NUL. Fails with the system's error when

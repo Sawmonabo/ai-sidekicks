@@ -12,10 +12,10 @@ use tokio_util::sync::CancellationToken;
 
 use super::CLAUDE_NAMING_DEADLINE;
 use crate::driver::claude::lifecycle::ClaudeDriver;
-use crate::driver::claude::mcp::connectors::{
-    ClaudeAccountServerAnswers, ClaudeAccountServersReadRequest,
+use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
+use crate::driver::claude::mcp::machine_probe::{
+    ClaudeMcpProbeProcess, ClaudeMcpProbeProcessRequest,
 };
-use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
 use crate::driver::claude::mcp::sign_in::{ClaudeMcpSignInChannel, ClaudeMcpSignInStart};
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -29,7 +29,8 @@ use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
-use crate::driver::contract::{DriverError, GetCapabilitiesResult};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::GetCapabilitiesResult;
 use crate::driver::session_control::NameSessionParams;
 use crate::driver::test_registry::new_session_id;
 
@@ -100,10 +101,10 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }
 
-    fn read_account_servers(
+    fn start_account_servers_read(
         &self,
         _request: ClaudeAccountServersReadRequest,
-    ) -> BoxFuture<'_, Result<ClaudeAccountServerAnswers, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }
 
@@ -117,7 +118,7 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
     fn start_mcp_probe(
         &self,
         _request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<ClaudeMcpProbeProcess, ClaudeLaunchError>> {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }
 

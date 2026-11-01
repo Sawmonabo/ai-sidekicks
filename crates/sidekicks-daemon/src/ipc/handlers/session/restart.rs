@@ -14,11 +14,12 @@ use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionRestart, SessionTargetRequest};
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_queue::provider_session::{ProviderSessionError, ProviderSessions};
+use sidekicks_queue::provider_session::ProviderSessions;
+use sidekicks_queue::provider_session::errors::ProviderSessionError;
 
 /// Registers `session.restart` over `provider_sessions`, which run each restart under the
 /// session's transition lock, so none brings a process up while a close is ending the session or
@@ -83,7 +84,29 @@ fn restart_failure(error: ProviderSessionError, session_id: SessionId) -> Handle
             "providerFailureDetail": provider_failure_detail,
         }))
         .into(),
-        other => other.into(),
+        other @ (ProviderSessionError::Compose { .. }
+        | ProviderSessionError::AdmittedAccount(_)
+        | ProviderSessionError::NoPosture { .. }
+        | ProviderSessionError::NoContractVersion { .. }
+        | ProviderSessionError::Provider(_)
+        | ProviderSessionError::Driver(_)
+        | ProviderSessionError::NotResumable(_)
+        | ProviderSessionError::Closed { .. }
+        | ProviderSessionError::BeingDeleted { .. }
+        | ProviderSessionError::NotOpen { .. }
+        | ProviderSessionError::Cursor(_)
+        | ProviderSessionError::UnrecordedNotClosed { .. }
+        | ProviderSessionError::ResumedRuns { .. }
+        | ProviderSessionError::Port(_)
+        | ProviderSessionError::Store(_)
+        | ProviderSessionError::PostureRefused { .. }
+        | ProviderSessionError::GitFolder { .. }
+        | ProviderSessionError::LevelNotStored { .. }
+        | ProviderSessionError::LevelNotMovedBack { .. }
+        | ProviderSessionError::ModeNotStored { .. }
+        | ProviderSessionError::ModeNotMovedBack { .. }
+        | ProviderSessionError::Read(_)
+        | ProviderSessionError::Pool(_)) => other.into(),
     }
 }
 
@@ -98,7 +121,7 @@ mod tests {
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_ipc::registry::HandlerError;
     use sidekicks_provider::driver::PROVIDERS;
-    use sidekicks_queue::provider_session::ProviderSessionError;
+    use sidekicks_queue::provider_session::errors::ProviderSessionError;
 
     use super::restart_failure;
 
@@ -158,12 +181,14 @@ mod tests {
 
         let refusal = match restart_failure(error, session_id) {
             HandlerError::Refused(refusal) => refusal,
-            other => panic!("expected a refusal, got {other:?}"),
+            other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
+                panic!("expected a refusal, got {other:?}")
+            }
         };
 
         assert_eq!(refusal.code, code, "{failure:?}");
         assert_eq!(
-            Value::Object(refusal.detail.expect("the refusal carries fields")),
+            Value::Object(*refusal.detail.expect("the refusal carries fields")),
             fields,
             "{failure:?}"
         );

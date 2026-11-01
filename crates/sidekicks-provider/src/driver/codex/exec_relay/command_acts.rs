@@ -27,7 +27,7 @@ use crate::driver::codex::session::background_terminals::terminate_codex_running
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::session::lifecycle_call::call_codex_lifecycle;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 
 /// How long a stop waits for the wrapper's end of its command.

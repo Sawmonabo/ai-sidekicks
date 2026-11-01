@@ -21,7 +21,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::run_control::{
     FindTakenMessagesParams, PauseRunParams, ResumeRunParams, TakenMessages,
@@ -35,7 +35,8 @@ use sidekicks_store::database::connection::read_pool::{
 
 use crate::driver_resolution::{LiveRunDriverError, resolve_live_run_driver};
 use crate::interventions::store::run_at_version_statement;
-use crate::run::engine::{RunEngine, RunEngineError, RunResumeError};
+use crate::run::engine::RunEngine;
+use crate::run::engine::errors::{RunEngineError, RunResumeError};
 use crate::run::read::{
     RunRead, RunStateReader, read_run_provider, read_run_through, safe_run_version,
 };
@@ -74,7 +75,7 @@ pub enum RunPauseError {
         driver: DriverError,
         /// The failed return to `running`.
         #[source]
-        restore: RunEngineError,
+        restore: Box<RunEngineError>,
     },
     /// The messages waiting for the run could not be read; nothing was moved.
     #[error("the messages waiting for the run could not be read")]
@@ -125,6 +126,7 @@ impl From<RunEngineError> for RunPauseError {
             other @ (RunEngineError::Change(_)
             | RunEngineError::Released(_)
             | RunEngineError::Gate { .. }
+            | RunEngineError::NoSessionPosture { .. }
             | RunEngineError::NoResolvedPosture { .. }
             | RunEngineError::Driver { .. }
             | RunEngineError::LimitInterrupterGone { .. }
@@ -542,7 +544,7 @@ impl RunPauseControl {
             }
             Err(restore) => RunPauseError::NotRestored {
                 driver: driver_error,
-                restore,
+                restore: Box::new(restore),
             },
         }
     }

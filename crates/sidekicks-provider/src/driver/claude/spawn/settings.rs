@@ -285,6 +285,42 @@ mod tests {
     };
     use crate::background_work::BackgroundWorkForms;
     use crate::driver::PROVIDERS;
+    use crate::run::posture::{CredentialDenyPath, CredentialDenyPathKind};
+
+    // Killed by dropping the credential paths from `permissions.deny`, which lets every
+    // file-reading tool read them, by a folder's rule that leaves out what is under it, and by a
+    // file's rule widened to a folder's.
+    #[test]
+    fn each_credential_path_is_denied_to_the_file_reading_tools() {
+        let denied = |path: &str, kind| CredentialDenyPath {
+            path: PathBuf::from(path),
+            kind,
+        };
+        let credential_deny_paths = [
+            denied("/Users/alice/.ssh", CredentialDenyPathKind::Folder),
+            denied("/Users/alice/.aws", CredentialDenyPathKind::Folder),
+            denied("/Users/alice/.netrc", CredentialDenyPathKind::File),
+        ];
+        let request = ClaudePermissionsRequest {
+            credential_deny_paths: &credential_deny_paths,
+            memory_folders: &[],
+            session_rules: &[],
+            path_rules: PathRules::Posix,
+            background_work: &BackgroundWorkForms::of_providers(PROVIDERS),
+        };
+
+        let document = compose_claude_permissions(&request, &[], Some(PermissionLevel::Ask))
+            .expect("the rules compose");
+
+        assert_eq!(
+            document.deny,
+            [
+                "Read(//Users/alice/.ssh/**)",
+                "Read(//Users/alice/.aws/**)",
+                "Read(//Users/alice/.netrc)",
+            ]
+        );
+    }
 
     // Killed by dropping the memory allows or the `//` anchor, by a `Write(` rule Claude Code never
     // reads, by narrowing the allows to `.md` files, which would keep the agent from its other

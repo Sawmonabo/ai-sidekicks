@@ -20,11 +20,11 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::random_hex::random_hex;
 
+use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{
     GitCall, GitError, GitRunner, in_folder, read_git_common_folder, strip_line_end,
 };
 use crate::git::worktree::folder_names::read_folder_names;
-use crate::git::worktree::reads::GIT_FILE_NAME;
 use crate::git::worktree::service::remove_folder as remove_tree_folder;
 use crate::git::worktree::tree_records::{
     TreeRecordRemovalError, hold_records, remove_records_naming,
@@ -249,7 +249,7 @@ impl StagedChangesWorktrees {
         holder: &Path,
         folder: &Path,
     ) -> Result<Option<PathBuf>, StagedChangesError> {
-        let git_file = folder.join(GIT_FILE_NAME);
+        let git_file = folder.join(GIT_ENTRY_NAME);
         let git_file_failure = if tokio::fs::try_exists(&git_file).await.map_err(|source| {
             StagedChangesError::Folder {
                 path: git_file.clone(),

@@ -1,7 +1,7 @@
 //! The errors the Codex driver raises: transport, size, unanswered, provider, rewind-boundary,
 //! slot, turn-in-flight, withdrawn-turn, larger-window, port, driver-shaped and configuration
 //! failures, and how each reaches the daemon as a driver error; and the readers of Codex's
-//! active-writer and restart refusals.
+//! active-writer, closing and restart refusals.
 
 use std::error::Error;
 use std::time::Duration;
@@ -16,7 +16,7 @@ use sidekicks_ipc::domain_error::DomainError;
 
 use crate::driver::capabilities::DriverCapabilityFlag;
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::contract::{
+use crate::driver::contract::error::{
     DriverError, PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE, bound_failure_detail,
 };
 use crate::driver::error_causes::{
@@ -46,6 +46,9 @@ pub(crate) const CODEX_DRAINING_REASON: &str = "serverShuttingDown";
 
 /// The words of Codex's refusal to resume a conversation another runtime still writes.
 const CODEX_ACTIVE_WRITER_MESSAGE: &str = "active writer";
+
+/// The words of Codex's refusal to resume a loaded conversation it is closing.
+const CODEX_CLOSING_MESSAGE: &str = "is closing; retry thread/resume";
 
 /// The words of Codex's refusal of a catalog read that asks for the service to restart first.
 const CODEX_RESTART_REQUESTED_MESSAGE: &str = "Restart Codex";
@@ -196,6 +199,13 @@ pub(crate) enum CodexError {
     /// on as it failed.
     #[error(transparent)]
     Driver(DriverError),
+    /// Codex's machine policy, its requirements file or the requirements a device-management
+    /// profile forces, cannot be read as Codex reads it, so Codex would refuse to start.
+    #[error("Codex's machine policy cannot be read: {detail}")]
+    MachinePolicyUnreadable {
+        /// Where the policy failed to read, and why.
+        detail: String,
+    },
     /// The driver's configuration lacks the shape the driver needs: a wiring defect.
     #[error("the Codex driver's {field} configuration is unusable: {detail}")]
     DriverConfig {
@@ -242,6 +252,12 @@ impl CodexError {
     /// Whether this is Codex's refusal to resume a conversation another runtime still writes.
     pub(crate) fn is_active_writer_refusal(&self) -> bool {
         self.is_invalid_request_saying(CODEX_ACTIVE_WRITER_MESSAGE)
+    }
+
+    /// Whether this is Codex's refusal to resume a loaded conversation while it closes it; the
+    /// resume goes through once the conversation is closed.
+    pub(crate) fn is_closing_refusal(&self) -> bool {
+        self.is_invalid_request_saying(CODEX_CLOSING_MESSAGE)
     }
 
     /// Whether the connection closed before this request's answer came.
@@ -291,7 +307,7 @@ impl CodexError {
         if !is_refusal {
             return self;
         }
-        Self::Driver(DriverError::Refused(provider_failure_refusal(
+        Self::Driver(DriverError::from(provider_failure_refusal(
             &DESCRIPTOR.provider_id(),
             message,
             code,
@@ -341,13 +357,19 @@ impl From<CodexError> for DriverError {
             return error;
         }
         match &error {
-            CodexError::Transport { .. } => Self::Refused(provider_failure_refusal(
+            CodexError::Transport { .. } => Self::from(provider_failure_refusal(
                 &DESCRIPTOR.provider_id(),
                 "The Codex service failed",
                 RefusalCode::ProviderUnavailable,
                 error,
             )),
-            CodexError::RequestTooLarge { .. } => Self::Refused(provider_failure_refusal(
+            CodexError::MachinePolicyUnreadable { .. } => Self::from(provider_failure_refusal(
+                &DESCRIPTOR.provider_id(),
+                "Codex's machine policy cannot be read, so Codex would not start",
+                RefusalCode::ProviderUnavailable,
+                error,
+            )),
+            CodexError::RequestTooLarge { .. } => Self::from(provider_failure_refusal(
                 &DESCRIPTOR.provider_id(),
                 "The request is larger than the Codex service takes in one message",
                 RefusalCode::ProviderUnavailable,
@@ -364,7 +386,7 @@ impl From<CodexError> for DriverError {
                         RefusalCode::ProviderUnavailable,
                     ),
                 };
-                Self::Unanswered(RequestUnanswered {
+                Self::from(RequestUnanswered {
                     refusal: provider_failure_refusal(
                         &DESCRIPTOR.provider_id(),
                         message,
@@ -376,14 +398,14 @@ impl From<CodexError> for DriverError {
             CodexError::ProviderRequest {
                 code: CODEX_OVERLOADED_CODE,
                 ..
-            } => Self::Refused(provider_failure_refusal(
+            } => Self::from(provider_failure_refusal(
                 &DESCRIPTOR.provider_id(),
                 "The Codex service is overloaded and did not take the request",
                 RefusalCode::ProviderUnavailable,
                 error,
             )),
             CodexError::ProviderRequest { .. } if error.is_service_draining() => {
-                Self::Refused(provider_failure_refusal(
+                Self::from(provider_failure_refusal(
                     &DESCRIPTOR.provider_id(),
                     "The Codex service is shutting down and takes no new work",
                     RefusalCode::ProviderUnavailable,
@@ -398,11 +420,11 @@ impl From<CodexError> for DriverError {
                     DriverCapabilityFlag::Rollback,
                     provider_failure_detail,
                 );
-                Self::Refused(refusal.with_source(error))
+                Self::from(refusal.with_source(error))
             }
             CodexError::SessionClosed { session_id } => {
                 let session_id = *session_id;
-                Self::Refused(
+                Self::from(
                     DomainError::new(error.to_string(), RefusalCode::SessionAlreadyClosed)
                         .with_detail(json!({ "sessionId": session_id }))
                         .with_source(error),
@@ -410,7 +432,7 @@ impl From<CodexError> for DriverError {
             }
             CodexError::SessionTurnInFlight { session_id } => {
                 let session_id = *session_id;
-                Self::Refused(
+                Self::from(
                     DomainError::new(error.to_string(), RefusalCode::ProviderUnavailable)
                         .with_detail(json!({
                             "sessionId": session_id,
@@ -429,7 +451,7 @@ impl From<CodexError> for DriverError {
                     "largerWindow": requested,
                     "offeredLargerWindow": offered,
                 });
-                Self::Refused(
+                Self::from(
                     DomainError::new(error.to_string(), RefusalCode::ProviderUnavailable)
                         .with_detail(detail)
                         .with_source(error),

@@ -43,7 +43,7 @@ use crate::driver::claude::session::transport::inbound::ClaudeUserDialog;
 use crate::driver::claude::session::transport::user_message::{
     ClaudeWriteAttempt, ClaudeWriteDelivery,
 };
-use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::error_causes::{
     RequestUnanswered, UNSPECIFIED_PROVIDER_FAILURE_DETAIL, provider_failure_refusal,
 };
@@ -752,7 +752,7 @@ async fn read_pending_dialogs(
 
 // An answer whose write may have reached Claude Code and that nothing settled.
 fn unanswered_write(cause: io::Error) -> DriverError {
-    DriverError::Unanswered(RequestUnanswered {
+    DriverError::from(RequestUnanswered {
         refusal: provider_failure_refusal(
             &DESCRIPTOR.provider_id(),
             "The Claude Code process may not have read the answer",

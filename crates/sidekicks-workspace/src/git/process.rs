@@ -17,7 +17,7 @@ use std::time::Duration;
 use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
 use sidekicks_contracts::place::{DistroName, Place};
 use sidekicks_platforms::{
-    ChildTree, ChildTreeOutputError, NULL_DEVICE_PATH, PathRules, Spawner, find_executables,
+    ChildTree, ChildTreeOutputError, NULL_DEVICE_PATH, PathRules, Spawner,
     path_from_program_output, read_child_exit, start_child_tree,
 };
 use tokio::process::Command;
@@ -25,6 +25,11 @@ use tokio::sync::OnceCell;
 use tokio_util::task::TaskTracker;
 
 mod entries;
+pub mod environment;
+
+#[cfg(any(test, feature = "test-support"))]
+use environment::find_git_executable;
+use environment::git_environment;
 
 /// The most one stream of a git call may print, sized for the largest: a `-z` listing of a whole
 /// worktree's paths. Passing it fails the call; nothing is cut.
@@ -37,48 +42,6 @@ pub(crate) const GIT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long git has to end at the service's stop: the window the stop gives its terminals.
 pub(crate) const SHUTDOWN_STOP_GRACE: Duration =
     Duration::from_millis(DAEMON_STOP_TERMINAL_DRAIN_MS);
-
-/// The variables git reads as this repository's own (`git rev-parse --local-env-vars`), and three
-/// more that move where it looks for one; an inherited one would point a call at another
-/// repository, index, object store or history. The person's own config files stay theirs.
-const STRIPPED_GIT_ENVIRONMENT_NAMES: [&str; 18] = [
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-    "GIT_CONFIG",
-    "GIT_CONFIG_PARAMETERS",
-    "GIT_CONFIG_COUNT",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_IMPLICIT_WORK_TREE",
-    "GIT_GRAFT_FILE",
-    "GIT_INDEX_FILE",
-    "GIT_NO_REPLACE_OBJECTS",
-    "GIT_REPLACE_REF_BASE",
-    "GIT_PREFIX",
-    "GIT_SHALLOW_FILE",
-    "GIT_COMMON_DIR",
-    "GIT_CEILING_DIRECTORIES",
-    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-    "GIT_NAMESPACE",
-];
-
-/// The variable that keeps git from asking on a terminal, and its value.
-pub const GIT_TERMINAL_PROMPT_OFF: (&str, &str) = ("GIT_TERMINAL_PROMPT", "0");
-
-/// Set on every call after the strip: git's messages in English, which callers read refusals
-/// from, and no prompt, which would wait on a terminal the daemon lacks until the timeout.
-const PINNED_GIT_ENVIRONMENT: [(&str, &str); 3] =
-    [("LC_ALL", "C"), ("LANG", "C"), GIT_TERMINAL_PROMPT_OFF];
-
-/// The environment that keeps git and ssh from asking anyone for a credential: no askpass
-/// program, no credential manager dialog, no ssh askpass and no terminal prompt, so a question
-/// fails at once instead of waiting.
-pub const NO_PROMPT_ENVIRONMENT: [(&str, &str); 4] = [
-    ("GIT_ASKPASS", ""),
-    ("GCM_INTERACTIVE", "never"),
-    ("SSH_ASKPASS_REQUIRE", "never"),
-    GIT_TERMINAL_PROMPT_OFF,
-];
 
 /// The setting that turns git's file watch off for one call, so neither its built-in daemon nor a
 /// helper program the repository names starts for it.
@@ -98,8 +61,8 @@ const BUILT_IN_FILE_WATCH_BUILD_LINE: &[u8] = b"feature: fsmonitor--daemon";
 /// no setting matches.
 pub(crate) const CONFIG_UNSET_EXIT_CODE: i32 = 1;
 
-/// git's exit code when the folder it was run from is in no repository.
-pub const NOT_A_REPOSITORY_EXIT_CODE: i32 = 128;
+/// git's exit for every fatal error, a folder in no repository among them.
+pub const GIT_FATAL_EXIT_CODE: i32 = 128;
 
 /// Why a git call did not answer.
 #[derive(Debug, thiserror::Error)]
@@ -606,7 +569,7 @@ impl GitRunner {
                         stderr,
                     });
                 }
-                return Err(exited_failure(&output.status, output.stdout, stderr));
+                return Err(exited_failure(output.status, output.stdout, stderr));
             }
             Ok(Err(error)) => error.into(),
             Err(_elapsed) => GitError::TimedOut { timeout },
@@ -663,18 +626,9 @@ impl GitRunner {
     }
 }
 
-/// The first absolute `git` along `environment`'s search path, the person's own (the login
-/// shell's on macOS and Linux); a relative entry is passed over, since it would name the daemon's
-/// working folder. `None` when there is none. Reads the file system, so it runs on the spawner's
-/// thread or in `spawn_blocking`.
-pub fn find_git_executable(environment: &[(String, String)]) -> Option<PathBuf> {
-    find_executables("git", environment, Path::new(""), &[])
-        .find(|candidate| candidate.is_absolute())
-}
-
 /// The absolute git folder of the repository `folder` sits in, the common one a linked worktree
 /// shares with every worktree of its repository, held to `timeout` (the runner's bound when
-/// `None`). Fails as [`GitRunner::run`] does, with [`NOT_A_REPOSITORY_EXIT_CODE`] when `folder`
+/// `None`). Fails as [`GitRunner::run`] does, with [`GIT_FATAL_EXIT_CODE`] when `folder`
 /// is in no repository, and with `PathText` for a path this system cannot name.
 pub async fn read_git_common_folder(
     git: &GitRunner,
@@ -774,7 +728,7 @@ pub async fn write_link(git: &GitRunner, scratch: &Path, folder: &Path, link: &s
         OsString::from("-c"),
         "core.symlinks=true".into(),
         "--git-dir".into(),
-        scratch.join(".git").into(),
+        scratch.join(crate::git::GIT_ENTRY_NAME).into(),
         "--work-tree".into(),
         folder.to_path_buf().into(),
     ];
@@ -806,8 +760,8 @@ pub(crate) fn strip_carriage_return(line: &[u8]) -> &[u8] {
 }
 
 // The failure of a git that exited `status`, not 0, having printed `stdout` and `stderr`.
-fn exited_failure(status: &ExitStatus, stdout: Vec<u8>, stderr: String) -> GitError {
-    let exit = read_child_exit(status, None);
+fn exited_failure(status: ExitStatus, stdout: Vec<u8>, stderr: String) -> GitError {
+    let exit = read_child_exit(&status, None);
     GitError::Exited {
         code: status.code(),
         signal: exit.signal_number.map(|number| {
@@ -844,29 +798,6 @@ fn call_settings(hooks: GitHooks, file_watch_setting: Option<&str>) -> Vec<OsStr
         settings.push(OsString::from(file_watch_setting));
     }
     settings
-}
-
-// `variables` without the stripped names, compared case-blind since Windows keeps an inherited
-// name's own spelling (`Git_Dir`), then the pinned locale and prompt, then `overrides`; a later
-// pair of the same name replaces an earlier one when the command applies them.
-fn git_environment(
-    variables: impl IntoIterator<Item = (OsString, OsString)>,
-    overrides: Vec<(OsString, OsString)>,
-) -> Vec<(OsString, OsString)> {
-    variables
-        .into_iter()
-        .filter(|(name, _)| {
-            !STRIPPED_GIT_ENVIRONMENT_NAMES
-                .iter()
-                .any(|stripped| name.eq_ignore_ascii_case(stripped))
-        })
-        .chain(
-            PINNED_GIT_ENVIRONMENT
-                .iter()
-                .map(|(name, value)| (OsString::from(name), OsString::from(value))),
-        )
-        .chain(overrides)
-        .collect()
 }
 
 /// Stops the git file-watch daemon a test started in `folder` when dropped, so a failed assertion

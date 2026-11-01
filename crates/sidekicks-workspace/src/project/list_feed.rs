@@ -199,10 +199,10 @@ impl SharedFeed {
     fn take_changes(&self, generation: u64) -> Option<(Vec<SessionId>, Vec<ProjectId>)> {
         let mut state = self.lock_state();
         // Checked before taking, so a task its list outlived leaves the next list's changes.
-        if !state
+        if state
             .held
             .as_ref()
-            .is_some_and(|held| held.generation == generation)
+            .is_none_or(|held| held.generation != generation)
         {
             return None;
         }

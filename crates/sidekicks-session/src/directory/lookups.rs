@@ -9,8 +9,8 @@ use rusqlite::{Connection, named_params};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{
     StatementBindings, StatementResult, WriteStatement, text_binding,
@@ -48,7 +48,8 @@ pub fn session_exists_statement(session_id: &SessionId) -> WriteStatement {
 /// Why a write kept only while its session has a row was not kept.
 #[derive(Debug, thiserror::Error)]
 pub enum SessionWriteError {
-    /// The session is not one this daemon holds (`session.notFound`).
+    /// The session is not one this daemon holds (`session.notFound`), or a part of it the write
+    /// names is not, such as a workflow run (`workflow.run.notFound`).
     #[error(transparent)]
     Refused(#[from] DomainError),
     /// The write was not kept.

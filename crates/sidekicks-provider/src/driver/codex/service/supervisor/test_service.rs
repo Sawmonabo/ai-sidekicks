@@ -1,7 +1,10 @@
 //! What a test's Codex services run on: their shared dependencies, a program a test names, a
-//! listener's answers as a Codex service gives them, and a service whose connection a test
-//! scripts, a service of the daemon's own kind published as up and holding a connection on a
-//! `ScriptedService`, its frames and asks routed as a dialed one's are.
+//! listener's answers as a Codex service gives them, a service whose connection a test scripts, a
+//! service of the daemon's own kind published as up and holding a connection on a
+//! `ScriptedService`, its frames and asks routed as a dialed one's are, and the stand-in Codex
+//! service a test program runs as itself.
+
+mod stand_in;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -9,28 +12,44 @@ use std::sync::atomic::Ordering;
 
 use futures::future::BoxFuture;
 use futures::{SinkExt as _, StreamExt as _};
+#[cfg(test)]
 use interprocess::local_socket::tokio::Listener;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
+#[cfg(test)]
 use sidekicks_platforms::{
-    CAN_BIND_A_SOCKET_LISTENER, ProgramStart, Spawner, StandInAnswer, StandInProgram,
-    bind_socket_listener, write_stand_in_program,
+    CAN_BIND_A_SOCKET_LISTENER, StandInAnswer, StandInProgram, bind_socket_listener,
+    write_stand_in_program,
 };
+use sidekicks_platforms::{ProgramStart, Spawner};
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::data_folder::program_link_folder;
 use tempfile::TempDir;
 use tokio::io::{AsyncRead, AsyncWrite};
+#[cfg(test)]
 use tokio::sync::mpsc;
+#[cfg(test)]
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
+#[cfg(test)]
+pub(crate) use self::stand_in::{
+    CODEX_HOME_NAME, CONFIG_READ_REPLY_NAME, HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE,
+    REQUEST_RECORD_NAME, StandInLaunches,
+};
+pub use self::stand_in::{
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, serve_as_codex_service_stand_in,
+    stand_in_codex_service, write_codex_service_script,
+};
 use crate::command::askpass::command_askpass_program_path;
 use crate::command::channel::command_channel_root;
 use crate::command::waiting_checks::SystemInputWaitReader;
 use crate::command::wrapper::command_wrapper_program_path;
+use crate::driver::child_records::{DaemonChildRecords, UnrecordedChildren};
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::exec_relay::CodexExecRelayDependencies;
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
 use crate::driver::codex::service::command_line::{
@@ -42,28 +61,36 @@ use crate::driver::codex::service::supervisor::events::{
     CodexServiceEvents, CodexServiceRecoveryCause,
 };
 use crate::driver::codex::service::supervisor::transition::CodexServiceAvailability;
+#[cfg(test)]
 use crate::driver::codex::service::supervisor::transition::event::SupervisorEvent;
+#[cfg(test)]
 use crate::driver::codex::service::supervisor::transition::state::SupervisorState;
 use crate::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::shells::CodexShellKind;
+#[cfg(test)]
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,
 };
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
+#[cfg(test)]
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::runtime_binding::test_store::test_provider_account_id;
-use crate::spawned_version::{
-    ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
-};
+use crate::spawned_version::ResolvedProviderExecutable;
+#[cfg(test)]
+use crate::spawned_version::{SpawnedProviderVersionReading, parse_cli_version_report};
 
 /// Whether the test services' daemon runs the hook mode a hook command starts: the tests' program
 /// runs none, so a terminal service starts, and is answered, with no hooks.
 const TEST_DISPATCHES_HOOK_MODE: bool = false;
+
+/// The kind of shell the test services' hooks are quoted for.
+const TEST_SESSION_SHELL_KIND: CodexShellKind = CodexShellKind::Sh;
 
 /// The largest message the scripted service takes, far above any a test sends.
 const SCRIPTED_MESSAGE_LIMIT: usize = 1 << 20;
@@ -72,16 +99,24 @@ const SCRIPTED_MESSAGE_LIMIT: usize = 1 << 20;
 const SCRIPTED_DIAL: u64 = 1;
 
 /// A service on a scripted connection, the folder its home names, and the script.
-pub(crate) struct ScriptedCodexService {
+pub struct ScriptedCodexService {
     /// The service.
     pub(crate) service: Arc<CodexService>,
     /// What its connection sent, and what the service sends it.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's restart test scripts the service's conversation"
+        )
+    )]
     pub(crate) script: ScriptedService,
     /// What the service runs on, the conversations its sessions moved off among them.
     pub(crate) dependencies: Arc<CodexServiceDependencies>,
     _folder: TempDir,
 }
 
+#[cfg(test)]
 impl ScriptedCodexService {
     /// Publishes the service reconnecting, its connection set aside until [`Self::publish_up`]
     /// hands it back.
@@ -172,11 +207,13 @@ impl ScriptedCodexService {
 }
 
 /// The dependencies a test's services share: their data and logs under `folder`, the build
-/// `program` resolves, and `events` told what happens to them. Must be called within a runtime.
+/// `program` resolves, `events` told what happens to them and `child_records` recording the
+/// daemon's own children. Must be called within a runtime.
 pub(crate) fn test_codex_service_dependencies(
     folder: &Path,
     program: Arc<dyn CodexProgramResolver>,
     events: Arc<dyn CodexServiceEvents>,
+    child_records: Arc<dyn DaemonChildRecords>,
 ) -> Arc<CodexServiceDependencies> {
     // The daemon makes both before any service starts.
     for made in ["data", "logs"] {
@@ -201,12 +238,14 @@ pub(crate) fn test_codex_service_dependencies(
         spawner,
         provider_services: Arc::new(ProviderServiceProcesses::default()),
         processes: Arc::new(ProviderProcessRegistry::default()),
+        child_records,
         program,
         data_folder: folder.join("data"),
         logs_folder: folder.join("logs"),
         additional_config_overrides: Vec::new(),
         startup_timeout: CODEX_SERVICE_STARTUP_TIMEOUT,
         dispatches_hook_mode: TEST_DISPATCHES_HOOK_MODE,
+        session_shell_kind: TEST_SESSION_SHELL_KIND,
         events,
         release: Arc::new(CodexConversationRelease::default()),
         drains: LastingServiceDrains::default(),
@@ -243,7 +282,7 @@ impl CodexProgramResolver for TestCodexProgram {
 
 /// Starts a service on an account's home whose connection the test scripts. Must be called within
 /// a runtime.
-pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
+pub fn start_scripted_codex_service() -> ScriptedCodexService {
     start_scripted_account_service_reporting_to(Arc::new(UnheardEvents))
 }
 
@@ -263,6 +302,7 @@ pub(crate) fn start_scripted_account_service_reporting_to(
 /// Starts a service on an account's home whose connection the test scripts and whose own start,
 /// once its supervisor begins one, never answers, so the test publishes the new process up. Must
 /// be called within a runtime.
+#[cfg(test)]
 pub(crate) fn start_scripted_codex_service_whose_start_waits() -> ScriptedCodexService {
     start_scripted_codex_service_on(
         CodexHomeKind::Account(test_provider_account_id()),
@@ -272,8 +312,9 @@ pub(crate) fn start_scripted_codex_service_whose_start_waits() -> ScriptedCodexS
     )
 }
 
-/// Starts the terminal service on the person's own folder, its connection scripted by the test.
-/// Must be called within a runtime.
+/// Starts the terminal service on the person's own folder with terminal reach on, its connection
+/// scripted by the test. Must be called within a runtime.
+#[cfg(test)]
 pub(crate) fn start_scripted_terminal_service() -> ScriptedCodexService {
     start_scripted_codex_service_on(
         CodexHomeKind::PersonalFolder,
@@ -292,7 +333,12 @@ fn start_scripted_codex_service_on(
     events: Arc<dyn CodexServiceEvents>,
 ) -> ScriptedCodexService {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let dependencies = test_codex_service_dependencies(folder.path(), program, events);
+    let dependencies = test_codex_service_dependencies(
+        folder.path(),
+        program,
+        events,
+        Arc::new(UnrecordedChildren),
+    );
     let socket: PathBuf = folder.path().join("codex.sock");
     let (service, script) = script_codex_service(
         CodexServiceHome {
@@ -353,8 +399,10 @@ impl CodexProgramResolver for UnstartedProgram {
 }
 
 // A program whose resolve never answers, so a start on it stays starting.
+#[cfg(test)]
 struct WaitingProgram;
 
+#[cfg(test)]
 impl CodexProgramResolver for WaitingProgram {
     fn resolve<'call>(
         &'call self,
@@ -383,11 +431,13 @@ impl CodexServiceEvents for UnheardEvents {
 }
 
 /// Tells a test how each service process ended, and each time a service is back after a crash.
+#[cfg(test)]
 pub(crate) struct ExitsHeard {
     exits: mpsc::UnboundedSender<Option<ProcessExit>>,
     recoveries: mpsc::UnboundedSender<()>,
 }
 
+#[cfg(test)]
 impl ExitsHeard {
     /// The events, with the receivers of each exit and of each recovery.
     pub(crate) fn new() -> (
@@ -401,6 +451,7 @@ impl ExitsHeard {
     }
 }
 
+#[cfg(test)]
 impl CodexServiceEvents for ExitsHeard {
     fn process_exited(&self, _service: &Arc<CodexService>, exit: Option<&ProcessExit>) {
         let _heard = self.exits.send(exit.cloned());
@@ -438,25 +489,27 @@ pub(crate) const PROBE_THREAD_ID: &str = "probe-thread";
 /// The one tool each server a test service lists for a machine probe has.
 pub(crate) const PROBE_TOOL_NAME: &str = "lookup";
 
-/// Answers one connection's requests on `stream` as far as a start needs: the version, the hooks
-/// the daemon starts a terminal service with, as trusted, and no loaded conversation; a config
-/// write is refused, so a start that writes trust fails. A machine probe is answered too: its
-/// ephemeral start opens [`PROBE_THREAD_ID`], each server its config switches on or sends reports
-/// ready, and each listed server is connected with [`PROBE_TOOL_NAME`]. Each request is appended,
-/// one to a line, to `record` where one is named.
+/// Answers one connection's requests on `stream` as far as a start needs, telling `on_request`
+/// each request as it comes: the version, the hooks the daemon starts a terminal service with, as
+/// trusted, and no loaded conversation; a config write is refused, so a start that writes trust
+/// fails. A machine probe is answered too: its ephemeral start opens [`PROBE_THREAD_ID`], each
+/// server its config switches on or sends reports ready, and each listed server is connected with
+/// [`PROBE_TOOL_NAME`]. A config read is answered with `config_read_reply` where one is given.
 pub(crate) async fn answer_as_codex_service(
     stream: impl AsyncRead + AsyncWrite + Unpin,
-    record: Option<PathBuf>,
+    config_read_reply: Option<Value>,
+    mut on_request: impl FnMut(&Value),
 ) {
-    let hooks = match read_terminal_service_hooks(TEST_DISPATCHES_HOOK_MODE)
-        .expect("the daemon's hooks read")
-    {
-        TerminalServiceHooks::Daemon(hooks) => vec![
-            listed_hook("preToolUse", &hooks.pre_tool_use),
-            listed_hook("postToolUse", &hooks.post_tool_use),
-        ],
-        TerminalServiceHooks::NoHooks | TerminalServiceHooks::ProgramReplaced => Vec::new(),
-    };
+    let hooks =
+        match read_terminal_service_hooks(TEST_DISPATCHES_HOOK_MODE, TEST_SESSION_SHELL_KIND)
+            .expect("the daemon's hooks read")
+        {
+            TerminalServiceHooks::Daemon(hooks) => vec![
+                listed_hook("preToolUse", &hooks.pre_tool_use),
+                listed_hook("postToolUse", &hooks.post_tool_use),
+            ],
+            TerminalServiceHooks::NoHooks | TerminalServiceHooks::ProgramReplaced => Vec::new(),
+        };
     // A probe that only connects ends before the upgrade.
     let Ok(mut socket) = tokio_tungstenite::accept_async(stream).await else {
         return;
@@ -469,17 +522,8 @@ pub(crate) async fn answer_as_codex_service(
         if request.get("id").is_none() {
             continue;
         }
-        if let Some(record) = &record {
-            let mut line = text.to_string();
-            line.push('\n');
-            let mut file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(record)
-                .expect("the request record opens");
-            std::io::Write::write_all(&mut file, line.as_bytes()).expect("the request is recorded");
-        }
         let id = &request["id"];
+        on_request(&request);
         let mut notices = Vec::new();
         let reply = match request["method"].as_str() {
             Some("thread/start") if request["params"]["ephemeral"] == json!(true) => {
@@ -495,6 +539,9 @@ pub(crate) async fn answer_as_codex_service(
                 "resources": [],
                 "resourceTemplates": [],
             }], "nextCursor": null}}),
+            Some("config/read") if config_read_reply.is_some() => {
+                json!({"id": id, "result": config_read_reply})
+            }
             Some("config/value/write") => json!({"id": id,
                 "error": {"code": -32603, "message": "the test service writes no config"}}),
             Some("initialize") => json!({"id": id,
@@ -537,6 +584,7 @@ fn listed_hook(event_name: &str, command: &str) -> Value {
 }
 
 /// Waits until `service` is no longer up, which it leaves only once its connection is gone.
+#[cfg(test)]
 pub(crate) async fn wait_until_disconnected(service: &CodexService) {
     service
         .wait_for(|availability| !matches!(availability, CodexServiceAvailability::Up))
@@ -545,6 +593,7 @@ pub(crate) async fn wait_until_disconnected(service: &CodexService) {
 
 /// Drops `service`'s connection as its reader does when the socket closes under it, its process
 /// left running.
+#[cfg(test)]
 pub(crate) fn drop_service_connection(service: &Arc<CodexService>) {
     let dial = service.routed_dial.load(Ordering::Acquire);
     service
@@ -555,6 +604,7 @@ pub(crate) fn drop_service_connection(service: &Arc<CodexService>) {
 
 /// Writes in `folder` a Codex command that prints nothing and exits 1 at every call, which the
 /// search path finds as `codex`, and answers its path. Panics where it cannot be written.
+#[cfg(test)]
 pub(crate) fn write_failing_codex(folder: &Path) -> PathBuf {
     write_stand_in_program(
         folder,
@@ -573,12 +623,14 @@ pub(crate) fn write_failing_codex(folder: &Path) -> PathBuf {
 
 /// A listener at `socket`, or `None` where the system binds no local socket listener. Panics
 /// where a bind the system offers fails.
+#[cfg(test)]
 pub(crate) fn bind_test_listener(socket: &Path) -> Option<Listener> {
     CAN_BIND_A_SOCKET_LISTENER
         .then(|| bind_socket_listener(socket).expect("the test's socket listens"))
 }
 
 /// The next request the daemon sent on `socket`, its notifications skipped.
+#[cfg(test)]
 pub(crate) async fn next_socket_request<Stream>(socket: &mut WebSocketStream<Stream>) -> Value
 where
     Stream: AsyncRead + AsyncWrite + Unpin,
@@ -600,6 +652,7 @@ where
 }
 
 /// Sends `message` to the daemon on `socket`.
+#[cfg(test)]
 pub(crate) async fn send_on_socket<Stream>(socket: &mut WebSocketStream<Stream>, message: Value)
 where
     Stream: AsyncRead + AsyncWrite + Unpin,
@@ -608,4 +661,15 @@ where
         .send(Message::Text(message.to_string().into()))
         .await
         .expect("the daemon reads");
+}
+
+// The environment a daemon's providers start in to take `codex_home` as the person's own Codex
+// folder and `programs_folder`, alone on the search path, as where their `codex` is.
+fn codex_folder_environment(codex_home: &Path, programs_folder: &Path) -> Vec<(String, String)> {
+    DESCRIPTOR
+        .credential_home_environment_names
+        .iter()
+        .map(|name| ((*name).to_owned(), codex_home.display().to_string()))
+        .chain([("PATH".to_owned(), programs_folder.display().to_string())])
+        .collect()
 }

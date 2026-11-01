@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize as _};
 use serde_json::{Map, Value, json};
 
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 
 /// The switches a title conversation turns off.
 const SWITCHES_OFF: [&str; 26] = [
@@ -43,9 +44,6 @@ const WEB_SEARCH_OFF: (&str, &str) = ("web_search", "disabled");
 
 /// The default permission profile's key, and Codex's built-in read-only profile.
 const READ_ONLY_PERMISSIONS: (&str, &str) = ("default_permissions", ":read-only");
-
-/// The config table of the MCP servers.
-pub(crate) const MCP_SERVERS_KEY: &str = "mcp_servers";
 
 /// The config overrides of a title conversation, each a dotted key and its value, with each of
 /// `server_names` disabled under the server table, where a name may hold a dot.

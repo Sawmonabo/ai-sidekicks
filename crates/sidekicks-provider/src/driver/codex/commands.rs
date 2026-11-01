@@ -29,7 +29,7 @@ use crate::driver::codex::app_server_protocol::SkillsListParams;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::contract::ProviderCommandsSubscription;
+use crate::driver::contract::params_and_results::ProviderCommandsSubscription;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };

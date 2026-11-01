@@ -7,6 +7,7 @@ mod crash_monitor;
 pub(crate) mod damage_gate;
 pub(crate) mod database;
 pub(crate) mod jobs;
+mod mcp_attribution;
 mod method_inputs;
 pub(crate) mod method_tables;
 mod projections;
@@ -22,6 +23,7 @@ mod stored_data;
 pub(crate) mod supervision;
 #[cfg(test)]
 mod tests;
+pub(crate) mod workspace_services;
 mod worktree_sources;
 
 use std::error::Error;
@@ -40,12 +42,11 @@ use sidekicks_ipc::registry::MethodRegistryBuilder;
 use sidekicks_ipc::stream::subscriptions::Subscriptions;
 use sidekicks_platforms::{
     Spawner, WakeWatch, WallClock, WallClockTimer, askpass_socket_path, check_socket_path,
-    read_command_argument_limit, secret_store_offer,
+    read_command_argument_limit,
 };
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::command::channel::remove_channel_folders;
-use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
@@ -56,7 +57,7 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
-use sidekicks_store::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
+use sidekicks_store::credential_store::os::KEYCHAIN_CALL_TIMEOUT;
 use sidekicks_store::data_folder::lock::DataFolderLock;
 use sidekicks_store::data_folder::{data_folder, program_link_folder};
 use sidekicks_store::database::connection::writer_open::{
@@ -65,11 +66,13 @@ use sidekicks_store::database::connection::writer_open::{
 use sidekicks_store::machine::identity_key::MachineIdentity;
 use sidekicks_store::machine::local::read_or_mint_local_machine;
 use sidekicks_workspace::clone::service::CloneService;
-use sidekicks_workspace::git::process::{GitLimits, GitRunner, find_git_executable};
+use sidekicks_workspace::git::process::environment::find_git_executable;
+use sidekicks_workspace::git::process::{GitLimits, GitRunner};
 use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
 use sidekicks_workspace::git::worktree::setup::WorktreeSetupRunner;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use tokio::sync::{mpsc, oneshot, watch};
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::bootstrap::{SecureDefaults, SecureDefaultsConfig};
@@ -86,22 +89,28 @@ use crate::daemon::process::crash_monitor::CrashMonitor;
 use crate::daemon::process::damage_gate::DispatchDamageWatch;
 use crate::daemon::process::database::{DatabaseFile, DatabaseFileStart, open_database_file};
 use crate::daemon::process::jobs::{IdleMemoryCollect, JobDeps, schedule_jobs};
-use crate::daemon::process::method_inputs::{MethodInputsStart, register_method_inputs};
+use crate::daemon::process::mcp_attribution::McpAttributionFills;
+use crate::daemon::process::method_inputs::{
+    MethodInputsStart, device_id_of, register_method_inputs,
+};
 use crate::daemon::process::method_tables::gate_chain;
 use crate::daemon::process::providers::{
-    ProviderStart, Providers, ProvidersRegistration, build_providers, hydrate_capabilities,
-    register_providers, sweep_left_sign_in_folders, sweep_left_staged_worktrees,
+    ProviderStart, Providers, ProvidersRegistration, apply_stored_rows, build_providers,
+    hydrate_capabilities, register_providers, sweep_left_sign_in_folders,
+    sweep_left_staged_worktrees,
 };
 use crate::daemon::process::repo_services::{
-    RepoAttachments, RepoServiceStart, RepoServices, build_repo_services, start_repo_attachments,
+    RepoAttachments, RepoServiceStart, RepoServices, build_repo_services, make_worktrees_folder,
+    managed_writes_watermark_path, read_managed_writes_watermark, start_repo_attachments,
 };
 use crate::daemon::process::session_services::{
-    SessionAttachments, SessionServices, start_session_attachments,
+    SessionAttachments, SessionServices, follow_binding_cursors, start_session_attachments,
 };
 use crate::daemon::process::start_error::{DaemonStartError, DaemonStartFailure};
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
 use crate::daemon::process::stop::{DaemonStopFailure, close_data_folder, stop_work};
 use crate::daemon::process::supervision::{ProcessStateTracker, ServingSocketHooks};
+use crate::daemon::process::workspace_services::{WorkspaceWork, settle_interrupted_creations};
 use crate::daemon::run_folder::{bind_socket, mint_session_token, prepare_run_folder};
 use crate::daemon::service_status::remove_service_status;
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
@@ -148,7 +157,7 @@ pub(crate) struct DaemonProcess {
     pub(crate) git: Option<GitRunner>,
     /// The serving socket, while it serves.
     pub(crate) gateway: Option<LocalGateway>,
-    /// The record of every terminal child, closed once the terminals have drained.
+    /// The record of every child of the daemon, closed once the terminals have drained.
     pub(crate) orphan_guard: Option<Arc<OrphanGuard>>,
     /// The crash monitor, ended before the data folder's lock goes.
     pub(crate) crash_monitor: Option<CrashMonitor>,
@@ -172,8 +181,10 @@ pub(crate) struct DaemonProcess {
     pub(crate) in_flight: Option<Arc<InFlightMutations>>,
     /// The providers, whose drivers the stop shuts down last.
     pub(crate) providers: Option<Providers>,
-    /// The providers' first reads and row values, ended by the stop before the drivers.
+    /// The providers' first capability reads, ended by the stop before the drivers.
     pub(crate) providers_registration: Option<ProvidersRegistration>,
+    /// The MCP attribution table's fills, ended by the stop before the drivers.
+    pub(crate) mcp_attribution_fills: Option<McpAttributionFills>,
     /// The repository services, whose watch, fetches and askpass broker the stop ends.
     pub(crate) repo: Option<RepoServices>,
     /// The repository services' background work, ended by the stop before the scheduler.
@@ -183,6 +194,10 @@ pub(crate) struct DaemonProcess {
     pub(crate) session: Option<SessionServices>,
     /// The session services' follows of the log, ended by the stop with the chats' write watch.
     pub(crate) session_attachments: Option<SessionAttachments>,
+    /// The attention service's decision task, which ends with the work's stop and is waited out.
+    pub(crate) attention: Option<JoinHandle<()>>,
+    /// The web address's sender, which ends with the work's stop and is waited out.
+    pub(crate) web_address_sender: Option<JoinHandle<()>>,
     /// The clone service, which owns the askpass broker; the stop closes it.
     pub(crate) clones: Option<Arc<CloneService>>,
     /// The live projects list, closed by the stop.
@@ -191,6 +206,9 @@ pub(crate) struct DaemonProcess {
     pub(crate) worktree_setup: Option<Arc<WorktreeSetupRunner>>,
     /// Makes worktrees and answers the new-worktree form's suggestion.
     pub(crate) worktree_creator: Option<Arc<WorktreeCreator>>,
+    /// The workspace services' work: the stop ends the cleanup's requests and waits for the
+    /// start's tasks, and lets the kept worktrees' reads settle last.
+    pub(crate) workspace_work: Option<WorkspaceWork>,
 }
 
 // What a failed start's release is called in its error.
@@ -207,11 +225,11 @@ impl DaemonProcess {
             Ok(spawner) => spawner,
             Err(error) => {
                 return Err(DaemonStartFailure {
-                    failures: CleanupFailures::new(
+                    failures: Box::new(CleanupFailures::new(
                         DaemonStartError::Spawner(error),
                         Vec::new(),
                         START_OPERATION,
-                    ),
+                    )),
                     release_started: Instant::now(),
                 });
             }
@@ -241,14 +259,18 @@ impl DaemonProcess {
             in_flight: None,
             providers: None,
             providers_registration: None,
+            mcp_attribution_fills: None,
             repo: None,
             repo_attachments: None,
             session: None,
             session_attachments: None,
+            attention: None,
+            web_address_sender: None,
             clones: None,
             project_list_feed: None,
             worktree_setup: None,
             worktree_creator: None,
+            workspace_work: None,
         };
         let started = process.run_start(options).await;
         match started {
@@ -269,7 +291,9 @@ impl DaemonProcess {
             caller_process_reader,
             stop: _,
             base_environment,
+            credential_store,
             service_log_files,
+            provider_registrations,
         } = options;
         self.data_folder_lock = Some(data_folder_lock);
         let (home_folder, run_folder, daemon_program) =
@@ -368,11 +392,13 @@ impl DaemonProcess {
         let status = Arc::clone(&database.status);
         let damage = DispatchDamageWatch(Arc::clone(&database.damage));
         let live_runs = database.live_runs.clone();
+        let attention_changes = database.attention_changes.clone();
         let idle_memory = Arc::clone(self.idle_memory.insert(Arc::new(IdleMemoryCollect::start(
             live_runs.clone(),
             self.work_stop.clone(),
         ))));
         let machine = read_or_mint_local_machine(&reads, &writer, &self.spawner).await?;
+        let machine_device_id = device_id_of(&machine.machine_id)?;
         let wall_clock: Arc<dyn WallClock> =
             Arc::new(WallClockTimer::new().map_err(DaemonStartError::WallClock)?);
         // With no wake heard, a wall-clock job still runs at its instant, only not at once after
@@ -411,6 +437,11 @@ impl DaemonProcess {
             GitLimits::DAEMON,
         );
         self.git = Some(git.clone());
+        let worktrees_folder = make_worktrees_folder(home_folder)
+            .await
+            .map_err(DaemonStartError::WorktreesFolder)?;
+        let missed_since =
+            read_managed_writes_watermark(&managed_writes_watermark_path(home_folder)).await;
         let list_feed = Arc::new(SessionListFeed::new(
             Arc::clone(&reads),
             &followers,
@@ -429,15 +460,15 @@ impl DaemonProcess {
             scheduler: Arc::clone(&scheduler),
             list_feed: Arc::clone(&list_feed),
             stop: self.work_stop.clone(),
+            worktrees_folder: worktrees_folder.clone(),
+            missed_since,
         })?);
         let authorizer = Arc::new(Authorizer::load_built_in()?);
         let secret_items = SecretItems::new(SecretItemsStart {
             data_folder: data_folder.clone(),
             // The service starts only as the per-user agent or the app's child.
             runs_while_logged_out: false,
-            access: Arc::new(SystemCredentialStore {
-                offer: secret_store_offer(),
-            }),
+            access: credential_store,
             call_timeout: KEYCHAIN_CALL_TIMEOUT,
         })
         .map_err(DaemonStartError::SecretItems)?;
@@ -460,11 +491,12 @@ impl DaemonProcess {
             },
         )?;
         let providers = build_providers(
-            PROVIDER_REGISTRATIONS,
+            provider_registrations,
             ProviderStart {
                 spawner: self.spawner.clone(),
                 data_folder: data_folder.clone(),
                 home_folder: home_folder.to_path_buf(),
+                worktrees_folder,
                 session_token_path: run_folder.token_path.clone(),
                 reads: Arc::clone(&reads),
                 writer: Arc::clone(&writer),
@@ -473,6 +505,8 @@ impl DaemonProcess {
                 base_environment: Arc::clone(&base_environment),
                 shell_lines: Arc::clone(&shell_lines),
                 caller_processes: Arc::clone(&caller_process_reader),
+                build_record_readers: Arc::new(attention_changes),
+                child_records: Arc::clone(&orphan_guard) as _,
             },
         );
         let backups = Backups::new(BackupDeps {
@@ -500,6 +534,10 @@ impl DaemonProcess {
                 "a command channel folder a previous run left was not removed"
             );
         }
+        // Before the socket, any session's recovery and the capability reads, so a lasting provider
+        // service is joined, or started on the same socket, before anything reaches for it.
+        apply_stored_rows(&providers.registry, &settings, &self.work_stop).await;
+        self.check_stop("applying the providers' stored settings")?;
         let drivers = Arc::clone(&providers.registry);
         let in_flight: Arc<OnceLock<Arc<InFlightMutations>>> = Arc::default();
         let inputs = register_method_inputs(
@@ -516,6 +554,7 @@ impl DaemonProcess {
                 providers: &providers,
                 artifacts: &artifacts,
                 machine,
+                machine_device_id,
                 scheduler: Arc::clone(&scheduler),
                 search_index: Arc::clone(&search_index),
                 clock: wall_clock,
@@ -549,10 +588,15 @@ impl DaemonProcess {
         )
         .await?;
         let recovery = inputs.recovery;
+        let attention = inputs.attention;
+        let web_address_sender = inputs.web_address_sender;
         self.project_list_feed = Some(inputs.project_list_feed);
         self.clones = inputs.clones;
         self.worktree_setup = Some(inputs.worktree_setup);
-        self.worktree_creator = Some(inputs.worktree_creator);
+        self.workspace_work = Some(inputs.workspace_work);
+        // Before the socket serves, so no creation is under way.
+        settle_interrupted_creations(self.worktree_creator.insert(inputs.worktree_creator)).await;
+        let mcp_inventory = inputs.mcp_inventory;
         let session = self.session.insert(inputs.session);
         let queue = Arc::clone(&session.queue);
         let caller_check = CallerCheck::new(
@@ -573,11 +617,12 @@ impl DaemonProcess {
         );
         self.in_flight = Some(gates.in_flight);
         let services = GatewayServices {
-            device_id: None,
+            device_id: Some(inputs.machine_device_id),
             dispatch: gates.dispatch,
             registry,
             negotiator,
             subscriptions,
+            presence: inputs.presence,
             hooks: Arc::new(ServingSocketHooks {
                 process_state: Arc::clone(&self.process_state),
             }),
@@ -606,19 +651,35 @@ impl DaemonProcess {
                 }
             }
         };
-        let registration = self.providers_registration.insert(register_providers(
-            &providers,
-            index_opened,
-            Arc::clone(&settings),
-        ));
+        let registration = self
+            .providers_registration
+            .insert(register_providers(&providers, index_opened));
         self.providers = Some(providers);
-        // Settles what the last stop left before any follow of the log or any folder watch starts.
-        recovery.run(&self.work_stop).await;
         let session = self
             .session
             .as_ref()
             .expect("the session services are built before their follows begin");
-        self.session_attachments = Some(start_session_attachments(session, &followers).await?);
+        // Attached before the recovery pass, whose resumes end runs on the bindings they open.
+        let binding_cursors = follow_binding_cursors(session, &followers);
+        // Settles what the last stop left before any other follow of the log or any folder watch
+        // starts.
+        recovery.run(&self.work_stop).await;
+        // Right after the recovery pass, so the sweep reads what the last stop left before the
+        // session services' follows begin.
+        self.attention = Some(attention.start(self.work_stop.clone()).await?);
+        // After the sweep, so a delivery the stop left pending is decided before it is sent.
+        let send_settings = settings
+            .watch()
+            .await
+            .map_err(DaemonStartError::WebAddressSettings)?;
+        self.web_address_sender =
+            Some(web_address_sender.start(send_settings, self.work_stop.clone()));
+        self.workspace_work
+            .as_mut()
+            .expect("the workspace services are built before their work begins")
+            .start();
+        self.session_attachments =
+            Some(start_session_attachments(session, &followers, binding_cursors).await?);
         let repo = self
             .repo
             .as_ref()
@@ -652,11 +713,23 @@ impl DaemonProcess {
             () = self.work_stop.cancelled() => {}
         }
         self.check_stop("waiting for the providers' first reads")?;
+        // After the first reads, so each provider's read joins what its start runs.
+        self.mcp_attribution_fills = Some(McpAttributionFills::start(
+            mcp_inventory,
+            Arc::clone(
+                &self
+                    .repo
+                    .as_ref()
+                    .expect("the repository services are built before their work begins")
+                    .mounts,
+            ),
+            self.work_stop.clone(),
+        ));
         // Once the drivers are read, the runs a stop left waiting are delivered again.
         for (session_id, error) in queue
             .recover()
             .await
-            .map_err(DaemonStartError::QueueRecovery)?
+            .map_err(|error| DaemonStartError::QueueRecovery(Box::new(error)))?
         {
             tracing::warn!(
                 %session_id,
@@ -688,7 +761,7 @@ impl DaemonProcess {
             stop_work(&mut self, DaemonStopIntent::Stop, DAEMON_STOP_DRAIN_BOUND).await;
         failures.extend(close_data_folder(&mut self).await);
         DaemonStartFailure {
-            failures: CleanupFailures::new(error, failures, START_OPERATION),
+            failures: Box::new(CleanupFailures::new(error, failures, START_OPERATION)),
             release_started,
         }
     }

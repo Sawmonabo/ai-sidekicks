@@ -1,11 +1,6 @@
 // MCP server governance shapes: what a server binding is, what the daemon reports about it, and
-// what a mutation did to the live sessions behind it, plus each `mcp.*` method's request and reply.
-// The method table, event payloads and refusal codes are in `mcp/governance.ts`.
-//
-// No read-back shape carries a configuration value. Credential-bearing input values are
-// write-only, and the redacted view carries names (`envVarNames`, `headerNames`,
-// `urlQueryParamNames`) where the wire carries values, so a client rendering every read-back
-// still cannot render an environment-variable value, a header value or a token.
+// what a mutation did to the live sessions behind it, plus the requests and replies of the
+// `mcp.*` methods that read, change or reach a configured server.
 //
 // Every governance mutation carries a `clientIdempotencyKey` that the caller mints: a retry of
 // one press must reuse it, and a key minted per call would make every retry a new
@@ -14,16 +9,30 @@
 import { z } from "zod";
 
 import { ProviderNameSchema, type ProviderName } from "../provider/name.js";
-import { IDEMPOTENCY_CLASSES, type IdempotencyClass } from "../provider/driver/tools.js";
 import {
   DRIVER_BINDING_ID_MAX_LEN,
   DRIVER_MCP_SERVER_NAME_MAX_LEN,
-  DRIVER_TOOL_NAME_MAX_LEN,
 } from "../provider/driver/length-limits.js";
 import { pluginTokenSchema } from "../plugin.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "../free-form-string.js";
 import { SessionIdSchema, type SessionId } from "../session/id.js";
 import { isoDateTimeSchema } from "../internal/wire-scalars.js";
+import { mcpHttpAddressSchema, mcpServerAddressSchema } from "./request-bounds.js";
+import {
+  McpServerConfigInputSchema,
+  McpServerConfigViewSchema,
+  type McpServerConfigInput,
+  type McpServerConfigView,
+} from "./server-config.js";
+import {
+  McpToolNameSchema,
+  McpToolOverrideFacetSchema,
+  McpToolOverrideSchema,
+  McpToolReadingSchema,
+  type McpToolOverride,
+  type McpToolOverrideFacet,
+  type McpToolReading,
+} from "./tool-settings.js";
 
 /**
  * The five server statuses, most severe first: the daemon's order for folding a server's sessions
@@ -65,16 +74,6 @@ export type McpApplicationGrade = (typeof MCP_APPLICATION_GRADE_VALUES)[number];
  * @consumedBy the daemon's MCP mutation replies, which say when and where a change takes effect
  */
 export const MCP_APPLICATION_GRADES: readonly McpApplicationGrade[] = MCP_APPLICATION_GRADE_VALUES;
-
-const MCP_APPROVAL_MODE_VALUES = ["auto", "prompt", "writes", "approve"] as const;
-
-/** The normalized approval vocabulary a tool override may pin. */
-export type McpApprovalMode = (typeof MCP_APPROVAL_MODE_VALUES)[number];
-/** Every {@link McpApprovalMode}, in the order the per-tool control offers them. */
-export const MCP_APPROVAL_MODES: readonly McpApprovalMode[] = MCP_APPROVAL_MODE_VALUES;
-/** Parses an {@link McpApprovalMode}. */
-export const McpApprovalModeSchema: z.ZodType<McpApprovalMode, McpApprovalMode> =
-  z.enum(MCP_APPROVAL_MODE_VALUES);
 
 const MCP_BINDING_SCOPE_VALUES = ["user", "project", "local", "plugin"] as const;
 
@@ -189,37 +188,6 @@ export const McpSetEnabledRequestSchema: z.ZodType<McpSetEnabledRequest, McpSetE
   bindingAddressed({ clientIdempotencyKey: z.uuid(), enabled: z.boolean() });
 
 /**
- * The redacted read-back of a binding's declaration, by transport. The env map, header map and
- * URL query arrive as keys only, since their values are credentials; the daemon strips the URL's
- * query and any user name or password from it, and a client shows it verbatim.
- */
-export type McpServerConfigView =
-  | {
-      transport: "stdio";
-      command: string;
-      args?: string[] | undefined;
-      envVarNames?: string[] | undefined;
-      enabled?: boolean | undefined;
-      required?: boolean | undefined;
-      startupTimeoutSec?: number | undefined;
-      toolTimeoutSec?: number | undefined;
-    }
-  | {
-      transport: "http" | "sse";
-      url: string;
-      urlQueryParamNames?: string[] | undefined;
-      headerNames?: string[] | undefined;
-      bearerTokenEnvVar?: string | undefined;
-      envHttpHeaders?: Record<string, string> | undefined;
-      oauthScopes?: string[] | undefined;
-      oauthResource?: string | undefined;
-      enabled?: boolean | undefined;
-      required?: boolean | undefined;
-      startupTimeoutSec?: number | undefined;
-      toolTimeoutSec?: number | undefined;
-    };
-
-/**
  * One live session's observation of one binding, kept per session because two sessions'
  * connections to one binding can disagree, and one verdict would hide a partial outage.
  */
@@ -237,59 +205,6 @@ const MCP_SERVER_FAILED_REASON_VALUES = ["commandNotRunnable"] as const;
 export type McpServerFailedReason = (typeof MCP_SERVER_FAILED_REASON_VALUES)[number];
 
 /**
- * The interrupted-call classes a person can assign to a tool. The third class,
- * `manual_reconcile_only`, is the floor a tool reads with no assignment, so it is cleared to, never
- * set.
- */
-export type McpAssignableIdempotencyClass = Exclude<IdempotencyClass, "manual_reconcile_only">;
-
-/**
- * One tool's override as `mcp.setToolOverride` sets it, by facet; at least one facet is present,
- * and an absent facet is left as it stands. What a tool reads in force is its
- * {@link McpToolReading}.
- */
-export interface McpToolOverride {
-  toolName: string;
-  enabled?: boolean | undefined;
-  approvalMode?: McpApprovalMode | undefined;
-  idempotencyClass?: McpAssignableIdempotencyClass | undefined;
-}
-
-const MCP_TOOL_OVERRIDE_FACET_VALUES = ["enabled", "approvalMode", "idempotencyClass"] as const;
-
-/** One facet of a tool override, as `mcp.clearToolOverride` names the one it clears. */
-export type McpToolOverrideFacet = (typeof MCP_TOOL_OVERRIDE_FACET_VALUES)[number];
-/** Every {@link McpToolOverrideFacet}, in the order above. */
-export const MCP_TOOL_OVERRIDE_FACETS: readonly McpToolOverrideFacet[] =
-  MCP_TOOL_OVERRIDE_FACET_VALUES;
-
-/**
- * One per-tool value in force, as the daemon resolved it, and where it came from. Under an
- * override it also carries `serverValue`, the server's own value that clearing the override
- * returns to, so a client choosing that value clears the facet rather than setting it.
- */
-export type McpToolSetting<OverrideValue, ServerValue = OverrideValue> =
-  | { source: "server"; value: ServerValue }
-  | { source: "override"; value: OverrideValue; serverValue: ServerValue };
-
-/** Where a tool's value in force comes from: the server's own, or an override set on the page. */
-export type McpToolSettingSource = McpToolSetting<unknown>["source"];
-
-/**
- * One tool a binding's server offers, each setting in force and where it came from. The daemon
- * resolves each one from the server's own declaration and the person's override, so a client
- * draws them and works none of them out: an unset approval mode reads the provider's default in
- * the normalized vocabulary, and an unset interrupted-call class reads `manual_reconcile_only`,
- * the only class a server's own reading holds.
- */
-export interface McpToolReading {
-  toolName: string;
-  enabled: McpToolSetting<boolean>;
-  approvalMode: McpToolSetting<McpApprovalMode>;
-  idempotencyClass: McpToolSetting<McpAssignableIdempotencyClass, "manual_reconcile_only">;
-}
-
-/**
  * What an inventory entry carries whether or not the binding store answered. `status` is the
  * daemon's aggregate over `legs`.
  */
@@ -298,6 +213,11 @@ interface McpServerInventoryFacts {
   status: McpServerStatus;
   legs?: McpServerLegStatus[] | undefined;
   observedAt?: string | undefined;
+  /**
+   * The machine probe's newest failure text, sanitized and at most `ERROR_MESSAGE_MAX_LEN` code
+   * points; present only while the probe's reading decides a `failed` status.
+   */
+  probeFailureReason?: string | undefined;
   requiredServer?: boolean | undefined;
   /**
    * The project roots in which another binding of this provider and server name takes this one's
@@ -380,92 +300,6 @@ export interface McpRemoveServerResult {
   liveResults?: McpLiveApplicationResult[] | undefined;
 }
 
-// The configuration a person submits
-
-/**
- * The longest command, argument, name, value, address or search text an `mcp.*`
- * request carries.
- */
-export const MCP_REQUEST_TEXT_MAX_LEN = 8192;
-
-const mcpRequestText = (fieldLabel: string): z.ZodString =>
-  wireFreeFormString(MCP_REQUEST_TEXT_MAX_LEN, fieldLabel);
-
-// An `http:` or `https:` address; `http:` is legal because a server may listen on loopback.
-const mcpHttpAddressSchema = z.url({ protocol: /^https?$/u });
-
-/** An `http:` or `https:` address, taken as typed, a user name or password in it included. */
-const mcpServerAddressSchema = mcpHttpAddressSchema.max(MCP_REQUEST_TEXT_MAX_LEN);
-
-const mcpTimeoutSecondsSchema = z.number().positive();
-
-/**
- * A server's declaration as the person submits it, by transport. Environment and header values are
- * write-only, handed to the provider's write path and never served back; unset members keep the
- * provider's values.
- */
-export type McpServerConfigInput =
-  | {
-      transport: "stdio";
-      command: string;
-      args?: string[] | undefined;
-      env?: Record<string, string> | undefined;
-      enabled?: boolean | undefined;
-      required?: boolean | undefined;
-      startupTimeoutSec?: number | undefined;
-      toolTimeoutSec?: number | undefined;
-    }
-  | {
-      transport: "http" | "sse";
-      url: string;
-      headers?: Record<string, string> | undefined;
-      bearerTokenEnvVar?: string | undefined;
-      /** A header name mapped to the name of the environment variable holding its value. */
-      envHttpHeaders?: Record<string, string> | undefined;
-      oauthScopes?: string[] | undefined;
-      oauthResource?: string | undefined;
-      enabled?: boolean | undefined;
-      required?: boolean | undefined;
-      startupTimeoutSec?: number | undefined;
-      toolTimeoutSec?: number | undefined;
-    };
-
-// The settings every transport carries, the same on a submitted declaration and its read-back.
-const serverSettingsShape = {
-  enabled: z.boolean().optional(),
-  required: z.boolean().optional(),
-  startupTimeoutSec: mcpTimeoutSecondsSchema.optional(),
-  toolTimeoutSec: mcpTimeoutSecondsSchema.optional(),
-};
-
-const mcpTextMap = (fieldLabel: string) =>
-  z.record(mcpRequestText(`${fieldLabel} name`), z.string().max(MCP_REQUEST_TEXT_MAX_LEN));
-
-const McpServerConfigInputSchema: z.ZodType<McpServerConfigInput, McpServerConfigInput> =
-  z.discriminatedUnion("transport", [
-    z
-      .object({
-        transport: z.literal("stdio"),
-        command: mcpRequestText("McpServerConfigInput.command"),
-        args: z.array(z.string().max(MCP_REQUEST_TEXT_MAX_LEN)).optional(),
-        env: mcpTextMap("McpServerConfigInput.env").optional(),
-        ...serverSettingsShape,
-      })
-      .strict(),
-    z
-      .object({
-        transport: z.enum(["http", "sse"]),
-        url: mcpServerAddressSchema,
-        headers: mcpTextMap("McpServerConfigInput.headers").optional(),
-        bearerTokenEnvVar: mcpRequestText("McpServerConfigInput.bearerTokenEnvVar").optional(),
-        envHttpHeaders: mcpTextMap("McpServerConfigInput.envHttpHeaders").optional(),
-        oauthScopes: z.array(mcpRequestText("McpServerConfigInput.oauthScopes")).optional(),
-        oauthResource: mcpRequestText("McpServerConfigInput.oauthResource").optional(),
-        ...serverSettingsShape,
-      })
-      .strict(),
-  ]);
-
 // ---- Requests ----
 
 /** Reads the whole inventory; `refresh` asks the daemon to probe before answering. */
@@ -517,38 +351,6 @@ export const McpKeyedBindingRequestSchema: z.ZodType<
   McpKeyedBindingRequest
 > = bindingAddressed({ clientIdempotencyKey: z.uuid() });
 
-/** A tool's name as an override and an event carry it. */
-export const McpToolNameSchema: z.ZodString = wireFreeFormString(
-  DRIVER_TOOL_NAME_MAX_LEN,
-  "McpToolOverride.toolName",
-);
-
-const McpAssignableIdempotencyClassSchema: z.ZodType<
-  McpAssignableIdempotencyClass,
-  McpAssignableIdempotencyClass
-> = z.enum(
-  IDEMPOTENCY_CLASSES.filter(
-    (value): value is McpAssignableIdempotencyClass => value !== "manual_reconcile_only",
-  ),
-);
-
-/** Parses an {@link McpToolOverride}; an override that sets no facet is refused. */
-export const McpToolOverrideSchema: z.ZodType<McpToolOverride, McpToolOverride> = z
-  .object({
-    toolName: McpToolNameSchema,
-    enabled: z.boolean().optional(),
-    approvalMode: McpApprovalModeSchema.optional(),
-    idempotencyClass: McpAssignableIdempotencyClassSchema.optional(),
-  })
-  .strict()
-  .refine(
-    (override) =>
-      override.enabled !== undefined ||
-      override.approvalMode !== undefined ||
-      override.idempotencyClass !== undefined,
-    { message: "A tool override sets at least one of enabled, approvalMode or idempotencyClass." },
-  );
-
 /** Sets one tool's override on a binding. */
 export type McpSetToolOverrideRequest = McpServerBindingRef & {
   clientIdempotencyKey: string;
@@ -576,7 +378,7 @@ export const McpClearToolOverrideRequestSchema: z.ZodType<
 > = bindingAddressed({
   clientIdempotencyKey: z.uuid(),
   toolName: McpToolNameSchema,
-  facet: z.enum(MCP_TOOL_OVERRIDE_FACET_VALUES),
+  facet: McpToolOverrideFacetSchema,
 });
 
 /**
@@ -610,58 +412,11 @@ export const McpReconnectRequestSchema: z.ZodType<McpReconnectRequest, McpReconn
     ).optional(),
   });
 
-/**
- * Searches the public MCP Registry for servers to add. The daemon makes the call,
- * only when the person types, and keeps nothing past the page it answers.
- */
-export interface McpRegistrySearchRequest {
-  query: string;
-  cursor?: string | undefined;
-}
-/** Parses an {@link McpRegistrySearchRequest}. */
-export const McpRegistrySearchRequestSchema: z.ZodType<
-  McpRegistrySearchRequest,
-  McpRegistrySearchRequest
-> = z
-  .object({
-    query: mcpRequestText("McpRegistrySearchRequest.query"),
-    cursor: mcpRequestText("McpRegistrySearchRequest.cursor").optional(),
-  })
-  .strict();
-
 // ---- Replies ----
 
 /** Parses one of the five server statuses. */
 export const McpServerStatusSchema: z.ZodType<McpServerStatus> = z.enum(
   MCP_SERVER_STATUS_SEVERITY_ORDER,
-);
-
-const McpServerConfigViewSchema: z.ZodType<McpServerConfigView> = z.discriminatedUnion(
-  "transport",
-  [
-    z
-      .object({
-        transport: z.literal("stdio"),
-        command: z.string(),
-        args: z.array(z.string()).optional(),
-        envVarNames: z.array(z.string()).optional(),
-        ...serverSettingsShape,
-      })
-      .strict(),
-    z
-      .object({
-        transport: z.enum(["http", "sse"]),
-        url: z.string(),
-        urlQueryParamNames: z.array(z.string()).optional(),
-        headerNames: z.array(z.string()).optional(),
-        bearerTokenEnvVar: z.string().optional(),
-        envHttpHeaders: z.record(z.string(), z.string()).optional(),
-        oauthScopes: z.array(z.string()).optional(),
-        oauthResource: z.string().optional(),
-        ...serverSettingsShape,
-      })
-      .strict(),
-  ],
 );
 
 const McpServerLegStatusSchema: z.ZodType<McpServerLegStatus> = z
@@ -682,26 +437,6 @@ const inventoryFactsShape = {
   supersededIn: z.array(z.string().min(1).max(FILE_PATH_MAX_LEN)).min(1).optional(),
   failedReason: z.enum(MCP_SERVER_FAILED_REASON_VALUES).optional(),
 };
-// One setting's two arms: the server's own value, or an override with the server's value beside it.
-const toolSettingSchema = <OverrideValue extends z.ZodType, ServerValue extends z.ZodType>(
-  value: OverrideValue,
-  serverValue: ServerValue,
-) =>
-  z.discriminatedUnion("source", [
-    z.object({ source: z.literal("server"), value: serverValue }).strict(),
-    z.object({ source: z.literal("override"), value, serverValue }).strict(),
-  ]);
-const McpToolReadingSchema: z.ZodType<McpToolReading> = z
-  .object({
-    toolName: McpToolNameSchema,
-    enabled: toolSettingSchema(z.boolean(), z.boolean()),
-    approvalMode: toolSettingSchema(McpApprovalModeSchema, McpApprovalModeSchema),
-    idempotencyClass: toolSettingSchema(
-      McpAssignableIdempotencyClassSchema,
-      z.literal("manual_reconcile_only"),
-    ),
-  })
-  .strict();
 const storeAnsweredEntryShape = {
   enabled: z.boolean(),
   tools: z.array(McpToolReadingSchema),
@@ -815,82 +550,4 @@ export interface McpReconnectResponse {
 /** Parses an {@link McpReconnectResponse}. */
 export const McpReconnectResponseSchema: z.ZodType<McpReconnectResponse> = z
   .object({ legs: z.array(McpServerLegStatusSchema) })
-  .strict();
-
-/** A registry server that runs as a package the person's machine installs. */
-export interface McpRegistryPackage {
-  registryType: string;
-  identifier: string;
-  runtimeHint?: string | undefined;
-  runtimeArguments: string[];
-}
-
-/** A registry server reached at an address. */
-export interface McpRegistryRemote {
-  type: string;
-  url: string;
-}
-
-/** An environment variable a registry server reads: its name, never a value. */
-export interface McpRegistryEnvironmentVariable {
-  name: string;
-  description?: string | undefined;
-  isRequired: boolean;
-}
-
-/**
- * One registry search result. Untrusted data from a public registry anyone can
- * publish to: it fills the add form and nothing else, and it never holds an
- * environment variable's value.
- */
-export interface McpRegistryServer {
-  name: string;
-  title?: string | undefined;
-  description: string;
-  version: string;
-  packages: McpRegistryPackage[];
-  remotes: McpRegistryRemote[];
-  environmentVariables: McpRegistryEnvironmentVariable[];
-}
-
-/** One page of registry search results. */
-export interface McpRegistrySearchResponse {
-  servers: McpRegistryServer[];
-  nextCursor?: string | undefined;
-}
-/** Parses an {@link McpRegistrySearchResponse}. */
-export const McpRegistrySearchResponseSchema: z.ZodType<McpRegistrySearchResponse> = z
-  .object({
-    servers: z.array(
-      z
-        .object({
-          name: z.string().min(1),
-          title: z.string().optional(),
-          description: z.string(),
-          version: z.string(),
-          packages: z.array(
-            z
-              .object({
-                registryType: z.string(),
-                identifier: z.string().min(1),
-                runtimeHint: z.string().optional(),
-                runtimeArguments: z.array(z.string()),
-              })
-              .strict(),
-          ),
-          remotes: z.array(z.object({ type: z.string(), url: mcpHttpAddressSchema }).strict()),
-          environmentVariables: z.array(
-            z
-              .object({
-                name: z.string().min(1),
-                description: z.string().optional(),
-                isRequired: z.boolean(),
-              })
-              .strict(),
-          ),
-        })
-        .strict(),
-    ),
-    nextCursor: z.string().min(1).optional(),
-  })
   .strict();

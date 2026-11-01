@@ -1,43 +1,12 @@
-//! The daemon's own session records: a stored event row as its columns hold it, and the directory
-//! row the sessions list and the session read answer from, which the wire's `SessionRecord` does
-//! not carry whole (the owner the bootstrap event names among them).
+//! The daemon's own session records: the directory row the sessions list and the session read
+//! answer from, which the wire's `SessionRecord` does not carry whole (the owner the bootstrap
+//! event names among them).
 
-use serde_json::{Map, Value};
 use sidekicks_contracts::agent::definition::AgentDefinitionId;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::session::directory::SessionActivity;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
-
-/// One `session_events` row with its columns as stored, the content column left out. `sequence`,
-/// not `monotonic_ns`, is the order key.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct StoredEvent {
-    /// The event's id.
-    pub(crate) id: String,
-    /// The session the event belongs to.
-    pub(crate) session_id: String,
-    /// The event's place in its session's log.
-    pub(crate) sequence: i64,
-    /// When it occurred, RFC 3339 UTC to the millisecond.
-    pub(crate) occurred_at: String,
-    /// Nanoseconds since the daemon's start when it was appended.
-    pub(crate) monotonic_ns: i64,
-    /// The event's category.
-    pub(crate) category: String,
-    /// The event's type.
-    pub(crate) event_type: String,
-    /// Who acted, `None` for a system event.
-    pub(crate) actor: Option<String>,
-    /// The payload's members.
-    pub(crate) payload: Map<String, Value>,
-    /// The id that ties this event to others of one operation.
-    pub(crate) correlation_id: Option<String>,
-    /// The id of what caused this event.
-    pub(crate) causation_id: Option<String>,
-    /// The producer's `"MAJOR.MINOR"` envelope version.
-    pub(crate) version: String,
-}
 
 /// The event-derived columns of a session's `sessions` row, exactly as a rebuild from the log
 /// produces them. Times are RFC 3339 UTC with milliseconds.

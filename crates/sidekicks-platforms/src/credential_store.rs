@@ -14,6 +14,8 @@
 
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod blocking;
+#[cfg(any(test, feature = "test-support"))]
+mod in_memory;
 mod pieces;
 pub(crate) mod seal;
 
@@ -139,12 +141,10 @@ impl CredentialStore {
     }
 
     /// A credential store held in this process's memory alone, for a test: it keeps values until it
-    /// drops, and lists every entry ever built on it, those never written included.
+    /// drops, and lists only the items written, as every system store does.
     #[cfg(any(test, feature = "test-support"))]
     pub fn in_memory() -> Self {
-        let store: Arc<keyring_core::CredentialStore> =
-            keyring_core::mock::Store::new().expect("the in-memory store builds without a failure");
-        Self::from_store(store)
+        Self::from_store(Arc::new(in_memory::InMemoryCredentialStore::new()))
     }
 
     /// Makes the next call on the entry under `service` and `account` of an in-memory store fail as
@@ -519,7 +519,9 @@ mod tests {
     use std::error::Error;
     use std::io;
 
-    use super::CredentialStoreError;
+    use secrecy::SecretString;
+
+    use super::{CredentialStore, CredentialStoreError, StoreAccount};
 
     const STORED_VALUE: &[u8] = b"hunter2-do-not-print";
 
@@ -551,5 +553,24 @@ mod tests {
                 assert!(!text.contains(stored_numbers), "{text}");
             }
         }
+    }
+
+    /// The in-memory store lists an item only once it is written, as a system store does, never
+    /// one an entry was only built or read for. Mutation: list every entry built.
+    #[test]
+    fn the_in_memory_store_lists_only_the_items_written() {
+        let store = CredentialStore::in_memory();
+        assert!(
+            store
+                .read("service", "read-only")
+                .expect("the store reads")
+                .is_none()
+        );
+        store
+            .write("service", "written", &SecretString::from("value"))
+            .expect("the store writes");
+        let accounts = store.accounts("service").expect("the store lists");
+        let listed: Vec<&str> = accounts.iter().map(StoreAccount::account).collect();
+        assert_eq!(listed, ["written"]);
     }
 }

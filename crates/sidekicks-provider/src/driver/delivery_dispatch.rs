@@ -11,7 +11,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::error_description::describe_error;
 
-use crate::driver::contract::bound_failure_detail;
+use crate::driver::contract::error::bound_failure_detail;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };

@@ -42,7 +42,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{closed_word, safe_int_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
-use sidekicks_store::events::log_service::{EventAppendError, EventLogService};
+use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
@@ -650,15 +650,15 @@ impl WorkflowRunDeletion {
 // The position of the statement whose row count refused a delete's write, if that is why it was
 // not kept.
 fn refused_statement_index(error: &WorkflowRunDeletionError) -> Option<usize> {
-    if let WorkflowRunDeletionError::Append(SessionEventAppendError::Append(
-        EventAppendError::Write(WriteError::Refused {
-            statement_index, ..
-        }),
-    )) = error
-    {
-        Some(*statement_index)
-    } else {
-        None
+    match error {
+        WorkflowRunDeletionError::Append(append) => append.refused_statement_index(),
+        WorkflowRunDeletionError::NotFound(_)
+        | WorkflowRunDeletionError::NotDeletable(_)
+        | WorkflowRunDeletionError::Draft(_)
+        | WorkflowRunDeletionError::Write(_)
+        | WorkflowRunDeletionError::Incomplete { .. }
+        | WorkflowRunDeletionError::Database(_)
+        | WorkflowRunDeletionError::Pool(_) => None,
     }
 }
 

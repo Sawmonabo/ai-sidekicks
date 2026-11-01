@@ -5,8 +5,6 @@
 //! permission level stored on it, at the posture that level runs at in the session's repository.
 
 pub mod function_legs;
-#[cfg(test)]
-mod tests;
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -50,7 +48,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::stored_column::optional_text_column;
 use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 use sidekicks_workspace::git::process::{
-    GitError, GitRunner, NOT_A_REPOSITORY_EXIT_CODE, read_git_common_folder,
+    GIT_FATAL_EXIT_CODE, GitError, GitRunner, read_git_common_folder,
 };
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::project::records::{ProjectReadError, ProjectRecords};
@@ -100,7 +98,8 @@ pub enum SessionDirectoryProviderPortError {
         /// The session.
         session_id: SessionId,
     },
-    /// The session has no live workspace, or none naming a folder.
+    /// The session has no live workspace, or none naming a folder: the run folder's resolver
+    /// answers this, while an opening answers the typed [`Self::GitFolderUnavailable`].
     #[error("session {session_id} has no workspace to work in")]
     NoRunFolder {
         /// The session.
@@ -130,6 +129,15 @@ pub enum SessionDirectoryProviderPortError {
     /// git did not answer the repository's git folder.
     #[error("the git folder of the session's repository could not be read")]
     Git(#[from] GitError),
+    /// The session's git folder is unavailable, so no process of it can open.
+    #[error("session {session_id}'s git folder is unavailable")]
+    GitFolderUnavailable {
+        /// The session.
+        session_id: SessionId,
+        /// Why it is unavailable.
+        #[source]
+        why: GitFolderUnavailable,
+    },
     /// The repository's git folder is a path the wire's path rule refuses.
     #[error("the git folder of the session's repository is no path a posture can name")]
     GitFolderPath(#[source] TextError),
@@ -156,12 +164,34 @@ pub enum SessionDirectoryProviderPortError {
     McpRootPath(#[source] TextError),
 }
 
+/// Why a session's git folder is unavailable, each answered as a refusal rather than a fault.
+#[derive(Debug, thiserror::Error)]
+pub enum GitFolderUnavailable {
+    /// The session names no folder to work in yet, as before its workspace is set up.
+    #[error("the session names no folder to work in yet")]
+    NoRunFolder,
+    /// git refuses the folder the session names. Its exit 128 is git's exit for every fatal error:
+    /// no repository there, the folder gone or unreadable, a pruned worktree record, an owner git
+    /// does not trust, or a corrupt `.git`.
+    #[error("git refuses the folder the session works in")]
+    Refused(#[source] GitError),
+}
+
+/// A session's git folder as the port reads it: the folder, or why the session has none.
+#[derive(Debug)]
+pub enum SessionGitFolder {
+    /// The common git folder of the repository the session runs in.
+    Available(FilesystemPath),
+    /// The session has no git folder to build on now.
+    Unavailable(GitFolderUnavailable),
+}
+
 /// What a session's provider session opens with, composed from its lead as the session's log and
 /// records stand now, and the function legs of each binding the caller mints for it.
 pub struct SessionProviderOpening {
     /// The provider the lead runs on.
     pub provider: ProviderId,
-    /// The git folder of the session's repository, which the posture of each level is built on.
+    /// The git folder of the session's repository, which the posture of Sandboxed is built on.
     pub git_folder: FilesystemPath,
     /// The create's data legs, its posture the one of the level the session stands at.
     pub create_params: CreateSessionParams,
@@ -215,11 +245,11 @@ impl SessionDirectoryProviderPort {
     }
 
     /// What `session_id`'s provider session opens with on `provider_account_id`'s account: its
-    /// lead's provider, the model it runs on now and the output speed, options and larger window
-    /// its binding names, at the posture of the level it stands at, in the mode it was last moved
-    /// to, with the row values set in the app for that provider, and each binding's function legs.
-    /// Fails for a session with no lead or no workspace, as the reads, git or the settings file
-    /// fail, and when its project root is no path.
+    /// lead's provider, the model it runs on now and the effort, output speed, options and larger
+    /// window its binding names, at the posture of the level it stands at, in the mode it was last
+    /// moved to, with the row values set in the app for that provider, and each binding's function
+    /// legs. Fails for a session with no lead or no workspace, as the reads, git or the settings
+    /// file fail, and when its project root is no path.
     pub async fn compose_opening(
         &self,
         session_id: SessionId,
@@ -246,6 +276,7 @@ impl SessionDirectoryProviderPort {
                 agent_id,
                 config: Map::new(),
                 model: running_model,
+                effort: binding.effort,
                 larger_window: binding.larger_window,
                 execution_posture: Some(standing.execution_posture),
                 mode: standing.mode,
@@ -319,6 +350,38 @@ impl SessionDirectoryProviderPort {
         Ok((place, PathBuf::from(folder)))
     }
 
+    /// The common git folder of the repository `session_id` runs in, which the posture of
+    /// Sandboxed is built on, or why it is unavailable: no folder named yet, or one git refuses.
+    /// Fails as the reads fail, or git fails any other way.
+    pub async fn read_git_folder(
+        &self,
+        session_id: SessionId,
+    ) -> Result<SessionGitFolder, SessionDirectoryProviderPortError> {
+        let (place, run_folder) = match self.read_run_folder(session_id).await {
+            Ok(read) => read,
+            Err(SessionDirectoryProviderPortError::NoRunFolder { .. }) => {
+                return Ok(SessionGitFolder::Unavailable(
+                    GitFolderUnavailable::NoRunFolder,
+                ));
+            }
+            Err(failure) => return Err(failure),
+        };
+        let git_folder = match self
+            .read_git_common_folder_or_refusal(place.as_ref(), &run_folder)
+            .await?
+        {
+            Ok(git_folder) => git_folder,
+            Err(refusal) => {
+                return Ok(SessionGitFolder::Unavailable(
+                    GitFolderUnavailable::Refused(refusal),
+                ));
+            }
+        };
+        FilesystemPath::new(git_folder.to_string_lossy().into_owned())
+            .map(SessionGitFolder::Available)
+            .map_err(SessionDirectoryProviderPortError::GitFolderPath)
+    }
+
     // What an opening and a resume take from the session's records and the settings file now: the
     // git folder of the repository its runs work in, the posture of its level there, its mode,
     // and every provider's row values.
@@ -326,7 +389,6 @@ impl SessionDirectoryProviderPort {
         &self,
         session_id: SessionId,
     ) -> Result<StandingOpening, SessionDirectoryProviderPortError> {
-        let (place, run_folder) = self.read_run_folder(session_id).await?;
         let (level, mode) = self
             .deps
             .pool
@@ -337,16 +399,17 @@ impl SessionDirectoryProviderPort {
                 ))
             })
             .await?;
-        let (git_folder, settings) = tokio::try_join!(
-            async {
-                read_git_common_folder(&self.deps.git, place.as_ref(), &run_folder, None)
-                    .await
-                    .map_err(SessionDirectoryProviderPortError::from)
-            },
-            self.read_settings(),
-        )?;
-        let git_folder = FilesystemPath::new(git_folder.to_string_lossy().into_owned())
-            .map_err(SessionDirectoryProviderPortError::GitFolderPath)?;
+        let (git_folder, settings) =
+            tokio::try_join!(self.read_git_folder(session_id), self.read_settings())?;
+        let git_folder = match git_folder {
+            SessionGitFolder::Available(git_folder) => git_folder,
+            SessionGitFolder::Unavailable(why) => {
+                return Err(SessionDirectoryProviderPortError::GitFolderUnavailable {
+                    session_id,
+                    why,
+                });
+            }
+        };
         Ok(StandingOpening {
             execution_posture: compose_execution_posture(level, git_folder.clone()),
             git_folder,
@@ -363,18 +426,21 @@ impl SessionDirectoryProviderPort {
             .map_err(SessionDirectoryProviderPortError::MachineSettings)
     }
 
-    // The common git folder of the repository `folder` sits in, `None` outside one.
-    async fn read_git_common_folder_if_any(
+    // The common git folder of the repository `folder` sits in, or git's error where it refuses
+    // the folder with its fatal exit: outside a repository, or a folder it cannot or will not use.
+    async fn read_git_common_folder_or_refusal(
         &self,
         place: Option<&Place>,
         folder: &Path,
-    ) -> Result<Option<PathBuf>, SessionDirectoryProviderPortError> {
+    ) -> Result<Result<PathBuf, GitError>, SessionDirectoryProviderPortError> {
         match read_git_common_folder(&self.deps.git, place, folder, None).await {
-            Ok(git_folder) => Ok(Some(git_folder)),
-            Err(GitError::Exited {
-                code: Some(NOT_A_REPOSITORY_EXIT_CODE),
-                ..
-            }) => Ok(None),
+            Ok(git_folder) => Ok(Ok(git_folder)),
+            Err(
+                refusal @ GitError::Exited {
+                    code: Some(GIT_FATAL_EXIT_CODE),
+                    ..
+                },
+            ) => Ok(Err(refusal)),
             Err(error) => Err(error.into()),
         }
     }
@@ -412,7 +478,14 @@ impl SessionDirectoryProviderPort {
             .working_folder
             .ok_or(SessionDirectoryProviderPortError::NoWorkingFolder { session_id })?;
         let (git_common_folder, settings, project_rows, account_folders) = tokio::try_join!(
-            self.read_git_common_folder_if_any(working_folder.place.as_ref(), &working_directory),
+            async {
+                self.read_git_common_folder_or_refusal(
+                    working_folder.place.as_ref(),
+                    &working_directory,
+                )
+                .await
+                .map(Result::ok)
+            },
             self.read_settings(),
             async {
                 self.deps
@@ -565,6 +638,21 @@ impl SessionRelaunchListener for SessionDirectoryProviderPort {
         .boxed()
     }
 
+    /// Answers the binding's function legs, composed as an opening's are, with no cursor opened.
+    /// Fails as the reads fail.
+    fn open_relaunch_legs(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.compose_relaunch_legs(session_id, binding_id)
+                .await
+                .map_err(Into::into)
+        }
+        .boxed()
+    }
+
     /// A failed relaunch is logged and its opened cursor forgotten; a resumed one's binding is
     /// recorded on the leg its opening continued, else on the session's leg as it stands, the
     /// conversation that leg ran on recorded as left when the provider continued it in a new one.
@@ -587,3 +675,6 @@ impl SessionRelaunchListener for SessionDirectoryProviderPort {
 fn row_values_of(settings: &ProviderSettingValues, provider: &ProviderId) -> ProviderRowValues {
     settings.as_map().get(provider).cloned().unwrap_or_default()
 }
+
+#[cfg(test)]
+mod tests;

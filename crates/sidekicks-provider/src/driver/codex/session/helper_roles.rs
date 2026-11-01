@@ -13,7 +13,7 @@ use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 use sidekicks_std::file::atomic_write::write_file_atomically;
 
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::SubagentDefinition;
 
 /// A role file is readable and writable by the person alone.
@@ -227,7 +227,7 @@ mod tests {
 
     use super::write_codex_helper_roles;
     use crate::driver::codex::session::errors::CodexError;
-    use crate::driver::contract::DriverError;
+    use crate::driver::contract::error::DriverError;
     use crate::driver::session_control::SubagentDefinition;
 
     #[tokio::test]

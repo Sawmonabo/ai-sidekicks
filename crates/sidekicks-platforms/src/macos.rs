@@ -6,7 +6,8 @@
 //! processes and the arguments and environment a process started with, an open descriptor's path,
 //! the wakes of a folder's and a file's watch, whether a terminal's program waits for input, the
 //! machine's wakes from sleep, whether it runs on AC power, a wall-clock timer, the login keychain,
-//! the Region setting's locale and hour cycle and the shells the live test opens on a folder.
+//! a program's managed preferences, the Region setting's locale and hour cycle, the app's start
+//! with no window and the shells the live test opens on a folder.
 
 pub(crate) mod bash_start;
 pub(crate) mod caller_process;
@@ -16,6 +17,7 @@ pub(crate) mod descriptor_path;
 pub(crate) mod input_wait;
 pub(crate) mod lasting_child;
 pub(crate) mod loaded_images;
+pub(crate) mod managed_preference;
 pub(crate) mod memory;
 pub(crate) mod pinned_process;
 pub(crate) mod power_source;
@@ -30,6 +32,7 @@ pub(crate) mod system_locale;
 pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 pub(crate) mod watch;
+pub(crate) mod windowless_app;
 
 use std::io;
 use std::path::PathBuf;
@@ -95,6 +98,10 @@ pub fn windows_drive_mounts() -> io::Result<Vec<PathBuf>> {
 /// an offset: yes, since macOS's footprint (the memory it charges a process) leaves out a mapped
 /// file's clean pages, so a mapped file measures smaller.
 pub const SHOULD_MEMORY_MAP_READS: bool = true;
+
+/// Whether the daemon's credential store keeps its items in a file in the data folder: no, since
+/// they go into the login keychain, the account's own.
+pub const CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER: bool = false;
 
 /// A bound in bytes that no single argument a program can start with reaches:
 /// `sysconf(_SC_ARG_MAX)`, which counts the arguments and the environment together, never

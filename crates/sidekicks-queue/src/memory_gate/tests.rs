@@ -133,7 +133,7 @@ async fn estimated_starts_are_spaced_and_a_node_reserves_the_peak_it_reached() {
         .observe_process_peak(4_182)
         .await
         .expect("the peak is read");
-    first.release();
+    drop(first);
     available.store(
         HEADROOM + 288 * MEBIBYTE + 50 * MEBIBYTE + GIBIBYTE,
         Ordering::SeqCst,

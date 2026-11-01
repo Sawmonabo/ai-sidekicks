@@ -24,7 +24,7 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_session::changes::refuse_unchangeable_session;
 use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, QueueMessageBody,

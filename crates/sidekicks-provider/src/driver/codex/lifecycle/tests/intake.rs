@@ -27,7 +27,7 @@ use crate::driver::codex::session::inbound::CodexSessionCall;
 use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, fork_reply, no_turns, test_thread_settings, turn_completed, turn_reply,
 };
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::{
     FasterModelRetryOutcome, FasterModelRetryParams, PauseRunParams, ResumeRunParams,
     WaitingMessage,
@@ -38,7 +38,7 @@ use crate::port::question::test_card::QuestionCard;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::posture::compose_execution_posture;
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
-use crate::runtime_binding::resume::{ResumeFunctionLegs, compose_resume_session_params};
+use crate::runtime_binding::resume::compose_resume_session_params;
 use crate::runtime_binding::store::{mint_runtime_binding_id, read_binding};
 
 // Real time under a timeout, since the session's task applies each frame on its own task. Two
@@ -675,7 +675,7 @@ async fn the_conversations_fixed_start_is_kept_on_its_binding_for_a_resume() {
         ),
         Vec::new(),
         ProviderRowValues::default(),
-        ResumeFunctionLegs::default(),
+        Vec::new(),
         Vec::new(),
     )
     .expect("the binding resumes");

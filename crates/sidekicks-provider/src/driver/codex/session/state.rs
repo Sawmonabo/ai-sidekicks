@@ -20,11 +20,12 @@ use tokio::sync::oneshot;
 use crate::driver::attachments::ProviderAttachment;
 use crate::driver::codex::delivery::frames::CodexPromptHookRun;
 use crate::driver::codex::delivery::memory::CodexDeliveryMemory;
+use crate::driver::codex::notification_routing::CodexMcpServerStartups;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::run_control::{PickedSkill, ResumeRunParams};
 use crate::thread_frame_router::ThreadFrameRouterConfig;
@@ -203,8 +204,13 @@ pub(crate) struct CodexSessionRecord {
     pub(crate) delivery: CodexDeliveryMemory,
     /// The status sink of the leg the conversation runs on, which its tool servers' startup
     /// reports go to; taken and ended once that leg's process ends, and ended when the record
-    /// goes.
+    /// goes. A resume in place and a fork onto another binding end it and take the new leg's; a
+    /// run start that adopts another binding keeps it, since the leg is the process's, not the
+    /// run's.
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
+    /// What the tool servers' startups on the conversation said, which the leg's list of their
+    /// tools reads; begun afresh whenever the conversation is bound.
+    pub(crate) mcp_server_startups: CodexMcpServerStartups,
 }
 
 /// What an establishment knows of a session's conversation, from which its record starts with
@@ -282,6 +288,7 @@ impl CodexSessionRecord {
             turn_input_by_turn_id: HashMap::new(),
             delivery: CodexDeliveryMemory::new(),
             on_mcp_server_status: established.on_mcp_server_status,
+            mcp_server_startups: CodexMcpServerStartups::default(),
         }
     }
 

@@ -12,14 +12,16 @@ use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::driver::claude::session::scripted::binding_id;
-use crate::driver::contract::{RunOpening, RunOpeningItem, StartRunParams};
+use crate::driver::contract::params_and_results::{RunOpening, RunOpeningItem, StartRunParams};
 use crate::driver::session_control::ResumeSessionParams;
 use crate::runtime_binding::store::mint_runtime_binding_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 mod bring_up;
+mod level_moves;
 mod naming;
 mod restarts;
+mod resumed_runs;
 mod session_controls;
 mod settings_reads;
 
@@ -72,5 +74,6 @@ fn resume_params(session_id: SessionId) -> ResumeSessionParams {
         provider_account_id: test_provider_account_id(),
         on_mcp_server_status: None,
         kept_schedules: Vec::new(),
+        live_runs: Vec::new(),
     }
 }

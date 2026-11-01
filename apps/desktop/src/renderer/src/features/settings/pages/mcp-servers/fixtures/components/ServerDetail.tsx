@@ -9,8 +9,8 @@ import type { Clock } from "#renderer/lib/clock.js";
 import type {
   McpServerBindingRef,
   McpServerInventoryEntry,
-  McpToolOverrideFacet,
 } from "@ai-sidekicks/contracts/mcp/server";
+import type { McpToolOverrideFacet } from "@ai-sidekicks/contracts/mcp/tool-settings";
 import type { SessionDirectoryState } from "#renderer/store/session/directory/state.js";
 import { ConfigReadBack } from "./ConfigReadBack.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";

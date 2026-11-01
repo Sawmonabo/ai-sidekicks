@@ -502,12 +502,16 @@ impl WriteQueue {
         let CommittedBatch {
             outcomes,
             commit_count,
-            after_commit_failure,
+            after_commit_failures,
         } = committed;
-        if let Some(failure) = &after_commit_failure {
+        for (read_name, failure) in &after_commit_failures {
+            if self.is_stop_interrupt(failure) {
+                continue;
+            }
             tracing::warn!(
+                read = read_name,
                 error = failure as &(dyn Error + 'static),
-                "the read after a commit failed; its watch keeps the last value it read"
+                "a read after a commit failed; what it feeds keeps its last value"
             );
             self.report_failure(failure);
         }
@@ -610,9 +614,14 @@ impl WriteQueue {
 
     /// Reports `failure` unless it is the stop's own interrupt, which says nothing of the file.
     fn report_unless_interrupted(&self, failure: &(dyn Error + 'static)) {
-        if !(self.shared.stop.is_stopped() && is_interrupt(failure)) {
+        if !self.is_stop_interrupt(failure) {
             self.report_failure(failure);
         }
+    }
+
+    /// Whether `failure` is the stop's own interrupt, which says nothing of the file.
+    fn is_stop_interrupt(&self, failure: &(dyn Error + 'static)) -> bool {
+        self.shared.stop.is_stopped() && is_interrupt(failure)
     }
 
     /// A close past its bound counts the in-flight writes its stop kept from committing.

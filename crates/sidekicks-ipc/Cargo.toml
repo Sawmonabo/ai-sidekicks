@@ -3,7 +3,7 @@ name = "sidekicks-ipc"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "The local socket's server side without its handlers: the method registry and dispatch, the caller check, the stream subscriptions and their frame batching, and the errors."
+description = "The local socket's server side without its handlers: the method registry and dispatch, the caller check, the stream subscriptions and their frame batching, the presence register of the devices connected, and the errors."
 license.workspace = true
 publish.workspace = true
 

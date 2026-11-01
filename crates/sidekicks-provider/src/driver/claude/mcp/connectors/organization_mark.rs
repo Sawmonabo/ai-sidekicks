@@ -2,24 +2,37 @@
 //! account's connector list from claude.ai, sent exactly as Claude Code sends it at its own start
 //! and only after the account's own Claude Code process answered, so that process has already
 //! renewed an expiring token under its lock. The daemon renews nothing itself: a refused token
-//! leaves every mark absent for that read. Budget: one request per account read, at most three
-//! tries and one more without the additional accounts, within twelve seconds.
+//! leaves every mark absent for that read. Budget: one request per account read, none where
+//! Claude Code fetches no list, at most three tries within twelve seconds, and the one plain try
+//! after them, without the additional accounts.
 
 use std::collections::HashMap;
 use std::time::Duration;
 
 use base64::Engine;
 use reqwest::StatusCode;
-use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGENT};
+use reqwest::header::{
+    ACCEPT, ACCEPT_ENCODING, AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGENT,
+};
 use serde::Deserialize;
 use sidekicks_platforms::PathRules;
 use tokio::sync::OnceCell;
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
-use super::{ClaudeAccountServerAnswers, lists_connectors};
-use crate::driver::claude::account_credentials::{ClaudeAiSignIn, ClaudeSignInReader};
+use crate::driver::claude::account_credentials::{
+    CUSTOM_SIGN_IN_HOST_VARIABLE, ClaudeAiSignIn, ClaudeSignInReader, ClaudeSignInReading,
+    is_claude_api_key_approved,
+};
+use crate::driver::claude::mcp::connectors::list_fetch::{
+    ClaudeConnectorFetchSettings, does_api_key_need_approval, skips_connector_fetch,
+    skips_fetch_for_scopes,
+};
+use crate::driver::mcp_server::address::{ServerAddressIdentity, read_server_address};
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
+
+#[cfg(test)]
+mod tests;
 
 /// Where Claude Code reads the connector list from unless its account names another approved host.
 const CLAUDE_API_BASE: &str = "https://api.anthropic.com";
@@ -31,17 +44,11 @@ const APPROVED_CUSTOM_BASES: [&str; 3] = [
     "https://claude-staging.fedstart.com",
 ];
 
-/// The variable that moves Claude Code's API host to an approved one.
-const CUSTOM_BASE_VARIABLE: &str = "CLAUDE_CODE_CUSTOM_OAUTH_URL";
-
 /// The connector list's path and query, the whole list in one page.
 const CONNECTOR_LIST_PATH: &str = "/v1/mcp_servers?limit=1000";
 
 /// The query Claude Code adds to list a connector's additional accounts too.
 const ADDITIONAL_INSTALLS_QUERY: &str = "&include_additional_installs=true";
-
-/// The scope a token needs for the connector list.
-const CONNECTOR_LIST_SCOPE: &str = "user:mcp_servers";
 
 /// The beta the connector list is served under.
 const MCP_SERVERS_BETA: &str = "mcp-servers-2025-12-04";
@@ -58,6 +65,10 @@ const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
 /// The `Accept` Claude Code's HTTP library sends on every request.
 const ACCEPT_ANY_TEXT: &str = "application/json, text/plain, */*";
 
+/// The `Accept-Encoding` Claude Code's HTTP library sends on every request; the reply is decoded
+/// from whichever of them the server picks but `compress`, which no server sends.
+const ACCEPT_ENCODINGS: &str = "gzip, compress, deflate, br";
+
 /// How long one try may take.
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -70,8 +81,43 @@ const RETRY_BASE_DELAY: Duration = Duration::from_millis(500);
 /// The time every try and wait of one read fits in.
 const RETRY_BUDGET: Duration = Duration::from_secs(12);
 
+/// The second request one try can make: on a 401 the try renews the token and asks again, with no
+/// latch, so every try can make one.
+const REFUSED_TOKEN_RETRY: Duration = ATTEMPT_TIMEOUT;
+
+/// The longest Claude Code's own fetch of the connector list runs once it starts: the budget, which
+/// the last of its tries starts inside, that try's refused-token request past it, then the one
+/// plain try without the additional accounts, which the budget does not bound, and that try's own
+/// refused-token request: 12 + 5 + 5 + 5 seconds. The token renewals themselves, one before the
+/// first try and one on each 401, are bounded only by the read's ceiling.
+pub(crate) const CLAUDE_CONNECTOR_FETCH_WINDOW: Duration = RETRY_BUDGET
+    .saturating_add(REFUSED_TOKEN_RETRY)
+    .saturating_add(ATTEMPT_TIMEOUT)
+    .saturating_add(REFUSED_TOKEN_RETRY);
+
 /// The idle connections the client keeps per host: the read sends one request at a time.
 const IDLE_CONNECTIONS_PER_HOST: usize = 1;
+
+/// What the read of an account's connector list found, which says how long its `mcp_status` can
+/// still be waiting on Claude Code's own fetch of the list.
+pub(crate) enum ClaudeConnectorListReading {
+    /// The account's Claude Code fetches no list, so it lists no connector; the list is not read.
+    NotFetched,
+    /// Claude Code fetches the list, but the daemon could not read it.
+    Unread,
+    /// The list's marks.
+    Read(ClaudeConnectorMarks),
+}
+
+impl ClaudeConnectorListReading {
+    /// The list's marks; `None` where it was not read.
+    pub(crate) fn into_marks(self) -> Option<ClaudeConnectorMarks> {
+        match self {
+            Self::Read(marks) => Some(marks),
+            Self::NotFetched | Self::Unread => None,
+        }
+    }
+}
 
 /// Reads each account's connector list for its organization marks, with the account's sign-in.
 pub(crate) struct ClaudeOrganizationMarks {
@@ -79,12 +125,29 @@ pub(crate) struct ClaudeOrganizationMarks {
     http: OnceCell<reqwest::Client>,
 }
 
-/// The organization mark of each connector the list holds, by its normalized id.
+/// The organization mark of each connector the list holds, by its normalized id, and the folded
+/// address of each connector Claude Code lists from it, `None` for one whose address does not
+/// parse.
 pub(crate) struct ClaudeConnectorMarks {
     by_connector_id: HashMap<String, bool>,
+    listed_rows: Vec<Option<ServerAddressIdentity>>,
 }
 
 impl ClaudeConnectorMarks {
+    /// How many connectors Claude Code lists from the list, one per address and one per additional
+    /// account, less those it suppresses as duplicates of a server configured at one of
+    /// `configured_addresses`, matched by the connector's address.
+    pub(crate) fn listed_row_count(&self, configured_addresses: &[ServerAddressIdentity]) -> usize {
+        self.listed_rows
+            .iter()
+            .filter(|address| {
+                address
+                    .as_ref()
+                    .is_none_or(|address| !configured_addresses.contains(address))
+            })
+            .count()
+    }
+
     /// Whether the organization manages the connector `connector_id` names; `None` for a
     /// connector the list does not hold.
     pub(crate) fn mark(&self, connector_id: &str) -> Option<bool> {
@@ -103,47 +166,58 @@ impl ClaudeOrganizationMarks {
         }
     }
 
-    /// The marks of the connectors `answers` reports, read from the list of the account whose
-    /// process `environment` started. `None`, with the reason logged at debug, where the answers
-    /// report no connector or no build version, the account names a host Claude Code refuses, no
-    /// sign-in with the list's scope is read, or the list cannot be read.
+    /// The marks of the connectors on the list of the account whose process `environment`
+    /// started with `settings`, read as the build `build_version` reads it. Not fetched, and not
+    /// read, where Claude Code skips its own fetch for the environment, the settings, an approved
+    /// API key, an absent sign-in or its scopes; unread, with the reason logged at debug, where
+    /// its sign-in cannot be read, the build reported no version, the account names a host Claude
+    /// Code refuses, or the list cannot be read.
     pub(crate) async fn read(
         &self,
         environment: &[(String, String)],
-        answers: &ClaudeAccountServerAnswers,
-    ) -> Option<ClaudeConnectorMarks> {
-        if !lists_connectors(answers) {
-            return None;
+        build_version: Option<&str>,
+        settings: &ClaudeConnectorFetchSettings,
+    ) -> ClaudeConnectorListReading {
+        // The key's approval is read only where Claude Code reads it.
+        let is_api_key_approved = does_api_key_need_approval(environment)
+            && is_claude_api_key_approved(environment).await;
+        if skips_connector_fetch(environment, settings, is_api_key_approved) {
+            return ClaudeConnectorListReading::NotFetched;
         }
-        let Some(build_version) = answers.build_version.as_deref() else {
+        let sign_in = match self.sign_in.read(environment).await {
+            ClaudeSignInReading::Absent => return ClaudeConnectorListReading::NotFetched,
+            ClaudeSignInReading::Unreadable => return ClaudeConnectorListReading::Unread,
+            ClaudeSignInReading::Read(sign_in) => sign_in,
+        };
+        if skips_fetch_for_scopes(&sign_in.scopes) {
+            tracing::debug!(
+                "no connector marks read: the claude.ai sign-in lacks a scope the list needs"
+            );
+            return ClaudeConnectorListReading::NotFetched;
+        }
+        let Some(build_version) = build_version else {
             tracing::debug!(
                 "no connector marks read: the account's Claude Code reported no version to send"
             );
-            return None;
+            return ClaudeConnectorListReading::Unread;
         };
-        let base = claude_api_base(environment)?;
-        let sign_in = self.sign_in.read(environment).await?;
-        self.read_list(&base, &sign_in, build_version).await
+        let Some(base) = claude_api_base(environment) else {
+            return ClaudeConnectorListReading::Unread;
+        };
+        self.read_list(&base, &sign_in, build_version).await.map_or(
+            ClaudeConnectorListReading::Unread,
+            ClaudeConnectorListReading::Read,
+        )
     }
 
     // The marks of the list at `base`, read with `sign_in` as the build `build_version` reads it;
-    // `None`, logged, where the token lacks the list's scope or the list is not read.
+    // `None`, logged, where the list is not read.
     async fn read_list(
         &self,
         base: &str,
         sign_in: &ClaudeAiSignIn,
         build_version: &str,
     ) -> Option<ClaudeConnectorMarks> {
-        if !sign_in
-            .scopes
-            .iter()
-            .any(|scope| scope == CONNECTOR_LIST_SCOPE)
-        {
-            tracing::debug!(
-                "no connector marks read: the claude.ai sign-in lacks the connector list's scope"
-            );
-            return None;
-        }
         let http = match self.http.get_or_try_init(build_http_client).await {
             Ok(http) => http,
             Err(error) => {
@@ -156,31 +230,32 @@ impl ClaudeOrganizationMarks {
         };
         let request = ConnectorListRequest::new(sign_in, build_version)?;
         let body = request.send_with_retries(http, base).await?;
-        let list: ConnectorList = match serde_json::from_slice(&body) {
-            Ok(list) => list,
-            Err(error) => {
-                tracing::debug!(
-                    category = ?error.classify(),
-                    "no connector marks read: the connector list is not a JSON object"
-                );
-                return None;
-            }
-        };
-        Some(index_connector_marks(
-            list.data.map(|entries| entries.0).unwrap_or_default(),
-        ))
+        read_connector_list(&body)
     }
 }
 
-// The client the list is read through: one idle connection, no decompression asked for, since
-// the request names no `Accept-Encoding`.
+/// The marks of the connector list `body` holds; `None`, logged, where it is not a JSON object.
+pub(crate) fn read_connector_list(body: &[u8]) -> Option<ClaudeConnectorMarks> {
+    let list: ConnectorList = match serde_json::from_slice(body) {
+        Ok(list) => list,
+        Err(error) => {
+            tracing::debug!(
+                category = ?error.classify(),
+                "no connector marks read: the connector list is not a JSON object"
+            );
+            return None;
+        }
+    };
+    Some(index_connector_marks(
+        &list.data.map(|entries| entries.0).unwrap_or_default(),
+    ))
+}
+
+// The client the list is read through: one idle connection, decoding a gzip, deflate or brotli
+// reply; the request's own `Accept-Encoding` keeps the client from naming its own.
 async fn build_http_client() -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
         .pool_max_idle_per_host(IDLE_CONNECTIONS_PER_HOST)
-        .no_gzip()
-        .no_brotli()
-        .no_zstd()
-        .no_deflate()
         .build()
 }
 
@@ -188,7 +263,8 @@ async fn build_http_client() -> Result<reqwest::Client, reqwest::Error> {
 /// its trailing `/` dropped, else the default. `None`, logged, where it names a host Claude Code
 /// refuses.
 pub(crate) fn claude_api_base(environment: &[(String, String)]) -> Option<String> {
-    let Some(custom) = PathRules::NATIVE.environment_value(environment, CUSTOM_BASE_VARIABLE)
+    let Some(custom) =
+        PathRules::NATIVE.environment_value(environment, CUSTOM_SIGN_IN_HOST_VARIABLE)
     else {
         return Some(CLAUDE_API_BASE.to_owned());
     };
@@ -341,6 +417,7 @@ impl ConnectorListRequest {
             )
             .header("MCP-Protocol-Version", MCP_PROTOCOL_VERSION)
             .header(ACCEPT, ACCEPT_ANY_TEXT)
+            .header(ACCEPT_ENCODING, ACCEPT_ENCODINGS)
             .timeout(ATTEMPT_TIMEOUT)
             .send()
             .await
@@ -394,14 +471,22 @@ lenient_object!(ConnectorListEntry);
 // Each entry's mark by its normalized id, as Claude Code indexes its list: the first entry per
 // normalized address is a row, a later one at that address its sibling read with the row's mark,
 // and an additional account's entry a row of its own.
-fn index_connector_marks(entries: Vec<ConnectorListEntry>) -> ClaudeConnectorMarks {
+fn index_connector_marks(entries: &[ConnectorListEntry]) -> ClaudeConnectorMarks {
     let mut row_by_address: HashMap<String, bool> = HashMap::new();
     let mut by_connector_id: HashMap<String, bool> = HashMap::new();
-    for entry in &entries {
+    let mut listed_rows = Vec::new();
+    let listed_address = |entry: &ConnectorListEntry| {
+        entry
+            .url
+            .as_deref()
+            .and_then(|url| read_server_address(url).identity)
+    };
+    for entry in entries {
         let mark = entry.enterprise_managed == Some(true);
         if entry.additional_install == Some(true) {
             if let Some(id) = &entry.id {
                 by_connector_id.insert(normalize_connector_id(id), mark);
+                listed_rows.push(listed_address(entry));
             }
             continue;
         }
@@ -413,12 +498,13 @@ fn index_connector_marks(entries: Vec<ConnectorListEntry>) -> ClaudeConnectorMar
         }
         if let Some(address) = address {
             row_by_address.insert(address, mark);
+            listed_rows.push(listed_address(entry));
         }
         if let Some(id) = &entry.id {
             by_connector_id.insert(normalize_connector_id(id), mark);
         }
     }
-    for entry in &entries {
+    for entry in entries {
         let Some(id) = &entry.id else { continue };
         let id = normalize_connector_id(id);
         if by_connector_id.contains_key(&id) {
@@ -433,7 +519,10 @@ fn index_connector_marks(entries: Vec<ConnectorListEntry>) -> ClaudeConnectorMar
             by_connector_id.insert(id, mark);
         }
     }
-    ClaudeConnectorMarks { by_connector_id }
+    ClaudeConnectorMarks {
+        by_connector_id,
+        listed_rows,
+    }
 }
 
 // A connector id as Claude Code compares it: an `mcprs` prefix read as `mcpsrv`.
@@ -451,242 +540,4 @@ fn normalize_connector_address(address: &str) -> String {
         |_unparsed| address.to_owned(),
         |parsed| parsed.as_str().trim_end_matches('/').to_owned(),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::{Arc, Mutex};
-
-    use axum::extract::{Request, State};
-    use axum::http::StatusCode;
-    use serde_json::json;
-    use serde_json::value::to_raw_value;
-    use sidekicks_contracts::mcp::server::McpServerBindingRef;
-    use sidekicks_platforms::CredentialStore;
-    use zeroize::Zeroizing;
-
-    use super::ClaudeOrganizationMarks;
-    use crate::driver::claude::account_credentials::{ClaudeAiSignIn, ClaudeSignInReader};
-    use crate::driver::claude::mcp::config::ClaudeMcpConfigReading;
-    use crate::driver::claude::mcp::connectors::{
-        ClaudeAccountServerAnswers, read_claude_account_servers,
-    };
-    use crate::driver::claude::mcp::precedence::rank_claude_mcp_servers;
-    use crate::driver::mcp_server::read::McpServerPolicy;
-    use crate::runtime_binding::test_store::test_provider_account_id;
-
-    // One request the loopback list received: its method, path and query, and every header but
-    // `host`, sorted by name.
-    #[derive(Debug, PartialEq)]
-    struct ReceivedRequest {
-        method: String,
-        path_and_query: String,
-        headers: Vec<(String, String)>,
-    }
-
-    type ReceivedRequests = Arc<Mutex<Vec<ReceivedRequest>>>;
-
-    // A loopback list answering every request with `status` and `body`, and what it received.
-    async fn serve_list(status: StatusCode, body: serde_json::Value) -> (String, ReceivedRequests) {
-        let received = ReceivedRequests::default();
-        let router = axum::Router::new()
-            .fallback(
-                move |State(received): State<ReceivedRequests>, request: Request| {
-                    let body = body.to_string();
-                    async move {
-                        let mut headers: Vec<(String, String)> = request
-                            .headers()
-                            .iter()
-                            .filter(|(name, _value)| name.as_str() != "host")
-                            .map(|(name, value)| {
-                                (
-                                    name.as_str().to_owned(),
-                                    value.to_str().expect("a text header").to_owned(),
-                                )
-                            })
-                            .collect();
-                        headers.sort();
-                        received
-                            .lock()
-                            .expect("not poisoned")
-                            .push(ReceivedRequest {
-                                method: request.method().as_str().to_owned(),
-                                path_and_query: request
-                                    .uri()
-                                    .path_and_query()
-                                    .map(ToString::to_string)
-                                    .unwrap_or_default(),
-                                headers,
-                            });
-                        (status, body)
-                    }
-                },
-            )
-            .with_state(Arc::clone(&received));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("a loopback port");
-        let address = listener.local_addr().expect("the port's address");
-        tokio::spawn(async move { axum::serve(listener, router).await });
-        (format!("http://{address}"), received)
-    }
-
-    fn sign_in(scopes: &[&str]) -> ClaudeAiSignIn {
-        ClaudeAiSignIn {
-            access_token: Zeroizing::new("planted-access-token".to_owned()),
-            scopes: scopes.iter().map(|scope| (*scope).to_owned()).collect(),
-            refresh_token: None,
-            expires_at: None,
-            client_id: None,
-        }
-    }
-
-    fn marks() -> ClaudeOrganizationMarks {
-        ClaudeOrganizationMarks::new(ClaudeSignInReader::with_keychain(
-            CredentialStore::in_memory(),
-        ))
-    }
-
-    // The list is asked for with the line and the whole header set Claude Code sends, its user
-    // agent built from the build's version. Killed by any header dropped, renamed, added or given
-    // another value, and by another path or query.
-    #[tokio::test]
-    async fn the_list_is_asked_for_with_exactly_claude_codes_headers() {
-        let (base, received) = serve_list(StatusCode::OK, json!({ "data": [] })).await;
-
-        let read = marks()
-            .read_list(
-                &base,
-                &sign_in(&["user:inference", "user:mcp_servers"]),
-                "2.1.312",
-            )
-            .await;
-
-        assert!(read.is_some());
-        let expected = ReceivedRequest {
-            method: "GET".to_owned(),
-            path_and_query: "/v1/mcp_servers?limit=1000&include_additional_installs=true"
-                .to_owned(),
-            headers: [
-                ("accept", "application/json, text/plain, */*"),
-                (
-                    "anthropic-mcp-client-capabilities",
-                    "eyJyb290cyI6eyJsaXN0Q2hhbmdlZCI6dHJ1ZX0sImVsaWNpdGF0aW9uIjp7fX0=",
-                ),
-                ("anthropic-beta", "mcp-servers-2025-12-04"),
-                ("anthropic-version", "2023-06-01"),
-                ("authorization", "Bearer planted-access-token"),
-                ("content-type", "application/json"),
-                ("mcp-protocol-version", "2025-11-25"),
-                ("user-agent", "claude-code/2.1.312"),
-            ]
-            .into_iter()
-            .map(|(name, value)| (name.to_owned(), value.to_owned()))
-            .collect(),
-        };
-        assert_eq!(*received.lock().expect("not poisoned"), [expected]);
-    }
-
-    // A token without the list's scope sends nothing. Killed by a read that asks anyway.
-    #[tokio::test]
-    async fn a_token_without_the_lists_scope_sends_no_request() {
-        let (base, received) = serve_list(StatusCode::OK, json!({ "data": [] })).await;
-
-        let read = marks()
-            .read_list(&base, &sign_in(&["user:inference"]), "2.1.312")
-            .await;
-
-        assert!(read.is_none());
-        assert!(received.lock().expect("not poisoned").is_empty());
-    }
-
-    // The list marks a connector row by its normalized id, an `mcprs` entry matching the row's
-    // `mcpsrv` id, a later entry at the same address its sibling, and leaves a connector the list
-    // lacks absent, through the declaration the read hands on. Killed by a raw id compare, and by
-    // `false` where absent belongs.
-    #[tokio::test]
-    async fn the_list_marks_each_connector_by_its_normalized_id() {
-        let (base, _received) = serve_list(
-            StatusCode::OK,
-            json!({ "data": [
-                {
-                    "id": "mcprs_slack",
-                    "url": "https://mcp.slack.example.com/mcp",
-                    "display_name": "Slack",
-                    "enterprise_managed": true
-                },
-                {
-                    "id": "mcpsrv_slack_sibling",
-                    "url": "https://mcp.slack.example.com/mcp/",
-                    "enterprise_managed": false
-                },
-                {
-                    "id": "mcpsrv_notes",
-                    "url": "https://notes.example.com/mcp",
-                    "enterprise_managed": false
-                }
-            ] }),
-        )
-        .await;
-        let read = marks()
-            .read_list(&base, &sign_in(&["user:mcp_servers"]), "2.1.312")
-            .await
-            .expect("the list is read");
-        assert_eq!(read.mark("mcpsrv_slack_sibling"), Some(true));
-        let row = |name: &str, id: &str, url: &str| {
-            json!({
-                "name": name,
-                "status": "connected",
-                "scope": "claudeai",
-                "source": "claudeai",
-                "config": { "type": "claudeai-proxy", "url": url, "id": id }
-            })
-        };
-        let answers = ClaudeAccountServerAnswers {
-            mcp_status: Some(
-                to_raw_value(&json!({ "mcpServers": [
-                    row("claude.ai Slack", "mcpsrv_slack", "https://mcp.slack.example.com/mcp"),
-                    row("claude.ai Notes", "mcpsrv_notes", "https://notes.example.com/mcp"),
-                    row("claude.ai Calendar", "mcpsrv_calendar", "https://cal.example.com/mcp"),
-                ] }))
-                .expect("a test reply serializes"),
-            ),
-            settings: None,
-            build_version: Some("2.1.312".to_owned()),
-        };
-        let account = test_provider_account_id();
-
-        let servers = read_claude_account_servers(&account, &answers, Some(&read));
-        let reading = ClaudeMcpConfigReading {
-            user_servers: Vec::new(),
-            plugin_servers: Vec::new(),
-            roots: Vec::new(),
-            server_policy: McpServerPolicy::default(),
-        };
-        let ranking = rank_claude_mcp_servers(&reading, &[servers], false);
-
-        let [account_servers] = ranking.account_servers.as_slice() else {
-            panic!("one account: {:?}", ranking.account_servers);
-        };
-        let mut marked: Vec<(&str, Option<bool>)> = account_servers
-            .declarations
-            .iter()
-            .map(|declaration| {
-                let McpServerBindingRef::Connector { server_name, .. } = &declaration.binding
-                else {
-                    panic!("a connector: {:?}", declaration.binding);
-                };
-                (server_name.as_str(), declaration.organization_managed)
-            })
-            .collect();
-        marked.sort_unstable();
-        assert_eq!(
-            marked,
-            [
-                ("claude.ai Calendar", None),
-                ("claude.ai Notes", Some(false)),
-                ("claude.ai Slack", Some(true)),
-            ]
-        );
-    }
 }

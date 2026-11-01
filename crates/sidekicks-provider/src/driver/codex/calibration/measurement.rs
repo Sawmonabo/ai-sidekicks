@@ -454,6 +454,7 @@ mod tests {
         CodexCalibrationError, CodexCalibrationRequest, compose_codex_calibration_catalog,
         measure_codex_compaction_limit, read_codex_service_catalog, run_in_scratch_folder,
     };
+    use crate::driver::child_records::UnrecordedChildren;
     use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
     use crate::driver::codex::service::supervisor::test_service::{
         TestCodexProgram, UnheardEvents, test_codex_service_dependencies,
@@ -497,6 +498,7 @@ mod tests {
                 environment,
             }),
             Arc::new(UnheardEvents),
+            Arc::new(UnrecordedChildren),
         );
         let home = folder.path().join("home");
         std::fs::create_dir_all(&home).expect("the service's home is made");

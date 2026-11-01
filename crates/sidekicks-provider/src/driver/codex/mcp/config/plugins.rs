@@ -1,6 +1,7 @@
 //! The servers of the plugins installed in the daemon's plugin home for Codex, laid out as Codex
 //! lays out its own home's plugins: `plugins/cache/<marketplace>/<plugin>/<version>/`, each
-//! plugin's servers in the MCP file its manifest names, or written inline in the manifest.
+//! plugin's servers in the MCP file its manifest names, or written inline in the manifest, or, for
+//! a plugin in the Agent Plugins format, in its own servers' file.
 
 use std::cmp::Ordering;
 use std::error::Error;
@@ -12,11 +13,18 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::plugin::PluginToken;
+use sidekicks_platforms::PathRules;
 
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::mcp::config::server_entry::{ENABLED_MEMBER, read_codex_server_entry};
+use crate::driver::codex::mcp::config::server_entry::{
+    CodexServerTransport, ENABLED_MEMBER, read_codex_server_entry, read_codex_server_transport,
+};
 use crate::driver::mcp_server::read::McpServerDeclaration;
 use crate::inbound_json::decode_inbound_json;
+
+mod agent_format;
+
+use agent_format::read_agent_format_servers;
 
 // The folder of a Codex home that holds each installed plugin's versions.
 const PLUGIN_CACHE_FOLDER: [&str; 2] = ["plugins", "cache"];
@@ -48,12 +56,14 @@ const OAUTH_MEMBER_SPELLINGS: [(&str, &str); 4] = [
 // The member of a stdio server's entry naming the folder it runs in.
 const WORKING_FOLDER_MEMBER: &str = "cwd";
 
-/// One server a plugin in the daemon's plugin home declares: its redacted declaration, and its entry
-/// as the plugin's file writes it, credential values included, for the probe that sends it. It
-/// derives no `Debug`, so nothing prints a value.
+/// One server a plugin in the daemon's plugin home declares: its redacted declaration, and its
+/// entry as the plugin's file writes it, credential values included, for the probe that sends it.
+/// It derives no `Debug`, so nothing prints a value.
 pub(crate) struct CodexPluginServer {
     /// The declaration, bound to its plugin and read-only.
     pub(crate) declaration: McpServerDeclaration,
+    /// The key Codex's config names the plugin by: `<plugin>@<marketplace>`.
+    pub(crate) plugin_key: String,
     /// The entry as the plugin's file writes it.
     entry: Map<String, Value>,
     /// The folder of the plugin's version Codex runs, which a relative working folder names.
@@ -61,6 +71,11 @@ pub(crate) struct CodexPluginServer {
 }
 
 impl CodexPluginServer {
+    /// The transport its entry declares, as Codex compares it with its requirements.
+    pub(crate) fn read_transport(&self) -> Option<CodexServerTransport> {
+        read_codex_server_transport(&Value::Object(self.entry.clone()))
+    }
+
     /// The entry as Codex's config takes it, as Codex reads its own plugins' entries: the
     /// transport's `type` dropped, the sign-in client's members in Codex's spelling, a relative
     /// working folder made absolute in the plugin's folder, and the server switched on.
@@ -88,19 +103,9 @@ impl CodexPluginServer {
     }
 }
 
-/// The servers each plugin in `plugin_home` declares, read-only and bound to their plugin. A
-/// malformed server entry is skipped, and a plugin whose files cannot be read is logged and
-/// declares none.
-pub(crate) async fn read_plugin_servers(plugin_home: &Path) -> Vec<McpServerDeclaration> {
-    read_plugin_server_entries(plugin_home)
-        .await
-        .into_iter()
-        .map(|server| server.declaration)
-        .collect()
-}
-
-/// The servers each plugin in `plugin_home` declares, with the entries their files write, as
-/// [`read_plugin_servers`] reads them.
+/// The servers each plugin in `plugin_home` declares, read-only and bound to their plugin, with the
+/// entries their files write. A malformed server entry is skipped, and a plugin whose files cannot
+/// be read is logged and declares none.
 pub(crate) async fn read_plugin_server_entries(plugin_home: &Path) -> Vec<CodexPluginServer> {
     let cache = PLUGIN_CACHE_FOLDER
         .iter()
@@ -161,6 +166,7 @@ pub(crate) async fn read_plugin_server_entries(plugin_home: &Path) -> Vec<CodexP
                         tool_defaults: declared.tool_defaults,
                         organization_managed: None,
                     },
+                    plugin_key: format!("{plugin}@{marketplace}"),
                     entry,
                     plugin_root: plugin_root.clone(),
                 });
@@ -200,10 +206,14 @@ struct CodexPluginManifest {
     mcp_servers: Option<Value>,
 }
 
-// The servers of the plugin in `plugin_root`, by name: none where it has no manifest.
+// The servers of the plugin in `plugin_root`, by name: none where it has no manifest. A plugin in
+// the Agent Plugins format is read in its own format first, as Codex reads it.
 async fn read_plugin_server_map(
     plugin_root: &Path,
 ) -> Result<Map<String, Value>, PluginFileReadError> {
+    if let Some(servers) = read_agent_format_servers(plugin_root).await? {
+        return Ok(servers);
+    }
     let mut manifest = None;
     for [folder, file] in MANIFEST_PATHS {
         let path = plugin_root.join(folder).join(file);
@@ -258,13 +268,20 @@ fn read_server_map(file: Value) -> Option<Map<String, Value>> {
 }
 
 // The file a manifest's `./`-relative path names in `plugin_root`; `None` for a path Codex
-// refuses: one without the prefix, one naming the folder itself, or one climbing out of it.
+// refuses: one without the prefix, one naming the folder itself, one that climbs out by a `..`
+// between the system's own separators, and one that joins outside the folder, by a rooted or
+// absolute part.
 fn resolve_manifest_path(plugin_root: &Path, path: &str) -> Option<PathBuf> {
     let relative = path.strip_prefix(MANIFEST_PATH_PREFIX)?;
-    if relative.is_empty() || relative.split(['/', '\\']).any(|part| part == "..") {
+    if relative.is_empty()
+        || relative
+            .split(|character: char| PathRules::NATIVE.is_separator(character))
+            .any(|part| part == "..")
+    {
         return None;
     }
-    Some(plugin_root.join(relative))
+    let file = plugin_root.join(relative);
+    file.starts_with(plugin_root).then_some(file)
 }
 
 // The JSON in `path`; `None` where there is no such file.

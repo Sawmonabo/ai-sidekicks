@@ -538,7 +538,7 @@ impl CloneRuns {
             self.cards.set_progress(project_id, progress);
         });
         let exit = run_streamed_git(&self.git, place, call, cancel, &self.shutdown, |chunk| {
-            reader.read(chunk)
+            reader.read(chunk);
         })
         .await;
         // Released once git has ended, which refuses any question still open.

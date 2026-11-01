@@ -34,9 +34,10 @@ use tracing::Instrument as _;
 
 use crate::driver_resolution::{LiveRunDriverError, read_run_driver};
 use crate::interventions::store::is_limit_interrupt_pending;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::live::{CutGuard, StepInterruptGuard};
 use crate::run::engine::turns::{WriteWithResend, set_step_limit_reached};
-use crate::run::engine::{LiveAppend, RunEngine, RunEngineError, refused_statement_index, settled};
+use crate::run::engine::{LiveAppend, RunEngine, settled};
 use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::run::read::RunRead;
 use crate::run::refusals::RunRefusal;
@@ -241,7 +242,7 @@ impl RunEngine {
         match recorded {
             Ok(recorded) => Ok(recorded.is_some()),
             Err(RunEngineError::Append(error))
-                if refused_statement_index(&error) == Some(TOKEN_LIMIT_ONCE_GUARD_INDEX) =>
+                if error.refused_statement_index() == Some(TOKEN_LIMIT_ONCE_GUARD_INDEX) =>
             {
                 Ok(false)
             }
@@ -679,7 +680,7 @@ impl RunEngine {
                     Ok(None) => Ok(LimitReach::Ended),
                     Err(RunEngineError::Append(error))
                         if matches!(stop, LimitStop::Token { .. })
-                            && refused_statement_index(&error)
+                            && error.refused_statement_index()
                                 == Some(TOKEN_LIMIT_ONCE_GUARD_INDEX) =>
                     {
                         // The run, live at the version the guard passed, reached its token limit

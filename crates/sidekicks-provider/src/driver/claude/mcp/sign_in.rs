@@ -32,13 +32,15 @@ use crate::driver::claude::account_credentials::{
     ClaudeCredentialReadError, ClaudeSignInReader, ClaudeStoredCredentials,
     SECURE_STORAGE_FOLDER_VARIABLE, read_claude_credential_file,
 };
-use crate::driver::claude::mcp::config::read_claude_mcp_server_entry;
+use crate::driver::claude::mcp::config::{ClaudePersonConfigFiles, ClaudeServerEntryReader};
 use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
-use crate::driver::claude::session::account_servers::ClaudeAccountServerReads;
+use crate::driver::claude::session::account_servers::{
+    ClaudeAccountReadAsk, ClaudeAccountServerReads,
+};
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
     BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInBrowser, ProviderSignInTakeover,
     ProviderSignInTakeoverRequest,
@@ -313,14 +315,15 @@ async fn read_sign_in_entry(
     let internal = |error: Box<dyn Error + Send + Sync>| DriverError::Internal(error);
     let entry = match binding {
         McpServerBindingRef::Connector { .. } => {
-            return Err(DriverError::NoPersonServerEntry(NoPersonServerEntry {
+            return Err(NoPersonServerEntry {
                 binding: binding.clone(),
-            }));
+            }
+            .into());
         }
         McpServerBindingRef::Managed { server_name, .. } => {
             let servers = sources
                 .account_servers
-                .read(account, false)
+                .read(account, ClaudeAccountReadAsk::List)
                 .await
                 .map_err(|error| internal(Box::new(error)))?;
             match servers.organization_entries.get(server_name) {
@@ -335,9 +338,12 @@ async fn read_sign_in_entry(
         | McpServerBindingRef::Local { .. }
         | McpServerBindingRef::Project { .. }
         | McpServerBindingRef::Plugin { .. } => {
-            read_claude_mcp_server_entry(sources.home_folder, sources.plugin_home, binding)
+            let person = ClaudePersonConfigFiles::resolve(&[], sources.home_folder).await;
+            ClaudeServerEntryReader::new(&person, sources.plugin_home)
+                .read(binding)
                 .await
                 .map_err(|error| internal(Box::new(error)))?
+                .map(|declared| declared.entry)
         }
     };
     match entry {

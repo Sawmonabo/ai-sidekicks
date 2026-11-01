@@ -19,7 +19,7 @@ use crate::driver::claude::session::transport::inbound::{ClaudeControlAnswer, Cl
 use crate::driver::claude::session::transport::user_message::{
     ClaudeWriteAttempt, ClaudeWriteDelivery,
 };
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ProviderChoiceAnswer,
 };

@@ -374,7 +374,7 @@ mod tests {
             }
         }
 
-        fn write(&mut self, event_type: SessionEventType, payload: Value) {
+        fn write(&mut self, event_type: SessionEventType, payload: &Value) {
             self.connection
                 .execute(
                     "INSERT INTO session_events
@@ -397,7 +397,7 @@ mod tests {
         fn switch(&mut self, agent_id: &str, provider: &str, model: &str, landed: &str) {
             self.write(
                 SessionEventType::AgentProviderBindingChanged,
-                json!({
+                &json!({
                     "agentId": agent_id,
                     "to": binding(provider, model),
                     "landedProviderAccountId": landed,
@@ -410,7 +410,7 @@ mod tests {
             if let Some(agent_id) = agent_id {
                 payload["agentId"] = json!(agent_id);
             }
-            self.write(SessionEventType::AgentTurnRerouted, payload);
+            self.write(SessionEventType::AgentTurnRerouted, &payload);
         }
 
         fn lead(&self) -> SessionLead {
@@ -453,7 +453,7 @@ mod tests {
         let mut log = Log::new();
         log.write(
             SessionEventType::SessionCreated,
-            json!({ "mainAgent": { "agentId": lead, "binding": binding(first, "model-a") } }),
+            &json!({ "mainAgent": { "agentId": lead, "binding": binding(first, "model-a") } }),
         );
         assert_eq!(log.lead().agent_id.text().as_str(), lead);
         let born = (first.to_owned(), None, "model-a".to_owned());

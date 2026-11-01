@@ -1,4 +1,4 @@
-//! The durable record of every terminal child this daemon started and has not yet seen end, so a
+//! The durable record of every child this daemon started and has not yet seen end, so a
 //! daemon that died without draining them can find and end them at its next start. A child is
 //! recorded twice: its intent, made durable before it is started and naming the nonce its
 //! environment will carry, then its process once it runs, so no child ever exists outside the
@@ -15,9 +15,6 @@ use tokio::sync::Mutex;
 
 /// The registry's file name in the data folder.
 const ORPHAN_REGISTRY_FILE_NAME: &str = "orphan-registry.json";
-
-/// The environment variable that carries a child's nonce, by which a sweep recognizes it.
-pub(crate) const SPAWN_NONCE_ENVIRONMENT_NAME: &str = "SIDEKICKS_SPAWN_NONCE";
 
 // The registry file is the person's alone.
 const REGISTRY_FILE_MODE: u32 = 0o600;

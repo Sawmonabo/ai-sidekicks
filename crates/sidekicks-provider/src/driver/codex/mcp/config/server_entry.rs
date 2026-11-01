@@ -1,7 +1,7 @@
 //! One server entry of Codex's config or a plugin's MCP file, read into its redacted declaration:
-//! environment and header values are skipped as they are read, the address is stripped, the
-//! sign-in client keeps its id and callback address only, and the values it gives its tools are
-//! kept.
+//! environment and header values are skipped as they are read, the names of the variables a bearer
+//! token and a header are read from are kept, the address is stripped, the sign-in client keeps its
+//! id and callback address only, and the values it gives its tools are kept.
 
 use std::collections::BTreeMap;
 
@@ -11,6 +11,7 @@ use serde_json::Value;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{McpApprovalMode, McpToolName};
 use sidekicks_contracts::wire::number::PositiveNumber;
+use sidekicks_contracts::wire::record::Record;
 
 use crate::driver::mcp_server::address::read_server_address;
 use crate::driver::mcp_server::read::{McpServerSignInClient, McpServerToolDefaults};
@@ -34,6 +35,53 @@ pub(crate) struct CodexServerDeclaration {
     pub(crate) sign_in_client: Option<McpServerSignInClient>,
     /// The values the entry gives its tools: Codex's allow and deny lists and approval modes.
     pub(crate) tool_defaults: McpServerToolDefaults,
+}
+
+/// How an entry's server is started or reached as Codex compares it with its requirements: the
+/// program and its arguments, or the address exactly as the entry writes it, its query and any
+/// user name or password included. Its `Debug` prints neither, since the address may carry a
+/// credential.
+#[derive(Clone)]
+pub(crate) enum CodexServerTransport {
+    /// A program and its arguments.
+    Command {
+        /// The program.
+        command: String,
+        /// Its arguments.
+        args: Vec<String>,
+    },
+    /// An address, as written.
+    Url(String),
+}
+
+impl std::fmt::Debug for CodexServerTransport {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match self {
+            Self::Command { .. } => "Command",
+            Self::Url(_) => "Url",
+        };
+        formatter.debug_struct(kind).finish_non_exhaustive()
+    }
+}
+
+/// The transport `entry` declares as Codex compares it with its requirements; `None` for an entry
+/// that names none.
+pub(crate) fn read_codex_server_transport(entry: &Value) -> Option<CodexServerTransport> {
+    if let Some(command) = entry.get(COMMAND_MEMBER).and_then(Value::as_str) {
+        let args = entry
+            .get("args")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|argument| argument.as_str().map(str::to_owned))
+            .collect();
+        return Some(CodexServerTransport::Command {
+            command: command.to_owned(),
+            args,
+        });
+    }
+    let url = entry.get(URL_MEMBER)?.as_str()?;
+    Some(CodexServerTransport::Url(url.to_owned()))
 }
 
 /// Whether `entry` names how its server is reached, so it declares a server rather than overriding
@@ -61,6 +109,10 @@ pub(crate) fn sets_other_members(entry: &Value) -> bool {
 
 /// The redacted declaration of `entry`; `None` for an entry that names no transport or does not
 /// read as a server entry.
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "only the keys are read; each value is skipped unread so none outlives the parse"
+)]
 pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclaration> {
     let entry = CodexServerEntry::deserialize(entry).ok()?;
     let sign_in_client = entry
@@ -125,8 +177,8 @@ pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclar
         let declared = entry
             .http_headers
             .iter()
-            .chain(&entry.env_http_headers)
             .flat_map(BTreeMap::keys)
+            .chain(entry.env_http_headers.iter().flat_map(BTreeMap::keys))
             .cloned()
             .chain(
                 entry
@@ -144,8 +196,8 @@ pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclar
             url_query_param_names: (!address.query_param_names.is_empty())
                 .then_some(address.query_param_names),
             header_names: (!header_names.is_empty()).then_some(header_names),
-            bearer_token_env_var: None,
-            env_http_headers: None,
+            bearer_token_env_var: entry.bearer_token_env_var,
+            env_http_headers: entry.env_http_headers.and_then(Record::new),
             oauth_scopes: entry.scopes,
             oauth_resource: entry.oauth_resource,
             enabled: entry.enabled,
@@ -171,8 +223,13 @@ fn read_tool_names(names: Vec<String>) -> Vec<McpToolName> {
 
 // The members of a Codex server entry the read keeps. Environment and header values are skipped as
 // they are read, a bearer token and the sign-in client's secret are never read, and the address is
-// held only until it is stripped. It derives no `Debug`, so nothing prints the address.
+// held only until it is stripped; a header read from a variable keeps the variable's name, never
+// its value. It derives no `Debug`, so nothing prints the address.
 #[derive(Deserialize)]
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "only the keys are read; each value is skipped unread so none outlives the parse"
+)]
 struct CodexServerEntry {
     #[serde(default)]
     command: Option<String>,
@@ -187,7 +244,7 @@ struct CodexServerEntry {
     #[serde(default)]
     http_headers: Option<BTreeMap<String, IgnoredAny>>,
     #[serde(default)]
-    env_http_headers: Option<BTreeMap<String, IgnoredAny>>,
+    env_http_headers: Option<BTreeMap<String, String>>,
     #[serde(default)]
     bearer_token_env_var: Option<String>,
     #[serde(default)]

@@ -27,6 +27,9 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_host;
+
 /// An error a seam, executor or sink returns: anything that failed, with its causes.
 pub type CallbackToolPortError = Box<dyn Error + Send + Sync>;
 
@@ -255,7 +258,7 @@ impl CallbackToolHost {
     /// A host with no registry installed. Without `approval_seam` every registry is withheld at
     /// spawn and every call is answered `denied`.
     #[cfg_attr(
-        not(test),
+        not(any(test, feature = "test-support")),
         expect(
             dead_code,
             reason = "the callback tools' approval route builds the host"

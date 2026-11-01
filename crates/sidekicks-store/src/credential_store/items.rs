@@ -162,7 +162,8 @@ impl SecretItems {
         }))
     }
 
-    /// The items filed under `service`.
+    /// The items filed under `service`, which a feature reads and writes through its
+    /// [`SecretKeychain`].
     pub fn keychain(self: &Arc<Self>, service: KeychainService) -> ItemsKeychain {
         ItemsKeychain {
             items: Arc::clone(self),

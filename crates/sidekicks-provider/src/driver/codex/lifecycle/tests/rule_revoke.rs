@@ -8,7 +8,7 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::super::CodexDriver;
 use crate::driver::codex::session::test_fixture::OneFolder;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::RevokeRuleParams;
 use crate::driver::test_registry::{new_session_id, test_driver_services};

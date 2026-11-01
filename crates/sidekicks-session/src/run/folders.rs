@@ -1,12 +1,14 @@
 //! The folders other sessions' runs are live in, each with its session and the agent the run is
 //! for, read in one pass for a worktree creation that would stash a checkout's uncommitted work
-//! from under them.
+//! from under them; and the agent of one running run, which a repository re-attach's conflict
+//! names.
 
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 
 use futures::future::BoxFuture;
 use rusqlite::{Connection, named_params};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::repo::mount::WorkspaceState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
@@ -18,6 +20,7 @@ use sidekicks_store::database::stored_column::text_column;
 use sidekicks_workspace::git::worktree::creation::{
     LiveRunFolder, LiveRunFolderReadError, LiveRunFolderReader,
 };
+use sidekicks_workspace::repo::mount::reattach::{RunAgentLookup, RunAgentLookupError};
 use sidekicks_workspace::row_guards::CHECKOUT_ROOT_METADATA_PATH;
 
 use crate::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError, RunAgentReader};
@@ -62,8 +65,8 @@ enum LiveRunFoldersError {
 /// runs, and the run agent reader's.
 pub const SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY: usize = 1 + RUN_AGENT_STATEMENT_CAPACITY;
 
-/// Reads the live runs' folders from the daemon's database, each run's agent from its session's
-/// log on the same connection.
+/// Reads the live runs' folders, and one running run's agent, from the daemon's database, each
+/// run's agent from its session's log on the same connection.
 pub struct SessionLiveRunFolders {
     reads: Arc<DatabaseReadPool>,
 }
@@ -88,6 +91,26 @@ impl LiveRunFolderReader for SessionLiveRunFolders {
                 })
                 .await
                 .map_err(|failure: LiveRunFoldersError| LiveRunFolderReadError(Box::new(failure)))
+        })
+    }
+}
+
+impl RunAgentLookup for SessionLiveRunFolders {
+    fn read_run_agent<'a>(
+        &'a self,
+        session_id: &'a SessionId,
+        run_id: &'a RunId,
+    ) -> BoxFuture<'a, Result<AgentId, RunAgentLookupError>> {
+        let (session_id, run_id) = (*session_id, *run_id);
+        Box::pin(async move {
+            self.reads
+                .read(ReadLength::Short, move |connection| {
+                    RunAgentReader::new(connection)
+                        .read_agent(&session_id, &run_id)
+                        .map_err(LiveRunFoldersError::from)
+                })
+                .await
+                .map_err(|failure: LiveRunFoldersError| RunAgentLookupError(Box::new(failure)))
         })
     }
 }

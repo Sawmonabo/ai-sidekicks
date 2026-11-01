@@ -344,6 +344,7 @@ mod tests {
     const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         id: "first",
         name: "First",
+        release_notes_address: |_version| String::new(),
         plan_words: &[],
         built_in_tools: &[],
         command: ProviderCommand {

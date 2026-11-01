@@ -61,7 +61,7 @@ pub(crate) struct ShellTableStart {
     pub(crate) screen_reader_environment_names: Vec<&'static str>,
     /// The daemon's run folder, where the shells' startup folders go.
     pub(crate) run_folder: PathBuf,
-    /// The record of every terminal child, which the start opened over the data folder.
+    /// The record of every child of the daemon, which the start opened over the data folder.
     pub(crate) orphan_guard: Arc<OrphanGuard>,
     /// The daemon's own program, whose `shell` mode starts every shell.
     pub(crate) daemon_program: PathBuf,

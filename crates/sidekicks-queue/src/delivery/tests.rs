@@ -50,9 +50,8 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
-use super::{InterruptedRunContinuation, OpeningMessages, QueueDelivery, QueueDeliveryDeps};
-use crate::changes::QueueChangeSignals;
-use crate::recorder::{QueueRecorder, QueueRecorderDeps};
+use super::test_fixture::test_delivery_deps;
+use super::{OpeningMessages, QueueDelivery, QueueDeliveryDeps};
 use crate::session_lock::QueueSessionLock;
 
 /// The statements the tests' read pool prepares: the delivery's reads and the recorder's.
@@ -109,13 +108,6 @@ impl OpeningMessages for OpeningStandIn {
     }
 }
 
-/// No test's run rests interrupted with a kept message taken.
-struct NoContinuation;
-
-impl InterruptedRunContinuation for NoContinuation {
-    fn continue_interrupted_run(&self, _session_id: SessionId, _run_id: RunId) {}
-}
-
 /// A delivery over a session whose lead run runs, bound to the stand-in driver.
 struct Fixture {
     database: TestDatabase,
@@ -140,12 +132,6 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         database.path(),
         READ_STATEMENT_CAPACITY,
     ));
-    let recorder = Arc::new(QueueRecorder::new(QueueRecorderDeps {
-        event_log: Arc::clone(&log.service),
-        writer: Arc::clone(&log.writer),
-        pool: Arc::clone(&pool),
-        signals: Arc::new(QueueChangeSignals::new()),
-    }));
     let session_lock = Arc::new(QueueSessionLock::new());
     let process = Arc::new(ProcessStandIn::default());
     process.set(Some(TEST_PROVIDER_PROCESS));
@@ -154,13 +140,15 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
         after_read: Mutex::new(None),
     });
     let delivery = QueueDelivery::new(QueueDeliveryDeps {
-        pool,
-        recorder,
-        providers: Arc::new(registry_of_first_provider(Arc::new(driver))),
         session_lock: Arc::clone(&session_lock),
         processes: Arc::clone(&process) as Arc<dyn ProviderProcessIds>,
         openings: Arc::clone(&openings) as Arc<dyn OpeningMessages>,
-        continuation: Arc::new(NoContinuation),
+        ..test_delivery_deps(
+            pool,
+            Arc::clone(&log.service),
+            Arc::clone(&log.writer),
+            Arc::new(registry_of_first_provider(Arc::new(driver))),
+        )
     });
     Fixture {
         database,

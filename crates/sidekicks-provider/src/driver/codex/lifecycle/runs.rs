@@ -10,8 +10,9 @@ use sidekicks_contracts::session::id::SessionId;
 
 use super::CodexDriver;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::{
-    DriverError, RespondToRequestParams, SessionProcessState, StartRunParams,
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::error_causes::session_process_unavailable;
 use crate::driver::run_control::{
@@ -33,9 +34,7 @@ impl CodexDriver {
             match self.session_process_state(session_id) {
                 SessionProcessState::Live => return Ok(()),
                 SessionProcessState::Down => {
-                    return Err(DriverError::Refused(session_process_unavailable(
-                        session_id,
-                    )));
+                    return Err(DriverError::from(session_process_unavailable(session_id)));
                 }
                 // An establishment claimed, or a service gone back, since the waits answered.
                 SessionProcessState::Restarting => {}

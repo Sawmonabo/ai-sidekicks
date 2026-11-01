@@ -4,6 +4,7 @@
 //! through that point and it opens there, read-only, until the person continues it from there or
 //! deletes it. The damaged rows are never moved, rewritten or deleted; a continue skips them.
 
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::sync::{Arc, LazyLock};
 
@@ -47,7 +48,7 @@ use crate::projection_rebuild::{
     ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService, REBUILD_PAGE_SIZE,
     mark_stale_statement,
 };
-use crate::restart_settle::{RestartSettle, RestartSettleError};
+use crate::restart_settle::{RESTART_FAILURE_DETAIL, RestartSettle, RestartSettleError};
 use crate::status::{LastGoodPoint, RecoveryStatusTracker};
 
 /// The statements damaged history's own reads run: the last event before a damaged one, and
@@ -316,7 +317,13 @@ impl DamagedHistory {
             .await?;
         self.deps
             .restart_settle
-            .settle_live(session_id, Some(hold), None)
+            .settle_live(
+                session_id,
+                &BTreeSet::new(),
+                RESTART_FAILURE_DETAIL,
+                Some(hold),
+                None,
+            )
             .await?;
         Ok(())
     }

@@ -1,12 +1,19 @@
 //! The read of the person's own Claude Code MCP config: the user and per-project servers in
 //! `.claude.json`, each attached root's `.mcp.json`, the servers of the plugins in the daemon's
 //! plugin home, the per-project names kept out of a root or switched off there, and the allow and
-//! deny lists. Every
-//! credential-bearing value is dropped at the read: a declaration keeps names only, and a remote
-//! address is held whole only in memory, for the duplicate match. The one read that keeps values
-//! takes a single server's entry for the probe that sends it, which drops it once sent.
+//! deny lists. Every credential-bearing value is dropped at the read: a declaration keeps names
+//! only, and a remote address is held whole only in memory, for the duplicate match. The one read
+//! that keeps values takes a single server's entry for the probe that sends it, which drops it
+//! once sent.
+
+mod entry;
+mod plugin_manifest;
+mod policy;
+
+pub(crate) use self::entry::{ClaudeDeclaredEntry, ClaudeServerEntryReader};
 
 use std::collections::BTreeMap;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -16,27 +23,34 @@ use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::plugin::PluginToken;
+use sidekicks_platforms::PathRules;
 
+use self::plugin_manifest::read_plugin_manifest_name;
+use self::policy::read_server_policy;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::account_credentials::CUSTOM_SIGN_IN_HOST_VARIABLE;
 use crate::driver::claude::session::ignored_settings::{
     ClaudeSettingsReadError, find_claude_setting, list_managed_settings_files,
 };
+use crate::driver::claude::session::rules::compose_claude_tool_server_name;
 use crate::driver::claude::session::settings_file::{
     is_unreadable_path, read_claude_settings_file,
 };
 use crate::driver::mcp_server::address::{ServerAddressIdentity, read_server_address};
-use crate::driver::mcp_server::read::{McpServerPolicy, McpServerPolicyEntry};
+use crate::driver::mcp_server::read::McpServerPolicy;
 use crate::inbound_json::decode_inbound_json;
 
 // The settings key naming a project's `.mcp.json` servers its sessions refuse.
 const DISABLED_MCPJSON_SERVERS_KEY: &str = "disabledMcpjsonServers";
-// The settings keys of the allow and deny lists, and the managed switch that keeps only the
-// managed allow list.
-const ALLOWED_MCP_SERVERS_KEY: &str = "allowedMcpServers";
-const DENIED_MCP_SERVERS_KEY: &str = "deniedMcpServers";
-const ALLOW_MANAGED_MCP_SERVERS_ONLY_KEY: &str = "allowManagedMcpServersOnly";
-// The person's own config file in their home, holding the `user` and per-project servers.
-const PERSON_CONFIG_FILE: &str = ".claude.json";
+// The variable that moves the person's Claude Code config folder, and their own config file
+// there, holding the `user` and per-project servers, named `.claude<suffix>.json`.
+const CONFIG_FOLDER_VARIABLE: &str = "CLAUDE_CONFIG_DIR";
+const PERSON_CONFIG_FILE_STEM: &str = ".claude";
+// The suffix the config file takes where Claude Code's sign-in moves to a custom host.
+const CUSTOM_SIGN_IN_CONFIG_SUFFIX: &str = "-custom-oauth";
+// The legacy config file in the config folder, read in place of `.claude.json` where it holds
+// anything.
+const LEGACY_PERSON_CONFIG_FILE: &str = ".config.json";
 // A project's or a plugin's file of servers.
 const SERVERS_FILE: &str = ".mcp.json";
 
@@ -50,10 +64,60 @@ pub(crate) struct ClaudeMcpRoot {
     pub(crate) folder: PathBuf,
 }
 
+/// Where the person's own Claude Code config sits: `.claude.json` and `settings.json` in the
+/// folder `CLAUDE_CONFIG_DIR` names where the person's environment sets it, as Claude Code reads
+/// them, else `.claude.json` in the home folder and `settings.json` in its `.claude` folder; the
+/// config file is `.claude-custom-oauth.json` where the environment sets
+/// `CLAUDE_CODE_CUSTOM_OAUTH_URL`, and a non-empty legacy `.config.json` in that config folder is
+/// read in place of either.
+#[derive(Clone, Debug)]
+pub(crate) struct ClaudePersonConfigFiles {
+    /// The file of the `user` and per-project servers.
+    pub(crate) person_config: PathBuf,
+    /// The user settings file.
+    pub(crate) user_settings: PathBuf,
+}
+
+impl ClaudePersonConfigFiles {
+    /// The person's files as a Claude Code process started in `environment` on `home` reads them:
+    /// the config file as Claude Code picks it, a non-empty `.config.json` in the config folder
+    /// over the `.claude.json` in `CLAUDE_CONFIG_DIR`, else in the home, which takes the custom
+    /// sign-in suffix where `CLAUDE_CODE_CUSTOM_OAUTH_URL` holds anything.
+    pub(crate) async fn resolve(environment: &[(String, String)], home: &Path) -> Self {
+        let suffix = PathRules::NATIVE
+            .environment_value(environment, CUSTOM_SIGN_IN_HOST_VARIABLE)
+            .filter(|host| !host.is_empty())
+            .map_or("", |_host| CUSTOM_SIGN_IN_CONFIG_SUFFIX);
+        let person_config_file = format!("{PERSON_CONFIG_FILE_STEM}{suffix}.json");
+        let (config_folder, person_config) = match PathRules::NATIVE
+            .environment_value(environment, CONFIG_FOLDER_VARIABLE)
+            .filter(|folder| !folder.is_empty())
+        {
+            Some(folder) => (
+                Path::new(folder).to_path_buf(),
+                Path::new(folder).join(&person_config_file),
+            ),
+            None => (home.join(".claude"), home.join(&person_config_file)),
+        };
+        let legacy_config = config_folder.join(LEGACY_PERSON_CONFIG_FILE);
+        let is_legacy_read = tokio::fs::metadata(&legacy_config)
+            .await
+            .is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0);
+        Self {
+            person_config: if is_legacy_read {
+                legacy_config
+            } else {
+                person_config
+            },
+            user_settings: config_folder.join("settings.json"),
+        }
+    }
+}
+
 /// Where the read finds the person's Claude Code config and the files beside it.
 pub(crate) struct ClaudeMcpConfigSources<'sources> {
-    /// The person's own home folder, holding `.claude.json` and `.claude/settings.json`.
-    pub(crate) home: &'sources Path,
+    /// The person's own config files.
+    pub(crate) person: &'sources ClaudePersonConfigFiles,
     /// The folder of the administrator's managed settings; `None` where the system has none.
     pub(crate) managed_settings_folder: Option<&'sources Path>,
     /// The daemon's plugin home for Claude Code, laid out as Claude Code lays out its own.
@@ -104,10 +168,30 @@ pub(crate) struct ClaudeMcpRootConfig {
     pub(crate) project_servers: Vec<ClaudeMcpServer>,
     /// The names of `.mcp.json` servers the root's sessions refuse: `disabledMcpjsonServers`
     /// across the user, project, project-local and managed settings and the root's entry in
-    /// `.claude.json`.
+    /// `.claude.json`. Every other `.mcp.json` server loads, approved or not, since every process
+    /// the daemon starts runs non-interactively with the project settings source on.
     pub(crate) kept_out_server_names: Vec<McpServerName>,
     /// The names Claude Code's own per-project switch turns off at the root.
     pub(crate) switched_off_server_names: Vec<McpServerName>,
+}
+
+/// Whether `kept_out_server_names` names `server_name`, matched as Claude Code matches them: a
+/// `plugin:` name exactly, any other after the fold of each character outside ASCII letters,
+/// digits, `_` and `-` to `_`, so `my server` keeps out `my_server`.
+pub(crate) fn is_kept_out_server(
+    kept_out_server_names: &[McpServerName],
+    server_name: &McpServerName,
+) -> bool {
+    let server_name = server_name.as_str();
+    kept_out_server_names.iter().any(|kept_out| {
+        let kept_out = kept_out.as_str();
+        if kept_out.starts_with("plugin:") || server_name.starts_with("plugin:") {
+            kept_out == server_name
+        } else {
+            compose_claude_tool_server_name(kept_out)
+                == compose_claude_tool_server_name(server_name)
+        }
+    })
 }
 
 /// The person's Claude Code MCP config as the read found it.
@@ -117,10 +201,25 @@ pub(crate) struct ClaudeMcpConfigReading {
     pub(crate) user_servers: Vec<ClaudeMcpServer>,
     /// The servers of the plugins installed in the daemon's plugin home.
     pub(crate) plugin_servers: Vec<ClaudeMcpServer>,
+    /// Each plugin installed in the daemon's plugin home, as Claude Code loads it from its root.
+    pub(crate) plugin_roots: Vec<ClaudePluginRoot>,
     /// What the read found at each attached root, in the order the roots were given.
     pub(crate) roots: Vec<ClaudeMcpRootConfig>,
     /// The allow and deny lists of the user and managed settings.
     pub(crate) server_policy: McpServerPolicy,
+}
+
+/// One plugin installed in the daemon's plugin home and the name Claude Code loads it under from
+/// its install root with `--plugin-dir-no-mcp`, which its `system/init` frame names it by.
+#[derive(Clone, Debug)]
+pub(crate) struct ClaudePluginRoot {
+    /// The plugin's name in its servers' bindings.
+    pub(crate) name: PluginToken,
+    /// Its install root.
+    pub(crate) root: PathBuf,
+    /// The name Claude Code loads it under from that root: its manifest's `name`, else the root's
+    /// folder name, which can differ from the id part the binding takes.
+    pub(crate) loaded_name: String,
 }
 
 /// Reads the person's Claude Code MCP config from `sources`. A file that is absent, not the
@@ -130,11 +229,10 @@ pub(crate) async fn read_claude_mcp_config(
     sources: &ClaudeMcpConfigSources<'_>,
 ) -> Result<ClaudeMcpConfigReading, ClaudeSettingsReadError> {
     let provider = DESCRIPTOR.provider_id();
-    let person_config: ClaudePersonConfigFile =
-        read_json_file(&sources.home.join(PERSON_CONFIG_FILE))
-            .await?
-            .unwrap_or_default();
-    let user_settings = read_settings(&sources.home.join(".claude").join("settings.json")).await?;
+    let person_config: ClaudePersonConfigFile = read_json_file(&sources.person.person_config)
+        .await?
+        .unwrap_or_default();
+    let user_settings = read_settings(&sources.person.user_settings).await?;
     let managed_settings = match sources.managed_settings_folder {
         Some(folder) => read_managed_settings(folder).await?,
         None => Vec::new(),
@@ -164,6 +262,12 @@ pub(crate) async fn read_claude_mcp_config(
         let project_settings = read_settings(&settings_folder.join("settings.json")).await?;
         let local_settings = read_settings(&settings_folder.join("settings.local.json")).await?;
 
+        // Claude Code's approval of a `.mcp.json` server rejects one the merged settings'
+        // `disabledMcpjsonServers` name, and otherwise approves it by the settings or leaves it
+        // pending. A pending one is approved `non_interactive` when the process is not interactive
+        // and the project settings source is on. Every process the daemon starts runs `-p` and
+        // passes no `--setting-sources`, so every source is on: a server loads unless it is
+        // rejected, whatever trust or approval the folder holds.
         let mut kept_out_server_names = person_wide_kept_out.clone();
         for name in project_settings
             .iter()
@@ -214,9 +318,11 @@ pub(crate) async fn read_claude_mcp_config(
         });
     }
 
+    let (plugin_servers, plugin_roots) = read_plugin_servers(sources.plugin_home).await?;
     Ok(ClaudeMcpConfigReading {
         user_servers,
-        plugin_servers: read_plugin_servers(sources.plugin_home).await?,
+        plugin_servers,
+        plugin_roots,
         roots,
         server_policy: read_server_policy(user_settings.as_ref(), &managed_settings),
     })
@@ -265,6 +371,10 @@ struct ClaudePersonConfigFile {
 // One project's entry in `.claude.json`, keyed by its root.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[expect(
+    clippy::struct_field_names,
+    reason = "the fields name the file's own members"
+)]
 struct ClaudeProjectEntry {
     #[serde(default)]
     mcp_servers: ClaudeServerMap,
@@ -287,6 +397,10 @@ struct ClaudeMcpServersFile {
 // outlives the parse; the address is held only until it is stripped and folded. It derives no
 // `Debug`, so nothing prints the address.
 #[derive(Deserialize)]
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "only the keys are read; each value is skipped unread so none outlives the parse"
+)]
 struct ClaudeServerEntry {
     #[serde(rename = "type", default)]
     transport: Option<String>,
@@ -402,6 +516,10 @@ fn read_servers(
 
 // The redacted declaration of one entry and its endpoint; `None` for a transport the declaration
 // view has no form for.
+#[expect(
+    clippy::zero_sized_map_values,
+    reason = "only the keys are read; each value is skipped unread so none outlives the parse"
+)]
 fn read_server_entry(
     entry: &ClaudeServerEntry,
 ) -> Option<(McpServerConfigView, Option<ClaudeMcpEndpoint>)> {
@@ -426,13 +544,19 @@ fn read_server_entry(
             };
             Some((config, Some(endpoint)))
         }
-        Some(transport @ ("http" | "sse")) => {
+        Some(transport @ ("http" | "sse" | "ws")) => {
             let address = read_server_address(entry.url.as_deref()?);
             let url = address.stripped_url;
             let url_query_param_names =
                 (!address.query_param_names.is_empty()).then_some(address.query_param_names);
             let header_names = names(&entry.headers);
-            let config = if transport == "http" {
+            let config = if transport == "ws" {
+                McpServerConfigView::Ws {
+                    url,
+                    url_query_param_names,
+                    header_names,
+                }
+            } else if transport == "http" {
                 McpServerConfigView::Http {
                     url,
                     url_query_param_names,
@@ -467,21 +591,26 @@ fn read_server_entry(
     }
 }
 
-// The servers of each plugin `installed_plugins.json` lists in the plugin home: those of the
-// plugin's root `.mcp.json`, then those its manifest declares inline, a name taken once.
+// The servers of each plugin `installed_plugins.json` lists in the plugin home, those of the
+// plugin's root `.mcp.json` then those its manifest declares inline, a name taken once, and each
+// plugin's root.
 async fn read_plugin_servers(
     plugin_home: &Path,
-) -> Result<Vec<ClaudeMcpServer>, ClaudeSettingsReadError> {
+) -> Result<(Vec<ClaudeMcpServer>, Vec<ClaudePluginRoot>), ClaudeSettingsReadError> {
     let mut servers: Vec<ClaudeMcpServer> = Vec::new();
-    for (plugin_name, root) in read_installed_plugin_roots(plugin_home).await? {
-        for file in plugin_server_files(&root) {
-            let Some(file) = read_json_file::<ClaudeMcpServersFile>(&file).await? else {
-                continue;
-            };
+    let mut roots: Vec<ClaudePluginRoot> = Vec::new();
+    for plugin in read_installed_plugin_roots(plugin_home).await? {
+        let servers_file: Option<ClaudeMcpServersFile> =
+            read_json_file(&plugin.root.join(SERVERS_FILE)).await?;
+        let inline = plugin
+            .manifest
+            .as_ref()
+            .and_then(|manifest| ClaudeMcpServersFile::deserialize(manifest).ok());
+        for file in [servers_file, inline].into_iter().flatten() {
             let read = read_servers(&file.mcp_servers, |server_name| {
                 McpServerBindingRef::Plugin {
                     provider: DESCRIPTOR.provider_id(),
-                    scope_ref: plugin_name.clone(),
+                    scope_ref: plugin.name.clone(),
                     server_name,
                 }
             });
@@ -491,366 +620,123 @@ async fn read_plugin_servers(
                 }
             }
         }
+        let loaded_name = if plugin.manifest.is_some() {
+            plugin.name.as_str().to_owned()
+        } else {
+            plugin
+                .root
+                .file_name()
+                .map(|folder| folder.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        };
+        roots.push(ClaudePluginRoot {
+            name: plugin.name,
+            root: plugin.root,
+            loaded_name,
+        });
     }
-    Ok(servers)
+    Ok((servers, roots))
 }
 
-// Each plugin `installed_plugins.json` lists in the plugin home, by its name, the id's part before
-// the marketplace, with the root of its first install.
+// One plugin `installed_plugins.json` lists: its name, its whole id, the root of its first
+// install and its manifest, values included, parsed once for the read; `None` where it has none.
+struct InstalledPluginRoot {
+    name: PluginToken,
+    id: String,
+    root: PathBuf,
+    manifest: Option<Value>,
+}
+
+// Each plugin `installed_plugins.json` lists in the plugin home, named as Claude Code names it in
+// its servers' `plugin:<name>:<server>`: by its manifest's `name`, else, where it has no manifest,
+// by its id's part before the marketplace, which for a built-in npm marketplace id such as
+// `@team/db.tools@npm` is the scoped package name. A plugin whose manifest Claude Code cannot read,
+// reads as no JSON or refuses is left out, logged at debug with its file, as Claude Code refuses to
+// load it; only an absent manifest, or a folder on its path that is a file, reads as none.
 async fn read_installed_plugin_roots(
     plugin_home: &Path,
-) -> Result<Vec<(PluginToken, PathBuf)>, ClaudeSettingsReadError> {
+) -> Result<Vec<InstalledPluginRoot>, ClaudeSettingsReadError> {
     let installed: ClaudeInstalledPluginsFile =
         read_json_file(&plugin_home.join("plugins").join("installed_plugins.json"))
             .await?
             .unwrap_or_default();
-    Ok(installed
-        .plugins
-        .read()
-        .into_iter()
-        .flatten()
-        .filter_map(|(plugin_id, installs)| {
-            let name = plugin_id
-                .rsplit_once('@')
-                .map_or(plugin_id.as_str(), |(name, _)| name);
-            let plugin_name = PluginToken::new(name.to_owned()).ok()?;
-            let install = installs
-                .read()
-                .and_then(|installs| installs.iter().find_map(Tolerated::read))?;
-            Some((plugin_name, install.install_path.clone()))
-        })
-        .collect())
-}
-
-// The files a plugin declares its servers in, in the order Claude Code reads them: its root's
-// `.mcp.json`, then its manifest.
-fn plugin_server_files(root: &Path) -> [PathBuf; 2] {
-    [
-        root.join(SERVERS_FILE),
-        root.join(".claude-plugin").join("plugin.json"),
-    ]
-}
-
-/// One server's entry as the person wrote it, values included, for a probe that sends it and
-/// drops it: a `user` or `local` entry in `.claude.json` under `home`, a `project` entry in the
-/// root's `.mcp.json`, or a plugin's entry in `plugin_home`. `None` where the file or the entry is
-/// gone, and for a binding no config file declares; fails as the config read does.
-pub(crate) async fn read_claude_mcp_server_entry(
-    home: &Path,
-    plugin_home: &Path,
-    binding: &McpServerBindingRef,
-) -> Result<Option<Value>, ClaudeSettingsReadError> {
-    let entry_of = |file: Option<Value>, keys: &[&str]| {
-        let mut entry = file?;
-        for key in keys {
-            entry = entry.get_mut(*key)?.take();
-        }
-        Some(entry)
-    };
-    match binding {
-        McpServerBindingRef::User { server_name, .. } => Ok(entry_of(
-            read_json_file(&home.join(PERSON_CONFIG_FILE)).await?,
-            &["mcpServers", server_name.as_str()],
-        )),
-        McpServerBindingRef::Local {
-            scope_ref,
-            server_name,
-            ..
-        } => Ok(entry_of(
-            read_json_file(&home.join(PERSON_CONFIG_FILE)).await?,
-            &[
-                "projects",
-                scope_ref.as_str(),
-                "mcpServers",
-                server_name.as_str(),
-            ],
-        )),
-        McpServerBindingRef::Project {
-            scope_ref,
-            server_name,
-            ..
-        } => Ok(entry_of(
-            read_json_file(&Path::new(scope_ref.as_str()).join(SERVERS_FILE)).await?,
-            &["mcpServers", server_name.as_str()],
-        )),
-        McpServerBindingRef::Plugin {
-            scope_ref,
-            server_name,
-            ..
-        } => {
-            for (plugin_name, root) in read_installed_plugin_roots(plugin_home).await? {
-                if plugin_name != *scope_ref {
+    let mut plugins = Vec::new();
+    for (plugin_id, installs) in installed.plugins.read().into_iter().flatten() {
+        let Some(install) = installs
+            .read()
+            .and_then(|installs| installs.iter().find_map(Tolerated::read))
+        else {
+            continue;
+        };
+        let manifest_file = install
+            .install_path
+            .join(".claude-plugin")
+            .join("plugin.json");
+        let manifest = match tokio::fs::read(&manifest_file).await {
+            Ok(bytes) => match serde_json::from_str::<Value>(&decode_inbound_json(&bytes)) {
+                Ok(manifest) => Some(manifest),
+                Err(error) => {
+                    tracing::debug!(
+                        category = ?error.classify(),
+                        file = %manifest_file.display(),
+                        "a plugin is left out: its manifest is not JSON"
+                    );
                     continue;
                 }
-                for file in plugin_server_files(&root) {
-                    let entry = entry_of(
-                        read_json_file(&file).await?,
-                        &["mcpServers", server_name.as_str()],
-                    );
-                    if entry.is_some() {
-                        return Ok(entry);
-                    }
-                }
+            },
+            Err(failure)
+                if matches!(
+                    failure.kind(),
+                    ErrorKind::NotFound | ErrorKind::NotADirectory
+                ) =>
+            {
+                None
             }
-            Ok(None)
-        }
-        McpServerBindingRef::Connector { .. } | McpServerBindingRef::Managed { .. } => Ok(None),
+            Err(failure) => {
+                tracing::debug!(
+                    error = &failure as &(dyn std::error::Error + 'static),
+                    file = %manifest_file.display(),
+                    "a plugin is left out: its manifest could not be read"
+                );
+                continue;
+            }
+        };
+        let name = match manifest.as_ref().map(Value::as_object) {
+            Some(None) => {
+                tracing::debug!(
+                    file = %manifest_file.display(),
+                    "a plugin is left out: its manifest is not a JSON object"
+                );
+                continue;
+            }
+            Some(Some(manifest)) => match read_plugin_manifest_name(manifest) {
+                Ok(name) => name.to_owned(),
+                Err(member) => {
+                    tracing::debug!(
+                        member,
+                        file = %manifest_file.display(),
+                        "a plugin is left out: Claude Code refuses its manifest"
+                    );
+                    continue;
+                }
+            },
+            None => plugin_id
+                .rsplit_once('@')
+                .map_or(plugin_id.as_str(), |(name, _)| name)
+                .to_owned(),
+        };
+        let Ok(name) = PluginToken::new(name) else {
+            continue;
+        };
+        plugins.push(InstalledPluginRoot {
+            name,
+            id: plugin_id.clone(),
+            root: install.install_path.clone(),
+            manifest,
+        });
     }
-}
-
-// The allow and deny lists Claude Code merges: the deny list from every file, the allow list from
-// every file unless a managed file keeps only the managed one. An allow list no file sets is
-// absent; one a file sets empty lets nothing load.
-fn read_server_policy(
-    user_settings: Option<&Map<String, Value>>,
-    managed_settings: &[Map<String, Value>],
-) -> McpServerPolicy {
-    let is_managed_allow_list_only = managed_settings.iter().any(|settings| {
-        find_claude_setting(settings, &[ALLOW_MANAGED_MCP_SERVERS_ONLY_KEY])
-            == Some(&Value::Bool(true))
-    });
-    let every_file: Vec<&Map<String, Value>> =
-        user_settings.into_iter().chain(managed_settings).collect();
-    let allow_files: Vec<&Map<String, Value>> = if is_managed_allow_list_only {
-        managed_settings.iter().collect()
-    } else {
-        every_file.clone()
-    };
-    let mut allowed: Option<Vec<McpServerPolicyEntry>> = None;
-    for settings in allow_files {
-        if let Some(entries) =
-            find_claude_setting(settings, &[ALLOWED_MCP_SERVERS_KEY]).and_then(Value::as_array)
-        {
-            allowed
-                .get_or_insert_with(Vec::new)
-                .extend(entries.iter().filter_map(read_policy_entry));
-        }
-    }
-    let denied = every_file
-        .into_iter()
-        .filter_map(|settings| {
-            find_claude_setting(settings, &[DENIED_MCP_SERVERS_KEY]).and_then(Value::as_array)
-        })
-        .flatten()
-        .filter_map(read_policy_entry)
-        .collect();
-    McpServerPolicy { allowed, denied }
-}
-
-// One allow or deny entry: `{"serverName": …}`, `{"serverCommand": […]}` or `{"serverUrl": …}`,
-// an address pattern stripped as an address is.
-fn read_policy_entry(entry: &Value) -> Option<McpServerPolicyEntry> {
-    if let Some(name) = entry.get("serverName").and_then(Value::as_str) {
-        return McpServerName::new(name.to_owned())
-            .ok()
-            .map(McpServerPolicyEntry::ServerName);
-    }
-    if let Some(command) = entry.get("serverCommand").and_then(Value::as_array) {
-        return command
-            .iter()
-            .map(|part| part.as_str().map(str::to_owned))
-            .collect::<Option<Vec<_>>>()
-            .map(McpServerPolicyEntry::Command);
-    }
-    let pattern = entry.get("serverUrl").and_then(Value::as_str)?;
-    Some(McpServerPolicyEntry::AddressPattern(
-        read_server_address(pattern).stripped_url,
-    ))
+    Ok(plugins)
 }
 
 #[cfg(test)]
-mod tests {
-    use std::fs;
-    use std::path::Path;
-
-    use rstest::rstest;
-    use serde_json::json;
-    use sidekicks_contracts::free_form_string::FilesystemPath;
-    use sidekicks_contracts::mcp::server::McpServerName;
-    use sidekicks_contracts::mcp::server::config::McpServerConfigView;
-    use sidekicks_contracts::place::PlacedPath;
-
-    use super::{ClaudeMcpConfigSources, ClaudeMcpRoot, read_claude_mcp_config};
-
-    // A root at `folder`, read in place.
-    fn attached_root(folder: &Path) -> ClaudeMcpRoot {
-        ClaudeMcpRoot {
-            root: PlacedPath {
-                path: FilesystemPath::new(folder.to_string_lossy().into_owned())
-                    .expect("a scratch folder is a path the wire carries"),
-                place: None,
-            },
-            folder: folder.to_path_buf(),
-        }
-    }
-
-    fn write_json(file: &Path, value: &serde_json::Value) {
-        fs::create_dir_all(file.parent().expect("a file sits in a folder"))
-            .expect("the file's folder is made");
-        fs::write(file, value.to_string()).expect("the file is written");
-    }
-
-    fn server_name(name: &str) -> McpServerName {
-        McpServerName::new(name.to_owned()).expect("a server name")
-    }
-
-    // The file a `disabledMcpjsonServers` entry is written to.
-    #[derive(Clone, Copy, Debug)]
-    enum KeptOutSource {
-        UserSettings,
-        ProjectSettings,
-        ProjectLocalSettings,
-        ManagedSettings,
-        ProjectEntry,
-    }
-
-    // Killed by one keep-out set for every root: a project's own files keep a server out of that
-    // project only, while the user and managed files keep it out of every project.
-    #[rstest]
-    #[case::user_settings(KeptOutSource::UserSettings, true)]
-    #[case::project_settings(KeptOutSource::ProjectSettings, false)]
-    #[case::project_local_settings(KeptOutSource::ProjectLocalSettings, false)]
-    #[case::managed_settings(KeptOutSource::ManagedSettings, true)]
-    #[case::project_entry(KeptOutSource::ProjectEntry, false)]
-    #[tokio::test]
-    async fn a_kept_out_name_reaches_only_the_roots_its_file_covers(
-        #[case] source: KeptOutSource,
-        #[case] is_kept_out_of_other_root: bool,
-    ) {
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let home = scratch.path().join("home");
-        let managed = scratch.path().join("managed");
-        let roots = [
-            attached_root(&scratch.path().join("root-a")),
-            attached_root(&scratch.path().join("root-b")),
-        ];
-        let kept_out = json!({ "disabledMcpjsonServers": ["kept"] });
-        let mut project_entry = json!({ "disabledMcpServers": ["off"] });
-        let root_a = &roots[0].folder;
-        match source {
-            KeptOutSource::UserSettings => {
-                write_json(&home.join(".claude").join("settings.json"), &kept_out);
-            }
-            KeptOutSource::ProjectSettings => {
-                write_json(&root_a.join(".claude").join("settings.json"), &kept_out);
-            }
-            KeptOutSource::ProjectLocalSettings => {
-                write_json(
-                    &root_a.join(".claude").join("settings.local.json"),
-                    &kept_out,
-                );
-            }
-            KeptOutSource::ManagedSettings => {
-                write_json(&managed.join("managed-settings.json"), &kept_out);
-            }
-            KeptOutSource::ProjectEntry => {
-                project_entry["disabledMcpjsonServers"] = json!(["kept"]);
-            }
-        }
-        write_json(
-            &home.join(".claude.json"),
-            &json!({ "projects": { roots[0].root.path.as_str(): project_entry } }),
-        );
-
-        let reading = read_claude_mcp_config(&ClaudeMcpConfigSources {
-            home: &home,
-            managed_settings_folder: Some(&managed),
-            plugin_home: &scratch.path().join("plugin-home"),
-            roots: &roots,
-        })
-        .await
-        .expect("the config reads");
-
-        let (root_a, root_b) = (&reading.roots[0], &reading.roots[1]);
-        assert_eq!(root_a.kept_out_server_names, [server_name("kept")]);
-        assert_eq!(
-            root_b.kept_out_server_names.contains(&server_name("kept")),
-            is_kept_out_of_other_root,
-            "{source:?}"
-        );
-        assert_eq!(root_a.switched_off_server_names, [server_name("off")]);
-        assert!(root_b.switched_off_server_names.is_empty());
-    }
-
-    // Killed by keeping any value: a header, a bearer token, a query, userinfo or an environment
-    // value in the declaration or in the reading's `Debug`, the transient address included.
-    #[tokio::test]
-    async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
-        let scratch = tempfile::tempdir().expect("a scratch folder");
-        let home = scratch.path().join("home");
-        write_json(
-            &home.join(".claude.json"),
-            &json!({ "mcpServers": {
-                "remote": {
-                    "type": "http",
-                    "url": "https://alice-userinfo:hunter2-password@Mcp.Example.com/mcp?api_key=query-secret-value&team=a",
-                    "headers": {
-                        "Authorization": "Bearer bearer-secret-token",
-                        "X-Api-Key": "header-secret-value",
-                    },
-                },
-                "program": {
-                    "command": "server",
-                    "args": ["--port", "8080"],
-                    "env": { "API_TOKEN": "env-secret-value" },
-                },
-            } }),
-        );
-
-        let reading = read_claude_mcp_config(&ClaudeMcpConfigSources {
-            home: &home,
-            managed_settings_folder: None,
-            plugin_home: &scratch.path().join("plugin-home"),
-            roots: &[],
-        })
-        .await
-        .expect("the config reads");
-
-        let configs: Vec<&McpServerConfigView> = reading
-            .user_servers
-            .iter()
-            .map(|server| &server.config)
-            .collect();
-        assert_eq!(
-            configs,
-            [
-                &McpServerConfigView::Stdio {
-                    command: "server".to_owned(),
-                    args: Some(vec!["--port".to_owned(), "8080".to_owned()]),
-                    env_var_names: Some(vec!["API_TOKEN".to_owned()]),
-                    enabled: None,
-                    required: None,
-                    startup_timeout_sec: None,
-                    tool_timeout_sec: None,
-                },
-                &McpServerConfigView::Http {
-                    url: "https://mcp.example.com/mcp".to_owned(),
-                    url_query_param_names: Some(vec!["api_key".to_owned(), "team".to_owned()]),
-                    header_names: Some(vec!["Authorization".to_owned(), "X-Api-Key".to_owned()]),
-                    bearer_token_env_var: None,
-                    env_http_headers: None,
-                    oauth_scopes: None,
-                    oauth_resource: None,
-                    enabled: None,
-                    required: None,
-                    startup_timeout_sec: None,
-                    tool_timeout_sec: None,
-                },
-            ]
-        );
-        let printed = format!("{reading:?}");
-        for secret in [
-            "alice-userinfo",
-            "hunter2-password",
-            "query-secret-value",
-            "bearer-secret-token",
-            "header-secret-value",
-            "env-secret-value",
-        ] {
-            assert!(
-                !printed.contains(secret),
-                "{secret} reached the reading's Debug"
-            );
-        }
-    }
-}
+mod tests;

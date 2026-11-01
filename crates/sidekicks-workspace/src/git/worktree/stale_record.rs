@@ -18,6 +18,7 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::keyed_lock::KeyHold;
 
 use crate::folder::canonical_path::canonical_folder_path;
+use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::GitRunner;
 use crate::git::worktree::claims::{KeptCopyClaims, KeptCopyClaimsReadError};
 use crate::git::worktree::folder_names::read_folder_names;
@@ -28,8 +29,7 @@ use crate::git::worktree::kept_copy::folder_move::{
 use crate::git::worktree::kept_copy::saved_state::{RepositoryStoreSettings, SavedStateError};
 use crate::git::worktree::path_holds::PathHolds;
 use crate::git::worktree::reads::{
-    GIT_FILE_NAME, RECORD_GITDIR_FILE_NAME, common_folder_of_record, read_record_git_file,
-    read_record_named_by,
+    RECORD_GITDIR_FILE_NAME, common_folder_of_record, read_record_git_file, read_record_named_by,
 };
 use crate::git::worktree::service::remove_folder;
 
@@ -178,7 +178,7 @@ async fn read_own_stale_record_git_file(
     };
     let is_named_git_file = git_file
         .file_name()
-        .is_some_and(|name| name == GIT_FILE_NAME);
+        .is_some_and(|name| name == GIT_ENTRY_NAME);
     if !is_named_git_file || tools.claims.is_live_tree_at(original_path).await? {
         return Ok(None);
     }

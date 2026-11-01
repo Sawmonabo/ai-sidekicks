@@ -16,7 +16,7 @@ use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
 };
 use crate::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
-use crate::driver::contract::{ProviderRequestAnswer, RespondToRequestParams};
+use crate::driver::contract::params_and_results::{ProviderRequestAnswer, RespondToRequestParams};
 use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterruptPayload, InterruptPendingChoice,
     InterventionResultStatus, SteerPayload,

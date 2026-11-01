@@ -138,6 +138,7 @@ impl SessionProjectionFold for ApprovalsProjection {
                 scope: requested.scope.clone(),
                 resource_descriptor,
                 ask_id: requested.ask_id.clone(),
+                tool_call_id: requested.tool_call_id.clone(),
                 created_at: occurred_at,
             }));
         } else if let SessionEvent::ApprovalApproved(resolved) = event {

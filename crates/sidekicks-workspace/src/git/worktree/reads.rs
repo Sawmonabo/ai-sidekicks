@@ -28,8 +28,8 @@ use sidekicks_std::missing_entry::is_missing_entry;
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{
-    GitCall, GitError, GitRunner, NOT_A_REPOSITORY_EXIT_CODE, background_read,
-    strip_carriage_return, strip_line_end,
+    GIT_FATAL_EXIT_CODE, GitCall, GitError, GitRunner, background_read, strip_carriage_return,
+    strip_line_end,
 };
 
 /// The prefix of every local branch's full ref name.
@@ -44,8 +44,6 @@ pub(crate) const RECORD_COMMONDIR_FILE_NAME: &str = "commondir";
 /// The file in a linked tree's record that keeps the tree locked; `worktree add` writes it first
 /// and removes it once the tree is made, before the checkout hook runs.
 pub(crate) const RECORD_LOCK_FILE_NAME: &str = "locked";
-/// A linked tree's own `.git` file, which names its record.
-pub(crate) const GIT_FILE_NAME: &str = ".git";
 
 const REMOTE_REF_PREFIX: &[u8] = b"refs/remotes/";
 const REMOTE_HEAD_SUFFIX: &[u8] = b"/HEAD";
@@ -694,7 +692,7 @@ pub(crate) async fn read_linked_tree_record(
         .await;
     let output = match output {
         Ok(output) => output,
-        Err(failure) if failure.exit_code() == Some(NOT_A_REPOSITORY_EXIT_CODE) => {
+        Err(failure) if failure.exit_code() == Some(GIT_FATAL_EXIT_CODE) => {
             return Ok(None);
         }
         Err(failure) => return Err(failure.into()),

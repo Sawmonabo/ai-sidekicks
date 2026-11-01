@@ -1,11 +1,17 @@
-//! Making, renaming and removing entries on macOS and Linux: `create_new_file` makes a file only
-//! where nothing stands, `rename_replacing` renames over what is at the destination, and
-//! `remove_tree` removes a path and everything under it, as `rm -rf` does.
+//! Making, opening, renaming and removing entries on macOS and Linux: `create_new_file` makes a
+//! file only where nothing stands, `open_regular_file` opens one through no link,
+//! `rename_replacing` renames over what is at the destination, and `remove_tree` removes a path
+//! and everything under it, as `rm -rf` does.
 
 use std::fs::{self, File, OpenOptions};
 use std::io;
+use std::os::fd::OwnedFd;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::Path;
+
+use nix::fcntl::OFlag;
+
+use crate::regular_file_open::{RegularFileOpen, check_stays_beneath};
 
 /// Whether a rename of a folder replaces an empty folder already at its destination: yes, as
 /// `rename(2)` does.
@@ -19,6 +25,71 @@ pub fn create_new_file(path: &Path, mode: u32) -> io::Result<File> {
         .create_new(true)
         .mode(mode)
         .open(path)
+}
+
+/// Opens the regular file at `relative` under the folder `root` for reading, following no link in
+/// `relative`, its folders' included, or answers what stood there instead: a link anywhere on the
+/// way reads as a link. A pipe opens without waiting for a writer and is then answered as a special
+/// file. Fails with `InvalidInput` before any open when `relative` is absolute or holds a `..`, or
+/// with `root`'s open, or with the open's or the stat's other errors.
+pub fn open_regular_file(root: &Path, relative: &Path) -> io::Result<RegularFileOpen> {
+    check_stays_beneath(relative)?;
+    let root = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY)
+        .open(root)?;
+    let flags = OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_CLOEXEC;
+    let file = match open_through_no_link(&root, relative, flags) {
+        Ok(descriptor) => File::from(descriptor),
+        Err(error)
+            if matches!(
+                error.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+            ) =>
+        {
+            return Ok(RegularFileOpen::Gone);
+        }
+        Err(error) if error.raw_os_error() == Some(libc::ELOOP) => {
+            return Ok(RegularFileOpen::Link);
+        }
+        // A socket refuses an open: `ENXIO` on Linux, `EOPNOTSUPP` on macOS.
+        Err(error)
+            if error
+                .raw_os_error()
+                .is_some_and(|code| code == libc::ENXIO || code == libc::EOPNOTSUPP) =>
+        {
+            return Ok(RegularFileOpen::SpecialFile);
+        }
+        Err(error) => return Err(error),
+    };
+    if !file.metadata()?.is_file() {
+        return Ok(RegularFileOpen::SpecialFile);
+    }
+    Ok(RegularFileOpen::Opened(file))
+}
+
+// Opens `relative` under `root` with `flags`, refusing a link at any component with `ELOOP`.
+#[cfg(target_os = "macos")]
+fn open_through_no_link(root: &File, relative: &Path, flags: OFlag) -> io::Result<OwnedFd> {
+    let no_link = OFlag::from_bits_retain(libc::O_NOFOLLOW_ANY);
+    Ok(nix::fcntl::openat(
+        root,
+        relative,
+        flags | no_link,
+        nix::sys::stat::Mode::empty(),
+    )?)
+}
+
+// Opens `relative` under `root` with `flags`, refusing a link at any component with `ELOOP` and a
+// path that leaves `root`.
+#[cfg(target_os = "linux")]
+fn open_through_no_link(root: &File, relative: &Path, flags: OFlag) -> io::Result<OwnedFd> {
+    use nix::fcntl::{OpenHow, ResolveFlag};
+
+    let how = OpenHow::new()
+        .flags(flags | OFlag::O_NOFOLLOW)
+        .resolve(ResolveFlag::RESOLVE_NO_SYMLINKS | ResolveFlag::RESOLVE_BENEATH);
+    Ok(nix::fcntl::openat2(root, relative, how)?)
 }
 
 /// Whether the entry at `path`, never followed through a link, has exactly the mode bits `mode`:
@@ -190,12 +261,14 @@ mod tests {
     use std::io::ErrorKind;
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::UnixListener;
+    use std::path::Path;
     use std::sync::mpsc;
     use std::time::Duration;
 
     use nix::sys::stat::Mode;
 
-    use super::{create_new_file, is_superuser, make_unwritable, remove_tree};
+    use super::{create_new_file, is_superuser, make_unwritable, open_regular_file, remove_tree};
+    use crate::regular_file_open::RegularFileOpen;
 
     // A secret written at 0o600 must not be readable by others, and a second writer must never
     // open the first one's file.
@@ -251,6 +324,45 @@ mod tests {
         assert_eq!(refusal.kind(), ErrorKind::PermissionDenied);
         assert_eq!(read_mode().expect("the folder reads"), mode);
         fs::write(folder.join("written"), b"x").expect("the folder takes a write again");
+    }
+
+    // Mutation: drop the no-link flag (`O_NOFOLLOW_ANY` on macOS, `RESOLVE_NO_SYMLINKS` on Linux),
+    // and the open follows the folder link into the folder it names.
+    #[test]
+    fn a_folder_link_in_the_middle_of_the_path_is_not_followed() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let real = scratch.path().join("real");
+        fs::create_dir(&real).expect("the folder is made");
+        fs::write(real.join("file.txt"), b"secret").expect("the file is written");
+        std::os::unix::fs::symlink(&real, scratch.path().join("linked"))
+            .expect("the folder link is made");
+
+        let through_link = open_regular_file(scratch.path(), Path::new("linked/file.txt"))
+            .expect("the open answers");
+        let direct = open_regular_file(scratch.path(), Path::new("real/file.txt"))
+            .expect("the open answers");
+
+        assert!(
+            matches!(through_link, RegularFileOpen::Link),
+            "{through_link:?}"
+        );
+        assert!(matches!(direct, RegularFileOpen::Opened(_)), "{direct:?}");
+    }
+
+    // Mutation: drop the check before the open, and macOS opens `../` and an absolute path outside
+    // the folder.
+    #[test]
+    fn a_path_that_leaves_the_folder_is_refused_before_the_open() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let root = scratch.path().join("root");
+        fs::create_dir(&root).expect("the folder is made");
+        let outside = scratch.path().join("outside.txt");
+        fs::write(&outside, b"secret").expect("the file is written");
+
+        for relative in [Path::new("../outside.txt"), outside.as_path()] {
+            let refusal = open_regular_file(&root, relative).expect_err("the path is refused");
+            assert_eq!(refusal.kind(), ErrorKind::InvalidInput, "{relative:?}");
+        }
     }
 
     #[test]

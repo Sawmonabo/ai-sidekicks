@@ -4,7 +4,8 @@
 use serde_json::json;
 use sidekicks_client::error::ClientError;
 use sidekicks_client::transport::json_rpc::JsonRpcClient;
-use sidekicks_contracts::jsonrpc::refusal::{RefusalCategory, RefusalCode};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::jsonrpc::refusal::category::RefusalCategory;
 use sidekicks_contracts::method::Method;
 use sidekicks_contracts::session::methods::SessionRead;
 use tokio_util::sync::CancellationToken;

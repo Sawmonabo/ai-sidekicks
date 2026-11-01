@@ -1,9 +1,11 @@
 //! Reads a run's current state and version from its `runs` row; the runs not yet ended across
-//! every session or in one, and those of one session with the agent each runs for; the ended runs
+//! every session or in one, those of one session with the agent each runs for, and those of one
+//! session as a resume names them to the provider, with their open turns; the ended runs
 //! that hold a turn with no end, across every session or in one; the provider subagents beneath
 //! one run that are live or hold a turn with no end; and the provider a run runs on, from its
 //! runtime binding or the binding of the parent whose provider process it runs in.
 
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
@@ -12,12 +14,17 @@ use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::{RUN_LIFECYCLE_EVENT_TYPES, SessionEventType};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_provider::driver::session_control::{LiveRunResume, OpenTurnResume};
 use sidekicks_provider::runtime_binding::store::StoredBindingIdInvalid;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -76,7 +83,31 @@ pub struct LiveRun {
     pub(crate) reached_by: Option<ChildRunProvenance>,
 }
 
+impl LiveRun {
+    /// Whether it is a lead run, reached from no other run.
+    pub fn is_lead(&self) -> bool {
+        self.parent_run_id.is_none()
+    }
+}
+
 const SELECT_RUN_SQL: &str = "SELECT session_id, state, run_version FROM runs WHERE run_id = ?";
+
+// The run's own `agent.run.failed` row naming a setup failure, found on the index of one session's
+// runs' events by type, so the read never walks the log.
+static SELECT_FAILED_AT_SETUP_SQL: LazyLock<String> = LazyLock::new(|| {
+    let setup_failure = serde_json::to_value(RunFailureCategory::SetupFailure)
+        .expect("a failure category writes as a word");
+    format!(
+        "SELECT 1 FROM session_events
+  WHERE session_id = @session_id AND run_id = @run_id AND type = '{failed}'
+    AND json_extract(payload, '$.failureCategory') = '{setup_failure}'
+  LIMIT 1",
+        failed = SessionEventType::AgentRunFailed.as_str(),
+        setup_failure = setup_failure
+            .as_str()
+            .expect("a failure category is a word"),
+    )
+});
 
 // Walks up from the run through each provider subagent to the parent whose process it runs in, and
 // takes the nearest run with a binding; a run's bindings all name the provider its first spawn
@@ -123,6 +154,52 @@ static SELECT_LIVE_RUNS_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
             *RUN_TERMINAL_STATES_SQL
         )
     })
+});
+
+// A session's live runs in the order they were written, each with the run it was started beneath
+// and the provider's id of the helper it is, from the newest helper start naming it as the
+// helper's own run.
+static SELECT_LIVE_RUN_SUBAGENTS_SQL: LazyLock<String> = LazyLock::new(|| {
+    let started = SessionEventType::AgentSubagentStarted;
+    format!(
+        "SELECT runs.run_id, runs.parent_run_id,
+    (SELECT json_extract(started.payload, '$.subagentId')
+       FROM session_events AS started
+      WHERE started.session_id = runs.session_id
+        AND started.category = '{started_category}'
+        AND started.type = '{started}'
+        AND json_extract(started.payload, '$.childRunId') = runs.run_id
+      ORDER BY started.sequence DESC
+      LIMIT 1) AS subagent_id
+  FROM runs
+  WHERE runs.session_id = @session_id
+    AND runs.state NOT IN ({terminal_states})
+  ORDER BY runs.rowid",
+        started = started.as_str(),
+        started_category = started.category().as_str(),
+        terminal_states = *RUN_TERMINAL_STATES_SQL,
+    )
+});
+
+// Every started turn with no end of a session's live runs, under the provider's own turn id where
+// its start names one, with the id of its start, in turn order within each run.
+static SELECT_LIVE_RUN_OPEN_TURNS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT started.run_id, started.turn_number,
+    json_extract(started.payload, '$.providerTurnId'), started.id
+  FROM runs JOIN session_events AS started ON started.run_id = runs.run_id
+  WHERE runs.session_id = @session_id
+    AND runs.state NOT IN ({terminal_states})
+    AND started.session_id = @session_id
+    AND started.category = '{category}'
+    AND started.type = '{started}'
+    AND {no_end}
+  ORDER BY started.run_id, started.turn_number",
+        terminal_states = *RUN_TERMINAL_STATES_SQL,
+        category = EventCategory::RunLifecycle.as_str(),
+        started = SessionEventType::AgentTurnStarted.as_str(),
+        no_end = turn_holds_no_end_sql(),
+    )
 });
 
 // A run's agent is on its `agent.run.queued` row, by id or inside the agent it brought in. Its
@@ -214,6 +291,21 @@ impl<'connection> RunStateReader<'connection> {
             .optional()
     }
 
+    /// Whether `run_id`, of `session_id`, ended `failed` at its setup, before its provider started
+    /// it, as its own `agent.run.failed` row records.
+    pub(crate) fn is_failed_at_setup(
+        &self,
+        session_id: &SessionId,
+        run_id: &RunId,
+    ) -> rusqlite::Result<bool> {
+        self.reader
+            .prepare_cached(&SELECT_FAILED_AT_SETUP_SQL)?
+            .exists(named_params! {
+                "@session_id": session_id.text().as_str(),
+                "@run_id": run_id.text().as_str(),
+            })
+    }
+
     /// Every run of `session_id`, or of every session when it is `None`, that has not ended,
     /// queued runs included.
     pub fn list_live_runs(&self, session_id: Option<&SessionId>) -> rusqlite::Result<Vec<LiveRun>> {
@@ -229,6 +321,56 @@ impl<'connection> RunStateReader<'connection> {
                 reached_by: optional_text_column(row, 5, closed_word)?,
             })
         })
+    }
+
+    /// Every run of `session_id` that has not ended, queued runs included, in the order they were
+    /// written, as a resume names them to the provider: each with the run it was started beneath,
+    /// its turns started with no end, under the provider's own turn ids and with their starts'
+    /// ids, and the provider's id of the helper it is.
+    pub fn list_live_run_resumes(
+        &self,
+        session_id: &SessionId,
+    ) -> rusqlite::Result<Vec<LiveRunResume>> {
+        let session_text = session_id.text();
+        let session = named_params! { "@session_id": session_text.as_str() };
+        let mut runs = self
+            .reader
+            .prepare_cached(&SELECT_LIVE_RUN_SUBAGENTS_SQL)?
+            .query_map(session, |row| {
+                Ok(LiveRunResume {
+                    run_id: text_column(row, 0, |text| RunId::new(&text))?,
+                    parent_run_id: optional_text_column(row, 1, |text| RunId::new(&text))?,
+                    open_turns: Vec::new(),
+                    subagent_id: optional_text_column(row, 2, SubagentId::new)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let place_of: HashMap<RunId, usize> = runs
+            .iter()
+            .enumerate()
+            .map(|(place, run)| (run.run_id, place))
+            .collect();
+        let mut statement = self
+            .reader
+            .prepare_cached(&SELECT_LIVE_RUN_OPEN_TURNS_SQL)?;
+        let open_turns = statement.query_map(session, |row| {
+            Ok((
+                text_column(row, 0, |text| RunId::new(&text))?,
+                OpenTurnResume {
+                    turn_number: safe_int_column(row, 1)?,
+                    provider_turn_id: optional_text_column(row, 2, ProviderTurnId::new)?,
+                    started_event_id: text_column(row, 3, FreeFormText::new)?,
+                },
+            ))
+        })?;
+        for open_turn in open_turns {
+            let (run_id, turn) = open_turn?;
+            // A turn of a run that went live after the first statement read the runs is left out.
+            if let Some(place) = place_of.get(&run_id) {
+                runs[*place].open_turns.push(turn);
+            }
+        }
+        Ok(runs)
     }
 
     /// Every run of `session_id`, or of every session when it is `None`, that has ended while a
@@ -359,15 +501,56 @@ pub fn safe_run_version(version: i64) -> SafeInt<0> {
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::params;
+    use rusqlite::{named_params, params};
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 
-    use super::read_run_provider;
+    use super::{SELECT_FAILED_AT_SETUP_SQL, read_run_provider};
     use crate::questions::schema::schema_parts;
+
+    // The read made for each delivery that reaches an ended run finds its row on an index of the
+    // run's session and never scans the event log, which holds every session's transcript. Killed
+    // by the read's session term dropped.
+    #[test]
+    fn the_setup_failure_read_searches_an_index_and_never_scans_the_log() {
+        let database = TestDatabase::new(schema_parts());
+        let connection = database.opener()().expect("the test creates its database");
+
+        let plan: Vec<String> = connection
+            .prepare(&format!(
+                "EXPLAIN QUERY PLAN {}",
+                *SELECT_FAILED_AT_SETUP_SQL
+            ))
+            .and_then(|mut statement| {
+                statement
+                    .query_map(named_params! { "@session_id": "", "@run_id": "" }, |row| {
+                        row.get::<_, String>(3)
+                    })?
+                    .collect()
+            })
+            .expect("the read's plan reads");
+
+        assert!(
+            !plan
+                .iter()
+                .any(|line| line.starts_with("SCAN session_events")),
+            "{plan:?}"
+        );
+        let event_lines: Vec<&String> = plan
+            .iter()
+            .filter(|line| line.contains("session_events"))
+            .collect();
+        assert!(
+            !event_lines.is_empty()
+                && event_lines.iter().all(|line| {
+                    line.starts_with("SEARCH session_events ") && line.contains("(session_id=?")
+                }),
+            "{plan:?}"
+        );
+    }
 
     // Killed by reading the run's own binding alone, which finds none for a subagent, by climbing
     // only one level, or by climbing from a child reached any other way, which runs on a provider

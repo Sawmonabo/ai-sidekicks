@@ -31,13 +31,13 @@ use sidekicks_workspace::project::records::{ProjectRecords, WorktreeProjectSetup
 enum WorktreeSourceGap {
     /// The mount serves no project: a chat's managed mount, or one whose project was forgotten.
     #[error("repository mount {0} serves no project")]
-    NoProjectOfMount(RepoMountId),
+    ProjectOfMount(RepoMountId),
     /// The worktree belongs to no project.
     #[error("worktree {0} belongs to no project")]
-    NoProjectOfWorktree(WorktreeId),
+    ProjectOfWorktree(WorktreeId),
     /// The session has no row.
     #[error("session {0} does not exist")]
-    NoSession(SessionId),
+    Session(SessionId),
 }
 
 /// The worktree naming's and setup's reads, over the daemon's records, settings and environment.
@@ -67,7 +67,7 @@ impl WorktreeSources {
             .await
             .map_err(|error| WorktreeSetupError::Read(Box::new(error)))?
             .ok_or_else(|| {
-                WorktreeSetupError::Read(Box::new(WorktreeSourceGap::NoProjectOfWorktree(
+                WorktreeSetupError::Read(Box::new(WorktreeSourceGap::ProjectOfWorktree(
                     worktree_id,
                 )))
             })
@@ -85,9 +85,7 @@ impl WorktreeNamingSources for WorktreeSources {
                 .await
                 .map_err(|error| WorktreeNamingError(Box::new(error)))?
                 .ok_or_else(|| {
-                    WorktreeNamingError(Box::new(WorktreeSourceGap::NoProjectOfMount(
-                        *repo_mount_id,
-                    )))
+                    WorktreeNamingError(Box::new(WorktreeSourceGap::ProjectOfMount(*repo_mount_id)))
                 })
         }
         .boxed()
@@ -120,7 +118,7 @@ impl WorktreeNamingSources for WorktreeSources {
             )
             .await
             .map_err(|error| WorktreeNamingError(Box::new(error)))?
-            .ok_or_else(|| WorktreeNamingError(Box::new(WorktreeSourceGap::NoSession(*session_id))))
+            .ok_or_else(|| WorktreeNamingError(Box::new(WorktreeSourceGap::Session(*session_id))))
         }
         .boxed()
     }

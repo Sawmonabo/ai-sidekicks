@@ -21,7 +21,8 @@ use crate::driver::codex::service::supervisor::events::{
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
 use crate::driver::codex::session::errors::CodexSessionSlotState;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, create_session_params};
-use crate::driver::contract::{DriverError, SessionProcessState};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::session_control::{UpdatePermissionLevelParams, UpdateSessionModeParams};
 use crate::driver::test_registry::new_session_id;
 use crate::run::posture::compose_execution_posture;
@@ -62,6 +63,7 @@ async fn a_level_or_mode_codex_refuses_is_refused_as_not_offered(
                             PermissionLevel::Readonly,
                             FilesystemPath::new("/".to_owned()).expect("the root is a path"),
                         ),
+                        is_provider_reported: false,
                     })
                     .await
             }
@@ -70,6 +72,7 @@ async fn a_level_or_mode_codex_refuses_is_refused_as_not_offered(
                     .update_session_mode(UpdateSessionModeParams {
                         session_id,
                         mode: SessionMode::Plan,
+                        is_provider_reported: false,
                     })
                     .await
             }

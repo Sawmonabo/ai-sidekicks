@@ -271,6 +271,10 @@ impl ClaudeCommandTasks {
     /// task it starts belongs to. A task of a helper, a workflow or a tool server, or one of no
     /// kind, is no command; a later start of a task the background set already listed gives that
     /// task the line of the call that started it, and its start again.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "only the task frames reach this read, and any other kind changes no command"
+    )]
     pub(crate) fn read_frame(
         &mut self,
         kind: &ClaudeWireFrameKind,

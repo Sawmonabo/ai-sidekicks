@@ -1,43 +1,69 @@
 //! A session's conversation resumed from its stored leg: composed from the session's lead, handed
-//! to the driver's resume at its first admission or the idle sleep's wake, or to its restart after
-//! the process ended and stayed down, under a binding minted here whose cursor opens before the
-//! driver runs, and recorded as the session's opening, so the next message opens nothing again.
+//! to the driver's resume at its first admission, the idle sleep's wake or the start's recovery
+//! pass, or to its restart after the process ended and stayed down, under a binding minted here
+//! whose cursor opens before the driver runs, and recorded as the session's opening, so the next
+//! message opens nothing again.
 
 use std::error::Error;
+use std::sync::Arc;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::idle_sleep::SessionSleepState;
-use sidekicks_provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
+use sidekicks_provider::driver::session_control::{
+    DriverResumeResult, ResumeSessionParams, ResumedRunAnswer,
+};
 use sidekicks_provider::left_conversations::LeftConversation;
-use sidekicks_provider::runtime_binding::resume::compose_resume_session_params;
+use sidekicks_provider::runtime_binding::resume::{
+    ResumeFunctionLegs, compose_resume_session_params,
+};
 use sidekicks_provider::runtime_binding::store::{
     RuntimeBinding, RuntimeBindingRelaunch, mint_runtime_binding_id,
 };
 use sidekicks_session::console_state::read_session_mode;
 use sidekicks_session::idle_sleep::kept_schedules::read_session_schedules;
 use sidekicks_session::idle_sleep::openings::SessionProcessWaker;
+use sidekicks_session::run::read::RunStateReader;
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
-use crate::provider_session::{
-    OpenedSession, ProviderSessionError, ProviderSessions, close_unrecorded, posture_of,
-};
+use crate::provider_session::errors::ProviderSessionError;
+use crate::provider_session::resumed_runs::ResumedRuns;
+use crate::provider_session::{OpenedSession, ProviderSessions, close_unrecorded, posture_of};
 
-/// A session's resume composed from its stored leg: the params its driver resumes it with, and
-/// the posture and git folder the resumed process runs at.
+/// A session's resume composed from its stored leg: the params its driver resumes it with, with no
+/// function legs, the posture and git folder the resumed process runs at, and the legs a caller
+/// that starts the process under its own binding opens for it.
 pub struct ComposedResume {
-    /// The params the session's driver resumes it with.
+    /// The params the session's driver resumes it with; they carry no function legs, so composing
+    /// them opens no status leg, and a driver that asks the session directory for its legs, or a
+    /// side question's copy, which runs under no binding of the session's, holds none.
     pub params: ResumeSessionParams,
     // The posture of the level the session stands at.
     execution_posture: ExecutionPosture,
     // The git folder each level's posture is built on.
     git_folder: FilesystemPath,
+    // Opens the function legs of a binding: called only by a relaunch that hands them to the
+    // driver, since each call opens a status leg.
+    function_legs_for: Arc<dyn Fn(&RuntimeBindingId) -> ResumeFunctionLegs + Send + Sync>,
+}
+
+/// What a session's resume brought back: the runs the provider answered for, each settled as it
+/// answered before the resumed binding was recorded, and whether a binding was recorded for the
+/// resumed process.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ResumedSession {
+    /// The runs the resume named, lead and children alike, in the provider's order.
+    pub named_run_ids: Vec<RunId>,
+    /// Whether the resumed process runs under a binding recorded for it; a process already up
+    /// answers on the binding that brought it up, and none is recorded.
+    pub is_binding_recorded: bool,
 }
 
 // Which of the driver's verbs brings a session's conversation back in a fresh process: the resume
@@ -51,9 +77,10 @@ enum Relaunch {
 impl ProviderSessions {
     /// The resume of `session_id`'s conversation from its stored `leg` under `binding_id`,
     /// composed from the session's lead as it stands now on the account the leg ran on, at the
-    /// level it stands at, in the mode it was last moved to and with the timed fires the idle
-    /// sleep stored for it, its callbacks bound to `binding_id`. Fails as the composition, the
-    /// posture or the read of the mode or the timed fires fails, and with
+    /// level it stands at, in the mode it was last moved to, with the timed fires the idle sleep
+    /// stored for it and its live runs as its log names them, under `binding_id`, with no function
+    /// legs. Fails as the composition, the posture or the read of the mode, the timed fires or the
+    /// live runs fails, and with
     /// [`ProviderSessionError::NotResumable`] for a leg with no conversation.
     pub async fn compose_resume(
         &self,
@@ -66,13 +93,14 @@ impl ProviderSessions {
             .compose(session_id, leg.spawn_config.provider_account_id.clone())
             .await?;
         let execution_posture = posture_of(session_id, &opening)?;
-        let (mode, kept_schedules) = self
+        let (mode, kept_schedules, live_runs) = self
             .deps
             .pool
             .read(ReadLength::Short, move |reader| {
                 Ok::<_, ProviderSessionError>((
                     read_session_mode(reader, &session_id)?,
                     read_session_schedules(reader, session_id)?,
+                    RunStateReader::new(reader).list_live_run_resumes(&session_id)?,
                 ))
             })
             .await?;
@@ -87,13 +115,14 @@ impl ProviderSessions {
             execution_posture.clone(),
             opening.create_params.options,
             opening.create_params.row_values,
-            (opening.function_legs_for)(&binding_id),
             kept_schedules,
+            live_runs,
         )?;
         Ok(ComposedResume {
             params,
             execution_posture,
             git_folder: opening.git_folder,
+            function_legs_for: opening.function_legs_for,
         })
     }
 
@@ -104,7 +133,8 @@ impl ProviderSessions {
     /// session, [`ProviderSessionError::NoConversation`] for one with none to resume,
     /// [`ProviderSessionError::Provider`] when no driver answers its provider or the driver cannot
     /// resume, the driver never called, [`ProviderSessionError::ResumeRefused`] for a restart the
-    /// provider refused, and as the composition, the driver or the binding's record fails.
+    /// provider refused, [`ProviderSessionError::ResumedRuns`] for runs the resume named that were
+    /// not settled, and as the composition, the driver or the binding's record fails.
     pub async fn restart(&self, session_id: SessionId) -> Result<(), ProviderSessionError> {
         let _hold = self.deps.transition_lock.acquire(session_id).await;
         self.refuse_ended(session_id).await?;
@@ -114,42 +144,70 @@ impl ProviderSessions {
         self.deps
             .providers
             .check_capability(&leg.provider_name, DriverCapabilityFlag::Resume)?;
-        let opened = self.relaunch(session_id, leg, Relaunch::Restart).await?;
+        let (opened, _resumed) = self.relaunch(session_id, leg, Relaunch::Restart).await?;
         self.record_opened(session_id, opened);
         Ok(())
     }
 
+    /// Resumes `session_id`'s conversation from its stored leg after the daemon started, as its
+    /// first admission would, and keeps the session open in this process, the idle sleep following
+    /// it awake; each run the resume names is settled through the resumed runs' ingress as the
+    /// provider answers for it. Answers what the resume brought back, nothing for a session this
+    /// process already opened. Fails with [`ProviderSessionError::Closed`] or
+    /// [`ProviderSessionError::BeingDeleted`] for an ended session,
+    /// [`ProviderSessionError::NoConversation`] for one with none to resume, the driver never
+    /// called, [`ProviderSessionError::ResumeRefused`] for a resume the provider refused,
+    /// [`ProviderSessionError::ResumedRuns`] for runs the resume named that were not settled, and
+    /// as the composition, the driver or the binding's record fails.
+    pub async fn resume_after_restart(
+        &self,
+        session_id: SessionId,
+    ) -> Result<ResumedSession, ProviderSessionError> {
+        let _hold = self.deps.transition_lock.acquire(session_id).await;
+        self.refuse_ended(session_id).await?;
+        if self.lock_opened().contains_key(&session_id) {
+            return Ok(ResumedSession::default());
+        }
+        let leg = read_session_leg(&self.deps.pool, session_id)
+            .await?
+            .ok_or(ProviderSessionError::NoConversation { session_id })?;
+        self.resume_leg(session_id, leg).await
+    }
+
     // The session's conversation is resumed in a fresh process from its stored `leg` and recorded
-    // as its opening.
+    // as its opening; answers what the resume brought back.
     pub(super) async fn resume_leg(
         &self,
         session_id: SessionId,
         leg: RuntimeBinding,
-    ) -> Result<(), ProviderSessionError> {
-        let opened = self.relaunch(session_id, leg, Relaunch::Resume).await?;
+    ) -> Result<ResumedSession, ProviderSessionError> {
+        let (opened, resumed) = self.relaunch(session_id, leg, Relaunch::Resume).await?;
         self.record_opened(session_id, opened);
-        Ok(())
+        Ok(resumed)
     }
 
     // Brings `leg`'s conversation back in a fresh process through `relaunch`, under a binding
     // minted here whose cursor carries on where the leg's stands, opened before the driver runs,
-    // since the provider delivers under it at once, and recorded once the driver answers; a
-    // process whose record fails is closed. A process already up that answers on its own binding
-    // records nothing.
+    // since the provider delivers under it at once, and recorded once the driver answers and the
+    // runs the resume named are settled as it answered for them; a process whose runs or record
+    // fail is closed. A process already up that answers on its own binding records nothing, and
+    // stays up when its runs fail. Answers the opening beside what the resume brought back.
     async fn relaunch(
         &self,
         session_id: SessionId,
         leg: RuntimeBinding,
         relaunch: Relaunch,
-    ) -> Result<OpenedSession, ProviderSessionError> {
+    ) -> Result<(OpenedSession, ResumedSession), ProviderSessionError> {
         let minted_id = mint_runtime_binding_id();
         let ComposedResume {
-            params,
+            mut params,
             execution_posture,
             git_folder,
+            function_legs_for,
         } = self
             .compose_resume(session_id, &leg, minted_id.clone())
             .await?;
+        params.on_mcp_server_status = function_legs_for(&minted_id).on_mcp_server_status;
         let driver = self.deps.providers.lookup(&leg.provider_name)?;
         self.deps
             .binding_cursors
@@ -166,13 +224,14 @@ impl ProviderSessions {
                 return Err(error.into());
             }
         };
-        let (binding_id, resume_handle, spawned_version) = match answer {
+        let (binding_id, resume_handle, spawned_version, runs) = match answer {
             DriverResumeResult::Resumed {
                 binding_id,
                 resume_handle,
                 spawned_version,
+                runs,
                 ..
-            } => (binding_id, resume_handle, spawned_version),
+            } => (binding_id, resume_handle, spawned_version, runs),
             DriverResumeResult::Failed {
                 recovery_condition,
                 provider_failure_detail,
@@ -186,7 +245,16 @@ impl ProviderSessions {
                 });
             }
         };
-        if binding_id == minted_id {
+        let named_run_ids = runs.iter().map(|run| run.run_id).collect();
+        // Each run the resume named is settled before the binding is recorded, so none goes live
+        // on the resumed process ahead of its settlement.
+        let taken = self.take_resumed_runs(session_id, runs).await;
+        let is_binding_recorded = binding_id == minted_id;
+        if is_binding_recorded {
+            if let Err(untaken) = taken {
+                self.deps.binding_cursors.forget_binding(&minted_id);
+                return Err(close_unrecorded(driver.as_ref(), session_id, untaken).await);
+            }
             // A provider that continued the conversation in a new one left the old one behind.
             let left_conversations = leg
                 .resume_handle
@@ -211,18 +279,40 @@ impl ProviderSessions {
                 })
                 .await;
             if let Err(unrecorded) = recorded {
-                return Err(close_unrecorded(driver.as_ref(), session_id, unrecorded).await);
+                return Err(close_unrecorded(driver.as_ref(), session_id, unrecorded.into()).await);
             }
         } else {
             // A process already up answered on the binding that brought it up, which has its
             // cursor and its row.
             self.deps.binding_cursors.forget_binding(&minted_id);
+            taken?;
         }
-        Ok(OpenedSession {
-            provider: leg.provider_name,
-            execution_posture,
-            git_folder,
-        })
+        Ok((
+            OpenedSession {
+                provider: leg.provider_name,
+                execution_posture,
+                git_folder,
+            },
+            ResumedSession {
+                named_run_ids,
+                is_binding_recorded,
+            },
+        ))
+    }
+
+    // Hands the provider's answer for each run `session_id`'s resume named to the resumed runs'
+    // ingress, under the caller's transition lock.
+    async fn take_resumed_runs(
+        &self,
+        session_id: SessionId,
+        runs: Vec<ResumedRunAnswer>,
+    ) -> Result<(), ProviderSessionError> {
+        self.deps
+            .resumed_runs
+            .require_port()?
+            .take_resumed_runs(ResumedRuns { session_id, runs })
+            .await
+            .map_err(|cause| ProviderSessionError::ResumedRuns { session_id, cause })
     }
 
     // Brings `session_id`'s process up for the idle sleep under the session's transition lock.

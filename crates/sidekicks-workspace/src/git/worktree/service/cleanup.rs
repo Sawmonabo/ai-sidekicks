@@ -151,7 +151,7 @@ pub enum WorktreeCleanupError {
     UnnamedFolder,
     /// Who stands in the tree could not be read.
     #[error(transparent)]
-    Occupancy(#[from] OccupancyReadError),
+    Occupancy(Box<OccupancyReadError>),
     /// git's record of the tree could not be read.
     #[error(transparent)]
     Record(#[from] LinkedTreeRecordError),
@@ -170,6 +170,12 @@ pub enum WorktreeCleanupError {
     /// The kept worktrees' store could not keep the tree aside.
     #[error("the tree could not be kept aside")]
     KeepAside(#[source] Box<dyn Error + Send + Sync>),
+}
+
+impl From<OccupancyReadError> for WorktreeCleanupError {
+    fn from(error: OccupancyReadError) -> Self {
+        Self::Occupancy(Box::new(error))
+    }
 }
 
 /// One failure of a cleanup pass: the rows it would sweep could not be read, or one row failed.

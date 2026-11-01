@@ -12,11 +12,15 @@ use rusqlite::{Connection, OptionalExtension, named_params};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::project::{ProjectId, ProjectName};
-use sidekicks_contracts::repo::folders::{RepoMountListEntry, RepoMountOrigin, RepoMountUser};
+use sidekicks_contracts::repo::folders::{
+    RepoMountListEntry, RepoMountOrigin, RepoMountReadResponse, RepoMountUser,
+};
 use sidekicks_contracts::repo::mount::{RepoMountId, RepoMountState, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::TextError;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -26,6 +30,7 @@ use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::worktree::occupancy::{MountOccupancyReader, OccupancyReadError, StandingSession};
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
 use crate::repo::errors::RepoRefusal;
+use crate::repo::mount::service::{RepoMountRecord, RepoMountService, RepoMountServiceError};
 use crate::schema::MountOrigin;
 
 /// The distinct statements the folder reads keep prepared on each read connection.
@@ -97,6 +102,29 @@ pub enum RepoFolderUsageError {
     /// A folder could not be keyed for another reason than a part that names nothing.
     #[error("a folder could not be resolved to its key")]
     Folder(#[source] io::Error),
+    /// The mount's own row or its health could not be read, or was refused.
+    #[error(transparent)]
+    Mount(#[from] RepoMountServiceError),
+    /// A mount's stored root does not read as a wire path.
+    #[error("a mount's root is not a path the reply can carry")]
+    MountRoot(#[from] TextError),
+}
+
+impl From<RepoFolderUsageError> for HandlerError {
+    /// A refusal is answered with its code; every other failure is a fault.
+    fn from(error: RepoFolderUsageError) -> Self {
+        match error {
+            RepoFolderUsageError::Refused(refusal)
+            | RepoFolderUsageError::Mount(RepoMountServiceError::Refused(refusal)) => {
+                Self::Refused(refusal.into())
+            }
+            fault @ (RepoFolderUsageError::Pool(_)
+            | RepoFolderUsageError::Database(_)
+            | RepoFolderUsageError::Folder(_)
+            | RepoFolderUsageError::Mount(_)
+            | RepoFolderUsageError::MountRoot(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 impl From<OccupancyReadError> for RepoFolderUsageError {
@@ -187,6 +215,34 @@ impl RepoFolderUsage {
             }
         }
         Ok(entries)
+    }
+
+    /// `repoMount.read`: the mount's stored facts with a freshly probed health, read through
+    /// `mounts`, and where it came from, its project's name and every session bound to it. Refuses
+    /// `repoMount.notFound` for an unknown mount and for a detached one whose project was
+    /// forgotten, `repoMount.rootResolutionFailed` when git cannot answer for its root, and fails
+    /// as a read fails.
+    pub async fn read_mount(
+        &self,
+        mounts: &RepoMountService,
+        repo_mount_id: &RepoMountId,
+    ) -> Result<RepoMountReadResponse, RepoFolderUsageError> {
+        let usage = self.read_usage(repo_mount_id).await?;
+        let RepoMountRecord { row, health } = mounts.read(*repo_mount_id).await?;
+        Ok(RepoMountReadResponse {
+            id: row.id,
+            machine_id: row.machine_id,
+            local_path: row.local_path,
+            canonical_root: FilesystemPath::new(row.canonical_root.to_string_lossy().into_owned())?,
+            place: row.place,
+            vcs_type: row.vcs_type,
+            state: row.state,
+            health,
+            attached_at: row.attached_at,
+            origin: usage.origin,
+            display_name: usage.display_name,
+            used_by: usage.used_by,
+        })
     }
 
     /// Where the mount came from, its project's name, and every session bound to it. Refuses

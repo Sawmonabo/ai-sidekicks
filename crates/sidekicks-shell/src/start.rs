@@ -15,6 +15,7 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::{
     LocaleCategory, default_shell, login_shell, stable_working_folder, system_locale,
 };
+use sidekicks_provider::driver::child_records::SPAWN_NONCE_ENVIRONMENT_NAME;
 use sidekicks_provider::spawn_environment::{
     SessionEnvironment, build_project_command_environment, remove_environment_names,
 };
@@ -24,7 +25,6 @@ use sidekicks_workspace::working_folder::SessionWorkingFolder;
 use crate::integration::injection::{
     ShellMarkNonce, ShellStartupError, ShellStartupFolders, prepare_shell_launch,
 };
-use crate::orphan::registry::SPAWN_NONCE_ENVIRONMENT_NAME;
 use crate::refusals::chat_unsupported;
 use crate::resize::ShellSize;
 use crate::spawn_cwd_translator::{SpawnCwdError, SpawnCwdStrategy, translate_spawn_cwd};

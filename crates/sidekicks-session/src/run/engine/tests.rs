@@ -298,15 +298,6 @@ pub(crate) fn hold_cut(
     }
 }
 
-/// The limit turn `turn_number` of `run_id` ends with by the cuts the engine holds of it, if any.
-pub(crate) fn held_cut_limit(
-    engine: &RunEngine,
-    run_id: RunId,
-    turn_number: SafeInt<1>,
-) -> Option<RunLimit> {
-    lock(&engine.live).current_limit(&(run_id, turn_number))
-}
-
 /// A turn start of `run_id`, read-only at the root, whose driver starts the turn as `start_driver`
 /// does and whose turn interrupt succeeds at once.
 pub(super) fn turn_start(

@@ -10,7 +10,7 @@
 //! arms.
 
 use serde_json::Value;
-use sidekicks_contracts::mcp::server::McpServerStatus;
+use sidekicks_contracts::mcp::server::{McpServerStatus, McpToolName};
 use sidekicks_contracts::provider::driver::tools::{IdempotencyClass, ProviderToolMetadata};
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -130,8 +130,9 @@ fn ingest_mcp_server_status(
     server_name: &Value,
     reading: McpServerReading,
     raw_failure_text: &Value,
+    tool_names: Option<Vec<McpToolName>>,
 ) {
-    match bound_mcp_server_status_emission(server_name, reading, raw_failure_text) {
+    match bound_mcp_server_status_emission(server_name, reading, raw_failure_text, tool_names) {
         Ok(emission) => result.emissions.push(emission),
         Err(rejection) => result.rejections.push(rejection),
     }
@@ -140,7 +141,8 @@ fn ingest_mcp_server_status(
 /// Reads `mcpServerStatus/list` rows into bounded readings; a value that is not an array yields
 /// one rejection, and each row that is not an object another. A `null` `runtimeStatus` reads
 /// `NeedsAuth` only for `authStatus` `notLoggedIn`, else `Unknown`. A row carries no error text
-/// for its status (its `toolsError` is about its tools).
+/// for its status (its `toolsError` is about its tools); its `tools` map, where it sends one, gives
+/// the names of its tools, each that passes the wire bound.
 pub(crate) fn normalize_codex_mcp_server_status_list(
     raw_rows: &Value,
 ) -> McpServerStatusIngestResult {
@@ -171,6 +173,13 @@ pub(crate) fn normalize_codex_mcp_server_status_list(
             row.get("name").unwrap_or(&Value::Null),
             reading,
             &Value::Null,
+            row.get("tools").and_then(Value::as_object).map(|tools| {
+                tools
+                    .values()
+                    .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+                    .filter_map(|tool_name| McpToolName::new(tool_name.to_owned()).ok())
+                    .collect()
+            }),
         );
     }
     result
@@ -206,6 +215,8 @@ pub(crate) fn normalize_codex_mcp_server_status_notification(
         notification.get("name").unwrap_or(&Value::Null),
         McpServerReading::Observed(status),
         notification.get("error").unwrap_or(&Value::Null),
+        // A startup names no tools.
+        None,
     );
     result
 }
@@ -225,7 +236,7 @@ mod tests {
     use crate::driver::mcp_server::status::{McpServerReading, McpServerStatusIngestResult};
 
     // One `mcpServerStatus/list` row for the server, read through the list's reader.
-    fn list(runtime_status: Value, auth_status: &str) -> McpServerStatusIngestResult {
+    fn list(runtime_status: &Value, auth_status: &str) -> McpServerStatusIngestResult {
         normalize_codex_mcp_server_status_list(&json!([{
             "name": "github",
             "runtimeStatus": runtime_status,
@@ -235,7 +246,7 @@ mod tests {
     }
 
     // One `mcpServer/startupStatus/updated` notification, read through the startup reader.
-    fn startup(status: &str, error: Value, failure_reason: Value) -> McpServerStatusIngestResult {
+    fn startup(status: &str, error: &Value, failure_reason: &Value) -> McpServerStatusIngestResult {
         normalize_codex_mcp_server_status_notification(&json!({
             "threadId": "thread-1",
             "name": "github",
@@ -251,34 +262,34 @@ mod tests {
     // `Observed(Unknown)`, by dropping the reauthentication rule, or by dropping the startup's
     // error text.
     #[rstest]
-    #[case::not_started(list(json!("notStarted"), "oAuth"), Observed(Starting), None)]
-    #[case::starting(list(json!("starting"), "oAuth"), Observed(Starting), None)]
-    #[case::connected(list(json!("connected"), "oAuth"), Observed(Connected), None)]
-    #[case::sign_in(list(json!("authenticationRequired"), "oAuth"), Observed(NeedsAuth), None)]
-    #[case::failed(list(json!("failed"), "oAuth"), Observed(Failed), None)]
-    #[case::cancelled(list(json!("cancelled"), "oAuth"), Observed(Failed), None)]
-    #[case::disabled(list(json!("disabled"), "oAuth"), SwitchedOff, None)]
-    #[case::unlisted_word(list(json!("paused"), "oAuth"), Observed(Unknown), None)]
-    #[case::no_thread_logged_out(list(Value::Null, "notLoggedIn"), Observed(NeedsAuth), None)]
-    #[case::no_thread_signed_in(list(Value::Null, "oAuth"), Observed(Unknown), None)]
+    #[case::not_started(list(&json!("notStarted"), "oAuth"), Observed(Starting), None)]
+    #[case::starting(list(&json!("starting"), "oAuth"), Observed(Starting), None)]
+    #[case::connected(list(&json!("connected"), "oAuth"), Observed(Connected), None)]
+    #[case::sign_in(list(&json!("authenticationRequired"), "oAuth"), Observed(NeedsAuth), None)]
+    #[case::failed(list(&json!("failed"), "oAuth"), Observed(Failed), None)]
+    #[case::cancelled(list(&json!("cancelled"), "oAuth"), Observed(Failed), None)]
+    #[case::disabled(list(&json!("disabled"), "oAuth"), SwitchedOff, None)]
+    #[case::unlisted_word(list(&json!("paused"), "oAuth"), Observed(Unknown), None)]
+    #[case::no_thread_logged_out(list(&Value::Null, "notLoggedIn"), Observed(NeedsAuth), None)]
+    #[case::no_thread_signed_in(list(&Value::Null, "oAuth"), Observed(Unknown), None)]
     #[case::startup_starting(
-        startup("starting", Value::Null, Value::Null),
+        startup("starting", &Value::Null, &Value::Null),
         Observed(Starting),
         None
     )]
-    #[case::startup_ready(startup("ready", Value::Null, Value::Null), Observed(Connected), None)]
+    #[case::startup_ready(startup("ready", &Value::Null, &Value::Null), Observed(Connected), None)]
     #[case::startup_cancelled(
-        startup("cancelled", Value::Null, Value::Null),
+        startup("cancelled", &Value::Null, &Value::Null),
         Observed(Failed),
         None
     )]
     #[case::startup_failed(
-        startup("failed", json!("handshake timed out"), Value::Null),
+        startup("failed", &json!("handshake timed out"), &Value::Null),
         Observed(Failed),
         Some("handshake timed out")
     )]
     #[case::startup_reauthentication(
-        startup("failed", json!("token expired"), json!("reauthenticationRequired")),
+        startup("failed", &json!("token expired"), &json!("reauthenticationRequired")),
         Observed(NeedsAuth),
         Some("token expired")
     )]

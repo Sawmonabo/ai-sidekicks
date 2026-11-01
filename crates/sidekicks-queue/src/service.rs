@@ -31,7 +31,7 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::ports::ProcessGoneListener;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -71,6 +71,17 @@ use crate::run_lifecycle::{QueueRunLifecycle, QueueRunLifecycleDeps, RunLifecycl
 use crate::run_token_limit::RunTokenLimitReader;
 use crate::send::{QueueSendItem, QueueSendMessage, QueueSends, QueueSendsDeps};
 use crate::session_lock::{QueueSessionLock, UnreleasedInterrupts};
+
+/// The statements the run queue's reads prepare that no other reading service's set holds: a queue
+/// item by its id and by a send's idempotency key, a session's newest lead run that has not ended
+/// and its current lead run, the sessions with a lead message waiting for a run that ended or has
+/// not started, a session's interrupts whose release left their choice unsettled and the sessions
+/// holding one, the trigger of a run's newest interrupted end, and the queue stream's reads of the
+/// changes after a cursor and of the waiting items from the first place and after a place. Its
+/// other reads (a session's queue, the messages waiting for a run, a run's row, its provider, its
+/// agent and account, a session's state, its lead and its step bound) are in the idle sleep's, the
+/// run engine's and the run pause's sets.
+pub const RUN_QUEUE_STATEMENT_CAPACITY: usize = 11;
 
 // The detail of a queued run ended because every message it was queued for was removed.
 static EMPTIED_RUN_DETAIL: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -341,10 +352,11 @@ impl RunQueue {
     /// opens a run of its own: behind the live lead run's turn or the messages waiting to continue
     /// the interrupted one, else at once, waking a session with no live process as a message does;
     /// its report lands as the agent's reply. A start again under the same key answers the review
-    /// the first queued. Refuses a session the daemon does not hold or whose provider has no
-    /// driver or no account to run on (`provider.account.notRegistered`,
-    /// `provider.account.current.notSet`), one closed (`session.alreadyClosed`) or being purged (`session.changeRefused`), a
-    /// review the store cannot keep and one whose lead run kept moving under it, writing nothing.
+    /// the first queued. Refuses a session the daemon does not hold or whose provider has no driver
+    /// or no account to run on (`provider.account.notRegistered`,
+    /// `provider.account.current.notSet`), one closed (`session.alreadyClosed`) or being purged
+    /// (`session.changeRefused`), a review the store cannot keep and one whose lead run kept moving
+    /// under it, writing nothing.
     pub async fn queue_review(
         &self,
         request: SessionCodeReviewStartRequest,

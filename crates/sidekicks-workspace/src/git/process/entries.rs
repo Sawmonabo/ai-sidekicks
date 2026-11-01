@@ -59,7 +59,7 @@ impl GitRunner {
         .await;
         let failure = match ran {
             Ok(Ok((status, _))) if status.success() => return Ok(()),
-            Ok(Ok((status, stderr))) => return Err(exited_failure(&status, Vec::new(), stderr)),
+            Ok(Ok((status, stderr))) => return Err(exited_failure(status, Vec::new(), stderr)),
             Ok(Err(failure)) => failure,
             Err(_elapsed) => GitError::TimedOut { timeout },
         };

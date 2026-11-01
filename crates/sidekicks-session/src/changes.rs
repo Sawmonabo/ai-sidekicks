@@ -26,9 +26,9 @@ use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError, is_ecmascript_whitespace};
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::CloseSessionParams;
 use sidekicks_std::keyed_lock::KeyedLock;
@@ -50,7 +50,6 @@ use sidekicks_workspace::project::service::ForgottenProjectSessions;
 use tokio_util::task::TaskTracker;
 
 use crate::run::ids::read_session_run_ids;
-use crate::run::state_change::refused_statement_index;
 
 /// The statements the session changes prepare on a read connection: the session's facts, its
 /// runs, and the providers their bindings name.
@@ -443,7 +442,7 @@ impl SessionChanges {
             };
             match self.appender.append(draft, linkage).await {
                 Ok(_receipt) => return Ok(true),
-                Err(error) if refused_statement_index(&error) == Some(FACTS_GUARD_INDEX) => {}
+                Err(error) if error.refused_statement_index() == Some(FACTS_GUARD_INDEX) => {}
                 Err(error) => return Err(error.into()),
             }
         }
@@ -560,7 +559,7 @@ async fn tell_providers_name(
                     .tell_session_name(session_id, name.as_str().to_owned())
                     .await
             }
-            Err(refusal) => Err(DriverError::Refused(refusal)),
+            Err(refusal) => Err(DriverError::from(refusal)),
         };
         if let Err(error) = told {
             tracing::warn!(

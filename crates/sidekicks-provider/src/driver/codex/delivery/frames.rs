@@ -32,8 +32,8 @@ use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::rows::{CodexRowDelivery, CodexRowRun};
 use crate::driver::codex::delivery::turn_readings::deliver_codex_plan_update;
-use crate::driver::codex::run::helper_token_limit::CodexLimitStoppedHelpers;
 use crate::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
+use crate::driver::codex::run::stopped_helpers::CodexStoppedHelpers;
 use crate::driver::codex::server_requests::CodexAskKind;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
@@ -89,8 +89,8 @@ pub(crate) struct CodexFrameDeliveryDependencies {
     pub(crate) command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
     /// The compaction waits, which a compaction's own turn ends.
     pub(crate) pending_compactions: PendingCompactionRegistry,
-    /// The helpers stopped at their token limit, whose later turns are interrupted at their start.
-    pub(crate) limit_stopped_helpers: Arc<CodexLimitStoppedHelpers>,
+    /// The helpers stopped alone, whose later turns are interrupted at their start.
+    pub(crate) stopped_helpers: Arc<CodexStoppedHelpers>,
     /// What the rest of the driver does for a frame.
     pub(crate) effects: Arc<dyn CodexFrameEffects>,
 }

@@ -602,7 +602,7 @@ mod tests {
             RefusalCode::ConnectionSubscriptionLimitReached
         );
         assert_eq!(
-            refusal.detail.map(Value::Object),
+            refusal.detail.map(|detail| Value::Object(*detail)),
             Some(json!({ "limit": 10_000 }))
         );
 

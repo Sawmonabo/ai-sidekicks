@@ -2,6 +2,7 @@
 //! from the log against the rows its live writes wrote.
 
 mod approvals;
+mod attention;
 mod plans;
 mod questions;
 

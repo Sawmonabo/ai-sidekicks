@@ -18,10 +18,10 @@ use crate::command_search::{ProviderCommandSearch, list_command_folders};
 use crate::driver::ReportedVersionReading;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::read_claude_capabilities;
-use crate::driver::claude::mcp::connectors::{
-    ClaudeAccountServerAnswers, ClaudeAccountServersReadRequest, read_claude_account_answers,
+use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
+use crate::driver::claude::mcp::machine_probe::{
+    ClaudeMcpProbeProcess, ClaudeMcpProbeProcessRequest,
 };
-use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
 use crate::driver::claude::mcp::sign_in::{ClaudeMcpSignInChannel, ClaudeMcpSignInStart};
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -46,7 +46,10 @@ use crate::driver::claude::spawn::launch::one_turn::{
 };
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
 use crate::driver::claude::version::read_reported_version;
-use crate::driver::contract::{DriverError, GetCapabilitiesResult, SpawnedVersionBindingCarriers};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    GetCapabilitiesResult, SpawnedVersionBindingCarriers,
+};
 use crate::process_identity::ProviderProcessIdentity;
 use crate::spawned_version::{
     ProviderVersionHandshakeRequest, ResolvedProviderExecutable, read_spawned_version,
@@ -114,12 +117,14 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
         environment: Vec<(String, String)>,
     ) -> BoxFuture<'_, Result<GetCapabilitiesResult, DriverError>>;
 
-    /// Takes one account's `mcp_status` and `get_settings` answers from a process that keeps
-    /// nothing, started as `request` names.
-    fn read_account_servers(
+    /// Starts one account's read process, which keeps nothing, as `request` names, its folder made
+    /// where absent, and sends its `initialize`, handing back the process to send the read's
+    /// requests on and close. Fails with `ControlOnlyFolder` when the folder cannot be made, and as
+    /// the start or `initialize` does, the process then closed.
+    fn start_account_servers_read(
         &self,
         request: ClaudeAccountServersReadRequest,
-    ) -> BoxFuture<'_, Result<ClaudeAccountServerAnswers, ClaudeLaunchError>>;
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>>;
 
     /// Brings up, initialized, the one process that keeps nothing of an MCP server's sign-in,
     /// started as `start` names and loading the server its file declares, that one alone where
@@ -130,12 +135,12 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
     ) -> BoxFuture<'_, Result<ClaudeMcpSignInChannel, ClaudeLaunchError>>;
 
     /// Starts the MCP server probe's process as `request` names and sends its `initialize`,
-    /// handing back the process to send the probe's requests on and close. Fails as the start or
-    /// `initialize` does, the process then closed.
+    /// handing back the process with what it writes. Fails as the start or `initialize` does, the
+    /// process then closed.
     fn start_mcp_probe(
         &self,
         request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>>;
+    ) -> BoxFuture<'_, Result<ClaudeMcpProbeProcess, ClaudeLaunchError>>;
 
     /// Stops every live process and starts none after.
     fn stop_every_process(&self) -> BoxFuture<'_, ()>;
@@ -192,7 +197,7 @@ impl ClaudeInstalledBuild {
         arguments: Vec<String>,
         working_folder: PathBuf,
         provider_account_id: ProviderAccountId,
-    ) -> Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError> {
+    ) -> Result<ClaudeShortProcess, ClaudeLaunchError> {
         let short = ClaudeShortProcess::start(
             &self.launcher,
             executable,
@@ -205,8 +210,7 @@ impl ClaudeInstalledBuild {
             short.close().await;
             return Err(error.into());
         }
-        let process: Arc<dyn ClaudeProcessChannel> = short.process;
-        Ok(process)
+        Ok(short)
     }
 }
 
@@ -371,20 +375,30 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
         .boxed()
     }
 
-    fn read_account_servers(
+    fn start_account_servers_read(
         &self,
         request: ClaudeAccountServersReadRequest,
-    ) -> BoxFuture<'_, Result<ClaudeAccountServerAnswers, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
         async move {
             let executable =
                 Self::resolve(&self.command_search, &self.home_folder, request.environment).await?;
-            read_claude_account_answers(
+            tokio::fs::create_dir_all(&request.working_folder)
+                .await
+                .map_err(ClaudeLaunchError::ControlOnlyFolder)?;
+            let short = ClaudeShortProcess::start_control_only(
                 &self.launcher,
                 &executable,
-                request.provider_account_id,
-                request.working_folder,
+                Some(request.working_folder),
+                None,
+                Some(request.provider_account_id),
             )
-            .await
+            .await?;
+            if let Err(error) = short.initialize().await {
+                short.close().await;
+                return Err(error.into());
+            }
+            let process: Arc<dyn ClaudeProcessChannel> = short.process;
+            Ok(process)
         }
         .boxed()
     }
@@ -408,13 +422,16 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                     start.servers_file.to_string_lossy().into_owned(),
                 ])
                 .collect();
-            self.start_initialized(
-                &executable,
-                arguments,
-                start.folder,
-                start.provider_account_id,
-            )
-            .await
+            let short = self
+                .start_initialized(
+                    &executable,
+                    arguments,
+                    start.folder,
+                    start.provider_account_id,
+                )
+                .await?;
+            let process: ClaudeMcpSignInChannel = short.process;
+            Ok(process)
         }
         .boxed()
     }
@@ -422,7 +439,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
     fn start_mcp_probe(
         &self,
         request: ClaudeMcpProbeProcessRequest,
-    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
+    ) -> BoxFuture<'_, Result<ClaudeMcpProbeProcess, ClaudeLaunchError>> {
         async move {
             let executable =
                 Self::resolve(&self.command_search, &self.home_folder, request.environment).await?;
@@ -430,13 +447,19 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                 Some(folder) => folder,
                 None => self.launcher.control_only_folder().await?,
             };
-            self.start_initialized(
-                &executable,
-                request.arguments,
-                working_folder,
-                request.provider_account_id,
-            )
-            .await
+            let short = self
+                .start_initialized(
+                    &executable,
+                    request.arguments,
+                    working_folder,
+                    request.provider_account_id,
+                )
+                .await?;
+            let ClaudeShortProcess { process, arrivals } = short;
+            Ok(ClaudeMcpProbeProcess {
+                channel: process,
+                arrivals: arrivals.into_inner(),
+            })
         }
         .boxed()
     }

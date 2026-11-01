@@ -98,6 +98,7 @@ impl ProviderStartEstimate {
 }
 
 /// The interpreter a script step runs in.
+#[expect(dead_code, reason = "the workflow engine's bun and Python steps")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ScriptRuntime {
     /// Bun.
@@ -111,6 +112,10 @@ pub(crate) enum ScriptRuntime {
 /// quick Code step reserves its budget, replaced by its node's interpreter peak, plus its thread,
 /// its input and its output; an ingest worker reserves its file, its picture and its own memory.
 /// `workflow_node_key` names the workflow node an entry runs, unique across workflows.
+#[expect(
+    dead_code,
+    reason = "the workflow engine's script and quick Code steps and the ingest worker"
+)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AdmissionWork {
     /// A provider process.
@@ -337,7 +342,7 @@ impl MemoryGate {
     }
 }
 
-/// One entry's place in the gate, from joining the line until it is released or dropped.
+/// One entry's place in the gate, from joining the line until it is dropped.
 pub(crate) struct MemoryAdmission {
     shared: Arc<GateShared>,
     id: EntryId,
@@ -425,12 +430,6 @@ impl MemoryAdmission {
         drop(state);
         self.shared.changed.notify_one();
         Ok(())
-    }
-
-    /// Ends the entry, as dropping it does: a waiting one leaves the line, its wait reading
-    /// `Withdrawn`; an admitted one frees its reservation; an observed peak is learned.
-    pub(crate) fn release(self) {
-        drop(self);
     }
 
     fn require(

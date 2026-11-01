@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+use sidekicks_contracts::mcp::server::inventory::McpOverrideOrigin;
 use sidekicks_contracts::mcp::server::{
     McpApprovalMode, McpServerBindingRef, McpServerName, McpToolName,
 };
@@ -23,24 +24,50 @@ pub struct McpServersReadRequest {
     /// Whether the person asked for a refresh, so the driver reads again what it keeps between
     /// reads.
     pub is_refresh: bool,
-    /// The bindings the driver starts in a process of its own and reads once; empty when no
-    /// probe is asked for.
-    pub probe_targets: Vec<McpProbeTarget>,
+    /// The bindings the driver starts in a process of its own and reads once.
+    pub probe: McpProbeScope,
+    /// The `local` bindings the daemon's store keeps that the provider's config cannot declare,
+    /// each served from the person's entry of the same name that is off by default, which a
+    /// driver probes at the binding's root in place of that entry.
+    pub emulated_local_bindings: Vec<McpServerBindingRef>,
+}
+
+/// Which of its bindings a driver's read probes; the driver builds each probe's start from its own
+/// declarations.
+#[derive(Clone, Debug, PartialEq)]
+pub enum McpProbeScope {
+    /// No probe runs.
+    None,
+    /// Every binding the driver declares that its probe can start.
+    EveryBinding,
+    /// The named bindings among those.
+    Bindings(Vec<McpServerBindingRef>),
+}
+
+impl McpProbeScope {
+    /// Whether the scope takes `binding`.
+    pub(crate) fn contains(&self, binding: &McpServerBindingRef) -> bool {
+        match self {
+            Self::None => false,
+            Self::EveryBinding => true,
+            Self::Bindings(bindings) => bindings.contains(binding),
+        }
+    }
 }
 
 /// One binding the probe starts, and what the provider must be sent to start it.
 #[derive(Clone, Debug, PartialEq)]
-pub struct McpProbeTarget {
+pub(crate) struct McpProbeTarget {
     /// The binding.
-    pub binding: McpServerBindingRef,
+    pub(crate) binding: McpServerBindingRef,
     /// What the provider must be sent to start it.
-    pub start: McpProbeStart,
+    pub(crate) start: McpProbeStart,
 }
 
 /// What a probe sends the provider to start one binding. The declaration never travels with it:
 /// where one is sent, the driver re-reads it from where it lives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum McpProbeStart {
+pub(crate) enum McpProbeStart {
     /// The provider loads it by its own config at the binding's root; nothing is sent.
     LoadedByProvider,
     /// Its entry in the person's config is off by default and is switched on by its name.
@@ -74,11 +101,12 @@ pub struct McpServerDeclaration {
     pub binding: McpServerBindingRef,
     /// The declaration with every credential-bearing value reduced to its name.
     pub config: McpServerConfigView,
-    /// Where another declaration takes this one's place: a project root, or the settings file
-    /// whose entry overrides it field by field.
-    pub superseded_in: Vec<PlacedPath>,
-    /// The project roots where the provider's own per-project list switches it off.
-    pub disabled_in: Vec<PlacedPath>,
+    /// Where another declaration takes this one's place: a project root, or the settings file or
+    /// the administrator's layer in no file whose entry overrides it field by field.
+    pub superseded_in: Vec<McpOverrideOrigin>,
+    /// Where it is switched off: the project roots where the provider's own per-project list
+    /// switches it off, or the settings file or administrator's layer whose entry does.
+    pub disabled_in: Vec<McpOverrideOrigin>,
     /// Whether the person cannot write it, since the provider or an administrator owns it.
     pub is_read_only: bool,
     /// The sign-in client the declaration names, where it names one.
@@ -150,10 +178,12 @@ pub struct McpServerSignInClient {
 pub struct McpRootReading {
     /// The root, with the distribution it is in.
     pub root: PlacedPath,
-    /// The names of the project's servers kept out of its sessions.
+    /// The names of every server declared for this root, in any layer, that its sessions never
+    /// load; none of them is in `provider_loaded`.
     pub kept_out_server_names: Vec<McpServerName>,
     /// The bindings a session the provider starts at this root loads by its own config, with no
-    /// set sent by the daemon.
+    /// set sent by the daemon, in the provider's precedence order, highest layer first: a reader
+    /// takes the first binding of a name as the one loaded.
     pub provider_loaded: Vec<McpServerBindingRef>,
 }
 
@@ -174,8 +204,8 @@ pub enum McpServerPolicyEntry {
     ServerName(McpServerName),
     /// A server started by this command and these arguments.
     Command(Vec<String>),
-    /// A remote server whose address matches this pattern, its user name, password and query
-    /// stripped as an address's are.
+    /// A remote server whose address matches this pattern, kept as written with its credentials
+    /// scrubbed.
     AddressPattern(String),
 }
 
@@ -195,7 +225,7 @@ pub struct McpProbeReading {
     pub binding: McpServerBindingRef,
     /// What the provider reported.
     pub reading: McpServerReading,
-    /// The provider's error text for the server, its credentials scrubbed and cut to a bound.
+    /// The provider's error text for the server, sanitized and cut to a bound.
     pub failure_text: Option<String>,
     /// The names of the server's tools.
     pub tool_names: Vec<McpToolName>,

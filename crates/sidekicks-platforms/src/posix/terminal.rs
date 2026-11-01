@@ -229,6 +229,7 @@ pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
             "a released terminal's program could not be reaped"
         );
     }
+    drop(pty);
 }
 
 /// The key the terminal's input and output are registered under.

@@ -469,6 +469,36 @@ interface RunSafetyBufferingUpdatedPayload {
   fasterModel?: string; // the faster model Codex names, carried as sent
 }
 
+// agent.run.recovery.requested — the restart question a run halted on when the provider's record
+// and the session's disagreed beyond what only read (Spec-013 §Fallback Behavior), written in the
+// write that halts the run. It rides `agent.run.subscribe` as its own change, told apart from the
+// other arms by `question`, so a run already `waitingForInput`, which writes no state row at the
+// halt, still shows its question. A subscription's first read that reaches the newest change also
+// sends each run's open question — the newest `requested` with no later `resolved` — at that
+// change's cursor, as the safety holds are sent, with nothing held in memory.
+interface AgentRunRecoveryRequestedPayload {
+  sessionId: SessionId;
+  runId: RunId;
+  provider: ProviderId;
+  question: RunRecoveryQuestion;
+}
+// `providerAhead`: the provider kept steps the session never recorded, one at least not read-only;
+// the undo cuts before `cutBeforeMessageId`, or after the turn `agreedMessageId` opened when the
+// first such step sits in a turn the daemon never started. `daemonAhead`: the provider's record
+// lacks the session's last `missingTurns` turns.
+type RunRecoveryQuestion =
+  | { kind: "providerAhead"; agreedMessageId: QueueItemId; cutBeforeMessageId?: QueueItemId }
+  | { kind: "daemonAhead"; missingTurns: number };
+
+// agent.run.recovery.resolved — the person's answer to the restart question, through
+// agent.run.recovery.resolve. It rides `agent.run.subscribe` as its own change, told apart by
+// `choice`, because a run already waiting writes no state row when its question closes.
+interface AgentRunRecoveryResolvedPayload {
+  sessionId: SessionId;
+  runId: RunId;
+  choice: "keepProvider" | "undoToAgreed" | "continueProvider" | "handOver";
+}
+
 // Run-control mutations (Spec-003 §Required Behavior). `pause` holds the run at its next tool
 // boundary + persists conversation/run state and queues nothing (orchestration-layer, never
 // driver-gated per I-002-9); `Pause` is a toggle, and `resume`, the toggle pressed again or a send,
@@ -532,7 +562,12 @@ interface StreamFrame<Change, Cursor> {
 // it went out.
 interface RunStateStreamChange {
   cursor: EventCursor;
-  event: RunStateChangeEvent | AgentRunRolledBackEvent | RunSafetyBufferingUpdatedPayload;
+  event:
+    | RunStateChangeEvent
+    | AgentRunRolledBackEvent
+    | RunSafetyBufferingUpdatedPayload
+    | AgentRunRecoveryRequestedPayload
+    | AgentRunRecoveryResolvedPayload;
 }
 type RunStateStreamFrame = StreamFrame<RunStateStreamChange, EventCursor>;
 // One change on agent.queueItem.subscribe: the item as it now stands, and the cursor of the

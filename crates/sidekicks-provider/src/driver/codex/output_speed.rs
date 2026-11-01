@@ -8,19 +8,20 @@ use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::driver::capabilities::{ProviderModel, find_provider_model_row};
+use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::declared_output_speed::{DeclaredOutputSpeed, read_declared_output_speed};
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::capabilities::find_codex_model_row;
 use crate::driver::codex::event_normalizer::{
     CODEX_ITEM_STARTED_METHOD, CODEX_THREAD_SETTINGS_UPDATED_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
 use crate::driver::codex::session::state::{CodexSessionRecord, CodexUnsettledOutputSpeedRun};
 use crate::driver::codex::transport::connection::read_codex_object;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 
 /// The tier one run settled at, for the run engine to compare with the level it asked for.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -91,8 +92,7 @@ where
         return Ok(Some(level));
     }
     let catalog = read_catalog().await?;
-    // `model/list` lists each model once, on its default row; its tiers hold on either window.
-    let is_listed = find_provider_model_row(&catalog, model, false)
+    let is_listed = find_codex_model_row(&catalog, model)
         .and_then(|row| row.output_speed_levels.as_ref())
         .is_some_and(|levels| levels.iter().any(|listed| listed.as_str() == level));
     Ok(Some(if is_listed {

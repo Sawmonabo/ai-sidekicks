@@ -1,9 +1,13 @@
 //! Which bindings Codex's config layers declare, read from `config/read` replies alone: each layer
 //! that declares a server with its transport binds it, each higher layer naming the same server
-//! supersedes or switches it off there, and each server's view is Codex's own merge at that root.
+//! supersedes or switches it off there, and each server's view is Codex's own merge at that root,
+//! or its own layer's entry where a layer of another role declares the name over it.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::mcp::server::inventory::{
+    McpManagedLayer, McpManagedLayerKind, McpOverrideOrigin,
+};
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_platforms::PathRules;
@@ -11,15 +15,21 @@ use sidekicks_platforms::PathRules;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::config_read::CodexConfigLayer;
 use crate::driver::codex::mcp::config::server_entry::{
-    has_transport, is_switched_off, read_codex_server_entry, read_switch, sets_other_members,
+    CodexServerTransport, has_transport, is_switched_off, read_codex_server_entry,
+    read_codex_server_transport, read_switch, sets_other_members,
 };
-use crate::driver::codex::mcp::config::{CodexMcpConfigReading, CodexRootConfigRead};
+use crate::driver::codex::mcp::config::{
+    CodexLoadedServer, CodexMcpConfigReading, CodexRootConfigRead,
+};
+use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::mcp_server::read::{McpRootReading, McpServerDeclaration, McpServerPolicy};
 
-// The config table of MCP servers, by name.
-const MCP_SERVERS_KEY: &str = "mcp_servers";
 // The file a project's `.codex` folder holds its config in.
 const PROJECT_CONFIG_FILE_NAME: &str = "config.toml";
+/// The config table of the plugins' switches and their servers' overrides.
+pub(crate) const PLUGINS_KEY: &str = "plugins";
+/// The member of the plugins' table holding the switch every plugin without its own takes.
+pub(crate) const PLUGINS_DEFAULT_KEY: &str = "_default";
 
 // What a layer is to the person: their own, a project's, or an administrator's. A layer of another
 // kind (the launch's own flags, or a kind this reader does not know) binds nothing.
@@ -30,11 +40,12 @@ enum LayerRole {
     Administrator,
 }
 
-// One layer Codex merges, with its role, its servers and the file it is written in.
+// One layer Codex merges, with its role, its servers and where it comes from: the file it is
+// written in, or for an administrator's layer in no file, its kind.
 struct RankedLayer<'read> {
     role: LayerRole,
     servers: Option<&'read Map<String, Value>>,
-    file: Option<PlacedPath>,
+    origin: Option<McpOverrideOrigin>,
 }
 
 impl RankedLayer<'_> {
@@ -43,19 +54,23 @@ impl RankedLayer<'_> {
     }
 }
 
-// A declaration being gathered across the reads, and whether its view came from a read where no
-// project layer names its server, the view a server outside any project has.
+// A declaration being gathered across the reads, the transport its view declares, and whether its
+// view came from a read where no project layer names its server, the view a server outside any
+// project has.
 struct DeclarationDraft {
     declaration: McpServerDeclaration,
+    transport: Option<CodexServerTransport>,
     is_view_outside_projects: bool,
 }
 
-/// The bindings, views and per-root provider-loaded sets the `config/read` replies in `reads`
-/// declare, the plugins' servers aside.
+/// The bindings, views, per-root provider-loaded sets and loaded servers the `config/read` replies
+/// in `reads` declare, the plugins' servers aside, and the plugins any config layer names.
 pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> CodexMcpConfigReading {
     let provider = DESCRIPTOR.provider_id();
     let mut drafts: Vec<DeclarationDraft> = Vec::new();
     let mut roots = Vec::new();
+    let mut loaded_servers: Vec<CodexLoadedServer> = Vec::new();
+    let mut person_plugin_keys: Vec<String> = Vec::new();
     let mut is_machine_managed = false;
     for root_read in reads {
         let root = root_read.root.as_ref();
@@ -73,6 +88,18 @@ pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> Code
             .filter(|layer| layer.disabled_reason.is_none())
             .filter_map(|layer| rank_layer(layer, root))
             .collect();
+        for key in root_read
+            .read
+            .layers
+            .iter()
+            .flatten()
+            .filter_map(|layer| layer.config.get(PLUGINS_KEY)?.as_object())
+            .flat_map(Map::keys)
+        {
+            if key != PLUGINS_DEFAULT_KEY && !person_plugin_keys.contains(key) {
+                person_plugin_keys.push(key.clone());
+            }
+        }
         let mut provider_loaded: Vec<McpServerBindingRef> = Vec::new();
         for (index, layer) in layers.iter().enumerate() {
             for (name, entry) in layer.servers.into_iter().flatten() {
@@ -106,10 +133,26 @@ pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> Code
                         }
                     }
                 };
-                // Codex's own merge at this root; the layer's entry only where the merge lost it.
-                let view_entry = effective
-                    .and_then(|servers| servers.get(name))
-                    .filter(|merged| has_transport(merged))
+                let merged = effective.and_then(|servers| servers.get(name));
+                // Layers rank highest first, so the first that declares the name is what loads.
+                if !loaded_servers.iter().any(|loaded| {
+                    loaded.root.as_ref() == root
+                        && loaded.binding.server_name() == binding.server_name()
+                }) {
+                    loaded_servers.push(CodexLoadedServer {
+                        root: root.cloned(),
+                        binding: binding.clone(),
+                        is_switched_on: merged.and_then(read_switch).unwrap_or(true),
+                    });
+                }
+                // A binding another role's declaration takes the place of shows its own entry,
+                // since the merge there is the other binding's; every other shows Codex's own
+                // merge at this root, or its layer's entry where the merge lost it.
+                let is_taken_over = layers[..index].iter().any(|higher| {
+                    higher.role != layer.role && higher.server(name).is_some_and(has_transport)
+                });
+                let view_entry = merged
+                    .filter(|merged| !is_taken_over && has_transport(merged))
                     .unwrap_or(entry);
                 let Some(declared) = read_codex_server_entry(view_entry) else {
                     continue;
@@ -139,6 +182,7 @@ pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> Code
                             tool_defaults: declared.tool_defaults,
                             organization_managed: None,
                         },
+                        transport: read_codex_server_transport(view_entry),
                         is_view_outside_projects,
                     },
                 );
@@ -153,16 +197,74 @@ pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> Code
             });
         }
     }
+    let mut transports = Vec::with_capacity(drafts.len());
+    let mut declarations = Vec::with_capacity(drafts.len());
+    for draft in drafts {
+        if let Some(transport) = draft.transport {
+            transports.push((draft.declaration.binding.clone(), transport));
+        }
+        declarations.push(draft.declaration);
+    }
     CodexMcpConfigReading {
-        declarations: drafts.into_iter().map(|draft| draft.declaration).collect(),
+        declarations,
+        transports,
         roots,
         is_machine_managed,
         // Codex's config layers carry no allow or deny list; its requirements file does.
         server_policy: McpServerPolicy::default(),
+        // The plugins' servers join after this read.
+        plugin_keys: Vec::new(),
+        // The requirements' allow lists fill these once the read has every declaration.
+        home_kept_out_server_names: Vec::new(),
+        refused_when_sent: Vec::new(),
+        loaded_servers,
+        person_plugin_keys,
     }
 }
 
-// `layer`'s role, servers and file; `None` for a layer that binds nothing.
+/// Where the config at each of `reads` switches off the server `server` of the plugin keyed
+/// `plugin_key` (`<plugin>@<marketplace>`), as Codex decides it: the highest layer that sets the
+/// plugin's own switch, else the highest that sets every plugin's default, and the highest layer
+/// that sets the server's own switch under the plugin's table. A layer of no known origin that
+/// switches it off cannot be named.
+pub(crate) fn find_plugin_switch_offs(
+    reads: &[CodexRootConfigRead],
+    plugin_key: &str,
+    server: &str,
+) -> Vec<McpOverrideOrigin> {
+    let mut disabled_in: Vec<McpOverrideOrigin> = Vec::new();
+    for root_read in reads {
+        let layers: Vec<&CodexConfigLayer> = root_read
+            .read
+            .layers
+            .iter()
+            .flatten()
+            .filter(|layer| layer.disabled_reason.is_none())
+            .collect();
+        // The highest layer whose plugins' table sets the switch `read` finds, and its value.
+        let decide = |read: &dyn Fn(&Map<String, Value>) -> Option<bool>| {
+            layers.iter().find_map(|layer| {
+                let plugins = layer.config.get(PLUGINS_KEY)?.as_object()?;
+                read(plugins).map(|is_on| (is_on, *layer))
+            })
+        };
+        let plugin_switch = decide(&|plugins| read_switch(plugins.get(plugin_key)?))
+            .or_else(|| decide(&|plugins| read_switch(plugins.get(PLUGINS_DEFAULT_KEY)?)));
+        let server_switch = decide(&|plugins| {
+            read_switch(plugins.get(plugin_key)?.get(MCP_SERVERS_KEY)?.get(server)?)
+        });
+        for (is_on, layer) in [plugin_switch, server_switch].into_iter().flatten() {
+            let origin =
+                rank_layer(layer, root_read.root.as_ref()).and_then(|ranked| ranked.origin);
+            if let (false, Some(origin)) = (is_on, origin) {
+                push_once(&mut disabled_in, &origin);
+            }
+        }
+    }
+    disabled_in
+}
+
+// `layer`'s role, servers and origin; `None` for a layer that binds nothing.
 fn rank_layer<'read>(
     layer: &'read CodexConfigLayer,
     root: Option<&PlacedPath>,
@@ -171,8 +273,7 @@ fn rank_layer<'read>(
     let role = match source.kind.as_str() {
         "user" => LayerRole::User,
         "project" => LayerRole::Project,
-        "packagedDefaults"
-        | "mdm"
+        "mdm"
         | "system"
         | "enterpriseManaged"
         | "legacyManagedConfigTomlFromFile"
@@ -195,7 +296,6 @@ fn rank_layer<'read>(
                 place,
             })
         }),
-        // An MDM or enterprise layer is written in no file.
         LayerRole::User | LayerRole::Administrator => source.file.as_deref().and_then(|file| {
             Some(PlacedPath {
                 path: FilesystemPath::new(file.to_owned()).ok()?,
@@ -203,32 +303,43 @@ fn rank_layer<'read>(
             })
         }),
     };
+    // An MDM or enterprise layer is written in no file, so it is named by its kind.
+    let fileless_kind = match source.kind.as_str() {
+        "mdm" | "legacyManagedConfigTomlFromMdm" => Some(McpManagedLayerKind::DeviceManagement),
+        "enterpriseManaged" => Some(McpManagedLayerKind::OrganizationCloud),
+        _ => None,
+    };
+    let origin = file.map(McpOverrideOrigin::Placed).or_else(|| {
+        fileless_kind
+            .map(|managed_layer| McpOverrideOrigin::ManagedLayer(McpManagedLayer { managed_layer }))
+    });
     Some(RankedLayer {
         role,
         servers: layer.config.get(MCP_SERVERS_KEY).and_then(Value::as_object),
-        file,
+        origin,
     })
 }
 
-// The files of the layers in `higher` whose entry for `name` takes the place of `layer`'s
+// The origins of the layers in `higher` whose entry for `name` takes the place of `layer`'s
 // declaration (a declaration of another binding, or an override of any member but the switch),
 // and of those whose entry switches it off.
 fn read_overrides(
     higher: &[RankedLayer<'_>],
     layer: &RankedLayer<'_>,
     name: &str,
-) -> (Vec<PlacedPath>, Vec<PlacedPath>) {
-    let mut superseded_in: Vec<PlacedPath> = Vec::new();
-    let mut disabled_in: Vec<PlacedPath> = Vec::new();
+) -> (Vec<McpOverrideOrigin>, Vec<McpOverrideOrigin>) {
+    let mut superseded_in: Vec<McpOverrideOrigin> = Vec::new();
+    let mut disabled_in: Vec<McpOverrideOrigin> = Vec::new();
     for overriding in higher {
         let Some(entry) = overriding.server(name) else {
             continue;
         };
-        // A layer in no file cannot be named; a profile over the user's own file is the same file.
-        let Some(file) = overriding.file.as_ref() else {
+        // A layer of no known origin cannot be named; a profile over the user's own file is the
+        // same file.
+        let Some(file) = overriding.origin.as_ref() else {
             continue;
         };
-        if Some(file) == layer.file.as_ref() {
+        if Some(file) == layer.origin.as_ref() {
             continue;
         }
         if has_transport(entry) {
@@ -277,11 +388,12 @@ fn gather(drafts: &mut Vec<DeclarationDraft>, draft: DeclarationDraft) {
     if draft.is_view_outside_projects && !kept.is_view_outside_projects {
         kept.declaration.config = draft.declaration.config;
         kept.declaration.sign_in_client = draft.declaration.sign_in_client;
+        kept.transport = draft.transport;
         kept.is_view_outside_projects = true;
     }
 }
 
-fn push_once(files: &mut Vec<PlacedPath>, file: &PlacedPath) {
+fn push_once(files: &mut Vec<McpOverrideOrigin>, file: &McpOverrideOrigin) {
     if !files.contains(file) {
         files.push(file.clone());
     }

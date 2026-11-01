@@ -72,7 +72,7 @@ pub const FOLDER_CHANGE_CAPACITY: usize = 16;
 pub(crate) type ReadWatchCeiling = fn() -> io::Result<Option<u64>>;
 
 /// A [`ReadWatchCeiling`] for tests, answering that no folder is too large to watch.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 #[expect(
     clippy::unnecessary_wraps,
     reason = "it stands in for the machine's ceiling read, which can fail"

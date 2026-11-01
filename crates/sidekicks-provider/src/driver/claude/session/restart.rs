@@ -3,29 +3,29 @@
 //! and the person is told. A new provider build relaunches each session the same way, an idle one
 //! at once and a busy one when its turn settles. Until a relaunch has composed its start, the
 //! ended process's settings are held, so a level or mode moved meanwhile starts with it. What an
-//! ended process leaves, the resume that brings it back among them, is in `ended_process`.
+//! ended process leaves is in `ended_process`, and the resume that brings it back in `relaunch`.
 
 pub(crate) mod ended_process;
 
+mod relaunch;
+
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::SystemTime;
 
 use futures::future::join_all;
 use serde_json::json;
-use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::settle_all::settle_all;
 use tokio::sync::SetOnce;
 use tokio_util::task::AbortOnDropHandle;
 
+use self::ended_process::{ClaudeEndedConversation, ended_conversation_of};
+use self::relaunch::compose_claude_relaunch;
 use crate::crash_window::{CrashOutcome, CrashWindow};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::claude_delivery_origin;
@@ -40,14 +40,12 @@ use crate::driver::claude::session::slots::{
 use crate::driver::claude::session::state::{
     ClaudeLiveSettings, ClaudeSlotSettled, LiveClaudeSession,
 };
-use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::contract::error::DriverError;
 use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::driver::error_causes::{
-    UNSPECIFIED_PROVIDER_FAILURE_DETAIL, session_process_unavailable,
-};
+use crate::driver::error_causes::session_process_unavailable;
 use crate::driver::ports::DriverPorts;
 use crate::driver::session_control::{
     DriverResumeResult, ProviderBuildChange, ResumeSessionParams,
@@ -55,11 +53,6 @@ use crate::driver::session_control::{
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
-use crate::runtime_binding::resume::ResumeFunctionLegs;
-
-use self::ended_process::{
-    ClaudeEndedConversation, compose_claude_relaunch, ended_conversation_of,
-};
 
 // Every session's crash window and the sessions the driver brings back itself.
 #[derive(Default)]
@@ -346,9 +339,7 @@ impl ClaudeSessionRestarts {
             match self.standing(session_id) {
                 ClaudeSessionStanding::Live(_) => return Ok(()),
                 ClaudeSessionStanding::Down => {
-                    return Err(DriverError::Refused(session_process_unavailable(
-                        session_id,
-                    )));
+                    return Err(DriverError::from(session_process_unavailable(session_id)));
                 }
                 ClaudeSessionStanding::Held { left, .. } => {
                     left.wait().await;
@@ -635,97 +626,12 @@ impl ClaudeSessionRestarts {
         }
     }
 
-    // Resumes through the establishment, which is gone only once the driver is, under a binding
-    // the session directory opened first where `is_recorded`, so what the resumed process delivers
-    // at once is taken, the process reporting its MCP servers on the status sink the directory
-    // answered for that binding; a binding that cannot be opened fails the relaunch with no
-    // resume.
-    async fn resume(
-        &self,
-        params: Option<ResumeSessionParams>,
-        is_recorded: bool,
-    ) -> ClaudeResumeAnswer {
-        let Some(mut params) = params else {
-            return relaunch_failure(
-                "The model the session ran on has no name the relaunch can carry.",
-            );
-        };
-        let Some(establishment) = self.establishment.upgrade() else {
-            return relaunch_failure("The Claude Code driver has stopped.");
-        };
-        if is_recorded {
-            match self
-                .open_relaunch_binding(params.session_id, params.binding_id.clone())
-                .await
-            {
-                Ok(legs) => params.on_mcp_server_status = legs.on_mcp_server_status,
-                Err(error) => {
-                    return relaunch_failure(&describe_error(&error as &(dyn Error + 'static)));
-                }
-            }
-        }
-        establishment.resume(params).await
-    }
-
-    // Has the session directory open the cursor of `binding_id`, the relaunch's binding, and
-    // answers that binding's function legs.
-    async fn open_relaunch_binding(
-        &self,
-        session_id: SessionId,
-        binding_id: RuntimeBindingId,
-    ) -> Result<ResumeFunctionLegs, DriverError> {
-        let listener = self
-            .ports
-            .session_relaunched
-            .require_port()
-            .map_err(|error| DriverError::Internal(Box::new(error)))?;
-        listener
-            .open_relaunch_binding(session_id, binding_id)
-            .await
-            .map_err(DriverError::Internal)
-    }
-
-    // Hands the session directory a relaunch's answer, so it records the binding or the failure; a
-    // process the relaunch started whose binding was not recorded is ended, so none runs under a
-    // binding with no row.
-    async fn record_relaunch(
-        &self,
-        session_id: SessionId,
-        answer: ClaudeResumeAnswer,
-    ) -> Result<(), DriverError> {
-        let recorded = self.report_relaunch(session_id, answer.result).await;
-        if recorded.is_err()
-            && answer.has_started_process
-            && let ClaudeCloseStart::Closing(close) = self.slots.begin_close(session_id)
-        {
-            close.retire_for_bring_up(&self.routes, &self.ports).await;
-        }
-        recorded
-    }
-
     // Tells the queue the session's process is gone: at an exit, and once a relaunch failed, after
     // which the session stands down and its next run opens it again.
     fn report_gone(&self, session_id: SessionId) {
         if let Some(process_gone) = self.ports.process_gone.port() {
             process_gone.process_gone(session_id);
         }
-    }
-
-    // Hands the session directory the relaunch's result, so it records the binding or the failure.
-    async fn report_relaunch(
-        &self,
-        session_id: SessionId,
-        result: DriverResumeResult,
-    ) -> Result<(), DriverError> {
-        let listener = self
-            .ports
-            .session_relaunched
-            .require_port()
-            .map_err(|error| DriverError::Internal(Box::new(error)))?;
-        listener
-            .session_relaunched(session_id, result)
-            .await
-            .map_err(DriverError::Internal)
     }
 
     async fn report_crash_loop(&self, session_id: SessionId, exit: &ProcessExit) {
@@ -830,19 +736,5 @@ impl ClaudeSessionRestarts {
             session_id,
             settled,
         }
-    }
-}
-
-// A relaunch that failed for `detail` before any process started, which the run needs recovered.
-fn relaunch_failure(detail: &str) -> ClaudeResumeAnswer {
-    ClaudeResumeAnswer {
-        result: DriverResumeResult::Failed {
-            recovery_condition: RecoveryCondition::RecoveryNeeded,
-            provider_failure_detail: bound_failure_detail(
-                detail,
-                UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
-            ),
-        },
-        has_started_process: false,
     }
 }

@@ -19,7 +19,7 @@ use super::{
 };
 use crate::git::worktree::kept_copy::KEPT_TREE_ENTRY;
 use crate::git::worktree::kept_copy::folder_move::list_leftover_copies;
-use crate::git::worktree::kept_copy::held_work::{HeldWorkSubject, held_answer, log_landed_late};
+use crate::git::worktree::kept_copy::held_work::{HeldWorkSubject, log_landed_late};
 use crate::git::worktree::reads::common_folder_of_record;
 use crate::git::worktree::removed_store::RemovedWorktreeStoreError;
 use crate::git::worktree::removed_store::rows::finish_statement;
@@ -242,7 +242,7 @@ impl RemovalShared {
         removed_worktree_id: RemovedWorktreeId,
     ) -> Result<DiscardRepairOutcome, WorktreeRemovalError> {
         let held = Arc::clone(self);
-        let landed = self
+        let repair = self
             .deps
             .removed_worktrees
             .kept_copy_lock()
@@ -257,8 +257,7 @@ impl RemovalShared {
                     HeldWorkSubject::KeptCopy(removed_worktree_id),
                 ),
             )
-            .await;
-        let repair = held_answer(landed)?;
+            .await??;
         if let Some(PendingSweep {
             row,
             record_removal,
@@ -332,39 +331,36 @@ impl RemovalShared {
             self.stop_file_watch_after_move(unfinished.place.as_ref(), &kept_folder)
                 .await
                 .map_err(file_watch_stop_failed)?;
-            match &unfinished.worktree {
-                Some(row) => {
-                    self.deps
-                        .worktrees
-                        .record_retirement(
-                            row,
-                            RecordRetirementOptions {
-                                removed_worktree_id: Some(removed_worktree_id),
-                                transactional_prelude: vec![finish_statement(&removed_worktree_id)],
-                                ..RecordRetirementOptions::default()
-                            },
-                        )
-                        .await?;
-                    let record_removal = self
-                        .remove_own_record(&unfinished, &record_folder, &original_path)
-                        .await
-                        .err();
-                    sweep = Some(PendingSweep {
-                        row: row.clone(),
-                        record_removal,
-                    });
-                }
-                None => {
-                    // A retired tree the sweep was keeping aside: listing the copy finishes it, and
-                    // the sweep stamps the row once it finds the folder gone.
-                    store.finish(&removed_worktree_id).await?;
-                    self.remove_own_record(&unfinished, &record_folder, &original_path)
-                        .await
-                        .map_err(|record| WorktreeRemovalError::RecordRemoval {
-                            record,
-                            sweep: None,
-                        })?;
-                }
+            if let Some(row) = &unfinished.worktree {
+                self.deps
+                    .worktrees
+                    .record_retirement(
+                        row,
+                        RecordRetirementOptions {
+                            removed_worktree_id: Some(removed_worktree_id),
+                            transactional_prelude: vec![finish_statement(&removed_worktree_id)],
+                            ..RecordRetirementOptions::default()
+                        },
+                    )
+                    .await?;
+                let record_removal = self
+                    .remove_own_record(unfinished, &record_folder, &original_path)
+                    .await
+                    .err();
+                sweep = Some(PendingSweep {
+                    row: row.clone(),
+                    record_removal,
+                });
+            } else {
+                // A retired tree the sweep was keeping aside: listing the copy finishes it, and
+                // the sweep stamps the row once it finds the folder gone.
+                store.finish(&removed_worktree_id).await?;
+                self.remove_own_record(unfinished, &record_folder, &original_path)
+                    .await
+                    .map_err(|record| WorktreeRemovalError::RecordRemoval {
+                        record,
+                        sweep: None,
+                    })?;
             }
         } else {
             // With both there, either a move across volumes copied the tree whole and the crash
@@ -428,6 +424,7 @@ mod tests {
     use std::path::PathBuf;
 
     use sidekicks_contracts::worktree::lifecycle::WorktreeState;
+    use tokio_util::sync::CancellationToken;
 
     use crate::git::worktree::kept_copy::KEPT_TREE_ENTRY;
     use crate::git::worktree::removal::tests::RemovalFixture;
@@ -445,7 +442,7 @@ mod tests {
 
         let repair = fixture
             .removal
-            .finish_interrupted_kept_copies(&Default::default())
+            .finish_interrupted_kept_copies(&CancellationToken::default())
             .await;
 
         assert!(repair.failures.is_empty(), "{:?}", repair.failures);

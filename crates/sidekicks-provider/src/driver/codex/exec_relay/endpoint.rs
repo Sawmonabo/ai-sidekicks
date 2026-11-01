@@ -16,7 +16,7 @@ use tokio::task::JoinHandle;
 use tokio_tungstenite::accept_hdr_async;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
-use tokio_tungstenite::tungstenite::http::{StatusCode, header};
+use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode, header};
 
 use crate::driver::codex::exec_relay::CodexExecRelay;
 use crate::driver::codex::exec_relay::bearer_token::RelayBearerToken;
@@ -114,11 +114,15 @@ async fn serve_connection(
     token: Arc<RelayBearerToken>,
     relay: Weak<CodexExecRelay>,
 ) {
+    #[expect(
+        clippy::result_large_err,
+        reason = "the WebSocket handshake's callback fixes this return type"
+    )]
     let admit = |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
         let authorization = request
             .headers()
             .get(header::AUTHORIZATION)
-            .map(|value| value.as_bytes());
+            .map(HeaderValue::as_bytes);
         if token.admits(authorization) {
             return Ok(response);
         }

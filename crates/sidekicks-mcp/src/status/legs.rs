@@ -9,8 +9,10 @@ use std::mem;
 use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
 use sidekicks_contracts::mcp::server::{
     MCP_SERVER_STATUS_SEVERITY_ORDER, McpServerBindingRef, McpServerName, McpServerStatus,
+    McpToolName,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_provider::driver::mcp_server::status::{McpServerReading, McpServerStatusUpdate};
@@ -39,6 +41,16 @@ struct LegServer {
     failure_text: Option<String>,
     /// When the leg last reported the server.
     observed_at: WireInstant,
+    /// The newest list of the server's tools the leg reported; `None` before any report listed
+    /// them.
+    tool_names: Option<ToolNamesReading>,
+}
+
+/// One list of a server's tools and when it was reported.
+#[derive(Clone)]
+struct ToolNamesReading {
+    names: Vec<McpToolName>,
+    observed_at: WireInstant,
 }
 
 /// A leg's servers and the sinks that can still report for it.
@@ -55,6 +67,7 @@ struct Leg {
 struct ProbeReading {
     status: McpServerStatus,
     failure_text: Option<String>,
+    tool_names: Vec<McpToolName>,
     observed_at: WireInstant,
 }
 
@@ -69,10 +82,6 @@ struct BindingStatus {
 }
 
 /// Where a status change came from.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker sends a notice per change")
-)]
 pub(super) enum ChangeOrigin {
     /// A live leg's own status changed.
     SessionFeed {
@@ -126,10 +135,6 @@ pub(super) struct McpLegs {
     bindings: HashMap<McpBindingKey, BindingStatus>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker keeps its state in it")
-)]
 impl McpLegs {
     /// No leg, no binding.
     pub(super) fn new() -> Self {
@@ -160,11 +165,13 @@ impl McpLegs {
     /// serves it from. A notice goes out when the leg's own status changed. A switch-off takes the
     /// leg out of the aggregate with a `sessionEnded`, its last status kept, and a leg that now
     /// serves the name from another binding leaves the old one the same way. A switched-off leg
-    /// that reports again counts as new on the binding. A retired leg's reading changes nothing.
+    /// that reports again counts as new on the binding. A reading that lists the server's tools
+    /// replaces the leg's list, and one that lists none leaves it. A retired leg's reading changes
+    /// nothing.
     pub(super) fn observe(
         &mut self,
         binding: &McpServerBindingRef,
-        update: McpServerStatusUpdate,
+        mut update: McpServerStatusUpdate,
         observed_at: WireInstant,
     ) -> ObservationOutcome {
         let leg_id = LegId {
@@ -180,12 +187,17 @@ impl McpLegs {
         if leg.is_retired {
             return outcome;
         }
+        let tool_names = update.tool_names.take().map(|names| ToolNamesReading {
+            names,
+            observed_at: observed_at.clone(),
+        });
         let new_entry = || {
             leg_server(
                 key.clone(),
                 update.reading,
                 update.failure_text.clone(),
                 observed_at.clone(),
+                tool_names.clone(),
             )
         };
         // The leg's status on this binding before the reading, `None` when the leg had none or was
@@ -203,13 +215,16 @@ impl McpLegs {
                             server.status = Some(status);
                             server.is_switched_off = false;
                             // The newest text, so a later notice this leg decides quotes it.
-                            server.failure_text = update.failure_text.clone();
+                            server.failure_text.clone_from(&update.failure_text);
                         }
                         // The last status and its text stay; the leg leaves the aggregate, answered
                         // below with a `sessionEnded`.
                         McpServerReading::SwitchedOff => server.is_switched_off = true,
                     }
                     server.observed_at = observed_at.clone();
+                    if tool_names.is_some() {
+                        server.tool_names.clone_from(&tool_names);
+                    }
                     let has_left_aggregate = was_in_aggregate && server.is_switched_off;
                     (previous, None, false, has_left_aggregate)
                 }
@@ -305,13 +320,15 @@ impl McpLegs {
         changes
     }
 
-    /// Stores the machine probe's newest reading of `binding`, which stands for the binding only
-    /// while no live leg holds a status; a change answers when the probe's own reading moved.
+    /// Stores the machine probe's newest reading of `binding` with its server's tool names; its
+    /// status stands for the binding only while no live leg holds one, and a change answers when
+    /// the probe's own status moved.
     pub(super) fn record_probe(
         &mut self,
         binding: &McpServerBindingRef,
         status: McpServerStatus,
         failure_text: Option<String>,
+        tool_names: Vec<McpToolName>,
         observed_at: WireInstant,
     ) -> ObservationOutcome {
         let key = McpBindingKey::of(binding);
@@ -326,11 +343,12 @@ impl McpLegs {
         binding_status.probe = Some(ProbeReading {
             status,
             failure_text: failure_text.clone(),
+            tool_names,
             observed_at,
         });
         self.refold(&key);
         let changes = (previous_status != status)
-            .then(|| StatusChange {
+            .then_some(StatusChange {
                 binding_key: key,
                 origin: ChangeOrigin::MachineProbe,
                 previous_status,
@@ -345,18 +363,54 @@ impl McpLegs {
         }
     }
 
-    /// `key`'s status and the legs in its aggregate; `unknown` with no leg for a binding nothing
-    /// reports.
+    /// Drops the probe reading of every binding of `provider` that `except` does not hold, so a
+    /// binding gone from the provider's config is not kept; one with no leg left is forgotten,
+    /// and one a live leg holds keeps its legs. It sends no notice: such a binding lists no row
+    /// for one to land on.
+    pub(super) fn forget_probes_of(
+        &mut self,
+        provider: &ProviderId,
+        except: &HashSet<McpBindingKey>,
+    ) {
+        let forgotten: Vec<McpBindingKey> = self
+            .bindings
+            .iter_mut()
+            .filter(|(key, binding_status)| {
+                &key.provider == provider
+                    && !except.contains(*key)
+                    && binding_status.probe.is_some()
+            })
+            .map(|(key, binding_status)| {
+                binding_status.probe = None;
+                key.clone()
+            })
+            .collect();
+        for key in forgotten {
+            self.refold(&key);
+        }
+    }
+
+    /// `key`'s status, the legs in its aggregate, its server's newest tool names (the newest list a
+    /// live leg in the aggregate reported, else the probe's) and the probe's failure text where
+    /// its reading decides a `failed` status; `unknown` with no leg and no tools for a binding
+    /// nothing reports.
     pub(super) fn reading(&self, key: &McpBindingKey) -> McpBindingStatusReading {
         let Some(binding_status) = self.bindings.get(key) else {
             return McpBindingStatusReading {
                 status: McpServerStatus::Unknown,
                 legs: Vec::new(),
                 observed_at: None,
+                tool_names: Vec::new(),
+                probe_failure_reason: None,
             };
         };
         let fold = fold(&self.legs, key, binding_status);
-        let legs = live_servers(&self.legs, key, binding_status)
+        // The stored instant is fixed-width UTC text, so its text order is its time order.
+        let leg_tool_names = live_servers(&self.legs, key, binding_status)
+            .filter_map(|(_, server, _)| server.tool_names.as_ref())
+            .max_by(|one, other| one.observed_at.as_str().cmp(other.observed_at.as_str()))
+            .map(|reading| reading.names.clone());
+        let legs: Vec<McpServerLegStatus> = live_servers(&self.legs, key, binding_status)
             .map(|(leg_id, server, status)| McpServerLegStatus {
                 session_id: leg_id.session_id,
                 binding_id: leg_id.binding_id.clone(),
@@ -365,10 +419,23 @@ impl McpLegs {
                 failed_reason: None,
             })
             .collect();
+        // With no live leg in the aggregate the probe's reading is the one that decides.
+        let probe_failure_reason = (legs.is_empty() && fold.status == McpServerStatus::Failed)
+            .then_some(fold.failure_text)
+            .flatten();
         McpBindingStatusReading {
             status: fold.status,
+            probe_failure_reason,
             legs,
             observed_at: fold.observed_at,
+            tool_names: leg_tool_names
+                .or_else(|| {
+                    binding_status
+                        .probe
+                        .as_ref()
+                        .map(|probe| probe.tool_names.clone())
+                })
+                .unwrap_or_default(),
         }
     }
 
@@ -446,6 +513,7 @@ fn leg_server(
     reading: McpServerReading,
     failure_text: Option<String>,
     observed_at: WireInstant,
+    tool_names: Option<ToolNamesReading>,
 ) -> LegServer {
     let (status, is_switched_off) = match reading {
         McpServerReading::Observed(status) => (Some(status), false),
@@ -457,6 +525,7 @@ fn leg_server(
         is_switched_off,
         failure_text,
         observed_at,
+        tool_names,
     }
 }
 

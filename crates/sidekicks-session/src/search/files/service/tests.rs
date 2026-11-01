@@ -30,7 +30,10 @@ use sidekicks_workspace::git::worktree::watch::{
 use sidekicks_workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 use tokio::sync::broadcast;
 
-use super::{FILE_SEARCH_STATEMENT_CAPACITY, FileSearchError, FileSearchService, lock_listings};
+use super::{
+    FILE_SEARCH_STATEMENT_CAPACITY, FileSearchError, FileSearchService, lock_listings,
+    ranked_entries,
+};
 use crate::questions::schema::schema_parts;
 
 /// Bounds a wait the test expects to end, so one that never does fails the test.
@@ -230,6 +233,28 @@ fn paths_of(response: &SessionFileSearchResponse) -> Vec<&str> {
         .iter()
         .map(|entry| entry.path.as_str())
         .collect()
+}
+
+// Killed by a ranking whose equal scores fall back to the listing's order: the listing is
+// written in reverse path order, so only the path tie-break keeps the same order on both
+// keystrokes.
+#[test]
+fn ranking_keeps_path_order_between_keystrokes_on_equal_scores() {
+    let entries: Vec<SessionFileSearchEntry> = ["src/b/main.rs", "src/a/main.rs"]
+        .into_iter()
+        .map(|path| SessionFileSearchEntry {
+            path: FilesystemPath::new(path.to_owned()).expect("a path"),
+            kind: SessionFileSearchEntryKind::File,
+        })
+        .collect();
+    let order_for = |query: &str| -> Vec<&str> {
+        ranked_entries(&entries, query)
+            .into_iter()
+            .map(|index| entries[index].path.as_str())
+            .collect()
+    };
+    assert_eq!(order_for("main"), ["src/a/main.rs", "src/b/main.rs"]);
+    assert_eq!(order_for("main."), ["src/a/main.rs", "src/b/main.rs"]);
 }
 
 // Killed by a walk that runs only while a search waits on it (the dropped search's walk is

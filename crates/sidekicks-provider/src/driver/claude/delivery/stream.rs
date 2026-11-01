@@ -119,6 +119,10 @@ pub(crate) struct ClaudeFrameAfter {
     pub(crate) too_long_run: Option<RunId>,
     /// A context read the frame calls for, with the run whose turn, compaction or model switch it
     /// follows; `Some(None)` after `system/init`, which follows no run.
+    #[expect(
+        clippy::option_option,
+        reason = "a frame that calls for no read differs from one whose read follows no run"
+    )]
     pub(crate) context_read: Option<Option<ClaudeBoundRun>>,
 }
 
@@ -229,7 +233,9 @@ impl ClaudeDeliveryStream {
             ClaudeWireFrameKind::SystemInit | ClaudeWireFrameKind::SystemStatus
         ) && let Some(mode) = read_non_empty_string(&members, "permissionMode")
         {
-            session.lock().permission_mode = Some(mode.to_owned());
+            session
+                .permission_mode()
+                .note_report(mode, frame_kind, &session.provider_account_id);
         }
         if kind == ClaudeWireFrameKind::CommandLifecycle {
             self.read_command_lifecycle(session, &members);

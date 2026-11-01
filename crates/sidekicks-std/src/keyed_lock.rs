@@ -29,6 +29,9 @@ pub struct KeyedLock<Key> {
     canonical_key: fn(Key) -> Key,
     // Each key's queue, held by its holder and every waiter.
     queues: Mutex<HashMap<Key, Arc<tokio::sync::Mutex<()>>>>,
+    // Told each time a caller joins a key's queue, so a test awaits a waiter instead of polling.
+    #[cfg(any(test, feature = "test-support"))]
+    queue_joined: tokio::sync::Notify,
 }
 
 impl<Key: Eq + Hash + Clone> Default for KeyedLock<Key> {
@@ -49,6 +52,8 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
         Self {
             canonical_key,
             queues: Mutex::new(HashMap::new()),
+            #[cfg(any(test, feature = "test-support"))]
+            queue_joined: tokio::sync::Notify::new(),
         }
     }
 
@@ -63,6 +68,8 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
             queue: Some(Arc::clone(&queue)),
             guard: None,
         };
+        #[cfg(any(test, feature = "test-support"))]
+        self.queue_joined.notify_waiters();
         hold.guard = Some(queue.lock_owned().await);
         hold
     }
@@ -93,14 +100,14 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
     /// even after the caller stops waiting, so work that lands late always lands before the next
     /// caller on that key runs. A task still waiting for the key when its caller stops waiting
     /// leaves the queue and drops `work` unrun; work that ends after its caller stopped waiting is
-    /// handed to `landed_late`. Answers `None` only to a caller no longer waiting. Fails with the
-    /// task's error when the work panics.
+    /// handed to `landed_late`. Fails `Unanswered` only to a caller no longer waiting, and
+    /// `Interrupted` with the task's error when the work panics.
     pub async fn run_held<Answer: Send + 'static>(
         self: &Arc<Self>,
         key: Key,
         work: impl Future<Output = Answer> + Send + 'static,
         landed_late: impl FnOnce(&Answer) + Send + 'static,
-    ) -> Result<Option<Answer>, JoinError>
+    ) -> Result<Answer, HeldWorkEnd>
     where
         Key: Send + Sync + 'static,
     {
@@ -123,6 +130,8 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
             Some(answer)
         })
         .await
+        .map_err(HeldWorkEnd::Interrupted)?
+        .ok_or(HeldWorkEnd::Unanswered)
     }
 
     /// How many handles on `requested_key`'s queue its holder and its waiters keep, beside the
@@ -136,10 +145,38 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
             .map_or(0, |queue| Arc::strong_count(queue) - 1)
     }
 
+    /// Waits until `requested_key`'s queue holds more handles than `handles`, a count
+    /// [`Self::queue_handle_count`] read, as once another caller joins its line; woken by each
+    /// caller that joins a queue, never by a timer.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn wait_for_queue_past(&self, requested_key: Key, handles: usize) {
+        loop {
+            let joined = self.queue_joined.notified();
+            let mut joined = std::pin::pin!(joined);
+            // Registered before the count is read, so a join after the read still wakes it.
+            joined.as_mut().enable();
+            if self.queue_handle_count(requested_key.clone()) > handles {
+                return;
+            }
+            joined.await;
+        }
+    }
+
     fn lock_queues(&self) -> std::sync::MutexGuard<'_, HashMap<Key, Arc<tokio::sync::Mutex<()>>>> {
         // The map holds no invariant a panicking holder could break.
         lock(&self.queues)
     }
+}
+
+/// How work run under [`KeyedLock::run_held`] ended without answering.
+#[derive(Debug, thiserror::Error)]
+pub enum HeldWorkEnd {
+    /// The work was skipped, since its caller stopped waiting before the key was held.
+    #[error("the held work was skipped once its caller stopped waiting")]
+    Unanswered,
+    /// The task that ran the work ended before the work finished.
+    #[error("the held work ended before it finished")]
+    Interrupted(#[source] JoinError),
 }
 
 /// One caller's hold on one key of a [`KeyedLock`], from its wait to its release: dropping it ends

@@ -29,6 +29,7 @@ use crate::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, ClaudeCommandChoices,
 };
 use crate::driver::claude::session::mcp_server_readings::ClaudeMcpServerReadings;
+use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::declarations::{
     ClaudeHandshakeDeclaration, ClaudeInboundFrameObservation, ClaudeInitializeDeclaration,
@@ -36,7 +37,7 @@ use crate::driver::claude::session::transport::declarations::{
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::ClaudeUltracodeReading;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::SpawnedVersionBindingCarriers;
+use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::thread_frame_router::{
@@ -209,6 +210,8 @@ pub(crate) struct LiveClaudeSession {
     pub(crate) admitted_provider_account_id: ProviderAccountId,
     /// What the session runs with now.
     pub(crate) settings: Mutex<ClaudeLiveSettings>,
+    /// The process's permission mode, shared with the stream that takes its reports.
+    pub(crate) permission_mode: Arc<ClaudePermissionModeRecord>,
     /// The build that runs the process, which a resume that found it already up answers.
     pub(crate) spawned_version: SpawnedVersionBindingCarriers,
     /// The binding the resume that brought the process up answered, which a resume that finds it

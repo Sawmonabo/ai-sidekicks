@@ -51,6 +51,9 @@ CREATE TABLE approval_requests (
   -- daemon raised itself. Rebuilt from approval.requested, so an answer reaches the right ask
   -- after a restart with several open on one run.
   ask_id                TEXT,
+  -- The provider's id of the tool call the ask holds, from approval.requested; NULL where the
+  -- provider sent none and on a card the daemon raised itself.
+  tool_call_id          TEXT,
   -- No expired state and no deadline column: a request waits until it is answered, or is
   -- canceled with its run, its session or its provider process.
   state                 TEXT NOT NULL DEFAULT '{pending}' CHECK(state IN ({states})),
@@ -62,8 +65,9 @@ CREATE TABLE approval_requests (
 CREATE INDEX idx_approval_requests_run ON approval_requests(run_id);
 CREATE INDEX idx_approval_requests_session ON approval_requests(session_id);
 CREATE INDEX idx_approval_requests_state ON approval_requests(state) WHERE state = '{pending}';
--- One request per ask id. The id is minted once for each provider ask the intake takes, so a
--- provider's resent ask is matched to the one it holds in memory, never by this index.
+-- One request per ask id. The id is minted once for each provider ask the intake takes; a
+-- provider's resent ask is matched to the one it holds in memory, or, with none held, to its
+-- pending card by its tool call id, never by this index.
 CREATE UNIQUE INDEX idx_approval_requests_ask ON approval_requests(run_id, ask_id)
   WHERE ask_id IS NOT NULL;
 

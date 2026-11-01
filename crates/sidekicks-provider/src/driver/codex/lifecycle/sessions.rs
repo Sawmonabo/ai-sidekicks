@@ -18,7 +18,8 @@ use crate::driver::codex::session::lifecycle_call::{
 };
 use crate::driver::codex::session::purge::purge_codex_conversations;
 use crate::driver::codex::session::slots::CODEX_LET_GO_TIMEOUT;
-use crate::driver::contract::{DriverError, SessionProcessState};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
@@ -56,8 +57,9 @@ impl CodexDriver {
         Ok(handle)
     }
 
-    /// Reopens a session's conversation on a fork carrying every setting it holds, the record it
-    /// held let go first; every failure answers `Failed`. Fails with `CodexError::SessionClosed`
+    /// Reopens a session's conversation in place by its handle, the record it held let go first:
+    /// joined as it runs where its service holds it loaded, else loaded again with every setting
+    /// the session holds; every failure answers `Failed`. Fails with `CodexError::SessionClosed`
     /// when the session closed while the resume waited behind the close.
     pub(crate) async fn resume_session(
         &self,
@@ -70,17 +72,23 @@ impl CodexDriver {
             let_go_codex_session_record(&inbound, CodexRecordExit::SessionContinues).await;
             claim.vacate();
         }
-        let forked = parts.establishment.resume_as_fork(&params).await;
-        let Some(established) = forked.established else {
-            return Ok(forked.result);
+        let resumed = parts.establishment.resume_by_handle(&params).await;
+        let Some(mut established) = resumed.established else {
+            return Ok(resumed.result);
         };
         let prior_emitted = self
             .read_prior_emitted(session_id, &params.resume_handle)
             .await;
+        for helper in established.restored_helpers_mut() {
+            helper.prior_emitted = self
+                .read_prior_emitted(session_id, &helper.thread_id)
+                .await
+                .unwrap_or_default();
+        }
         let opened = parts.establishment.open(established, prior_emitted).await;
         claim.install(opened.record.inbound.clone());
         self.spawn_session_task(parts, opened);
-        Ok(forked.result)
+        Ok(resumed.result)
     }
 
     /// The person's restart of a session whose service stayed down: the service starts again and
@@ -101,7 +109,7 @@ impl CodexDriver {
             .await?
         {
             Some(result) => Ok(result),
-            None => self.resume_session(params).await,
+            None => Box::pin(self.resume_session(params)).await,
         }
     }
 
@@ -216,7 +224,7 @@ impl CodexDriver {
         drop(claim);
         parts.release.forget_session(&session_id).await;
         parts.adoptions.forget_session(session_id);
-        self.limit_stopped_helpers.forget_session(session_id);
+        self.stopped_helpers.forget_session(session_id);
         self.forget_relayed_commands(session_id).await;
         Ok(())
     }

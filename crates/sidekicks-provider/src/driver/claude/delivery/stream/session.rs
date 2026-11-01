@@ -8,16 +8,18 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
 use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
-use crate::driver::claude::delivery::run_readings::ClaudeStreamSession;
+use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStreamSession};
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
-use crate::driver::claude::run::routes::ClaudeRunRoutes;
+use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAtRead};
+use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
 use crate::driver::diagnostics::OnceReportedDiagnostics;
 
 /// One session's stream while its process runs: its readings, behind one lock never held across
@@ -30,6 +32,7 @@ pub(crate) struct ClaudeSessionStream {
     arrivals: ClaudeArrivalSender,
     routes: Arc<ClaudeRunRoutes>,
     prompts: Arc<Mutex<ClaudeSentPrompts>>,
+    permission_mode: Arc<ClaudePermissionModeRecord>,
     // The kinds of the frames no daemon run held, already logged on this process's connection.
     pub(super) unheld_reports: Mutex<OnceReportedDiagnostics>,
     // The `result` kinds of unlisted subtypes that ended a run, already logged on this connection,
@@ -41,13 +44,15 @@ pub(crate) struct ClaudeSessionStream {
 
 impl ClaudeSessionStream {
     /// A stream for the process running on `provider_account_id`'s home, counting each turn's
-    /// steps against `step_bound` and queuing onto `arrivals`.
+    /// steps against `step_bound`, queuing onto `arrivals` and taking the mode reports into
+    /// `permission_mode`, the process's record the live session shares.
     pub(crate) fn new(
         provider_account_id: ProviderAccountId,
         step_bound: Option<SafeInt<1>>,
         arrivals: ClaudeArrivalSender,
         routes: Arc<ClaudeRunRoutes>,
         prompts: Arc<Mutex<ClaudeSentPrompts>>,
+        permission_mode: Arc<ClaudePermissionModeRecord>,
     ) -> Self {
         Self {
             session_id: arrivals.session_id(),
@@ -57,10 +62,29 @@ impl ClaudeSessionStream {
             arrivals,
             routes,
             prompts,
+            permission_mode,
             unheld_reports: Mutex::default(),
             unlisted_result_reports: Mutex::default(),
             unnumbered_turns: AtomicU64::new(0),
         }
+    }
+
+    /// Opens the stream on `run`'s turn `turn_number` as it was before the process came up, which a
+    /// resumed process continues: its frames go to that turn and its end is that turn's, with no
+    /// other turn started. `provider_turn_id` is the id the turn's start recorded.
+    pub(crate) fn continue_turn(
+        &self,
+        run: ClaudeBoundRun,
+        turn_number: SafeInt<1>,
+        provider_turn_id: Option<ProviderTurnId>,
+    ) {
+        let mut readings = self.lock();
+        readings.turn_readings.open(run.run_id, provider_turn_id);
+        readings.turn = Some(ClaudeOpenTurn {
+            run_id: run.run_id,
+            binding_id: run.binding_id,
+            turn_number: Some(turn_number),
+        });
     }
 
     // A terminal gate version for one more turn the run engine could not number, past every
@@ -159,9 +183,9 @@ impl ClaudeSessionStream {
         self.lock().gate.signal_intended_close();
     }
 
-    /// The permission mode the process last reported it runs in, if any.
-    pub(crate) fn permission_mode(&self) -> Option<String> {
-        self.lock().permission_mode.clone()
+    /// The process's permission mode: the mode it runs, the daemon's sends and its newest report.
+    pub(crate) fn permission_mode(&self) -> &ClaudePermissionModeRecord {
+        &self.permission_mode
     }
 
     /// When the stream's timed work next comes due: a streamed piece's interval or a held tool

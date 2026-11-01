@@ -49,12 +49,15 @@ impl KeptCopyRowWrites for CommitAfterHeadRead<'_> {
         Ok(())
     }
 
-    async fn record_state(&self, _state: &KeptWorktreeState) -> Result<(), RowWriteError> {
-        Ok(())
+    fn record_state(
+        &self,
+        _state: &KeptWorktreeState,
+    ) -> impl Future<Output = Result<(), RowWriteError>> {
+        std::future::ready(Ok(()))
     }
 
-    async fn forget_pending(&self) -> Result<(), RowWriteError> {
-        Ok(())
+    fn forget_pending(&self) -> impl Future<Output = Result<(), RowWriteError>> {
+        std::future::ready(Ok(()))
     }
 }
 

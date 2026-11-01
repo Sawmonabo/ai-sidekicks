@@ -35,10 +35,11 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::sign_in::{
     ProviderSignInBrowser, ProviderSignInTakeover, ProviderSignInTakeoverRequest,
 };
-use sidekicks_provider::driver::contract::{DriverError, ProviderDriver};
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{oneshot, watch};
 use tokio_util::sync::CancellationToken;
@@ -404,10 +405,11 @@ mod tests {
     use sidekicks_contracts::mcp::server::config::McpServerAddress;
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_ipc::domain_error::DomainError;
+    use sidekicks_provider::driver::contract::error::DriverError;
     use sidekicks_provider::driver::contract::sign_in::{
         BEARER_TOKEN_TYPE, ProviderSignInTakeover,
     };
-    use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver, ProviderDriver};
+    use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
     use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
     use sidekicks_std::mutex_lock::lock;
 
@@ -455,10 +457,11 @@ mod tests {
                 async move {
                     let issuer = match flow {
                         ScriptedFlow::NoFlow => {
-                            return Err(DriverError::Refused(DomainError::new(
+                            return Err(DomainError::new(
                                 "no entry for the server",
                                 RefusalCode::McpServerSignInUnsupported,
-                            )));
+                            )
+                            .into());
                         }
                         ScriptedFlow::Completes { issuer } => issuer,
                         ScriptedFlow::Fails => {
@@ -483,6 +486,7 @@ mod tests {
                         scopes: vec!["docs.read".to_owned()],
                         token_type: BEARER_TOKEN_TYPE.to_owned(),
                         client_id: PROVIDER_CLIENT_ID.to_owned(),
+                        client_secret: None,
                         issuer: Some(issuer),
                     })
                 }

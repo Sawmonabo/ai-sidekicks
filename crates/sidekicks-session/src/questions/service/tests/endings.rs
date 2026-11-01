@@ -3,14 +3,14 @@
 
 use rstest::rstest;
 use serde_json::{Value, json};
-use sidekicks_contracts::question::{QuestionAskedState, QuestionSettledState};
+use sidekicks_contracts::question::QuestionSettledState;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::port::question::ProviderQuestionWithdrawal;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 
-use crate::questions::service::HeldRequestAnswerer;
 use crate::questions::service::test_fixture::{Fixture, choice_page, failed};
+use crate::questions::service::{HeldRequestAnswerer, QuestionRecording};
 use crate::run::engine::test_fixture::stored_run_state;
 use crate::run::read::{LiveRun, RunRead};
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
@@ -64,13 +64,14 @@ async fn a_held_question_ends_canceled_with_its_runs_reason(
     let question_id = if matches!(end, QuestionEnd::WithdrawnWhileWaitingForRun) {
         fixture
             .questions
-            .record_question(
+            .record(
                 fixture.question("request-1", json!([choice_page()]), true),
                 HeldRequestAnswerer::Driver,
-                QuestionAskedState::WaitingForRun,
+                QuestionRecording::WaitingForRun,
             )
             .await
             .expect("the question is recorded waiting for its run")
+            .0
     } else {
         fixture.ask("request-1", json!([choice_page()]), true).await
     };

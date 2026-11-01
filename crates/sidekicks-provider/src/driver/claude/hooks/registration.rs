@@ -20,7 +20,7 @@ const CLAUDE_HOOK_HOLD_TIMEOUT_SECONDS: u64 = 86_400;
 
 /// The helper tool's name on the wire. The process's `system/init` advertises it as `Task`, but a
 /// matcher written against that name never fires.
-const CLAUDE_HELPER_TOOL_NAME: &str = "Agent";
+pub(crate) const CLAUDE_HELPER_TOOL_NAME: &str = "Agent";
 
 /// The shell tool, whose commands the background-work refusal reads.
 const CLAUDE_SHELL_TOOL_MATCHER: &str = "^Bash$";

@@ -38,7 +38,7 @@ use crate::driver::codex::session::recovery::CodexDroppedTurns;
 use crate::driver::codex::session::recovery::in_place_resume::CodexInPlaceResumeCall;
 use crate::driver::codex::session::rewind::CodexMessageTurn;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
 
 /// The depth past which a session's queue is logged, then again at each doubling.

@@ -1,4 +1,7 @@
-//! The recovery pass over the pass fixture.
+//! The recovery pass over the pass fixture; the resume of a session's conversation is in
+//! `resume`.
+
+mod resume;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -250,11 +253,10 @@ async fn a_stop_during_a_rebuild_ends_the_pass_without_failing_the_store() {
         let stop = stop.clone();
         async move { pass.run(&stop).await }
     });
-    tokio::time::timeout(SETTLE_WAIT, async {
-        while SESSION_APPEND_LOCK.queue_handle_count(stale) == held_alone {
-            tokio::task::yield_now().await;
-        }
-    })
+    tokio::time::timeout(
+        SETTLE_WAIT,
+        SESSION_APPEND_LOCK.wait_for_queue_past(stale, held_alone),
+    )
     .await
     .expect("the rebuild waits on the session's log");
 
@@ -312,11 +314,10 @@ async fn a_session_the_pass_rebuilds_refuses_its_calls_alone_until_settled() {
         let pass = Arc::clone(&pass);
         async move { pass.run(&CancellationToken::new()).await }
     });
-    tokio::time::timeout(SETTLE_WAIT, async {
-        while SESSION_APPEND_LOCK.queue_handle_count(stale) == held_alone {
-            tokio::task::yield_now().await;
-        }
-    })
+    tokio::time::timeout(
+        SETTLE_WAIT,
+        SESSION_APPEND_LOCK.wait_for_queue_past(stale, held_alone),
+    )
     .await
     .expect("the rebuild waits on the session's log");
     let status = &fixture.status;

@@ -1,7 +1,7 @@
 //! A session's notices and flow rows: the rows its controls write, the notices about its provider
-//! (its build, its restarts, its warnings, its ignored settings, a level an account lacks) and
-//! about the WSL 2 distribution it runs in, the flag from a provider's own reviewer, and the live
-//! frame of a provider's safety hold on a turn.
+//! (its build, its restarts, its warnings, its ignored settings, a level that cannot run here), the
+//! moves of its level and mode, the notices about the WSL 2 distribution it runs in, the flag from
+//! a provider's own reviewer, and the live frame of a provider's safety hold on a turn.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -14,10 +14,10 @@ use crate::place::{DistroName, Place};
 use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::provider::driver::methods::{PROVIDER_WIRE_HANDLE_MAX_LEN, PROVIDER_WIRE_TOKEN_MAX_LEN};
 use crate::provider::id::ProviderId;
-use crate::provider::settings::PROVIDER_VERSION_MAX_LEN;
+use crate::provider::settings::ProviderVersion;
 use crate::run::id::RunId;
 use crate::session::controls::methods::{
-    PermissionLevel, SessionReviewTarget, SideQuestionId, SideQuestionText,
+    PermissionLevel, SessionMode, SessionReviewTarget, SideQuestionId, SideQuestionText,
 };
 use crate::session::cost::{TokensPerRun, UsdMicros};
 use crate::session::id::SessionId;
@@ -245,13 +245,25 @@ pub enum SessionNotice {
         #[schemars(with = "FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>")]
         details: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
     },
-    /// An account switch moved the session onto an account that cannot run the level it left, so
-    /// it runs at `ask`; `level` is the level it left.
+    /// A level the session cannot run here: an account switch moved it onto an account that
+    /// cannot run the level it left, so it runs at `ask`, or the provider reported running a level
+    /// whose sandbox cannot start here, so its commands fail rather than run unsandboxed.
     LevelUnavailable {
         /// The session.
         session_id: SessionId,
-        /// The level it left.
+        /// The level that cannot run.
         level: PermissionLevel,
+    },
+    /// The session's level or mode moved, by the person or by a mode its provider reported; it
+    /// carries both as they now stand, so every client's controls read one source, and draws no
+    /// row.
+    LevelMoved {
+        /// The session.
+        session_id: SessionId,
+        /// The level it runs at.
+        level: PermissionLevel,
+        /// Whether its next turns plan or build.
+        session_mode: SessionMode,
     },
     /// The session moved to the provider's new build, both versions as the provider reports them;
     /// drawn as a faint line above the composer until the next message is sent, never a row.
@@ -261,9 +273,9 @@ pub enum SessionNotice {
         /// The provider.
         provider: ProviderId,
         /// The version it left.
-        from_version: FreeFormText<PROVIDER_VERSION_MAX_LEN>,
+        from_version: ProviderVersion,
         /// The version it runs.
-        to_version: FreeFormText<PROVIDER_VERSION_MAX_LEN>,
+        to_version: ProviderVersion,
     },
     /// The person's restart brought back a provider the crash loop stopped; it ends the crash
     /// loop's banner and draws no row, and the daemon's own restarts write none.
@@ -421,6 +433,7 @@ impl SessionNotice {
             | Self::GoalCheckUnfinished { .. }
             | Self::ProviderWarning { .. }
             | Self::LevelUnavailable { .. }
+            | Self::LevelMoved { .. }
             | Self::ProviderUpdated { .. }
             | Self::ProviderRestarted { .. }
             | Self::FastOutputUnavailable { .. }

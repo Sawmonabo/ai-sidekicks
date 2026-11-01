@@ -11,7 +11,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use super::{LiveCodexSession, TEST_TURN};
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed};
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::port::running_command_publisher::RunningCommandParams;
 
 const CALL: &str = "call-1";

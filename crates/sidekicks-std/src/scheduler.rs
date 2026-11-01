@@ -18,6 +18,8 @@
 //!   them.
 //! - A job with a processor budget registers it with its run (`budget::metered_job`), which
 //!   meters the run on its own threads and writes its processor time beside the budget.
+//! - A job its owner keeps armed for the next of its instants, armed again in place and retried a
+//!   minute later when refused, is an `armed_instant::ArmedInstant`.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -38,8 +40,11 @@ use crate::mutex_lock::lock;
 pub use crate::scheduler::condition::JobCondition;
 use crate::scheduler::condition::ParkedRuns;
 
+pub mod armed_instant;
 pub mod budget;
 mod condition;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_wall_clock;
 
 // Wakes a receiver may fall behind before it reads a lag; wakes are rare.
 const WAKE_SIGNAL_CAPACITY: usize = 16;
@@ -364,10 +369,12 @@ impl Drop for Scheduler {
 impl ScheduledJobHandle {
     /// Waits until the job's instant is settled: the refusal when the operating system would not
     /// arm the wall-clock timer for it, which drops the job, or `None` once it ran, was canceled or
-    /// the scheduler stopped. A job set a delay away, or a second call, settles at once with
-    /// `None`.
-    pub async fn refusal(&mut self) -> Option<ScheduleError> {
-        self.refusal.take()?.await.ok()
+    /// the scheduler stopped. The wait owns what it needs, so it may outlive the handle's borrow
+    /// while the handle stays with its owner to cancel. A job set a delay away, or a second call,
+    /// settles at once with `None`.
+    pub fn refusal(&mut self) -> impl Future<Output = Option<ScheduleError>> + Send + 'static {
+        let refusal = self.refusal.take();
+        async move { refusal?.await.ok() }
     }
 
     /// Removes the job's future runs; a run already going finishes. A repeat does nothing.

@@ -27,6 +27,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::EntryIdentity;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -118,6 +119,13 @@ pub enum ProjectReadError {
     /// The read pool is closed, a connection did not open, or the read's task did not finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+}
+
+impl From<ProjectReadError> for HandlerError {
+    /// A failed read is a fault.
+    fn from(error: ProjectReadError) -> Self {
+        Self::Internal(Box::new(error))
+    }
 }
 
 /// One project as the list holds it: its entry and when it was made, which orders the list.
@@ -766,6 +774,10 @@ fn count_of(count: usize) -> SafeInt<0> {
 }
 
 // A stored JSON column, its fault kept without the stored text.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the column reader hands each parser the owned text"
+)]
 fn stored_json<Parsed: DeserializeOwned>(text: String) -> Result<Parsed, StoredJsonFault> {
     serde_json::from_str(&text).map_err(StoredJsonFault::from)
 }
@@ -775,6 +787,10 @@ fn stored_json_text<Parsed: DeserializeOwned>(text: String) -> Result<Parsed, St
     serde_json::from_value(serde_json::Value::String(text)).map_err(StoredJsonFault::from)
 }
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the column reader hands each parser the owned text"
+)]
 fn stored_clone_outcome(text: String) -> Result<CloneOutcome, UnknownCloneOutcome> {
     CloneOutcome::VARIANTS
         .iter()

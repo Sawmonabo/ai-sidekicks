@@ -33,7 +33,7 @@ use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
-use crate::driver::contract::bound_failure_detail;
+use crate::driver::contract::error::bound_failure_detail;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};

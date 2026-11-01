@@ -19,7 +19,7 @@ use super::{
     limit_record, record_interrupt, running_at, step_limit_reached, token_limit_reached,
 };
 use crate::questions::schema::schema_parts;
-use crate::run::engine::RunEngineError;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
 use crate::run::engine::tests::{
     continue_request, events, hand_limit_interrupter, started_turn, stored_events, token_limit,
@@ -27,7 +27,7 @@ use crate::run::engine::tests::{
 };
 use crate::run::read::{LiveRun, RunRead};
 use crate::run::refusals::RunRefusal;
-use crate::run::restart::{RestartFacts, read_restart_facts};
+use crate::run::restart::{RestartFacts, decide_restart_settlement, read_restart_facts};
 use crate::run::state_change::{RunStateChangeCompanions, RunStateChangeError};
 
 // Killed by the owed read joining the interventions, where the failed token interrupt and its
@@ -541,15 +541,17 @@ async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued(
         reached_by: None,
     };
 
+    let facts = RestartFacts {
+        pending_interrupts: Vec::new(),
+        owed_limit: None,
+        turn_cuts: Vec::new(),
+        has_queued_item: false,
+    };
     let settled = engine
         .settle_run_from_facts(
             &run,
-            &RestartFacts {
-                pending_interrupts: Vec::new(),
-                owed_limit: None,
-                turn_cuts: Vec::new(),
-                has_queued_item: false,
-            },
+            &facts,
+            decide_restart_settlement(&run, &facts),
             "the run could not be resumed",
             None,
         )
@@ -604,7 +606,13 @@ async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() 
     );
 
     let settled = engine
-        .settle_run_from_facts(&run, &facts, "not resumed", None)
+        .settle_run_from_facts(
+            &run,
+            &facts,
+            decide_restart_settlement(&run, &facts),
+            "not resumed",
+            None,
+        )
         .await;
 
     let rows_read = facts.pending_interrupts.len();

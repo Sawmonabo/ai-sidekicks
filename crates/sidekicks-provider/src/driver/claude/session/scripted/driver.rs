@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -32,8 +32,8 @@ use tokio::sync::Notify;
 
 use super::channel::ScriptedChannel;
 use super::daemon_services::{
-    RecordingPorts, RecordingUsage, ScriptedAttachments, register_scripted_ports,
-    test_callback_tool_host,
+    RecordingPorts, RecordingUsage, ScriptedAttachments, TakenBindingWrites,
+    register_scripted_ports, test_callback_tool_host,
 };
 use super::starts::{ScriptedStartRecord, ScriptedStarts};
 use super::{
@@ -41,15 +41,17 @@ use super::{
 };
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::lifecycle::ClaudeDriver;
-use crate::driver::contract::DriverCliVersionReport;
+use crate::driver::claude::session::permission_level::ClaudeCommandSandboxCheck;
+use crate::driver::contract::params_and_results::DriverCliVersionReport;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::ports::SessionRelaunchListener;
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
 use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
 use crate::driver::{
-    AccountFoldersError, CurrentProviderAccount, DriverServices, ProviderAccountFolders,
-    ProviderAccountReader, SessionSpawnContext, SessionSpawnContextResolver,
+    AccountFoldersError, CommandSandboxAvailability, CurrentProviderAccount, DriverServices,
+    MissingSandboxPrerequisite, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
+    SessionSpawnContextResolver,
 };
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
@@ -152,13 +154,14 @@ impl SessionAdvisorStore for RecordedAdvisors {
 }
 
 /// Each relaunch the driver reported, with the binding it resumed on, `None` for one that failed,
-/// and each binding it had opened before its resume, answered with the status sink a test sets;
-/// every opening is refused once a test sets `is_open_refused`, and every report once it sets
-/// `is_relaunch_refused`.
+/// each binding it had opened before its resume and each it asked legs alone for, answered with
+/// the status sink a test sets; every opening is refused once a test sets `is_open_refused`, and
+/// every report once it sets `is_relaunch_refused`.
 #[derive(Default)]
 pub(crate) struct RecordedRelaunches {
     taken: Mutex<Vec<(SessionId, Option<RuntimeBindingId>)>>,
     opened: Mutex<Vec<(SessionId, RuntimeBindingId)>>,
+    legs_opened: Mutex<Vec<(SessionId, RuntimeBindingId)>>,
     reported: Notify,
     /// The status sink each opening answers in its function legs; none until a test sets one.
     pub(crate) status_sink: Mutex<Option<McpServerStatusProducer>>,
@@ -172,6 +175,11 @@ impl RecordedRelaunches {
     /// The bindings opened so far, in the order the driver opened them.
     pub(crate) fn opened(&self) -> Vec<(SessionId, RuntimeBindingId)> {
         lock(&self.opened).clone()
+    }
+
+    /// The bindings the driver asked legs alone for, with no cursor, in the order it asked.
+    pub(crate) fn legs_opened(&self) -> Vec<(SessionId, RuntimeBindingId)> {
+        lock(&self.legs_opened).clone()
     }
 
     /// The relaunches once `count` are reported, each after the process it started, which a start
@@ -209,6 +217,18 @@ impl SessionRelaunchListener for RecordedRelaunches {
             Ok(legs)
         }
         .boxed()
+    }
+
+    fn open_relaunch_legs(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn std::error::Error + Send + Sync>>> {
+        lock(&self.legs_opened).push((session_id, binding_id));
+        let legs = ResumeFunctionLegs {
+            on_mcp_server_status: lock(&self.status_sink).clone(),
+        };
+        async move { Ok(legs) }.boxed()
     }
 
     fn session_relaunched(
@@ -267,15 +287,45 @@ pub(crate) struct ScriptedDriver {
     pub(crate) database: TestDatabase,
 }
 
+/// A command sandbox check that answers the sandbox cannot start, on every system.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the check's signature is the driver's, whose production check can fail"
+)]
+pub(crate) fn sandbox_cannot_run(
+    _environment: &[(String, String)],
+    _working_folder: &Path,
+) -> io::Result<CommandSandboxAvailability> {
+    Ok(CommandSandboxAvailability::CannotRun(
+        MissingSandboxPrerequisite::NoSandbox,
+    ))
+}
+
+/// A command sandbox check that answers the sandbox runs, on every system.
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "the check's signature is the driver's, whose production check can fail"
+)]
+pub(crate) fn sandbox_runs(
+    _environment: &[(String, String)],
+    _working_folder: &Path,
+) -> io::Result<CommandSandboxAvailability> {
+    Ok(CommandSandboxAvailability::Runs)
+}
+
 impl ScriptedDriver {
-    /// The driver whose accounts run on Claude Code's default folder in the fixture's home.
+    /// The driver whose accounts run on Claude Code's default folder in the fixture's home, and
+    /// whose command sandbox cannot start.
     pub(crate) fn new() -> Self {
-        Self::with_account_folders(None)
+        Self::with_account_folders_and_sandbox_check(None, sandbox_cannot_run)
     }
 
     /// The driver whose accounts run on `account_folders`, else on Claude Code's default folder in
-    /// the fixture's home.
-    pub(crate) fn with_account_folders(account_folders: Option<ProviderAccountFolders>) -> Self {
+    /// the fixture's home, and whose command sandbox answers as `sandbox_check` does.
+    pub(crate) fn with_account_folders_and_sandbox_check(
+        account_folders: Option<ProviderAccountFolders>,
+        sandbox_check: ClaudeCommandSandboxCheck,
+    ) -> Self {
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");
         let database = TestDatabase::new(schema_parts());
         drop(
@@ -301,6 +351,7 @@ impl ScriptedDriver {
                 &home,
                 folder.path().join("session-token"),
             )),
+            runtime_bindings: Arc::new(TakenBindingWrites),
             ..test_driver_services()
         };
         let ports = &base.ports;
@@ -353,12 +404,15 @@ impl ScriptedDriver {
             .inbound_dispatch
             .register(Arc::clone(&dispatch))
             .expect("the inbound dispatch registers once");
+        // The command sandbox answers as the test sets it, so its outcome is the same wherever it
+        // runs.
         let driver = ClaudeDriver::with_engine(
             &base,
             starts.clone(),
             starts.keychain.clone(),
             &host,
             &dispatch,
+            sandbox_check,
         )
         .expect("the session pieces compose");
         Self {
@@ -483,6 +537,7 @@ pub(crate) fn create_params(session_id: SessionId) -> CreateSessionParams {
         agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
         config: Map::new(),
         model: ProviderToken::new("opus".to_owned()).expect("the model fits"),
+        effort: None,
         larger_window: None,
         // The run engine opens every session with a posture.
         execution_posture: Some(compose_execution_posture(

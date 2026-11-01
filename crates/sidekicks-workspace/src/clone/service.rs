@@ -21,7 +21,6 @@ use std::time::Duration;
 use futures::future::BoxFuture;
 use futures::{StreamExt as _, stream};
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::jsonrpc::issue::IssuePathSegment;
 use sidekicks_contracts::project::{PROJECT_NAME_MAX_LEN, ProjectId, ProjectName};
 use sidekicks_contracts::repo::clone::{
     AskpassAnswer, CloneLine, CloneQuestionId, ProjectCloneFolderReadResponse,
@@ -61,9 +60,6 @@ use crate::project::service::clone_record::{CloneTarget, CloningProject};
 use crate::project::service::{ProjectService, ProjectServiceError};
 use crate::repo::errors::{RepoRefusal, refuse_distribution, refuse_relative_clone_folder};
 use crate::repo::root_resolver::{refusal_of_filesystem_failure, require_unicode_path};
-
-// The clone start's member holding the folder the clone goes in.
-const PARENT_FOLDER_MEMBER: &str = "parentFolder";
 
 // Git's own line for an address it can name no folder from, which the refusal carries.
 const NO_DIRECTORY_NAME_LINE: &str = "fatal: No directory name could be guessed.";
@@ -255,9 +251,9 @@ impl CloneService {
     /// `cloning`, or `request.projectId` run again after a failed or canceled clone. Refuses
     /// `project.clone.idempotencyConflict` for a key on record whose start asked otherwise,
     /// `repoMount.distributionNotFound` for a WSL place, the request's or the folder set for
-    /// clones, `request.paramsInvalid` for a relative parent folder,
-    /// `repoMount.rootResolutionFailed` for a parent folder whose path is not Unicode or cannot be
-    /// read, `project.clone.refused` when the address leaves no folder name or the destination is
+    /// clones, `repoMount.rootResolutionFailed` for a parent folder that names no complete
+    /// location (`notAbsolute`), whose path is not Unicode, or that cannot be read,
+    /// `project.clone.refused` when the address leaves no folder name or the destination is
     /// taken, and `project.notFound` for a project no longer cloning; nothing is written for any
     /// of them.
     pub async fn start_clone(
@@ -282,9 +278,7 @@ impl CloneService {
         }
         refuse_distribution(request.place.as_ref())?;
         if let Some(parent_folder) = &request.parent_folder {
-            refuse_relative_clone_folder(parent_folder.as_str(), || {
-                vec![IssuePathSegment::Member(PARENT_FOLDER_MEMBER.to_owned())]
-            })?;
+            refuse_relative_clone_folder(parent_folder.as_str())?;
         }
         let parent_folder = match &request.parent_folder {
             Some(parent_folder) => PathBuf::from(parent_folder.as_str()),

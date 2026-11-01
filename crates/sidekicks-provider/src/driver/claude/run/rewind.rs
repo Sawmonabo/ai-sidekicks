@@ -23,7 +23,7 @@ use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::rewind::RewindConversationResult;
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::port::reviewer_denial::ReviewerDenialPort;

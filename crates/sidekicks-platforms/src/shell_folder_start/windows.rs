@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use crate::path::rules::PathRules;
 use crate::path::rules::windows::command_line::{COMMAND_LINE_UNITS, compose_command_line};
+use crate::powershell_literal::quote_powershell_literal;
 use crate::shell_folder_start::ShellFolderStart;
 
 /// The variable that keeps an MSYS bash login in the folder it starts in, not the home folder.
@@ -18,9 +19,6 @@ const STAY_IN_FOLDER_ENVIRONMENT_NAME: &str = "CHERE_INVOKING";
 
 /// The characters PowerShell reads as a dash before a switch's name.
 const POWERSHELL_DASHES: [char; 4] = ['-', '\u{2013}', '\u{2014}', '\u{2015}'];
-
-/// The characters PowerShell reads as a single quote, each doubled inside a single-quoted string.
-const POWERSHELL_SINGLE_QUOTES: [char; 5] = ['\'', '\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'];
 
 /// What follows a PowerShell switch on its command line.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -582,21 +580,6 @@ fn strip_trailing_separators(folder: &str) -> &str {
     } else {
         stripped
     }
-}
-
-/// `text` as a PowerShell single-quoted string: every character PowerShell reads as a single quote
-/// doubled, so none ends the string.
-pub(crate) fn quote_powershell_literal(text: &str) -> String {
-    let mut quoted = String::with_capacity(text.len() + 2);
-    quoted.push('\'');
-    for character in text.chars() {
-        if POWERSHELL_SINGLE_QUOTES.contains(&character) {
-            quoted.push(character);
-        }
-        quoted.push(character);
-    }
-    quoted.push('\'');
-    quoted
 }
 
 #[cfg(test)]

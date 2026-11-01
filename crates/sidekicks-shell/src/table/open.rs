@@ -7,9 +7,10 @@ use std::sync::Arc;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::{TerminalId, TerminalOpenRequest, TerminalOpenResponse};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_platforms::PathRules;
+use sidekicks_provider::driver::child_records::DaemonChildRecords as _;
 use sidekicks_provider::spawn_environment::SessionEnvironment;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_terminal::TerminalError;
@@ -103,7 +104,7 @@ impl TableShared {
             .orphan_guard
             .prepare_spawn()
             .await
-            .map_err(|error| HandlerError::Internal(Box::new(error)))?;
+            .map_err(HandlerError::Internal)?;
         let prepared = async {
             let mark_nonce = mint_mark_nonce(&self.deps.startup_folders).await?;
             let start = plan_shell_start(ShellStartInput {
@@ -233,7 +234,7 @@ impl TableShared {
         else {
             return;
         };
-        record.record_did_not_start(describe_error(&error));
+        record.record_did_not_start(describe_error(&*error));
         let (handle, mark_nonce, spawn_nonce) =
             self.record_shell_end(record, ShellOutputEnd::DidNotStart, false);
         let closing = close_terminal(&self.deps.terminals, handle);

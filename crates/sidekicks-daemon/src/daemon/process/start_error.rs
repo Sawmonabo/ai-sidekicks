@@ -8,6 +8,7 @@ use sidekicks_ipc::registry::RegistrationError;
 use sidekicks_platforms::SocketPathRefused;
 use sidekicks_policy::authorizer::RulesLoadError;
 use sidekicks_queue::error::QueueError;
+use sidekicks_session::attention::service::AttentionServiceError;
 use sidekicks_session::idle_sleep::IdleSleepError;
 use sidekicks_shell::orphan::guard::OrphanGuardError;
 use sidekicks_std::cleanup_failures::CleanupFailures;
@@ -19,6 +20,7 @@ use crate::bootstrap::SecureDefaultsError;
 use crate::daemon::artifact_methods::ArtifactMethodsError;
 use crate::daemon::configuration::ConfigurationError;
 use crate::daemon::crash::monitor::CrashMonitorError;
+use crate::daemon::machine_settings::file::MachineSettingsFileError;
 use crate::daemon::process::database::DatabaseFileOpenError;
 use crate::daemon::process::jobs::JobScheduleError;
 use crate::daemon::process::method_inputs::MethodInputsError;
@@ -114,6 +116,9 @@ pub(crate) enum DaemonStartError {
     /// The providers' registration ended abnormally.
     #[error("the providers' registration ended abnormally")]
     ProvidersRegistration(#[source] JoinError),
+    /// The daemon's worktrees folder could not be made or resolved.
+    #[error("the worktrees folder could not be made")]
+    WorktreesFolder(#[source] std::io::Error),
     /// The repository services could not be built: another daemon binds the askpass program's
     /// socket in the run folder.
     #[error(transparent)]
@@ -128,9 +133,15 @@ pub(crate) enum DaemonStartError {
     /// The services the method tables take could not be built.
     #[error(transparent)]
     MethodInputs(#[from] MethodInputsError),
+    /// The machine's settings could not be read for the web address's sender, so it did not start.
+    #[error("the web address's sender could not read the machine's settings")]
+    WebAddressSettings(#[source] MachineSettingsFileError),
+    /// The attention entries a stop left could not be swept, so their decisions did not start.
+    #[error(transparent)]
+    Attention(#[from] AttentionServiceError),
     /// The run queues could not be read to deliver what a stop left waiting.
     #[error("the run queues could not be recovered")]
-    QueueRecovery(#[source] QueueError),
+    QueueRecovery(#[source] Box<QueueError>),
 }
 
 /// A start that failed: its error beside every failure of its release, and when the release
@@ -138,7 +149,7 @@ pub(crate) enum DaemonStartError {
 #[derive(Debug)]
 pub(crate) struct DaemonStartFailure {
     /// The step's error and the release's failures.
-    pub(crate) failures: CleanupFailures<DaemonStartError, DaemonStopFailure>,
+    pub(crate) failures: Box<CleanupFailures<DaemonStartError, DaemonStopFailure>>,
     /// When the release began.
     pub(crate) release_started: Instant,
 }

@@ -38,7 +38,8 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::ProviderAccountReader;
-use sidekicks_provider::driver::contract::{DriverError, ProviderDriver, bound_failure_detail};
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::contract::error::{DriverError, bound_failure_detail};
 use sidekicks_provider::driver::error_causes::session_process_unavailable;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
@@ -49,7 +50,8 @@ use sidekicks_session::queue_store::{
     QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
 use sidekicks_session::run::agent::RunAgentReader;
-use sidekicks_session::run::engine::{RunEngine, RunEngineError};
+use sidekicks_session::run::engine::RunEngine;
+use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::read::read_run_through;
 use sidekicks_session::run::refusals::RunRefusal;
 use sidekicks_session::run::start_request::RunStartRequest;
@@ -574,7 +576,7 @@ impl QueueAdmission {
             driver.settle_session(session_id),
         )
         .await
-        .map_err(|_elapsed| DriverError::Refused(session_process_unavailable(session_id)))??;
+        .map_err(|_elapsed| DriverError::from(session_process_unavailable(session_id)))??;
         Ok(())
     }
 

@@ -7,10 +7,11 @@ use sidekicks_platforms::{Spawner, real_path};
 use sidekicks_std::file::atomic_write::write_file_atomically;
 
 use super::{read_listed_worktrees, read_uncommitted_paths, unquote_git_text};
+use crate::git::process::environment::find_git_executable;
 use crate::git::process::test_repository::{
     commit_empty, git_in, git_in_with_input, make_test_repository,
 };
-use crate::git::process::{GitLimits, GitRunner, find_git_executable, test_git_runner};
+use crate::git::process::{GitLimits, GitRunner, test_git_runner};
 use crate::repo::errors::RepoRefusal;
 use crate::repo::root_resolver::RepoRootResolver;
 

@@ -31,6 +31,7 @@ impl ApprovalFixture {
                 "editable": true,
             })),
             ask_id: None,
+            tool_call_id: None,
             created_at: WireInstant::now(),
         };
         self.writer
@@ -82,11 +83,10 @@ async fn a_reconcile_reads_the_asks_open_when_it_holds_the_run() {
     let holds = Arc::clone(&fixture.run_holds);
     let run_id = fixture.run_id;
     let reconcile = tokio::spawn(async move { holds.reconcile(run_id).await });
-    tokio::time::timeout(SETTLE_WAIT, async {
-        while run_locks.queue_handle_count(run_id) == held_alone {
-            tokio::task::yield_now().await;
-        }
-    })
+    tokio::time::timeout(
+        SETTLE_WAIT,
+        run_locks.wait_for_queue_past(run_id, held_alone),
+    )
     .await
     .expect("the reconcile waits on the run's lock");
     fixture.open_ask().await;

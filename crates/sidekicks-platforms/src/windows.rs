@@ -54,4 +54,5 @@ pub(crate) mod wake_watch;
 pub(crate) mod wall_clock_timer;
 pub(crate) mod watch;
 pub(crate) mod wide_text;
+pub(crate) mod windowless_app;
 pub(crate) mod xdg_data_folders;

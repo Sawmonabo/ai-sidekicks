@@ -32,6 +32,7 @@ use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::capability_probe::probe_codex_service_capabilities;
 use crate::driver::codex::compaction::{CodexCompactionTarget, dispatch_codex_compaction};
 use crate::driver::codex::mcp::read_codex_mcp_servers;
+use crate::driver::codex::mcp::requirements::CodexRequirementsSources;
 use crate::driver::codex::mcp::sign_in::sign_in_with_codex_client;
 use crate::driver::codex::model_windows::join_codex_model_windows;
 use crate::driver::codex::service::registry::CodexHomeResolver;
@@ -40,11 +41,12 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::lifecycle_call::{CodexLifecycleCall, call_codex_lifecycle};
 use crate::driver::codex::session::side_questions::wait_for_side_question_answer;
 use crate::driver::codex::session::starting_level::read_codex_starting_level;
-use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
-use crate::driver::contract::{
-    ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
-    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
+    ListProviderCommandsParams, ProviderCommandsSubscription,
 };
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::mcp_server::sign_in_folder::remove_left_sign_in_folders;
 use crate::driver::read_current_account;
@@ -307,10 +309,18 @@ impl CodexDriver {
         &self,
         request: McpServersReadRequest,
     ) -> Result<ProviderMcpServersReading, DriverError> {
-        Ok(
-            read_codex_mcp_servers(&self.registry, &self.project_rules.home_folder, &request)
-                .await?,
+        let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
+        let requirements = CodexRequirementsSources {
+            managed_settings_folder: managed_settings_folder.as_deref(),
+            is_managed_preference_read: true,
+        };
+        Ok(read_codex_mcp_servers(
+            &self.registry,
+            &self.project_rules.home_folder,
+            requirements,
+            &request,
         )
+        .await?)
     }
 
     /// The level and mode a new session starts at, as the account's own Codex settings for the

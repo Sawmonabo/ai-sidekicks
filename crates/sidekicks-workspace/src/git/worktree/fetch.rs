@@ -44,9 +44,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::clone::progress::GitProgressReader;
 use crate::clone::streamed_git::run_streamed_git;
+use crate::git::process::environment::NO_PROMPT_ENVIRONMENT;
 use crate::git::process::{
-    CONFIG_UNSET_EXIT_CODE, GIT_COMMAND_TIMEOUT, GitCall, GitError, GitRunner,
-    NO_PROMPT_ENVIRONMENT, background_read, in_folder,
+    CONFIG_UNSET_EXIT_CODE, GIT_COMMAND_TIMEOUT, GitCall, GitError, GitRunner, background_read,
+    in_folder,
 };
 
 /// How long after one fetch of a repository ends the next begins: often enough that the figures a

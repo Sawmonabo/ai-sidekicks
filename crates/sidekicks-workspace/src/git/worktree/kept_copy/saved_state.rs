@@ -181,7 +181,7 @@ pub(crate) async fn list_index_objects_missing_from_head(
     // With renames off each change is two fields, `:<old mode> <new mode> <old object> <new
     // object> <status>` and its path, which may itself start with `:`; the output ends with a NUL.
     let fields: Vec<&[u8]> = staged.stdout.split(|byte| *byte == 0).collect();
-    for change in fields.chunks_exact(2).map(|pair| pair[0]) {
+    for change in fields.as_chunks::<2>().0.iter().map(|pair| pair[0]) {
         let unexpected =
             SavedStateError::Unexpected("git diff-index answered a change in an unexpected form");
         let Some(change) = std::str::from_utf8(change)

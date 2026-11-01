@@ -101,9 +101,4 @@ impl PendingCompactionRegistry {
             },
         );
     }
-
-    /// How many waits are armed for `key`.
-    pub(crate) fn pending_count_for(&self, key: &str) -> usize {
-        self.waits.pending_count_for(key)
-    }
 }

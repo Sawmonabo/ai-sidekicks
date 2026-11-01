@@ -84,6 +84,7 @@ mod linux;
 mod machine_name;
 #[cfg(target_os = "macos")]
 mod macos;
+mod managed_preference;
 mod memory;
 mod own_root;
 mod path;
@@ -91,6 +92,7 @@ mod pinned_process;
 mod pipe_reader;
 #[cfg(unix)]
 mod posix;
+mod powershell_literal;
 mod process_containment;
 mod process_identity;
 mod process_start;
@@ -99,6 +101,7 @@ mod program_install_folders;
 mod program_link;
 mod program_start;
 mod recreate_link;
+mod regular_file_open;
 mod run_folder;
 mod running_program;
 #[cfg(any(test, feature = "test-support"))]
@@ -125,6 +128,7 @@ mod user_namespace;
 mod wake_watch;
 mod wall_clock;
 mod watch;
+mod windowless_app;
 #[cfg(target_os = "windows")]
 mod windows;
 mod wsl;
@@ -207,7 +211,12 @@ pub use linux::user_namespace::can_create_user_namespace;
 #[cfg(target_os = "linux")]
 pub use linux::user_scope::leave_daemon_scope;
 #[cfg(target_os = "linux")]
-pub use linux::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
+pub use linux::windowless_app::launch_app_windowless;
+#[cfg(target_os = "linux")]
+pub use linux::{
+    CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, SHOULD_MEMORY_MAP_READS, machine_name,
+    windows_drive_mounts,
+};
 #[cfg(target_os = "linux")]
 pub use linux::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use machine_name::MachineNameError;
@@ -224,6 +233,8 @@ pub use macos::code_signature::DesktopClientRequirement;
 pub use macos::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "macos")]
 pub use macos::input_wait::{may_wait_for_input, read_input_wait};
+#[cfg(target_os = "macos")]
+pub use macos::managed_preference::read_managed_preference;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::memory::process_footprint;
 #[cfg(target_os = "macos")]
@@ -247,9 +258,16 @@ pub use macos::responsibility::become_own_root;
 #[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "macos")]
-pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
+pub use macos::windowless_app::launch_app_windowless;
+#[cfg(target_os = "macos")]
+pub use macos::{
+    CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, SHOULD_MEMORY_MAP_READS, machine_name,
+    windows_drive_mounts,
+};
 #[cfg(target_os = "macos")]
 pub use macos::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
+#[cfg(not(target_os = "macos"))]
+pub use managed_preference::read_managed_preference;
 pub use memory::physical_memory;
 pub use own_root::OwnRootError;
 #[cfg(not(target_os = "macos"))]
@@ -272,6 +290,7 @@ pub use posix::askpass::askpass_listener;
 pub use posix::child_command::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
     prepare_child_command, spawn_lasting_child, wrap_child_command, wrap_group_child_command,
+    wrap_leading_child_command,
 };
 #[cfg(unix)]
 pub use posix::command_wrapper::{
@@ -318,14 +337,17 @@ pub use posix::file_system::{
 };
 #[cfg(unix)]
 pub use posix::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, open_regular_file,
+    remove_tree, rename_replacing,
 };
 #[cfg(unix)]
 pub use posix::login_shell::{login_shell, name_as_login_shell};
 #[cfg(unix)]
 pub use posix::null_device::NULL_DEVICE_PATH;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::os_text::non_unicode_name;
 #[cfg(unix)]
-pub use posix::os_text::os_text_bytes;
+pub use posix::os_text::{os_text_bytes, os_text_stable_bytes};
 #[cfg(unix)]
 pub use posix::private_folder::{
     create_missing_private_folders, create_new_private_folder, create_private_folder,
@@ -399,6 +421,7 @@ pub use posix::thread_cpu_time::thread_cpu_time;
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
+pub use powershell_literal::quote_powershell_literal;
 #[cfg(any(test, feature = "test-support"))]
 pub use process_containment::CAN_TAKE_IN_ORPHANS;
 pub use process_containment::{
@@ -412,6 +435,7 @@ pub use program_install_folders::{ProgramFolder, program_install_folders};
 pub use program_link::{ProgramLinkError, link_program};
 pub use program_start::{ProgramStart, program_start};
 pub use recreate_link::recreate_link;
+pub use regular_file_open::RegularFileOpen;
 pub use run_folder::{DaemonRunFolder, RunFolderRefused, askpass_socket_path};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
 #[cfg(any(test, feature = "test-support"))]
@@ -420,7 +444,10 @@ pub use session_child::SessionCommand;
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
 pub use shell_folder_start::ShellFolderStart;
-pub use shell_line_command::{command_shell, shell_line_command};
+pub use shell_line_command::{
+    FALLBACK_LINE_SHELLS, LINE_SHELL_PROGRAMS, LineShellProgram, ULTIMATE_FALLBACK_LINE_SHELL,
+    command_shell, shell_line_command,
+};
 pub use shell_start::{DOES_SHELL_MODE_KEEP_ITS_FOLDER, SHELL_START_CONFIRMATION};
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
 pub use socket::connection::found_no_listener;
@@ -451,6 +478,7 @@ pub use user_namespace::can_create_user_namespace;
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
 pub use watch::{FileAppendWatch, FolderArrivalWait, FolderArrivalWatch};
+pub use windowless_app::WindowlessLaunch;
 #[cfg(target_os = "windows")]
 pub use windows::allocator::{
     GLOBAL_ALLOCATOR, GlobalAllocator, collect_freed_memory, install_tree_sitter_allocator,
@@ -465,6 +493,7 @@ pub use windows::caller_process::{
 pub use windows::child_command::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
     prepare_child_command, wrap_child_command, wrap_group_child_command,
+    wrap_leading_child_command,
 };
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
@@ -476,6 +505,8 @@ pub use windows::command_wrapper::{
     signal_command_group, signal_foreground_group, start_in_own_group, stop_signal_number,
     take_inherited_secret, wait_for_exit, wait_for_terminal_command,
 };
+#[cfg(target_os = "windows")]
+pub use windows::credential_store::CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER;
 #[cfg(target_os = "windows")]
 pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(target_os = "windows")]
@@ -507,7 +538,8 @@ pub use windows::file_system::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, remove_tree, rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, open_regular_file,
+    remove_tree, rename_replacing,
 };
 #[cfg(target_os = "windows")]
 pub use windows::input_wait::{may_wait_for_input, read_input_wait};
@@ -525,8 +557,10 @@ pub use windows::memory::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::null_device::NULL_DEVICE_PATH;
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::os_text::non_unicode_name;
 #[cfg(target_os = "windows")]
-pub use windows::os_text::os_text_bytes;
+pub use windows::os_text::{os_text_bytes, os_text_stable_bytes};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::pinned_process::this_process;
 #[cfg(target_os = "windows")]
@@ -603,6 +637,8 @@ pub use windows::terminal::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::thread_cpu_time::thread_cpu_time;
+#[cfg(target_os = "windows")]
+pub use windows::windowless_app::launch_app_windowless;
 #[cfg(target_os = "windows")]
 pub use windows::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 #[cfg(target_os = "windows")]

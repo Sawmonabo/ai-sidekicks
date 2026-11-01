@@ -1,8 +1,8 @@
 //! A Claude Code process's MCP server readings, reported on the status sink its spawn was bound
 //! to. Claude Code pushes no status of its own, so they come from the `system/init` list and from
 //! `mcp_status`, asked at a turn's end while a server still starts or reads unknown (servers set
-//! up from `--mcp-config` may still be starting as the first turn runs), on a refresh and once the
-//! session's servers are set; never on a timer. The process's end ends its leg once.
+//! up from `--mcp-config` may still be starting as the first turn runs) and on a refresh; never on
+//! a timer. The process's end ends its leg once.
 
 use std::collections::HashMap;
 
@@ -83,9 +83,9 @@ impl LiveClaudeSession {
     }
 
     /// Reads the status of each MCP server the process holds with `mcp_status` and reports it on
-    /// the process's leg; the refresh of a live leg and the session's MCP server set call it too,
-    /// the set once its reply lands. A process whose spawn was bound to no sink, or whose leg
-    /// ended, is not asked; a refused or unanswered read is recorded and changes no reading.
+    /// the process's leg; the refresh of a live leg calls it too. A process whose spawn was bound
+    /// to no sink, or whose leg ended, is not asked; a refused or unanswered read is recorded and
+    /// changes no reading.
     pub(crate) async fn read_mcp_status(&self) {
         if self.spawn_bound_legs.on_mcp_server_status.is_none()
             || lock(&self.mcp_server_readings).is_ended
@@ -136,18 +136,25 @@ mod tests {
 
     use serde_json::{Value, json};
     use sidekicks_contracts::mcp::server::McpServerStatus;
+    use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_std::mutex_lock::lock;
 
     use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
     use crate::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
+    use crate::driver::claude::session::scripted::starts::ScriptedStartRecord;
     use crate::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, hand_scripted_frame, settle,
     };
     use crate::driver::mcp_server::status::{
         McpServerReading, McpServerStatusEmission, McpServerStatusSink,
     };
-    use crate::driver::session_control::CreateSessionParams;
+    use crate::driver::session_control::{
+        CreateSessionParams, MoveSessionToForkParams, MoveSessionToForkResult,
+    };
     use crate::driver::test_registry::new_session_id;
+    use crate::runtime_binding::store::mint_runtime_binding_id;
 
     // A status sink that records what reaches it and counts its leg's ends.
     #[derive(Default)]
@@ -196,6 +203,40 @@ mod tests {
             "session_id": session.live.provider_session_id,
         }));
         settle().await;
+    }
+
+    // Hands `started`, the session's process now, a `system/init` that lists `github` connected.
+    async fn hand_github_census(
+        fixture: &ScriptedDriver,
+        started: &ScriptedStartRecord,
+        session_id: SessionId,
+    ) {
+        let routes = &fixture
+            .driver
+            .composed_parts()
+            .expect("composed")
+            .run_start
+            .routes;
+        hand_scripted_frame(
+            &*started.listener,
+            routes,
+            session_id,
+            &json!({
+                "type": "system",
+                "subtype": "init",
+                "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+                "mcp_servers": [{ "name": "github", "status": "connected" }],
+            }),
+        );
+        settle().await;
+    }
+
+    // What reached `sink`, each server by name with its reading.
+    fn reports_of(sink: &RecordingSink) -> Vec<(String, McpServerReading)> {
+        lock(&sink.reports)
+            .iter()
+            .map(|emission| (emission.server_name.as_str().to_owned(), emission.reading))
+            .collect()
     }
 
     fn status_reads(session: &ScriptedSession) -> usize {
@@ -293,38 +334,179 @@ mod tests {
         let relaunched = fixture.next_start().await;
         // Reported once the resume answered, so the relaunched process holds the session's slot.
         fixture.relaunches.reported(1).await;
-        let routes = &fixture
-            .driver
-            .composed_parts()
-            .expect("composed")
-            .run_start
-            .routes;
-        hand_scripted_frame(
-            &*relaunched.listener,
-            routes,
-            session_id,
-            &json!({
-                "type": "system",
-                "subtype": "init",
-                "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-                "mcp_servers": [{ "name": "github", "status": "connected" }],
-            }),
-        );
-        settle().await;
+        hand_github_census(&fixture, &relaunched, session_id).await;
 
         assert_eq!(ended_sink.ends.load(Ordering::SeqCst), 1);
-        assert!(lock(&ended_sink.reports).is_empty());
-        let relaunched_reports: Vec<_> = lock(&relaunched_sink.reports)
-            .iter()
-            .map(|emission| (emission.server_name.as_str().to_owned(), emission.reading))
-            .collect();
         assert_eq!(
-            relaunched_reports,
+            reports_of(&ended_sink),
+            [] as [(String, McpServerReading); 0]
+        );
+        assert_eq!(
+            reports_of(&relaunched_sink),
             [(
                 "github".to_owned(),
                 McpServerReading::Observed(McpServerStatus::Connected)
             )]
         );
         assert_eq!(relaunched_sink.ends.load(Ordering::SeqCst), 0);
+    }
+
+    // A relaunch for a new step bound, which keeps the session's binding, ends the old process's
+    // leg once and reports the new process's census on a fresh leg the session directory answered
+    // for it with no cursor opened. Killed by the old producer reused (the census reaches the
+    // ended sink and the fresh one hears nothing), and by a cursor opened for the kept binding.
+    #[tokio::test(start_paused = true)]
+    async fn a_relaunch_for_a_new_step_bound_reports_on_a_fresh_leg_once_the_old_one_ended() {
+        let fixture = ScriptedDriver::new();
+        let (ended_sink, relaunched_sink) = (
+            Arc::new(RecordingSink::default()),
+            Arc::new(RecordingSink::default()),
+        );
+        *lock(&fixture.relaunches.status_sink) = Some(Arc::clone(&relaunched_sink) as _);
+        let session_id = new_session_id();
+        fixture
+            .starts
+            .script_session(Arc::new(ScriptedChannel::default()));
+        fixture
+            .driver
+            .create_session(CreateSessionParams {
+                on_mcp_server_status: Some(Arc::clone(&ended_sink) as _),
+                ..create_params(session_id)
+            })
+            .await
+            .expect("the session opens");
+        fixture.next_start().await;
+        fixture
+            .starts
+            .script_session(Arc::new(ScriptedChannel::default()));
+        let parts = fixture.driver.composed_parts().expect("composed");
+        let live = parts
+            .slots()
+            .live_session(session_id)
+            .expect("the session is live");
+
+        parts
+            .restarts
+            .relaunch_for_step_bound(&live)
+            .await
+            .expect("the relaunch resumes");
+        let relaunched = fixture.next_start().await;
+        hand_github_census(&fixture, &relaunched, session_id).await;
+
+        assert_eq!(ended_sink.ends.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            reports_of(&ended_sink),
+            [] as [(String, McpServerReading); 0]
+        );
+        assert_eq!(
+            reports_of(&relaunched_sink),
+            [(
+                "github".to_owned(),
+                McpServerReading::Observed(McpServerStatus::Connected)
+            )]
+        );
+        assert_eq!(relaunched_sink.ends.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            fixture.relaunches.opened(),
+            [] as [(SessionId, RuntimeBindingId); 0]
+        );
+        let legs_sessions: Vec<_> = fixture
+            .relaunches
+            .legs_opened()
+            .into_iter()
+            .map(|(opened_session, _binding)| opened_session)
+            .collect();
+        assert_eq!(legs_sessions, [session_id]);
+    }
+
+    // A rewind's fork reports its census on a leg the session directory answered for it, under a
+    // binding of its own, and the predecessor's leg ends once as the predecessor stops. Killed by
+    // the fork carrying the predecessor's producer (the census reaches the ended sink), and by the
+    // fork's legs opened under the binding the session keeps, which the predecessor's end retires.
+    #[tokio::test(start_paused = true)]
+    async fn a_rewind_fork_reports_on_its_own_leg_once_the_predecessors_ended() {
+        let fixture = ScriptedDriver::new();
+        let (ended_sink, forked_sink) = (
+            Arc::new(RecordingSink::default()),
+            Arc::new(RecordingSink::default()),
+        );
+        *lock(&fixture.relaunches.status_sink) = Some(Arc::clone(&forked_sink) as _);
+        let session_id = new_session_id();
+        fixture
+            .starts
+            .script_session(Arc::new(ScriptedChannel::default()));
+        fixture
+            .driver
+            .create_session(CreateSessionParams {
+                on_mcp_server_status: Some(Arc::clone(&ended_sink) as _),
+                ..create_params(session_id)
+            })
+            .await
+            .expect("the session opens");
+        fixture.next_start().await;
+        let conversation = fixture
+            .driver
+            .composed_parts()
+            .expect("composed")
+            .slots()
+            .live_session(session_id)
+            .expect("the session is live")
+            .provider_session_id
+            .clone();
+        // Two turns, so a fork after the first has a later turn to discard.
+        let project_folder = fixture.home.join(".claude/projects/work");
+        std::fs::create_dir_all(&project_folder).expect("the project folder is made");
+        std::fs::write(
+            project_folder.join(format!("{conversation}.jsonl")),
+            concat!(
+                r#"{"type":"user","uuid":"u1","message":{"content":"first"}}"#,
+                "\n",
+                r#"{"type":"assistant","uuid":"a1","message":{"content":"one"}}"#,
+                "\n",
+                r#"{"type":"user","uuid":"u2","message":{"content":"second"}}"#,
+                "\n",
+                r#"{"type":"assistant","uuid":"a2","message":{"content":"two"}}"#,
+                "\n",
+            ),
+        )
+        .expect("the conversation is written");
+        fixture
+            .starts
+            .script_session(Arc::new(ScriptedChannel::default()));
+        let kept_binding = mint_runtime_binding_id();
+
+        let moved = fixture
+            .driver
+            .move_session_to_fork(MoveSessionToForkParams {
+                session_id,
+                position: SafeInt::new(1).expect("1 is a position"),
+                binding_id: kept_binding.clone(),
+            })
+            .await
+            .expect("the fork is answered");
+        assert!(
+            matches!(moved, MoveSessionToForkResult::Applied { .. }),
+            "{moved:?}"
+        );
+        let forked = fixture.next_start().await;
+        hand_github_census(&fixture, &forked, session_id).await;
+
+        assert_eq!(ended_sink.ends.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            reports_of(&ended_sink),
+            [] as [(String, McpServerReading); 0]
+        );
+        assert_eq!(
+            reports_of(&forked_sink),
+            [(
+                "github".to_owned(),
+                McpServerReading::Observed(McpServerStatus::Connected)
+            )]
+        );
+        assert_eq!(forked_sink.ends.load(Ordering::SeqCst), 0);
+        let legs_opened = fixture.relaunches.legs_opened();
+        assert_eq!(legs_opened.len(), 1);
+        assert_eq!(legs_opened[0].0, session_id);
+        assert_ne!(legs_opened[0].1, kept_binding);
     }
 }

@@ -217,7 +217,7 @@ pub(crate) enum MoveAsideError {
     /// It failed before the tree moved, or the move refused: what it made is removed and its row
     /// deleted, unless that cleanup failed too, whose failures it carries.
     #[error(transparent)]
-    Failed(#[from] CleanupFailures<KeepFailure, KeptCopyCleanupError>),
+    Failed(Box<CleanupFailures<KeepFailure, KeptCopyCleanupError>>),
     /// The tree was copied whole into the kept folder across volumes, but the original could not
     /// be removed completely: both are kept, and nothing was deleted to undo it.
     #[error(
@@ -281,9 +281,10 @@ pub(crate) async fn move_worktree_aside(
     .await;
     let failure = match kept {
         Err(failures) => KeepFailure::Steps(failures),
-        Ok(kept) => match row_writes.record_state(&kept.state).await {
-            Err(failure) => KeepFailure::RecordState(failure),
-            Ok(()) => {
+        Ok(kept) => {
+            if let Err(failure) = row_writes.record_state(&kept.state).await {
+                KeepFailure::RecordState(failure)
+            } else {
                 let kept_tree = aside.kept_folder.join(KEPT_TREE_ENTRY);
                 match move_folder(
                     tools.folder_moves,
@@ -311,7 +312,7 @@ pub(crate) async fn move_worktree_aside(
                     Err(failure) => KeepFailure::Move(failure),
                 }
             }
-        },
+        }
     };
     let mut cleanup_failures = Vec::new();
     match delete_kept_copy(
@@ -333,7 +334,11 @@ pub(crate) async fn move_worktree_aside(
         }
         Ok(()) => {}
     }
-    Err(CleanupFailures::new(failure, cleanup_failures, "moving the worktree aside").into())
+    Err(MoveAsideError::Failed(Box::new(CleanupFailures::new(
+        failure,
+        cleanup_failures,
+        "moving the worktree aside",
+    ))))
 }
 
 impl MovedAsideWorktree {

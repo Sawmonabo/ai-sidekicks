@@ -54,7 +54,9 @@ fn failed_with_its_turn() -> RestartDecision {
 // first pending row alone, or by a limit's row over a person's or the step limit's over the spend
 // limit's (`*_beside_a_pending_step_limit`) or the spend limit's over the token limit's
 // (`token_limit_beside_a_pending_spend_limit`), by dropping the held child's rule (`held_child_*`),
-// and by giving a run the wrong turn end or none.
+// by failing a lead the person paused or leaving its pause under way unreached (`*_lead`), by
+// keeping a paused lead past a stop it waits on (`paused_lead_with_a_person_interrupt`), and by
+// giving a run the wrong turn end or none.
 #[rstest]
 #[case::queued_behind_a_message(RunState::Queued, false, &[], None, true, None)]
 #[case::queued_with_nothing_to_start_it(
@@ -180,7 +182,23 @@ fn failed_with_its_turn() -> RestartDecision {
     false,
     Some(interrupted(Some(InterruptReason::DaemonRestart)))
 )]
-#[case::paused_lead(RunState::Paused, false, &[], None, false, Some(failed_with_its_turn()))]
+#[case::paused_lead(RunState::Paused, false, &[], None, false, None)]
+#[case::pausing_lead(
+    RunState::Pausing,
+    false,
+    &[],
+    None,
+    false,
+    Some(ends(RestartSettlement::Paused, RestartTurnEnd::Interrupted))
+)]
+#[case::paused_lead_with_a_person_interrupt(
+    RunState::Paused,
+    false,
+    &[r#"{"pending":"nextTurn"}"#],
+    None,
+    false,
+    Some(interrupted(None))
+)]
 #[case::running_child(
     RunState::Running,
     true,
