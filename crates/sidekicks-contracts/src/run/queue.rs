@@ -16,6 +16,7 @@ use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::refusal::RefusalCode;
 use crate::jsonrpc::streaming::stream_frame;
 use crate::method::KeyedRequest;
+use crate::plan::PlanId;
 use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::question::QuestionId;
 use crate::repo::mount::WorkspaceId;
@@ -204,9 +205,53 @@ pub struct AgentQueueItemCreateRequest {
 
 impl KeyedRequest for AgentQueueItemCreateRequest {}
 
+/// What a plan message is for: building the plan in its own session, or seeding the fresh session
+/// a plan was handed to as its first turn.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum PlanMessageKind {
+    /// Builds the plan in its own session.
+    Build,
+    /// Seeds the fresh session the plan was handed to.
+    Seed,
+}
+
+/// The plan a daemon-sent message carries out: the plan, what the message is for, and, on a seed,
+/// the planning session it came from.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PlanMessage {
+    /// The plan.
+    pub plan_id: PlanId,
+    /// What the message is for.
+    pub kind: PlanMessageKind,
+    /// The planning session, on a seed.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SessionId")]
+    pub source_session_id: Option<SessionId>,
+}
+
 /// The `user.message.sent` payload: the person's message as a transcript row, written when the
-/// daemon accepts the send. `origin` marks the words a voice call heard, and `answers_question_id`
-/// is the answered mark of the question a message answers.
+/// daemon accepts the send. `origin` marks the words a voice call heard, `answers_question_id` is
+/// the answered mark of the question a message answers, and `plan_message` marks a message the
+/// daemon sent for a plan's verdict.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UserMessageSentPayload {
@@ -256,6 +301,15 @@ pub struct UserMessageSentPayload {
     )]
     #[schemars(with = "QuestionId")]
     pub answers_question_id: Option<QuestionId>,
+    /// The plan it carries out, on a message the daemon sent for a plan's verdict; absent on every
+    /// other message.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "PlanMessage")]
+    pub plan_message: Option<PlanMessage>,
 }
 
 literal! {
@@ -491,8 +545,19 @@ queue_item_summary_by_state! {
     }
 }
 
-/// One queue item as a pending row draws it, tagged on `kind`: a message the person sent, or the
-/// provider's own review queued as the session's next item; each also tagged on `state`.
+queue_item_summary_by_state! {
+    /// A message the daemon sent for a plan's verdict, waiting on the lead's queue, as a pending
+    /// row draws it: the plan it carries out, its place in the queue's order, and, once its
+    /// delivery has failed, the daemon's reason.
+    QueuePlanMessageSummary {
+        /// The plan it carries out.
+        plan_message: PlanMessage,
+    }
+}
+
+/// One queue item as a pending row draws it, tagged on `kind`: a message the person sent, the
+/// provider's own review queued as the session's next item, or a message the daemon sent for a
+/// plan's verdict; each also tagged on `state`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum QueueItemSummary {
@@ -500,6 +565,8 @@ pub enum QueueItemSummary {
     Message(#[garde(dive)] QueueMessageSummary),
     /// A review.
     Review(#[garde(dive)] QueueReviewSummary),
+    /// A plan message.
+    PlanMessage(#[garde(dive)] QueuePlanMessageSummary),
 }
 
 /// A queue's items in the daemon's order.
@@ -640,6 +707,11 @@ pub enum AgentQueueItemChangeRefusedReason {
     OrderMismatch,
     /// The edit names a queued review, which carries no words to edit.
     ReviewItem,
+    /// The edit names a plan message, which carries no words to edit.
+    PlanMessage,
+    /// The cancel names the first message of a hand-off's fresh session, which only ending the
+    /// hand-off cancels.
+    HandOffSeed,
     /// A review sent again carried files, skills, an answered question or a speed, which a review
     /// cannot take.
     ReviewExtras,
@@ -676,6 +748,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<QueueItemNotDeliveredReason>(),
         Definition::read::<QueuedSkillPick>(),
         Definition::read::<AgentQueueItemCreateRequest>().checked(),
+        Definition::read::<PlanMessageKind>(),
+        Definition::read::<PlanMessage>(),
         Definition::read::<UserMessageSentPayload>().checked(),
         Definition::read::<AgentQueueItemCreatedPayload>().checked(),
         Definition::read::<AgentQueueItemAdmittedPayload>().checked(),
@@ -709,5 +783,55 @@ impl ListKey for QueueItemId {
 
     // An id carries no rule its read does not hold.
     fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use super::{PlanMessageKind, UserMessageSentPayload};
+
+    fn sent_row(plan_message: Option<Value>) -> Value {
+        let mut row = json!({
+            "sessionId": "0190f5a4-1c2b-7d3e-8f40-5a6b7c8d9e0f",
+            "actor": "device-1",
+            "message": "Build this plan.",
+        });
+        if let Some(plan_message) = plan_message {
+            row["planMessage"] = plan_message;
+        }
+        row
+    }
+
+    // A person's message reads and writes without the plan marker, a plan message keeps it whole,
+    // and an explicit `null` is refused rather than read as a person's message.
+    #[test]
+    fn the_plan_marker_is_absent_or_whole_and_never_null() {
+        let plain: UserMessageSentPayload =
+            serde_json::from_value(sent_row(None)).expect("a person's message reads");
+        assert_eq!(plain.plan_message, None);
+        let written = serde_json::to_value(&plain).expect("a person's message writes");
+        assert!(written.get("planMessage").is_none());
+
+        let marker = json!({
+            "planId": "0190f5a4-1c2b-7d3e-8f40-5a6b7c8d9e10",
+            "kind": "seed",
+            "sourceSessionId": "0190f5a4-1c2b-7d3e-8f40-5a6b7c8d9e11",
+        });
+        let seed: UserMessageSentPayload =
+            serde_json::from_value(sent_row(Some(marker.clone()))).expect("a seed reads");
+        assert_eq!(
+            seed.plan_message
+                .as_ref()
+                .map(|plan_message| plan_message.kind),
+            Some(PlanMessageKind::Seed)
+        );
+        let written = serde_json::to_value(&seed).expect("a seed writes");
+        assert_eq!(written["planMessage"], marker);
+
+        assert!(
+            serde_json::from_value::<UserMessageSentPayload>(sent_row(Some(Value::Null))).is_err()
+        );
     }
 }

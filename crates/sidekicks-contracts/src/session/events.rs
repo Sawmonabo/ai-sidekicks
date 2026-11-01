@@ -81,9 +81,9 @@ pub struct SessionCreatedPayload {
     pub place: Option<Place>,
 }
 
-/// The payload of a lifecycle move (`session.activated`, `session.archived`,
-/// `session.reactivated`, `session.closed`), naming the state the session left and the one it is
-/// in. `actor` is the person who acted, absent when the daemon moved it.
+/// The payload of a lifecycle move (`session.activated`, `session.archived`, `session.closed`),
+/// naming the state the session left and the one it is in. `actor` is the person who acted, absent
+/// when the daemon moved it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionLifecycleChangePayload {
@@ -99,6 +99,54 @@ pub struct SessionLifecycleChangePayload {
     pub previous_state: Option<SessionState>,
     /// The state it is in.
     pub new_state: SessionState,
+    /// The person who acted, absent when the daemon moved it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "UserId")]
+    pub actor: Option<UserId>,
+}
+
+/// The state an unarchived session returns to: `active`, or `provisioning` for one archived before
+/// its create finished, which the create's finish then takes on to `active`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum SessionReactivatedState {
+    /// Live.
+    Active,
+    /// Its create not yet finished.
+    Provisioning,
+}
+
+impl From<SessionReactivatedState> for SessionState {
+    fn from(state: SessionReactivatedState) -> Self {
+        match state {
+            SessionReactivatedState::Active => Self::Active,
+            SessionReactivatedState::Provisioning => Self::Provisioning,
+        }
+    }
+}
+
+/// The `session.reactivated` payload: an archived session back on the live list, naming the state
+/// it left and the one it returns to. `actor` is the person who acted, absent when the daemon
+/// moved it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionReactivatedPayload {
+    /// The session.
+    pub session_id: SessionId,
+    /// The state it left, where it had one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SessionState")]
+    pub previous_state: Option<SessionState>,
+    /// The state it returns to.
+    pub state: SessionReactivatedState,
     /// The person who acted, absent when the daemon moved it.
     #[serde(
         default,
@@ -271,6 +319,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<SessionCreatedParent>(),
         Definition::read::<SessionCreatedPayload>().checked(),
         Definition::read::<SessionLifecycleChangePayload>().checked(),
+        Definition::read::<SessionReactivatedState>(),
+        Definition::read::<SessionReactivatedPayload>().checked(),
         Definition::read::<SessionRenameOrigin>().checked(),
         Definition::read::<SessionRenamedPayload>().checked(),
         Definition::read::<SessionMarkChangePayload>().checked(),

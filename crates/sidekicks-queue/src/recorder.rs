@@ -313,6 +313,7 @@ impl QueueRecorder {
                     message: body.content.clone(),
                     origin: None,
                     answers_question_id: body.answers_question_id,
+                    plan_message: None,
                 };
                 let draft = SessionEventDraft::new(message, SessionEvent::UserMessageSent)
                     .map_err(QueueRecordError::Draft)?;

@@ -151,6 +151,7 @@ impl QuestionsService {
                 message,
                 origin: None,
                 answers_question_id: Some(question_id),
+                plan_message: None,
             },
             SessionEvent::UserMessageSent,
         )?;
