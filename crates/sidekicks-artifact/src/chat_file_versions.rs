@@ -35,7 +35,8 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::ComposedText;
 use sidekicks_platforms::WallClock;
 use sidekicks_provider::port::file_tool_write::{
-    FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort, FileToolWriteSettled,
+    FileToolWriteClaim, FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort,
+    FileToolWriteSettled,
 };
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::missing_entry::is_missing_entry;
@@ -57,6 +58,8 @@ use crate::refusals::ArtifactError;
 use crate::validation::{
     SpooledPayload, Utf8Check, file_name_metadata, keep_leading_bytes, validate_and_store,
 };
+
+use self::tool_claims::{ClaimedVersion, claimed_version};
 
 /// The media type a folder's manifest records.
 const FOLDER_MEDIA_TYPE: &str = "inode/directory";
@@ -100,7 +103,7 @@ struct HeldWrites {
 enum PathWrite {
     /// The path's bytes on disk now, as the watch reported a write.
     OnDisk(ManagedWorkspaceWriteKind),
-    /// A tool's result's bytes.
+    /// A tool's claim rebuilt in the disk file's form.
     ToolResult(bytes::Bytes),
 }
 
@@ -293,9 +296,27 @@ impl ChatFileVersions {
         is_report_due: bool,
     ) -> Result<(), ChatFileVersionError> {
         for outcome in outcomes {
-            if let FileToolWriteOutcome::Written(bytes) = outcome {
-                self.record_version(key, PathWrite::ToolResult(bytes))
-                    .await?;
+            if let FileToolWriteOutcome::Claimed(FileToolWriteClaim::Text(text)) = outcome {
+                let file_path = self.file_path_of(key);
+                let claimed =
+                    tokio::task::spawn_blocking(move || claimed_version(&text, &file_path))
+                        .await
+                        .map_err(ArtifactError::from)?
+                        .map_err(ArtifactError::from)?;
+                match claimed {
+                    ClaimedVersion::Disk => {
+                        self.record_version(
+                            key,
+                            PathWrite::OnDisk(ManagedWorkspaceWriteKind::File),
+                        )
+                        .await?;
+                    }
+                    ClaimedVersion::Rebuilt(bytes) => {
+                        self.record_version(key, PathWrite::ToolResult(bytes.into()))
+                            .await?;
+                    }
+                    ClaimedVersion::Nothing => {}
+                }
             }
         }
         if is_report_due {
@@ -338,10 +359,7 @@ impl ChatFileVersions {
                 (spooled, Some(FOLDER_MEDIA_TYPE))
             }
             PathWrite::OnDisk(ManagedWorkspaceWriteKind::File) => {
-                let file_path = self
-                    .workspaces_folder
-                    .join(key.0.to_string())
-                    .join(key.1.as_str());
+                let file_path = self.file_path_of(key);
                 let opened = tokio::task::spawn_blocking(move || match File::open(&file_path) {
                     Ok(file) => Ok(Some(file)),
                     Err(error) if is_missing_entry(&error) => Ok(None),
@@ -442,6 +460,13 @@ impl ChatFileVersions {
         }
     }
 
+    // Where `key`'s file sits on disk.
+    fn file_path_of(&self, key: &WorkspacePath) -> PathBuf {
+        self.workspaces_folder
+            .join(key.0.to_string())
+            .join(key.1.as_str())
+    }
+
     // The chat's path `path` names, when it lies in the session's own workspace.
     fn workspace_path_of(&self, session_id: SessionId, path: &Path) -> Option<WorkspacePath> {
         let workspace = self.workspaces_folder.join(session_id.to_string());
@@ -540,6 +565,8 @@ async fn remove_unneeded_spool(spool_path: PathBuf) -> Result<(), ArtifactError>
 fn workspace_path_text(relative_path: &Path) -> Option<ComposedText> {
     ComposedText::new(relative_path.to_string_lossy().into_owned())
 }
+
+mod tool_claims;
 
 #[cfg(test)]
 mod tests;
