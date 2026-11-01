@@ -33,7 +33,7 @@ use sidekicks_std::mutex_lock::lock;
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::permission_level::list_codex_modes;
 #[cfg(any(test, feature = "test-support"))]
-use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::codex::service::registry::{CODEX_SWITCHING_HOME_FOLDER, CodexServiceRegistry};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
@@ -246,6 +246,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     account_home_conversation_folders: &[&["sessions"]],
     // Its memories stay each home's own, read in by the memory import.
     account_home_memory_folder: None,
+    // The home of the one service every session that follows the current account runs in.
+    switching_home_folder: Some(CODEX_SWITCHING_HOME_FOLDER),
     shell_prefix_command: None,
     token_limits_read_by_turn: false,
 };

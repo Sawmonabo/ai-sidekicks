@@ -150,6 +150,11 @@ pub struct ProviderDescriptor {
     /// across every project, which each home the app manages links to the daemon's own
     /// agent-memory folder; `None` where the provider keeps no such folder in its home.
     pub(crate) account_home_memory_folder: Option<&'static [&'static str]>,
+    /// The folder under the daemon's data folder of the home the provider's one switching service
+    /// runs in, apart from every account home, carrying every session that follows the current
+    /// account; `None` where the provider runs no such service. A backup and the diagnostic expiry
+    /// treat it as they treat an account home.
+    pub(crate) switching_home_folder: Option<&'static str>,
     /// How the provider runs every shell command through the command wrapper's link, as one line
     /// handed over as the link's one argument; `None` where the provider starts its commands
     /// through the daemon's relay instead.

@@ -1,10 +1,10 @@
 //! How each kind of Codex service starts, and what every start shares: the connect, the read of
 //! the loaded conversations and of the reported version, the launch on Codex's native program and
-//! the launch of a lasting service kept in its record. A service on an account home is a lasting
-//! service started or joined as `account` says, with the daemon's relay to its executor added
-//! before it answers; the capability read's, and a read's transient one on the person's own Codex
-//! folder, are the daemon's own children, dialed once they listen, with no relay; the terminal
-//! service on that folder starts as `terminal` says.
+//! the launch of a lasting service kept in its record. A service on an account home or the
+//! switching home is a lasting service started or joined as `account` says, with the daemon's
+//! relay to its executor added before it answers; the capability read's, and a read's transient
+//! one on the person's own Codex folder, are the daemon's own children, dialed once they listen,
+//! with no relay; the terminal service on that folder starts as `terminal` says.
 
 mod account;
 pub(crate) mod kept_records;
@@ -167,7 +167,7 @@ pub(super) async fn start_codex_service(
             cause: Some(Box::new(error)),
         })?;
     match service.home().kind {
-        CodexHomeKind::Account(_) => {
+        CodexHomeKind::Account(_) | CodexHomeKind::Switching => {
             start_relayed_service(&service, launch, &cancel, &executable).await
         }
         CodexHomeKind::CapabilityRead => {

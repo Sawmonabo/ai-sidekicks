@@ -227,3 +227,4 @@ mod machine_probe;
 mod personal_folder_read;
 mod socket_link;
 mod stand_in;
+mod switching_home;

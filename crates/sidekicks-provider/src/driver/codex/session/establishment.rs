@@ -35,6 +35,7 @@ use crate::driver::codex::output_speed::{
 };
 use crate::driver::codex::run::routes::CodexRunRoutes;
 use crate::driver::codex::service::command::read_codex_model_catalog_dump;
+use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::threads::ThreadClaim;
@@ -218,7 +219,9 @@ impl CodexSessionEstablishment {
             .await?
             .thread_settings;
         let execution_posture = require_execution_posture(params.execution_posture.as_ref())?;
-        let service = self.start_service(&params.provider_account_id).await?;
+        let service = self
+            .start_service(&params.provider_account_id, CodexConversationHome::Account)
+            .await?;
         service.check_takes_new_work(THREAD_START_METHOD)?;
         if let Some(larger_window) = params.larger_window {
             confirm_larger_window(&service, &settings.model, larger_window.get()).await?;
@@ -320,9 +323,9 @@ impl CodexSessionEstablishment {
         ))
     }
 
-    /// The account's service, started, and the settings a resting session's stored conversation
-    /// runs under, composed from its resume material as a resume composes them. Fails as the
-    /// composition or the service's start fails.
+    /// The service of the home holding a resting session's stored conversation, started, and the
+    /// settings it runs under, composed from its resume material as a resume composes them. Fails
+    /// as the composition or the service's start fails.
     pub(crate) async fn compose_resting_conversation(
         &self,
         params: &ResumeSessionParams,
@@ -331,7 +334,12 @@ impl CodexSessionEstablishment {
             .compose_thread_settings(compose_resume_settings_request(params))
             .await?
             .thread_settings;
-        let service = self.start_service(&params.provider_account_id).await?;
+        let service = self
+            .start_service(
+                &params.provider_account_id,
+                CodexConversationHome::read(&params.runtime_metadata),
+            )
+            .await?;
         Ok((service, settings))
     }
 
@@ -584,15 +592,17 @@ impl CodexSessionEstablishment {
         Ok(reply)
     }
 
-    // The account's service, started or joined. Fails as the home's resolve or the start does.
+    // The service of `home`, the switching home or `provider_account_id`'s own, started or joined.
+    // Fails as the home's resolve or the start does.
     async fn start_service(
         &self,
         provider_account_id: &ProviderAccountId,
+        home: CodexConversationHome,
     ) -> Result<Arc<CodexService>, CodexError> {
         let service = self
             .dependencies
             .services
-            .service_for(provider_account_id)
+            .service_for_conversation(provider_account_id, home)
             .await
             .map_err(CodexError::Driver)?;
         service

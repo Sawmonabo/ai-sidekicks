@@ -59,6 +59,11 @@ use crate::driver::contract::error::DriverError;
 )]
 const CODEX_FILE_CREDENTIAL_STORE: &str = "cli_auth_credentials_store=\"file\"";
 
+/// The switch that keeps a service's sign-in in its process's memory alone, so it writes no
+/// `auth.json`: the switching service's, which runs on tokens the daemon hands it.
+pub(crate) const CODEX_EPHEMERAL_CREDENTIAL_STORE: &str =
+    "cli_auth_credentials_store=\"ephemeral\"";
+
 /// What Codex's account legs reach a home's Codex through: the driver's services, one per home,
 /// what a short-lived service started for one act runs on, the driver's filing of rate limits, the
 /// account registry, and each account's dead renewals in a row.

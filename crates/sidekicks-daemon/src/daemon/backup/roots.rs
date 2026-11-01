@@ -1,7 +1,7 @@
 //! The places the mirror keeps, listed afresh at each run: the machine's settings file, the chats'
 //! managed workspaces, the agent memory folder, the artifact store, whose payloads the restored
 //! database names, and each conversation folder its provider's descriptor names in every account
-//! home the app manages. No root is wider than what it keeps, since a restore removes from a
+//! home the app manages and in each provider's switching home. No root is wider than what it keeps, since a restore removes from a
 //! place whatever its copy lacks.
 
 use std::io;
@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use futures::FutureExt as _;
-use sidekicks_provider::account::homes::{account_home_conversation_folders, read_account_homes};
+use sidekicks_provider::account::homes::{
+    account_home_conversation_folders, read_account_homes, switching_homes,
+};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::backup_mirror::{MirrorRoot, MirrorRootError};
@@ -79,6 +81,20 @@ async fn read_mirror_roots(
             let name = format!(
                 "account-{}-{}",
                 account_home.account_id,
+                components.join("-")
+            );
+            places.push((name, folder));
+        }
+    }
+    for switching_home in switching_homes(providers, &data_folder) {
+        for (components, folder) in account_home_conversation_folders(
+            providers,
+            &switching_home.provider,
+            &switching_home.home,
+        ) {
+            let name = format!(
+                "switching-{}-{}",
+                switching_home.provider,
                 components.join("-")
             );
             places.push((name, folder));

@@ -1,7 +1,8 @@
 //! The Codex services of one driver, one per credential home: a session on an account the app
-//! manages shares that account's lasting service, which a daemon restart keeps running, and the
-//! person's own Codex folder holds the terminal service while terminal reach is on, which no
-//! session of the app runs on. A service listens on the home's own control socket, which a
+//! manages shares that account's lasting service, which a daemon restart keeps running, the one
+//! switching service runs as lastingly in a home of the daemon's own on tokens the daemon hands it,
+//! and the person's own Codex folder holds the terminal service while terminal reach is on, which
+//! no session of the app runs on. A service listens on the home's own control socket, which a
 //! terminal's plain `codex` joins, except for a planned restart's second service, which takes a
 //! socket of its own beside it under a name no daemon start reuses, the home's socket then pointed
 //! at it. The capability read runs one short-lived service of its own on an empty folder, which
@@ -18,13 +19,16 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_platforms::{CAN_LINK_A_SOCKET, read_socket_link};
+use sidekicks_platforms::{CAN_LINK_A_SOCKET, create_private_folder, read_socket_link};
 use sidekicks_std::mutex_lock::lock;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
+use crate::driver::codex::account::CODEX_EPHEMERAL_CREDENTIAL_STORE;
+use crate::driver::codex::service::home::{
+    CodexConversationHome, CodexHomeKind, CodexServiceHome, CodexServiceKind,
+};
 use crate::driver::codex::service::record::recorded_home_keys;
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
 use crate::driver::codex::service::supervisor::start::kept_records::stop_kept_services;
@@ -47,6 +51,10 @@ const CODEX_HOME_SOCKET_NAME: &str = "app-server-control.sock";
 /// The folder under the daemon's data folder the capability read's service runs in as its home,
 /// made empty before each read and removed after it.
 const CODEX_CAPABILITY_READ_FOLDER: &str = "codex-capability-read";
+
+/// The folder under the daemon's data folder the switching service runs in as its home, apart
+/// from every account home.
+pub(crate) const CODEX_SWITCHING_HOME_FOLDER: &str = "codex-switching";
 
 /// Resolves which Codex home a session's account runs in, and the one home terminal reach runs on.
 pub(crate) trait CodexHomeResolver: Send + Sync {
@@ -107,14 +115,51 @@ impl CodexServiceRegistry {
         Ok(self.service_on_home(home))
     }
 
+    /// The one switching service, on [`CODEX_SWITCHING_HOME_FOLDER`] under the data folder, made
+    /// but not started when it is the home's first use, the home's folder made first. Fails when
+    /// the folder cannot be made.
+    pub(crate) async fn switching_service(&self) -> Result<Arc<CodexService>, DriverError> {
+        let codex_home = switching_home(&self.dependencies.data_folder);
+        if let Some(existing) = self.lock().by_home.get(&codex_home) {
+            return Ok(Arc::clone(existing));
+        }
+        let folder = codex_home.clone();
+        tokio::task::spawn_blocking(move || create_private_folder(&folder))
+            .await
+            .map_err(io::Error::other)
+            .and_then(|made| made)
+            .map_err(|error| DriverError::Internal(Box::new(error)))?;
+        Ok(self.service_on_home(CodexServiceHome {
+            codex_home,
+            kind: CodexHomeKind::Switching,
+        }))
+    }
+
+    /// The service of the home that holds a conversation of `provider_account_id`'s, as `home`
+    /// says: the switching service, or the account's own. Fails as that service's
+    /// [`Self::switching_service`] or [`Self::service_for`] does.
+    pub(crate) async fn service_for_conversation(
+        &self,
+        provider_account_id: &ProviderAccountId,
+        home: CodexConversationHome,
+    ) -> Result<Arc<CodexService>, DriverError> {
+        match home {
+            CodexConversationHome::Account => self.service_for(provider_account_id).await,
+            CodexConversationHome::Switching => self.switching_service().await,
+        }
+    }
+
     // The service registered on `home`, made when none is: the terminal service on the person's
-    // own folder, the account's own child on an account's home.
+    // own folder, the daemon's own lasting one on an account's home or the switching home.
     fn service_on_home(&self, home: CodexServiceHome) -> Arc<CodexService> {
         let home_socket = home_socket_path(&home.codex_home);
         let kind = match home.kind {
             CodexHomeKind::PersonalFolder => CodexServiceKind::Terminal,
-            CodexHomeKind::Account(_) | CodexHomeKind::CapabilityRead => CodexServiceKind::Account,
+            CodexHomeKind::Account(_)
+            | CodexHomeKind::Switching
+            | CodexHomeKind::CapabilityRead => CodexServiceKind::Account,
         };
+        let config_overrides = home_config_overrides(&home.kind);
         let mut services = self.lock();
         // Another caller may have made it while the home resolved.
         match services.by_home.entry(home.codex_home.clone()) {
@@ -128,7 +173,7 @@ impl CodexServiceRegistry {
                     },
                     kind,
                     Arc::clone(&self.dependencies),
-                    Vec::new(),
+                    config_overrides,
                 );
                 Arc::clone(slot.insert(service))
             }
@@ -341,7 +386,7 @@ impl CodexServiceRegistry {
             },
             CodexServiceKind::Terminal,
             Arc::clone(&self.dependencies),
-            Vec::new(),
+            home_config_overrides(&home.kind),
         );
         if let Err(error) = replacement
             .ensure_started(self.dependencies.startup_timeout)
@@ -542,6 +587,22 @@ async fn retire_service(services: &Mutex<RegisteredServices>, service: &Arc<Code
 // Whether `home` is the person's own folder, which only the terminal service runs on.
 fn is_terminal_reach_home(home: &CodexServiceHome) -> bool {
     home.kind == CodexHomeKind::PersonalFolder
+}
+
+// The `-c` switches a service on a home of `kind` carries of its own: the switching service keeps
+// the sign-in it is handed in its memory alone, and every other takes none.
+fn home_config_overrides(kind: &CodexHomeKind) -> Vec<String> {
+    match kind {
+        CodexHomeKind::Switching => vec![CODEX_EPHEMERAL_CREDENTIAL_STORE.to_owned()],
+        CodexHomeKind::Account(_)
+        | CodexHomeKind::PersonalFolder
+        | CodexHomeKind::CapabilityRead => Vec::new(),
+    }
+}
+
+/// The switching service's home: its folder under the daemon's `data_folder`.
+pub(crate) fn switching_home(data_folder: &Path) -> PathBuf {
+    data_folder.join(CODEX_SWITCHING_HOME_FOLDER)
 }
 
 /// The capability read's home: its folder under the daemon's `data_folder`.

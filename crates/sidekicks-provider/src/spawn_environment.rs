@@ -386,6 +386,7 @@ mod tests {
         account_home_diagnostic_folders: &[],
         account_home_conversation_folders: &[],
         account_home_memory_folder: None,
+        switching_home_folder: None,
         shell_prefix_command: None,
         token_limits_read_by_turn: false,
     };
