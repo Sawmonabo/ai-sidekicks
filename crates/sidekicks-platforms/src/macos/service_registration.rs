@@ -160,7 +160,7 @@ impl ServiceRegistration {
 
     // Whether launchd has the label loaded in this user's login session, whichever list it came
     // from.
-    fn is_loaded(&self) -> Result<bool, ServiceRegistrationError> {
+    fn is_loaded(self) -> Result<bool, ServiceRegistrationError> {
         let service_target = self.service_target();
         Ok(run_launchctl("print", ["print", &service_target])?
             .status
@@ -170,7 +170,7 @@ impl ServiceRegistration {
     // Unloads the agent and waits for the service to exit, so a `bootstrap` after it cannot race
     // the exit. An agent that is not loaded, such as one whose list was written while no one was
     // at the screen, is already out.
-    fn boot_out(&self) -> Result<(), ServiceRegistrationError> {
+    fn boot_out(self) -> Result<(), ServiceRegistrationError> {
         let service_target = self.service_target();
         let arguments = ["bootout", "--wait", service_target.as_str()];
         let mut answer = run_launchctl("bootout", arguments)?;
@@ -185,12 +185,12 @@ impl ServiceRegistration {
     }
 
     // This user's login session in launchd.
-    fn domain_target(&self) -> String {
+    fn domain_target(self) -> String {
         format!("gui/{}", self.user_id)
     }
 
     // The service's label in this user's login session.
-    fn service_target(&self) -> String {
+    fn service_target(self) -> String {
         format!("gui/{}/{DAEMON_LAUNCHD_LABEL}", self.user_id)
     }
 }

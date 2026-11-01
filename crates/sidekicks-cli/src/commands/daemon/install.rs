@@ -85,8 +85,9 @@ fn install_with<Output: Write, ErrorOutput: Write>(
 
 /// Waits for the service the registration's load started to answer the handshake, the repair's
 /// line on `stderr` while it repairs its database file. Fails with
-/// [`CommandFailure::InstalledNotAnswering`] when it does not answer in time, `ClientError::Canceled`
-/// after a Ctrl-C, and as a handshake that fails other than as a starting daemon's does.
+/// [`CommandFailure::InstalledNotAnswering`] when it does not answer in time,
+/// `ClientError::Canceled` after a Ctrl-C, and as a handshake that fails other than as a starting
+/// daemon's does.
 fn wait_for_installed_daemon(stderr: &mut impl Write) -> anyhow::Result<()> {
     let mut repair_line = RepairLine::new(stderr);
     let waited = run_listening_for_ctrl_c(async |ctrl_c| {
@@ -180,6 +181,6 @@ mod tests {
             "The app already runs the background service on this computer. See it with sidekicks \
              daemon status.\n"
         );
-        assert!(context.stderr.is_empty());
+        assert_eq!(String::from_utf8(context.stderr).expect("UTF-8"), "");
     }
 }

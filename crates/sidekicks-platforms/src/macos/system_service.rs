@@ -2,7 +2,8 @@
 //! is logged out: a property list in `/Library/LaunchDaemons` naming the account in `UserName`,
 //! loaded into launchd's system domain. Writing and loading it needs root, which a run without it
 //! gets from the administrator password prompt `osascript` draws, and a run under `sudo` already
-//! has. Every value reaches the shell as its own word, quoted by AppleScript, never as script text.
+//! has. Every value reaches the shell as its own word, quoted by `AppleScript`, never as script
+//! text.
 
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Write};
@@ -51,7 +52,8 @@ end run"#;
 const USER_CANCELED_NUMBER: i64 = -128;
 
 // The install's root step: the list copied from its private temporary file (`$1`) into place
-// (`$2`) owned by root and readable by all, as launchd requires, then loaded into the system domain.
+// (`$2`) owned by root and readable by all, as launchd requires, then loaded into the system
+// domain.
 const INSTALL_STEP: &str =
     r#"/usr/bin/install -o root -g wheel -m 644 "$1" "$2" && /bin/launchctl bootstrap system "$2""#;
 

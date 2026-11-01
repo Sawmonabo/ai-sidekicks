@@ -327,9 +327,12 @@ impl PinnedProcess {
 // Kills each of `processes` with `SIGKILL`, naming it by its id version; every one is signaled, and
 // the first refusal is kept.
 fn kill_each<'a>(processes: impl IntoIterator<Item = &'a PinnedProcess>) -> io::Result<()> {
-    processes.into_iter().fold(Ok(()), |end, process| {
-        end.and(process.send_checked_signal(Signal::SIGKILL).map(drop))
-    })
+    let mut end = Ok(());
+    for process in processes {
+        let signaled = process.send_checked_signal(Signal::SIGKILL).map(drop);
+        end = end.and(signaled);
+    }
+    end
 }
 
 // Every running descendant of `process` the system lets this user read that `is_listed` takes,
@@ -694,6 +697,10 @@ mod tests {
                 .expect("the null device opens"),
         })
         .expect("the lasting child starts");
+        #[expect(
+            clippy::zombie_processes,
+            reason = "the stand-in sleeps until the test kills it and the group child with it"
+        )]
         let mut group_child = std::process::Command::new("/bin/sh")
             .args(["-c", "/bin/sleep 60 & echo $!; wait"])
             .stdin(Stdio::null())

@@ -549,7 +549,11 @@ fn describe_duration(milliseconds: u64) -> String {
 
 /// `lines`, each ended by a newline.
 fn ended_lines(lines: &[String]) -> String {
-    lines.iter().map(|line| format!("{line}\n")).collect()
+    lines.iter().fold(String::new(), |mut ended, line| {
+        ended.push_str(line);
+        ended.push('\n');
+        ended
+    })
 }
 
 #[cfg(test)]

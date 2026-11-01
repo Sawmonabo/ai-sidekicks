@@ -1,5 +1,5 @@
-//! Opening an address on macOS through LaunchServices' `LSOpenCFURLRef`, which hands it to the
-//! application registered for its scheme without linking AppKit.
+//! Opening an address on macOS through `LaunchServices`' `LSOpenCFURLRef`, which hands it to the
+//! application registered for its scheme without linking `AppKit`.
 
 use std::io::{self, ErrorKind};
 
@@ -10,7 +10,7 @@ use crate::address_opening::no_handler_error;
 
 /// Opens `address` in the application registered for its scheme. Fails with `NotFound` when no
 /// application is registered for it (`kLSApplicationNotFoundErr`), with `InvalidInput` when it is
-/// no URL, and with `Other` naming LaunchServices' status for any other refusal.
+/// no URL, and with `Other` naming `LaunchServices`' status for any other refusal.
 pub fn open_address(address: &str) -> io::Result<()> {
     let url = CFURL::from_string(None, &CFString::from_str(address), None).ok_or_else(|| {
         io::Error::new(ErrorKind::InvalidInput, "the address to open is not a URL")

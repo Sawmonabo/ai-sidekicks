@@ -227,7 +227,7 @@ async fn flush(client: &JsonRpcClient, flush_wait: Duration) {
             "The background service's flush before its stop failed"
         ),
         Err(_elapsed) => {
-            tracing::warn!("The background service did not flush within the wait before its stop")
+            tracing::warn!("The background service did not flush within the wait before its stop");
         }
     }
 }
