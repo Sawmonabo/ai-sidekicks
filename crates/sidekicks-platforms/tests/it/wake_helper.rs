@@ -332,3 +332,34 @@ fn the_installed_wake_helper_books_and_cancels_a_system_wake() {
         read_booked_wakes()
     );
 }
+
+// Fails when the install behind the administrator prompt does not leave the helper installed and
+// answering, or its removal leaves it anywhere but missing. Needs a person at the prompt.
+#[tokio::test]
+#[ignore = "installs the wake helper as root, which takes an administrator prompt"]
+async fn the_wake_helper_installs_and_uninstalls_behind_one_prompt() {
+    let spawner = sidekicks_platforms::Spawner::new(tokio::runtime::Handle::current())
+        .expect("the spawner starts");
+    let helper = sidekicks_platforms::wake_helper().expect("macOS supplies the wake helper");
+    let program = std::path::Path::new(env!("CARGO_BIN_EXE_sidekicks-wake-helper"));
+
+    helper
+        .install(&spawner, program)
+        .await
+        .expect("the helper installs");
+    let installed = helper.status().expect("the status reads");
+    let asked_at = SystemTime::now() + Duration::from_secs(3600);
+    let booked = helper.book(asked_at).await.expect("the helper answers");
+    let canceled = helper.cancel(asked_at).await.expect("the helper answers");
+    helper
+        .uninstall(&spawner)
+        .await
+        .expect("the helper uninstalls");
+
+    assert_eq!(installed, sidekicks_platforms::WakeHelperStatus::Installed);
+    assert_eq!((booked, canceled), (WakeReply::Booked, WakeReply::Canceled));
+    assert_eq!(
+        helper.status().expect("the status reads"),
+        sidekicks_platforms::WakeHelperStatus::Missing
+    );
+}
