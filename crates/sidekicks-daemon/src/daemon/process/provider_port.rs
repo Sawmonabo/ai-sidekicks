@@ -23,6 +23,7 @@ use sidekicks_session::directory::run_activity::ProjectSessionActivityReader;
 use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_std::port_registration::PortRegistrationError;
+use sidekicks_store::credential_store::SecretKeychain;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_workspace::git::process::GitRunner;
@@ -33,6 +34,9 @@ use sidekicks_workspace::project::records::ProjectRecords;
 pub(crate) struct ProviderPortStart<'start> {
     /// The daemon's one read pool.
     pub(crate) reads: Arc<DatabaseReadPool>,
+    /// The daemon's keychain service for provider tokens, which the accounts reader reads a pasted
+    /// token from.
+    pub(crate) provider_tokens: Arc<dyn SecretKeychain>,
     /// Where each damaged session's log stops being readable.
     pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     /// Each run's binding cursors, which a relaunch opens and records through.
@@ -70,6 +74,7 @@ pub(crate) fn build_provider_port(
 ) -> Result<ProviderPort, PortRegistrationError> {
     let ProviderPortStart {
         reads,
+        provider_tokens,
         read_damaged_from_sequence,
         binding_cursors,
         git,
@@ -83,9 +88,12 @@ pub(crate) fn build_provider_port(
         Arc::clone(&reads),
         Arc::new(ProjectSessionActivityReader::new(plan_holds)),
     ));
-    ports.provider_accounts.register(
-        Arc::new(ProviderAccounts::new(Arc::clone(&reads))) as Arc<dyn ProviderAccountReader>
-    )?;
+    ports
+        .provider_accounts
+        .register(
+            Arc::new(ProviderAccounts::new(Arc::clone(&reads), provider_tokens))
+                as Arc<dyn ProviderAccountReader>,
+        )?;
     let port = Arc::new(SessionDirectoryProviderPort::new(
         SessionDirectoryProviderPortDeps {
             pool: reads,

@@ -99,6 +99,15 @@ impl From<TokenCustodyError> for HandlerError {
     }
 }
 
+/// The token `keychain`, the daemon's service for provider tokens, holds for `account_id`; `None`
+/// where none is sealed. Fails when the keychain refuses the read.
+pub async fn read_sealed_token(
+    keychain: &dyn SecretKeychain,
+    account_id: &ProviderAccountId,
+) -> Result<Option<SecretString>, KeychainRefusal> {
+    keychain.read(account_id.as_str()).await
+}
+
 /// Keeps each pasted token or API key in the daemon's keychain service for provider tokens, one
 /// item per account id, beside the registry row that names it.
 pub struct ProviderTokenCustody {
@@ -192,8 +201,7 @@ impl ProviderTokenCustody {
         &self,
         account_id: &ProviderAccountId,
     ) -> Result<SecretString, TokenCustodyError> {
-        self.keychain
-            .read(account_id.as_str())
+        read_sealed_token(self.keychain.as_ref(), account_id)
             .await
             .map_err(TokenCustodyError::Unsealing)?
             .ok_or(TokenCustodyError::NotSealed)

@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use secrecy::SecretString;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
@@ -150,6 +151,9 @@ pub struct ProviderDescriptor {
     /// across every project, which each home the app manages links to the daemon's own
     /// agent-memory folder; `None` where the provider keeps no such folder in its home.
     pub(crate) account_home_memory_folder: Option<&'static [&'static str]>,
+    /// The folder, as components under an account home, the provider keeps the account's sign-in
+    /// in, apart from the configuration folder a session reads; empty where the home is both.
+    pub(crate) account_home_credential_store_folder: &'static [&'static str],
     /// How the provider runs every shell command through the command wrapper's link, as one line
     /// handed over as the link's one argument; `None` where the provider starts its commands
     /// through the daemon's relay instead.
@@ -568,8 +572,9 @@ pub trait SessionSpawnContextResolver: Send + Sync {
     ) -> BoxFuture<'_, Result<PathBuf, Box<dyn Error + Send + Sync>>>;
 }
 
-/// Reads the accounts a provider runs on: an account's folders before any session runs on it, and
-/// its credential generation. The daemon registers it on [`DriverPorts::provider_accounts`].
+/// Reads the accounts a provider runs on: an account's folders before any session runs on it, its
+/// credential generation and its sealed token. The daemon registers it on
+/// [`DriverPorts::provider_accounts`].
 pub trait ProviderAccountReader: Send + Sync {
     /// The folders of `provider_account_id`'s account, read with no session, before one exists.
     /// Fails as [`AccountFoldersError`] says.
@@ -592,6 +597,14 @@ pub trait ProviderAccountReader: Send + Sync {
         &self,
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>>;
+
+    /// The token sealed for `provider_account_id`'s account, which only the provider's own child
+    /// is handed; `None` where the account signs in through its home instead. Fails when the
+    /// keychain refuses the read.
+    fn read_sealed_token(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>>;
 }
 
 /// Why an account's folders could not be resolved: the account is not registered, its home is not

@@ -246,6 +246,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     account_home_conversation_folders: &[&["sessions"]],
     // Its memories stay each home's own, read in by the memory import.
     account_home_memory_folder: None,
+    // `auth.json` sits in the home `CODEX_HOME` names.
+    account_home_credential_store_folder: &[],
     shell_prefix_command: None,
     token_limits_read_by_turn: false,
 };

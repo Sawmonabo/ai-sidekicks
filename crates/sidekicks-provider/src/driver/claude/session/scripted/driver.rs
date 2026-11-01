@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use secrecy::SecretString;
 use serde_json::{Map, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
@@ -130,6 +131,13 @@ impl ProviderAccountReader for FolderContexts {
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn std::error::Error + Send + Sync>>> {
         async { Err("the scripted sessions read no account's credential generation".into()) }
             .boxed()
+    }
+
+    fn read_sealed_token(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn std::error::Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
     }
 }
 
