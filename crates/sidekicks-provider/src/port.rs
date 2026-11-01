@@ -17,6 +17,7 @@ pub(crate) mod running_command_publisher;
 pub mod server_prompts;
 pub mod session_advisor_store;
 pub mod session_inbox_address;
+pub mod session_level_follower;
 pub mod session_resume_reader;
 pub mod session_rules;
 pub mod session_wake;

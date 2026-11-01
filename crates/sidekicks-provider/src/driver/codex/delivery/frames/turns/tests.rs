@@ -3,6 +3,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value, json};
 
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession, turn_started};
+use crate::driver::run_control::HelperStopReason;
 use crate::run::delivery::LateAppendableRow;
 
 // An `error` frame of turn `turn-1` on [`TEST_THREAD`] on Codex's arm `kind`.
@@ -81,10 +82,11 @@ async fn a_helper_stopped_at_its_limit_has_its_next_turn_interrupted_at_its_star
     delivery
         .deliver_turn_started(&mut session.task.record, &started("other-helper", "turn-a"))
         .await;
-    delivery
-        .dependencies
-        .limit_stopped_helpers
-        .stop(session.task.record.session_id, "stopped-helper");
+    delivery.dependencies.stopped_helpers.stop(
+        session.task.record.session_id,
+        "stopped-helper",
+        HelperStopReason::TokenLimit,
+    );
     delivery
         .deliver_turn_started(
             &mut session.task.record,

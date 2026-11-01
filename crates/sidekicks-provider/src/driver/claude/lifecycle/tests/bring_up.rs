@@ -1,5 +1,5 @@
-//! Bringing a session's process up: a failed start, the model check, a resume's place in its
-//! conversation, and the handshake a resumed conversation reads.
+//! Bringing a session's process up: a failed start, the model check, the mode it starts in, a
+//! resume's place in its conversation, and the handshake a resumed conversation reads.
 
 use std::sync::Arc;
 
@@ -8,6 +8,9 @@ use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::declaration::{
+    ProviderDeclarationId, ProviderOptionSetting, ProviderOptionSettings, ProviderValue,
+};
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 
 use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
@@ -26,9 +29,13 @@ use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::declarations::{
     ClaudeInitializeDeclaration, ClaudeOfferedModel,
 };
+use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::LeadBindingCheckParams;
 use crate::driver::error_causes::ProviderAxis;
-use crate::driver::session_control::{CloseSessionParams, CreateSessionParams, DriverResumeResult};
+use crate::driver::session_control::{
+    CloseSessionParams, CreateSessionParams, DriverResumeResult, ResumeSessionParams,
+};
 use crate::driver::test_registry::new_session_id;
 use crate::run::posture::compose_execution_posture;
 
@@ -143,6 +150,7 @@ async fn a_new_session_switches_to_an_unlisted_model_and_refuses_one_claude_code
                 value: listed.to_owned(),
                 resolved_model: None,
                 display_name: None,
+                effort_levels: None,
             }],
             ..ClaudeInitializeDeclaration::default()
         });
@@ -171,6 +179,78 @@ async fn a_new_session_switches_to_an_unlisted_model_and_refuses_one_claude_code
         assert_eq!(invalid.axis, ProviderAxis::ModelId);
         assert_eq!(invalid.value, Value::from(model));
         assert!(channel.writes().contains(&ScriptedWrite::Terminate));
+    }
+}
+
+// Killed by a lead check that reads the catalog, which starts a process, or that passes an option
+// the driver does not declare; by a start that takes an effort its listed model does not list; and
+// by checking an effort against a model the catalog does not list, which Claude Code still runs.
+#[rstest]
+#[case::listed_effort("opus", "high", None)]
+#[case::effort_its_model_does_not_list("opus", "max", Some(ProviderAxis::Effort))]
+#[case::unlisted_model("claude-unlisted", "max", None)]
+#[tokio::test(start_paused = true)]
+async fn the_lead_check_reads_nothing_and_the_start_refuses_an_effort_its_model_does_not_list(
+    #[case] model: &str,
+    #[case] effort: &str,
+    #[case] refused: Option<ProviderAxis>,
+) {
+    let fixture = ScriptedDriver::new();
+    let params = CreateSessionParams {
+        model: ProviderToken::new(model.to_owned()).expect("the model fits"),
+        effort: Some(ProviderToken::new(effort.to_owned()).expect("the effort fits")),
+        ..create_params(new_session_id())
+    };
+    let agent_id = params.agent_id;
+    let check = |options| {
+        fixture.driver.check_lead_binding(LeadBindingCheckParams {
+            agent_id,
+            model_id: params.model.clone(),
+            effort: params.effort.clone(),
+            options,
+        })
+    };
+    check(None).expect("the model and the effort wait for the start");
+    let undeclared = ProviderOptionSettings::new(vec![ProviderOptionSetting {
+        id: ProviderDeclarationId::new("undeclared".to_owned()).expect("the id fits"),
+        value: ProviderValue::Switch(true),
+    }]);
+    let Err(DriverError::ProviderAxisInvalid(invalid)) = check(undeclared) else {
+        panic!("an option the driver does not declare is refused");
+    };
+    assert_eq!(invalid.axis, ProviderAxis::Options);
+    assert_eq!(
+        fixture.starts.take_catalog_environments(),
+        Vec::<Vec<(String, String)>>::new()
+    );
+    assert!(fixture.starts.take_started().is_empty());
+
+    let channel = Arc::new(ScriptedChannel::default());
+    fixture
+        .starts
+        .script_initialize(ClaudeInitializeDeclaration {
+            models: vec![ClaudeOfferedModel {
+                value: "opus".to_owned(),
+                resolved_model: None,
+                display_name: None,
+                effort_levels: Some(vec!["low".to_owned(), "high".to_owned()]),
+            }],
+            ..ClaudeInitializeDeclaration::default()
+        });
+    fixture.starts.script_session(Arc::clone(&channel));
+    let created = fixture.driver.create_session(params).await;
+
+    match refused {
+        None => assert!(created.is_ok(), "the session opens"),
+        Some(axis) => {
+            let Err(DriverError::ProviderAxisInvalid(invalid)) = created else {
+                panic!("an effort the model does not list is refused for the session's lead");
+            };
+            assert_eq!(invalid.agent_id, agent_id);
+            assert_eq!(invalid.axis, axis);
+            assert_eq!(invalid.value, Value::from(effort));
+            assert!(channel.writes().contains(&ScriptedWrite::Terminate));
+        }
     }
 }
 
@@ -260,27 +340,41 @@ async fn a_resumed_conversation_reads_no_handshake_until_its_new_process_declare
 }
 
 // Killed by starting every process in its level's own mode, which drops a stored Plan until a
-// later move, and by naming Plan for a session in Build.
+// later move, and by naming Plan, or any other mode, for a session in Build.
 #[rstest]
 #[case::plan(SessionMode::Plan, Some(ClaudePermissionMode::Plan))]
 #[case::build(SessionMode::Build, None)]
 #[tokio::test(start_paused = true)]
-async fn a_new_session_starts_in_the_mode_it_stores(
+async fn a_session_starts_and_resumes_in_the_mode_it_stores(
     #[case] mode: SessionMode,
     #[case] permission_mode: Option<ClaudePermissionMode>,
+    #[values(false, true)] is_resume: bool,
 ) {
     let fixture = ScriptedDriver::new();
     let channel = Arc::new(ScriptedChannel::default());
     fixture.starts.script_session(Arc::clone(&channel));
+    let session_id = new_session_id();
 
-    fixture
-        .driver
-        .create_session(CreateSessionParams {
-            mode,
-            ..create_params(new_session_id())
-        })
-        .await
-        .expect("the session opens");
+    if is_resume {
+        let resumed = fixture
+            .driver
+            .resume_session(ResumeSessionParams {
+                mode,
+                ..resume_params(session_id)
+            })
+            .await
+            .expect("the resume answers");
+        assert!(matches!(resumed, DriverResumeResult::Resumed { .. }));
+    } else {
+        fixture
+            .driver
+            .create_session(CreateSessionParams {
+                mode,
+                ..create_params(session_id)
+            })
+            .await
+            .expect("the session opens");
+    }
 
     assert_eq!(fixture.next_start().await.permission_mode, permission_mode);
     let mode_requests = channel

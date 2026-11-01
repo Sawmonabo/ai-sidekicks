@@ -5,6 +5,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+use crate::error::ERROR_MESSAGE_MAX_LEN;
 use crate::free_form_string::FilesystemPath;
 use crate::mcp::server::config::{McpRequestText, McpServerAddress, McpServerConfigInput};
 use crate::mcp::server::inventory::{
@@ -14,11 +15,12 @@ use crate::mcp::server::{McpApplicationGrade, McpToolName, binding_addressed};
 use crate::method::KeyedRequest;
 use crate::place::WslPlace;
 use crate::provider::driver::runtime_binding::RuntimeBindingId;
+use crate::provider::id::ProviderId;
 use crate::session::id::SessionId;
 use crate::web_address::WebAddress;
 use crate::wire::id::ClientUuid;
 use crate::wire::record::JsonRecord;
-use crate::wire::text::NonEmptyText;
+use crate::wire::text::{FreeFormText, NonEmptyText};
 use crate::wire::{Never, literal};
 
 /// Reads the whole inventory; `refresh` asks the daemon to probe before answering.
@@ -194,13 +196,28 @@ pub struct McpRegistrySearchRequest {
     pub cursor: Option<McpRequestText>,
 }
 
-/// What `mcp.server.list` answers with.
+/// What `mcp.server.list` answers with: the bindings of every provider whose read answered, and
+/// each provider whose read failed.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct McpServerListResponse {
-    /// Every binding.
+    /// Every binding of the providers that answered.
     #[garde(dive)]
     pub servers: Vec<McpServerInventoryEntry>,
+    /// One entry per provider whose read failed, whose bindings `servers` leaves out; empty when
+    /// every provider answered.
+    #[garde(skip)]
+    pub failed_providers: Vec<McpProviderReadFailure>,
+}
+
+/// A provider whose MCP servers could not be read, with why.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct McpProviderReadFailure {
+    /// The provider.
+    pub provider: ProviderId,
+    /// Why its read failed, with no credential, address query or file path in it.
+    pub cause: FreeFormText<ERROR_MESSAGE_MAX_LEN>,
 }
 
 /// What `mcp.server.read` answers with.

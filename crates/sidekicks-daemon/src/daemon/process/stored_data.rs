@@ -11,6 +11,7 @@ use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_platforms::volume_free_bytes;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::damaged_history::{
     DamagedHistory, DamagedHistoryDeps, DamagedSessionPurge,
 };
@@ -48,6 +49,8 @@ pub(crate) struct StoredDataMethodsStart<'start> {
     pub(crate) project_list_feed: Arc<ProjectListFeed>,
     /// Every driver, through which a purge deletes the provider's copy of each conversation.
     pub(crate) providers: Arc<ProviderRegistry>,
+    /// The runs' postures, which forget what they kept for a purged session.
+    pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// This machine, named in each purge's receipt.
     pub(crate) machine_id: MachineId,
     /// The configuration store holding the retention bounds.
@@ -87,6 +90,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         shells,
         project_list_feed,
         providers,
+        execution_postures,
         machine_id,
         configuration,
         scheduler,
@@ -119,6 +123,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         sessions: Arc::clone(&session_services.sessions),
         context_readings: Arc::clone(&session_services.context_readings),
         turn_readings: Arc::clone(&session_services.turn_readings),
+        execution_postures,
     }));
     let damaged_history = Arc::new(DamagedHistory::new(DamagedHistoryDeps {
         reads: Arc::clone(&database.pool),

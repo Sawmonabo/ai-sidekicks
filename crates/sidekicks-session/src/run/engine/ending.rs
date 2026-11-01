@@ -11,8 +11,9 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_workspace::run_setup_gates::RunTerminalContext;
 use tokio::sync::SetOnce;
 
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::live::{EndingWrite, LiveRuns, settle};
-use crate::run::engine::{RunEngine, RunEngineError, settled};
+use crate::run::engine::{RunEngine, settled};
 use crate::run::read::RunRead;
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 

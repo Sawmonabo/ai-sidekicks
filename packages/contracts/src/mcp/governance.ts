@@ -3,6 +3,12 @@
 import { z } from "zod";
 
 import {
+  McpRegistrySearchRequestSchema,
+  McpRegistrySearchResponseSchema,
+  type McpRegistrySearchRequest,
+  type McpRegistrySearchResponse,
+} from "./registry-search.js";
+import {
   McpBindingScopeSchema,
   McpClearToolOverrideRequestSchema,
   McpGetResponseSchema,
@@ -14,8 +20,6 @@ import {
   McpOauthLogoutRequestSchema,
   McpReconnectRequestSchema,
   McpReconnectResponseSchema,
-  McpRegistrySearchRequestSchema,
-  McpRegistrySearchResponseSchema,
   McpRemoveServerRequestSchema,
   McpRemoveServerResultSchema,
   McpServerBindingRefSchema,
@@ -36,8 +40,6 @@ import {
   type McpOauthLogoutRequest,
   type McpReconnectRequest,
   type McpReconnectResponse,
-  type McpRegistrySearchRequest,
-  type McpRegistrySearchResponse,
   type McpRemoveServerRequest,
   type McpRemoveServerResult,
   type McpServerBindingRef,

@@ -1,7 +1,7 @@
 //! The errors the Codex driver raises: transport, size, unanswered, provider, rewind-boundary,
 //! slot, turn-in-flight, withdrawn-turn, larger-window, port, driver-shaped and configuration
 //! failures, and how each reaches the daemon as a driver error; and the readers of Codex's
-//! active-writer and restart refusals.
+//! active-writer, closing and restart refusals.
 
 use std::error::Error;
 use std::time::Duration;
@@ -46,6 +46,9 @@ pub(crate) const CODEX_DRAINING_REASON: &str = "serverShuttingDown";
 
 /// The words of Codex's refusal to resume a conversation another runtime still writes.
 const CODEX_ACTIVE_WRITER_MESSAGE: &str = "active writer";
+
+/// The words of Codex's refusal to resume a loaded conversation it is closing.
+const CODEX_CLOSING_MESSAGE: &str = "is closing; retry thread/resume";
 
 /// The words of Codex's refusal of a catalog read that asks for the service to restart first.
 const CODEX_RESTART_REQUESTED_MESSAGE: &str = "Restart Codex";
@@ -196,6 +199,13 @@ pub(crate) enum CodexError {
     /// on as it failed.
     #[error(transparent)]
     Driver(DriverError),
+    /// Codex's machine policy, its requirements file or the requirements a device-management
+    /// profile forces, cannot be read as Codex reads it, so Codex would refuse to start.
+    #[error("Codex's machine policy cannot be read: {detail}")]
+    MachinePolicyUnreadable {
+        /// Where the policy failed to read, and why.
+        detail: String,
+    },
     /// The driver's configuration lacks the shape the driver needs: a wiring defect.
     #[error("the Codex driver's {field} configuration is unusable: {detail}")]
     DriverConfig {
@@ -242,6 +252,12 @@ impl CodexError {
     /// Whether this is Codex's refusal to resume a conversation another runtime still writes.
     pub(crate) fn is_active_writer_refusal(&self) -> bool {
         self.is_invalid_request_saying(CODEX_ACTIVE_WRITER_MESSAGE)
+    }
+
+    /// Whether this is Codex's refusal to resume a loaded conversation while it closes it; the
+    /// resume goes through once the conversation is closed.
+    pub(crate) fn is_closing_refusal(&self) -> bool {
+        self.is_invalid_request_saying(CODEX_CLOSING_MESSAGE)
     }
 
     /// Whether the connection closed before this request's answer came.
@@ -344,6 +360,12 @@ impl From<CodexError> for DriverError {
             CodexError::Transport { .. } => Self::from(provider_failure_refusal(
                 &DESCRIPTOR.provider_id(),
                 "The Codex service failed",
+                RefusalCode::ProviderUnavailable,
+                error,
+            )),
+            CodexError::MachinePolicyUnreadable { .. } => Self::from(provider_failure_refusal(
+                &DESCRIPTOR.provider_id(),
+                "Codex's machine policy cannot be read, so Codex would not start",
                 RefusalCode::ProviderUnavailable,
                 error,
             )),

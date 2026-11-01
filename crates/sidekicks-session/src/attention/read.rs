@@ -13,8 +13,9 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use jiff::Timestamp;
-use rusqlite::types::ValueRef;
+use rusqlite::types::{Type, ValueRef};
 use rusqlite::{Connection, OptionalExtension as _, Row, named_params};
+use sidekicks_contracts::app_link::AppLinkTarget;
 use sidekicks_contracts::attention::{
     AttentionBannerState, AttentionId, AttentionItem, AttentionMomentItem, AttentionMomentTrigger,
     AttentionNotifyItem, AttentionProjection, AttentionSeverity, AttentionSubscribeRequest,
@@ -30,6 +31,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText, TextError};
 use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
@@ -43,9 +45,9 @@ use crate::attention::moment::AttentionMoment;
 use crate::attention::provider_build::provider_build_items;
 use crate::attention::retention::seen_entry_sql;
 
-/// The statements the projection read prepares: a session's name, the entries, a workflow run's
-/// name and the provider builds the record lists.
-pub const ATTENTION_STATEMENT_CAPACITY: usize = 4;
+/// The statements the projection read prepares: a session's name, the entries, one entry by its
+/// id, a workflow run's name and the provider builds the record lists.
+pub const ATTENTION_STATEMENT_CAPACITY: usize = 5;
 
 const WAITING_WORD: &str = "Waiting on you";
 const FINISHED_WORD: &str = "Finished";
@@ -54,10 +56,21 @@ const FAILED_WORD: &str = "Failed";
 // A session's name and its shape, the two its display name reads.
 const SESSION_NAME_SQL: &str = "SELECT name, shape FROM sessions WHERE id = @session_id";
 
-// Every entry the request narrows to, newest first, with its delivery, its seen fact and its
-// session's name. A NULL `@session_id` or `@run_id` narrows nothing; a run is an agent run or a
-// workflow run.
+// Every entry the request narrows to, newest first. A NULL `@session_id` or `@run_id` narrows
+// nothing; a run is an agent run or a workflow run.
 static ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
+    entries_sql(
+        "(@session_id IS NULL OR entry.session_id = @session_id)
+    AND (@run_id IS NULL OR entry.run_id = @run_id OR entry.workflow_run_id = @run_id)",
+    )
+});
+
+// The entry `@entry_id`, found by its key.
+static ENTRY_SQL: LazyLock<String> = LazyLock::new(|| entries_sql("entry.id = @entry_id"));
+
+// The entries `filter` keeps, newest first, each with its delivery, its seen fact and its
+// session's name.
+fn entries_sql(filter: &str) -> String {
     format!(
         "SELECT entry.id, entry.moment_id, entry.session_id, entry.run_id,
     entry.workflow_run_id, entry.node_id, entry.trigger, entry.severity, entry.notice_text,
@@ -69,12 +82,14 @@ static ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
   JOIN session_events AS source ON source.id = entry.source_event_id
   JOIN sessions AS session_row ON session_row.id = entry.session_id
   LEFT JOIN attention_deliveries AS delivery ON delivery.entry_id = entry.id
-  WHERE (@session_id IS NULL OR entry.session_id = @session_id)
-    AND (@run_id IS NULL OR entry.run_id = @run_id OR entry.workflow_run_id = @run_id)
+  WHERE {filter}
   ORDER BY entry.created_at DESC, entry.id DESC",
         seen = seen_entry_sql("entry", "source.sequence"),
     )
-});
+}
+
+// The column of `entries_sql`'s rows an entry's workflow run id is read from.
+const WORKFLOW_RUN_ID_COLUMN: usize = 4;
 
 // A workflow run's name, its pinned version's.
 const WORKFLOW_NAME_SQL: &str = "SELECT json_extract(version.definition_body, '$.name')
@@ -187,6 +202,38 @@ pub fn read_attention_projection(
     Ok(AttentionProjection { items })
 }
 
+/// The stored entry `entry_id` as its wire item, with the subject its link opens: its workflow run
+/// for a workflow's entry, its session for any other; `None` when no entry has that id. Fails with
+/// [`AttentionReadError`] when the read fails or a stored value does not read as its column's.
+pub(crate) fn read_attention_entry(
+    reader: &Connection,
+    entry_id: &str,
+) -> Result<Option<(AttentionItem, AppLinkTarget)>, AttentionReadError> {
+    let Some(entry) = reader
+        .prepare_cached(&ENTRY_SQL)?
+        .query_row(named_params! { "@entry_id": entry_id }, StoredEntry::of_row)
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let subject = match &entry.workflow_run_id {
+        Some(workflow_run_id) => AppLinkTarget::WorkflowRun {
+            workflow_run_id: WorkflowRunId::new(workflow_run_id.as_str()).map_err(|failure| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    WORKFLOW_RUN_ID_COLUMN,
+                    Type::Text,
+                    Box::new(failure),
+                )
+            })?,
+        },
+        None => AppLinkTarget::Session {
+            session_id: entry.session_id,
+        },
+    };
+    let item = item_of(reader, &mut HashMap::new(), entry)?;
+    Ok(Some((item, subject)))
+}
+
 /// The two columns a session's display name is composed from: its name and its shape.
 pub(crate) struct SessionName {
     name: Option<String>,
@@ -241,14 +288,14 @@ struct StoredEntry {
 }
 
 impl StoredEntry {
-    /// A row of [`ENTRIES_SQL`].
+    /// A row of `entries_sql`.
     fn of_row(row: &Row<'_>) -> rusqlite::Result<Self> {
         Ok(Self {
             id: text_column(row, 0, FreeFormText::new)?,
             moment_id: text_column(row, 1, FreeFormText::new)?,
             session_id: text_column(row, 2, |text| SessionId::new(&text))?,
             run_id: optional_text_column(row, 3, FreeFormText::new)?,
-            workflow_run_id: optional_text_column(row, 4, FreeFormText::new)?,
+            workflow_run_id: optional_text_column(row, WORKFLOW_RUN_ID_COLUMN, FreeFormText::new)?,
             node_id: row.get(5)?,
             trigger: text_column(row, 6, closed_word)?,
             severity: text_column(row, 7, closed_word)?,

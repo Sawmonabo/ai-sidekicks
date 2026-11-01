@@ -169,7 +169,6 @@ pub(crate) fn suggest_tail_for(title_words: &str) -> String {
 
 /// The tail a run's tree takes when no title gives one: `run-<run-short-id>`. Fails with
 /// `worktree.createFailed` (`BranchNameUnderivable`) when there is no run either.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation"))]
 pub(crate) fn derive_run_tail(
     title_tail: &str,
     run_id: Option<&str>,

@@ -1,21 +1,30 @@
 //! What Settings and a new session read before any session runs: the starting level, and the
 //! Settings rows the installed build offers.
 
+use std::collections::HashSet;
+use std::sync::Arc;
+
+use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::machine::settings::ProviderRowValue;
 use sidekicks_contracts::provider::declaration::{
     ProviderDeclarationId, ProviderRow, ProviderSettingControl, ProviderValueText,
 };
+use sidekicks_contracts::provider::driver::capabilities::ProviderMode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::wire::record::Record;
 
 use crate::driver::ProviderAccountFolders;
-use crate::driver::claude::session::scripted::driver::ScriptedDriver;
+use crate::driver::claude::session::scripted::channel::ScriptedChannel;
+use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
+use crate::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
 use crate::driver::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeLocalCommandReply, ClaudeReplyReserveReads,
 };
+use crate::driver::contract::params_and_results::ListModesParams;
 use crate::driver::session_control::StartingLevelParams;
+use crate::driver::test_registry::fixed_session_id;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
 // A figures read whose build offers the advisors `opus` and `sonnet`.
@@ -63,10 +72,13 @@ fn advisor_value(rows: &[ProviderRow]) -> Option<String> {
 async fn a_new_session_starts_at_reviewed_only_on_a_model_that_runs_auto_mode() {
     let account_folder = tempfile::tempdir().expect("the test makes an account folder");
     let config_folder = account_folder.path().join("config");
-    let fixture = ScriptedDriver::with_account_folders(Some(ProviderAccountFolders {
-        configuration_folder: config_folder.clone(),
-        credential_store_folder: account_folder.path().join("credentials"),
-    }));
+    let fixture = ScriptedDriver::with_account_folders_and_sandbox_check(
+        Some(ProviderAccountFolders {
+            configuration_folder: config_folder.clone(),
+            credential_store_folder: account_folder.path().join("credentials"),
+        }),
+        sandbox_cannot_run,
+    );
     std::fs::create_dir_all(&config_folder).expect("the account's config folder is made");
     std::fs::write(
         config_folder.join("settings.json"),
@@ -103,6 +115,106 @@ async fn a_new_session_starts_at_reviewed_only_on_a_model_that_runs_auto_mode() 
         "the account's catalog is read on its own config folder"
     );
     assert_eq!(environments.len(), 3);
+}
+
+// Killed by offering Reviewed on the system's word alone, whatever the account's catalog says of
+// the model, and by checking the catalog's auto-mode models against anything but the model named;
+// every other level stays as this system offers it.
+#[rstest]
+#[case::model_without_auto_mode("haiku", false)]
+#[case::model_with_auto_mode("opus", true)]
+#[tokio::test(start_paused = true)]
+async fn the_level_list_offers_reviewed_only_on_a_model_the_account_runs_auto_mode_on(
+    #[case] model: &str,
+    #[case] is_reviewed_offered: bool,
+) {
+    let account_folder = tempfile::tempdir().expect("the test makes an account folder");
+    let fixture = ScriptedDriver::with_account_folders_and_sandbox_check(
+        Some(ProviderAccountFolders {
+            configuration_folder: account_folder.path().join("config"),
+            credential_store_folder: account_folder.path().join("credentials"),
+        }),
+        sandbox_cannot_run,
+    );
+    fixture.starts.script_catalog(json!({"models": [
+        {"value": "opus", "displayName": "Opus", "supportsAutoMode": true},
+        {"value": "haiku", "displayName": "Haiku", "supportsAutoMode": false},
+    ]}));
+    let mode_ids = |modes: Vec<ProviderMode>| -> Vec<String> {
+        modes
+            .into_iter()
+            .map(|mode| mode.id.as_str().to_owned())
+            .collect()
+    };
+
+    let listed = fixture
+        .driver
+        .list_modes(ListModesParams {
+            session_id: Some(fixed_session_id()),
+            provider_account_id: Some(test_provider_account_id()),
+            model: Some(ProviderToken::new(model.to_owned()).expect("the model fits")),
+        })
+        .await
+        .expect("the levels read");
+    let on_system = fixture
+        .driver
+        .list_modes(ListModesParams {
+            session_id: None,
+            provider_account_id: None,
+            model: None,
+        })
+        .await
+        .expect("the system's levels read");
+
+    let reviewed = <&str>::from(PermissionLevel::Reviewed);
+    let expected: Vec<String> = mode_ids(on_system)
+        .into_iter()
+        .filter(|id| is_reviewed_offered || id != reviewed)
+        .collect();
+    assert_eq!(
+        expected.iter().any(|id| id == reviewed),
+        is_reviewed_offered
+    );
+    assert_eq!(mode_ids(listed), expected);
+}
+
+// A live session's level list reads the auto-mode models its process declared at start, with no
+// control-only read of the catalog. Killed by reading the catalog for a live session.
+#[tokio::test(start_paused = true)]
+async fn a_live_sessions_level_list_reads_its_process_and_starts_no_other() {
+    let fixture = ScriptedDriver::new();
+    fixture
+        .starts
+        .script_initialize(ClaudeInitializeDeclaration {
+            auto_mode_models: HashSet::from(["opus".to_owned()]),
+            ..ClaudeInitializeDeclaration::default()
+        });
+    // A catalog read would offer no Reviewed on the model.
+    fixture.starts.script_catalog(json!({"models": [
+        {"value": "opus", "displayName": "Opus", "supportsAutoMode": false},
+    ]}));
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    fixture.starts.take_catalog_environments();
+
+    let listed = fixture
+        .driver
+        .list_modes(ListModesParams {
+            session_id: Some(session_id),
+            provider_account_id: Some(test_provider_account_id()),
+            model: Some(ProviderToken::new("opus".to_owned()).expect("the model fits")),
+        })
+        .await
+        .expect("the levels read");
+
+    assert!(
+        listed
+            .iter()
+            .any(|mode| mode.id.as_str() == <&str>::from(PermissionLevel::Reviewed))
+    );
+    assert_eq!(
+        fixture.starts.take_catalog_environments(),
+        Vec::<Vec<(String, String)>>::new()
+    );
 }
 
 // Killed by removing the capability read's configuration folder only after a read that succeeded.

@@ -10,11 +10,11 @@
 //! arms.
 
 use serde_json::Value;
-use sidekicks_contracts::mcp::server::McpServerStatus;
+use sidekicks_contracts::mcp::server::{McpServerStatus, McpToolName};
 use sidekicks_contracts::provider::driver::tools::{IdempotencyClass, ProviderToolMetadata};
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::driver::mcp_server_status::{
+use crate::driver::mcp_server::status::{
     McpServerReading, McpServerStatusIngestRejection, McpServerStatusIngestResult,
     bound_mcp_server_status_emission,
 };
@@ -130,8 +130,9 @@ fn ingest_mcp_server_status(
     server_name: &Value,
     reading: McpServerReading,
     raw_failure_text: &Value,
+    tool_names: Option<Vec<McpToolName>>,
 ) {
-    match bound_mcp_server_status_emission(server_name, reading, raw_failure_text) {
+    match bound_mcp_server_status_emission(server_name, reading, raw_failure_text, tool_names) {
         Ok(emission) => result.emissions.push(emission),
         Err(rejection) => result.rejections.push(rejection),
     }
@@ -140,14 +141,8 @@ fn ingest_mcp_server_status(
 /// Reads `mcpServerStatus/list` rows into bounded readings; a value that is not an array yields
 /// one rejection, and each row that is not an object another. A `null` `runtimeStatus` reads
 /// `NeedsAuth` only for `authStatus` `notLoggedIn`, else `Unknown`. A row carries no error text
-/// for its status (its `toolsError` is about its tools).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex driver's MCP server status reads call it, the one map of Codex's rows"
-    )
-)]
+/// for its status (its `toolsError` is about its tools); its `tools` map, where it sends one, gives
+/// the names of its tools, each that passes the wire bound.
 pub(crate) fn normalize_codex_mcp_server_status_list(
     raw_rows: &Value,
 ) -> McpServerStatusIngestResult {
@@ -178,6 +173,13 @@ pub(crate) fn normalize_codex_mcp_server_status_list(
             row.get("name").unwrap_or(&Value::Null),
             reading,
             &Value::Null,
+            row.get("tools").and_then(Value::as_object).map(|tools| {
+                tools
+                    .values()
+                    .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+                    .filter_map(|tool_name| McpToolName::new(tool_name.to_owned()).ok())
+                    .collect()
+            }),
         );
     }
     result
@@ -186,14 +188,6 @@ pub(crate) fn normalize_codex_mcp_server_status_list(
 /// Reads one `mcpServer/startupStatus/updated` notification into a bounded reading with its
 /// `error` text; a `failed` startup for `reauthenticationRequired` reads `NeedsAuth`, the one
 /// state a person can fix.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Codex driver's MCP server status reads call it, the one map of Codex's \
-                  startup updates"
-    )
-)]
 pub(crate) fn normalize_codex_mcp_server_status_notification(
     raw_notification: &Value,
 ) -> McpServerStatusIngestResult {
@@ -221,6 +215,8 @@ pub(crate) fn normalize_codex_mcp_server_status_notification(
         notification.get("name").unwrap_or(&Value::Null),
         McpServerReading::Observed(status),
         notification.get("error").unwrap_or(&Value::Null),
+        // A startup names no tools.
+        None,
     );
     result
 }
@@ -236,8 +232,8 @@ mod tests {
     use super::{
         normalize_codex_mcp_server_status_list, normalize_codex_mcp_server_status_notification,
     };
-    use crate::driver::mcp_server_status::McpServerReading::{Observed, SwitchedOff};
-    use crate::driver::mcp_server_status::{McpServerReading, McpServerStatusIngestResult};
+    use crate::driver::mcp_server::status::McpServerReading::{Observed, SwitchedOff};
+    use crate::driver::mcp_server::status::{McpServerReading, McpServerStatusIngestResult};
 
     // One `mcpServerStatus/list` row for the server, read through the list's reader.
     fn list(runtime_status: &Value, auth_status: &str) -> McpServerStatusIngestResult {

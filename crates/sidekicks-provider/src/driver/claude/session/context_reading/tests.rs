@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 use serde_json::json;
 use serde_json::value::RawValue;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::inspector::{SessionContextBreakdown, SessionContextReading};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::number::Percent;
@@ -12,6 +11,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use super::{ClaudeContextReadings, ClaudeSessionReads, compose_claude_context_read, window_row};
 use crate::driver::claude::delivery::stream::ClaudeSessionStreams;
 use crate::driver::claude::session::transport::declarations::ClaudeMessageUsageObservation;
+use crate::driver::test_registry::fixed_session_id;
 use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::run::delivery::LateAppendableRow;
@@ -29,10 +29,6 @@ impl ContextReadingPublisher for RecordingPublisher {
             .expect("the readings lock")
             .push(reading);
     }
-}
-
-fn session_id() -> SessionId {
-    SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id")
 }
 
 fn percent(value: f64) -> Percent {
@@ -91,29 +87,29 @@ fn a_mid_turn_reading_is_made_on_the_last_read_and_the_next_read_replaces_it() {
     };
     assert!(
         readings
-            .read_mid_turn(session_id(), run_id, &usage("msg-1"))
+            .read_mid_turn(fixed_session_id(), run_id, &usage("msg-1"))
             .is_none(),
         "no mid-turn reading before the first read"
     );
 
     // A read under way holds the session, as `request_read` does.
     readings.sessions.lock().expect("the sessions lock").insert(
-        session_id(),
+        fixed_session_id(),
         ClaudeSessionReads {
             reading_task: Some(0),
             ..ClaudeSessionReads::default()
         },
     );
-    let first = compose_claude_context_read(session_id(), Some(&reply(40_000, 160_000)))
+    let first = compose_claude_context_read(fixed_session_id(), Some(&reply(40_000, 160_000)))
         .expect("a reply naming a window");
     let compaction = &first.reading.compaction;
     assert_eq!(compaction.top_stop_percent, percent(50.0));
     // 15,000 fixed-start tokens of 160,000 is 9.375 %, plus 10 %, rounded up.
     assert_eq!(compaction.bottom_stop_percent, Some(percent(20.0)));
-    assert!(readings.hold_read(session_id(), 0, first));
+    assert!(readings.hold_read(fixed_session_id(), 0, first));
 
     let Some(LateAppendableRow::UsageContextWindowUpdated(row)) =
-        readings.read_mid_turn(session_id(), run_id, &usage("msg-1"))
+        readings.read_mid_turn(fixed_session_id(), run_id, &usage("msg-1"))
     else {
         panic!("a mid-turn row");
     };
@@ -121,26 +117,26 @@ fn a_mid_turn_reading_is_made_on_the_last_read_and_the_next_read_replaces_it() {
     assert_eq!(row.window_max_tokens.map(SafeInt::get), Some(160_000));
     assert!(
         readings
-            .read_mid_turn(session_id(), run_id, &usage("msg-1"))
+            .read_mid_turn(fixed_session_id(), run_id, &usage("msg-1"))
             .is_none(),
         "a message's repeated usage files no second row"
     );
 
-    let second = compose_claude_context_read(session_id(), Some(&reply(42_000, 1_000_000)))
+    let second = compose_claude_context_read(fixed_session_id(), Some(&reply(42_000, 1_000_000)))
         .expect("a reply naming a window");
-    assert!(readings.hold_read(session_id(), 0, second));
+    assert!(readings.hold_read(fixed_session_id(), 0, second));
     let Some(LateAppendableRow::UsageContextWindowUpdated(row)) =
-        readings.read_mid_turn(session_id(), run_id, &usage("msg-2"))
+        readings.read_mid_turn(fixed_session_id(), run_id, &usage("msg-2"))
     else {
         panic!("a mid-turn row");
     };
     assert_eq!(row.window_max_tokens.map(SafeInt::get), Some(1_000_000));
 
-    readings.forget_session(session_id());
-    let stale = compose_claude_context_read(session_id(), Some(&reply(50_000, 1_000_000)))
+    readings.forget_session(fixed_session_id());
+    let stale = compose_claude_context_read(fixed_session_id(), Some(&reply(50_000, 1_000_000)))
         .expect("a reply naming a window");
     assert!(
-        !readings.hold_read(session_id(), 0, stale),
+        !readings.hold_read(fixed_session_id(), 0, stale),
         "a read under way when its process ended is not held"
     );
 
@@ -181,8 +177,9 @@ fn a_mid_turn_reading_is_made_on_the_last_read_and_the_next_read_replaces_it() {
 fn a_read_at_the_window_files_its_row_exceeded() {
     let run_id = RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5e").expect("a valid run id");
     let exceeded = |total_tokens| {
-        let read = compose_claude_context_read(session_id(), Some(&reply(total_tokens, 160_000)))
-            .expect("a reply naming a window");
+        let read =
+            compose_claude_context_read(fixed_session_id(), Some(&reply(total_tokens, 160_000)))
+                .expect("a reply naming a window");
         let LateAppendableRow::UsageContextWindowUpdated(row) = window_row(&read, Some(run_id))
         else {
             panic!("a context-window row");

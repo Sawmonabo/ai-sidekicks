@@ -6,8 +6,8 @@
 //! processes and the arguments and environment a process started with, an open descriptor's path,
 //! the wakes of a folder's and a file's watch, whether a terminal's program waits for input, the
 //! machine's wakes from sleep, whether it runs on AC power, a wall-clock timer, the login keychain,
-//! the Region setting's locale and hour cycle, the app's start with no window and the shells the
-//! live test opens on a folder.
+//! a program's managed preferences, the Region setting's locale and hour cycle, the app's start
+//! with no window and the shells the live test opens on a folder.
 
 pub(crate) mod bash_start;
 pub(crate) mod caller_process;
@@ -17,6 +17,7 @@ pub(crate) mod descriptor_path;
 pub(crate) mod input_wait;
 pub(crate) mod lasting_child;
 pub(crate) mod loaded_images;
+pub(crate) mod managed_preference;
 pub(crate) mod memory;
 pub(crate) mod pinned_process;
 pub(crate) mod power_source;

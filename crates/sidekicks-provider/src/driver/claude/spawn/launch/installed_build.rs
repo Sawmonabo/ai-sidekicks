@@ -17,6 +17,10 @@ use crate::command_search::{ProviderCommandSearch, list_command_folders};
 use crate::driver::ReportedVersionReading;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::read_claude_capabilities;
+use crate::driver::claude::mcp::connectors::ClaudeAccountServersReadRequest;
+use crate::driver::claude::mcp::machine_probe::{
+    ClaudeMcpProbeProcess, ClaudeMcpProbeProcessRequest,
+};
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
@@ -109,6 +113,23 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
         &self,
         environment: Vec<(String, String)>,
     ) -> BoxFuture<'_, Result<GetCapabilitiesResult, DriverError>>;
+
+    /// Starts one account's read process, which keeps nothing, as `request` names, its folder made
+    /// where absent, and sends its `initialize`, handing back the process to send the read's
+    /// requests on and close. Fails with `ControlOnlyFolder` when the folder cannot be made, and as
+    /// the start or `initialize` does, the process then closed.
+    fn start_account_servers_read(
+        &self,
+        request: ClaudeAccountServersReadRequest,
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>>;
+
+    /// Starts the MCP server probe's process as `request` names and sends its `initialize`,
+    /// handing back the process with what it writes. Fails as the start or `initialize` does, the
+    /// process then closed.
+    fn start_mcp_probe(
+        &self,
+        request: ClaudeMcpProbeProcessRequest,
+    ) -> BoxFuture<'_, Result<ClaudeMcpProbeProcess, ClaudeLaunchError>>;
 
     /// Stops every live process and starts none after.
     fn stop_every_process(&self) -> BoxFuture<'_, ()>;
@@ -291,6 +312,7 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                 &request.executable,
                 None,
                 None,
+                None,
             )
             .await?;
             let read = async {
@@ -314,6 +336,66 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
             .await;
             short.close().await;
             read
+        }
+        .boxed()
+    }
+
+    fn start_account_servers_read(
+        &self,
+        request: ClaudeAccountServersReadRequest,
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
+        async move {
+            let executable =
+                Self::resolve(&self.command_search, &self.home_folder, request.environment).await?;
+            tokio::fs::create_dir_all(&request.working_folder)
+                .await
+                .map_err(ClaudeLaunchError::ControlOnlyFolder)?;
+            let short = ClaudeShortProcess::start_control_only(
+                &self.launcher,
+                &executable,
+                Some(request.working_folder),
+                None,
+                Some(request.provider_account_id),
+            )
+            .await?;
+            if let Err(error) = short.initialize().await {
+                short.close().await;
+                return Err(error.into());
+            }
+            let process: Arc<dyn ClaudeProcessChannel> = short.process;
+            Ok(process)
+        }
+        .boxed()
+    }
+
+    fn start_mcp_probe(
+        &self,
+        request: ClaudeMcpProbeProcessRequest,
+    ) -> BoxFuture<'_, Result<ClaudeMcpProbeProcess, ClaudeLaunchError>> {
+        async move {
+            let executable =
+                Self::resolve(&self.command_search, &self.home_folder, request.environment).await?;
+            let working_folder = match request.working_folder {
+                Some(folder) => folder,
+                None => self.launcher.control_only_folder().await?,
+            };
+            let short = ClaudeShortProcess::start(
+                &self.launcher,
+                &executable,
+                request.arguments,
+                working_folder,
+                Some(request.provider_account_id),
+            )
+            .await?;
+            if let Err(error) = short.initialize().await {
+                short.close().await;
+                return Err(error.into());
+            }
+            let ClaudeShortProcess { process, arrivals } = short;
+            Ok(ClaudeMcpProbeProcess {
+                channel: process,
+                arrivals: arrivals.into_inner(),
+            })
         }
         .boxed()
     }

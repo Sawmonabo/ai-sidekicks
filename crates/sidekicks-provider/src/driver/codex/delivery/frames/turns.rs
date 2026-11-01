@@ -79,9 +79,9 @@ impl CodexFrameDelivery {
             return;
         };
         if thread_id != record.thread_id {
-            // A helper's conversation: one stopped at its limit runs no further turn.
+            // A helper's conversation: one stopped alone runs no further turn.
             self.dependencies
-                .limit_stopped_helpers
+                .stopped_helpers
                 .interrupt_started_turn(record, thread_id, &turn_id);
             return;
         }

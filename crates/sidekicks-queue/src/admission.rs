@@ -50,7 +50,8 @@ use sidekicks_session::queue_store::{
     QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
 use sidekicks_session::run::agent::RunAgentReader;
-use sidekicks_session::run::engine::{RunEngine, RunEngineError};
+use sidekicks_session::run::engine::RunEngine;
+use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::read::read_run_through;
 use sidekicks_session::run::refusals::RunRefusal;
 use sidekicks_session::run::start_request::RunStartRequest;

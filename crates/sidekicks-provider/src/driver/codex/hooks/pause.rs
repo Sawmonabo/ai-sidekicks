@@ -308,7 +308,6 @@ mod tests {
     use rstest::rstest;
     use serde_json::{Map, Value};
     use sidekicks_contracts::run::id::RunId;
-    use sidekicks_contracts::session::id::SessionId;
     use tokio::task::JoinHandle;
     use tokio_util::sync::CancellationToken;
 
@@ -318,6 +317,7 @@ mod tests {
         CodexHookInput,
     };
     use crate::driver::hook_pauses::PausedRole;
+    use crate::driver::test_registry::fixed_session_id;
 
     const LEAD: &str = "thread-lead";
     const HELPER: &str = "thread-helper";
@@ -348,8 +348,7 @@ mod tests {
 
     fn pause() -> CodexHookPause {
         CodexHookPause {
-            session_id: SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d")
-                .expect("a valid session id"),
+            session_id: fixed_session_id(),
             run_id: run_id(),
             binding_id: "binding-1".to_owned(),
         }

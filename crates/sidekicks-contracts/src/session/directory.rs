@@ -484,6 +484,8 @@ pub enum SessionWorkingFolderDisposition {
     Applied,
     /// A run was live, and the move waits for it to end.
     Pending,
+    /// The session moved to another workspace before the move was made, so it was dropped.
+    Dropped,
 }
 
 /// The `session.workingFolder.update` result.
@@ -589,10 +591,19 @@ methods! {
             result: SessionCreateResponse,
             refusals: [
                 ProjectNotFound,
+                RepoMountNotFound,
                 SessionGroupRefused,
                 ProviderAccountCurrentNotSet,
                 ProviderAccountNotRegistered,
                 AgentProviderAxisInvalid,
+                ProviderUnavailable,
+                ProviderTimeout,
+                ProviderCommandPathNotRunnable,
+                SessionNotFound,
+                WorkspaceModeUnsupported,
+                WorkspaceRootUnavailable,
+                RepoMountRootResolutionFailed,
+                RepoMountOutsideTrustEnvelope,
             ],
         },
         /// Follows the sessions list.
@@ -645,6 +656,9 @@ methods! {
                 RepoMountRootResolutionFailed,
                 RepoMountOutsideTrustEnvelope,
                 WorkspaceRootUnavailable,
+                RepoMountNotFound,
+                WorkspaceNotFound,
+                WorkspacePreparationFailed,
             ],
         },
         /// The terminal pane's held read.

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use strum::{IntoStaticStr, VariantArray};
 
+use crate::error::ERROR_MESSAGE_MAX_LEN;
 use crate::mcp::server::config::McpServerConfigView;
 use crate::mcp::server::{
     McpApprovalMode, McpServerBindingId, McpServerStatus, McpToolName, binding_addressed,
@@ -15,7 +16,8 @@ use crate::provider::driver::runtime_binding::RuntimeBindingId;
 use crate::schema::{push_all_of, required_member};
 use crate::session::id::SessionId;
 use crate::wire::instant::WireInstant;
-use crate::wire::list::UniqueList;
+use crate::wire::list::{ListKey, UniqueList};
+use crate::wire::text::FreeFormText;
 use crate::wire::{Never, True, literal};
 
 /// One live session's observation of one binding, kept per session because two sessions'
@@ -69,6 +71,47 @@ pub enum McpServerFailedReason {
     /// The command or its arguments name a Windows program, which cannot run in the WSL 2
     /// distribution the session runs in; the leg's session names the distribution.
     CommandNotRunnable,
+}
+
+/// Where a provider's own configuration takes a declaration's place or switches it off: a project
+/// root or settings file at a path, or an administrator's layer the provider reads from no file.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum McpOverrideOrigin {
+    /// A project root, or the settings file whose entry overrides the declaration.
+    Placed(PlacedPath),
+    /// An administrator's layer written in no file on the computer.
+    ManagedLayer(McpManagedLayer),
+}
+
+/// An administrator's layer of a provider's configuration that no file on the computer holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct McpManagedLayer {
+    /// Where the layer comes from.
+    pub managed_layer: McpManagedLayerKind,
+}
+
+/// Where an administrator's layer that no file holds comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum McpManagedLayerKind {
+    /// A device-management profile the computer's administrator installed.
+    DeviceManagement,
+    /// The organization's policy the provider fetches from its own service.
+    OrganizationCloud,
+}
+
+// An origin's read holds every rule it has.
+impl ListKey for McpOverrideOrigin {
+    type Key = Self;
+
+    fn list_key(&self) -> Self {
+        self.clone()
+    }
+
+    fn validate_item(&self, _parent: &mut dyn FnMut() -> garde::Path, _report: &mut garde::Report) {
+    }
 }
 
 /// The interrupted-call classes a person can assign to a tool. `manualReconcileOnly` is the floor
@@ -296,34 +339,59 @@ macro_rules! inventory_entry {
                 #[schemars(with = "WireInstant")]
                 #[garde(dive)]
                 observed_at: Option<WireInstant>,
+                /// Why the machine probe last read the server failed, in the provider's words or
+                /// the daemon's line where the provider gave none: present only while the probe's
+                /// reading decides a `failed` status, with no credential, address query or file
+                /// path in it.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "FreeFormText<ERROR_MESSAGE_MAX_LEN>")]
+                probe_failure_reason: Option<FreeFormText<ERROR_MESSAGE_MAX_LEN>>,
                 /// Where another declaration of this provider takes this one's place, by the
-                /// provider's order, each a path with the distribution it is in: a project root
-                /// where a project's `local` binding wins over its `project` one, either over the
-                /// `user` one, matched by server name, or, on a provider that matches that way, a
-                /// plugin's server or a connector that points at the same address or command; or
-                /// the settings file, the person's or a project's, whose entry overrides an
-                /// administrator layer's server field by field. Absent where it is used wherever it
-                /// applies.
+                /// provider's order: a project root, with the distribution it is in, where a
+                /// project's `local` binding wins over its `project` one, either over the `user`
+                /// one, matched by server name, or, on a provider that matches that way, a plugin's
+                /// server or a connector that points at the same address or command; or the
+                /// settings file, the person's or a project's, or the administrator's layer written
+                /// in no file, whose entry overrides a lower layer's server field by field. Absent
+                /// where it is used wherever it applies.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
                     deserialize_with = "crate::wire::present"
                 )]
-                #[schemars(with = "UniqueList<PlacedPath, 1, { usize::MAX }>")]
+                #[schemars(with = "UniqueList<McpOverrideOrigin, 1, { usize::MAX }>")]
                 #[garde(dive)]
-                superseded_in: Option<UniqueList<PlacedPath, 1, { usize::MAX }>>,
-                /// The project roots, each with its distribution, where the server is switched off,
-                /// by the provider's own per-project list or, on a connector or an organization's
-                /// server, by the daemon's per-project switch; it stays out of those projects'
-                /// sessions. Absent where no project switched it off.
+                superseded_in: Option<UniqueList<McpOverrideOrigin, 1, { usize::MAX }>>,
+                /// Where the server is switched off: the project roots, each with its
+                /// distribution, where the provider's own per-project list or, on a connector or an
+                /// organization's server, the daemon's per-project switch keeps it out of those
+                /// projects' sessions; or the settings file, or the administrator's layer written
+                /// in no file, whose entry switches it off. Absent where nothing switched it off,
+                /// and on a connector or an organization's server while the binding store, which
+                /// keeps its switch, is unavailable.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
                     deserialize_with = "crate::wire::present"
                 )]
-                #[schemars(with = "UniqueList<PlacedPath, 1, { usize::MAX }>")]
+                #[schemars(with = "UniqueList<McpOverrideOrigin, 1, { usize::MAX }>")]
                 #[garde(dive)]
-                disabled_in: Option<UniqueList<PlacedPath, 1, { usize::MAX }>>,
+                disabled_in: Option<UniqueList<McpOverrideOrigin, 1, { usize::MAX }>>,
+                /// Whether the account's organization manages the connector's sign-in, as the
+                /// provider's own connector list reads it. Present only on a connector whose list
+                /// was read; absent on every other row and where the list could not be read, which
+                /// a client renders as unknown, never as not managed.
+                #[serde(
+                    default,
+                    skip_serializing_if = "Option::is_none",
+                    deserialize_with = "crate::wire::present"
+                )]
+                #[schemars(with = "bool")]
+                organization_managed: Option<bool>,
                 $($extra)*
             }
         }

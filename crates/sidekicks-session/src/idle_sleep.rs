@@ -259,9 +259,9 @@ impl SessionIdleSleep {
         self.process_waker.set(waker)
     }
 
-    /// Arms a wake for each stored schedule, every session it names counted asleep, and schedules
-    /// the check every five minutes. Fails when the stored schedules do not read or the scheduler
-    /// refuses the check.
+    /// Arms a wake for each stored schedule of a session asleep, every session it names counted
+    /// asleep unless already followed awake, and schedules the check every five minutes. Fails
+    /// when the stored schedules do not read or the scheduler refuses the check.
     pub async fn start(&self) -> Result<(), IdleSleepError> {
         let stored = self
             .deps
@@ -279,8 +279,11 @@ impl SessionIdleSleep {
                     .kept_schedules
                     .push(schedule);
             }
+            // A session a pass's resume opened is awake, so its wake is armed at its next sleep.
             for (session_id, entry) in sessions.iter_mut() {
-                self.arm_wake(*session_id, entry);
+                if matches!(entry.phase, SleepPhase::Asleep) {
+                    self.arm_wake(*session_id, entry);
+                }
             }
         }
         let checking = self.this.clone();

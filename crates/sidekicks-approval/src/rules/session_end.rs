@@ -183,6 +183,7 @@ mod tests {
             granted_at: WireInstant::try_from("2026-10-18T09:00:00.000Z".to_owned())
                 .expect("an instant"),
             is_daemon_kept: false,
+            tool_server_tool: None,
         }
     }
 
@@ -223,9 +224,11 @@ mod tests {
                 editable: false,
                 action: None,
                 tool_name: None,
+                tool_server_tool: None,
                 prompt: None,
             },
             ask_id: None,
+            tool_call_id: None,
             state: ApprovalState::Approved,
             created_at: at.clone(),
             updated_at: at,

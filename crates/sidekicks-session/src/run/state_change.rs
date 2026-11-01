@@ -27,7 +27,6 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::run::state_entry::{RunStateEntry, RunStateReport};
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::events::log_service::EventAppendError;
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
@@ -448,7 +447,7 @@ impl RunStateChangeWriter {
                 state: new_state.into(),
             }));
         };
-        let Some(refused_index) = refused_statement_index(&error) else {
+        let Some(refused_index) = error.refused_statement_index() else {
             return Err(RunStateChangeError::Append(Box::new(error)));
         };
         if is_terminal && refused_index == TERMINAL_GUARD_INDEX {
@@ -507,16 +506,6 @@ impl RunStateChangeWriter {
 
     async fn read_run(&self, run_id: RunId) -> Result<Option<RunRead>, RunStateChangeError> {
         read_run_through(&self.pool, run_id).await
-    }
-}
-
-/// The position of the statement that refused the append's write, when a guard's row count
-/// refused it.
-pub fn refused_statement_index(error: &SessionEventAppendError) -> Option<usize> {
-    if let SessionEventAppendError::Append(EventAppendError::Write(write_error)) = error {
-        write_error.refused_statement_index()
-    } else {
-        None
     }
 }
 

@@ -1,6 +1,6 @@
-//! The Codex services the daemon starts: one on an account home it manages, which ends with the
-//! daemon, and the lasting service on the person's own Codex folder, which outlives it, writes to
-//! one log per folder and is found again from its record; their stops, the lasting service's
+//! The Codex services the daemon starts: the capability read's, which ends with the daemon, and a
+//! lasting service, on the person's own Codex folder or an account home, which outlives it, writes
+//! to one log per folder and is found again from its record; their stops, a lasting service's
 //! drain and Codex's own shutdown request.
 
 use std::error::Error;
@@ -19,7 +19,7 @@ use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
     CAN_SIGNAL_A_STOP, ChildEnd, LastingChild, LastingCommand, PinnedProcess, ProcessRecord,
     Spawner, ask_child_to_stop, connect_unix_domain_socket, lasting_child_asked_end,
-    leave_daemon_scope, read_child_exit, spawn_lasting_child, wrap_child_command,
+    leave_daemon_scope, read_child_exit, spawn_lasting_child,
 };
 use sidekicks_std::output_tail::{OUTPUT_CHUNK_BYTES, OutputTail};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
@@ -27,6 +27,9 @@ use tokio::process::{ChildStderr, ChildStdout, Command};
 use tokio::sync::{oneshot, watch};
 use tokio_tungstenite::tungstenite::{self, Message};
 
+use crate::driver::child_records::{
+    ChildRecord, DaemonChildRecords, RecordedChild, spawn_recorded_child,
+};
 use crate::process_exit::compose_process_exit;
 use crate::service_log::{open_provider_service_log, read_provider_service_log_tail};
 
@@ -39,9 +42,11 @@ const CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_VALUE: &str = "1";
 /// The `NAME=value` entry every lasting service and what it starts carries, which marks what a
 /// former daemon's service left running for `ProcessRecord::end_survivors`.
 pub(crate) fn codex_lasting_service_environment_entry() -> String {
-    format!(
-        "{CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_NAME}={CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_VALUE}"
-    )
+    [
+        CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_NAME,
+        CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_VALUE,
+    ]
+    .join("=")
 }
 
 /// The address Codex answers a shutdown request at, over its control socket.
@@ -96,8 +101,9 @@ fn share_service_exit(answer: oneshot::Receiver<io::Result<ProcessExit>>) -> Cod
     .shared()
 }
 
-/// One Codex service on an account home the daemon manages: a child of the daemon, prepared as
-/// every one is, killed when this handle drops, with the tail of what it printed kept for its exit.
+/// The capability read's Codex service: a child of the daemon, prepared as every one is and
+/// recorded in the daemon's child records until its reap, killed when this handle drops, with the
+/// tail of what it printed kept for its exit.
 pub(crate) struct ManagedCodexService {
     process_id: Option<u32>,
     // The end asked last; a kill is never replaced by a stop.
@@ -137,11 +143,13 @@ impl ManagedCodexService {
     }
 }
 
-/// Starts a Codex service on an account home the daemon manages, on `spawner`'s thread, prepared
-/// as every child of the daemon is, its standard input closed and both outputs kept in one tail.
-/// Fails with the spawn's error, or the spawner's when its thread has ended.
+/// Starts the capability read's Codex service on `spawner`'s thread, prepared as every child of
+/// the daemon is and recorded in `child_records` until its reap, its standard input closed and
+/// both outputs kept in one tail. Fails with the record's error, the spawn's, or
+/// the spawner's when its thread has ended.
 pub(crate) async fn start_managed_codex_service(
     spawner: &Spawner,
+    child_records: &Arc<dyn DaemonChildRecords>,
     launch: CodexProcessLaunch,
 ) -> io::Result<ManagedCodexService> {
     let mut command = launch.into_command();
@@ -149,15 +157,12 @@ pub(crate) async fn start_managed_codex_service(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let daemon_pid = std::process::id();
-    let child = spawner
-        .run(move || wrap_child_command(command, daemon_pid).spawn())
-        .await
-        .and_then(|spawned| spawned)?;
+    let RecordedChild { child, record } =
+        spawn_recorded_child(spawner, child_records, command).await?;
     let process_id = child.id();
     let (ends, ends_received) = watch::channel(None);
     let (exit, exit_received) = oneshot::channel();
-    tokio::spawn(own_managed_child(child, ends_received, exit));
+    tokio::spawn(own_managed_child(child, record, ends_received, exit));
     Ok(ManagedCodexService {
         process_id,
         ends,
@@ -165,10 +170,12 @@ pub(crate) async fn start_managed_codex_service(
     })
 }
 
-// Owns a managed service's child: ends it as asked, a dropped handle as a kill, and answers its
-// exit once it has exited and both its outputs have ended.
+// Owns a managed service's child: ends it as asked, a dropped handle as a kill, retires its record
+// once its reap saw it end, and answers its exit once it has exited and both its outputs have
+// ended.
 async fn own_managed_child(
     mut child: Box<dyn ChildWrapper>,
+    record: ChildRecord,
     mut ends: watch::Receiver<Option<ChildEnd>>,
     exit: oneshot::Sender<io::Result<ProcessExit>>,
 ) {
@@ -183,7 +190,7 @@ async fn own_managed_child(
     let waiting = async {
         let mut asked_end = None;
         let mut is_handle_held = true;
-        loop {
+        let waited = loop {
             tokio::select! {
                 biased;
                 status = child.wait() => break status.map(|status| (status, asked_end)),
@@ -214,7 +221,12 @@ async fn own_managed_child(
                     asked_end = Some(end);
                 }
             }
+        };
+        // A wait that failed leaves the record for the next start's sweep.
+        if waited.is_ok() {
+            record.retire().await;
         }
+        waited
     };
     let (waited, read) = tokio::join!(waiting, read_output_tail(standard_output, standard_error));
     let composed = match (waited, read) {
@@ -254,8 +266,8 @@ async fn read_output_tail(
     Ok(tail)
 }
 
-/// The lasting Codex service on the person's own Codex folder: a process that outlives the
-/// daemon, held by its pinned identity so a later daemon finds the same one again.
+/// A lasting Codex service, on the person's own Codex folder or an account home: a process that
+/// outlives the daemon, held by its pinned identity so a later daemon finds the same one again.
 pub(crate) struct LastingCodexService {
     process: PinnedProcess,
     record: ProcessRecord,
@@ -351,12 +363,13 @@ struct UnrecordedServiceError {
     output_tail: String,
 }
 
-/// Starts the lasting Codex service on the person's own Codex folder on `spawner`'s thread: its
-/// log begun again at `log_file`, the former start's tail kept beside it, taking the service's
-/// error output; a session or job of its own apart from the daemon's, pinned, then moved out of
-/// the daemon's scope where the system has one. The caller keeps its record in the folder's record
-/// file. Fails when the log cannot be opened, or the start cannot be spawned or pinned (on Windows
-/// a refused breakaway from the daemon's job among them), with the log's tail beside the cause.
+/// Starts a lasting Codex service, on the person's own Codex folder or an account home, on
+/// `spawner`'s thread: its log begun again at `log_file`, the former start's tail kept beside it,
+/// taking the service's error output; a session or job of its own apart from the daemon's, pinned,
+/// then moved out of the daemon's scope where the system has one. The caller keeps its record in
+/// the folder's record file. Fails when the log cannot be opened, or the start cannot be spawned
+/// or pinned (on Windows a refused breakaway from the daemon's job among them), with the log's
+/// tail beside the cause.
 pub(crate) async fn start_lasting_codex_service(
     spawner: &Spawner,
     mut launch: CodexProcessLaunch,

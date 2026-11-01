@@ -133,14 +133,18 @@ refusal_codes! {
         (InvalidArgument, 422);
     /// Agent does not exist in the session (`data.fields`: `agentId`).
     AgentNotFound = "agent.notFound" (NotFound, 404);
-    /// A provider-axis member on `agent.config.update` or `session.create` names something the
-    /// machine cannot honor: an unregistered driver, a model absent from the target driver's
+    /// A provider-axis member names something the machine cannot honor. `agent.config.update`
+    /// refuses an unregistered driver, a model absent from the target driver's
     /// `provider.model.list`, an effort absent from that model's `effortLevels`, a larger window
     /// (the `largerWindow` axis) the target model's catalog does not offer at that figure, an
     /// output-speed value absent from the `outputSpeedLevels` published for the
     /// target model (its own list where its provider publishes one per model, else the driver's),
     /// a session option the target driver does not declare, or a session option's value outside
     /// the target driver's declaration of it or one the provider reports this session cannot run.
+    /// `session.create` refuses an unregistered driver and a session option the driver does not
+    /// declare or whose value its declaration refuses; the model is the driver's to accept when it
+    /// starts the session, and an effort the model does not list is refused at the first run's
+    /// start.
     AgentProviderAxisInvalid = "agent.providerAxisInvalid" (InvalidArgument, 422);
     /// A change to a waiting message refused: a removal (`agent.queueItem.cancel`) or an edit
     /// (`agent.queueItem.create` with `replacesQueueItemId`) of a message the agent has already
@@ -221,10 +225,14 @@ refusal_codes! {
     ArtifactNotFound = "artifact.notFound" (NotFound, 404);
     /// `data.fields.reason` names which bound it hit.
     ArtifactTooLarge = "artifact.tooLarge" (ResourceExhausted, 413);
-    /// `attention.delivery.test` for a channel that is not set up.
+    /// `attention.delivery.test` for a channel that is not set up, or
+    /// `attention.webAddress.secret.rotate` with no web address saved.
     AttentionDeliveryNotConfigured = "attention.delivery.notConfigured" (FailedPrecondition, 409);
     /// The keychain holding a channel's secret is locked or unavailable.
     AttentionDeliveryStoreUnavailable = "attention.delivery.storeUnavailable" (Unavailable, 503);
+    /// `attention.webAddress.update` with text that is not an `http` or `https` address with a
+    /// host; nothing is saved.
+    AttentionWebAddressNotAnAddress = "attention.webAddress.notAnAddress" (InvalidArgument, 422);
     /// `connection.initialize` with the right session token from a process the daemon itself
     /// started outside the person's terminals, such as a command an agent ran, from one a provider
     /// service the daemon holds a connection to started, or from one the system could not name or
@@ -528,7 +536,8 @@ refusal_codes! {
     RepoMountReattachConflict = "repoMount.reattachConflict" (FailedPrecondition, 409);
     /// `repoMount.reattach` refused, writing nothing.
     RepoMountReattachRefused = "repoMount.reattachRefused" (FailedPrecondition, 409);
-    /// Canonical repository root could not be resolved for the supplied path.
+    /// A path's canonical repository root could not be resolved, or a folder a request named
+    /// (a mount, a clone's parent) names no complete location, does not exist or cannot be read.
     RepoMountRootResolutionFailed = "repoMount.rootResolutionFailed" (InvalidArgument, 422);
     /// A call the client canceled with `$/cancelRequest` before the daemon reached its commit
     /// point.

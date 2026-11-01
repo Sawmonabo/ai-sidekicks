@@ -38,7 +38,7 @@ impl OrphanSweepResult {
             None => tracing::info!(
                 killed = self.killed,
                 discarded = self.discarded,
-                "The terminal children a previous run left were swept."
+                "The children a previous run of the daemon left were swept."
             ),
             Some(cause) => tracing::warn!(
                 killed = self.killed,
@@ -130,7 +130,8 @@ fn skip(process_id: u32, error: &io::Error) -> bool {
     tracing::warn!(
         process_id,
         error = error as &(dyn std::error::Error + 'static),
-        "A terminal child a previous run left could not be read or killed, so it was skipped."
+        "A child a previous run of the daemon left could not be read or killed, so it was \
+         skipped."
     );
     false
 }

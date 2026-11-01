@@ -32,6 +32,7 @@ use crate::command::waiting_checks::InputWaitReader;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::AttachmentResolver;
+use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
@@ -44,6 +45,7 @@ use crate::spawn_environment::ReservedEnvironmentNames;
 pub mod attachments;
 pub mod callback_tool;
 pub mod capabilities;
+pub mod child_records;
 mod claude;
 mod codex;
 pub(crate) mod context_window;
@@ -54,7 +56,7 @@ pub mod diagnostics;
 pub mod error_causes;
 pub(crate) mod hook_pauses;
 pub mod idle_sleep;
-pub mod mcp_server_status;
+pub mod mcp_server;
 pub mod message_handing;
 pub mod ports;
 pub(crate) mod question_answers;
@@ -187,7 +189,7 @@ pub fn descriptor_of(provider_id: &str) -> Option<&'static ProviderDescriptor> {
 }
 
 impl ProviderDescriptor {
-    /// The provider's name as a person reads it.
+    /// The provider's name as a person reads it, which a session's lead agent is named.
     pub fn name(&self) -> &'static str {
         self.name
     }
@@ -491,6 +493,9 @@ pub struct DriverServices {
     pub pending_compactions: PendingCompactionRegistry,
     /// Which provider process runs each session, which each driver writes at spawn and exit.
     pub processes: Arc<ProviderProcessRegistry>,
+    /// The daemon's record of its own children, which every provider process a driver starts as
+    /// the daemon's child is recorded in, so a start after the daemon died ends it.
+    pub child_records: Arc<dyn DaemonChildRecords>,
     /// The processes serving the provider services the daemon holds a connection to, which each
     /// driver's dial holds and the daemon's caller check reads.
     pub provider_services: Arc<ProviderServiceProcesses>,

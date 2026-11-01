@@ -93,6 +93,8 @@ async fn read_session(
         created_at,
         updated_at,
         max_steps_per_turn,
+        permission_level,
+        session_mode,
         tags,
     } = session;
     let addresses = sources.addresses.addresses_of(&session_id, place.as_ref());
@@ -110,6 +112,8 @@ async fn read_session(
             draft,
             attachments,
             max_steps_per_turn,
+            permission_level,
+            session_mode,
             addresses,
             tags,
         },

@@ -119,7 +119,9 @@ lifecycle_payload! {
 pub struct WorkspaceExecutionRootPrepareRequest {
     /// The workspace.
     pub workspace_id: WorkspaceId,
-    /// The branch; omitting it draws `workspace.branchNameRequired` before any git call.
+    /// The branch. A `provisionedWorktree` workspace with none is refused
+    /// `workspace.branchNameRequired` before any git call; a `boundRoot` workspace binds its stored
+    /// folder and needs none.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

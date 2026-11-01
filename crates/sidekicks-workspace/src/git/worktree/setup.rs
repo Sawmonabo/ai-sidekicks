@@ -33,6 +33,7 @@ use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 use sidekicks_contracts::worktree::setup::{
     WorktreeSetupStage, WorktreeSetupState, WorktreeSetupStatus, WorktreeSetupStepState,
 };
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::{Spawner, command_shell};
 use sidekicks_std::elapsed::elapsed_ms_since;
 use sidekicks_std::error_description::describe_error;
@@ -106,6 +107,20 @@ pub enum WorktreeSetupError {
     RunEnded(#[source] JoinError),
 }
 
+impl From<WorktreeSetupError> for HandlerError {
+    /// A refusal is answered with its code; every other failure is a fault.
+    fn from(error: WorktreeSetupError) -> Self {
+        match error {
+            WorktreeSetupError::Refused(refusal) => Self::Refused(refusal.into()),
+            fault @ (WorktreeSetupError::TreeNeverMade
+            | WorktreeSetupError::Read(_)
+            | WorktreeSetupError::Folder(_)
+            | WorktreeSetupError::CommandsNotEnded(_)
+            | WorktreeSetupError::RunEnded(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
+}
+
 /// Where the setup reads what other owners keep: the worktree's rows, its project's setup steps
 /// and the environment its commands start with.
 pub trait WorktreeSetupSources: Send + Sync {
@@ -150,7 +165,7 @@ pub struct WorktreeSetupRunnerDeps<W = RecommendedWatcher> {
 }
 
 /// Called with a tree's whole card each time it changes.
-pub(crate) type WorktreeSetupListener = Arc<dyn Fn(WorktreeSetupStatus) + Send + Sync>;
+pub type WorktreeSetupListener = Arc<dyn Fn(WorktreeSetupStatus) + Send + Sync>;
 
 /// The setup card of every tree being set up since the daemon started, its runs and its retries.
 pub struct WorktreeSetupRunner<W = RecommendedWatcher> {
@@ -158,19 +173,11 @@ pub struct WorktreeSetupRunner<W = RecommendedWatcher> {
 }
 
 /// Sends each change of one tree's card to its listener until it drops.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the setup card's subscribe handler")
-)]
-pub(crate) struct WorktreeSetupSubscription {
+pub struct WorktreeSetupSubscription {
     // `None` for a tree with no card, which nothing changes.
     attached: Option<AttachedListener>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the setup card's subscribe handler")
-)]
 struct AttachedListener {
     state: Weak<Mutex<RunnerState>>,
     worktree_id: WorktreeId,
@@ -372,11 +379,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// A tree with no card, whose setup did not run since the daemon started, is called back once
     /// with `notRun` and no steps. Fails with `worktree.notFound` for a tree with no row, and with
     /// `Read` when its row cannot be read.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the setup card's subscribe handler")
-    )]
-    pub(crate) async fn subscribe(
+    pub async fn subscribe(
         &self,
         worktree_id: WorktreeId,
         on_change: WorktreeSetupListener,
@@ -418,11 +421,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// kept for the next read that succeeds. Fails with
     /// `worktree.notFound` when the tree has no card, and `TreeNeverMade` when its tree was never
     /// made.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the setup card's retry handler")
-    )]
-    pub(crate) async fn retry(
+    pub async fn retry(
         &self,
         worktree_id: WorktreeId,
     ) -> Result<WorktreeSetupStatus, WorktreeSetupError> {
@@ -566,8 +565,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
 
     /// Forgets the card of every tree whose retirement is recorded; every path that retires a tree
     /// calls it once the retirement is written. A failed read of the rows is logged.
-    #[expect(dead_code, reason = "the paths that retire a tree")]
-    pub(crate) async fn forget_retired(&self) {
+    pub async fn forget_retired(&self) {
         let worktree_ids: Vec<WorktreeId> = self.shared.lock().cards.keys().copied().collect();
         if worktree_ids.is_empty() {
             return;
@@ -885,7 +883,7 @@ async fn end_all(
         .map_err(WorktreeSetupError::CommandsNotEnded)
 }
 
-#[cfg(test)]
-pub(crate) mod test_runner;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_runner;
 #[cfg(test)]
 mod tests;

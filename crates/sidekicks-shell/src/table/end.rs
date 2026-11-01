@@ -13,6 +13,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::TerminalCloseRequest;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::child_records::DaemonChildRecords as _;
 use sidekicks_terminal::{TerminalError, TerminalHandle, Terminals};
 
 use crate::integration::injection::ShellMarkNonce;
@@ -189,6 +190,7 @@ pub(super) async fn let_shell_go(
 
 #[cfg(test)]
 mod tests {
+    use sidekicks_provider::driver::child_records::DaemonChildRecords as _;
     use sidekicks_terminal::TerminalError;
 
     use super::let_shell_go;

@@ -18,8 +18,8 @@ use sidekicks_contracts::session::methods::SessionFileSearchEntryKind;
 use sidekicks_platforms::path_from_program_output;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::retry::read::{is_retryable_read_failure, read_with_one_retry};
-use sidekicks_workspace::git::GITLINK_MODE;
 use sidekicks_workspace::git::process::{GitCall, GitError, GitRunner};
+use sidekicks_workspace::git::{GIT_ENTRY_NAME, GITLINK_MODE};
 use tokio::task::JoinError;
 
 /// The listing inside a working tree: tracked entries and the untracked ones the repository does
@@ -50,9 +50,6 @@ const MODE_LENGTH: usize = 6;
 
 /// What git prints, in the C locale the runner sets, for a folder outside any working tree.
 const OUTSIDE_WORKING_TREE_STDERR: &str = "not a git repository";
-
-/// The repository's own folder, never a folder of the working folder.
-const GIT_FOLDER_NAME: &str = ".git";
 
 /// A folder's rules file, which git reads only as a regular file, never through a link.
 const RULES_FILE_NAME: &str = ".gitignore";
@@ -357,7 +354,7 @@ impl FolderRules {
             return false;
         }
         let is_entry_folder = is_folder(entry);
-        if is_entry_folder && entry.file_name() == GIT_FOLDER_NAME {
+        if is_entry_folder && entry.file_name() == GIT_ENTRY_NAME {
             return false;
         }
         let Some(parent) = entry.path().parent() else {

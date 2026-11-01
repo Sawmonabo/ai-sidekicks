@@ -523,6 +523,7 @@ methods! {
                 ProviderUnavailable,
                 ProviderTimeout,
                 SessionPermissionLevelNotOffered,
+                WorkspaceRootUnavailable,
             ],
         },
         /// Sets the session's mode.

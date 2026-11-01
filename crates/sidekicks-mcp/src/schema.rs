@@ -8,6 +8,7 @@ use sidekicks_contracts::mcp::server::{McpApprovalMode, McpBindingScope};
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
 
+use crate::binding::store::PROJECT_SWITCH_SCOPES;
 use crate::client::tasks::McpTaskGeneration;
 use crate::client::tasks::recorder::MCP_TASK_ID_MAX_LENGTH;
 use crate::command_receipts::{CommandAcceptance, CommandOutcome};
@@ -93,8 +94,7 @@ fn mcp_governance_schema_sql() -> String {
         sql_list_of([McpBindingScope::User, McpBindingScope::Managed].map(<&str>::from));
     let scopes_with_place =
         sql_list_of([McpBindingScope::Project, McpBindingScope::Local].map(<&str>::from));
-    let switchable_scopes =
-        sql_list_of([McpBindingScope::Connector, McpBindingScope::Managed].map(<&str>::from));
+    let switchable_scopes = sql_list_of(PROJECT_SWITCH_SCOPES.map(<&str>::from));
     let managed = <&'static str>::from(McpBindingScope::Managed);
     let approval_modes = sql_list_of_every::<McpApprovalMode>();
     let idempotency_classes = sql_list_of_every::<McpAssignableIdempotencyClass>();

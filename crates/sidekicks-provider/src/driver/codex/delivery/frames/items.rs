@@ -356,7 +356,7 @@ impl CodexFrameDelivery {
             && thread_id != record.thread_id
         {
             match record.child_run_on(thread_id) {
-                ChildRunLookup::Started { run, .. } => {
+                ChildRunLookup::Bound { run, .. } => {
                     return Some(CodexItemRun {
                         turn_id: turn_id.to_owned(),
                         row: run,

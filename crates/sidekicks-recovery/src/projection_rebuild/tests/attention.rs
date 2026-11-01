@@ -8,8 +8,7 @@ use rusqlite::params;
 use serde_json::{Value, json};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowNotifyNotice};
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_session::attention::projection::notify_entry_statements;
 use sidekicks_session::attention::rebuild::AttentionEntriesProjection;
@@ -87,7 +86,7 @@ async fn a_rebuild_writes_the_entries_the_live_writes_kept_and_keeps_their_deliv
         &WorkflowNodeId::new(NODE.to_owned()).expect("a test node id"),
         SafeInt::ZERO,
         "018f0000-0000-7000-8000-0000000000aa",
-        &NonEmptyText::new("Deployed".to_owned()).expect("a test notice"),
+        &WorkflowNotifyNotice::new("Deployed".to_owned()).expect("a test notice"),
         "2020-01-01T09:03:00.000Z",
     );
     log.append_with(

@@ -10,6 +10,7 @@
 pub(crate) mod aggregate;
 pub mod banner_launcher;
 pub mod changes;
+pub mod delivery;
 pub(crate) mod gate;
 pub(crate) mod moment;
 pub mod projection;

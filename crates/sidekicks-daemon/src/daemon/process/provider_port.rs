@@ -1,17 +1,22 @@
 //! The session directory's answers to the providers as the daemon's start builds them: the project
 //! records its reads share, the port that resolves each provider process's spawn context and
-//! records each relaunch, and the queue's composer of a session's opening.
+//! records each relaunch, and the queue's composer of a session's opening with each binding's
+//! function legs.
 
 use std::error::Error;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use sidekicks_mcp::binding::resolver::McpAttributionTable;
+use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_provider::driver::SessionSpawnContextResolver;
 use sidekicks_provider::driver::ports::{DriverPorts, SessionRelaunchListener};
-use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
-use sidekicks_queue::provider_session::{ProviderSessionOpening, ProviderSessionOpeningComposer};
+use sidekicks_queue::provider_session::{
+    GitFolderReadError, ProviderSessionGitFolderReader, ProviderSessionOpening,
+    ProviderSessionOpeningComposer,
+};
 use sidekicks_session::directory::provider_port::{
-    SessionDirectoryProviderPort, SessionDirectoryProviderPortDeps,
+    SessionDirectoryProviderPort, SessionDirectoryProviderPortDeps, SessionGitFolder,
 };
 use sidekicks_session::directory::run_activity::ProjectSessionActivityReader;
 use sidekicks_session::plan_holds::PlanHolds;
@@ -39,6 +44,10 @@ pub(crate) struct ProviderPortStart<'start> {
     pub(crate) plan_holds: &'start dyn PlanHolds,
     /// The ports the drivers read, on which the port registers.
     pub(crate) ports: &'start DriverPorts,
+    /// The keeper of every MCP binding's status, on which each process's leg is opened.
+    pub(crate) mcp_status: Arc<McpServerStatusTracker>,
+    /// Which binding each server name a session reports resolves to at its root.
+    pub(crate) mcp_attribution: Arc<McpAttributionTable>,
 }
 
 /// The session directory's answers to the providers, and the project records they read.
@@ -47,6 +56,8 @@ pub(crate) struct ProviderPort {
     pub(crate) project_records: Arc<ProjectRecords>,
     /// Composes a session's opening from its lead, for the queue.
     pub(crate) compose_opening: ProviderSessionOpeningComposer,
+    /// Reads a session's git folder, for the queue's level moves and run gates.
+    pub(crate) read_git_folder: ProviderSessionGitFolderReader,
 }
 
 /// Builds the project records and the session directory's port over `start`, and registers the
@@ -63,6 +74,8 @@ pub(crate) fn build_provider_port(
         settings,
         plan_holds,
         ports,
+        mcp_status,
+        mcp_attribution,
     } = start;
     let project_records = Arc::new(ProjectRecords::new(
         Arc::clone(&reads),
@@ -77,6 +90,8 @@ pub(crate) fn build_provider_port(
             settings,
             project_records: Arc::clone(&project_records),
             provider_accounts: Arc::clone(&ports.provider_accounts),
+            mcp_status,
+            mcp_attribution,
         },
     ));
     ports
@@ -87,12 +102,12 @@ pub(crate) fn build_provider_port(
         .register(Arc::clone(&port) as Arc<dyn SessionRelaunchListener>)?;
     Ok(ProviderPort {
         project_records,
-        compose_opening: compose_opening(port),
+        compose_opening: compose_opening(Arc::clone(&port)),
+        read_git_folder: read_git_folder(port),
     })
 }
 
-// A session's opening as `port` composes it. No leg is handed a status sink of its tool servers,
-// since nothing in the daemon produces one for a binding yet.
+// A session's opening as `port` composes it, each binding's function legs among it.
 fn compose_opening(port: Arc<SessionDirectoryProviderPort>) -> ProviderSessionOpeningComposer {
     Arc::new(move |session_id, provider_account_id| {
         let port = Arc::clone(&port);
@@ -104,8 +119,25 @@ fn compose_opening(port: Arc<SessionDirectoryProviderPort>) -> ProviderSessionOp
                 provider: opening.provider,
                 git_folder: opening.git_folder,
                 create_params: opening.create_params,
-                function_legs_for: Arc::new(|_| ResumeFunctionLegs::default()),
+                function_legs_for: opening.function_legs_for,
             })
+        }
+        .boxed()
+    })
+}
+
+// A session's git folder as `port` reads it, unavailable where the port says the session has none.
+fn read_git_folder(port: Arc<SessionDirectoryProviderPort>) -> ProviderSessionGitFolderReader {
+    Arc::new(move |session_id| {
+        let port = Arc::clone(&port);
+        async move {
+            match port.read_git_folder(session_id).await {
+                Ok(SessionGitFolder::Available(git_folder)) => Ok(git_folder),
+                Ok(SessionGitFolder::Unavailable(why)) => {
+                    Err(GitFolderReadError::Unavailable(Box::new(why)))
+                }
+                Err(failure) => Err(GitFolderReadError::Failed(Box::new(failure))),
+            }
         }
         .boxed()
     })

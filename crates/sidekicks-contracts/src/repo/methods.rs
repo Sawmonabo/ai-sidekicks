@@ -57,7 +57,7 @@ methods! {
             mutating: false,
             params: RepoMountRequest,
             result: RepoMountReadResponse,
-            refusals: [RepoMountNotFound],
+            refusals: [RepoMountNotFound, RepoMountRootResolutionFailed],
         },
         /// Every folder the service can reach.
         RepoMountList = query "repoMount.list" {
@@ -80,6 +80,7 @@ methods! {
             result: RepoMountReattachResponse,
             refusals: [
                 RepoMountNotFound,
+                RepoMountManaged,
                 RepoMountReattachRefused,
                 RepoMountReattachConflict,
                 RepoMountRootResolutionFailed,
@@ -109,6 +110,8 @@ methods! {
                 RepoMountManaged,
                 RepoMountOutsideTrustEnvelope,
                 WorkspaceModeUnsupported,
+                WorkspaceRootUnavailable,
+                RepoMountRootResolutionFailed,
             ],
         },
         /// A session's workspaces.
@@ -249,8 +252,11 @@ methods! {
             refusals: [
                 WorkspaceNotFound,
                 WorkspaceBranchNameRequired,
+                WorkspaceModeUnsupported,
                 WorkspaceRootUnavailable,
                 WorkspacePreparationFailed,
+                RepoMountNotFound,
+                RepoMountRootResolutionFailed,
                 WorktreeBranchCollision,
                 WorktreeCreateFailed,
             ],

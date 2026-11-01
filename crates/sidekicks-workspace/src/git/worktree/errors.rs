@@ -252,7 +252,7 @@ impl From<WorktreeRefusal> for DomainError {
         DomainError {
             message,
             code,
-            detail: Some(detail),
+            detail: Some(Box::new(detail)),
             source,
         }
     }

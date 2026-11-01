@@ -19,8 +19,7 @@ use sidekicks_contracts::attention::{AttentionBannerState, AttentionSeverity, At
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
+use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowNotifyNotice};
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
@@ -186,7 +185,7 @@ pub fn notify_entry_statements(
     node_id: &WorkflowNodeId,
     execution_index: SafeInt<0>,
     started_event_id: &str,
-    notice: &NonEmptyText,
+    notice: &WorkflowNotifyNotice,
     occurred_at: &str,
 ) -> Vec<WriteStatement> {
     let moment_id = AttentionMoment::Notify {

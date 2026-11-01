@@ -50,10 +50,6 @@ pub(crate) enum RepoMountIdentityObservation {
 }
 
 /// The `workspaces` facts a workspace's health reads.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the workspace list's health projection")
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct WorkspaceHealthRow<'row> {
     /// The row's state.
@@ -65,10 +61,6 @@ pub(crate) struct WorkspaceHealthRow<'row> {
 }
 
 /// One workspace's health: the state to report, and whether the service must persist it.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the workspace list's health projection")
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkspaceHealthProjection {
     /// The row's state, or `rootLost` when the probe found the root unavailable.
@@ -196,10 +188,6 @@ pub(crate) fn is_probe_bearing(state: WorkspaceState) -> bool {
 /// A workspace's health from its row and the probe of its root, which a state that owes a probe
 /// requires and every other state refuses. A reachable probe never heals a `rootLost` workspace:
 /// such a row owes no probe.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the workspace list's health projection")
-)]
 pub(crate) fn compute_workspace_health(
     workspace_row: &WorkspaceHealthRow<'_>,
     probe: Option<&FilesystemPathProbe>,

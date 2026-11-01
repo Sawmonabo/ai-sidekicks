@@ -19,6 +19,7 @@ use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
 use sidekicks_platforms::Spawner;
 use sidekicks_std::mutex_lock::lock;
 
+use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::process::{
     ClaudeCodeProcess, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeTurnHolds,
@@ -101,6 +102,7 @@ impl From<ClaudeLaunchError> for DriverError {
 /// Starts every Claude Code process and keeps the live ones, so the daemon's stop ends them all.
 pub(crate) struct ClaudeProcessLauncher {
     spawner: Spawner,
+    child_records: Arc<dyn DaemonChildRecords>,
     processes: Arc<ProviderProcessRegistry>,
     control_only_folder: PathBuf,
     live: Mutex<LiveProcesses>,
@@ -114,15 +116,18 @@ struct LiveProcesses {
 }
 
 impl ClaudeProcessLauncher {
-    /// A launcher spawning on `spawner`'s thread, counting each spawn in `processes`, whose
-    /// processes that keep nothing run in a folder under `data_folder`.
+    /// A launcher spawning on `spawner`'s thread, recording each process in `child_records` and
+    /// counting each spawn in `processes`, whose processes that keep nothing run in a folder under
+    /// `data_folder`.
     pub(crate) fn new(
         spawner: Spawner,
+        child_records: Arc<dyn DaemonChildRecords>,
         processes: Arc<ProviderProcessRegistry>,
         data_folder: &Path,
     ) -> Self {
         Self {
             spawner,
+            child_records,
             processes,
             control_only_folder: CLAUDE_CONTROL_ONLY_FOLDER
                 .iter()
@@ -144,9 +149,16 @@ impl ClaudeProcessLauncher {
             return Err(ClaudeLaunchError::Stopping);
         }
         let process = Arc::new(
-            ClaudeCodeProcess::start(&self.spawner, &self.processes, launch, listener, turn_holds)
-                .await
-                .map_err(ClaudeLaunchError::Spawn)?,
+            ClaudeCodeProcess::start(
+                &self.spawner,
+                &self.child_records,
+                &self.processes,
+                launch,
+                listener,
+                turn_holds,
+            )
+            .await
+            .map_err(ClaudeLaunchError::Spawn)?,
         );
         let is_stopped = {
             let mut live = self.lock();

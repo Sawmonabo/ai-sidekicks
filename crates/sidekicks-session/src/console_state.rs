@@ -30,10 +30,6 @@ use crate::directory::lookups::write_while_session_exists;
 /// advisor: a model, or `NULL` for off. Never written for an unpicked session, whose advisor the
 /// provider resolves at its first start. It binds the session id, the advisor and the time, in
 /// that order.
-#[expect(
-    dead_code,
-    reason = "session creation storing the advisor the person picked"
-)]
 pub(crate) const INSERT_CONSOLE_STATE_SQL: &str = "INSERT INTO session_console_state
   (session_id, advisor_model, advisor_set, updated_at) VALUES (?, ?, 1, ?)";
 

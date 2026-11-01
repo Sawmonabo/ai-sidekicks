@@ -1,6 +1,9 @@
 //! Where a driver hands a provider's permission ask once the run engine admitted it, so the
 //! approval pipeline asks the person and answers through the driver's `respond_to_request`.
 
+#[cfg(test)]
+pub(crate) mod test_port;
+
 use std::error::Error;
 use std::path::PathBuf;
 

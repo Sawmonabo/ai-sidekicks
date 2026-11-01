@@ -13,7 +13,8 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowContentHash, WorkflowDefinitionId, WorkflowNodeKindId, WorkflowVersionId,
+    WORKFLOW_NAME_MAX_LEN, WorkflowContentHash, WorkflowDefinitionId, WorkflowName,
+    WorkflowNodeKindId, WorkflowVersionId,
 };
 use sidekicks_contracts::workflow::definition::methods::{
     WorkflowDefinitionLastRun, WorkflowDefinitionListCursor, WorkflowDefinitionListRequest,
@@ -22,6 +23,7 @@ use sidekicks_contracts::workflow::definition::methods::{
     WorkflowWebhookLastFire,
 };
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
@@ -248,17 +250,23 @@ impl<'connection> WorkflowLibrary<'connection> {
         })
     }
 
-    /// The first of `<name> copy`, `<name> copy 2`, `<name> copy 3` and on that no workflow holds.
-    /// Fails only when SQLite fails a read.
-    pub(crate) fn first_free_duplicate_name(&self, name: &str) -> rusqlite::Result<String> {
-        let first_candidate = format!("{name} copy");
-        let mut candidate = first_candidate.clone();
+    /// The first of `<name> copy`, `<name> copy 2`, `<name> copy 3` and on that no workflow holds,
+    /// `name` cut short where the whole would pass a workflow name's bound. Fails only when SQLite
+    /// fails a read.
+    pub(crate) fn first_free_duplicate_name(&self, name: &str) -> rusqlite::Result<WorkflowName> {
+        let mut suffix = String::from(" copy");
         let mut ordinal: u64 = 2;
-        while self.is_name_held(&candidate, None)? {
-            candidate = format!("{first_candidate} {ordinal}");
+        loop {
+            // The suffix is ASCII, so its byte length is its count of code points.
+            let base = cut_to_code_points(name, WORKFLOW_NAME_MAX_LEN - suffix.len());
+            let candidate = format!("{base}{suffix}");
+            if !self.is_name_held(&candidate, None)? {
+                return Ok(WorkflowName::new(candidate)
+                    .expect("a cut name and its suffix fit a workflow name's bound"));
+            }
+            suffix = format!(" copy {ordinal}");
             ordinal += 1;
         }
-        Ok(candidate)
     }
 
     /// One definition at the version the request names, else at its latest, with its document,

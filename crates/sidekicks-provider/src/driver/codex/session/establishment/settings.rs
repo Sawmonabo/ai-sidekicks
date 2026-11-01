@@ -1,6 +1,6 @@
 //! The settings a Codex session's conversation is started and resumed with: its folder, level,
 //! profile folders, the commands' environment, its helpers' role files and its tool servers,
-//! resolved afresh at every start and resume.
+//! resolved afresh at every start and resume, with the session's step bound read beside them.
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
@@ -37,15 +37,22 @@ pub(super) struct CodexSettingsRequest<'params> {
     pub(super) provider_account_id: &'params ProviderAccountId,
 }
 
+/// A conversation's settings, and the session's own bound on the steps one turn may take, both
+/// read from one resolve of where the session runs.
+pub(super) struct CodexComposedSettings {
+    pub(super) thread_settings: CodexThreadSettings,
+    pub(super) step_bound: Option<SafeInt<1>>,
+}
+
 impl CodexSessionEstablishment {
-    /// The settings a session's conversation runs with, resolved afresh at every start and
-    /// resume, with its helpers' role files written again. Fails with `CodexError::DriverConfig`
-    /// with no posture, since every conversation runs at a level, and as the context, the
-    /// credential list, the environment or the role files fail.
+    /// The settings a session's conversation runs with and its step bound, resolved afresh at
+    /// every start and resume, with its helpers' role files written again. Fails with
+    /// `CodexError::DriverConfig` with no posture, since every conversation runs at a level, and as
+    /// the context, the credential list, the environment or the role files fail.
     pub(super) async fn compose_thread_settings(
         &self,
         request: CodexSettingsRequest<'_>,
-    ) -> Result<CodexThreadSettings, CodexError> {
+    ) -> Result<CodexComposedSettings, CodexError> {
         let posture = require_execution_posture(request.execution_posture)?;
         let dependencies = &self.dependencies;
         let spawn_contexts = &dependencies.spawn_contexts;
@@ -100,7 +107,7 @@ impl CodexSessionEstablishment {
         .await
         .map_err(CodexError::Driver)?;
         report_withheld_definition_fields(definitions, request.provider_account_id);
-        Ok(CodexThreadSettings {
+        let thread_settings = CodexThreadSettings {
             session_id: request.session_id,
             working_directory: context.working_directory.clone(),
             model: request.model.to_owned(),
@@ -128,6 +135,10 @@ impl CodexSessionEstablishment {
             tool_servers: request.tool_servers.map(<[_]>::to_vec).unwrap_or_default(),
             // The daemon's spawn context carries no instructions for a conversation.
             base_instructions: None,
+        };
+        Ok(CodexComposedSettings {
+            thread_settings,
+            step_bound: context.step_bound,
         })
     }
 }

@@ -20,9 +20,11 @@ use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service_whose_start_waits;
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::slots::CodexSessionSlots;
+use crate::driver::codex::session::test_fixture::relaunches::{
+    RefusedRelaunchStep, TakenRelaunches,
+};
 use crate::driver::codex::session::test_fixture::{
-    RefusedRelaunchStep, TEST_THREAD, TakenRelaunches, TestCodexSession, TestCodexTask, fork_reply,
-    no_turns,
+    TEST_THREAD, TestCodexSession, TestCodexTask, fork_reply, no_turns,
 };
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
@@ -31,6 +33,7 @@ use crate::driver::session_control::ProviderBuildChange;
 use crate::driver::test_registry::new_run_id;
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
+use crate::runtime_binding::resume::ResumeFunctionLegs;
 
 // What the stand-ins for the reviewer denials and the queue heard, in order, each with the turn
 // ends the run engine took before it, and what held each gone session's slot as the queue heard.
@@ -119,6 +122,7 @@ fn test_recovery(
     let relaunches: Arc<dyn SessionRelaunchListener> = Arc::new(TakenRelaunches {
         heard: Box::new(move |step| heard.push(step)),
         refused,
+        legs: ResumeFunctionLegs::default(),
     });
     session_relaunched
         .register(relaunches)
@@ -732,19 +736,27 @@ async fn an_account_service_s_build_move_records_its_resume_under_the_binding_it
 // under a bound.
 #[tokio::test]
 async fn an_account_service_s_build_move_its_new_build_refuses_lets_the_record_go() {
-    tokio::time::timeout(Duration::from_secs(30), async {
-        let (session, _folder, steps, recovery) = account_build_move_session().await;
+    tokio::time::timeout(
+        Duration::from_secs(30),
+        Box::pin(async {
+            let (session, _folder, steps, recovery) = account_build_move_session().await;
 
-        let (moved, task) = move_account_service_build(session, &recovery, refuse_resumes).await;
+            let (moved, task) = Box::pin(move_account_service_build(
+                session,
+                &recovery,
+                refuse_resumes,
+            ))
+            .await;
 
-        moved.expect("the build move ends");
-        assert_eq!(task.let_go_exits, [CodexRecordExit::SessionContinues]);
-        assert_eq!(
-            steps.holders_at_gone(),
-            [None],
-            "the queue hears once, the slot empty"
-        );
-    })
+            moved.expect("the build move ends");
+            assert_eq!(task.let_go_exits, [CodexRecordExit::SessionContinues]);
+            assert_eq!(
+                steps.holders_at_gone(),
+                [None],
+                "the queue hears once, the slot empty"
+            );
+        }),
+    )
     .await
     .expect("the build move ends within the bound");
 }

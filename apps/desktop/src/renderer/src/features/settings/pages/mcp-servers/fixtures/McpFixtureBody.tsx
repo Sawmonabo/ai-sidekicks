@@ -19,8 +19,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type {
   McpServerBindingRef,
   McpServerInventoryEntry,
-  McpToolOverrideFacet,
 } from "@ai-sidekicks/contracts/mcp/server";
+import type { McpToolOverrideFacet } from "@ai-sidekicks/contracts/mcp/tool-settings";
 import {
   PROVIDER_LABELS,
   PROVIDER_NAMES,

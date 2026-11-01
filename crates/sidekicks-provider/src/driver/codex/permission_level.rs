@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use sidekicks_contracts::provider::driver::capabilities::ProviderMode;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_workspace::git::GIT_ENTRY_NAME;
 use strum::VariantArray;
 
 use crate::command::channel::REQUESTS_FOLDER;
@@ -294,7 +295,7 @@ fn compose_repository_entries(
     let Some(git_common_folder) = folders.git_common_folder.as_deref() else {
         return Vec::new();
     };
-    let pointer = folders.working_directory.join(".git");
+    let pointer = folders.working_directory.join(GIT_ENTRY_NAME);
     let mut entries = vec![
         (
             compose_path_key(git_common_folder),

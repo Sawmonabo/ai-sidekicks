@@ -119,7 +119,7 @@ async fn a_rule_remembered_in_a_skipped_range_is_not_in_force() {
     let in_force = query_rule_rows(&reader, &SELECT_RULES_IN_FORCE_SQL, session_id)
         .expect("the rules in force read");
 
-    assert!(rule_over(&in_force, ProviderAskActionKind::Command, "npm run").is_none());
+    assert!(rule_over(&in_force, ProviderAskActionKind::Command, "npm run", None).is_none());
     assert_eq!(
         in_force
             .iter()

@@ -12,9 +12,7 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 
-use crate::driver::codex::app_server_protocol::{
-    ThreadApproveGuardianDeniedActionParams, ThreadResumeParams,
-};
+use crate::driver::codex::app_server_protocol::ThreadApproveGuardianDeniedActionParams;
 use crate::driver::codex::event_normalizer::CODEX_THREAD_SETTINGS_UPDATED_METHOD;
 use crate::driver::codex::permission_level::compose_codex_level_settings;
 use crate::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
@@ -25,14 +23,15 @@ use crate::driver::codex::session::inbound::CodexSessionCall;
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::thread::settings::{
-    CodexThreadSettingsUpdateParams, compose_codex_collaboration_mode, compose_codex_level_config,
+    CodexThreadSettingsUpdateParams, compose_codex_bare_thread_resume_params,
+    compose_codex_collaboration_mode, compose_codex_level_config,
 };
+use crate::driver::codex::thread::view::THREAD_RESUME_METHOD;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 use crate::driver::run_control::OverrideDenialParams;
 use crate::driver::session_control::UpdatePermissionLevelParams;
 
 const THREAD_SETTINGS_UPDATE_METHOD: &str = "thread/settings/update";
-const THREAD_RESUME_METHOD: &str = "thread/resume";
 const APPROVE_GUARDIAN_DENIED_ACTION_METHOD: &str = "thread/approveGuardianDeniedAction";
 
 /// Moves the conversation `thread_id` to `mode` from its next turn, as Codex's own collaboration
@@ -234,7 +233,7 @@ async fn send_approval(
         connection
             .request(
                 THREAD_RESUME_METHOD,
-                &compose_bare_resume(thread_id.clone()),
+                &compose_codex_bare_thread_resume_params(thread_id.clone()),
             )
             .await?;
     }
@@ -245,30 +244,6 @@ async fn send_approval(
         )
         .await?;
     Ok(())
-}
-
-// A resume that loads the conversation as it stands, its turns left out of the reply.
-fn compose_bare_resume(thread_id: String) -> ThreadResumeParams {
-    ThreadResumeParams {
-        approval_policy: None,
-        approvals_reviewer: None,
-        base_instructions: None,
-        config: None,
-        cwd: None,
-        developer_instructions: None,
-        exclude_turns: Some(true),
-        history: None,
-        initial_turns_page: None,
-        model: None,
-        model_provider: None,
-        path: None,
-        permissions: None,
-        personality: None,
-        runtime_workspace_roots: None,
-        sandbox: None,
-        service_tier: None,
-        thread_id,
-    }
 }
 
 #[cfg(test)]
@@ -304,6 +279,7 @@ mod tests {
         let params = UpdatePermissionLevelParams {
             session_id: session.task.record.session_id,
             execution_posture: handed.clone(),
+            is_provider_reported: false,
         };
         let config_forks = Arc::clone(&session.task.calls.runs.config_forks);
         let record = &mut session.task.record;

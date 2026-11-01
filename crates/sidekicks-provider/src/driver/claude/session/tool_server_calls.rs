@@ -171,6 +171,7 @@ mod tests {
     use crate::driver::claude::session::transport::channel::MockClaudeProcessChannel;
     use crate::driver::claude::session::transport::inbound::ClaudeMcpMessage;
     use crate::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
+    use crate::driver::test_registry::fixed_session_id;
     use crate::port::in_process_tool_servers::{
         InProcessToolServerError, InProcessToolServerOutbound, InProcessToolServers,
     };
@@ -255,8 +256,7 @@ mod tests {
                 async { ClaudeWriteAttempt::Written }.boxed()
             });
         ClaudeToolServerCallContext {
-            session_id: SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d")
-                .expect("a valid session id"),
+            session_id: fixed_session_id(),
             provider_account_id: test_provider_account_id(),
             channel: Arc::new(channel),
             servers,

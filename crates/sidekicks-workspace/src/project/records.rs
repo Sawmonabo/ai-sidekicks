@@ -27,6 +27,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::EntryIdentity;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -118,6 +119,13 @@ pub enum ProjectReadError {
     /// The read pool is closed, a connection did not open, or the read's task did not finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+}
+
+impl From<ProjectReadError> for HandlerError {
+    /// A failed read is a fault.
+    fn from(error: ProjectReadError) -> Self {
+        Self::Internal(Box::new(error))
+    }
 }
 
 /// One project as the list holds it: its entry and when it was made, which orders the list.
@@ -590,27 +598,57 @@ impl ProjectRecords {
             .await
     }
 
+    /// The folder of the project `session_id` sits in, or `None` for a chat, a session whose
+    /// project was forgotten or one whose project has no attached mount. Fails as the read fails.
+    pub async fn read_project_root_of_session(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<AttachedProjectRoot>, ProjectReadError> {
+        self.reads
+            .read(ReadLength::Short, move |connection| {
+                let Some(project_id) = read_session_projects(connection, &[session_id])?
+                    .into_iter()
+                    .next()
+                else {
+                    return Ok(None);
+                };
+                Ok(read_roots_on(connection, Some(&project_id))?
+                    .into_iter()
+                    .next())
+            })
+            .await
+    }
+
     async fn read_roots(
         &self,
         project_id: Option<ProjectId>,
     ) -> Result<Vec<AttachedProjectRoot>, ProjectReadError> {
         self.reads
             .read(ReadLength::Short, move |connection| {
-                let project_id = project_id.map(|project_id| project_id.text().as_str().to_owned());
-                Ok(connection
-                    .prepare_cached(&ATTACHED_ROOTS_SQL)?
-                    .query_map(named_params! { "@project_id": project_id }, |row| {
-                        Ok(AttachedProjectRoot {
-                            project_id: text_column(row, 0, |text| ProjectId::new(&text))?,
-                            repo_mount_id: text_column(row, 1, |text| RepoMountId::new(&text))?,
-                            canonical_root: PathBuf::from(row.get::<_, String>(2)?),
-                            place: optional_text_column(row, 3, stored_json)?,
-                        })
-                    })?
-                    .collect::<rusqlite::Result<Vec<_>>>()?)
+                Ok(read_roots_on(connection, project_id.as_ref())?)
             })
             .await
     }
+}
+
+// The attached folders of `project_id`, or of every project when `None`, the most recently
+// attached first.
+fn read_roots_on(
+    connection: &Connection,
+    project_id: Option<&ProjectId>,
+) -> rusqlite::Result<Vec<AttachedProjectRoot>> {
+    let project_id = project_id.map(|project_id| project_id.text().as_str().to_owned());
+    connection
+        .prepare_cached(&ATTACHED_ROOTS_SQL)?
+        .query_map(named_params! { "@project_id": project_id }, |row| {
+            Ok(AttachedProjectRoot {
+                project_id: text_column(row, 0, |text| ProjectId::new(&text))?,
+                repo_mount_id: text_column(row, 1, |text| RepoMountId::new(&text))?,
+                canonical_root: PathBuf::from(row.get::<_, String>(2)?),
+                place: optional_text_column(row, 3, stored_json)?,
+            })
+        })?
+        .collect()
 }
 
 // The projects of `project_ids`, or every project when `None`, with their sessions' activity and

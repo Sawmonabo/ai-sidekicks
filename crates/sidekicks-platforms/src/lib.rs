@@ -84,6 +84,7 @@ mod linux;
 mod machine_name;
 #[cfg(target_os = "macos")]
 mod macos;
+mod managed_preference;
 mod memory;
 mod own_root;
 mod path;
@@ -91,6 +92,7 @@ mod pinned_process;
 mod pipe_reader;
 #[cfg(unix)]
 mod posix;
+mod powershell_literal;
 mod process_containment;
 mod process_identity;
 mod process_start;
@@ -99,6 +101,7 @@ mod program_install_folders;
 mod program_link;
 mod program_start;
 mod recreate_link;
+mod regular_file_open;
 mod run_folder;
 mod running_program;
 #[cfg(any(test, feature = "test-support"))]
@@ -157,7 +160,7 @@ pub use credential_store::blocking::BlockingCredentialStore;
 pub use credential_store::seal::{CredentialSeal, SealFailure, SealHeader, SealKey};
 pub use credential_store::{
     CredentialStore, CredentialStoreError, SecretStoreOffer, StoreAccount, StoreOpener,
-    secret_store_offer,
+    login_keychain, secret_store_offer,
 };
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 pub use executable_search::{find_executables, is_path_command, user_programs_folder};
@@ -230,6 +233,8 @@ pub use macos::code_signature::DesktopClientRequirement;
 pub use macos::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "macos")]
 pub use macos::input_wait::{may_wait_for_input, read_input_wait};
+#[cfg(target_os = "macos")]
+pub use macos::managed_preference::read_managed_preference;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::memory::process_footprint;
 #[cfg(target_os = "macos")]
@@ -261,6 +266,8 @@ pub use macos::{
 };
 #[cfg(target_os = "macos")]
 pub use macos::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
+#[cfg(not(target_os = "macos"))]
+pub use managed_preference::read_managed_preference;
 pub use memory::physical_memory;
 pub use own_root::OwnRootError;
 #[cfg(not(target_os = "macos"))]
@@ -283,6 +290,7 @@ pub use posix::askpass::askpass_listener;
 pub use posix::child_command::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
     prepare_child_command, spawn_lasting_child, wrap_child_command, wrap_group_child_command,
+    wrap_leading_child_command,
 };
 #[cfg(unix)]
 pub use posix::command_wrapper::{
@@ -303,7 +311,7 @@ pub const RUNS_COMMAND_WRAPPER: bool = false;
 #[cfg(unix)]
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(unix)]
-pub use posix::current_user::current_user_id;
+pub use posix::current_user::{current_user_id, current_user_name};
 #[cfg(unix)]
 pub use posix::disk::{
     flush_file, flush_folder, flush_open_file, is_on_network_file_system, read_exact_at,
@@ -329,15 +337,17 @@ pub use posix::file_system::{
 };
 #[cfg(unix)]
 pub use posix::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, make_folder_link, remove_tree,
-    rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, make_folder_link,
+    open_regular_file, remove_tree, rename_replacing,
 };
 #[cfg(unix)]
 pub use posix::login_shell::{login_shell, name_as_login_shell};
 #[cfg(unix)]
 pub use posix::null_device::NULL_DEVICE_PATH;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::os_text::non_unicode_name;
 #[cfg(unix)]
-pub use posix::os_text::os_text_bytes;
+pub use posix::os_text::{os_text_bytes, os_text_stable_bytes};
 #[cfg(unix)]
 pub use posix::private_folder::{
     create_missing_private_folders, create_new_private_folder, create_private_folder,
@@ -411,6 +421,7 @@ pub use posix::thread_cpu_time::thread_cpu_time;
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
+pub use powershell_literal::quote_powershell_literal;
 #[cfg(any(test, feature = "test-support"))]
 pub use process_containment::CAN_TAKE_IN_ORPHANS;
 pub use process_containment::{
@@ -424,6 +435,7 @@ pub use program_install_folders::{ProgramFolder, program_install_folders};
 pub use program_link::{ProgramLinkError, link_program};
 pub use program_start::{ProgramStart, program_start};
 pub use recreate_link::recreate_link;
+pub use regular_file_open::RegularFileOpen;
 pub use run_folder::{DaemonRunFolder, RunFolderRefused, askpass_socket_path};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
 #[cfg(any(test, feature = "test-support"))]
@@ -432,7 +444,10 @@ pub use session_child::SessionCommand;
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
 pub use shell_folder_start::ShellFolderStart;
-pub use shell_line_command::{command_shell, shell_line_command};
+pub use shell_line_command::{
+    FALLBACK_LINE_SHELLS, LINE_SHELL_PROGRAMS, LineShellProgram, ULTIMATE_FALLBACK_LINE_SHELL,
+    command_shell, shell_line_command,
+};
 pub use shell_start::{DOES_SHELL_MODE_KEEP_ITS_FOLDER, SHELL_START_CONFIRMATION};
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
 pub use socket::connection::found_no_listener;
@@ -478,6 +493,7 @@ pub use windows::caller_process::{
 pub use windows::child_command::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
     prepare_child_command, wrap_child_command, wrap_group_child_command,
+    wrap_leading_child_command,
 };
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
@@ -494,7 +510,7 @@ pub use windows::credential_store::CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER;
 #[cfg(target_os = "windows")]
 pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(target_os = "windows")]
-pub use windows::current_user::current_user_id;
+pub use windows::current_user::{current_user_id, current_user_name};
 #[cfg(target_os = "windows")]
 pub use windows::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "windows")]
@@ -522,8 +538,8 @@ pub use windows::file_system::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, make_folder_link, remove_tree,
-    rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, make_folder_link,
+    open_regular_file, remove_tree, rename_replacing,
 };
 #[cfg(target_os = "windows")]
 pub use windows::input_wait::{may_wait_for_input, read_input_wait};
@@ -541,8 +557,10 @@ pub use windows::memory::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::null_device::NULL_DEVICE_PATH;
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::os_text::non_unicode_name;
 #[cfg(target_os = "windows")]
-pub use windows::os_text::os_text_bytes;
+pub use windows::os_text::{os_text_bytes, os_text_stable_bytes};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::pinned_process::this_process;
 #[cfg(target_os = "windows")]

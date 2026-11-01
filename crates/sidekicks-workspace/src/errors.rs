@@ -10,10 +10,6 @@ use sidekicks_ipc::domain_error::DomainError;
 
 /// Why the workspace service refused a call; the execution-root service's `workspace.*` codes are
 /// not among them. Converts into the [`DomainError`] the reply carries.
-#[expect(
-    dead_code,
-    reason = "the workspace write gate and reads that refuse a missing or lost workspace"
-)]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum WorkspaceRefusal {
     /// The named workspace does not exist (`workspace.notFound`).
@@ -84,10 +80,6 @@ fn root_unavailable_message(workspace_id: Option<&WorkspaceId>) -> String {
 
 /// What a [`WorkspaceServiceInvariantError`] reports broke; the kinds differ only in what a person
 /// should inspect, and nothing branches on them.
-#[expect(
-    dead_code,
-    reason = "the workspace health projection, its owed `rootLost` write and a run context's branch"
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WorkspaceServiceInvariantKind {
     /// A stored row cannot be projected onto the wire shape: a state or an id the contracts
@@ -104,13 +96,18 @@ pub(crate) enum WorkspaceServiceInvariantKind {
     NonAbsoluteExecutionRoot,
     /// A run's root has no branch recorded, so its run context cannot be written.
     BranchContextMissing,
+    /// Git could not name the branch or the working tree of the folder a `boundRoot` workspace
+    /// binds.
+    BoundRootUnreadable,
+    /// A branch context's write kept a row whose id cannot be read back.
+    BranchContextUnreadable,
 }
 
 /// A failure inside the workspace service that has no wire code, so it is no [`DomainError`]:
 /// borrowing a code would misreport the cause. It reaches the socket as an anonymous `-32603`.
 #[derive(Debug, thiserror::Error)]
 #[error("{message}")]
-pub(crate) struct WorkspaceServiceInvariantError {
+pub struct WorkspaceServiceInvariantError {
     /// What broke, in words a person reads; it names no path.
     pub(crate) message: String,
     /// Which kind of failure it is.

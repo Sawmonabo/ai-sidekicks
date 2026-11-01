@@ -52,8 +52,8 @@ impl SessionRulePort for ApprovalRules {
         Box::pin(async move {
             let kind = ProviderAskActionKind::from(&action);
             let read_action = action.clone();
-            let subject = read_command_line(&self.shell_lines, &action, move |reader, reading| {
-                derive_rule_subject(reader, reading, &read_action)
+            let subject = read_command_line(&self.shell_lines, &action, move |_, reading| {
+                derive_rule_subject(reading, &read_action)
             })
             .await
             .map_err(ApprovalRuleError::from)?;
@@ -76,7 +76,7 @@ impl SessionRulePort for ApprovalRules {
                     Ok((provider_kept(in_force), provider_kept(revoked)))
                 })
                 .await?;
-            if rule_over(&in_force, kind, &subject).is_some() {
+            if rule_over(&in_force, kind, &subject, None).is_some() {
                 return Ok(None);
             }
             Ok(revoked

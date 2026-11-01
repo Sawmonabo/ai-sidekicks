@@ -46,13 +46,12 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 
 use crate::driver_resolution::{LiveRunDriverError, resolve_live_run_driver};
-use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::engine::RunEngine;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::pause::run_control_response;
 use crate::run::read::{RunRead, RunStateReader, read_run_provider, read_run_through};
 use crate::run::refusals::RunRefusal;
-use crate::run::state_change::{
-    RunStateChange, RunStateChangeCompanions, RunStateChangeError, refused_statement_index,
-};
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeError};
 
 pub mod held;
 pub mod run_end;
@@ -133,6 +132,7 @@ impl From<RunEngineError> for ProviderChoiceError {
             other @ (RunEngineError::Change(_)
             | RunEngineError::Released(_)
             | RunEngineError::Gate { .. }
+            | RunEngineError::NoSessionPosture { .. }
             | RunEngineError::NoResolvedPosture { .. }
             | RunEngineError::Driver { .. }
             | RunEngineError::LimitInterrupterGone { .. }
@@ -624,7 +624,7 @@ impl ProviderChoiceResolver {
             .await;
         let refusal = match appended {
             Ok(_receipt) => None,
-            Err(error) if refused_statement_index(&error) == Some(SETTLEMENT_GUARD_INDEX) => {
+            Err(error) if error.refused_statement_index() == Some(SETTLEMENT_GUARD_INDEX) => {
                 Some(error)
             }
             Err(error) => return Err(RunEngineError::from(error).into()),

@@ -32,15 +32,8 @@ pub struct CallbackToolInvocation {
 /// The daemon's answer to a callback-tool call: only a completed call carries output, and only a
 /// denied or failed one an error.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CallbackToolResult {
+pub enum CallbackToolResult {
     /// The tool ran.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the callback tools' executor, which answers a call that ran"
-        )
-    )]
     Completed {
         /// What it returned.
         output: Option<Value>,

@@ -20,6 +20,7 @@ use crate::place::Place;
 use crate::provider::account::record::ProviderAccountId;
 use crate::run::id::RunId;
 use crate::run::state::RunState;
+use crate::session::controls::methods::{PermissionLevel, SessionMode};
 use crate::session::convert::{
     SessionConversionSkippedFileListRequest, SessionConversionSkippedFileListResponse,
 };
@@ -163,6 +164,10 @@ pub struct SessionRecord {
     )]
     #[schemars(with = "SafeInt<1>")]
     pub max_steps_per_turn: Option<SafeInt<1>>,
+    /// The level it runs at, as the level control reads it.
+    pub permission_level: PermissionLevel,
+    /// Whether its next turns plan or build, as the mode control reads it.
+    pub session_mode: SessionMode,
     /// The addresses another session writes to when it messages this one: an inbox the daemon
     /// holds for it in each place where a provider that messages other sessions is installed, the
     /// session's own place first, each stable for its whole life.

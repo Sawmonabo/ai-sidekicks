@@ -13,7 +13,7 @@ use sidekicks_contracts::command::ExitCode;
 use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
-use tokio::sync::oneshot;
+use tokio::sync::{Notify, oneshot};
 
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
 use crate::driver::claude::session::process::ClaudeProcessListener;
@@ -76,6 +76,8 @@ pub(crate) struct ScriptedChannel {
     user_failures: Mutex<VecDeque<ClaudeWriteDelivery>>,
     close_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     listener: Mutex<Option<Arc<dyn ClaudeProcessListener>>>,
+    // Wakes a wait for a write on each one recorded.
+    written: Notify,
 }
 
 impl ScriptedChannel {
@@ -114,6 +116,28 @@ impl ScriptedChannel {
         lock(&self.user_failures).push_back(delivery);
     }
 
+    /// The answer the driver wrote to the request `request_id` the process sent, waiting until it
+    /// is written.
+    pub(crate) async fn answer_to(&self, request_id: &str) -> Value {
+        loop {
+            let written = self.written.notified();
+            let answer = self.writes().into_iter().find_map(|write| match write {
+                ScriptedWrite::Answer {
+                    request_id: answered,
+                    answer,
+                } if answered == request_id => Some(answer),
+                ScriptedWrite::Answer { .. }
+                | ScriptedWrite::Control(_)
+                | ScriptedWrite::User(_)
+                | ScriptedWrite::Terminate => None,
+            });
+            if let Some(answer) = answer {
+                return answer;
+            }
+            written.await;
+        }
+    }
+
     /// Everything written so far, in order.
     pub(crate) fn writes(&self) -> Vec<ScriptedWrite> {
         lock(&self.writes).clone()
@@ -147,6 +171,7 @@ impl ScriptedChannel {
 
     fn record(&self, write: ScriptedWrite) {
         lock(&self.writes).push(write);
+        self.written.notify_waiters();
     }
 }
 

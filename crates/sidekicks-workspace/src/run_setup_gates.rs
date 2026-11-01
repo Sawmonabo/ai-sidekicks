@@ -1,6 +1,8 @@
 //! The checks a run passes between admission and its provider's start, and the hooks that release
 //! what they hold once the run ends.
 
+pub mod execution_root;
+
 use std::error::Error;
 use std::sync::Arc;
 

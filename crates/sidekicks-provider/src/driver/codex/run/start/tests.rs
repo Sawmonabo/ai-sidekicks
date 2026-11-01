@@ -346,7 +346,7 @@ async fn a_message_past_codexs_input_limit_is_refused_as_too_large(#[case] refus
             };
             assert_eq!(refused.code, RefusalCode::SessionMessageTooLarge);
             assert_eq!(
-                refused.detail.map(Value::Object),
+                refused.detail.map(|detail| Value::Object(*detail)),
                 Some(json!({"limit": 1_048_576, "observed": 1_048_577}))
             );
         }

@@ -18,10 +18,10 @@ use tokio::time::timeout;
 use super::{
     BackgroundFetch, BackgroundFetchDeps, FetchCounts, FetchedRepository, read_counts_as_of,
 };
+use crate::git::process::environment::find_git_executable;
 use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::process::{
-    GitCall, GitRunner, find_git_executable, in_folder, test_git_runner,
-    test_git_runner_with_environment,
+    GitCall, GitRunner, in_folder, test_git_runner, test_git_runner_with_environment,
 };
 use crate::git::worktree::schema::schema_parts;
 use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};

@@ -60,7 +60,7 @@ use crate::project::refusals::{refuse_branch_pattern, refuse_environment_rows};
 use crate::project::slug::{slug_base_of, slug_candidate};
 use crate::repo::errors::RepoRefusal;
 use crate::repo::mount::service::detach::DetachRepoMount;
-use crate::repo::mount::service::{RepoMountService, RepoMountServiceError};
+use crate::repo::mount::service::{RepoMountService, RepoMountServiceError, ResolvedFolder};
 use crate::schema::CloneOutcome;
 
 const INSERT_PROJECT_SQL: &str = "INSERT INTO projects (
@@ -267,8 +267,20 @@ impl ProjectService {
         &self,
         request: &RepoMountAttachRequest,
     ) -> Result<ProjectAttachment, ProjectServiceError> {
+        match self.mounts.resolve_folder(request).await {
+            Ok(resolved) => self.attach_or_find_resolved(&resolved).await,
+            Err(error) => self.found_or_fail(error).await,
+        }
+    }
+
+    /// [`ProjectService::attach_or_find`] of a folder already resolved, which it never resolves
+    /// again. Refuses `repoMount.alreadyAttached` when a chat's own workspace holds it.
+    pub async fn attach_or_find_resolved(
+        &self,
+        resolved: &ResolvedFolder,
+    ) -> Result<ProjectAttachment, ProjectServiceError> {
         let hold = self.record_lock.acquire(()).await;
-        let target = match self.mounts.resolve_attach_target(request).await {
+        let target = match self.mounts.attach_target_of(resolved).await {
             Ok(target) => target,
             Err(error) => return self.found_or_fail(error).await,
         };

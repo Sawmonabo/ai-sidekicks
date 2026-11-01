@@ -18,7 +18,8 @@ use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use sidekicks_queue::provider_session::{ProviderSessionError, ProviderSessions};
+use sidekicks_queue::provider_session::ProviderSessions;
+use sidekicks_queue::provider_session::errors::ProviderSessionError;
 
 /// Registers `session.restart` over `provider_sessions`, which run each restart under the
 /// session's transition lock, so none brings a process up while a close is ending the session or
@@ -95,7 +96,11 @@ fn restart_failure(error: ProviderSessionError, session_id: SessionId) -> Handle
         | ProviderSessionError::NotOpen { .. }
         | ProviderSessionError::Cursor(_)
         | ProviderSessionError::UnrecordedNotClosed { .. }
+        | ProviderSessionError::ResumedRuns { .. }
+        | ProviderSessionError::Port(_)
         | ProviderSessionError::Store(_)
+        | ProviderSessionError::PostureRefused { .. }
+        | ProviderSessionError::GitFolder { .. }
         | ProviderSessionError::LevelNotStored { .. }
         | ProviderSessionError::LevelNotMovedBack { .. }
         | ProviderSessionError::ModeNotStored { .. }
@@ -116,7 +121,7 @@ mod tests {
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_ipc::registry::HandlerError;
     use sidekicks_provider::driver::PROVIDERS;
-    use sidekicks_queue::provider_session::ProviderSessionError;
+    use sidekicks_queue::provider_session::errors::ProviderSessionError;
 
     use super::restart_failure;
 
@@ -183,7 +188,7 @@ mod tests {
 
         assert_eq!(refusal.code, code, "{failure:?}");
         assert_eq!(
-            Value::Object(refusal.detail.expect("the refusal carries fields")),
+            Value::Object(*refusal.detail.expect("the refusal carries fields")),
             fields,
             "{failure:?}"
         );

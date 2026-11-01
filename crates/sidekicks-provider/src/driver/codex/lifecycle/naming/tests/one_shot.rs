@@ -11,6 +11,7 @@ use sidekicks_platforms::{
 use tokio::time::Instant;
 
 use super::locked_down_config;
+use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::lifecycle::naming::{
     CODEX_NAMING_DEADLINE, CODEX_SERVER_LIST_DEADLINE, name_in_one_shot,
 };
@@ -58,6 +59,7 @@ fn service_running(folder: &Path, program: PathBuf) -> (Arc<CodexService>, Scrip
             environment: Vec::new(),
         }),
         Arc::new(UnheardEvents),
+        Arc::new(UnrecordedChildren),
     );
     let socket = folder.join("codex.sock");
     script_codex_service(

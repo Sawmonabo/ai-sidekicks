@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use sidekicks_contracts::context_window::ContextWindowSource;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::inspector::SessionContextReading;
 use sidekicks_contracts::wire::number::Percent;
 
@@ -11,14 +10,11 @@ use super::{
     LateReading, PublishedReadings, compose_settings_reading, publish_counted,
 };
 use crate::driver::codex::model_windows::{CodexModelWindow, CodexModelWindows};
+use crate::driver::test_registry::fixed_session_id;
 use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::usage_delta_accountant::{UsageAxisCounts, WindowTelemetry};
 
 const MODEL: &str = "gpt-5.5";
-
-fn session_id() -> SessionId {
-    SessionId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd").expect("the text is a UUID")
-}
 
 fn catalog() -> CodexModelWindows {
     HashMap::from([(
@@ -64,7 +60,7 @@ fn a_reading_before_any_report_carries_the_catalogs_usable_window(
     #[case] top_stop_tokens: u64,
 ) {
     let reading = compose_settings_reading(
-        session_id(),
+        fixed_session_id(),
         &catalog(),
         &settings(requested_window),
         calibrated,
@@ -96,7 +92,7 @@ fn a_late_reading_never_replaces_a_newer_one() {
     let collected = CollectedReadings::default();
     let reading = |requested_window| {
         compose_settings_reading(
-            session_id(),
+            fixed_session_id(),
             &catalog(),
             &settings(requested_window),
             None,
@@ -145,13 +141,14 @@ fn only_the_conversations_first_request_sets_the_fixed_start() {
         is_conversation_start,
     };
     let mut readings =
-        CodexSessionContextReadings::new(session_id(), CodexFixedStart::FirstRequest);
+        CodexSessionContextReadings::new(fixed_session_id(), CodexFixedStart::FirstRequest);
     readings.note_fixed_start(&report(false, 180_000));
     assert_eq!(readings.fixed_start_tokens, None);
     readings.note_fixed_start(&report(true, 12_000));
     readings.note_fixed_start(&report(true, 40_000));
     assert_eq!(readings.fixed_start_tokens, Some(12_000));
-    let mut resumed = CodexSessionContextReadings::new(session_id(), CodexFixedStart::Kept(None));
+    let mut resumed =
+        CodexSessionContextReadings::new(fixed_session_id(), CodexFixedStart::Kept(None));
     resumed.note_fixed_start(&report(true, 180_000));
     assert_eq!(resumed.fixed_start_tokens, None);
 }

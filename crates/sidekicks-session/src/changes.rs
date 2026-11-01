@@ -50,7 +50,6 @@ use sidekicks_workspace::project::service::ForgottenProjectSessions;
 use tokio_util::task::TaskTracker;
 
 use crate::run::ids::read_session_run_ids;
-use crate::run::state_change::refused_statement_index;
 
 /// The statements the session changes prepare on a read connection: the session's facts, its
 /// runs, and the providers their bindings name.
@@ -443,7 +442,7 @@ impl SessionChanges {
             };
             match self.appender.append(draft, linkage).await {
                 Ok(_receipt) => return Ok(true),
-                Err(error) if refused_statement_index(&error) == Some(FACTS_GUARD_INDEX) => {}
+                Err(error) if error.refused_statement_index() == Some(FACTS_GUARD_INDEX) => {}
                 Err(error) => return Err(error.into()),
             }
         }

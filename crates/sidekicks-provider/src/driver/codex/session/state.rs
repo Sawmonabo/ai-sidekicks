@@ -20,11 +20,13 @@ use tokio::sync::oneshot;
 use crate::driver::attachments::ProviderAttachment;
 use crate::driver::codex::delivery::frames::CodexPromptHookRun;
 use crate::driver::codex::delivery::memory::CodexDeliveryMemory;
+use crate::driver::codex::notification_routing::CodexMcpServerStartups;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::contract::error::DriverError;
+use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::run_control::{PickedSkill, ResumeRunParams};
 use crate::thread_frame_router::ThreadFrameRouterConfig;
 
@@ -200,6 +202,15 @@ pub(crate) struct CodexSessionRecord {
     pub(crate) turn_input_by_turn_id: HashMap<String, CodexTurnInput>,
     /// What the session's deliveries remember between frames.
     pub(crate) delivery: CodexDeliveryMemory,
+    /// The status sink of the leg the conversation runs on, which its tool servers' startup
+    /// reports go to; taken and ended once that leg's process ends, and ended when the record
+    /// goes. A resume in place and a fork onto another binding end it and take the new leg's; a
+    /// run start that adopts another binding keeps it, since the leg is the process's, not the
+    /// run's.
+    pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
+    /// What the tool servers' startups on the conversation said, which the leg's list of their
+    /// tools reads; begun afresh whenever the conversation is bound.
+    pub(crate) mcp_server_startups: CodexMcpServerStartups,
 }
 
 /// What an establishment knows of a session's conversation, from which its record starts with
@@ -231,6 +242,8 @@ pub(crate) struct CodexEstablishedConversation {
     pub(crate) declared_output_speed: Option<ProviderOutputSpeedState>,
     /// The reasoning effort the establishment's reply named.
     pub(crate) reasoning_effort: Option<String>,
+    /// The status sink the create or resume handed in, bound to the established leg.
+    pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
 }
 
 /// The interrupted turns a session can keep were all taken, so one more interrupt is refused.
@@ -274,6 +287,16 @@ impl CodexSessionRecord {
             continues_awaiting_pause: HashMap::new(),
             turn_input_by_turn_id: HashMap::new(),
             delivery: CodexDeliveryMemory::new(),
+            on_mcp_server_status: established.on_mcp_server_status,
+            mcp_server_startups: CodexMcpServerStartups::default(),
+        }
+    }
+
+    /// Ends the leg of the status sink the record holds and lets the sink go, so the leg ends
+    /// once however the record goes on; a record holding none has nothing to end.
+    pub(crate) fn end_mcp_server_status_leg(&mut self) {
+        if let Some(producer) = self.on_mcp_server_status.take() {
+            producer.end_leg();
         }
     }
 
@@ -390,6 +413,13 @@ impl CodexSessionRecord {
         let mut runs = self.active_turns.iter().map(|(_, run_id)| *run_id);
         let first = runs.next()?;
         runs.all(|run_id| run_id == first).then_some(first)
+    }
+}
+
+impl Drop for CodexSessionRecord {
+    // A record let go, or dropped with its task, takes its leg with it.
+    fn drop(&mut self) {
+        self.end_mcp_server_status_leg();
     }
 }
 

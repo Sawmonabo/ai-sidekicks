@@ -31,12 +31,14 @@ use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::port::run_pause::{ContinuedMessages, RunPauses};
 use crate::port::session_advisor_store::SessionAdvisorStore;
+use crate::port::session_level_follower::SessionLevelFollower;
 use crate::port::session_resume_reader::SessionResumeReader;
 use crate::port::session_rules::SessionRulePort;
 use crate::port::session_wake::SessionWaker;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
+use crate::runtime_binding::resume::ResumeFunctionLegs;
 
 /// The run queue's intake of a message the provider took into a run's turn.
 pub trait MessageTakenListener: Send + Sync {
@@ -78,14 +80,25 @@ pub trait ProcessGoneListener: Send + Sync {
 pub trait SessionRelaunchListener: Send + Sync {
     /// Opens the event cursor of `binding_id`, which the driver minted for its resume of
     /// `session_id`'s conversation, where the cursor of the session's newest binding stands, before
-    /// the resume runs, so the resumed process can deliver at once; a session with no binding yet
+    /// the resume runs, so the resumed process can deliver at once, and answers the binding's
+    /// function legs, which the driver hands the resumed process; a session with no binding yet
     /// has no cursor to carry on, and nothing opens. Fails when the cursor cannot be opened, and
     /// the driver then does not resume and reports the relaunch failed.
     fn open_relaunch_binding(
         &self,
         session_id: SessionId,
         binding_id: RuntimeBindingId,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn Error + Send + Sync>>>;
+
+    /// Answers the function legs of `binding_id`, the process a relaunch of `session_id` starts
+    /// while the session keeps its binding, so the daemon opens no cursor and records no binding:
+    /// legs of their own, never the ended process's; a session with no binding yet gets none.
+    /// Fails as the daemon's reads fail, and the driver then does not resume.
+    fn open_relaunch_legs(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn Error + Send + Sync>>>;
 
     /// Records what `session_id`'s relaunch did: a `Resumed` one's binding row, under the cursor
     /// `open_relaunch_binding` opened, which it does not open again; a `Failed` one forgets that
@@ -180,6 +193,8 @@ pub struct DriverPorts {
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
     /// The one callback-tool dispatcher, which each spawn's callback tools are bound through.
     pub callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
+    /// The daemon's follow of a level or mode a provider reported running.
+    pub session_level_followers: Arc<PortRegistration<Arc<dyn SessionLevelFollower>>>,
     /// The pause and continue of runs.
     pub run_pauses: Arc<PortRegistration<Arc<dyn RunPauses>>>,
     /// The messages waiting for paused runs, as the run queue holds them.
@@ -224,6 +239,7 @@ impl DriverPorts {
             in_process_tool_servers: Arc::new(PortRegistration::new("in-process tool servers")),
             tool_server_route: Arc::new(PortRegistration::new("tool server route")),
             callback_tool_host: Arc::new(PortRegistration::new("callback tool host")),
+            session_level_followers: Arc::new(PortRegistration::new("session level followers")),
             run_pauses: Arc::new(PortRegistration::new("run pauses")),
             continued_messages: Arc::new(PortRegistration::new("continued messages")),
         }

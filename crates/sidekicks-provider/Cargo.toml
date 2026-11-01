@@ -43,6 +43,9 @@ notify.workspace = true
 opentelemetry-proto.workspace = true
 process-wrap.workspace = true
 regex.workspace = true
+regex-lite.workspace = true
+# The claude.ai connector list a connector's organization mark is read from.
+reqwest.workspace = true
 rusqlite.workspace = true
 secrecy.workspace = true
 semver.workspace = true
@@ -70,10 +73,13 @@ toml_edit.workspace = true
 tracing.workspace = true
 # The diagnostics recorder other crates' tests install.
 tracing-subscriber = { workspace = true, optional = true }
+unicode-normalization.workspace = true
 url.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+# Compresses the loopback connector list's reply as the service may send it.
+flate2.workspace = true
 mockall.workspace = true
 proptest.workspace = true
 rstest.workspace = true
@@ -81,10 +87,13 @@ rstest.workspace = true
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
 # The stand-in programs, the harness's test names and the socket folders the tests use.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
-# The keyed lock's count of queued holders, which tells a declare waiting on its provider's turn.
+# The keyed lock's count of queued holders, which tells a declare waiting on its provider's turn,
+# and the held file reads the posture tests resolve a root across.
 sidekicks-std = { workspace = true, features = ["test-support"] }
 # The test database and the session test log the tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }
+# The scratch repository a staged review's test opens its worktree from.
+sidekicks-workspace = { workspace = true, features = ["test-support"] }
 # The paused clock the drivers' and the command waits' tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
@@ -103,8 +112,14 @@ zstd.workspace = true
 # Helpers other crates' tests use: the drivers' test registry with its session inbox addresser, the
 # test provider id, the driver's mock, the unanswered request, the diagnostics recorder, the
 # runtime binding's test store, the question port's test card, the provider process stand-in and
-# its test identity, and the late appendable row's `Clone` and `PartialEq`.
-test-support = ["dep:mockall", "dep:tracing-subscriber", "sidekicks-store/test-support"]
+# its test identity, the late appendable row's `Clone` and `PartialEq`, and the kept terminal
+# service with its listener and its recording `codex` command.
+test-support = [
+  "dep:mockall",
+  "dep:tracing-subscriber",
+  "sidekicks-platforms/test-support",
+  "sidekicks-store/test-support",
+]
 
 [lints]
 workspace = true

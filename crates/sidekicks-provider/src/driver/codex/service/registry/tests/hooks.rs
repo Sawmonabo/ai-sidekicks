@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, short_socket_folder};
+use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET};
 
 use super::stand_in::{last_launch_arguments, stand_in_services, this_daemon};
 use crate::driver::daemon_stop::DaemonStopIntent;
@@ -14,8 +14,7 @@ async fn a_terminal_service_with_no_hook_mode_launches_and_trusts_no_hook() {
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let services = stand_in_services(folder.path(), |program| Arc::new(program));
+    let services = stand_in_services(|program| Arc::new(program));
     let daemon = this_daemon(&services);
     let service = daemon
         .service_for(&test_provider_account_id())

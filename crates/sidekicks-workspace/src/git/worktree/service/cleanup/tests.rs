@@ -18,10 +18,11 @@ use super::{
     RetiredWorktreeKeeper, WorktreeCleanupError, WorktreeCleanupFailure, is_nothing_to_stop,
     stop_file_watch,
 };
+use crate::git::process::environment::find_git_executable;
 use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::process::{
-    GitCall, GitError, GitRunner, StartedFileWatch, find_git_executable, in_folder,
-    test_git_runner, test_git_runner_with_environment,
+    GitCall, GitError, GitRunner, StartedFileWatch, in_folder, test_git_runner,
+    test_git_runner_with_environment,
 };
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;

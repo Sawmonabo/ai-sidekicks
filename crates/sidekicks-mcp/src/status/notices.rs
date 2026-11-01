@@ -11,19 +11,12 @@ use sidekicks_ipc::stream::latest_value::{
 };
 use sidekicks_std::mutex_lock::lock;
 
-use crate::binding_store::McpBindingKey;
+use crate::binding::store::McpBindingKey;
 
 /// Which notice a key holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum McpNoticeKind {
     /// `mcp.server.status.changed`.
-    #[cfg_attr(
-        not(any(test, feature = "test-support")),
-        expect(
-            dead_code,
-            reason = "the status tracker sends its status notices under it"
-        )
-    )]
     Status,
     /// `mcp.server.config.changed`.
     #[expect(
@@ -37,13 +30,6 @@ pub(crate) enum McpNoticeKind {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum McpNoticeOrigin {
     /// A session's live leg; its end shares the key, so a reader that falls behind reads the end.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the status tracker sends each leg's notices under it"
-        )
-    )]
     Leg {
         /// The session.
         session_id: SessionId,
@@ -51,13 +37,6 @@ pub(crate) enum McpNoticeOrigin {
         binding_id: RuntimeBindingId,
     },
     /// The daemon's own machine probe.
-    #[cfg_attr(
-        not(any(test, feature = "test-support")),
-        expect(
-            dead_code,
-            reason = "the status tracker sends the probe's notices under it"
-        )
-    )]
     Probe,
     /// An edit to the binding.
     #[expect(
@@ -105,10 +84,6 @@ impl McpNoticeBoard {
 
     /// Sends `emission` under `key` to every attached feed, replacing the one still waiting there
     /// under that key.
-    #[cfg_attr(
-        not(any(test, feature = "test-support")),
-        expect(dead_code, reason = "the status tracker sends its notices through it")
-    )]
     pub(crate) fn send(&self, key: &McpNoticeKey, emission: &McpSubscribeEmission) {
         lock(&self.outlets).send(key, emission);
     }

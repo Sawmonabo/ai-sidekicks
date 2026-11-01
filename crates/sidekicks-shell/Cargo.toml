@@ -40,6 +40,8 @@ rstest.workspace = true
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
 # The shell start stand-in and the recording programs the tests run.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
+# The Codex services the guard's sweep test starts on the stand-in service.
+sidekicks-provider = { workspace = true, features = ["test-support"] }
 # The screen copy drawn without a shell, for the screen listener's answer tests.
 sidekicks-terminal = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true

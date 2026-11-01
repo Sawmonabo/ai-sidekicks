@@ -16,6 +16,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::event_cursor::{START_OF_LOG_POSITION, encode_event_cursor};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{
@@ -49,7 +50,8 @@ use sidekicks_store::events::session::read::{
     readable_event_sql, session_read_bound,
 };
 
-use crate::console_state::read_session_max_steps_per_turn;
+use crate::console_state::{read_session_max_steps_per_turn, read_session_mode};
+use crate::permission_level::read_session_permission_level;
 use crate::projector::{SessionRebuildError, rebuild_session};
 use crate::records::DaemonSessionRecord;
 use crate::run::read::{SessionLiveRunRow, read_session_live_runs};
@@ -64,12 +66,12 @@ use crate::transcript::reasoning::read_reasoning;
 use crate::transcript::run_facts::TranscriptRunFactsReader;
 use crate::transcript::window::{TranscriptReadError, read_transcript_window};
 
-/// The statements the service's reads run: its own five (the row, the tags, the live runs, the
-/// standing sequences and the console read), the run facts' three, the five shared event reads
-/// (the head, the rows after a position of every type and of named types, a sequence window and the
-/// rows at named sequences), and the transcript reads' six (the rows before a position, a stored
-/// row, a window's bodies and the turn attribution's three seeds).
-pub const SESSION_SERVICE_STATEMENT_CAPACITY: usize = 5 + 3 + 5 + 6;
+/// The statements the service's reads run: its own seven (the row, the tags, the live runs, the
+/// standing sequences, the level and the console's two reads), the run facts' three, the five
+/// shared event reads (the head, the rows after a position of every type and of named types, a
+/// sequence window and the rows at named sequences), and the transcript reads' six (the rows before
+/// a position, a stored row, a window's bodies and the turn attribution's three seeds).
+pub const SESSION_SERVICE_STATEMENT_CAPACITY: usize = 7 + 3 + 5 + 6;
 
 // A negative limit reads every event.
 const NO_LIMIT: i64 = -1;
@@ -99,6 +101,10 @@ pub struct SessionReadRecord {
     pub updated_at: WireInstant,
     /// Its own bound on the steps one turn may take, `None` where the person set none.
     pub max_steps_per_turn: Option<SafeInt<1>>,
+    /// The level it runs at.
+    pub permission_level: PermissionLevel,
+    /// Whether its next turns plan or build.
+    pub session_mode: SessionMode,
     /// Its tags as first written, in the order of their case fold.
     pub tags: TagList,
 }
@@ -550,6 +556,8 @@ fn read_session(
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let max_steps_per_turn = read_session_max_steps_per_turn(&snapshot, session_id)?;
+    let permission_level = read_session_permission_level(&snapshot, session_id)?;
+    let session_mode = read_session_mode(&snapshot, session_id)?;
     let read_bound = session_read_bound(read_damaged_from_sequence, session_id, None);
     let live_runs = read_live_runs(
         &snapshot,
@@ -592,6 +600,8 @@ fn read_session(
             created_at: row.created_at,
             updated_at: row.updated_at,
             max_steps_per_turn,
+            permission_level,
+            session_mode,
             tags: TagList(UniqueList::new(tags).expect("a tag list has no count bound")),
         },
         transcript_cursors: SessionTranscriptCursors {

@@ -854,10 +854,7 @@ fn keep_stash_named(
 // Whether the record's write failed at its insert because the active-branch index refused it: a
 // live tree on the branch landed between the walk's read and the write.
 fn is_active_branch_refusal(failure: &SessionEventEmitError) -> bool {
-    let SessionEventEmitError::Append(SessionEventAppendError::Append(EventAppendError::Write(
-        write,
-    ))) = failure
-    else {
+    let Some(write) = failure.write_error() else {
         return false;
     };
     write.failed_statement().is_some_and(|(_index, error)| {
@@ -871,11 +868,9 @@ fn explain_ready_failure(
     failure: SessionEventEmitError,
     worktree_id: WorktreeId,
 ) -> WorktreeCreationError {
-    let SessionEventEmitError::Append(SessionEventAppendError::Append(EventAppendError::Write(
-        write,
-    ))) = failure
-    else {
-        return WorktreeCreationError::Ready(failure);
+    let write = match failure.into_write_error() {
+        Ok(write) => write,
+        Err(failure) => return WorktreeCreationError::Ready(failure),
     };
     match WorktreeRowRefusal::explain(write, worktree_id, WorktreeRowChange::MarkReady) {
         Ok(refusal) => refusal.into(),
@@ -899,5 +894,7 @@ fn branch_ref_name(name: &WorktreeName) -> GitRefName {
     GitRefName::new(name.branch_name.clone()).expect("a branch name git's rule took is text")
 }
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_sources;
 #[cfg(test)]
 mod tests;

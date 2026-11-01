@@ -3,7 +3,7 @@
 //! a control-only process's `initialize` reply made into the picker's models.
 
 use serde::Deserialize;
-use serde_json::{Map, Value};
+use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -13,13 +13,14 @@ use super::DESCRIPTOR;
 use super::capability_probe::CAPABILITY_PROBE_RULES;
 use super::session::model_figures::ClaudeModelFigures;
 use super::session::transport::readings::{ClaudeModelCatalogReading, ClaudeModelContextRead};
+use super::spawn::launch::initialize_reply::ClaudeModelEffort;
 use super::tools::claude_tool_metadata;
 use crate::capability::probe::{CapabilityProbeExchange, read_provider_capabilities};
 use crate::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
 use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::contract::params_and_results::GetCapabilitiesResult;
 use crate::driver::error_causes::{ModelCatalogUnreadable, UNSPECIFIED_PROVIDER_FAILURE_DETAIL};
-use crate::record_readers::read_non_empty_string;
+use crate::lenient_json::read_lenient;
 use crate::spawned_version::SpawnedProviderVersionReading;
 
 /// The capability contract's version, which the writer compares to see a change; it moves
@@ -121,31 +122,46 @@ pub(crate) fn resolve_claude_model_catalog(
 /// An `initialize` reply's catalog; every other member is left unread.
 #[derive(Deserialize)]
 struct InitializeReply {
-    #[serde(default)]
-    models: Option<Value>,
+    models: Vec<Box<RawValue>>,
+}
+
+/// One catalog row: the members the picker reads, `supportsFastMode` strictly so an unreadable one
+/// fails the catalog, the rest leniently.
+#[derive(Deserialize)]
+struct CatalogRow {
+    #[serde(default, deserialize_with = "read_lenient")]
+    value: Option<String>,
+    #[serde(rename = "resolvedModel", default, deserialize_with = "read_lenient")]
+    resolved_model: Option<String>,
+    #[serde(rename = "displayName", default, deserialize_with = "read_lenient")]
+    display_name: Option<String>,
+    #[serde(rename = "supportsFastMode", default)]
+    supports_fast_mode: Option<bool>,
+    #[serde(flatten)]
+    effort: ClaudeModelEffort,
 }
 
 /// Reads the `models` of one `initialize` reply's JSON text into the picker's models, in the
 /// provider's order, one per resolved model, a row naming the model beating the `default` pointer.
 /// Fails with [`DriverError::ModelCatalogUnreadable`] for anything but `{ models: [...] }` whose
-/// rows each name a `resolvedModel` and a `displayName`, carry a boolean `supportsFastMode` where
-/// they carry one, and list only text effort levels, so a dropped model is never a parser failure.
+/// rows are objects that each name a `resolvedModel` and a `displayName` and carry a boolean
+/// `supportsFastMode` where they carry one, so a dropped model is never a parser failure.
 pub(crate) fn normalize_claude_model_catalog(
     reply: Option<&str>,
 ) -> Result<Vec<ProviderModel>, DriverError> {
-    let Some(InitializeReply { models }) = reply.and_then(|text| serde_json::from_str(text).ok())
+    let Some(InitializeReply { models: rows }) =
+        reply.and_then(|text| serde_json::from_str(text).ok())
     else {
-        return Err(catalog_unreadable("the reply is not an object"));
-    };
-    let Some(Value::Array(rows)) = models else {
-        return Err(catalog_unreadable("the reply has no `models` array"));
+        return Err(catalog_unreadable(
+            "the reply is not an object with a `models` array",
+        ));
     };
     // In the provider's order, its recommended model first; each with whether the pointer gave it.
     let mut by_resolved_model: Vec<(ProviderModel, bool)> = Vec::with_capacity(rows.len());
     for row in &rows {
-        let Some(row) = row.as_object() else {
-            return Err(catalog_unreadable("a `models` entry is not an object"));
-        };
+        let row = serde_json::from_str::<CatalogRow>(row.get()).map_err(|error| {
+            catalog_unreadable(&format!("a `models` entry is unreadable: {error}"))
+        })?;
         let (model, from_pointer) = read_catalog_row(row)?;
         // Keyed by `resolvedModel`, never `value`, which is often a short alias, since a model
         // switch is checked against this list.
@@ -165,53 +181,36 @@ pub(crate) fn normalize_claude_model_catalog(
 }
 
 // One catalog row as a model, with whether it is the `default` pointer's row.
-fn read_catalog_row(row: &Map<String, Value>) -> Result<(ProviderModel, bool), DriverError> {
-    let Some(id) = read_catalog_text(row, "resolvedModel") else {
+fn read_catalog_row(row: CatalogRow) -> Result<(ProviderModel, bool), DriverError> {
+    let Some(id) = catalog_text(row.resolved_model) else {
         return Err(catalog_unreadable(
             "a `models` entry has no `resolvedModel`",
         ));
     };
-    let Some(name) = read_catalog_text(row, "displayName") else {
+    let Some(name) = catalog_text(row.display_name) else {
         return Err(catalog_unreadable(&format!(
             "model {:?} has no `displayName`",
             id.as_str()
         )));
     };
-    let fast = match row.get("supportsFastMode") {
-        None => false,
-        Some(Value::Bool(fast)) => *fast,
-        Some(_) => {
-            return Err(catalog_unreadable(&format!(
-                "model {:?} has an unreadable `supportsFastMode`",
-                id.as_str()
-            )));
-        }
-    };
     // Copied, never defaulted: absent means the model has no effort selection.
-    let effort_levels = match row.get("supportedEffortLevels") {
-        Some(Value::Array(levels))
-            if row.get("supportsEffort") != Some(&Value::Bool(false)) && !levels.is_empty() =>
-        {
-            let levels = levels
-                .iter()
-                .map(|level| {
-                    level
-                        .as_str()
-                        .and_then(|level| CatalogText::new(level.to_owned()).ok())
+    let effort_levels = row
+        .effort
+        .into_levels()
+        .map(|levels| {
+            levels
+                .into_iter()
+                .map(|level| CatalogText::new(level).ok())
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| {
+                    catalog_unreadable(&format!(
+                        "model {:?} has an effort level past the text bound",
+                        id.as_str()
+                    ))
                 })
-                .collect::<Option<Vec<_>>>();
-            let Some(levels) = levels else {
-                return Err(catalog_unreadable(&format!(
-                    "model {:?} has an effort level that is not text",
-                    id.as_str()
-                )));
-            };
-            Some(levels)
-        }
-        _ => None,
-    };
-    let from_pointer =
-        row.get("value").and_then(Value::as_str) == Some(CLAUDE_DEFAULT_MODEL_POINTER);
+        })
+        .transpose()?;
+    let from_pointer = row.value.as_deref() == Some(CLAUDE_DEFAULT_MODEL_POINTER);
     let model = ProviderModel {
         // Read from the id alone, never the name, which is display text.
         larger_window: id.as_str().ends_with(CLAUDE_LARGER_WINDOW_MARK),
@@ -220,15 +219,16 @@ fn read_catalog_row(row: &Map<String, Value>) -> Result<(ProviderModel, bool), D
         capabilities: Vec::new(),
         effort_levels,
         output_speed_levels: None,
-        fast,
+        fast: row.supports_fast_mode.unwrap_or(false),
         context_window: None,
     };
     Ok((model, from_pointer))
 }
 
-// The non-empty string at `key` that a catalog text holds; `None` for anything else.
-fn read_catalog_text(source: &Map<String, Value>, key: &str) -> Option<CatalogText> {
-    read_non_empty_string(source, key).and_then(|text| CatalogText::new(text.to_owned()).ok())
+// The non-empty text a catalog text holds; `None` for anything else.
+fn catalog_text(text: Option<String>) -> Option<CatalogText> {
+    text.filter(|text| !text.is_empty())
+        .and_then(|text| CatalogText::new(text).ok())
 }
 
 // The whole catalog's fault, naming the row in `detail`, which is bounded since a model id is

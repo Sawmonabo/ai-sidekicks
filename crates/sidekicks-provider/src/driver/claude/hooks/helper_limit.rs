@@ -180,6 +180,7 @@ mod tests {
     use crate::driver::claude::session::scripted::{ScriptedSession, settle};
     use crate::driver::claude::session::state::ClaudeSessionRoutingBand;
     use crate::driver::session_control::{CreateSessionParams, SubagentPolicy};
+    use crate::driver::test_registry::fixed_session_id;
     use crate::thread_frame_router::{
         ChildThreadAnnouncement, SubagentLifecycleEmission, SubagentLifecycleEventType,
     };
@@ -199,8 +200,7 @@ mod tests {
         SessionId,
         Arc<Mutex<ClaudeSessionRoutingBand>>,
     ) {
-        let session_id =
-            SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id");
+        let session_id = fixed_session_id();
         let mut band = ClaudeSessionRoutingBand::new();
         drop(band.router.register_session_thread("session".to_owned()));
         let band = Arc::new(Mutex::new(band));

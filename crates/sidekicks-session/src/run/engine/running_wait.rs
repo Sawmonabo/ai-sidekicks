@@ -12,8 +12,9 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::Notify;
 
+use crate::run::engine::RunEngine;
+use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::live::LiveRuns;
-use crate::run::engine::{RunEngine, RunEngineError};
 
 impl RunEngine {
     /// Waits until `run_id` reads `running` or has ended, or until its waiters are woken for a

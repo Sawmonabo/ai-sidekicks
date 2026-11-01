@@ -1,6 +1,6 @@
 //! The daemon services a scripted session reaches: approval ports and a queue intake that record
-//! what reaches them, files whose read takes a set time, the bindings of daemon turns and a machine
-//! with no repositories.
+//! what reaches them, files whose read takes a set time, the bindings of daemon turns, a binding
+//! store that takes every write and a machine with no repositories.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -11,6 +11,7 @@ use std::time::Duration;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use futures::future::ready;
+use serde_json::{Map, Value};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -45,6 +46,8 @@ use crate::port::permission_ask::{
 use crate::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
+use crate::runtime_binding::store::RuntimeBindingRebind;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// What reached the approval ports, in order.
@@ -345,5 +348,25 @@ impl CallbackToolActivitySink for NoCallbackTools {
         _record: &'a CallbackToolActivityRecord,
     ) -> BoxFuture<'a, Result<(), CallbackToolPortError>> {
         async { Ok(()) }.boxed()
+    }
+}
+
+/// A binding store that takes every write, so a rewind's fork is adopted.
+pub(crate) struct TakenBindingWrites;
+
+impl RuntimeBindingWriter for TakenBindingWrites {
+    fn rebind(
+        &self,
+        _rebind: RuntimeBindingRebind,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        ready(Ok(())).boxed()
+    }
+
+    fn keep_recovery_data(
+        &self,
+        _binding_id: RuntimeBindingId,
+        _runtime_metadata: Map<String, Value>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        ready(Ok(())).boxed()
     }
 }
