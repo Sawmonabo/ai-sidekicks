@@ -13,9 +13,6 @@ ignored = [
   "command-fds",
   # The link to an agent's memory folder on Windows.
   "junction",
-  # The wake helper's status, read through the system's service management.
-  "objc2-foundation",
-  "objc2-service-management",
 ]
 
 [[bin]]
@@ -69,7 +66,9 @@ objc2-foundation.workspace = true
 objc2-io-kit = { workspace = true, features = ["dispatch2", "libc", "ps", "pwr_mgt", "std"] }
 objc2-security = { workspace = true, features = ["CSCommon", "SecCode", "SecRequirement", "std"] }
 objc2-service-management.workspace = true
+plist.workspace = true
 security-framework.workspace = true
+subtle.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 async-io.workspace = true

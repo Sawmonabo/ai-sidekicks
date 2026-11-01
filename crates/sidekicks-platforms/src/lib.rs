@@ -57,8 +57,9 @@
               work-loop lists and BSD information, `proc_pidfdinfo`, `proc_piddynkqueueinfo`), the \
               Linux input-wait test's page mapping (`mmap`, `munmap`) and macOS's user temp folder \
               (`confstr`) and the wake helper's power-event calls (`IOPMSchedulePowerEvent`, \
-              `IOPMCancelScheduledPowerEvent`) and socket peer read (`getpeereid`) are C \
-              interfaces too"
+              `IOPMCancelScheduledPowerEvent`), its cast of the queue's listing \
+              (`IOPMCopyScheduledPowerEvents`), its socket peer read (`getpeereid`) and its login \
+              items read (`statusForLegacyURL`) are C interfaces too"
 )]
 
 mod atomic_write;
@@ -112,6 +113,7 @@ mod session_child;
 mod shell_folder_start;
 mod shell_line_command;
 mod shell_start;
+mod sign_in_move;
 mod socket;
 mod spawner;
 #[cfg(any(test, feature = "test-support"))]
@@ -127,6 +129,7 @@ mod thread_cpu_time;
 mod tool_memory_cap;
 #[cfg(not(target_os = "linux"))]
 mod user_namespace;
+mod wake_helper;
 mod wake_watch;
 mod wall_clock;
 mod watch;
@@ -260,10 +263,14 @@ pub use macos::responsibility::become_own_root;
 #[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "macos")]
-pub use macos::wake_helper::{
-    PowerEvents, SystemPowerEvents, WAKE_HELPER_SOCKET_PATH, WakeBookings, WakeRefusal, WakeReply,
-    answer_wake_connection, serve_wake_helper,
+pub use macos::sign_in_move::{SignInMove, sign_in_move};
+#[cfg(target_os = "macos")]
+pub use macos::wake_helper::program::{
+    PowerEvents, SystemPowerEvents, WAKE_HELPER_SOCKET_PATH, WakeBookings, answer_wake_connection,
+    serve_wake_helper,
 };
+#[cfg(target_os = "macos")]
+pub use macos::wake_helper::{WakeHelper, wake_helper};
 #[cfg(target_os = "macos")]
 pub use macos::windowless_app::launch_app_windowless;
 #[cfg(target_os = "macos")]
@@ -459,6 +466,9 @@ pub use shell_line_command::{
 };
 pub use shell_start::{DOES_SHELL_MODE_KEEP_ITS_FOLDER, SHELL_START_CONFIRMATION};
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
+pub use sign_in_move::{KeychainSignIn, SignInMoveError};
+#[cfg(not(target_os = "macos"))]
+pub use sign_in_move::{SignInMove, sign_in_move};
 pub use socket::connection::found_no_listener;
 pub use socket::path::{SocketPathEntry, SocketPathRefused};
 pub use spawner::Spawner;
@@ -484,6 +494,10 @@ pub use test_program::{harness_test_name, pass_through_start, terminal_taking_st
 pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;
+pub use wake_helper::message::{UnknownWakeMessage, WakeRefusal, WakeReply, WakeRequest};
+#[cfg(not(target_os = "macos"))]
+pub use wake_helper::{WakeHelper, wake_helper};
+pub use wake_helper::{WakeHelperError, WakeHelperStatus};
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
 pub use watch::{FileAppendWatch, FolderArrivalWait, FolderArrivalWatch};
