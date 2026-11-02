@@ -11,6 +11,7 @@ use sidekicks_contracts::run::subagent::SubagentId;
 
 use crate::driver::codex::session::detached_conversation::CODEX_DETACHED_INTERRUPT_DEADLINE;
 use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
+use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::session::test_fixture::TestCodexSession;
 use crate::driver::run_control::{
     HelperStopOutcome, HelperStopParams, ReattachHelpersParams, ReattachedHelper,
@@ -356,4 +357,59 @@ async fn reattached_helpers_reopen_in_order_past_a_refusal() {
         session.scripted.script.sent.try_recv().is_err(),
         "nothing more was sent"
     );
+}
+
+// A helper reopened after a restart is registered on the session's service, so a frame it sends
+// afterwards reaches the session's queue. Kill: the registration missing (the service drops the
+// frame of a conversation no session names, and the wait runs out).
+#[tokio::test(start_paused = true)]
+async fn a_reattached_helpers_later_frame_reaches_its_session() {
+    let mut session = TestCodexSession::start().await;
+    let params = ReattachHelpersParams {
+        session_id: session.task.record.session_id,
+        helpers: vec![reattached(new_run_id(), "helper-reopened", None)],
+    };
+    let control = Arc::clone(&session.task.run_control);
+    let task = &mut session.task;
+    let script = &mut session.scripted.script;
+    let service_side = async {
+        let reopened = script.next_sent().await;
+        assert_eq!(reopened["params"]["threadId"], "helper-reopened");
+        script.answer(
+            &reopened,
+            &json!({
+                "thread": {"id": "helper-reopened", "sessionId": "codex-session"},
+                "initialTurnsPage": {
+                    "data": [{"id": HELPER_TURN, "status": "interrupted"}],
+                    "nextCursor": null,
+                },
+            }),
+        );
+    };
+    let (reattached, ()) = tokio::time::timeout(
+        DEADLOCK_BOUND,
+        Box::pin(async {
+            tokio::join!(task.drive(control.reattach_helpers(&params)), service_side)
+        }),
+    )
+    .await
+    .expect("the re-attach is answered");
+    assert!(reattached.is_ok(), "{reattached:?}");
+
+    session.scripted.script.send(&json!({
+        "jsonrpc": "2.0",
+        "method": "turn/started",
+        "params": {"threadId": "helper-reopened", "turn": {"id": "helper-next-turn"}},
+    }));
+    let item = tokio::time::timeout(DEADLOCK_BOUND, session.task.next_item())
+        .await
+        .expect("the helper's frame reaches the session");
+
+    let CodexSessionInbound::Frame { method, params } = item else {
+        panic!("the session's next item is the helper's frame");
+    };
+    assert_eq!(method, "turn/started");
+    let params: serde_json::Value =
+        serde_json::from_str(params.get()).expect("the params are JSON");
+    assert_eq!(params["threadId"], "helper-reopened");
 }

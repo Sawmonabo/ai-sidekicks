@@ -18,10 +18,10 @@ use crate::run::delivery::LateAppendableRow;
 use crate::run::state_entry::RunStateEntry;
 
 /// The helpers' newest turn.
-const HELPER_TURN: &str = "turn-helper";
+pub(super) const HELPER_TURN: &str = "turn-helper";
 
 // A running helper on its conversation `thread_id`, started beneath `parent_run_id`.
-fn helper_run(run_id: RunId, parent_run_id: RunId, thread_id: &str) -> LiveRunResume {
+pub(super) fn helper_run(run_id: RunId, parent_run_id: RunId, thread_id: &str) -> LiveRunResume {
     LiveRunResume {
         run_id,
         parent_run_id: Some(parent_run_id),
@@ -43,7 +43,7 @@ fn loaded(thread_id: &'static str, status: &str) -> HelperScript {
 }
 
 // The helper `thread_id` held unloaded, its newest listed turn at `status`.
-fn unloaded(thread_id: &'static str, status: &str) -> HelperScript {
+pub(super) fn unloaded(thread_id: &'static str, status: &str) -> HelperScript {
     HelperScript {
         thread_id,
         is_loaded: false,
@@ -69,7 +69,7 @@ fn refused(thread_id: &'static str) -> HelperScript {
 
 // Adopts the conversation with its lead running its turn on the loaded conversation, `helpers`
 // named in `live_runs` after it, the service answering for each as `scripts` says.
-async fn adopt_with_helpers(
+pub(super) async fn adopt_with_helpers(
     session: &mut TestCodexSession,
     live_runs: Vec<LiveRunResume>,
     scripts: Vec<HelperScript>,

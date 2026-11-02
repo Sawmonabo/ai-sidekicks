@@ -1,7 +1,7 @@
 //! One conversation's resume in place, run on its session's task: the call that carries it there,
 //! with the binding and function legs it resumes under, the turn ends the resume lists as over
 //! that the daemon still owed the session, and the session's helpers reopened on the new
-//! connection.
+//! connection, each registered on its service, a held helper's owed end written as the daemon's.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -14,7 +14,7 @@ use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::calls::{CodexSessionCallDependencies, CodexSessionTask};
 use crate::driver::codex::session::establishment::helpers::{
-    order_parents_first, reopen_codex_helper,
+    order_parents_first, reopen_registered_codex_helper,
 };
 use crate::driver::codex::session::establishment::{
     CodexInPlaceOutcome, CodexSessionEstablishment,
@@ -90,19 +90,22 @@ struct BoundHelper {
 }
 
 // Reopens, parents first, each helper whose child run the record still binds on the session's
-// connection, and routes the owed end of each whose newest turn the reopen shows over. A refused
-// reopen is logged and the rest go on. Answers the frames the ends produced.
+// connection, registered on its service, and routes the owed end of each whose newest turn the
+// reopen shows over, which a held helper's mark writes as the daemon's. A refused reopen is logged
+// and the rest go on. Answers the frames the ends produced.
 async fn reopen_bound_codex_helpers(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexSessionCallDependencies,
 ) -> CodexRoutedFrames {
     let mut routed = CodexRoutedFrames::default();
     let record = &*task.record;
-    let connection = match record.service.connection() {
+    let session_id = record.session_id;
+    let service = Arc::clone(&record.service);
+    let connection = match service.connection() {
         Ok(connection) => connection,
         Err(error) => {
             tracing::warn!(
-                session_id = %record.session_id,
+                session_id = %session_id,
                 error = &error as &(dyn Error + 'static),
                 "the codex service went away before the session's helpers were reopened"
             );
@@ -128,7 +131,9 @@ async fn reopen_bound_codex_helpers(
         |helper| Some(helper.parent_run_id),
     );
     for helper in ordered {
-        match reopen_codex_helper(&connection, &helper.thread_id).await {
+        match reopen_registered_codex_helper(&service, &connection, session_id, &helper.thread_id)
+            .await
+        {
             Ok(Some(newest)) => routed.extend(
                 end_owed_codex_helper_turn(
                     &mut *task.routing,
@@ -141,7 +146,7 @@ async fn reopen_bound_codex_helpers(
             ),
             Ok(None) => {}
             Err(error) => tracing::warn!(
-                session_id = %task.record.session_id,
+                session_id = %session_id,
                 run_id = %helper.run_id,
                 thread_id = %helper.thread_id,
                 error = &error as &(dyn Error + 'static),

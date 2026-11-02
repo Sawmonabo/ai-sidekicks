@@ -478,7 +478,8 @@ impl CodexSessionRouting {
     }
 
     // Lets go of a helper whose turn ended: its router entry and usage base, and for a subagent
-    // its child run.
+    // its child run. A held helper's turn ends as the daemon's instead, the helper kept here and
+    // its run left waiting on the person.
     async fn complete_child_on_terminal(
         &mut self,
         delivery: &CodexFrameDelivery,
@@ -491,6 +492,12 @@ impl CodexSessionRouting {
         let Some(thread_id) = &frame.thread_id else {
             return;
         };
+        if delivery
+            .end_held_helper_turn(record, thread_id, &frame.params)
+            .await
+        {
+            return;
+        }
         let is_subagent = matches!(
             self.router.child_attribution_for(thread_id),
             Some(ChildSpendAttribution::Subagent { .. })

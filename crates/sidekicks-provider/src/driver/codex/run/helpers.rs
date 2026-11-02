@@ -18,7 +18,7 @@ use crate::driver::codex::session::background_terminals::end_codex_running_comma
 use crate::driver::codex::session::calls::call_codex_session;
 use crate::driver::codex::session::detached_conversation::CODEX_DETACHED_INTERRUPT_DEADLINE;
 use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
-use crate::driver::codex::session::establishment::helpers::reopen_codex_helper;
+use crate::driver::codex::session::establishment::helpers::reopen_registered_codex_helper;
 use crate::driver::codex::session::history::read_codex_newest_turn;
 use crate::driver::codex::session::inbound::CodexSessionCall;
 use crate::driver::codex::session::owed_turn_ends::read_codex_listed_turn;
@@ -77,7 +77,8 @@ impl CodexRunControl {
 
     /// Reopens each of `params.helpers` that holds no helper route, in the order given, parents
     /// first, ancestors included, since Codex reopens a helper only once its parent is loaded: a
-    /// helper an adoption reopened holds a route. Reopening an unloaded helper loads it, which has
+    /// helper an adoption reopened holds a route. Each is registered on the session's service
+    /// first, so its frames reach the session. Reopening an unloaded helper loads it, which has
     /// Codex record the turn the restart cut as interrupted. A refused reopen is logged and the
     /// rest go on. Fails only for a session not live or a service not running.
     pub(crate) async fn reattach_helpers(
@@ -96,8 +97,14 @@ impl CodexRunControl {
                 continue;
             }
             // A Codex helper's id is its own conversation's.
-            if let Err(error) = reopen_codex_helper(&connection, helper.subagent_id.as_str()).await
-            {
+            let reopened = reopen_registered_codex_helper(
+                &reading.service,
+                &connection,
+                params.session_id,
+                helper.subagent_id.as_str(),
+            )
+            .await;
+            if let Err(error) = reopened {
                 tracing::warn!(
                     session_id = %params.session_id,
                     run_id = %helper.run_id,

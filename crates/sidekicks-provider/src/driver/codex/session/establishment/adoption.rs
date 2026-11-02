@@ -12,7 +12,8 @@
 //! continue. Each live helper is answered from its newest turn, parents first: a loaded one is
 //! reopened on the daemon's connection, which Codex sends its frames on only after that, and an
 //! unloaded one is listed, which loads nothing. A helper Codex runs, or whose newest turn is over,
-//! is bound to its child run again, the end of that turn owed as the session opens.
+//! is bound to its child run again, the end of that turn owed as the session opens; a helper held
+//! on the person has that turn marked held, so its end is the daemon's and the helper waits on.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -65,7 +66,7 @@ pub(crate) struct CodexRestoredHelper {
     /// The helper's conversation, whose id is the helper's own.
     pub(crate) thread_id: String,
     /// Its newest turn as Codex read it at the adoption; one listed over is ended as the session
-    /// opens, since Codex sent its end while the daemon was away.
+    /// opens, since Codex sent its end while the daemon was away, as the daemon's where it is held.
     pub(crate) newest_turn: CodexListedTurn,
     /// The spend already metered on it; zero until the caller reads it.
     pub(crate) prior_emitted: UsageAxisCounts,
@@ -414,13 +415,14 @@ fn bind_open_turns(
 }
 
 /// A live helper run, with the run it was started beneath, whether the service holds its
-/// conversation loaded, and its newest turn once read.
+/// conversation loaded, whether it is held on the person, and its newest turn once read.
 struct AdoptedHelper {
     // Its id, which is its conversation's.
     subagent_id: SubagentId,
     run_id: RunId,
     parent_run_id: RunId,
     is_loaded: bool,
+    is_held: bool,
     newest_turn: Option<CodexListedTurn>,
 }
 
@@ -450,6 +452,7 @@ fn find_live_helpers(live_runs: &[LiveRunResume], loaded: &[String]) -> Vec<Adop
             let parent_run_id = run.parent_run_id?;
             Some(AdoptedHelper {
                 is_loaded: loaded.iter().any(|held| held == subagent_id.as_str()),
+                is_held: run.is_held(live_runs),
                 subagent_id,
                 run_id: run.run_id,
                 parent_run_id,
@@ -541,8 +544,9 @@ fn answer_live_runs(
 // Binds a helper Codex runs, or whose newest turn is over, to its child run, started beneath its
 // parent, so its rows and asks land on that run and its end completes it, and routes the run to
 // the helper's conversation, which an interrupt of the run reaches; a helper held on the person is
-// bound the same, so its frames keep their run. Answers it restored, with its newest turn. Any
-// other helper's turn is gone, and a loaded one's conversation is let go on `service`.
+// bound the same, its newest turn marked held, so that turn's end is written as the daemon's and
+// the run keeps waiting. Answers it restored, with its newest turn. Any other helper's turn is
+// gone, and a loaded one's conversation is let go on `service`.
 fn restore_helper(
     record: &mut CodexSessionRecord,
     helper: AdoptedHelper,
@@ -573,6 +577,11 @@ fn restore_helper(
         },
     );
     run_routes.bind_helper_run(helper.run_id, record.session_id, &thread_id);
+    if helper.is_held {
+        record
+            .held_continuation_turn_ids
+            .insert(newest_turn.id.clone());
+    }
     Some(CodexRestoredHelper {
         thread_id,
         newest_turn,

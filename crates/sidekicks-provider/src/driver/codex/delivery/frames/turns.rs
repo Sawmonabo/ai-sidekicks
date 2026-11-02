@@ -1,10 +1,11 @@
 //! A turn's frames: its start, which opens its execution and its numbered turn on the run; its
-//! end, which ends a live turn's run through the session's terminal gate, a held continuation's as
-//! the daemon's with its run left live, and empties an interrupted turn's task list; its errors,
-//! which the end's failure reads and whose retries file a retried request's row; the safety hold
-//! Codex keeps on it until its answer starts; the hook runs that block its prompt; and the asks it
-//! held, which its end or Codex's own settle withdraws.
+//! end, which ends a live turn's run through the session's terminal gate, a held continuation's or
+//! held helper's as the daemon's with its run left live, and empties an interrupted turn's task
+//! list; its errors, which the end's failure reads and whose retries file a retried request's row;
+//! the safety hold Codex keeps on it until its answer starts; the hook runs that block its prompt;
+//! and the asks it held, which its end or Codex's own settle withdraws.
 
+use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::{ApiRetryErrorKind, UsageApiRequestRetriedPayload};
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
@@ -26,6 +27,7 @@ use crate::driver::codex::delivery::memory::{CodexTurnErrorReading, read_codex_e
 use crate::driver::codex::delivery::notices::{provider_words, release_reroute};
 use crate::driver::codex::delivery::reviewer::end_codex_review_turn;
 use crate::driver::codex::delivery::rows::{CodexRow, CodexRowDelivery, CodexRowRun};
+use crate::driver::codex::run::routes::CodexRunBinding;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::codex::turn_evidence::{
@@ -336,6 +338,58 @@ impl CodexFrameDelivery {
             }
         }
         self.dependencies.run_routes.forget_run(turn_run.run_id);
+    }
+
+    /// Ends a held helper's turn, the `turn/completed` of `turn_params` on its conversation
+    /// `helper_thread_id`, as a held continuation ends: its waiting pieces delivered, the daemon's
+    /// end written on the helper's child run, which stays live and waiting, and its binding and
+    /// route gone. Answers `false`, ending nothing, for a turn not marked held or a helper with no
+    /// bound child run.
+    pub(crate) async fn end_held_helper_turn(
+        &self,
+        record: &mut CodexSessionRecord,
+        helper_thread_id: &str,
+        turn_params: &RawValue,
+    ) -> bool {
+        let members: Map<String, Value> =
+            serde_json::from_str(turn_params.get()).unwrap_or_default();
+        let Some(turn_id) = read_completed_turn_id(&members) else {
+            return false;
+        };
+        let Some(child) = record.delivery.child_run_by_thread_id.get(helper_thread_id) else {
+            return false;
+        };
+        let Some(bound) = &child.bound else {
+            return false;
+        };
+        if !record.held_continuation_turn_ids.remove(&turn_id) {
+            return false;
+        }
+        let turn_run = CodexTurnRun {
+            run_id: bound.child_run_id,
+            binding: CodexRunBinding {
+                session_id: record.session_id,
+                binding_id: child.binding_id.clone(),
+                agent_id: child.agent_id,
+                // The turn opens only to be ended, so it takes no step a bound would count.
+                step_bound: None,
+            },
+            ending: CodexTurnEnding::Live,
+        };
+        for piece in record.delivery.streamed_text.end_turn(&turn_id) {
+            self.admit_prose_piece(record, &piece.key, piece.text).await;
+        }
+        self.end_held_continuation(record, &turn_id, &turn_run)
+            .await;
+        record
+            .delivery
+            .child_run_by_thread_id
+            .remove(helper_thread_id);
+        self.dependencies
+            .run_routes
+            .retire_helper_run(turn_run.run_id);
+        record.delivery.forget_turn(&turn_id);
+        true
     }
 
     async fn deliver_terminal(

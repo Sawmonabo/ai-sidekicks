@@ -1,10 +1,14 @@
 //! A Codex helper reopened on the daemon's connection: Codex attaches a loaded helper only to the
 //! connections that were open when the helper started, so the daemon's connection receives its
 //! frames only after a `thread/resume` of it, which Codex accepts only once its parent is loaded.
+//! A helper reopened after the adoption is registered as the session's first; one held on the
+//! person keeps the mark its adoption gave its newest turn, so that turn's end is the daemon's.
 
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::id::SessionId;
 
 use super::adoption::request_bare_thread_resume;
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::history::{CodexListedTurn, read_codex_resumed_newest_turn};
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
@@ -18,6 +22,28 @@ pub(crate) async fn reopen_codex_helper(
 ) -> Result<Option<CodexListedTurn>, CodexError> {
     let reply = request_bare_thread_resume(connection, thread_id).await?;
     Ok(read_codex_resumed_newest_turn(&reply))
+}
+
+/// Reopens the helper `thread_id` as [`reopen_codex_helper`] does, registered on `service` as
+/// session `session_id`'s first, since Codex sends a reopened helper's waiting asks right after
+/// its reply and the service refuses one no session names. A refused reopen lets go of the
+/// registration it made; one already there stays.
+pub(crate) async fn reopen_registered_codex_helper(
+    service: &CodexService,
+    connection: &CodexAppServerConnection,
+    session_id: SessionId,
+    thread_id: &str,
+) -> Result<Option<CodexListedTurn>, CodexError> {
+    let was_registered = service
+        .threads_of(&session_id)
+        .iter()
+        .any(|registered| registered == thread_id);
+    service.register_thread(thread_id.to_owned(), session_id);
+    let reopened = reopen_codex_helper(connection, thread_id).await;
+    if reopened.is_err() && !was_registered {
+        service.release_thread(thread_id);
+    }
+    reopened
 }
 
 /// Orders `helpers` so each comes after the listed helper whose run is its parent run, otherwise
