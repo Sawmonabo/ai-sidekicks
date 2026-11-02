@@ -67,8 +67,8 @@ pub(crate) enum ScriptedAnswer {
 
 /// A Claude Code process that records what the driver writes and answers as scripted: a control
 /// request with no scripted answer is answered with an empty response once any hold scripted for it
-/// lets go, a user line is written unless a hold or a failure was scripted for it, and a close ends the process, whose exit its
-/// listener takes as a real reader hands it over.
+/// lets go, a user line is written unless a hold or a failure was scripted for it, and a close
+/// ends the process, whose exit its listener takes as a real reader hands it over.
 #[derive(Default)]
 pub(crate) struct ScriptedChannel {
     writes: Mutex<Vec<ScriptedWrite>>,

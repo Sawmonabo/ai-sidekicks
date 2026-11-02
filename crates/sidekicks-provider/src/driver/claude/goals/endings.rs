@@ -378,7 +378,8 @@ impl ClaudeGoalEndings {
                 tracing::warn!(
                     %session_id,
                     error = &error as &(dyn Error + 'static),
-                    "the goal checks' outcomes could not be read from Claude Code's conversation file"
+                    "the goal checks' outcomes could not be read from Claude Code's conversation \
+                     file"
                 );
                 Vec::new()
             }

@@ -29,10 +29,10 @@ impl ClaudeRunControls {
     }
 
     /// Stops a helper for good from the console: it is marked stopped first, so each tool use from
-    /// the next on is denied, then Claude Code's `stop_task` goes to its task. Answers `AlreadyEnded`
-    /// with no live session or when Claude Code refuses the stop, and `Stopped` once it took it or
-    /// a cut write stopped the process; fails as the request otherwise fails, a passed deadline
-    /// included, the mark and any pause kept.
+    /// the next on is denied, then Claude Code's `stop_task` goes to its task. Answers
+    /// `AlreadyEnded` with no live session or when Claude Code refuses the stop, and `Stopped` once
+    /// it took it or a cut write stopped the process; fails as the request otherwise fails, a
+    /// passed deadline included, the mark and any pause kept.
     pub(crate) async fn stop_child_run(
         &self,
         params: &HelperStopParams,

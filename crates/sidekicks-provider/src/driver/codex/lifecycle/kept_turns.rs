@@ -146,7 +146,8 @@ async fn connect_kept_service(
                 error = &error as &(dyn Error + 'static),
                 session_id = %params.session_id,
                 conversation = params.conversation,
-                "the codex service running the turns a restart kept could not be joined; they run on"
+                "the codex service running the turns a restart kept could not be joined; they run \
+                 on"
             );
             None
         }

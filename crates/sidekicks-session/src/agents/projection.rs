@@ -88,7 +88,8 @@ const LAND_BINDING_SQL: &str = "UPDATE agents SET
     updated_at = @updatedAt
   WHERE id = @agentId";
 
-const WRITE_PENDING_SWITCH_SQL: &str = "UPDATE agents SET pending_switch = @pendingSwitch, updated_at = @updatedAt WHERE id = @agentId";
+const WRITE_PENDING_SWITCH_SQL: &str = "UPDATE agents
+  SET pending_switch = @pendingSwitch, updated_at = @updatedAt WHERE id = @agentId";
 
 // Clears the pending switch `@switchId` names; a switch replaced since is left standing.
 const CLEAR_PENDING_SWITCH_SQL: &str =
