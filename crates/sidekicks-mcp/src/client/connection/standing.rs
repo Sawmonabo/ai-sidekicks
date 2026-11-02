@@ -77,6 +77,15 @@ impl McpStandingConnection {
         )
     }
 
+    /// A standing connection already closed, with no live connection and no feed, reading the
+    /// client's `stopping` mark: what a session closed, or a stopping client, hands out.
+    pub(crate) fn already_closed(stopping: CancellationToken) -> Self {
+        let (standing, feed) = Self::new(stopping);
+        feed.closed.cancel();
+        feed.tracker.close();
+        standing
+    }
+
     /// Counts the caller's work as using the standing connection until the token drops, so the
     /// session's close waits for it before closing the live connection. Take it before reading
     /// the closed mark: a close that marks after the read waits for the token.

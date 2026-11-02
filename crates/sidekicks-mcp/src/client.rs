@@ -17,7 +17,7 @@ pub(crate) mod tasks;
 #[cfg(test)]
 mod test_server;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::mcp::server::McpServerName;
@@ -42,6 +42,15 @@ const IDLE_CONNECTIONS_PER_HOST: usize = 2;
 type StandingConnections =
     HashMap<(SessionId, String), (McpStandingConnection, McpStandingConnectionFeed)>;
 
+/// The standing connections of the sessions still open, and the sessions closed, of which none
+/// opens again, so nothing made for one after its close is left open.
+#[derive(Default)]
+struct StandingState {
+    connections: StandingConnections,
+    /// Each session closed since the daemon started.
+    closed_sessions: HashSet<SessionId>,
+}
+
 /// Why the client could not be made.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum McpClientError {
@@ -55,7 +64,7 @@ pub(crate) enum McpClientError {
 /// prompts, the tasks they follow, and the one HTTP client every server at an address is reached
 /// through.
 pub(crate) struct McpClient {
-    standing: Mutex<StandingConnections>,
+    standing: Mutex<StandingState>,
     /// Set once the client stops, before any connection closes, so an end the stop caused is
     /// read as the stop.
     stopping: CancellationToken,
@@ -90,7 +99,7 @@ impl McpClient {
             .build()
             .map_err(McpClientError::HttpClient)?;
         Ok(Self {
-            standing: Mutex::new(HashMap::new()),
+            standing: Mutex::new(StandingState::default()),
             stopping: CancellationToken::new(),
             http,
             prompt_watchers: Arc::new(PromptWatchers::default()),
@@ -99,7 +108,8 @@ impl McpClient {
         })
     }
 
-    /// The standing connection of `session_id` to `server_name`, made at its first use.
+    /// The standing connection of `session_id` to `server_name`, made at its first use; one
+    /// already closed, kept nowhere, once the session closed or the client stopped.
     #[cfg_attr(
         not(test),
         expect(
@@ -114,13 +124,16 @@ impl McpClient {
         server_name: &McpServerName,
     ) -> McpStandingConnection {
         let mut standing = lock(&self.standing);
-        let (connection, _) = self.standing_entry(&mut standing, session_id, server_name);
-        connection.clone()
+        match self.standing_entry(&mut standing, session_id, server_name) {
+            Some((connection, _)) => connection.clone(),
+            None => McpStandingConnection::already_closed(self.stopping.clone()),
+        }
     }
 
     /// Publishes `connection` as the live connection of its session to its server, then closes
     /// the one it replaced, so a task's follow finds the new connection before the old one's
-    /// close cuts it. The connection stays open until the session's connections close.
+    /// close cuts it. The connection stays open until the session's connections close; one added
+    /// after its session closed, or while the client stops, is closed at once.
     #[cfg_attr(
         not(test),
         expect(
@@ -134,17 +147,20 @@ impl McpClient {
         connection: McpServerConnection,
     ) -> Arc<McpServerConnection> {
         let connection = Arc::new(connection);
-        let replaced = {
+        let published = {
             let mut standing = lock(&self.standing);
-            let (_, feed) = self.standing_entry(
+            self.standing_entry(
                 &mut standing,
                 connection.scope.session_id,
                 &connection.scope.server_name,
-            );
-            feed.publish(Some(Arc::clone(&connection)))
+            )
+            .map(|(_, feed)| feed.publish(Some(Arc::clone(&connection))))
         };
-        if let Some(replaced) = replaced {
-            replaced.close().await;
+        match published {
+            Some(Some(replaced)) => replaced.close().await,
+            Some(None) => {}
+            // Nothing would ever close it.
+            None => connection.close().await,
         }
         connection
     }
@@ -161,10 +177,15 @@ impl McpClient {
         )
     )]
     pub(crate) async fn close_session(&self, session_id: SessionId) {
-        let feeds: Vec<McpStandingConnectionFeed> = lock(&self.standing)
-            .extract_if(|(session, _), _| *session == session_id)
-            .map(|(_, (_, feed))| feed)
-            .collect();
+        let feeds: Vec<McpStandingConnectionFeed> = {
+            let mut standing = lock(&self.standing);
+            standing.closed_sessions.insert(session_id);
+            standing
+                .connections
+                .extract_if(|(session, _), _| *session == session_id)
+                .map(|(_, (_, feed))| feed)
+                .collect()
+        };
         close_feeds(feeds).await;
     }
 
@@ -181,6 +202,7 @@ impl McpClient {
     pub(crate) async fn stop(&self) {
         self.stopping.cancel();
         let feeds: Vec<McpStandingConnectionFeed> = lock(&self.standing)
+            .connections
             .drain()
             .map(|(_, (_, feed))| feed)
             .collect();
@@ -214,6 +236,7 @@ impl McpClient {
     /// The live connections of `session_id`.
     fn session_connections(&self, session_id: SessionId) -> Vec<Arc<McpServerConnection>> {
         lock(&self.standing)
+            .connections
             .iter()
             .filter(|((session, _), _)| *session == session_id)
             .filter_map(|(_, (_, feed))| feed.current())
@@ -221,16 +244,23 @@ impl McpClient {
     }
 
     // The pair of `session_id` and `server_name` in `standing`, made with the client's stopping
-    // mark when there is none.
+    // mark when there is none; `None` once the session closed or the client stopped, since
+    // nothing would close a pair made then.
     fn standing_entry<'a>(
         &self,
-        standing: &'a mut StandingConnections,
+        standing: &'a mut StandingState,
         session_id: SessionId,
         server_name: &McpServerName,
-    ) -> &'a (McpStandingConnection, McpStandingConnectionFeed) {
-        standing
-            .entry((session_id, server_name.as_str().to_owned()))
-            .or_insert_with(|| McpStandingConnection::new(self.stopping.clone()))
+    ) -> Option<&'a (McpStandingConnection, McpStandingConnectionFeed)> {
+        if self.stopping.is_cancelled() || standing.closed_sessions.contains(&session_id) {
+            return None;
+        }
+        Some(
+            standing
+                .connections
+                .entry((session_id, server_name.as_str().to_owned()))
+                .or_insert_with(|| McpStandingConnection::new(self.stopping.clone())),
+        )
     }
 }
 
@@ -416,6 +446,33 @@ mod tests {
             waiter.await.expect("the waiter ends"),
             McpReplacement::ClientStopping
         ));
+    }
+
+    // Mutation: in `add_connection`, publish into a pair made after the session's close or the
+    // client's stop, leaving the connection open with nothing to close it.
+    #[tokio::test(start_paused = true)]
+    async fn a_connection_added_after_its_sessions_close_or_the_stop_is_closed_at_once() {
+        let (client, _card) = test_client();
+        let (session_id, name) = session_and_name();
+        client.close_session(session_id).await;
+
+        let after_close = client
+            .add_connection(open(&client, session_id, &name, None).await)
+            .await;
+        let (other_session, _) = session_and_name();
+        let opened = open(&client, other_session, &name, None).await;
+        client.stop().await;
+        let after_stop = client.add_connection(opened).await;
+
+        assert!(
+            after_close.service.is_closed(),
+            "closed after the session's"
+        );
+        assert!(after_stop.service.is_closed(), "closed after the stop");
+        assert!(
+            client.standing_connection(session_id, &name).is_closed(),
+            "the closed session's standing connection reads closed"
+        );
     }
 
     // Mutation: in `replacement`, read a failed `changed` as `SessionClosed`; a dropped client
