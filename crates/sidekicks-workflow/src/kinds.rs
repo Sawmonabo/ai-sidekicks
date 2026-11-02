@@ -33,7 +33,7 @@ use sidekicks_contracts::workflow::kind::{
     OutputMainHandleId, WorkflowNodeKindSpec, WorkflowOutputHandleSpec,
 };
 
-use crate::engine::ports::AgentStepRequest;
+use crate::engine::ports::{AgentStepRequest, StepScriptRuntime};
 use crate::kinds::step_context::StepContext;
 
 /// The param holding a command step's shell line.
@@ -52,6 +52,38 @@ pub(crate) trait NodeExecutor: Send + Sync {
         context: &'step StepContext,
         inputs: Vec<Vec<WorkflowItem>>,
     ) -> BoxFuture<'step, Result<StepOutcome, StepFailure>>;
+
+    /// What the step of `node` needs from the memory gate before it starts. The engine fills in
+    /// the node's key and a quick step's input size, which a kind cannot know.
+    fn admission_need(&self, _node: &WorkflowNode) -> StepAdmissionNeed {
+        StepAdmissionNeed::Unweighed
+    }
+}
+
+/// What a step the memory gate weighs runs, as its kind declares it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StepAdmissionShape {
+    /// A script step, reserved at its node's learned peak, else its runtime's estimate.
+    Script {
+        /// Its interpreter.
+        runtime: StepScriptRuntime,
+    },
+    /// A quick Code step, reserved at its budget, its input and its output room.
+    QuickCode {
+        /// Its interpreter's memory budget, in bytes.
+        budget_bytes: u64,
+        /// The most output text it may return, in bytes.
+        output_max_bytes: u64,
+    },
+}
+
+/// How a kind's step is admitted: at once, or after a wait at the memory gate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StepAdmissionNeed {
+    /// The gate does not weigh the step, so it is admitted in the turn that readies it.
+    Unweighed,
+    /// The step waits at the gate, reserved by what it runs.
+    Gate(StepAdmissionShape),
 }
 
 /// What a step's run asks of the engine: its output, a wait on a person, or an agent run, which
