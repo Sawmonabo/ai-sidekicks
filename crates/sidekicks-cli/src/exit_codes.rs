@@ -370,6 +370,7 @@ mod tests {
     use anyhow::anyhow;
     use clap::CommandFactory as _;
     use rstest::rstest;
+    use sidekicks_client::daemon_ending::DaemonEndingError;
     use sidekicks_client::error::{ClientError, LinkFault, RemoteError};
     use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
     use sidekicks_contracts::jsonrpc::message::{ConnectionUnavailableReason, JsonRpcErrorData};
@@ -545,6 +546,13 @@ mod tests {
     )]
     #[case::link_down(
         ClientError::link_down(LinkFault::PeerClosed).into(),
+        ProcessEnding::Exit(ExitCode::Unavailable)
+    )]
+    #[case::ending_call_failed(
+        anyhow::Error::from(DaemonEndingError::Client(ClientError::link_down(
+            LinkFault::PeerClosed
+        )))
+        .context("could not stop the background service"),
         ProcessEnding::Exit(ExitCode::Unavailable)
     )]
     #[case::broken_pipe(

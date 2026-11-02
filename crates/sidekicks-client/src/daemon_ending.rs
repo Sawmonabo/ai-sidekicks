@@ -90,7 +90,7 @@ pub enum DaemonEnd {
 pub enum DaemonEndingError {
     /// A call to the daemon failed: the connect, the status read, a stop or restart the daemon
     /// refused while its process could not be followed, or one sent on a repairing link.
-    #[error(transparent)]
+    #[error("A call to the background service failed")]
     Client(#[from] ClientError),
     /// The daemon's status names no process identity this client reads.
     #[error("The background service's status names no process it runs as")]

@@ -4,9 +4,7 @@
 
 use anyhow::Context as _;
 use sidekicks_client::daemon_connection::DaemonEndpoint;
-use sidekicks_client::daemon_ending::{
-    DaemonEnd, DaemonEndingError, DaemonEndingTerms, DaemonEndingVerb, end_daemon,
-};
+use sidekicks_client::daemon_ending::{DaemonEnd, DaemonEndingTerms, DaemonEndingVerb, end_daemon};
 use sidekicks_client::error::ClientError;
 use sidekicks_platforms::CtrlCListener;
 
@@ -25,14 +23,5 @@ pub(crate) async fn end_running_daemon(
         ended = end_daemon(endpoint, verb, &terms) => ended,
         _ = ctrl_c.recv() => return Err(ClientError::Canceled.into()),
     };
-    ended.map_err(|failure| match failure {
-        // The ending's own arm forwards the client's error transparently, which would hide it from
-        // the chain, so the client's error is the root.
-        DaemonEndingError::Client(error) => anyhow::Error::from(error).context(doing),
-        failure @ (DaemonEndingError::Identity(_)
-        | DaemonEndingError::Pin(_)
-        | DaemonEndingError::Wait(_)
-        | DaemonEndingError::End(_)
-        | DaemonEndingError::EndTask(_)) => anyhow::Error::from(failure).context(doing),
-    })
+    ended.context(doing)
 }
