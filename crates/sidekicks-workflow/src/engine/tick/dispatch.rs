@@ -466,20 +466,17 @@ pub(super) fn error_members(
 /// `failure` as the step settles with it: its node `node_id` where it names none, and its message
 /// and a coded failure's details scrubbed through `redaction`. A decline passes through.
 fn fill_step_failure(
-    failure: StepFailure,
+    mut failure: StepFailure,
     node_id: &WorkflowNodeId,
     redaction: &RunRedaction,
 ) -> StepFailure {
-    match failure {
-        StepFailure::Failed(mut error) => {
-            error_members(&mut error)
-                .1
-                .get_or_insert_with(|| node_id.clone());
-            scrub_step_error(&mut error, redaction);
-            StepFailure::Failed(error)
-        }
-        declined @ StepFailure::Declined { .. } => declined,
+    if let Some(error) = failure.error_mut() {
+        error_members(error)
+            .1
+            .get_or_insert_with(|| node_id.clone());
+        scrub_step_error(error, redaction);
     }
+    failure
 }
 
 /// `outputs`, a step's output items, with every string of each item's data and failure scrubbed

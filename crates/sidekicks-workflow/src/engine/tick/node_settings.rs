@@ -27,6 +27,15 @@ pub(crate) fn main_inputs<Input>(
         .map(|(_, items)| items)
 }
 
+/// How many main inputs a kind lists: its inputs whose `is_tool()` is false.
+pub(crate) fn main_input_count(spec: &WorkflowNodeKindSpec) -> usize {
+    spec.inputs
+        .as_slice()
+        .iter()
+        .filter(|input| !input.is_tool())
+        .count()
+}
+
 /// How many items each of a step's main inputs holds, in spec order.
 pub(crate) fn main_input_lengths(
     spec: &WorkflowNodeKindSpec,

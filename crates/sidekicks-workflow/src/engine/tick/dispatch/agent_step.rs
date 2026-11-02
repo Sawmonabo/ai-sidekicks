@@ -51,7 +51,7 @@ impl StepDispatch {
                 return;
             }
         };
-        let answer = execute(kind, &context, ready.inputs).await;
+        let answer = execute(node, kind, &context, ready.inputs).await;
         // Taken once: a progress mark made while the params evaluate sends nothing, since nothing
         // may come before `Started`.
         let records = context.take_records();

@@ -1,15 +1,17 @@
 //! A step's executor run: the executor driven to its answer while the step's records are taken as
-//! they come, a per-item kind's calls one item at a time, and the settlement the answer becomes.
+//! they come, a per-item kind's calls one item at a time, going on past a failing call where the
+//! node's `onError` does, and the settlement the answer becomes.
 
 use std::collections::BTreeMap;
 
-use sidekicks_contracts::workflow::definition::document::WorkflowNode;
+use sidekicks_contracts::workflow::definition::document::{WorkflowNode, WorkflowNodeOnError};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 
 use super::{StepDispatch, error_members, fill_step_failure, scrub_outputs};
 use crate::engine::tick::node_settings::{
     index, join_per_item_outputs, main_input_lengths, main_inputs, per_item_calls, shape_outputs,
 };
+use crate::engine::tick::step_failure::{passed_on_outputs, step_retry};
 use crate::engine::tick::{StepReportKind, StepSettlement};
 use crate::kinds::step_context::StepContext;
 use crate::kinds::{NodeKind, StepFailure, StepOutcome, uncoded_step_error};
@@ -27,7 +29,7 @@ impl StepDispatch {
         inputs: Vec<Vec<WorkflowItem>>,
     ) -> Option<StepSettlement> {
         let main_input_lengths = main_input_lengths(&kind.spec, &inputs);
-        let execution = execute(kind, context, inputs);
+        let execution = execute(node, kind, context, inputs);
         tokio::pin!(execution);
         let mut log_lines = Vec::new();
         let mut run_variables = BTreeMap::new();
@@ -91,10 +93,14 @@ impl StepDispatch {
     }
 }
 
-/// Runs the step's executor over `inputs`: once, or for a per-item kind once per item of its one
-/// main input, in order, each call reading its own item as item 0, their outputs joined in call
-/// order. A failing call ends the step there, carrying the call's index.
+/// Runs the step's executor over `inputs` on `node`: once, or for a per-item kind once per item of
+/// its one main input, in order, each call reading its own item as item 0, their outputs joined in
+/// call order. A failing call ends the step there, carrying the call's index, unless the node's
+/// `onError` goes on past it and the failure is a decline or a failure on the step's last try:
+/// then the call's outputs are what `onError` passes on, its error naming the call's item, and
+/// the next call runs.
 pub(super) async fn execute(
+    node: &WorkflowNode,
     kind: &NodeKind,
     context: &StepContext,
     inputs: Vec<Vec<WorkflowItem>>,
@@ -102,39 +108,84 @@ pub(super) async fn execute(
     if kind.spec.per_item != Some(true) {
         return kind.executor.execute(context, inputs).await;
     }
+    let can_go_on = matches!(
+        node.on_error,
+        Some(WorkflowNodeOnError::Continue | WorkflowNodeOnError::ContinueErrorOutput)
+    );
+    let is_last_try = context.step.attempt.get() >= step_retry(node).max_tries;
     let main_input = main_inputs(&kind.spec, inputs).next().unwrap_or_default();
     let mut calls = Vec::new();
     for (call_index, call_inputs) in per_item_calls(main_input).into_iter().enumerate() {
         context.begin_item_call(call_index);
-        let outputs = match kind.executor.execute(context, call_inputs).await {
-            Ok(StepOutcome::Outputs(outputs)) => outputs,
+        // Kept only where a failing call may go on, since only then are its items passed on.
+        let kept_inputs = can_go_on.then(|| call_inputs.clone());
+        let failure = match kind.executor.execute(context, call_inputs).await {
+            Ok(StepOutcome::Outputs(outputs)) => {
+                calls.push(outputs);
+                continue;
+            }
             Ok(StepOutcome::PersonWait(_) | StepOutcome::AgentRun(_)) => {
-                let error = uncoded_step_error(format!(
+                StepFailure::Failed(Box::new(uncoded_step_error(format!(
                     "the per-item kind {} asked for a wait or an agent run, which a call over one \
                      item cannot make",
                     kind.spec.kind.0.as_str()
-                ));
-                return Err(fill_failed_call(
-                    StepFailure::Failed(Box::new(error)),
+                ))))
+            }
+            Err(failure) => failure,
+        };
+        let goes_on = match failure {
+            StepFailure::Failed(_) => is_last_try,
+            StepFailure::Declined { .. } => true,
+            StepFailure::EndsRun(_) => false,
+        };
+        match kept_inputs.filter(|_| goes_on) {
+            Some(call_inputs) => {
+                calls.push(passed_on_call_outputs(
+                    node,
+                    kind,
+                    failure,
+                    &call_inputs,
                     call_index,
                 ));
             }
-            Err(failure) => return Err(fill_failed_call(failure, call_index)),
-        };
-        calls.push(outputs);
+            None => return Err(fill_failed_call(failure, call_index)),
+        }
     }
     Ok(StepOutcome::Outputs(join_per_item_outputs(calls)))
 }
 
+/// The outputs `node`'s `onError` passes on for the per-item call `call_index` that failed with
+/// `failure` over `call_inputs`: its one item, carrying the error with the call's index as the
+/// error's item, since the call's own item 0 is the step's item `call_index`.
+fn passed_on_call_outputs(
+    node: &WorkflowNode,
+    kind: &NodeKind,
+    mut failure: StepFailure,
+    call_inputs: &[Vec<WorkflowItem>],
+    call_index: usize,
+) -> Vec<Vec<WorkflowItem>> {
+    if let Some(error) = failure.error_mut() {
+        *error_members(error).2 = None;
+    }
+    let mut outputs = passed_on_outputs(node, &kind.spec, &failure, call_inputs)
+        .expect("a node whose onError goes on passes its items on");
+    for error in outputs
+        .iter_mut()
+        .flatten()
+        .filter_map(|item| item.error.as_mut())
+    {
+        *error_members(error).2 = Some(index(call_index));
+    }
+    outputs
+}
+
 /// `failure` carrying the index of the per-item call that failed, `call_index`, where it names no
 /// item. A decline passes through.
-fn fill_failed_call(failure: StepFailure, call_index: usize) -> StepFailure {
-    match failure {
-        StepFailure::Failed(mut error) => {
-            let (_message, _node_id, item_index) = error_members(&mut error);
-            item_index.get_or_insert_with(|| index(call_index));
-            StepFailure::Failed(error)
-        }
-        declined @ StepFailure::Declined { .. } => declined,
+fn fill_failed_call(mut failure: StepFailure, call_index: usize) -> StepFailure {
+    if let Some(error) = failure.error_mut() {
+        error_members(error)
+            .2
+            .get_or_insert_with(|| index(call_index));
     }
+    failure
 }

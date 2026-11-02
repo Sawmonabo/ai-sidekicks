@@ -496,7 +496,7 @@ fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>)
 /// `declined` for a person's decline, whose words stay out.
 fn failure_code(failure: &StepFailure) -> Value {
     match failure {
-        StepFailure::Failed(error) => match error.as_ref() {
+        StepFailure::Failed(error) | StepFailure::EndsRun(error) => match error.as_ref() {
             WorkflowStepError::Uncoded(_) => json!("uncoded"),
             WorkflowStepError::Coded(coded) => json!(coded.code),
             WorkflowStepError::AgentResolution(resolution) => json!(resolution.code),

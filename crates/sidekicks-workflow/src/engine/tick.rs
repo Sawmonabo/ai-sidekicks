@@ -187,7 +187,7 @@ pub(crate) enum StepReportKind {
     Started {
         /// The input exactly as the pending row stored it.
         input_ref: WorkflowPayloadRef,
-        /// The level the step actually runs at, where its account runs another than the run's.
+        /// The level the step runs at, where its account runs it at another level than the run's.
         permission_level: Option<PermissionLevel>,
     },
     /// The step passed a turn end or a tool call.

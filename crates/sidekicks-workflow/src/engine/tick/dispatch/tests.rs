@@ -293,6 +293,9 @@ fn settlement_json(settlement: &StepSettlement) -> Value {
                 StepFailure::Failed(error) => {
                     serde_json::to_value(error).expect("a step failure writes")
                 }
+                StepFailure::EndsRun(error) => {
+                    json!({ "endsRun": serde_json::to_value(error).expect("a step failure writes") })
+                }
                 StepFailure::Declined { words, at } => json!({ "words": words, "at": at }),
             };
             json!({ "failed": { "failure": failure, "logLines": log_lines } })
@@ -490,11 +493,16 @@ async fn a_step_reports_its_start_progress_and_outputs_in_order(
 
 /// A per-item kind runs once per item, in order, each call reading its own item as item 0, and
 /// joins the calls' outputs in call order; a failing call settles the step there, carrying the
-/// call's index and the node's id. Mutations: leave the item cursor unmoved, so both calls read
-/// `Ada`; drop the call's index; run a call after a failure.
+/// call's index and the node's id, unless the node's `onError` goes on, when the call's item is
+/// passed on with the error naming it and the next call runs. Mutations: leave the item cursor
+/// unmoved, so both calls read `Ada`; drop the call's index; run a call after a failure the node
+/// does not go on past; stop at a failure it goes on past; leave the passed-on error naming the
+/// call's own item 0; put the passed-on item on the main output under `continueErrorOutput`.
 #[rstest]
 #[case::every_call(
     None,
+    None,
+    &["Ada", "Bob"],
     &["Ada", "Bob"],
     completed(
         &json!([[
@@ -505,18 +513,62 @@ async fn a_step_reports_its_start_progress_and_outputs_in_order(
     )
 )]
 #[case::failing_call(
+    None,
     Some("Bob"),
     &["Ada", "Bob", "Cy"],
+    &["Ada", "Bob"],
     failed(&json!({ "message": "no Bob", "nodeId": "step", "itemIndex": 1 }))
+)]
+#[case::continue_past_failing_call(
+    Some("continue"),
+    Some("Bob"),
+    &["Ada", "Bob", "Cy"],
+    &["Ada", "Bob", "Cy"],
+    completed(
+        &json!([[
+            { "json": { "seen": "Ada" }, "pairedItem": { "item": 0 } },
+            {
+                "json": { "name": "Bob" }, "pairedItem": { "item": 1, "input": 0 },
+                "error": { "message": "no Bob", "nodeId": "step", "itemIndex": 1 },
+            },
+            { "json": { "seen": "Cy" }, "pairedItem": { "item": 2 } },
+        ]]),
+        &json!({}),
+    )
+)]
+#[case::error_output_past_failing_call(
+    Some("continueErrorOutput"),
+    Some("Bob"),
+    &["Ada", "Bob", "Cy"],
+    &["Ada", "Bob", "Cy"],
+    completed(
+        &json!([
+            [
+                { "json": { "seen": "Ada" }, "pairedItem": { "item": 0 } },
+                { "json": { "seen": "Cy" }, "pairedItem": { "item": 2 } },
+            ],
+            [{
+                "json": { "name": "Bob" }, "pairedItem": { "item": 1, "input": 0 },
+                "error": { "message": "no Bob", "nodeId": "step", "itemIndex": 1 },
+            }],
+        ]),
+        &json!({}),
+    )
 )]
 #[tokio::test]
 async fn a_per_item_kind_runs_once_per_item_in_order(
+    #[case] on_error: Option<&'static str>,
     #[case] fails_on: Option<&'static str>,
     #[case] names: &[&str],
+    #[case] seen: &[&str],
     #[case] settlement: Value,
 ) {
     let probe = Arc::new(ExecutorProbe::default());
-    let node = test_node(&json!({ "params": { "name": "={{ $json.name }}" } }));
+    let mut settings = json!({ "params": { "name": "={{ $json.name }}" } });
+    if let Some(on_error) = on_error {
+        settings["onError"] = json!(on_error);
+    }
+    let node = test_node(&settings);
 
     let (answered, sent) = run_step(
         test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]),
@@ -535,7 +587,8 @@ async fn a_per_item_kind_runs_once_per_item_in_order(
 
     assert_eq!(answered, vec![json!({ "admitted": null })]);
     assert_eq!(sent, vec![started(), settlement]);
-    assert_eq!(*lock(&probe.seen), vec![json!("Ada"), json!("Bob")]);
+    let seen: Vec<Value> = seen.iter().map(|name| json!(name)).collect();
+    assert_eq!(*lock(&probe.seen), seen);
 }
 
 /// A canceled step settles `Canceled` only once its executor returns, and a step whose reports the
