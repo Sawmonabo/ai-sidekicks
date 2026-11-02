@@ -1,13 +1,15 @@
 //! The sign-in broker: runs a provider's own interactive sign-in in one account's home through
 //! that provider's sign-in legs, and settles every attempt in exactly one end.
 //!
-//! - One attempt per account at a time, holding the account's home from before its flow starts
-//!   until it settles, so no read, switch or reset acts in the home meanwhile. A new account's id
-//!   and home are minted at the start and held in memory; its row is written only once the status
-//!   read after the flow names who signed in, with billing `unknown` and the kind of sign-in the
-//!   read reports. Any other end removes the minted home and writes no row. A sign-in on a
-//!   registered account keeps its row whatever the end, storing the status read it took. A row
-//!   written goes out as `accountChanged` before the attempt's end.
+//! - One attempt per account at a time. The account's home is held only while the flow starts and
+//!   while the status read after it is stored, never across the person's round trip. A new
+//!   account's id and home are minted at the start and held in memory; its row is written only
+//!   once the status read after the flow names who signed in, with billing `unknown` and the kind
+//!   of sign-in the read reports. Any other end removes the minted home and writes no row. A
+//!   sign-in on a registered account keeps its row whatever the end, storing the status read it
+//!   took and its kind of sign-in, unless the home's sign-in changed since the flow started (a
+//!   reset or another credential), which fails the attempt with nothing written. A row written
+//!   goes out as `accountChanged` before the attempt's end.
 //! - Only typed fields leave: the reply's address, code and bound, `signInCodeRequested` and
 //!   `signInCompleted`. No line of a provider's stream and no driver error's text reaches a caller.
 //! - A pasted code goes to the input of the attempt that waits for one and nowhere else.
@@ -22,8 +24,9 @@ use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{
-    BillingMode, PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN, PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN,
-    ProviderAccountId, ProviderAccountNotification, ProviderSignInOutcome,
+    BillingMode, CredentialGeneration, PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN,
+    PROVIDER_SIGN_IN_FAILURE_REASON_MAX_LEN, ProviderAccountId, ProviderAccountNotification,
+    ProviderSignInOutcome,
 };
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderAccountSignInRequest, ProviderAccountSignInResponse,
@@ -41,7 +44,7 @@ use crate::account::credential_home::CredentialHome;
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::{
-    AccountAdmission, HealthObserver, MintedAccount, ProviderAccountRegistry, RegisteredAccount,
+    AccountAdmission, MintedAccount, ProviderAccountRegistry, RegisteredAccount,
 };
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs, SignInOrigin,
@@ -124,13 +127,12 @@ impl From<ProviderSignInError> for HandlerError {
 pub struct ProviderSignInBroker {
     attempt: AttemptServices,
     legs: HashMap<ProviderId, Arc<dyn ProviderSignInLegs>>,
-    home_lock: Arc<AccountHomeLock>,
 }
 
 impl ProviderSignInBroker {
     /// A broker writing through `registry`, starting each provider's flow through its entry in
-    /// `legs` under the account's hold on `home_lock`, sending its notifications to `publisher`
-    /// and each account it signs in to `watcher`.
+    /// `legs` and storing its end under the account's hold on `home_lock`, sending its
+    /// notifications to `publisher` and each account it signs in to `watcher`.
     pub fn new(
         registry: Arc<ProviderAccountRegistry>,
         legs: HashMap<ProviderId, Arc<dyn ProviderSignInLegs>>,
@@ -143,10 +145,10 @@ impl ProviderSignInBroker {
                 registry,
                 publisher,
                 watcher,
+                home_lock,
                 attempts: Arc::new(Mutex::new(LiveAttempts::default())),
             },
             legs,
-            home_lock,
         }
     }
 
@@ -157,7 +159,7 @@ impl ProviderSignInBroker {
 
     /// Starts the provider's own sign-in for `request`'s account, or for a new account whose id
     /// and home it mints, on the arm `origin` calls for, once the account's home is free, and
-    /// answers what the person needs; the attempt holds the home until it settles. Fails with
+    /// answers what the person needs. Fails with
     /// [`ProviderSignInError::InFlight`] while the account has an attempt,
     /// [`ProviderSignInError::Unsupported`] for a provider with no legs, the registry's error for
     /// an account not registered or a home that cannot be made, the driver's where the flow does
@@ -190,13 +192,7 @@ impl ProviderSignInBroker {
         };
         let attempt_id = mint_attempt_id()?;
         let (answer, answered) = oneshot::channel();
-        tokio::spawn(reservation.run_held(
-            Arc::clone(&self.home_lock),
-            attempt_id,
-            legs,
-            origin,
-            answer,
-        ));
+        tokio::spawn(reservation.run_attempt(attempt_id, legs, origin, answer));
         answered
             .await
             .map_err(|_ended| ProviderSignInError::StartEnded)?
@@ -251,12 +247,13 @@ impl ProviderSignInBroker {
 }
 
 /// What an attempt reaches beyond its own flow: the registry, the notification publisher, the
-/// watcher of a signed-in account and the broker's live attempts.
+/// watcher of a signed-in account, the lock on account homes and the broker's live attempts.
 #[derive(Clone)]
 struct AttemptServices {
     registry: Arc<ProviderAccountRegistry>,
     publisher: Arc<dyn ProviderAccountNotificationPublisher>,
     watcher: Arc<dyn SignedInAccountWatcher>,
+    home_lock: Arc<AccountHomeLock>,
     attempts: Arc<Mutex<LiveAttempts>>,
 }
 
@@ -276,6 +273,7 @@ impl AttemptServices {
             account_id,
             home,
             minted,
+            started_generation: None,
         })
     }
 }
@@ -300,28 +298,44 @@ struct Reservation {
     account_id: ProviderAccountId,
     home: CredentialHome,
     minted: Option<MintedAccount>,
+    // A registered account's credential generation as its flow started, which its end must
+    // still find; `None` for a new account, whose home no one else knows.
+    started_generation: Option<CredentialGeneration>,
 }
 
 impl Reservation {
-    // Takes the account's home, starts the flow in it and answers `answer` whether it started,
-    // then runs the attempt to its end and lets the home go before the end goes out. A caller that
-    // stopped waiting before the home was free starts nothing; one that stopped after leaves the
-    // started flow to run to its end.
-    async fn run_held(
-        self,
-        home_lock: Arc<AccountHomeLock>,
+    // Takes the account's home, notes a registered account's credential generation, starts the
+    // flow in it, lets the home go and answers `answer` whether the flow started, then runs the
+    // attempt to its end. A caller that stopped waiting before the home was free starts nothing;
+    // one that stopped after leaves the started flow to run to its end.
+    async fn run_attempt(
+        mut self,
         attempt_id: AttemptId,
         legs: Arc<dyn ProviderSignInLegs>,
         origin: SignInOrigin,
         mut answer: oneshot::Sender<Result<ProviderAccountSignInResponse, ProviderSignInError>>,
     ) {
+        let home_lock = Arc::clone(&self.services.home_lock);
         let hold = tokio::select! {
             hold = home_lock.hold(self.account_id.clone()) => hold,
             () = answer.closed() => return,
         };
+        if self.minted.is_none() {
+            let read = self.services.registry.read(self.account_id.clone()).await;
+            match read {
+                Ok(account) => self.started_generation = Some(account.credential_generation),
+                Err(error) => {
+                    drop(self);
+                    drop(hold);
+                    let _unheard = answer.send(Err(error.into()));
+                    return;
+                }
+            }
+        }
         let started = legs
             .start_sign_in(self.account_id.clone(), self.home.clone(), origin)
             .await;
+        drop(hold);
         let ProviderSignInHandle {
             verification_uri,
             user_code,
@@ -334,7 +348,6 @@ impl Reservation {
             Err(error) => {
                 // Freed first, so the caller finds no slot and no minted home left.
                 drop(self);
-                drop(hold);
                 let _unheard = answer.send(Err(error.into()));
                 return;
             }
@@ -348,7 +361,6 @@ impl Reservation {
             expires_at,
         }));
         let ended = attempt.run(legs, code_prompts, completion).await;
-        drop(hold);
         publisher.publish(ended);
     }
 
@@ -470,15 +482,18 @@ impl Attempt {
         settled
     }
 
-    // Reads who signed in and stores it: a new account's row only where the provider named it,
-    // with billing `unknown` and the kind of sign-in read, and a registered account's reading
-    // always, publishing the row written. A written row takes the minted account, so its home
+    // Reads who signed in and stores it under the home's hold: a new account's row only where the
+    // provider named it, with billing `unknown` and the kind of sign-in read, and a registered
+    // account's reading and kind always, unless its credential generation moved since the flow
+    // started, publishing the row written. A written row takes the minted account, so its home
     // stays.
     async fn observe(
         &mut self,
         legs: &dyn ProviderSignInLegs,
     ) -> (ProviderSignInOutcome, Option<&'static str>) {
         let reservation = &mut self.reservation;
+        let home_lock = Arc::clone(&reservation.services.home_lock);
+        let hold = home_lock.hold(reservation.account_id.clone()).await;
         let observation = match legs
             .observe_sign_in(reservation.account_id.clone(), reservation.home.clone())
             .await
@@ -496,6 +511,27 @@ impl Attempt {
             }
         };
         let registry = &reservation.services.registry;
+        if let Some(started_generation) = reservation.started_generation {
+            match registry.read(reservation.account_id.clone()).await {
+                Ok(account) if account.credential_generation == started_generation => {}
+                Ok(_) => {
+                    return (
+                        ProviderSignInOutcome::Failed,
+                        Some("The account changed during the sign-in"),
+                    );
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        error = &error as &(dyn Error + 'static),
+                        "a signed-in account was not read before its sign-in was saved"
+                    );
+                    return (
+                        ProviderSignInOutcome::Failed,
+                        Some("The account could not be saved after the sign-in"),
+                    );
+                }
+            }
+        }
         let written = match &reservation.minted {
             Some(_) if !observation.is_account_named => None,
             Some(minted) => Some(
@@ -514,15 +550,16 @@ impl Attempt {
             ),
             None => Some(
                 registry
-                    .record_health(
+                    .record_sign_in(
                         &reservation.account_id,
                         &observation.health,
-                        HealthObserver::Probe,
+                        observation.observed_auth_mode,
                     )
                     .await
                     .map(|_| ()),
             ),
         };
+        drop(hold);
         let changed = match &written {
             Some(Ok(())) => {
                 if observation.is_account_named {
