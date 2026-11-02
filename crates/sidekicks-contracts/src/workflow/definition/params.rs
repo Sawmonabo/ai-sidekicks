@@ -16,6 +16,9 @@ use crate::project::ProjectId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::workflow::definition::document::WorkflowToolBinding;
+use crate::workflow::definition::expression_template::{
+    TemplateError, TemplatePart, TemplateText, read_template,
+};
 use crate::workflow::kind::{
     WorkflowCollectionParamSpec, WorkflowLeafParamSpec, WorkflowParamSpec, WorkflowParamType,
 };
@@ -105,9 +108,12 @@ fn check_leaf(
         }
     } else {
         check_secret_text(value, is_sensitive, place, issues);
-        // No expression resolves a secret, so only a secret parameter refuses one; every other
-        // reference type also takes an expression.
-        if value.as_str().is_some_and(is_expression) {
+        // No expression resolves a secret, so only a secret parameter refuses a template; every
+        // other reference type also takes one. Text whose part never closes is read as a reference.
+        if value
+            .as_str()
+            .is_some_and(|text| matches!(read_template(text), Ok(TemplateText::Expression(_))))
+        {
             return;
         }
     }
@@ -199,8 +205,9 @@ fn check_tool_binding(value: &Value, place: &str, issues: &mut Vec<WorkflowParam
     }
 }
 
-// Walks every string a leaf value holds. A `secret://` value outside a sensitive parameter is
-// refused; inside one it must be a whole reference, and no expression may name one.
+// Walks every string a leaf value holds. A `secret://` literal outside a sensitive parameter is
+// refused; inside one it must be a whole reference. No template may name one in any part, and a
+// template whose part never closes may not name one anywhere.
 fn check_secret_text(
     value: &Value,
     is_sensitive: bool,
@@ -209,24 +216,25 @@ fn check_secret_text(
 ) {
     match value {
         Value::String(text) => {
-            if is_expression(text) {
-                if text.contains(SECRET_SCHEME) {
-                    issues.push(WorkflowParamIssue {
-                        path: place.to_owned(),
-                        message: "No expression resolves a secret.".to_owned(),
-                    });
+            let names_secret = match read_template(text) {
+                Ok(TemplateText::Literal(literal)) => {
+                    check_secret_literal(literal, is_sensitive, place, issues);
+                    false
                 }
-            } else if text.starts_with(SECRET_SCHEME) {
-                if is_sensitive {
-                    if let Err(error) = text.parse::<WorkflowSecretReference>() {
-                        issues.push(WorkflowParamIssue {
-                            path: place.to_owned(),
-                            message: error.to_string(),
-                        });
-                    }
-                } else {
-                    issues.push(outside_sensitive_issue(place));
+                Ok(TemplateText::Expression(template)) => {
+                    template.parts().iter().any(|part| match part {
+                        TemplatePart::Text(part_text) | TemplatePart::Expression(part_text) => {
+                            part_text.contains(SECRET_SCHEME)
+                        }
+                    })
                 }
+                Err(TemplateError::Unclosed { .. }) => text.contains(SECRET_SCHEME),
+            };
+            if names_secret {
+                issues.push(WorkflowParamIssue {
+                    path: place.to_owned(),
+                    message: "No expression resolves a secret.".to_owned(),
+                });
             }
         }
         Value::Array(entries) => {
@@ -240,6 +248,27 @@ fn check_secret_text(
             }
         }
         Value::Null | Value::Bool(_) | Value::Number(_) => {}
+    }
+}
+
+// A literal is a reference only when it starts with `secret://`, and then stands only whole in a
+// sensitive parameter.
+fn check_secret_literal(
+    literal: &str,
+    is_sensitive: bool,
+    place: &str,
+    issues: &mut Vec<WorkflowParamIssue>,
+) {
+    if !literal.starts_with(SECRET_SCHEME) {
+        return;
+    }
+    if !is_sensitive {
+        issues.push(outside_sensitive_issue(place));
+    } else if let Err(error) = literal.parse::<WorkflowSecretReference>() {
+        issues.push(WorkflowParamIssue {
+            path: place.to_owned(),
+            message: error.to_string(),
+        });
     }
 }
 
@@ -270,12 +299,6 @@ fn check_collection(
     } else if let Value::Object(fields) = value {
         check_field_list(fields, &spec.fields, &format!("{place}."), issues);
     }
-}
-
-// An expression is `={{ … }}`, anything between the braces; the opening and closing pairs cannot
-// overlap, so `={{}}` is the shortest.
-fn is_expression(text: &str) -> bool {
-    text.starts_with("={{") && text.ends_with("}}")
 }
 
 /// The TypeScript module of the parameter check's arguments and the values it refuses.
@@ -310,6 +333,7 @@ mod tests {
                 "fields": [
                     { "id": "name", "label": "Name", "type": "string" },
                     { "id": "token", "label": "Token", "type": "secret", "sensitive": true },
+                    { "id": "value", "label": "Value", "type": "string", "sensitive": true },
                 ],
             },
         ]))
@@ -325,6 +349,15 @@ mod tests {
     #[case::an_expression_naming_a_secret(
         json!({ "prompt": "={{ \"secret://shared/mail\" }}" }),
         &[("prompt", "No expression resolves a secret.")],
+    )]
+    // A part after literal text still makes the value a template.
+    #[case::a_secret_in_a_part_after_text(
+        json!({ "prompt": "=Bearer {{ \"secret://shared/mail\" }}" }),
+        &[("prompt", "No expression resolves a secret.")],
+    )]
+    #[case::a_whole_reference_in_a_sensitive_param(
+        json!({ "headers": [{ "value": "secret://shared/mail" }] }),
+        &[],
     )]
     #[case::a_plain_value_in_a_nested_collection_secret(
         json!({ "headers": [{ "name": "Authorization", "token": "ghp_inline-token-value" }] }),
