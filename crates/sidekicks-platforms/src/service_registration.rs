@@ -62,7 +62,7 @@ pub enum ServiceRegistrationError {
     NoHomeFolder,
     /// The system's service manager, or the program a root step runs, could not be started for a
     /// step.
-    #[error("the service manager could not be started to {step}")]
+    #[error("the program that runs the step to {step} could not be started")]
     Start {
         /// The step it was started for, such as `bootstrap`.
         step: &'static str,
