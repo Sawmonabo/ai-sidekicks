@@ -6,6 +6,7 @@ use std::error::Error;
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
+use std::process::ExitStatus;
 use std::time::Duration;
 
 use sidekicks_client::error::ClientError;
@@ -14,7 +15,7 @@ use sidekicks_contracts::daemon::data::write_data_folder_held;
 use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
-use sidekicks_platforms::{ChildExit, ServiceRegistrationError};
+use sidekicks_platforms::{ChildExit, ServiceRegistrationError, read_child_exit};
 
 use crate::commands::daemon::install::system_service::LoggedOutServiceRefusal;
 use crate::commands::daemon::registration::TURNED_OFF_IN_LOGIN_ITEMS;
@@ -68,6 +69,34 @@ impl ExitCode {
             Self::Configuration => 78,
             Self::BrokenPipe => 141,
         }
+    }
+
+    /// How a run of this program as another account ended, from its `status`: its own exit code,
+    /// [`ExitCode::Software`] for a number this program never exits with or another signal's end.
+    /// Fails with `ClientError::Canceled` for a run a Ctrl-C ended, so this run ends the same way.
+    pub(crate) fn of_program_run(status: &ExitStatus) -> anyhow::Result<Self> {
+        let exit = read_child_exit(status, None);
+        if exit.signal_name.as_deref() == Some("SIGINT") {
+            return Err(ClientError::Canceled.into());
+        }
+        let known = [
+            Self::Success,
+            Self::Unhealthy,
+            Self::Usage,
+            Self::DataError,
+            Self::NoInput,
+            Self::Unavailable,
+            Self::Software,
+            Self::CannotCreate,
+            Self::TemporaryFailure,
+            Self::NoPermission,
+            Self::Configuration,
+            Self::BrokenPipe,
+        ];
+        Ok(known
+            .into_iter()
+            .find(|code| exit.signal_name.is_none() && i64::from(code.code()) == exit.exit_code)
+            .unwrap_or(Self::Software))
     }
 }
 
@@ -664,5 +693,34 @@ mod tests {
         }));
         let refusal = exit_code_for_failure(&failure).expect_err("no exit code is assigned");
         assert_eq!(refusal.code, -32_099);
+    }
+
+    // Fails when a run as the account ends this run with a code other than its own, a number this
+    // program never exits with reads as one it does, or a run a Ctrl-C ended does not end this one
+    // as a Ctrl-C.
+    #[cfg(unix)]
+    #[test]
+    fn a_run_as_the_account_ends_this_run_as_it_ended() {
+        use std::os::unix::process::ExitStatusExt as _;
+        use std::process::ExitStatus;
+
+        let ended = |raw: i32| ExitCode::of_program_run(&ExitStatus::from_raw(raw));
+
+        let codes = [78 << 8, 0, 3 << 8, 15].map(|raw| ended(raw).expect("no Ctrl-C ended it"));
+        let interrupted = ended(2).expect_err("a Ctrl-C ended it");
+
+        assert_eq!(
+            codes,
+            [
+                ExitCode::Configuration,
+                ExitCode::Success,
+                ExitCode::Software,
+                ExitCode::Software
+            ]
+        );
+        assert!(matches!(
+            interrupted.downcast_ref::<ClientError>(),
+            Some(ClientError::Canceled)
+        ));
     }
 }

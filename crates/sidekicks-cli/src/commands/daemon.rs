@@ -14,12 +14,13 @@ pub(crate) mod uninstall;
 
 use std::io::Write;
 
+use anyhow::Context as _;
 use clap::Subcommand;
-use sidekicks_platforms::ServiceRegistration;
+use sidekicks_platforms::{ServiceRegistration, service_registration};
 
 use crate::command_context::CommandContext;
 use crate::commands::daemon::install::{InstallArgs, install};
-use crate::commands::daemon::registration::refuse_other_home;
+use crate::commands::daemon::registration::{refuse_other_home, this_program_as_account};
 use crate::commands::daemon::restart::{RestartArgs, restart};
 use crate::commands::daemon::start::{STARTED_LINE, StartArgs, start_and_report};
 use crate::commands::daemon::status::{StatusArgs, show_status};
@@ -53,11 +54,19 @@ pub(crate) enum ServiceRegistrationCommand {
     Uninstall,
 }
 
-/// Runs a `daemon` command and answers its exit code; fails as the command does.
+/// Runs a `daemon` command and answers its exit code; under root's rights, as under `sudo`, a
+/// command that reaches the running service runs again as the account, since the service answers
+/// its own account alone. Fails as the command does.
 pub(crate) fn run_daemon_command<Output: Write, ErrorOutput: Write>(
     command: &DaemonCommand,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
+    if !matches!(command, DaemonCommand::Registration(..))
+        && let Some(registration) = service_registration()
+        && registration.runs_as_root()
+    {
+        return run_as_account(&registration);
+    }
     match command {
         DaemonCommand::Restart(args) => restart(args, context),
         DaemonCommand::Start(args) => start_and_report(args, STARTED_LINE, context),
@@ -72,4 +81,18 @@ pub(crate) fn run_daemon_command<Output: Write, ErrorOutput: Write>(
             uninstall(registration, context)
         }
     }
+}
+
+/// Runs this program again with this run's own arguments as the account through `registration`,
+/// on this run's terminal, and answers the exit code it ended with. Fails when this program or the
+/// account cannot be named or the run cannot start, and with `ClientError::Canceled` for a run a
+/// Ctrl-C ended.
+fn run_as_account(registration: &ServiceRegistration) -> anyhow::Result<ExitCode> {
+    let (program, mut command) =
+        this_program_as_account(|program| registration.account_command(program))?;
+    let status = command
+        .args(std::env::args_os().skip(1))
+        .status()
+        .with_context(|| format!("could not run {} as this account", program.display()))?;
+    ExitCode::of_program_run(&status)
 }

@@ -37,12 +37,11 @@ use crate::commands::daemon::install::system_service::{
 };
 use crate::commands::daemon::install::wait_for_installed_daemon;
 use crate::commands::daemon::registration::{
-    RootStepFailure, read_root_step_failure, registration_failure,
+    RootStepFailure, read_root_step_failure, registration_failure, this_program_as_account,
 };
 use crate::commands::daemon::secrets_place::read_secrets_place;
 use crate::commands::data::offline_mode::run_offline_mode;
 use crate::connected_command::run_listening_for_ctrl_c;
-use crate::daemon_program::this_program;
 use crate::exit_codes::{CommandFailure, ExitCode, describe_child_ending};
 
 /// The line for the system service removed and the login agent's service running.
@@ -288,13 +287,8 @@ pub(crate) fn put_agent_back(
 /// on this command's error output. Fails when this program or the account cannot be named, the
 /// run cannot start, or the install fails.
 fn install_agent_as_account(registration: &impl LoggedOutServiceUninstall) -> anyhow::Result<()> {
-    let program = this_program()?;
-    let mut command = registration.account_command(&program).map_err(|failure| {
-        registration_failure(
-            failure,
-            "could not name the account to put the login agent back for",
-        )
-    })?;
+    let (program, mut command) =
+        this_program_as_account(|program| registration.account_command(program))?;
     let status = command
         .args(["daemon", "install"])
         .stdin(Stdio::null())

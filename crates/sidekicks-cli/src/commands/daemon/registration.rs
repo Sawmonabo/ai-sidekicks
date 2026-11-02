@@ -3,12 +3,14 @@
 //! manager; a registration failure turned into the run's failure; and the line `daemon status`
 //! prints for it.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use sidekicks_platforms::{
     ServiceInstall, ServiceOwner, ServiceRegistration, ServiceRegistrationError,
 };
 
+use crate::daemon_program::this_program;
 use crate::exit_codes::CommandFailure;
 
 /// The line for a login agent the person turned off in Login Items, which `daemon status` prints
@@ -55,6 +57,18 @@ pub(crate) fn refuse_other_home(registration: &ServiceRegistration) -> anyhow::R
         return Err(CommandFailure::NotAccountHome.into());
     }
     Ok(())
+}
+
+/// This program's own file, and the command that runs it as the account through
+/// `account_command`. Fails when this program or the account cannot be named.
+pub(crate) fn this_program_as_account(
+    account_command: impl FnOnce(&Path) -> Result<Command, ServiceRegistrationError>,
+) -> anyhow::Result<(PathBuf, Command)> {
+    let program = this_program()?;
+    let command = account_command(&program).map_err(|failure| {
+        registration_failure(failure, "could not name the account to run this program as")
+    })?;
+    Ok((program, command))
 }
 
 /// `failure` as the run's failure: a step the service manager refused as
