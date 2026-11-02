@@ -3,8 +3,8 @@
 //! resume, close and naming, the helper policy and tool servers it opens with, the level and mode a
 //! new session starts at, the live permission-level and mode moves, a revoked rule's removal, the
 //! session's goal, the commands the daemon answers itself, the side question and the review, the
-//! hand-over brief's summary, the live command list, the move onto a fork or a new provider build, the sign-in probe, and the
-//! purge of the provider's own copy of its conversations.
+//! hand-over brief's summary, the live command list, the move onto a fork or a new provider build,
+//! the sign-in probe, and the purge of the provider's own copy of its conversations.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -198,6 +198,57 @@ pub struct LiveRunResume {
     pub run_state: RunState,
 }
 
+impl LiveRunResume {
+    /// Whether the run is held on the person, its own ask or question or a helper's beneath it
+    /// in `live_runs`, so a resume leaves it waiting; a run with a stop that wins is never held.
+    pub fn is_held(&self, live_runs: &[LiveRunResume]) -> bool {
+        if self.is_stopping {
+            return false;
+        }
+        match self.run_state {
+            RunState::WaitingForApproval | RunState::WaitingForInput => true,
+            // A lead's own pause wins over the resume; only a provider's helper waits paused.
+            RunState::Pausing | RunState::Paused => self.subagent_id.is_some(),
+            RunState::Starting | RunState::Running => live_runs.iter().any(|run| {
+                run.subagent_id.is_some()
+                    && !run.is_stopping
+                    && matches!(
+                        run.run_state,
+                        RunState::WaitingForApproval
+                            | RunState::WaitingForInput
+                            | RunState::Pausing
+                            | RunState::Paused
+                    )
+                    && self.is_above(run, live_runs)
+            }),
+            RunState::Queued
+            | RunState::Completed
+            | RunState::Interrupted
+            | RunState::Stopped
+            | RunState::Failed => false,
+        }
+    }
+
+    /// Whether `run`'s chain of parents through `live_runs` reaches this run, walking at most
+    /// once per run so a parent cycle ends the walk.
+    fn is_above(&self, run: &LiveRunResume, live_runs: &[LiveRunResume]) -> bool {
+        let mut parent_run_id = run.parent_run_id;
+        for _ in 0..live_runs.len() {
+            let Some(parent) = parent_run_id else {
+                return false;
+            };
+            if parent == self.run_id {
+                return true;
+            }
+            parent_run_id = live_runs
+                .iter()
+                .find(|live_run| live_run.run_id == parent)
+                .and_then(|live_run| live_run.parent_run_id);
+        }
+        false
+    }
+}
+
 /// A turn of a live run started with no end.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OpenTurnResume {
@@ -253,6 +304,9 @@ pub enum ProviderTurnAnswer {
     EndedByProvider,
     /// The provider holds no turn of the run.
     Gone,
+    /// The run waits on the person: an ask or a question its provider's process no longer holds,
+    /// its own or a helper's beneath it; the person's answer continues it.
+    Waiting,
 }
 
 /// The provider's answer for one run a resume named.
@@ -646,6 +700,12 @@ pub enum DriverResumeResult {
         /// The provider's failure, fitted by
         /// [`bound_failure_detail`](super::contract::error::bound_failure_detail).
         provider_failure_detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
+    },
+    /// No process was started, since every run in progress waits on the person or stops: what
+    /// the provider answered for each run, with no binding, position or build.
+    Deferred {
+        /// What the provider holds of each run the resume's `live_runs` named.
+        runs: Vec<ResumedRunAnswer>,
     },
 }
 

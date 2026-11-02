@@ -440,7 +440,9 @@ impl CodexServiceRecovery {
                 DriverResumeResult::Resumed { resume_handle, .. } => {
                     resume_handle.as_str().to_owned()
                 }
-                DriverResumeResult::Failed { .. } => String::new(),
+                DriverResumeResult::Failed { .. } | DriverResumeResult::Deferred { .. } => {
+                    String::new()
+                }
             };
             resumed.push((session_id, thread_id, result));
         }

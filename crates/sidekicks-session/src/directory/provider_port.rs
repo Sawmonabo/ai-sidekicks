@@ -533,6 +533,14 @@ impl SessionDirectoryProviderPort {
                 }
                 return Ok(());
             }
+            // No process was started, so the opened binding is never recorded; a deferral is no
+            // failure, so nothing is logged.
+            DriverResumeResult::Deferred { .. } => {
+                if let Some((opened_id, _)) = opened {
+                    self.deps.binding_cursors.forget_binding(&opened_id);
+                }
+                return Ok(());
+            }
             DriverResumeResult::Resumed {
                 binding_id,
                 resume_handle,
