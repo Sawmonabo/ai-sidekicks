@@ -113,7 +113,7 @@ pub enum DaemonEndingError {
     /// The daemon repairing its database file took the stop or restart, but still held its link
     /// open or answered at its socket once the drain bound passed.
     #[error(
-        "The background service took the stop but still answered {} ms later",
+        "The background service took the request but still answered {} ms later",
         waited.as_millis()
     )]
     RepairingNotEnded {
