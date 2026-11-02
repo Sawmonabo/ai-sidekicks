@@ -47,6 +47,8 @@
               (`GetNamedPipeServerProcessId`), a Windows AF_UNIX socket's peer read (`WSAIoctl` of \
               `SIO_AF_UNIX_GETPEERPID`) and the mark that lets `async-io` drive it (`IoSafe`), the \
               run folder's owner and access list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`), \
+              Windows' volume GUID path read of an open file or folder \
+              (`GetFinalPathNameByHandleW`), \
               a Windows child's output read at its exit (`CancelIoEx`, `PeekNamedPipe`), the \
               daemon's process containment (Windows' kill-on-close job through `CreateJobObjectW`, \
               `SetInformationJobObject` and `AssignProcessToJobObject`, and Linux's `poll` of its \
@@ -66,6 +68,7 @@ mod c_string_array;
 mod caller_process;
 mod child_command;
 mod child_tree;
+mod clone_refusal;
 mod code_signature;
 mod credential_store;
 mod entry_identity;
@@ -152,6 +155,7 @@ pub use child_tree::{
     ChildTree, ChildTreeOutput, ChildTreeOutputError, read_bounded_to_end,
     read_stderr_left_at_exit, start_child_tree,
 };
+pub use clone_refusal::CloneRefusal;
 #[cfg(not(target_os = "macos"))]
 pub use code_signature::DesktopClientRequirement;
 pub use code_signature::{CodeSignatureError, SignatureCheck};
@@ -205,6 +209,8 @@ pub use linux::processes::list_user_process_ids;
 #[cfg(target_os = "linux")]
 pub use linux::read_command_argument_limit;
 #[cfg(target_os = "linux")]
+pub(crate) use linux::running_program::is_program_path_marked_replaced;
+#[cfg(target_os = "linux")]
 pub use linux::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "linux")]
 pub use linux::user_namespace::can_create_user_namespace;
@@ -256,6 +262,8 @@ pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
 pub use macos::responsibility::become_own_root;
 #[cfg(target_os = "macos")]
+pub(crate) use macos::running_program::is_program_path_marked_replaced;
+#[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "macos")]
 pub use macos::windowless_app::launch_app_windowless;
@@ -293,6 +301,8 @@ pub use posix::child_command::{
     wrap_leading_child_command,
 };
 #[cfg(unix)]
+pub use posix::clone_refusal::read_clone_refusal;
+#[cfg(unix)]
 pub use posix::command_wrapper::{
     RawStandardInput, TerminalOutputWatch, blocking_terminal_master, end_as_child_ended,
     end_by_stop_signal, end_terminal_session, exec_command, exec_with_secret, name_program,
@@ -327,7 +337,7 @@ pub use posix::error_codes::{
     is_resource_busy,
 };
 #[cfg(unix)]
-pub use posix::file_facts::{entry_changed_at, file_facts};
+pub use posix::file_facts::{entry_changed_at, file_facts, file_facts_of};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(unix, any(test, feature = "test-support")))]
@@ -496,6 +506,8 @@ pub use windows::child_command::{
     wrap_leading_child_command,
 };
 #[cfg(target_os = "windows")]
+pub use windows::clone_refusal::{CloneVolumeReadFailure, read_clone_refusal};
+#[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
 #[cfg(target_os = "windows")]
 pub use windows::command_wrapper::{
@@ -528,7 +540,7 @@ pub use windows::error_codes::{
     is_resource_busy,
 };
 #[cfg(target_os = "windows")]
-pub use windows::file_facts::{entry_changed_at, file_facts};
+pub use windows::file_facts::{entry_changed_at, file_facts, file_facts_of};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
@@ -581,6 +593,8 @@ pub use windows::real_path::real_path;
 pub use windows::run_folder::{
     RUN_FOLDER_FILE_MODE, check_private_run_folder, create_private_run_folder, daemon_run_folder,
 };
+#[cfg(target_os = "windows")]
+pub(crate) use windows::running_program::is_program_path_marked_replaced;
 #[cfg(target_os = "windows")]
 pub use windows::session_child::{SessionChild, start_session_child};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]

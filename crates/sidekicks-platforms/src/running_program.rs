@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::platform::Arch;
 
-use crate::real_path;
+use crate::{is_program_path_marked_replaced, real_path};
 
 /// The processor this build runs on, in Node's spelling.
 #[cfg(target_arch = "x86_64")]
@@ -37,7 +37,7 @@ pub fn read_running_program_path() -> io::Result<RunningProgramPath> {
 // ` (deleted)` or the path no longer resolves; macOS and Windows name the path the program started
 // from, which still resolves when another file was renamed over it.
 fn classify_program_path(program: &Path) -> io::Result<RunningProgramPath> {
-    if is_marked_replaced(program) {
+    if is_program_path_marked_replaced(program) {
         return Ok(RunningProgramPath::Replaced);
     }
     match real_path(program) {
@@ -45,21 +45,6 @@ fn classify_program_path(program: &Path) -> io::Result<RunningProgramPath> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(RunningProgramPath::Replaced),
         Err(error) => Err(error),
     }
-}
-
-// Whether Linux's link to the running program names a file since replaced: `… (deleted)`.
-#[cfg(target_os = "linux")]
-fn is_marked_replaced(program: &Path) -> bool {
-    program
-        .as_os_str()
-        .as_encoded_bytes()
-        .ends_with(b" (deleted)")
-}
-
-// No other system marks a replaced program's path.
-#[cfg(not(target_os = "linux"))]
-fn is_marked_replaced(_program: &Path) -> bool {
-    false
 }
 
 #[cfg(test)]
