@@ -4,7 +4,10 @@
 
 pub(crate) mod auth_file;
 mod limits;
+pub(crate) mod login;
+mod memory;
 mod sign_out;
+mod switch;
 #[cfg_attr(
     not(test),
     expect(
@@ -13,11 +16,6 @@ mod sign_out;
     )
 )]
 mod window_start;
-
-mod memory;
-
-pub(crate) mod login;
-mod switch;
 
 use std::collections::HashMap;
 use std::io;
@@ -69,6 +67,8 @@ pub(crate) struct CodexAccountLegs {
     accounts: Arc<PortRegistration<Arc<ProviderAccountRegistry>>>,
     // The binding store, which a switch moves each session's binding in.
     bindings: Arc<dyn RuntimeBindingWriter>,
+    // What every short-lived service runs on, whatever its home.
+    short_lived_dependencies: Arc<CodexServiceDependencies>,
     // Each account's limits reads in a row whose needed renewal left its `auth.json` unchanged,
     // kept in memory as the observer's own misses are.
     dead_renewals: Mutex<HashMap<ProviderAccountId, u8>>,
@@ -88,6 +88,7 @@ impl CodexAccountLegs {
     ) -> Self {
         Self {
             registry,
+            short_lived_dependencies: compose_short_lived_dependencies(&dependencies),
             dependencies,
             rate_limits,
             accounts,
@@ -109,7 +110,8 @@ impl CodexAccountLegs {
     }
 
     // Runs `act` on the service serving in `codex_home`, else on a short-lived service started
-    // there for it as `provider_account_id`'s home and stopped after, whatever `act` answered.
+    // there for it as `provider_account_id`'s home and ended after, whatever `act` answered, by
+    // Codex's own drain: it finishes what it was writing and exits by itself, and is waited for.
     async fn act_on_home_service<Answer>(
         &self,
         provider_account_id: ProviderAccountId,
@@ -134,10 +136,13 @@ impl CodexAccountLegs {
                 home_socket,
             },
             CodexServiceKind::Account,
-            compose_short_lived_dependencies(&self.dependencies),
+            Arc::clone(&self.short_lived_dependencies),
             Vec::new(),
         );
         let answer = act(&service).await;
+        // Taken off its home as a replaced service is, so its stop asks Codex to drain rather
+        // than signaling it to end and killing it once the grace runs out.
+        service.mark_replaced();
         service.stop().await;
         answer
     }
@@ -215,8 +220,9 @@ impl ProviderMemoryImportLegs for CodexAccountLegs {
     }
 }
 
-// What a short-lived service runs on: the driver's own services' dependencies with the file
-// credential store added, and drains of its own, since it is never a lasting service.
+// What every short-lived service runs on, composed once, since nothing in it names a home: the
+// driver's own services' dependencies with the file credential store added, and drains of their
+// own, shared by every short-lived service.
 fn compose_short_lived_dependencies(
     shared: &CodexServiceDependencies,
 ) -> Arc<CodexServiceDependencies> {
@@ -242,3 +248,6 @@ fn compose_short_lived_dependencies(
         switching: Arc::clone(&shared.switching),
     })
 }
+
+#[cfg(test)]
+mod tests;
