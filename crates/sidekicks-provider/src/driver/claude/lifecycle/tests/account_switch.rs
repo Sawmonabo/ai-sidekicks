@@ -159,11 +159,11 @@ fn environment_value<'a>(start: &'a ScriptedStartRecord, name: &str) -> Option<&
 }
 
 // Between two store accounts an idle and a mid-turn session each get the new store alone, and
-// move onto the account: the session's own account and its resting binding at the answer, a
-// running turn's binding at the marker among its frames, and the stream with it, so a limits
-// report read after the move is the new account's. Killed by the move sent with a token, by the
-// session's account left behind, by the resting binding left on the old account, and by the
-// stream's account left behind.
+// move onto the account at the marker among its frames: the session's own account, its resting
+// binding, a running turn's binding and the stream, so a limits report read after the move is the
+// new account's. Killed by the move sent with a token, by the session's account left behind, by
+// the resting binding left on the old account or moved when the answer is read, ahead of the
+// frames queued before it, and by the stream's account left behind.
 #[rstest]
 #[case::idle(false)]
 #[case::mid_turn(true)]
@@ -176,6 +176,10 @@ async fn a_store_switch_points_the_session_at_the_new_store_in_place(#[case] is_
     let sent_before = switch.channel.control_requests().len();
 
     drop(switch.switch().await);
+    assert!(
+        switch.fixture.bindings.moves().is_empty(),
+        "nothing moves before the session's queue reaches the marker"
+    );
     settle().await;
 
     assert_eq!(
@@ -256,9 +260,10 @@ async fn the_output_reader_names_the_account_the_switch_moved_onto() {
 
 // A token target never reaches the process in place: a busy session starts again only once its
 // turn settled, resuming its conversation by id on the new account's store, with no token in its
-// environment, which the launcher hands it on its pipe instead. Killed by the token sent on `env`,
-// by a relaunch that ends the running turn, and by a relaunch on the old account or a new
-// conversation.
+// environment, which the launcher hands it on its pipe instead, its lead's binding moved before
+// the new process starts, so the binding the relaunch records copies the new account. Killed by
+// the token sent on `env`, by a relaunch that ends the running turn, by a relaunch on the old
+// account or a new conversation, and by the binding moved only once the relaunch landed.
 #[tokio::test(start_paused = true)]
 async fn a_token_target_relaunches_between_turns_and_resumes_by_id() {
     let switch = SwitchFixture::new(Some(ProviderAuthMode::OauthToken)).await;
@@ -284,8 +289,13 @@ async fn a_token_target_relaunches_between_turns_and_resumes_by_id() {
     );
     assert!(switch.fixture.starts.take_started().is_empty());
     switch.fixture.end_turn(&switch.start, switch.session_id);
-    drop(moving.await);
     let relaunched = switch.fixture.next_start().await;
+    assert_eq!(
+        switch.fixture.bindings.moves(),
+        [(binding_id("resting"), switch.to.clone())],
+        "the lead's binding is on the new account before its relaunch starts"
+    );
+    drop(moving.await);
 
     assert!(matches!(
         &relaunched.conversation,
@@ -298,12 +308,10 @@ async fn a_token_target_relaunches_between_turns_and_resumes_by_id() {
     assert_eq!(environment_value(&relaunched, OAUTH_TOKEN_VARIABLE), None);
     assert_eq!(switch.sent_environments(sent_before), Vec::<Value>::new());
     assert_eq!(switch.admitted(), switch.to);
-    assert!(
-        switch
-            .fixture
-            .bindings
-            .moves()
-            .contains(&(binding_id("resting"), switch.to.clone()))
+    assert_eq!(
+        switch.fixture.bindings.moves(),
+        [(binding_id("resting"), switch.to.clone())],
+        "the binding the relaunch left is never moved again"
     );
 }
 

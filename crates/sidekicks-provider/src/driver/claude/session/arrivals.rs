@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
@@ -112,6 +113,8 @@ pub(crate) enum ClaudeOwnDelivery {
     AccountMove {
         /// The account the bindings move onto.
         provider_account_id: ProviderAccountId,
+        /// The binding the session's lead runs on, moved even when no run is bound.
+        lead_binding_id: RuntimeBindingId,
         /// Where the move is written.
         bindings: Arc<dyn RuntimeBindingWriter>,
         /// Answered how the process's next request goes, where the switch listens for it.

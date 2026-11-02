@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use tokio::sync::oneshot;
 
 use crate::driver::claude::delivery::stream::ClaudeFirstRequest;
@@ -63,6 +64,9 @@ pub(crate) struct ClaudeAccountMoveMarker {
     pub(crate) arrivals: ClaudeArrivalSender,
     /// The account the session's bindings move onto.
     pub(crate) provider_account_id: ProviderAccountId,
+    /// The binding the session's lead runs on, moved with the bound runs' even between turns,
+    /// when no run is bound.
+    pub(crate) lead_binding_id: RuntimeBindingId,
     /// Where the move is written.
     pub(crate) bindings: Arc<dyn RuntimeBindingWriter>,
     /// Answered how the process's next request after the move goes; `None` where no one listens.
@@ -77,6 +81,7 @@ impl ClaudeAccountMoveMarker {
         let is_queued = self.arrivals.push(ClaudeSessionArrival::Deliver(
             ClaudeOwnDelivery::AccountMove {
                 provider_account_id: self.provider_account_id,
+                lead_binding_id: self.lead_binding_id,
                 bindings: self.bindings,
                 first_request: self.first_request,
             },

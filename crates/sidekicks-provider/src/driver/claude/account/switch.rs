@@ -11,6 +11,7 @@ use std::sync::{Arc, Weak};
 use futures::FutureExt;
 use futures::future::join_all;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 
@@ -19,7 +20,7 @@ use crate::driver::claude::account::credentials::SECURE_STORAGE_FOLDER_VARIABLE;
 use crate::driver::claude::delivery::stream::ClaudeFirstRequest;
 use crate::driver::claude::session::control_requests::ClaudeAccountMoveMarker;
 use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
-use crate::driver::claude::session::restart::ClaudeSessionStanding;
+use crate::driver::claude::session::restart::{ClaudeLegBinding, ClaudeSessionStanding};
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings,
@@ -62,12 +63,13 @@ enum ClaudeAccountSignIn {
     Token,
 }
 
-// What a moved session hands back on a login refusal: the account it left and how that account
-// reaches its process.
+// What a moved session hands back on a login refusal: the binding its lead runs on after the
+// move, the account it left and how that account reaches its process.
 struct ClaudeHandBack {
     establishment: Arc<ClaudeSessionEstablishment>,
     bindings: Arc<dyn RuntimeBindingWriter>,
-    session: SessionToMove,
+    session_id: SessionId,
+    binding_id: RuntimeBindingId,
     previous: ProviderAccountId,
     previous_sign_in: ClaudeAccountSignIn,
 }
@@ -110,30 +112,42 @@ async fn move_claude_session(
         }
     };
     let (watch, heard) = oneshot::channel();
-    match (&previous_sign_in, &target_sign_in) {
+    // The lead's binding moves with the session, never apart from its frames: at the marker an
+    // in-place move queues among them, or before a relaunch starts the new process on its copy.
+    let binding_id = match (&previous_sign_in, &target_sign_in) {
         (ClaudeAccountSignIn::Store(_), ClaudeAccountSignIn::Store(store)) => {
+            let account_move = ClaudeStoreMove {
+                store,
+                provider_account_id: &to,
+                lead_binding_id: &session.binding_id,
+            };
             point_at_store(
                 &establishment,
                 &live,
                 &legs.bindings,
-                store,
-                &to,
+                account_move,
                 Some(watch),
             )
             .await?;
+            session.binding_id
         }
         (ClaudeAccountSignIn::Token, _) | (_, ClaudeAccountSignIn::Token) => {
-            restarts.relaunch_on_account(&live, to.clone()).await?;
+            let leg = ClaudeLegBinding {
+                bindings: Arc::clone(&legs.bindings),
+                binding_id: session.binding_id,
+            };
+            let relaunched = restarts.relaunch_on_account(&live, to.clone(), leg).await?;
             if let Some(stream) = establishment.streams.get(session.session_id) {
                 stream.watch_first_request(watch);
             }
+            relaunched
         }
-    }
-    move_binding(&*legs.bindings, &session, &to).await?;
+    };
     let hand_back = ClaudeHandBack {
         establishment: Arc::clone(&establishment),
         bindings: Arc::clone(&legs.bindings),
-        session,
+        session_id: session.session_id,
+        binding_id,
         previous: from,
         previous_sign_in,
     };
@@ -161,7 +175,7 @@ impl ClaudeHandBack {
     // Moves the session back onto the account it left, the way it moved: its store sent again,
     // or its process started again on that account between turns.
     async fn hand_back(self) -> Result<(), DriverError> {
-        let session_id = self.session.session_id;
+        let session_id = self.session_id;
         let restarts = &self.establishment.task_services.restarts;
         let live = restarts
             .slots()
@@ -169,43 +183,58 @@ impl ClaudeHandBack {
             .ok_or_else(|| DriverError::from(session_process_unavailable(session_id)))?;
         match &self.previous_sign_in {
             ClaudeAccountSignIn::Store(store) => {
+                let account_move = ClaudeStoreMove {
+                    store,
+                    provider_account_id: &self.previous,
+                    lead_binding_id: &self.binding_id,
+                };
                 point_at_store(
                     &self.establishment,
                     &live,
                     &self.bindings,
-                    store,
-                    &self.previous,
+                    account_move,
                     None,
                 )
-                .await?;
+                .await
             }
             ClaudeAccountSignIn::Token => {
+                let leg = ClaudeLegBinding {
+                    bindings: Arc::clone(&self.bindings),
+                    binding_id: self.binding_id.clone(),
+                };
                 restarts
-                    .relaunch_on_account(&live, self.previous.clone())
-                    .await?;
+                    .relaunch_on_account(&live, self.previous.clone(), leg)
+                    .await
+                    .map(drop)
             }
         }
-        move_binding(&*self.bindings, &self.session, &self.previous).await
     }
 }
 
-// Points `live`'s process at `store` in place, through its stream's queue: the session's account,
-// which its stream shares, and its bindings move onto `provider_account_id`'s account where Claude
-// Code acknowledged it among the frames; `first_request` hears how the next request goes. Fails as
-// the request does, nothing moved.
+// An in-place move: the store the process is pointed at, the account it signs in to, and the
+// binding the session's lead runs on, which moves with it.
+struct ClaudeStoreMove<'a> {
+    store: &'a str,
+    provider_account_id: &'a ProviderAccountId,
+    lead_binding_id: &'a RuntimeBindingId,
+}
+
+// Points `live`'s process at `account_move`'s store in place, through its stream's queue: the
+// session's account, which its stream shares, its lead's binding and its bound runs' move onto
+// the move's account where Claude Code acknowledged it among the frames; `first_request` hears how
+// the next request goes. Fails as the request does, nothing moved.
 async fn point_at_store(
     establishment: &ClaudeSessionEstablishment,
     live: &LiveClaudeSession,
     bindings: &Arc<dyn RuntimeBindingWriter>,
-    store: &str,
-    provider_account_id: &ProviderAccountId,
+    account_move: ClaudeStoreMove<'_>,
     first_request: Option<oneshot::Sender<ClaudeFirstRequest>>,
 ) -> Result<(), DriverError> {
     let request = ClaudeControlRequest::ApplyFlagSettings {
         settings: ClaudeFlagSettings {
             env: Some(BTreeMap::from([(
                 SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
-                store.to_owned(),
+                account_move.store.to_owned(),
             )])),
             ..ClaudeFlagSettings::default()
         },
@@ -216,7 +245,8 @@ async fn point_at_store(
         .ok_or_else(|| DriverError::from(session_process_unavailable(live.session_id)))?;
     let account_move = ClaudeAccountMoveMarker {
         arrivals: stream.arrivals().clone(),
-        provider_account_id: provider_account_id.clone(),
+        provider_account_id: account_move.provider_account_id.clone(),
+        lead_binding_id: account_move.lead_binding_id.clone(),
         bindings: Arc::clone(bindings),
         first_request,
     };
@@ -253,8 +283,8 @@ async fn read_sign_in(
     ))
 }
 
-// The binding the session's lead runs on, moved onto `provider_account_id`'s account, which a
-// session with no bound run between turns has no frame to move it at.
+// The binding the session's lead runs on, moved onto `provider_account_id`'s account at once, for
+// a session with no process whose frames it could move among.
 async fn move_binding(
     bindings: &dyn RuntimeBindingWriter,
     session: &SessionToMove,
