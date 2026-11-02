@@ -1,8 +1,9 @@
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
+use rstest::rstest;
 use serde_json::json;
-use sidekicks_contracts::event::envelope::SourcePosition;
+use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -19,7 +20,11 @@ use sidekicks_provider::runtime_binding::test_store::{
 };
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
+use sidekicks_store::events::content::codec::BodyEncoder;
 use sidekicks_store::events::session::followers::CommittedEvent;
+use sidekicks_store::events::session::insert::{
+    SessionEventRow, insert_session_event, monotonic_ns_now,
+};
 
 use super::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursorError, RunBindingCursors};
 use crate::questions::schema::schema_parts;
@@ -123,6 +128,25 @@ impl Harness {
                 sequence: SafeInt::new(1).expect("a sequence"),
             })
             .expect("the event reads as its type");
+    }
+
+    // Stores `events`, session events as the wire writes them, in order in the session's log.
+    fn store_log(&self, events: &[serde_json::Value]) {
+        let connection = self.database.reader();
+        let mut encoder = BodyEncoder::new();
+        for event in events {
+            let event: SessionEvent =
+                serde_json::from_value(event.clone()).expect("the test writes a session event");
+            let envelope = test_envelope(self.session_id, &event);
+            let row = SessionEventRow {
+                payload: serde_json::to_string(envelope.payload())
+                    .expect("a JSON object serializes"),
+                envelope: Arc::new(envelope),
+                monotonic_ns: monotonic_ns_now(),
+                content_payload: None,
+            };
+            insert_session_event(&connection, &mut encoder, &row).expect("the event is stored");
+        }
     }
 
     fn is_open(&self, binding_id: &RuntimeBindingId) -> bool {
@@ -362,5 +386,100 @@ async fn a_fenced_fork_opens_the_new_epoch_on_a_binding_its_run_holds() {
     assert!(
         !harness.is_open(&fork_binding),
         "the fork's cursor drops with its session"
+    );
+}
+
+// Killed by a cursor opened at the run's start rather than where its log stands: the run took turn
+// 1, rolled back to before it and took turn 2, so it stands at epoch 1's first turn, and an
+// operation opened in the binding's next turn reads, past the next cut, as from epoch 1's second
+// turn, where a cursor opened at the start would place it at epoch 0's first. A relaunch whose
+// predecessor's cursor is gone falls back to the same standing.
+#[rstest]
+#[case::a_new_binding(false)]
+#[case::a_relaunch_with_no_predecessor_cursor(true)]
+#[tokio::test]
+async fn a_cursor_opens_where_its_runs_log_stands(#[case] is_relaunch: bool) {
+    let harness = Harness::new().await;
+    let run_id = harness.run();
+    let turn_started = |turn_number: u64, run_version: u64| {
+        json!({
+            "type": SessionEventType::AgentTurnStarted.as_str(),
+            "payload": {
+                "sessionId": harness.session_id,
+                "runId": run_id,
+                "runVersion": run_version,
+                "turnNumber": turn_number,
+            },
+        })
+    };
+    harness.store_log(&[
+        turn_started(1, 1),
+        json!({
+            "type": SessionEventType::AgentRunRolledBack.as_str(),
+            "payload": {
+                "sessionId": harness.session_id,
+                "runId": run_id,
+                "runVersion": 2,
+                "targetPosition": 0,
+            },
+        }),
+        turn_started(2, 2),
+    ]);
+    let leg = harness
+        .cursors
+        .create(harness.session_id, binding_of(run_id))
+        .await
+        .expect("the binding is recorded");
+    let binding_id = if is_relaunch {
+        harness.cursors.forget_binding(&leg.id);
+        let minted = binding_of(run_id).id;
+        harness
+            .cursors
+            .open_relaunch(harness.session_id, &leg, minted.clone())
+            .await
+            .expect("the relaunch's cursor opens");
+        minted
+    } else {
+        leg.id
+    };
+    let operation = |is_opening| {
+        Some(DeliveryOperation {
+            correlation_key: "call",
+            is_opening,
+        })
+    };
+    {
+        let mut epochs = harness
+            .epochs
+            .lock()
+            .expect("no test thread panics holding them");
+        epochs.open_turn(&binding_id).expect("the cursor is open");
+        epochs
+            .attribute(&binding_id, operation(true))
+            .expect("the cursor is open");
+    }
+
+    harness
+        .cursors
+        .fence_cut(ConfirmedCut::InPlace {
+            binding_id: binding_id.clone(),
+            point: SourcePosition(SafeInt::ZERO),
+        })
+        .expect("the cursor is open and not frozen");
+
+    let attribution = harness
+        .epochs
+        .lock()
+        .expect("no test thread panics holding them")
+        .attribute(&binding_id, operation(false))
+        .expect("the cursor stays open");
+    assert_eq!(
+        attribution,
+        DeliveryAttribution::BeforeCut {
+            source: EpochPosition {
+                epoch: SourceEpoch(SafeInt::new(1).expect("a small epoch")),
+                position: SourcePosition(SafeInt::new(2).expect("a small turn")),
+            },
+        }
     );
 }
