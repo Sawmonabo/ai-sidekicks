@@ -1,12 +1,14 @@
 //! Sessions: creating, changing, naming, converting and searching them, reading a session's record
 //! and log, their groups, tags, drafts, staged files, review notes, inbox addresses and directory;
-//! the run engine and a session's runs; the transcript; questions, interventions and attention; the
-//! queue's store; the driver a run or session resolves to; the live sessions' folders; and
-//! deleting the provider conversations a session ran on. It sits over std, store, ipc,
-//! workspace, provider and mcp and is taken by approval, queue, artifact, recovery and the program.
+//! the run engine, a session's runs and its agents; the transcript; questions, interventions and
+//! attention; the queue's store; the driver a run or session resolves to; the live sessions'
+//! folders; and deleting the provider conversations a session ran on. It sits over std, store,
+//! ipc, workspace, provider and mcp and is taken by approval, queue, artifact, recovery and the
+//! program.
 
 pub mod addresses;
 pub mod agent_tree;
+pub mod agents;
 pub mod attention;
 pub mod auto_title;
 pub mod budget;
