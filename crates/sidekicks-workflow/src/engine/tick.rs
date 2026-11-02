@@ -49,13 +49,6 @@ use crate::secrets::redaction::RunRedaction;
 
 /// What one run's steps share, built once by the run's start or its restart and held as an `Arc`
 /// by every step the run dispatches.
-#[cfg_attr(
-    test,
-    expect(
-        dead_code,
-        reason = "the run's start and restart, which build it, and the dispatch, which reads it"
-    )
-)]
 pub(crate) struct RunScope {
     /// The session the run works in.
     pub(crate) session_id: SessionId,
@@ -138,6 +131,7 @@ pub(crate) fn test_run_scope(mode: WorkflowRunMode, nodes: Vec<WorkflowNode>) ->
 
 /// What a run's steps had recorded when the turn began, handed to each step that turn dispatches
 /// so every one reads the same fixed copy.
+#[derive(Clone)]
 pub(crate) struct RunSnapshot {
     /// Each node's executions so far.
     pub(crate) outputs: Arc<StepOutputs>,
@@ -146,13 +140,6 @@ pub(crate) struct RunSnapshot {
 }
 
 /// A step the walk readied: its key, its loop's run index and its input.
-#[cfg_attr(
-    test,
-    expect(
-        dead_code,
-        reason = "the walk, which readies it, and the dispatch, which starts it"
-    )
-)]
 pub(crate) struct ReadyStep {
     /// The step.
     pub(crate) step: WorkflowStepKey,
@@ -180,13 +167,6 @@ pub(crate) struct StepReport {
 
 /// What a step reports: where it stands at the memory gate, its start, its progress, its wind-down
 /// or its end. The tick writes a step's `Admitted` before any report from its driver.
-#[cfg_attr(
-    test,
-    expect(
-        dead_code,
-        reason = "the dispatch and the branch wind-down, which report the rest"
-    )
-)]
 pub(crate) enum StepReportKind {
     /// The memory gate holds the step; every report of one hold carries the instant of its first,
     /// so the first is the one whose `at` equals `hold_started_at`.
@@ -209,21 +189,22 @@ pub(crate) enum StepReportKind {
     /// The step passed a turn end or a tool call.
     Progressed,
     /// The step was asked to stop and is winding down.
+    #[cfg_attr(
+        test,
+        expect(dead_code, reason = "the branch wind-down, which reports it")
+    )]
     Canceling,
     /// The wave the step belongs to had its other branches canceled.
+    #[cfg_attr(
+        test,
+        expect(dead_code, reason = "the branch wind-down, which reports it")
+    )]
     BranchesCanceled,
     /// The step ended.
     Settled(StepSettlement),
 }
 
 /// How a step ended.
-#[cfg_attr(
-    test,
-    expect(
-        dead_code,
-        reason = "the dispatch and the branch wind-down, which settle steps"
-    )
-)]
 pub(crate) enum StepSettlement {
     /// The step finished with its outputs.
     Completed {
@@ -254,6 +235,13 @@ pub(crate) enum StepSettlement {
         log_lines: Vec<String>,
     },
     /// The provider account of the step's agent run is spent; the step waits on it.
+    #[cfg_attr(
+        test,
+        expect(
+            dead_code,
+            reason = "the agent step's flow, which settles a step on a spent account"
+        )
+    )]
     AccountSpent {
         /// The spent account.
         provider_account_id: ProviderAccountId,

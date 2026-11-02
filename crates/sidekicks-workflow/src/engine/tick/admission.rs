@@ -119,10 +119,10 @@ pub(crate) async fn wait_at_gate(
 }
 
 /// The tick's report channel is closed.
-struct ReportsClosed;
+pub(super) struct ReportsClosed;
 
 /// Sends `kind` for `step`, made at `at`, on `reports`.
-async fn send(
+pub(super) async fn send(
     reports: &mpsc::Sender<StepReport>,
     step: &WorkflowStepKey,
     at: WireInstant,

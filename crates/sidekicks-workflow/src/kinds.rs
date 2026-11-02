@@ -47,13 +47,6 @@ pub(crate) trait NodeExecutor: Send + Sync {
     /// Runs the step over `inputs`, one list of items per input handle in handle order. Its
     /// outputs come one list per main output, before any error output. Fails with
     /// [`StepFailure`] when the step fails or the person declines its action.
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "the tick's dispatch, which runs each step's executor"
-        )
-    )]
     fn execute<'step>(
         &'step self,
         context: &'step StepContext,
@@ -154,13 +147,6 @@ pub(crate) struct NodeKind {
     /// The id of the param holding the kind's shell line; `None` for a kind that runs none.
     pub(crate) shell_line_param: Option<&'static str>,
     /// What runs the kind's step.
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "the tick's dispatch, which runs each step's executor"
-        )
-    )]
     pub(crate) executor: Box<dyn NodeExecutor>,
 }
 
@@ -275,9 +261,9 @@ impl NodeKindTable {
     }
 }
 
-/// The test kind's executor, which passes its inputs on as its outputs.
+/// A test kind's executor that passes its inputs on as its outputs.
 #[cfg(test)]
-struct PassThroughExecutor;
+pub(crate) struct PassThroughExecutor;
 
 #[cfg(test)]
 impl NodeExecutor for PassThroughExecutor {
@@ -291,13 +277,17 @@ impl NodeExecutor for PassThroughExecutor {
 }
 
 /// A kind whose spec is `spec`, a `workflow.kind.list` entry's JSON, that holds its shell line in
-/// `shell_line_param` and passes its inputs on as its outputs.
+/// `shell_line_param` and runs its steps through `executor`.
 #[cfg(test)]
-pub(crate) fn pass_through_kind(spec: Value, shell_line_param: Option<&'static str>) -> NodeKind {
+pub(crate) fn test_kind(
+    spec: Value,
+    shell_line_param: Option<&'static str>,
+    executor: Box<dyn NodeExecutor>,
+) -> NodeKind {
     NodeKind {
         spec: serde_json::from_value(spec).expect("the test kind's spec reads"),
         shell_line_param,
-        executor: Box::new(PassThroughExecutor),
+        executor,
     }
 }
 
@@ -305,7 +295,7 @@ pub(crate) fn pass_through_kind(spec: Value, shell_line_param: Option<&'static s
 /// whose shell line is its `command` param, passing its inputs on as its outputs.
 #[cfg(test)]
 pub(crate) fn command_test_kind() -> NodeKind {
-    pass_through_kind(
+    test_kind(
         serde_json::json!({
             "kind": "developer.shell", "version": 1, "category": "developer",
             "displayName": "Run a command", "description": "A command in a working directory.",
@@ -315,6 +305,7 @@ pub(crate) fn command_test_kind() -> NodeKind {
             "outputsDeriveFromParams": false,
         }),
         Some(COMMAND_PARAM),
+        Box::new(PassThroughExecutor),
     )
 }
 
@@ -329,7 +320,7 @@ mod tests {
         WorkflowDefinitionFinding, check_workflow_graph,
     };
 
-    use super::{NodeKindTable, NodeKindTableError, pass_through_kind};
+    use super::{NodeKindTable, NodeKindTableError, PassThroughExecutor, test_kind};
 
     /// A kind spec of `kind` at `version` with one main input and `outputs`.
     fn kind_spec(kind: &str, version: u64, outputs: &Value) -> Value {
@@ -366,7 +357,7 @@ mod tests {
         #[case] on_error: Option<&str>,
         #[case] has_error_output: bool,
     ) {
-        let table = NodeKindTable::new(vec![pass_through_kind(
+        let table = NodeKindTable::new(vec![test_kind(
             kind_spec(
                 "test.step",
                 1,
@@ -376,6 +367,7 @@ mod tests {
                 ]),
             ),
             None,
+            Box::new(PassThroughExecutor),
         )])
         .expect("the table builds");
         let source = node("source", "test.step", 1, on_error);
@@ -423,8 +415,16 @@ mod tests {
             { "type": "main", "id": "outputs/main/1", "label": "No" },
         ]);
         let table = NodeKindTable::new(vec![
-            pass_through_kind(kind_spec("test.step", 1, &one_output), None),
-            pass_through_kind(kind_spec("test.step", 2, &two_outputs), None),
+            test_kind(
+                kind_spec("test.step", 1, &one_output),
+                None,
+                Box::new(PassThroughExecutor),
+            ),
+            test_kind(
+                kind_spec("test.step", 2, &two_outputs),
+                None,
+                Box::new(PassThroughExecutor),
+            ),
         ])
         .expect("the table builds");
         let output_count = |version| {
@@ -437,8 +437,16 @@ mod tests {
         assert_eq!(output_count(3), None);
 
         let repeated = NodeKindTable::new(vec![
-            pass_through_kind(kind_spec("test.step", 1, &one_output), None),
-            pass_through_kind(kind_spec("test.step", 1, &one_output), None),
+            test_kind(
+                kind_spec("test.step", 1, &one_output),
+                None,
+                Box::new(PassThroughExecutor),
+            ),
+            test_kind(
+                kind_spec("test.step", 1, &one_output),
+                None,
+                Box::new(PassThroughExecutor),
+            ),
         ]);
         assert!(matches!(
             repeated,
@@ -450,7 +458,7 @@ mod tests {
             let mut spec = kind_spec("test.merge", 1, &one_output);
             spec["perItem"] = json!(true);
             spec["inputs"] = inputs;
-            NodeKindTable::new(vec![pass_through_kind(spec, None)])
+            NodeKindTable::new(vec![test_kind(spec, None, Box::new(PassThroughExecutor))])
         };
         assert!(
             per_item_inputs(json!([

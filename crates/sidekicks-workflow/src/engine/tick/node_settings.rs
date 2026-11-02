@@ -14,11 +14,11 @@ use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 
 /// The main inputs among a step's `inputs`, one list per input handle of `spec` in spec order: the
-/// lists at the inputs whose `is_tool()` is false, in spec order.
-pub(crate) fn main_inputs<'inputs>(
+/// lists at the inputs whose `is_tool()` is false, in spec order, borrowed or taken as `inputs` is.
+pub(crate) fn main_inputs<Input>(
     spec: &WorkflowNodeKindSpec,
-    inputs: &'inputs [Vec<WorkflowItem>],
-) -> impl Iterator<Item = &'inputs Vec<WorkflowItem>> {
+    inputs: impl IntoIterator<Item = Input>,
+) -> impl Iterator<Item = Input> {
     spec.inputs
         .as_slice()
         .iter()
@@ -111,7 +111,7 @@ pub(crate) fn join_per_item_outputs(calls: Vec<Vec<Vec<WorkflowItem>>>) -> Vec<V
 /// single output hold as many items each and item k came from item k. Any other shape, a collapse
 /// among them, is left for the kind to set. `main_input_lengths` is how many items each main input
 /// held.
-pub(crate) fn fill_paired_items(main_input_lengths: &[usize], outputs: &mut [Vec<WorkflowItem>]) {
+fn fill_paired_items(main_input_lengths: &[usize], outputs: &mut [Vec<WorkflowItem>]) {
     let is_single_item = matches!(main_input_lengths, [1]);
     let is_same_count = matches!(
         (main_input_lengths, &*outputs),
@@ -133,11 +133,23 @@ pub(crate) fn fill_paired_items(main_input_lengths: &[usize], outputs: &mut [Vec
     }
 }
 
+/// Shapes the outputs a node gives, pinned or run, around main inputs holding as many items as
+/// `main_input_lengths` says: the lineage it can only have is filled in, then an always-output node
+/// gains its empty item.
+pub(crate) fn shape_outputs(
+    node: &WorkflowNode,
+    main_input_lengths: &[usize],
+    outputs: &mut Vec<Vec<WorkflowItem>>,
+) {
+    fill_paired_items(main_input_lengths, outputs);
+    ensure_output_item(node, main_input_lengths, outputs);
+}
+
 /// Gives an always-output node one empty item on its first output where that output is missing
 /// or empty, its lineage every item of every main input, input by input, each main input holding
 /// as many items as `main_input_lengths` says; the outputs unchanged when the node does not set it
 /// or its first output holds an item.
-pub(crate) fn ensure_output_item(
+fn ensure_output_item(
     node: &WorkflowNode,
     main_input_lengths: &[usize],
     outputs: &mut Vec<Vec<WorkflowItem>>,
@@ -203,7 +215,8 @@ fn lineage_at(lineage: Option<WorkflowPairedItems>, call_item: SafeInt<0>) -> Wo
     }
 }
 
-fn index(position: usize) -> SafeInt<0> {
+/// `position` in a list of items as the index the wire carries.
+pub(super) fn index(position: usize) -> SafeInt<0> {
     u64::try_from(position)
         .ok()
         .and_then(SafeInt::new)

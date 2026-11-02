@@ -107,53 +107,30 @@ impl StepDispatch {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use std::time::Duration;
 
     use rstest::rstest;
     use serde_json::{Map, Value, json};
     use sidekicks_contracts::workflow::definition::document::WorkflowNode;
     use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
-    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use tokio::time::timeout;
     use tokio_util::sync::CancellationToken;
 
-    use super::StepDispatch;
-    use crate::engine::ports::{WorkflowNodeKey, refusing_engine_ports};
-    use crate::engine::tick::{ReadyStep, RunScope, RunSnapshot, test_run_scope};
-    use crate::expressions::evaluator::ExpressionEvaluator;
-    use crate::expressions::lineage::StepOutputs;
+    use super::super::{test_dispatch, test_ready_step, test_run_snapshot};
+    use crate::engine::ports::WorkflowNodeKey;
+    use crate::engine::tick::{RunScope, test_run_scope};
     use crate::kinds::step_context::StepContext;
-    use crate::kinds::{NodeKind, StepFailure, pass_through_kind};
+    use crate::kinds::{NodeKind, PassThroughExecutor, StepFailure, test_kind};
     use crate::schema::schema_parts;
-    use crate::secrets::resolution::STEP_SECRET_STATEMENT_CAPACITY;
-    use crate::secrets::store::{ScriptedKeychain, WorkflowSecretStore};
 
     /// The longest a test waits on a launch or an evaluation.
     const WAIT: Duration = Duration::from_secs(10);
 
-    /// A dispatch over `database`, a keychain holding nothing and ports refusing every call.
-    fn test_dispatch(database: &TestDatabase) -> StepDispatch {
-        StepDispatch::new(
-            refusing_engine_ports(),
-            ExpressionEvaluator::start().expect("the expression thread starts"),
-            Arc::new(DatabaseReadPool::new(
-                database.path(),
-                STEP_SECRET_STATEMENT_CAPACITY,
-            )),
-            Arc::new(WorkflowSecretStore::new(ScriptedKeychain::holding(
-                &[],
-                false,
-            ))),
-            reqwest::Client::new(),
-        )
-    }
-
     /// A kind whose inputs are a tool input, then a main one, and whose `token` param is
     /// sensitive.
     fn tool_then_main_kind() -> NodeKind {
-        pass_through_kind(
+        test_kind(
             json!({
                 "kind": "test.greet", "version": 1, "category": "developer",
                 "displayName": "Greet", "description": "A test kind.", "icon": "test",
@@ -168,6 +145,7 @@ mod tests {
                 ],
             }),
             None,
+            Box::new(PassThroughExecutor),
         )
     }
 
@@ -188,38 +166,12 @@ mod tests {
         inputs: Vec<Vec<Value>>,
     ) -> (RunScope, Result<StepContext, StepFailure>) {
         let scope = test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]);
-        let snapshot = RunSnapshot {
-            outputs: Arc::new(StepOutputs::new([(
-                node.id.clone(),
-                node.name.as_str().to_owned(),
-            )])),
-            run_variables: Arc::new(Map::new()),
-        };
-        let ready = ReadyStep {
-            step: serde_json::from_value(json!({
-                "workflowRunId": scope.run_id, "nodeId": node.id, "attempt": 1,
-                "executionIndex": 0,
-            }))
-            .expect("the test's step key reads"),
-            run_index: 0,
-            inputs: inputs
-                .into_iter()
-                .map(|items| {
-                    items
-                        .into_iter()
-                        .map(|json| {
-                            serde_json::from_value(json!({ "json": json }))
-                                .expect("the test's item reads")
-                        })
-                        .collect()
-                })
-                .collect(),
-            input_ref: serde_json::from_value(json!({ "kind": "inline", "items": [] }))
-                .expect("the test's input reference reads"),
-        };
+        let snapshot = test_run_snapshot(&node);
+        let ready = test_ready_step(&scope, &node, inputs);
+        let (dispatch, _reports) = test_dispatch(database, Vec::new());
         let launched = timeout(
             WAIT,
-            test_dispatch(database).launch(
+            dispatch.launch(
                 &scope,
                 &snapshot,
                 &ready,

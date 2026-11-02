@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value};
@@ -142,22 +143,8 @@ pub(crate) struct StepRecords {
     /// The log lines, each scrubbed of the run's secrets.
     pub(crate) log_lines: Vec<String>,
     /// Whether the step reported progress.
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "the step's driver, which takes what a step recorded"
-        )
-    )]
     pub(crate) has_progressed: bool,
     /// The run variables the step set, by name, the latest value of each.
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "the step's driver, which takes what a step recorded"
-        )
-    )]
     pub(crate) run_variables: BTreeMap<String, StepRunVariable>,
     /// Whether the step asked for its node's other inputs' branches to be canceled.
     #[cfg_attr(
@@ -212,6 +199,9 @@ pub(crate) struct StepContext {
     params: StepParams,
     /// The step's templates open on the expression thread, `None` when its params hold none.
     expressions: Option<StepExpressionsHandle>,
+    /// The input item a per-item call's item 0 stands for, so its params evaluate over its own
+    /// item; 0 for a step run once over all its items.
+    item_call_offset: AtomicUsize,
     /// What the step recorded since the step's driver last took it.
     records: Mutex<StepRecords>,
     /// Woken when the step marks progress or asks to cancel its node's other inputs.
@@ -307,14 +297,21 @@ impl StepContext {
             http,
             params,
             expressions,
+            item_call_offset: AtomicUsize::new(0),
             records: Mutex::default(),
             recorded: Notify::new(),
         }
     }
 
-    /// The node's params for input item `item_index`: the one shared map when they hold no
-    /// template, else each template evaluated for the item in one hop. Fails with
-    /// [`StepParamsError::Expression`] when the evaluation does.
+    /// Starts the per-item call over the step's input item `item_index`, so the call's item 0 is
+    /// that item when it reads its params.
+    pub(crate) fn begin_item_call(&self, item_index: usize) {
+        self.item_call_offset.store(item_index, Ordering::Relaxed);
+    }
+
+    /// The node's params for item `item_index` of the items the executor was handed: the one
+    /// shared map when they hold no template, else each template evaluated for the item in one
+    /// hop. Fails with [`StepParamsError::Expression`] when the evaluation does.
     pub(crate) async fn item_params(
         &self,
         item_index: usize,
@@ -322,7 +319,8 @@ impl StepContext {
         let Some(expressions) = &self.expressions else {
             return Ok(Arc::clone(&self.params.base));
         };
-        let values = expressions.evaluate_item(item_index).await?;
+        let offset = self.item_call_offset.load(Ordering::Relaxed);
+        let values = expressions.evaluate_item(offset + item_index).await?;
         Ok(Arc::new(self.params.fill(values)))
     }
 
@@ -333,7 +331,6 @@ impl StepContext {
     }
 
     /// Records that the step made progress.
-    #[expect(dead_code, reason = "the kinds' executors")]
     pub(crate) fn mark_progress(&self) {
         lock(&self.records).has_progressed = true;
         self.recorded.notify_one();
@@ -341,7 +338,6 @@ impl StepContext {
 
     /// Sets the run variables `values`, which later runs keep too when `keep`; a name set again
     /// takes the later value and keep, so the last item wins.
-    #[expect(dead_code, reason = "the kinds' executors")]
     pub(crate) fn set_run_variables(&self, values: Map<String, Value>, keep: bool) {
         let mut records = lock(&self.records);
         for (name, value) in values {
@@ -364,13 +360,6 @@ impl StepContext {
 
     /// Waits until the step marks progress or asks to cancel its node's other inputs; returns at
     /// once when it did either since the last wait ended.
-    #[cfg_attr(
-        test,
-        expect(
-            dead_code,
-            reason = "the step's driver, which takes the records when woken"
-        )
-    )]
     pub(crate) async fn wait_for_records(&self) {
         self.recorded.notified().await;
     }
