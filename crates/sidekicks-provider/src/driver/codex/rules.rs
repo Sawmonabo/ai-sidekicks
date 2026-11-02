@@ -37,9 +37,10 @@ use crate::driver::codex::delivery::asks::CodexProjectRules;
 use crate::driver::codex::rules::evaluator::RuleFileEvaluator;
 use crate::port::repository_reader::RepositoryReader;
 
-// The folder a project keeps its Codex settings in, and in it and in every other folder Codex
-// reads settings from, the folder of rule files and the extension Codex reads.
-const CODEX_PROJECT_SETTINGS_FOLDER: &str = ".codex";
+/// The folder a project keeps its Codex settings in.
+pub(crate) const CODEX_PROJECT_SETTINGS_FOLDER: &str = ".codex";
+// In that folder and in every other folder Codex reads settings from, the folder of rule files and
+// the extension Codex reads.
 const CODEX_RULES_FOLDER: &str = "rules";
 const CODEX_RULE_FILE_EXTENSION: &str = "rules";
 
