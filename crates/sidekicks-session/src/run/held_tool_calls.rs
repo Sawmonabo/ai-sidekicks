@@ -15,6 +15,7 @@ use sidekicks_contracts::event::declared_variants::{
 use sidekicks_contracts::event::envelope::EventOccurredAt;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::port::held_tool_calls::{
     HELD_TOOL_CALLS_READ_MAX, HeldToolCall, HeldToolCallReads,
@@ -42,14 +43,16 @@ fn closes_held_call_sql() -> String {
 
 // Each background row of the session with its call's last close, kept while there is none or it
 // is a `failed` row naming why the call ended with no result, newest first: its payload, its
-// call's latest opening's stored time before it, the close's `endCause`, and its run's newest
-// binding, by when each was recorded and then by id, through the bindings' run index; every run
-// that moved a call to the background has one, so a NULL there fails the read. The type is written
-// as a literal so the planner can match the background index.
+// call's latest opening's stored time before it, the close's `endCause`, and the binding its close
+// is appended on. That binding is the nearest run's up the provider subagent lineage that has one,
+// that run's newest by when each was recorded and then by id, so a helper's call answers its lead's
+// binding, which its process runs on; a run with none anywhere up its lineage reads NULL, which
+// fails the read. `background` is read twice, so SQLite keeps it once. The type is written as a
+// literal so the planner can match the background index.
 static SELECT_HELD_TOOL_CALLS_SQL: LazyLock<String> = LazyLock::new(|| {
     let failed = SessionEventType::AgentToolCallFailed.as_str();
     format!(
-        "WITH background AS (
+        "WITH RECURSIVE background AS (
   SELECT held.sequence, held.run_id, held.payload,
     (SELECT close.sequence FROM session_events AS close
       WHERE {closes_held_call}
@@ -58,6 +61,13 @@ static SELECT_HELD_TOOL_CALLS_SQL: LazyLock<String> = LazyLock::new(|| {
   FROM session_events AS held
   WHERE held.session_id = @session_id
     AND held.type = '{backgrounded}'
+),
+lineage(origin_run_id, run_id, depth) AS (
+  SELECT DISTINCT background.run_id, background.run_id, 0 FROM background
+  UNION ALL
+  SELECT lineage.origin_run_id, runs.parent_run_id, lineage.depth + 1
+    FROM runs JOIN lineage ON runs.run_id = lineage.run_id
+    WHERE runs.reached_by = '{provider_subagent}'
 )
 SELECT background.payload,
   (SELECT invoked.occurred_at FROM session_events AS invoked
@@ -70,9 +80,10 @@ SELECT background.payload,
     ORDER BY invoked.sequence DESC
     LIMIT 1),
   json_extract(close.payload, '$.endCause'),
-  (SELECT binding.id FROM runtime_bindings AS binding
-    WHERE binding.run_id = background.run_id
-    ORDER BY binding.created_at DESC, binding.id DESC
+  (SELECT binding.id FROM lineage
+    JOIN runtime_bindings AS binding ON binding.run_id = lineage.run_id
+    WHERE lineage.origin_run_id = background.run_id
+    ORDER BY lineage.depth, binding.created_at DESC, binding.id DESC
     LIMIT 1)
 FROM background
 LEFT JOIN session_events AS close
@@ -84,6 +95,7 @@ LIMIT {HELD_TOOL_CALLS_READ_MAX}",
         closes_held_call = closes_held_call_sql(),
         backgrounded = SessionEventType::AgentToolCallBackgrounded.as_str(),
         invoked = SessionEventType::AgentToolCallInvoked.as_str(),
+        provider_subagent = <&'static str>::from(ChildRunProvenance::ProviderSubagent),
     )
 });
 
@@ -102,9 +114,10 @@ static SELECT_SESSIONS_HOLDING_TOOL_CALLS_SQL: LazyLock<String> = LazyLock::new(
 
 /// `session_id`'s held calls read on `reader`, newest first and at most
 /// [`HELD_TOOL_CALLS_READ_MAX`]: each call moved to the background with no close after it, and
-/// each whose last close is a `failed` row naming why it ended with no result, each with its run's
-/// newest binding. Fails when SQLite refuses the read, a stored background payload, opening time,
-/// end cause or binding id does not read as its type, or the call's run has no binding.
+/// each whose last close is a `failed` row naming why it ended with no result, each with the binding
+/// its close is appended on: the newest of the nearest run up its provider subagent lineage that
+/// has one. Fails when SQLite refuses the read, a stored background payload, opening time, end cause
+/// or binding id does not read as its type, or no run up the call's lineage has a binding.
 pub fn read_held_tool_calls(
     reader: &Connection,
     session_id: &SessionId,
@@ -240,6 +253,26 @@ mod tests {
             .expect("the test binds the run");
     }
 
+    // Writes `run_id` of `session_id` as a provider subagent of `parent_run_id`.
+    fn write_subagent_run(
+        writer: &Connection,
+        (session_id, run_id): (SessionId, RunId),
+        parent_run_id: RunId,
+    ) {
+        writer
+            .execute(
+                "INSERT INTO runs (run_id, session_id, parent_run_id, reached_by, state,
+                   run_version)
+                 VALUES (?1, ?2, ?3, 'providerSubagent', 'running', 1)",
+                params![
+                    run_id.text().as_str(),
+                    session_id.text().as_str(),
+                    parent_run_id.text().as_str()
+                ],
+            )
+            .expect("the test writes the subagent run");
+    }
+
     // The held call `tool_call_id` of `run_id` on `binding_id` as the read answers it.
     fn held(
         (run_id, binding_id): (RunId, &str),
@@ -263,8 +296,10 @@ mod tests {
     // Killed by the last close's rule reversed or dropped (`call-3` and `call-4` answered), by
     // daemon-settled calls left out (`call-2` missing), by the background row's time read for the
     // opening's (`call-1` at 09:01), by a sessions list that counts a closed call (`B` listed) or a
-    // daemon-settled one (`D` listed), by the binding read without its run (`binding-c`, the newest
-    // of all, answered for A's calls), and by its order reversed (`binding-a-older` answered).
+    // daemon-settled one (`D` listed), by the binding read without its run or its lineage's origin
+    // (`binding-a2`, the newest of all, answered for `call-1` and `call-9`), by its order reversed
+    // (`binding-a-older` answered), and by the lineage left unclimbed (the helper's `call-9` reads
+    // no binding and fails the read).
     #[test]
     fn the_held_call_read_keeps_open_and_daemon_settled_calls() {
         let database = TestDatabase::new(schema_parts());
@@ -273,6 +308,8 @@ mod tests {
         let session_b = (test_session_id(), test_run_id());
         let session_c = (test_session_id(), test_run_id());
         let session_d = (test_session_id(), test_run_id());
+        let second_run = (session_a.0, test_run_id());
+        let helper = (session_a.0, test_run_id());
         let failed = "agent.toolCall.failed";
         let completed = "agent.toolCall.completed";
         write_binding(
@@ -289,8 +326,8 @@ mod tests {
         );
         write_binding(
             &writer,
-            session_c.1,
-            "binding-c",
+            second_run.1,
+            "binding-a2",
             "2026-10-14T08:45:00.000Z",
         );
 
@@ -304,11 +341,11 @@ mod tests {
             "2026-10-14T09:00:00.000Z",
         );
         write_backgrounded(&writer, session_a, "call-1");
-        // Settled by the daemon.
-        write_backgrounded(&writer, session_a, "call-2");
+        // Settled by the daemon, on the session's second run.
+        write_backgrounded(&writer, second_run, "call-2");
         write_tool_row(
             &writer,
-            session_a,
+            second_run,
             failed,
             "call-2",
             json!({ "endCause": "processExit" }),
@@ -349,13 +386,17 @@ mod tests {
             json!({ "endCause": "processExit" }),
             LATER,
         );
+        // A helper's call, on its lead's binding.
+        write_subagent_run(&writer, helper, session_a.1);
+        write_backgrounded(&writer, helper, "call-9");
         let reader = database.reader();
 
         assert_eq!(
             read_held_tool_calls(&reader, &session_a.0).expect("session A's held calls read"),
             [
+                held((helper.1, "binding-a-newer"), "call-9", None, None),
                 held(
-                    (session_a.1, "binding-a-newer"),
+                    (second_run.1, "binding-a2"),
                     "call-2",
                     None,
                     Some(ToolCallEndCause::ProcessExit)
