@@ -160,7 +160,7 @@ impl UsageRecord {
             MeteredUsageOwner::Helper(subagent_id) => {
                 self.engine.helper_run(&binding_id, subagent_id)
             }
-            MeteredUsageOwner::Run | MeteredUsageOwner::SideQuestion => None,
+            MeteredUsageOwner::Run | MeteredUsageOwner::SessionCopy => None,
         };
         let target = self
             .pool
@@ -187,11 +187,11 @@ impl UsageRecord {
                 }
                 Some(subagent_id)
             }
-            MeteredUsageOwner::Run | MeteredUsageOwner::SideQuestion => None,
+            MeteredUsageOwner::Run | MeteredUsageOwner::SessionCopy => None,
         };
         let mut payload = usage_row(session_id, &target, helper.clone(), &delta)?;
         let Some(run_id) = target.run_id else {
-            // A side question's usage belongs to the session, counted toward no run.
+            // A copy of the session's conversation is the session's, counted toward no run.
             self.dispatch
                 .dispatch(InboundDelivery::SessionEvent {
                     row: SessionScopedRow::UsageTokenCountRecorded(payload),

@@ -30,16 +30,17 @@ pub struct ProviderQuotaWindow {
 }
 
 /// Whose usage a metered delta is: the binding's run's own, a helper's the provider attributes it
-/// to, which counts toward the helper's own run, or a side question's, which is charged to the
-/// session's account and counts toward no run.
+/// to, which counts toward the helper's own run, or a throwaway copy of the session's
+/// conversation's, which is charged to the session's account and counts toward no run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MeteredUsageOwner {
     /// The binding's run.
     Run,
     /// The helper the provider attributes the reading to on the binding's run.
     Helper(SubagentId),
-    /// A side question asked beside the session's runs.
-    SideQuestion,
+    /// A throwaway copy of the session's conversation beside its runs: a side question, or the
+    /// summary a hand-over to another provider asks for.
+    SessionCopy,
 }
 
 /// One metered per-turn delta and where it came from: the session, the binding the reading came

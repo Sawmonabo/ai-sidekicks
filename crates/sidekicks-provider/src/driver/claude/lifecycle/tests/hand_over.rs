@@ -107,7 +107,7 @@ async fn a_hand_over_summary_is_claude_codes_own_unframed_else_the_templates_ans
         .usage
         .metered()
         .into_iter()
-        .filter(|metered| matches!(metered.owner, MeteredUsageOwner::SideQuestion))
+        .filter(|metered| matches!(metered.owner, MeteredUsageOwner::SessionCopy))
         .map(|metered| {
             (
                 metered.session_id,

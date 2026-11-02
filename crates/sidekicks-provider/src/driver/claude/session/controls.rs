@@ -722,7 +722,7 @@ async fn meter_side_question(
     let metered = MeteredUsage {
         session_id,
         binding_id: binding_id.clone(),
-        owner: MeteredUsageOwner::SideQuestion,
+        owner: MeteredUsageOwner::SessionCopy,
         delta,
     };
     if let Err(error) = sink.record_metered(metered).await {
