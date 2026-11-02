@@ -1,5 +1,5 @@
 //! The sign-in to an MCP server through a provider's own client: what the daemon asks a driver,
-//! the browser's two legs the caller carries, and the credentials the driver reads back from the
+//! where the browser comes back to, and the credentials the driver reads back from the
 //! folder of the daemon's own that the provider saved them in. Nothing here prints a credential.
 
 use std::fmt;
@@ -28,27 +28,30 @@ pub struct ProviderSignInTakeoverRequest {
     pub root_folder: Option<PathBuf>,
     /// The server's canonical address, the one its sign-in is kept under.
     pub server_address: McpServerAddress,
-    /// The redirect address the daemon's relay serves, given to a driver whose descriptor says its
-    /// flow can return through the relay, and `None` to one whose own listener takes the return.
-    pub redirect_url: Option<Url>,
     /// How long the flow waits for the person in the browser before it ends unfinished.
     pub lifetime: Duration,
-    /// The browser's two legs, which the caller carries.
-    pub browser: ProviderSignInBrowser,
-}
-
-/// The browser's two legs of a provider's sign-in: the driver hands the authorization address
-/// out, the caller opens it, and the caller hands back where the browser returned to the
-/// redirect address.
-#[derive(Debug)]
-pub struct ProviderSignInBrowser {
     /// Takes the authorization address the person's browser opens, sent once.
     pub authorization_url: oneshot::Sender<Url>,
-    /// The whole address the browser came back on at the redirect address. It never comes where
-    /// the provider's own listener takes the return: closed already for a driver given no redirect
-    /// address, and dropped by a driver whose provider's listener takes it, which then does not
-    /// wait for it.
-    pub browser_return: oneshot::Receiver<Url>,
+    /// Where the browser comes back to once the person has signed in.
+    pub browser_return: ProviderSignInReturn,
+}
+
+/// Where the browser comes back to from a provider's own sign-in, chosen by the driver's
+/// descriptor.
+#[derive(Debug)]
+pub enum ProviderSignInReturn {
+    /// To the daemon's loopback receiver, for a driver whose descriptor says its flow can return
+    /// there.
+    ThroughDaemonReceiver {
+        /// The receiver's redirect address, which the driver hands its provider.
+        redirect_url: Url,
+        /// The whole address the browser came back on at `redirect_url`. A driver whose
+        /// provider's own listener takes the return after all drops it and does not wait for it.
+        browser_return: oneshot::Receiver<Url>,
+    },
+    /// To the provider's own listener, for a driver whose descriptor says its flow cannot return
+    /// to the daemon's receiver.
+    OwnListener,
 }
 
 /// The credentials a provider's own client saved for one server, as plain data: the caller keeps

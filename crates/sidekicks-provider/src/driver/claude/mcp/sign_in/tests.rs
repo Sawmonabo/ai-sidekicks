@@ -24,7 +24,7 @@ use crate::driver::claude::session::scripted::starts::ScriptedSignInPlace;
 use crate::driver::claude::{ClaudeDriver, DESCRIPTOR};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
-    ProviderSignInBrowser, ProviderSignInFailure, ProviderSignInTakeover,
+    ProviderSignInFailure, ProviderSignInReturn, ProviderSignInTakeover,
     ProviderSignInTakeoverRequest,
 };
 use crate::port::inbound_dispatch::InboundDispatch;
@@ -47,9 +47,9 @@ const PERSON_SIGN_INS: &str = r#"{"mcpOAuth":{"docs|person":{"serverName":"docs"
 const PERSON_CONFIG: &str =
     r#"{"mcpServers":{"docs":{"type":"http","url":"https://docs.example.test/mcp"}}}"#;
 
-/// Where the daemon's relay takes the browser back, and where the browser came back.
-const REDIRECT_URL: &str = "https://relay.example.test/callback";
-const RETURNED_URL: &str = "https://relay.example.test/callback?code=one";
+/// Where the daemon's receiver takes the browser back, and where the browser came back.
+const REDIRECT_URL: &str = "https://receiver.example.test/callback";
+const RETURNED_URL: &str = "https://receiver.example.test/callback?code=one";
 
 fn name() -> McpServerName {
     McpServerName::new(SERVER_NAME.to_owned()).expect("a test server name is a name")
@@ -106,7 +106,7 @@ fn custom_scheme_channel() -> Arc<ScriptedChannel> {
     channel
 }
 
-// A request for `binding`'s sign-in, with the browser's two legs the test drives.
+// A request for `binding`'s sign-in, with the browser's legs the test drives.
 fn request(
     binding: McpServerBindingRef,
 ) -> (
@@ -121,10 +121,10 @@ fn request(
         binding,
         root_folder: None,
         server_address: address(),
-        redirect_url: Some(Url::parse(REDIRECT_URL).expect("an address")),
         lifetime: Duration::from_secs(30),
-        browser: ProviderSignInBrowser {
-            authorization_url,
+        authorization_url,
+        browser_return: ProviderSignInReturn::ThroughDaemonReceiver {
+            redirect_url: Url::parse(REDIRECT_URL).expect("an address"),
             browser_return,
         },
     };
@@ -212,7 +212,7 @@ async fn a_claude_takeover_leaves_the_persons_saved_sign_ins_as_they_were() {
         .expect("the browser's return is handed back");
     assert_eq!(
         handed_back["callbackUrl"],
-        "https://relay.example.test/callback?code=one"
+        "https://receiver.example.test/callback?code=one"
     );
     assert_eq!(
         std::fs::read_to_string(&planted).expect("the person's sign-ins read"),

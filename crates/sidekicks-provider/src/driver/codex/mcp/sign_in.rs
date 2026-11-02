@@ -23,7 +23,7 @@ use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_store::data_folder::plugin_home;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use url::Url;
 
 use self::login_failure::read_codex_login_failure;
@@ -41,8 +41,8 @@ use crate::driver::codex::transport::connection::{
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
-    BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInBrowser, ProviderSignInFailure,
-    ProviderSignInTakeover, ProviderSignInTakeoverRequest,
+    BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInFailure, ProviderSignInTakeover,
+    ProviderSignInTakeoverRequest,
 };
 use crate::driver::mcp_server::address::read_server_address;
 use crate::driver::mcp_server::sign_in_folder::SignInFolder;
@@ -186,7 +186,7 @@ pub(crate) async fn sign_in_with_codex_client(
     .await
     .map_err(CodexSignInError::FolderUnmade)?;
     let service = registry.mcp_sign_in_service(folder.path().to_owned());
-    let signed_in = run_login(&service, &name, request.lifetime, request.browser).await;
+    let signed_in = run_login(&service, &name, request.lifetime, request.authorization_url).await;
     service.stop().await;
     let read = match signed_in {
         Ok(()) => read_saved_sign_in(folder.path(), &name, &request.server_address)
@@ -370,14 +370,15 @@ struct LoginCompleted {
     error: Option<String>,
 }
 
-// Starts the login to `name` on `service`, hands its authorization address out through `browser`
-// and waits, within `lifetime` and a margin, for Codex's notice that this login ended. Fails as
-// the start or the request fails, and with `CodexSignInError` otherwise.
+// Starts the login to `name` on `service`, hands its authorization address out through
+// `authorization_url` and waits, within `lifetime` and a margin, for Codex's notice that this
+// login ended; Codex's own listener takes the browser's return. Fails as the start or the request
+// fails, and with `CodexSignInError` otherwise.
 async fn run_login(
     service: &Arc<CodexService>,
     name: &McpServerName,
     lifetime: Duration,
-    browser: ProviderSignInBrowser,
+    authorization_url: oneshot::Sender<Url>,
 ) -> Result<(), DriverError> {
     let (notices, mut received) = mpsc::channel(LOGIN_NOTICE_CAPACITY);
     let connection = service
@@ -398,13 +399,10 @@ async fn run_login(
             .await?;
         let reply = read_codex_object::<LoginReply>(reply.get())
             .ok_or(CodexSignInError::LoginReplyUnreadable)?;
-        let authorization_url = Url::parse(&reply.authorization_url)
+        let browser_url = Url::parse(&reply.authorization_url)
             .map_err(|_unparsed| CodexSignInError::LoginReplyUnreadable)?;
-        // Codex's own listener takes the browser's return; its request's is closed already.
-        drop(browser.browser_return);
-        browser
-            .authorization_url
-            .send(authorization_url)
+        authorization_url
+            .send(browser_url)
             .map_err(|_unsent| CodexSignInError::CallerGone)?;
         let completed = tokio::time::timeout(lifetime + COMPLETION_MARGIN, async {
             while let Some(notice) = received.recv().await {
@@ -560,7 +558,7 @@ mod tests {
     };
     use crate::driver::codex::service::supervisor::{CodexProgramResolver, CodexServiceSocket};
     use crate::driver::contract::error::DriverError;
-    use crate::driver::contract::sign_in::{ProviderSignInBrowser, ProviderSignInTakeoverRequest};
+    use crate::driver::contract::sign_in::{ProviderSignInReturn, ProviderSignInTakeoverRequest};
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::spawned_version::ResolvedProviderExecutable;
 
@@ -753,9 +751,6 @@ mod tests {
             Arc::new(OneHome(person_home.clone())),
         );
         let (authorization_url, opened) = oneshot::channel();
-        // Codex's own listener takes the return, so its request carries a closed one.
-        let (returned, browser_return) = oneshot::channel();
-        drop(returned);
         let request = ProviderSignInTakeoverRequest {
             provider_account_id: test_provider_account_id(),
             binding: McpServerBindingRef::User {
@@ -764,12 +759,9 @@ mod tests {
             },
             root_folder: None,
             server_address: address(),
-            redirect_url: None,
             lifetime: Duration::from_secs(30),
-            browser: ProviderSignInBrowser {
-                authorization_url,
-                browser_return,
-            },
+            authorization_url,
+            browser_return: ProviderSignInReturn::OwnListener,
         };
 
         let home_folder = folder.path().join("person");

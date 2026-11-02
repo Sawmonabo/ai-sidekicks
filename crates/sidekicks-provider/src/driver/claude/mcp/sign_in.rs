@@ -27,7 +27,7 @@ use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_ipc::redaction::sanitize_failure_reason;
 use sidekicks_std::missing_entry::MissingEntry as _;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Interval, MissedTickBehavior};
 use url::Url;
 
@@ -57,7 +57,7 @@ use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::claude::spawn::launch::one_turn::compose_unwatched_answer;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
-    BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInBrowser, ProviderSignInFailure,
+    BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInFailure, ProviderSignInReturn,
     ProviderSignInTakeover, ProviderSignInTakeoverRequest,
 };
 use crate::driver::mcp_server::address::read_server_address;
@@ -103,6 +103,10 @@ pub(crate) enum ClaudeSignInError {
     /// The caller stopped waiting before the browser opened or returned.
     #[error("the MCP sign-in's caller was gone before the browser returned")]
     CallerGone,
+    /// The caller named no daemon receiver for the browser's return, which Claude Code's flow
+    /// hands its authorization server.
+    #[error("Claude Code's MCP sign-in was given no daemon receiver for the browser's return")]
+    NoDaemonReceiver,
     /// The browser did not return, or the saved sign-in did not appear, within the lifetime.
     #[error("the MCP sign-in through Claude Code did not finish in time")]
     Unfinished,
@@ -154,11 +158,7 @@ impl From<ClaudeSignInError> for DriverError {
             ClaudeSignInError::Unfinished => {
                 Self::SignInFailed(ProviderSignInFailure::DidNotFinishInTime)
             }
-            ClaudeSignInError::ReplyUnreadable(cause) => {
-                tracing::warn!(
-                    error = &*cause as &(dyn Error + 'static),
-                    "Claude Code's answer to an MCP sign-in did not read"
-                );
+            ClaudeSignInError::ReplyUnreadable(_cause) => {
                 Self::SignInFailed(ProviderSignInFailure::ReplyUnreadable)
             }
             ClaudeSignInError::NoSavedSignIn | ClaudeSignInError::NoClient => {
@@ -167,6 +167,7 @@ impl From<ClaudeSignInError> for DriverError {
             other @ (ClaudeSignInError::ServerEntryGone { .. }
             | ClaudeSignInError::FolderUnmade(_)
             | ClaudeSignInError::CallerGone
+            | ClaudeSignInError::NoDaemonReceiver
             | ClaudeSignInError::WatchFailed(_)
             | ClaudeSignInError::CredentialsUnreadable(_)
             | ClaudeSignInError::KeychainItemLeft { .. }
@@ -219,6 +220,13 @@ pub(crate) async fn sign_in_with_claude_client(
     environment_on: impl FnOnce(&Path) -> Result<Vec<(String, String)>, DriverError>,
     request: ProviderSignInTakeoverRequest,
 ) -> Result<ProviderSignInTakeover, DriverError> {
+    let (redirect_url, browser_return) = match request.browser_return {
+        ProviderSignInReturn::ThroughDaemonReceiver {
+            redirect_url,
+            browser_return,
+        } => (redirect_url, browser_return),
+        ProviderSignInReturn::OwnListener => return Err(ClaudeSignInError::NoDaemonReceiver.into()),
+    };
     let name = request.binding.server_name().clone();
     let has_managed_mcp_file = has_readable_managed_mcp_file(sources.managed_settings_folder).await;
     let entry = read_sign_in_entry(
@@ -277,12 +285,12 @@ pub(crate) async fn sign_in_with_claude_client(
                     folder: folder.path(),
                 },
                 &name,
-                request
-                    .redirect_url
-                    .as_ref()
-                    .expect("a driver whose flow returns through the relay is given its address"),
                 request.lifetime,
-                request.browser,
+                SignInBrowser {
+                    authorization_url: request.authorization_url,
+                    redirect_url: &redirect_url,
+                    browser_return,
+                },
             ) => exchanged,
         };
         channel.close().await;
@@ -497,35 +505,42 @@ struct AuthenticateReply {
     redirect_scheme: Option<String>,
 }
 
+// The browser's legs of one sign-in: where its authorization address goes out, and the daemon's
+// receiver the browser comes back to.
+struct SignInBrowser<'redirect> {
+    authorization_url: oneshot::Sender<Url>,
+    redirect_url: &'redirect Url,
+    browser_return: oneshot::Receiver<Url>,
+}
+
 // Runs the sign-in on `channel`: the authorization address handed out through `browser`, then
-// the browser's return handed back where the daemon's redirect address took it, else the saved
-// sign-in waited for in `places`, each within `lifetime`. An answer with no address needs no
-// person, and the saved sign-in is read as it stands; an answer or an address that does not read
-// is the sign-in's failure.
+// the browser's return handed back where the daemon's receiver took it, else the saved sign-in
+// waited for in `places`, each within `lifetime`. An answer with no address needs no person, and
+// the saved sign-in is read as it stands; an answer or an address that does not read is the
+// sign-in's failure.
 async fn run_sign_in(
     channel: &dyn ClaudeProcessChannel,
     places: SavedSignInPlaces<'_>,
     name: &McpServerName,
-    redirect_url: &Url,
     lifetime: Duration,
-    browser: ProviderSignInBrowser,
+    browser: SignInBrowser<'_>,
 ) -> Result<(), DriverError> {
     let answer = channel
         .send_control_request(ClaudeControlRequest::McpAuthenticate {
             server_name: name.as_str().to_owned(),
-            redirect_uri: redirect_url.as_str().to_owned(),
+            redirect_uri: browser.redirect_url.as_str().to_owned(),
         })
         .await?;
     let Some(reply) = answer.response else {
         return Ok(());
     };
-    let reply: AuthenticateReply = serde_json::from_str(reply.get())
-        .map_err(|error| ClaudeSignInError::ReplyUnreadable(Box::new(error)))?;
+    let reply: AuthenticateReply =
+        serde_json::from_str(reply.get()).map_err(|error| reply_unreadable(Box::new(error)))?;
     let Some(authorization_url) = reply.auth_url else {
         return Ok(());
     };
-    let authorization_url = Url::parse(&authorization_url)
-        .map_err(|error| ClaudeSignInError::ReplyUnreadable(Box::new(error)))?;
+    let authorization_url =
+        Url::parse(&authorization_url).map_err(|error| reply_unreadable(Box::new(error)))?;
     let is_own_listener = reply.redirect_scheme.as_deref() != Some(CUSTOM_REDIRECT_SCHEME);
     let browser_return = if is_own_listener {
         // Claude Code's own loopback listener takes the browser's return, so it is given up before
@@ -553,6 +568,16 @@ async fn run_sign_in(
         })
         .await?;
     Ok(())
+}
+
+// The failure of an answer to the sign-in's request that does not read, logged with its cause
+// where it is raised.
+fn reply_unreadable(cause: Box<dyn Error + Send + Sync>) -> ClaudeSignInError {
+    tracing::warn!(
+        error = &*cause as &(dyn Error + 'static),
+        "Claude Code's answer to an MCP sign-in did not read"
+    );
+    ClaudeSignInError::ReplyUnreadable(cause)
 }
 
 // Reads what the sign-in's process writes until a frame reports an error, which it answers as the

@@ -7,12 +7,12 @@
 //!   no provider left, means no provider's flow admits the server; the launch decides what follows.
 //! - **The browser.** The driver names the address the browser opens, which the launch answers.
 //!   The flow goes on in a task the daemon's stop, a sign-out or a new launch for the server ends.
-//!   For a driver whose descriptor says its flow can return through the relay, the browser comes
-//!   back to a loopback receiver bound for this flow, whose return is handed to the driver whole,
-//!   and the browser is shown the flow's outcome; a driver that gave up the return before naming
-//!   its address (its provider's own listener took it after all) gets no receiver, and the
-//!   listener closes. A driver whose descriptor says no is given no redirect address and a return
-//!   that is closed already, and no listener is bound for it.
+//!   For a driver whose descriptor says its flow can return to the daemon's receiver, the browser
+//!   comes back to a loopback receiver bound for this flow, whose return is handed to the driver
+//!   whole, and the browser is shown the flow's outcome; a driver that gave up the return before
+//!   naming its address (its provider's own listener took it after all) gets no receiver, and the
+//!   listener closes. A driver whose descriptor says no is told its provider's own listener takes
+//!   the return, and no listener is bound for it.
 //! - **The completion.** A completed flow's credentials are kept as the server's sign-in, which
 //!   marks it signed in, unless the server was signed out since the flow began; the provider is
 //!   recorded as the client the server admits, and the completion event is appended; a failed one
@@ -43,7 +43,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::sign_in::{
-    ProviderSignInBrowser, ProviderSignInTakeover, ProviderSignInTakeoverRequest,
+    ProviderSignInReturn, ProviderSignInTakeover, ProviderSignInTakeoverRequest,
 };
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{oneshot, watch};
@@ -145,50 +145,55 @@ impl SignInService {
             }
         });
 
-        // The relay's listener, bound for the first driver whose flow can return through it.
+        // The daemon's receiver, bound for the first driver whose flow can return to it.
         let mut listener: Option<RedirectListener> = None;
         for (provider, driver) in candidates {
             let Some(provider_account_id) = provider_accounts.get(&provider) else {
                 continue;
             };
-            let can_return_through_relay = self
+            let can_return_to_daemon_receiver = self
                 .providers
                 .descriptor(&provider)
                 .expect("a provider the registry lists has its descriptor")
-                .can_mcp_sign_in_return_through_relay;
-            if can_return_through_relay && listener.is_none() {
-                match RedirectListener::bind(
-                    None,
-                    CallbackPath::PerServer(&server.canonical_address),
+                .can_mcp_sign_in_return_to_daemon_receiver;
+            let (browser_return, request_return) = if can_return_to_daemon_receiver {
+                let bound = match listener.take() {
+                    Some(bound) => bound,
+                    None => match RedirectListener::bind(
+                        None,
+                        CallbackPath::PerServer(&server.canonical_address),
+                    )
+                    .await
+                    {
+                        Ok(bound) => bound,
+                        Err(error) => {
+                            self.end_provider_flow(&server.canonical_address, Some(flow_id));
+                            return Err(failed(Box::new(error)));
+                        }
+                    },
+                };
+                let redirect_url = bound.redirect_url().clone();
+                listener = Some(bound);
+                let (browser_return, returned) = oneshot::channel();
+                (
+                    Some(browser_return),
+                    ProviderSignInReturn::ThroughDaemonReceiver {
+                        redirect_url,
+                        browser_return: returned,
+                    },
                 )
-                .await
-                {
-                    Ok(bound) => listener = Some(bound),
-                    Err(error) => {
-                        self.end_provider_flow(&server.canonical_address, Some(flow_id));
-                        return Err(failed(Box::new(error)));
-                    }
-                }
-            }
-            let redirect_url = listener
-                .as_ref()
-                .filter(|_bound| can_return_through_relay)
-                .map(|bound| bound.redirect_url().clone());
+            } else {
+                (None, ProviderSignInReturn::OwnListener)
+            };
             let (authorization_url, opened) = oneshot::channel();
-            let (browser_return, returned) = oneshot::channel();
-            // A driver given no redirect address gets a return that is closed already.
-            let browser_return = redirect_url.is_some().then_some(browser_return);
             let request = ProviderSignInTakeoverRequest {
                 provider_account_id: provider_account_id.clone(),
                 binding: target.binding.clone(),
                 root_folder: target.root_folder.clone(),
                 server_address: server.address.clone(),
-                redirect_url,
                 lifetime: ATTEMPT_LIFETIME,
-                browser: ProviderSignInBrowser {
-                    authorization_url,
-                    browser_return: returned,
-                },
+                authorization_url,
+                browser_return: request_return,
             };
             let flow_stop = stop.clone();
             let mut flow = AbortOnDropHandle::new(tokio::spawn(async move {
@@ -209,10 +214,10 @@ impl SignInService {
                     since,
                 };
                 // A driver whose provider's own listener takes the return gave it up already.
-                let relay = browser_return
+                let daemon_receiver = browser_return
                     .filter(|browser_return| !browser_return.is_closed())
                     .zip(listener.take());
-                self.follow_flow(running, flow, relay, &browser_url);
+                self.follow_flow(running, flow, daemon_receiver, &browser_url);
                 return Ok(ProviderFlowStart::Opened(browser_url));
             }
             let failure: Box<dyn std::error::Error + Send + Sync> = match (&mut flow).await {
@@ -238,16 +243,17 @@ impl SignInService {
     }
 
     // Follows `flow` once its browser opened `browser_url`: serves the browser's return on the
-    // `relay`'s listener, where the driver waits for one on its sender, matched by the `state` the
-    // address carries, and settles the flow when it ends, unless `running`'s stop ends it first.
+    // `daemon_receiver`'s listener, where the driver waits for one on its sender, matched by the
+    // `state` the address carries, and settles the flow when it ends, unless `running`'s stop ends
+    // it first.
     fn follow_flow(
         self: &Arc<Self>,
         running: RunningFlow,
         flow: AbortOnDropHandle<FlowEnd>,
-        relay: Option<(oneshot::Sender<Url>, RedirectListener)>,
+        daemon_receiver: Option<(oneshot::Sender<Url>, RedirectListener)>,
         browser_url: &Url,
     ) {
-        let (browser_return, listener) = relay.unzip();
+        let (browser_return, listener) = daemon_receiver.unzip();
         let (outcome, outcome_watch) = watch::channel(None);
         let forward = Arc::new(BrowserReturnForward {
             browser_return: Mutex::new(browser_return),

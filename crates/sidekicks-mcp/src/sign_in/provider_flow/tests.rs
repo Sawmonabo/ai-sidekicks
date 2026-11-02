@@ -12,12 +12,12 @@ use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::sign_in::{
-    BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInFailure, ProviderSignInTakeover,
+    BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInFailure, ProviderSignInReturn,
+    ProviderSignInTakeover,
 };
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_std::mutex_lock::lock;
-use tokio::sync::oneshot::error::TryRecvError;
 
 use crate::client::http::McpRequestAuthorizer as _;
 use crate::errors::{McpRefusal, SignInUnsupportedReason};
@@ -78,7 +78,6 @@ fn scripted_driver(
                     ScriptedFlow::Completes { issuer } => issuer,
                     ScriptedFlow::Fails { failure } => {
                         request
-                            .browser
                             .authorization_url
                             .send(scripted_browser_url())
                             .expect("the launch waits for the address");
@@ -89,7 +88,6 @@ fn scripted_driver(
                     }
                 };
                 request
-                    .browser
                     .authorization_url
                     .send(scripted_browser_url())
                     .expect("the launch waits for the address");
@@ -264,32 +262,33 @@ async fn the_bindings_provider_is_tried_before_another() {
     assert_eq!(*lock(&calls), ["binding's", "other"]);
 }
 
-/// What one driver was handed: the redirect address, and whether the browser's return was closed
-/// already.
-type RelayLeg = (Option<Url>, bool);
-
-/// A driver with no flow for the binding that writes what its request carried into `seen`.
-fn relay_recording_driver(seen: &Arc<Mutex<Vec<RelayLeg>>>) -> Arc<dyn ProviderDriver> {
+/// A driver with no flow for the binding that writes the redirect address its request carried
+/// into `seen`, or `None` where its provider's own listener takes the return.
+fn return_recording_driver(seen: &Arc<Mutex<Vec<Option<Url>>>>) -> Arc<dyn ProviderDriver> {
     let seen = Arc::clone(seen);
     let mut driver = MockProviderDriver::new();
     driver
         .expect_sign_in_with_own_client()
         .returning(move |request| {
-            let mut browser_return = request.browser.browser_return;
-            let is_closed = matches!(browser_return.try_recv(), Err(TryRecvError::Closed));
-            lock(&seen).push((request.redirect_url, is_closed));
+            let redirect_url = match request.browser_return {
+                ProviderSignInReturn::ThroughDaemonReceiver { redirect_url, .. } => {
+                    Some(redirect_url)
+                }
+                ProviderSignInReturn::OwnListener => None,
+            };
+            lock(&seen).push(redirect_url);
             let binding = request.binding;
             async move { Err(NoPersonServerEntry { binding }.into()) }.boxed()
         });
     Arc::new(driver)
 }
 
-/// A driver whose descriptor says its flow returns through the relay is handed the bound
-/// listener's address and a live return; one whose descriptor says no is handed no address and a
-/// return closed already, and no listener is bound for it. Killed by the descriptor's word ignored
-/// either way.
+/// A driver whose descriptor says its flow returns to the daemon's receiver is handed the bound
+/// receiver's address, even after a driver whose descriptor says no was asked first and told its
+/// provider's own listener takes the return. Killed by the descriptor's word ignored either way,
+/// and by a receiver bound only for the first driver asked.
 #[tokio::test]
-async fn only_a_driver_whose_flow_returns_through_the_relay_gets_a_listener() {
+async fn only_a_driver_whose_flow_returns_to_the_daemons_receiver_is_handed_its_address() {
     let server = serve_authorization_server(FakeServerAnswers {
         is_registration_refused: true,
         ..FakeServerAnswers::default()
@@ -297,34 +296,30 @@ async fn only_a_driver_whose_flow_returns_through_the_relay_gets_a_listener() {
     .await;
     let seen = Arc::new(Mutex::new(Vec::new()));
     let harness = harness_with(vec![
-        relay_recording_driver(&seen),
-        relay_recording_driver(&seen),
+        return_recording_driver(&seen),
+        return_recording_driver(&seen),
     ])
     .await;
+    // The registry's second provider's flow cannot return to the daemon's receiver; as the
+    // binding's provider it is asked first.
     let providers = registered_providers(&harness);
-    let (target, accounts) = provider_target(&harness, &providers[0], &server);
+    let (target, accounts) = provider_target(&harness, &providers[1], &server);
 
     let refused = harness.service.launch(&target, &[], &accounts).await;
 
     assert!(refused.is_err(), "no provider offers a flow");
     let seen = lock(&seen).clone();
-    let [
-        (relay_address, is_relay_return_closed),
-        (own_address, is_own_return_closed),
-    ] = seen.as_slice()
-    else {
+    let [own_listener, daemon_receiver] = seen.as_slice() else {
         panic!("each provider is asked once: {seen:?}");
     };
-    assert!(
-        relay_address.is_some(),
-        "the relay's listener is bound and handed over"
-    );
-    assert!(!*is_relay_return_closed);
     assert_eq!(
-        *own_address, None,
-        "no listener is bound for the driver's own listener"
+        *own_listener, None,
+        "the driver whose provider's listener takes the return is handed no address"
     );
-    assert!(*is_own_return_closed);
+    assert!(
+        daemon_receiver.is_some(),
+        "the daemon's receiver is bound and its address handed over"
+    );
 }
 
 /// A server whose metadata does not list `S256`, which the daemon's own client never opens a
