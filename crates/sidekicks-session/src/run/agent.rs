@@ -485,7 +485,7 @@ impl<'connection> RunAgentReader<'connection> {
 
 #[cfg(test)]
 mod tests {
-    use rusqlite::{Connection, params};
+    use rusqlite::Connection;
     use serde_json::{Value, json};
     use sidekicks_contracts::event::registry::SessionEventType;
     use sidekicks_contracts::run::id::RunId;
@@ -498,7 +498,9 @@ mod tests {
     use sidekicks_store::events::session::read::session_read_bound;
 
     use super::{RunAgent, RunAgentReader, SessionLead, read_session_lead};
-    use crate::agents::projection::test_fixture::{binding, project, session_created};
+    use crate::agents::projection::test_fixture::{
+        binding, project, session_created, write_log_row,
+    };
     use crate::agents::schema::schema_parts;
 
     // One session's log, written row by row in sequence order.
@@ -531,23 +533,14 @@ mod tests {
             payload: &Value,
             run_id: Option<&RunId>,
         ) {
-            self.connection
-                .execute(
-                    "INSERT INTO session_events
-                       (id, session_id, sequence, occurred_at, monotonic_ns, category, type,
-                        payload, run_id)
-                     VALUES (?1, ?2, ?3, '2026-10-28T09:00:00.000Z', ?3, ?4, ?5, ?6, ?7)",
-                    params![
-                        mint_uuid_v7().to_string(),
-                        self.session_id.text().as_str(),
-                        self.sequence,
-                        event_type.category().as_str(),
-                        event_type.as_str(),
-                        payload.to_string(),
-                        run_id.map(|run_id| run_id.text().as_str().to_owned()),
-                    ],
-                )
-                .expect("the test writes the row");
+            write_log_row(
+                &self.connection,
+                self.session_id,
+                self.sequence,
+                (event_type, payload),
+                run_id.copied(),
+                "2026-10-28T09:00:00.000Z",
+            );
             self.sequence += 1;
         }
 

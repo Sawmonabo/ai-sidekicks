@@ -23,7 +23,7 @@ use sidekicks_store::events::session::read::session_read_bound;
 use super::{AgentTreeReadError, ResolvedChild, read_agent_tree, resolve_child};
 use crate::agent_tree::store::{NewAgentTreeNode, bind_newest_run, insert_node, mint_child_handle};
 use crate::agents::projection::test_fixture::{
-    binding, project, resolved_run_queued, run_statements, session_created,
+    binding, project, resolved_run_queued, run_statements, session_created, write_log_row,
 };
 
 // The provider that names every helper of these tests, in its started rows and its nodes alike.
@@ -97,24 +97,14 @@ impl SessionLog {
         occurred_at: &str,
     ) -> i64 {
         let sequence = self.sequence;
-        self.connection
-            .execute(
-                "INSERT INTO session_events
-                   (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload,
-                    run_id)
-                 VALUES (?1, ?2, ?3, ?4, ?3, ?5, ?6, ?7, ?8)",
-                params![
-                    mint_uuid_v7().to_string(),
-                    self.session_id.text().as_str(),
-                    sequence,
-                    occurred_at,
-                    event_type.category().as_str(),
-                    event_type.as_str(),
-                    payload.to_string(),
-                    run_id.map(|run_id| run_id.text().as_str().to_owned()),
-                ],
-            )
-            .expect("the test writes the row");
+        write_log_row(
+            &self.connection,
+            self.session_id,
+            sequence,
+            (event_type, payload),
+            run_id,
+            occurred_at,
+        );
         self.sequence += 1;
         sequence
     }
