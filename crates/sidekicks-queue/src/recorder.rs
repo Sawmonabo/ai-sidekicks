@@ -404,7 +404,7 @@ impl QueueRecorder {
         items: &[QueueItemRecord],
         now: &WireInstant,
     ) -> Result<(), QueueRecordError> {
-        let (session_id, run_id) = queued_run_of(&queued);
+        let (session_id, run_id) = (queued.session_id(), queued.run_id());
         let mut statements = vec![
             no_live_lead_run_statement(&session_id),
             insert_queued_run_statement(&queued),
@@ -572,14 +572,6 @@ pub(crate) fn lead_run_queued(
         admitted_model_family: None,
         admitted_provider_account_id,
     })
-}
-
-// The session and the run an `agent.run.queued` payload names.
-fn queued_run_of(queued: &AgentRunQueuedPayload) -> (SessionId, RunId) {
-    match queued {
-        AgentRunQueuedPayload::SessionAgent(payload) => (payload.session_id, payload.run_id),
-        AgentRunQueuedPayload::ResolvedAgent(payload) => (payload.session_id, payload.run_id),
-    }
 }
 
 // The `user.message.sent` of the words `message` that `item` sends, under its device, answering
