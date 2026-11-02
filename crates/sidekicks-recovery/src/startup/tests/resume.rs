@@ -1,7 +1,10 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
-use serde_json::json;
+use rusqlite::params;
+use serde_json::{Value, json};
+use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
 use sidekicks_contracts::daemon::recovery::DaemonRecoveryHaltedRun;
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
 use sidekicks_contracts::event::registry::SessionEventType;
@@ -10,14 +13,26 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::run::queue::QueueItemId;
+use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
+use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
+use sidekicks_provider::driver::run_control::{
+    ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus, TakenMessages,
+};
 use sidekicks_provider::driver::session_control::{
     DriverResumeResult, ProviderTurnAnswer, ResumeSessionParams, ResumedRunAnswer,
 };
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
+use sidekicks_session::queue_store::{
+    NewQueueItem, QueueItemBody, QueueItemReader, QueueMessageBody, RecordedQueueItemState,
+    insert_queue_item_statement,
+};
 use sidekicks_session::run::engine::test_fixture::{insert_running_run, stored_run_state};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::test_run_id;
@@ -28,9 +43,21 @@ use crate::test_pass::{PassFixture, insert_runs};
 /// The words a refused resume's provider gives.
 const REFUSED_DETAIL: &str = "The conversation could not be found";
 
+/// A provider that takes a message at once.
+const HANDS_AT_ONCE: MessageHanding = MessageHanding {
+    hands_at: HandMoment::AtOnce,
+    can_withdraw: true,
+    kept_by_process: false,
+    reads_priority_message: false,
+};
+
 // A resume that went on under `binding_id`, answered from the resume's own params: every run it
-// names still holds its turn.
-fn resumed_on(params: &ResumeSessionParams, binding_id: RuntimeBindingId) -> DriverResumeResult {
+// names holds its turn as `turn_of` answers for it.
+fn resumed_on(
+    params: &ResumeSessionParams,
+    binding_id: RuntimeBindingId,
+    turn_of: impl Fn(RunId) -> ProviderTurnAnswer,
+) -> DriverResumeResult {
     DriverResumeResult::Resumed {
         binding_id,
         session_position: SafeInt::ZERO,
@@ -41,10 +68,15 @@ fn resumed_on(params: &ResumeSessionParams, binding_id: RuntimeBindingId) -> Dri
             .iter()
             .map(|run| ResumedRunAnswer {
                 run_id: run.run_id,
-                turn: ProviderTurnAnswer::StillRunning,
+                turn: turn_of(run.run_id),
             })
             .collect(),
     }
+}
+
+// Every run a resume names still holds its turn.
+fn still_running(_run_id: RunId) -> ProviderTurnAnswer {
+    ProviderTurnAnswer::StillRunning
 }
 
 // A driver that resumes once, answering from the resume's params through `answer`.
@@ -96,6 +128,104 @@ impl PassFixture {
             .and_then(|session| session.halted_runs)
     }
 
+    // Records the person's accepted interrupt of `run_id`, sending the waiting messages as the
+    // next turn.
+    fn record_person_interrupt(&self, run_id: RunId) {
+        self.record_intervention(run_id, "interrupt", "accepted", r#"{"pending":"nextTurn"}"#);
+    }
+
+    // Writes a running helper the provider of `lead` dispatched beneath it in `session_id`.
+    fn insert_helper(&self, session_id: SessionId, lead: RunId) -> RunId {
+        let helper = test_run_id();
+        insert_running_run(&self.store.database, session_id, helper);
+        self.store
+            .database
+            .reader()
+            .execute(
+                "UPDATE runs SET parent_run_id = ?1, reached_by = ?2 WHERE run_id = ?3",
+                params![
+                    lead.text().as_str(),
+                    <&'static str>::from(ChildRunProvenance::ProviderSubagent),
+                    helper.text().as_str()
+                ],
+            )
+            .expect("the test makes the run a helper");
+        helper
+    }
+
+    // Opens `run_id`'s first turn in `session_id`.
+    async fn open_turn(&self, session_id: SessionId, run_id: RunId) {
+        self.append(
+            session_id,
+            json!({
+                "type": "agent.turn.started",
+                "payload": {"sessionId": session_id, "runId": run_id, "runVersion": 1,
+                            "turnNumber": 1},
+            }),
+        )
+        .await;
+    }
+
+    // Queues a message for `run_id` in `session_id` and answers its id.
+    async fn queue_message(&self, session_id: SessionId, run_id: RunId) -> QueueItemId {
+        let item = NewQueueItem {
+            id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id"),
+            session_id,
+            body: QueueItemBody::Message(QueueMessageBody {
+                content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
+                attachments: None,
+                skills: None,
+                answers_question_id: None,
+                output_speed_for_turn: None,
+                workspace_id: None,
+            }),
+            target_run_id: run_id,
+            device_id: None,
+            client_idempotency_key: Some(
+                ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client key"),
+            ),
+            replaces_queue_item_id: None,
+            now: WireInstant::now(),
+        };
+        self.store
+            .writer
+            .write(vec![insert_queue_item_statement(&item)])
+            .await
+            .expect("the test queues its message");
+        item.id
+    }
+
+    // The recorded state of queue item `item_id`.
+    fn queue_item_state(&self, item_id: QueueItemId) -> RecordedQueueItemState {
+        QueueItemReader::new(&self.store.database.reader())
+            .get(&item_id)
+            .expect("the test reads its message")
+            .expect("the test's message is stored")
+            .state
+    }
+
+    // The payloads of `run_id`'s `event_type` events in `session_id`, in log order.
+    fn run_payloads(
+        &self,
+        session_id: SessionId,
+        event_type: SessionEventType,
+        run_id: RunId,
+    ) -> Vec<Value> {
+        self.payloads(&session_id, event_type)
+            .into_iter()
+            .filter(|payload| payload["runId"] == json!(run_id))
+            .collect()
+    }
+
+    // The trigger of `run_id`'s one interrupted end in `session_id`, `None` when it carries none.
+    fn run_trigger(&self, session_id: SessionId, run_id: RunId) -> Option<String> {
+        let ends = self.run_payloads(session_id, SessionEventType::AgentRunInterrupted, run_id);
+        let [end] = ends.as_slice() else {
+            panic!("run {run_id} ended interrupted once: {ends:?}");
+        };
+        end["trigger"].as_str().map(str::to_owned)
+    }
+
     // The runtime bindings recorded for `run_id`.
     fn binding_count(&self, run_id: RunId) -> i64 {
         self.store
@@ -126,10 +256,11 @@ async fn a_pass_resumes_each_session_with_work_in_progress_and_counts_it() {
             let leg = lock(&kept_leg)
                 .clone()
                 .expect("the kept session's leg is recorded");
-            resumed_on(params, leg)
+            resumed_on(params, leg, still_running)
         }
     });
-    let relaunched = resuming_driver(|params| resumed_on(params, params.binding_id.clone()));
+    let relaunched =
+        resuming_driver(|params| resumed_on(params, params.binding_id.clone(), still_running));
     let fixture = PassFixture::over_drivers(vec![
         Arc::new(kept) as Arc<dyn ProviderDriver>,
         Arc::new(relaunched),
@@ -187,7 +318,8 @@ async fn a_pass_resumes_each_session_with_work_in_progress_and_counts_it() {
 #[tokio::test]
 async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
     let unopened = MockProviderDriver::new();
-    let resumed = resuming_driver(|params| resumed_on(params, params.binding_id.clone()));
+    let resumed =
+        resuming_driver(|params| resumed_on(params, params.binding_id.clone(), still_running));
     let fixture = PassFixture::over_drivers(vec![
         Arc::new(unopened) as Arc<dyn ProviderDriver>,
         Arc::new(resumed),
@@ -271,17 +403,30 @@ async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
     assert_eq!(succeeded["runsFailedDeterministically"], json!(0));
 }
 
-// A session whose one run in progress the person asked to stop is not opened, no process started
-// for it, and the settle ends the run by that stop, as the person's; a session with a stopping run
-// beside a live one is opened, the stopping run named to the provider as stopping and the live one
-// not. Killed by the all-stopping check dropped (the first provider's driver, which expects no
-// resume, is called), by `any` read for `all` (the second session is not opened, its driver's one
-// resume missed), and by the fact not reaching the resume (the names read differently).
+// The table of runs a pending stop waits on at a restart. A session whose runs in progress all
+// stop is not opened, no process started for it: a lead with the person's interrupt ends by it as
+// the person's, its provider's helper reads interrupted by the restart with its turn ended the
+// same way, and a run owing its token limit stops at it. A session with a live run beside its
+// stopping ones is opened, each named to the provider as stopping or not: a stopping run whose
+// provider still runs its turn, `pausing` among them, has the person's interrupt handed again and
+// ends by it, and a run owing its step limit has that limit's interrupt handed again, one driver
+// call each; a stopping `paused` run, and one whose turn is gone or ended, ends by its stop with no
+// call; a helper whose turn is gone reads interrupted by the restart, one still running stays
+// running with no call, and so do the live run and the queued run with its message waiting.
+// Killed by the hand-again dropped (the still-running stopping runs stay live and the wait for
+// their ends runs out), by the pause arms tried first (`pausing` reads `paused` and `paused` is
+// left), by limit rows handed as a person's (a second call for the step-limit run), by the lead's
+// rows handed to a helper (a call for the helper), by `any` read for `all` (the first provider's
+// driver, which expects no resume, is called), by the all-stopping check dropped (the same), and
+// by the stopping helper's arm dropped (session A's helper reads `failed`).
 #[tokio::test]
-async fn a_pass_opens_no_session_whose_runs_in_progress_all_stop() {
+async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interrupt_again() {
+    let answers: Arc<Mutex<HashMap<RunId, ProviderTurnAnswer>>> = Arc::default();
     let named: Arc<Mutex<Vec<(RunId, bool)>>> = Arc::default();
+    let interrupted: Arc<Mutex<Vec<RunId>>> = Arc::default();
     let unopened = MockProviderDriver::new();
-    let resumed = resuming_driver({
+    let mut resumed = resuming_driver({
+        let answers = Arc::clone(&answers);
         let named = Arc::clone(&named);
         move |params| {
             lock(&named).extend(
@@ -290,53 +435,259 @@ async fn a_pass_opens_no_session_whose_runs_in_progress_all_stop() {
                     .iter()
                     .map(|run| (run.run_id, run.is_stopping)),
             );
-            resumed_on(params, params.binding_id.clone())
+            let answers = lock(&answers);
+            resumed_on(params, params.binding_id.clone(), |run_id| {
+                *answers
+                    .get(&run_id)
+                    .expect("the table answers every run the resume names")
+            })
         }
     });
+    resumed.expect_message_handing().return_const(HANDS_AT_ONCE);
+    resumed
+        .expect_find_taken_messages()
+        .returning(|_| async { Ok(TakenMessages { taken: Vec::new() }) }.boxed());
+    {
+        let interrupted = Arc::clone(&interrupted);
+        resumed
+            .expect_apply_intervention()
+            .returning(move |params| {
+                if let ApplyInterventionParams::Interrupt { target_run_id, .. } = params {
+                    lock(&interrupted).push(target_run_id);
+                }
+                async {
+                    Ok(ApplyInterventionResponse {
+                        status: InterventionResultStatus::Applied,
+                        fallback_action: None,
+                        delivered_run_id: None,
+                        canceled: Vec::new(),
+                    })
+                }
+                .boxed()
+            });
+    }
     let fixture = PassFixture::over_drivers(vec![
         Arc::new(unopened) as Arc<dyn ProviderDriver>,
         Arc::new(resumed),
     ])
     .await;
     fixture.end_seeded_run();
-    let (stopped_session, stopped_run, _) = fixture.running_session(0).await;
+
+    // Session A: every run in progress stops.
+    let (stopped_session, stopped_lead, _) = fixture.running_session(0).await;
+    fixture.record_person_interrupt(stopped_lead);
+    let cut_helper = fixture.insert_helper(stopped_session, stopped_lead);
+    fixture.open_turn(stopped_session, cut_helper).await;
+    let token_run = test_run_id();
+    insert_running_run(&fixture.store.database, stopped_session, token_run);
+    fixture
+        .append(
+            stopped_session,
+            json!({
+                "type": "agent.run.tokenLimit.reached",
+                "payload": {"sessionId": stopped_session, "runId": token_run, "tokenLimit": 1000},
+            }),
+        )
+        .await;
+
+    // Session B: a live run beside the stopping ones.
     let (mixed_session, live_run, _) = fixture.running_session(1).await;
-    let stopping_beside = test_run_id();
-    insert_running_run(&fixture.store.database, mixed_session, stopping_beside);
-    for run_id in [stopped_run, stopping_beside] {
-        fixture.record_intervention(run_id, "interrupt", "accepted", r#"{"pending":"nextTurn"}"#);
+    let (still_running, still_pausing, still_paused, gone, ended, step_run, queued_run) = (
+        test_run_id(),
+        test_run_id(),
+        test_run_id(),
+        test_run_id(),
+        test_run_id(),
+        test_run_id(),
+        test_run_id(),
+    );
+    insert_runs(
+        &fixture.store.database,
+        mixed_session,
+        &[
+            (still_running, "running"),
+            (still_pausing, "pausing"),
+            (still_paused, "paused"),
+            (gone, "running"),
+            (ended, "pausing"),
+            (step_run, "running"),
+            (queued_run, "queued"),
+        ],
+    );
+    for run_id in [still_running, still_pausing, still_paused, gone, ended] {
+        fixture.record_person_interrupt(run_id);
     }
+    for run_id in [
+        still_running,
+        still_pausing,
+        still_paused,
+        gone,
+        ended,
+        step_run,
+    ] {
+        fixture.bind_resumable(run_id, 1).await;
+    }
+    fixture
+        .append(
+            mixed_session,
+            json!({
+                "type": "agent.run.stepLimit.reached",
+                "payload": {"sessionId": mixed_session, "runId": step_run, "count": 3},
+            }),
+        )
+        .await;
+    let gone_helper = fixture.insert_helper(mixed_session, still_running);
+    let kept_helper = fixture.insert_helper(mixed_session, still_pausing);
+    let waiting_message = fixture.queue_message(mixed_session, queued_run).await;
+    lock(&answers).extend([
+        (live_run, ProviderTurnAnswer::StillRunning),
+        (still_running, ProviderTurnAnswer::StillRunning),
+        (still_pausing, ProviderTurnAnswer::StillRunning),
+        (still_paused, ProviderTurnAnswer::StillRunning),
+        (gone, ProviderTurnAnswer::Gone),
+        (ended, ProviderTurnAnswer::EndedByProvider),
+        (step_run, ProviderTurnAnswer::StillRunning),
+        (gone_helper, ProviderTurnAnswer::Gone),
+        (kept_helper, ProviderTurnAnswer::StillRunning),
+        (queued_run, ProviderTurnAnswer::StillRunning),
+    ]);
+    let bound = [
+        live_run,
+        still_running,
+        still_pausing,
+        still_paused,
+        gone,
+        ended,
+        step_run,
+    ];
+    let bindings_before: i64 = bound.iter().map(|run| fixture.binding_count(*run)).sum();
+    let mut changes = fixture.followers.change_count(&mixed_session);
 
     fixture
         .pass(Arc::clone(&fixture.status))
         .run(&CancellationToken::new())
         .await;
+    let handed = [still_running, still_pausing, step_run];
+    tokio::time::timeout(SETTLE_WAIT, async {
+        while !handed
+            .iter()
+            .all(|run_id| stored_run_state(&fixture.store.database, run_id).0 == "interrupted")
+        {
+            changes
+                .changed()
+                .await
+                .expect("the session's changes are followed");
+        }
+    })
+    .await
+    .expect("each run handed again ends by its stop");
 
+    for (run_id, state) in [
+        (stopped_lead, "interrupted"),
+        (cut_helper, "interrupted"),
+        (token_run, "stopped"),
+    ] {
+        assert_eq!(
+            stored_run_state(&fixture.store.database, &run_id).0,
+            state,
+            "{run_id}"
+        );
+    }
+    assert_eq!(fixture.run_trigger(stopped_session, stopped_lead), None);
     assert_eq!(
-        stored_run_state(&fixture.store.database, &stopped_run).0,
+        fixture.run_trigger(stopped_session, cut_helper).as_deref(),
+        Some("daemonRestart")
+    );
+    let turn_ends = fixture.run_payloads(
+        stopped_session,
+        SessionEventType::AgentTurnInterrupted,
+        cut_helper,
+    );
+    let [turn_end] = turn_ends.as_slice() else {
+        panic!("the helper's turn ended once: {turn_ends:?}");
+    };
+    assert_eq!(turn_end["cause"], json!("daemonRestart"));
+    let stopped = fixture.run_payloads(
+        stopped_session,
+        SessionEventType::AgentRunStopped,
+        token_run,
+    );
+    let [stopped] = stopped.as_slice() else {
+        panic!("the token limit's run stopped once: {stopped:?}");
+    };
+    assert_eq!(stopped["trigger"], json!("tokenLimit"));
+    assert_eq!(
+        fixture.payloads(&stopped_session, SessionEventType::AgentRunFailed),
+        Vec::<Value>::new()
+    );
+
+    let mut calls = lock(&interrupted).clone();
+    calls.sort();
+    let mut expected_calls = handed.to_vec();
+    expected_calls.sort();
+    assert_eq!(calls, expected_calls);
+    for run_id in [still_running, still_pausing, still_paused, gone, ended] {
+        assert_eq!(
+            stored_run_state(&fixture.store.database, &run_id).0,
+            "interrupted",
+            "{run_id}"
+        );
+        assert_eq!(fixture.run_trigger(mixed_session, run_id), None, "{run_id}");
+    }
+    assert_eq!(
+        fixture.run_trigger(mixed_session, step_run).as_deref(),
+        Some("stepLimit")
+    );
+    assert_eq!(
+        stored_run_state(&fixture.store.database, &gone_helper).0,
         "interrupted"
     );
-    let interrupted = fixture.payloads(&stopped_session, SessionEventType::AgentRunInterrupted);
-    let [interrupted] = interrupted.as_slice() else {
-        panic!("the stopped run ended once: {interrupted:?}");
-    };
-    // The person's stop carries no trigger of the daemon's.
-    assert!(interrupted["trigger"].is_null(), "{interrupted}");
     assert_eq!(
-        stored_run_state(&fixture.store.database, &live_run).0,
-        "running"
+        fixture.run_trigger(mixed_session, gone_helper).as_deref(),
+        Some("daemonRestart")
+    );
+    for run_id in [kept_helper, live_run] {
+        assert_eq!(
+            stored_run_state(&fixture.store.database, &run_id).0,
+            "running",
+            "{run_id}"
+        );
+    }
+    assert_eq!(
+        stored_run_state(&fixture.store.database, &queued_run).0,
+        "queued"
     );
     assert_eq!(
-        *lock(&named),
-        vec![(live_run, false), (stopping_beside, true)]
+        fixture.queue_item_state(waiting_message),
+        RecordedQueueItemState::Queued
     );
+    let mut names = lock(&named).clone();
+    names.sort();
+    let mut expected_names: Vec<(RunId, bool)> = [
+        (live_run, false),
+        (queued_run, false),
+        (still_running, true),
+        (still_pausing, true),
+        (still_paused, true),
+        (gone, true),
+        (ended, true),
+        (step_run, true),
+        (gone_helper, true),
+        (kept_helper, true),
+    ]
+    .to_vec();
+    expected_names.sort();
+    assert_eq!(names, expected_names);
+    let bindings_after: i64 = bound.iter().map(|run| fixture.binding_count(*run)).sum();
+    assert_eq!(bindings_after, bindings_before + 1);
 }
 
-// A resume the provider refuses fails the session's running run with the provider's own words, and
-// the status read lists the run under its session with what its recovery needs and a provider
-// failure; once the session's next run starts, the entry is gone. Killed by `mark_run_halted` not
-// called (no entry), by the restart's own words written (the detail differs), and by the entry
-// never cleared.
+// A resume the provider refuses fails the session's running run with the provider's own words,
+// while a stopping run beside it ends by its stop, as the person's; the status read lists the
+// failed run under its session with what its recovery needs and a provider failure; once the
+// session's next run starts, the entry is gone. Killed by `mark_run_halted` not called (no entry),
+// by the restart's own words written (the detail differs), by the failure detail winning over the
+// run's stop (the stopping run reads `failed`), and by the entry never cleared.
 #[tokio::test]
 async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run() {
     let refusing = resuming_driver(|_params| DriverResumeResult::Failed {
@@ -349,6 +700,9 @@ async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run
     let _run_starts = fixture.status.follow_run_starts(&fixture.followers);
     fixture.end_seeded_run();
     let (session_id, run_id, _) = fixture.running_session(0).await;
+    let stopping_run = test_run_id();
+    insert_running_run(&fixture.store.database, session_id, stopping_run);
+    fixture.record_person_interrupt(stopping_run);
 
     fixture
         .pass(Arc::clone(&fixture.status))
@@ -364,6 +718,11 @@ async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run
         panic!("the run failed once: {failed:?}");
     };
     assert_eq!(failed["providerFailureDetail"], json!(REFUSED_DETAIL));
+    assert_eq!(
+        stored_run_state(&fixture.store.database, &stopping_run).0,
+        "interrupted"
+    );
+    assert_eq!(fixture.run_trigger(session_id, stopping_run), None);
     assert_eq!(
         fixture.halted_runs(session_id).await,
         Some(vec![DaemonRecoveryHaltedRun {

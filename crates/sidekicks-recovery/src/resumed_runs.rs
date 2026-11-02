@@ -4,8 +4,10 @@
 //! conversation, since after a restart nothing remembers which were handed: one it holds is
 //! admitted into the run, so no hand sends it again, one it lacks waits for the queue's own hand
 //! under the same id, and an unreadable record ends them not delivered and the run as gone. Each
-//! named run still live is then finalized from the state it was stored in before the restart; a
-//! live run the answer leaves out is left to the restart settle.
+//! named run still live is then finalized from the state it was stored in before the restart, and
+//! one its provider runs on has each of the person's pending interrupts handed again, so a stop
+//! asked before the restart still reaches its turn; a live run the answer leaves out is left to
+//! the restart settle.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -23,10 +25,12 @@ use sidekicks_provider::driver::session_control::ProviderTurnAnswer;
 use sidekicks_queue::delivery::{DeliveryError, QueueDelivery};
 use sidekicks_queue::provider_session::resumed_runs::{ResumedRuns, ResumedRunsIngress};
 use sidekicks_session::driver_resolution::{LiveRunDriverError, read_run_driver};
+use sidekicks_session::interventions::service::InterventionService;
 use sidekicks_session::queue_store::QueueItemReader;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::read::RunStateReader;
+use sidekicks_session::run::restart::ResumedRunMove;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -46,6 +50,9 @@ pub struct ResumedRunsFinalizeDeps {
     pub delivery: QueueDelivery,
     /// The drivers, found by the provider each run is bound to.
     pub providers: Arc<ProviderRegistry>,
+    /// The interventions service, which hands a person's pending interrupt again to a run its
+    /// provider runs on.
+    pub interventions: Arc<InterventionService>,
 }
 
 /// Finalizes each run a session's resume named as the provider answered for it.
@@ -85,8 +92,9 @@ impl ResumedRunsFinalize {
     /// run that has started has the session's waiting messages settled against its provider's
     /// record first, whatever the answer, then every named run is finalized from the state it is
     /// stored in, which nothing moves before the resumed binding is recorded, and the provider's
-    /// answer for it, or as gone where its record could not be read; a named run that has ended
-    /// is skipped. Writes take the session's append hold themselves, since the caller holds only
+    /// answer for it, or as gone where its record could not be read, and one the finalize leaves
+    /// running has the person's pending interrupts handed again on a task of their own; a named
+    /// run that has ended is skipped. Writes take the session's append hold themselves, since the caller holds only
     /// its transition lock. Fails at the first read, driver lookup, record or finalize that fails.
     pub async fn finalize(&self, resumed: ResumedRuns) -> Result<(), ResumedRunsFinalizeError> {
         let session_id = resumed.session_id;
@@ -110,10 +118,16 @@ impl ResumedRunsFinalize {
             } else {
                 answer.turn
             };
-            self.deps
+            let resumed_move = self
+                .deps
                 .run_engine
                 .finalize_resumed_run(live_run, live_run.run.state, turn, None)
                 .await?;
+            if resumed_move == ResumedRunMove::Running {
+                self.deps
+                    .interventions
+                    .hand_pending_interrupts_again(live_run.run_id);
+            }
         }
         Ok(())
     }
@@ -243,6 +257,8 @@ mod tests {
     use sidekicks_queue::delivery::QueueDelivery;
     use sidekicks_queue::delivery::test_fixture::{hand_waiting_messages, test_delivery};
     use sidekicks_queue::provider_session::resumed_runs::ResumedRuns;
+    use sidekicks_session::interventions::service::INTERVENTION_SERVICE_STATEMENT_CAPACITY;
+    use sidekicks_session::interventions::service::test_fixture::test_intervention_service;
     use sidekicks_session::questions::schema::schema_parts;
     use sidekicks_session::queue_store::{
         NewQueueItem, QueueItemBody, QueueItemReader, QueueMessageBody, RecordedQueueItemState,
@@ -311,6 +327,15 @@ mod tests {
             Arc::clone(&log.writer),
             Arc::clone(&providers),
         );
+        let interventions = test_intervention_service(
+            Arc::new(DatabaseReadPool::new(
+                database.path(),
+                INTERVENTION_SERVICE_STATEMENT_CAPACITY,
+            )),
+            Arc::clone(&log.service),
+            &engine,
+            Arc::clone(&providers),
+        );
         let finalize = ResumedRunsFinalize::new(ResumedRunsFinalizeDeps {
             reads: Arc::new(DatabaseReadPool::new(
                 database.path(),
@@ -319,6 +344,7 @@ mod tests {
             run_engine: engine,
             delivery: delivery.clone(),
             providers,
+            interventions,
         });
         Fixture {
             database,
