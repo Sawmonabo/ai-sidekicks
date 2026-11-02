@@ -1,8 +1,9 @@
 //! Handing the text the daemon writes for another session's message, a wake-up or a reminder to a
 //! Codex conversation: as the opening of a new turn of the session's own when the conversation is
 //! idle, or steered into the run that is working. Codex keeps no reply chain, so each session keeps
-//! the chain the latest chained message landed with, for the run it landed in, once its run started
-//! or its steer was taken, and a send that run makes carries it on as received.
+//! the chain the latest chained message landed with, for the run it lands in, from just before its
+//! run starts or its steer goes, the chain before it put back should either fail, and a send that
+//! run makes carries it on as received.
 
 #![expect(
     dead_code,
@@ -74,9 +75,17 @@ pub(crate) struct CodexPeerDelivery {
 }
 
 // The chain the latest chained message arrived with, and the run it landed in.
+#[derive(Clone, PartialEq, Eq)]
 struct KeptReplyChain {
     run_id: RunId,
     chain: Vec<String>,
+}
+
+// A chain kept for a landing still under way, and the one it replaced.
+struct ReplacedReplyChain {
+    session_id: SessionId,
+    kept: KeptReplyChain,
+    replaced: Option<KeptReplyChain>,
 }
 
 impl CodexPeerDelivery {
@@ -133,6 +142,8 @@ impl CodexPeerDelivery {
                     let binding = bindings
                         .open_daemon_turn_binding(run_id, session_id)
                         .await?;
+                    let kept =
+                        keep_reply_chain(&reply_chains, session_id, run_id, message.reply_chain);
                     run_start
                         .start_run(StartRunParams {
                             run_id,
@@ -155,8 +166,8 @@ impl CodexPeerDelivery {
                             output_schema: None,
                             step_bound: binding.step_bound,
                         })
-                        .await?;
-                    keep_reply_chain(&reply_chains, session_id, run_id, message.reply_chain);
+                        .await
+                        .inspect_err(|_| put_back_reply_chain(&reply_chains, kept))?;
                     Ok(())
                 }
                 .boxed()
@@ -179,9 +190,9 @@ impl CodexPeerDelivery {
     }
 
     /// Steers `message` into `run_id`'s running turn as soon as the steer before it was answered,
-    /// keeping its chain for that run once the steer is taken. Fails with `SteerTurnEnded` when the
-    /// run has no live turn, and as [`CodexRunControl::steer_run`] fails, the kept chain then left
-    /// as it was.
+    /// keeping its chain for that run from just before the steer goes. Fails with `SteerTurnEnded`
+    /// when the run has no live turn, and as [`CodexRunControl::steer_run`] fails, the chain kept
+    /// before it then put back.
     pub(crate) async fn deliver_to_run(
         &self,
         run_id: RunId,
@@ -190,8 +201,8 @@ impl CodexPeerDelivery {
         let Some(session_id) = self.dependencies.run_routes.session_id_for(run_id) else {
             return Err(SteerTurnEndedError { run_id }.into());
         };
-        let acknowledgment = self
-            .dependencies
+        let kept = keep_reply_chain(&self.reply_chains, session_id, run_id, message.reply_chain);
+        self.dependencies
             .run_control
             .steer_run(CodexSteerRunRequest {
                 run_id,
@@ -201,9 +212,8 @@ impl CodexPeerDelivery {
                 expected_turn_id: None,
                 client_idempotency_key: message.message_id,
             })
-            .await?;
-        keep_reply_chain(&self.reply_chains, session_id, run_id, message.reply_chain);
-        Ok(acknowledgment)
+            .await
+            .inspect_err(|_| put_back_reply_chain(&self.reply_chains, kept))
     }
 
     /// The chain a send `run_id` makes in `session_id` carries on: the one the latest chained
@@ -222,17 +232,47 @@ impl CodexPeerDelivery {
     }
 }
 
-// Keeps `chain` as received for the run it landed in; an empty chain leaves the kept one alone.
+// Keeps `chain` as received for the run it is landing in, answering what
+// `put_back_reply_chain` needs should the landing fail; an empty chain leaves the kept one alone.
 fn keep_reply_chain(
     reply_chains: &Mutex<HashMap<SessionId, KeptReplyChain>>,
     session_id: SessionId,
     run_id: RunId,
     chain: Vec<String>,
-) {
+) -> Option<ReplacedReplyChain> {
     if chain.is_empty() {
+        return None;
+    }
+    let kept = KeptReplyChain { run_id, chain };
+    let replaced = lock(reply_chains).insert(session_id, kept.clone());
+    Some(ReplacedReplyChain {
+        session_id,
+        kept,
+        replaced,
+    })
+}
+
+// Puts back the chain a landing that failed replaced, unless a later landing replaced its own.
+fn put_back_reply_chain(
+    reply_chains: &Mutex<HashMap<SessionId, KeptReplyChain>>,
+    kept: Option<ReplacedReplyChain>,
+) {
+    let Some(ReplacedReplyChain {
+        session_id,
+        kept,
+        replaced,
+    }) = kept
+    else {
+        return;
+    };
+    let mut reply_chains = lock(reply_chains);
+    if reply_chains.get(&session_id) != Some(&kept) {
         return;
     }
-    lock(reply_chains).insert(session_id, KeptReplyChain { run_id, chain });
+    match replaced {
+        Some(replaced) => reply_chains.insert(session_id, replaced),
+        None => reply_chains.remove(&session_id),
+    };
 }
 
 #[cfg(test)]
@@ -257,7 +297,7 @@ mod tests {
     // name holding a quote ending its attribute; the chain dropped on its way through the Codex
     // session; the session's own id added to the chain; the chain kept per session rather than
     // per run; the chain kept on the idle path only; a steered arrival told its answer goes back
-    // on its own; and a refused steer's chain kept over the one that landed.
+    // on its own; and a refused start's or a refused steer's chain left kept, not put back.
     #[tokio::test]
     async fn an_arrival_names_its_sender_by_id_and_its_chain_crosses_the_codex_session() {
         let mut session = TestCodexSession::start().await;
@@ -312,6 +352,35 @@ mod tests {
         );
         let task = &mut session.task;
         let script = &mut session.scripted.script;
+
+        let refused_start = arrival(CodexArrivalMoment::Idle, vec![second_link.clone()]);
+        let service = async {
+            let sent = script.next_sent().await;
+            assert_eq!(sent["method"], "turn/start");
+            script.send(&json!({"jsonrpc": "2.0", "id": sent["id"],
+                "error": {"code": -32600, "message": "the turn cannot start"}}));
+        };
+        let (start_refusal, ()) = tokio::time::timeout(
+            DEADLOCK_BOUND,
+            Box::pin(async {
+                tokio::join!(
+                    task.drive(delivery.deliver_to_idle(session_id, refused_start)),
+                    service
+                )
+            }),
+        )
+        .await
+        .expect("the refused start settles");
+        start_refusal.expect_err("a start Codex refuses fails");
+        let refused_run = session
+            .engine
+            .first_daemon_turn_run()
+            .expect("the refused start had its run");
+        assert_eq!(
+            delivery.reply_chain(session_id, refused_run),
+            Vec::<String>::new()
+        );
+
         let service = async {
             let sent = script.next_sent().await;
             assert_eq!(sent["method"], "turn/start");
