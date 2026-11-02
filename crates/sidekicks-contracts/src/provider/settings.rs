@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer, Serialize};
+use strum::{EnumDiscriminants, IntoStaticStr, VariantArray};
 
 use crate::free_form_string::FilesystemPath;
 use crate::jsonrpc::refusal::RefusalCode;
@@ -62,12 +63,18 @@ type WholePercent = BoundedInt<0, 100>;
 /// What the provider check found where the command resolves. `indeterminate` is a check that
 /// could not settle and is never folded into another arm; `noBuildForSystem` and
 /// `distributionNeedsWsl2` are rows no check runs on and no install offers.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, EnumDiscriminants)]
 #[serde(
     tag = "state",
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
+)]
+#[strum_discriminants(
+    name(ProviderInstallationState),
+    doc = "Which arm an installation is, spelled as its `state` tag, `installed` first.",
+    derive(IntoStaticStr, VariantArray),
+    strum(serialize_all = "camelCase")
 )]
 pub enum ProviderInstallation {
     /// A runnable command.

@@ -16,7 +16,7 @@ use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{
     StatementBindings, StatementResult, WriteStatement, text_binding,
 };
-use sidekicks_store::database::stored_column::optional_text_column;
+use sidekicks_store::database::stored_column::place_column;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The states of a session that has ended, closed or being purged, as a SQL list of quoted words
@@ -48,7 +48,7 @@ pub fn read_session_place(
         .prepare_cached(SESSION_PLACE_SQL)?
         .query_row(
             named_params! { "@sessionId": session_id.text().as_str() },
-            |row| optional_text_column(row, 0, |text| serde_json::from_str::<Place>(&text)),
+            |row| place_column(row, 0),
         )
         .optional()?
         .flatten())

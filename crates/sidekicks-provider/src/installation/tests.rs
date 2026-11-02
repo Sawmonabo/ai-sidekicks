@@ -1,23 +1,21 @@
 use std::path::PathBuf;
 
-use rusqlite::{Connection, params};
+use rusqlite::Connection;
 use sidekicks_contracts::place::{DistroName, Place, WindowsPlace, WslPlace};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::provider::settings::{ProviderInstallation, ProviderVersion};
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_store::database::statement::{
-    StatementBindings, WriteStatement, named_bindings, place_value,
-};
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, named_bindings};
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::{
-    CommandTarget, MarkerAnswer, forget_place, read_place_reading, read_place_readings,
-    record_check, record_marker, schema_part,
+    CommandTarget, MarkerAnswer, MarkerEtag, forget_place, read_place_reading, read_place_readings,
+    record_check, record_marker,
 };
 use crate::driver::schema::schema_parts;
 
 fn database() -> (TestDatabase, Connection) {
-    let database = TestDatabase::new(schema_parts().with_part(schema_part()));
+    let database = TestDatabase::new(schema_parts());
     let connection = database.opener()().expect("the test creates its database");
     (database, connection)
 }
@@ -80,8 +78,8 @@ fn a_second_check_replaces_the_facts_and_keeps_the_markers_answer() {
     let provider = provider();
     let place = ubuntu();
     let answer = MarkerAnswer {
-        etag: "\"abc\"".to_owned(),
-        build: "2.1.316".to_owned(),
+        etag: MarkerEtag::new("\"abc\"".to_owned()).expect("an ETag"),
+        build: version("2.1.316"),
     };
     run(
         &connection,
@@ -112,23 +110,17 @@ fn a_second_check_replaces_the_facts_and_keeps_the_markers_answer() {
     assert_eq!(readings.len(), 1);
     let reading = &readings[0];
     assert_eq!(reading.place, Some(place));
-    assert_eq!(
-        reading.installation,
-        Some(ProviderInstallation::NotInstalled {})
-    );
+    assert_eq!(reading.installation, ProviderInstallation::NotInstalled {});
     assert_eq!(reading.target, None);
-    assert_eq!(
-        reading.checked_at,
-        Some(instant("2026-11-01T11:00:00.000Z"))
-    );
+    assert_eq!(reading.checked_at, instant("2026-11-01T11:00:00.000Z"));
     assert_eq!(reading.marker, Some(answer));
 }
 
 // The one-place key `''` and a WSL place are two rows of one provider, each read by its own key,
-// and a place never checked reads no installation. Killed by the place dropped from the key, and by
-// a never-checked row read as a default state.
+// and a place never checked has no reading. Killed by the place dropped from the key, and by the
+// one-place key read back as a place.
 #[test]
-fn each_place_is_its_own_row_and_an_unchecked_place_reads_no_installation() {
+fn each_place_is_its_own_row_and_an_unchecked_place_has_no_reading() {
     let (_database, connection) = database();
     let provider = provider();
     let place = ubuntu();
@@ -142,13 +134,20 @@ fn each_place_is_its_own_row_and_an_unchecked_place_reads_no_installation() {
             &instant("2026-11-01T10:00:00.000Z"),
         ),
     );
-    // A known place no check has reached yet.
-    connection
-        .execute(
-            "INSERT INTO provider_place_readings (provider_name, place) VALUES (?1, ?2)",
-            params![provider.as_str(), place_value(Some(&place))],
-        )
-        .expect("the unchecked place's row is written");
+    assert_eq!(
+        read_place_reading(&connection, &provider, Some(&place)).expect("the reading reads"),
+        None
+    );
+    run(
+        &connection,
+        &record_check(
+            &provider,
+            Some(&place),
+            &ProviderInstallation::NotInstalled {},
+            None,
+            &instant("2026-11-01T11:00:00.000Z"),
+        ),
+    );
 
     assert_eq!(
         read_place_readings(&connection, &provider)
@@ -160,14 +159,15 @@ fn each_place_is_its_own_row_and_an_unchecked_place_reads_no_installation() {
         .expect("the one-place reading reads")
         .expect("the one-place reading is stored");
     assert_eq!(one_place.place, None);
-    assert_eq!(one_place.installation, Some(installed("2.1.316")));
-    let unchecked = read_place_reading(&connection, &provider, Some(&place))
+    assert_eq!(one_place.installation, installed("2.1.316"));
+    let distribution = read_place_reading(&connection, &provider, Some(&place))
         .expect("the distribution's reading reads")
         .expect("the distribution's reading is stored");
-    assert_eq!(unchecked.place, Some(place));
-    assert_eq!(unchecked.installation, None);
-    assert_eq!(unchecked.checked_at, None);
-    assert_eq!(unchecked.target, None);
+    assert_eq!(distribution.place, Some(place));
+    assert_eq!(
+        distribution.installation,
+        ProviderInstallation::NotInstalled {}
+    );
 }
 
 // An installed reading reads back its three versions and its file exactly, the time to the
@@ -204,7 +204,7 @@ fn an_installed_reading_round_trips_its_versions_and_file() {
     )
     .expect("the reading reads")
     .expect("the reading is stored");
-    assert_eq!(reading.installation, Some(installation));
+    assert_eq!(reading.installation, installation);
     assert_eq!(reading.target, Some(file));
     assert_eq!(reading.marker, None);
 }

@@ -52,7 +52,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::schema::session_directory::ConvertedFileOutcome;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{
-    closed_word, optional_text_column, safe_int_column, text_column,
+    closed_word, place_column, safe_int_column, text_column,
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::appender::{
@@ -711,9 +711,7 @@ fn read_session_facts(
                 Ok(ChatFacts {
                     shape: text_column(row, 0, closed_word)?,
                     state: text_column(row, 1, closed_word)?,
-                    place: optional_text_column(row, 2, |text| {
-                        serde_json::from_str::<Place>(&text)
-                    })?,
+                    place: place_column(row, 2)?,
                 })
             },
         )
