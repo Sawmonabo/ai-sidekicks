@@ -293,6 +293,7 @@ toml = "1.1.8"
 toml_edit = { version = "0.25.17", features = ["serde"] }
 tree-sitter = "0.27.1"
 tree-sitter-bash = "0.25.1"
+tree-sitter-powershell = "0.26.6"
 unicode-normalization = "0.1.25"
 unicode-properties.version = "0.1.4"
 unicode-properties.default-features = false

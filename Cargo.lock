@@ -8782,6 +8782,7 @@ dependencies = [
  "tokio",
  "tree-sitter",
  "tree-sitter-bash",
+ "tree-sitter-powershell",
 ]
 
 [[package]]
@@ -9104,6 +9105,7 @@ dependencies = [
  "serde_json",
  "sidekicks-contracts",
  "sidekicks-ipc",
+ "sidekicks-policy",
  "sidekicks-std",
  "sidekicks-store",
  "sidekicks-workspace",
@@ -10338,6 +10340,16 @@ name = "tree-sitter-language"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0af592be68c579aa78a16846bd19422978c3c52e438523d45ff5d1bff1f9d4a"
+
+[[package]]
+name = "tree-sitter-powershell"
+version = "0.26.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa49d15e5b291030a548447445e0547992eff1438e7cd9133bfec99a9ba962a9"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
 
 [[package]]
 name = "triomphe"

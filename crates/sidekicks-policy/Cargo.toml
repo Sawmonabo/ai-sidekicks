@@ -21,6 +21,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tree-sitter.workspace = true
 tree-sitter-bash.workspace = true
+tree-sitter-powershell.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
