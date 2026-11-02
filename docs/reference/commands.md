@@ -20,8 +20,8 @@ Every command the product ships: what a person types into the `sidekicks` comman
 | `sidekicks account show` | Prints the hosted account's id and name. | [Spec-016](../specs/016-hosted-account-and-identity.md), [Plan-015](../plans/015-hosted-account-and-identity.md) |
 | `sidekicks account rename <new name>` | Changes the account's name. | [Spec-016](../specs/016-hosted-account-and-identity.md), [Plan-015](../plans/015-hosted-account-and-identity.md) |
 | `sidekicks data export <folder>` | Writes everything this computer keeps to a folder, as Settings' `Export all data` does. | [Spec-020](../specs/020-data-retention-export-and-deletion.md) |
-| `sidekicks data erase` | Erases all local data, as Settings' `Erase all data` does; refused while the service runs. | [Spec-020](../specs/020-data-retention-export-and-deletion.md) |
-| `sidekicks data restore <backup>` | Restores a backup with the service stopped, for a computer with no app. | [Spec-013](../specs/013-persistence-and-recovery.md) |
+| `sidekicks data erase` | Erases all local data, as Settings' `Erase all data` does; refused while the service runs; asks first, and `--yes` skips the question. | [Spec-020](../specs/020-data-retention-export-and-deletion.md) |
+| `sidekicks data restore <backup>` | Restores a backup with the service stopped, for a computer with no app; asks first, and `--yes` skips the question. | [Spec-013](../specs/013-persistence-and-recovery.md) |
 | `sidekicks daemon install` | Sets up the background service; `--while-signed-out` keeps it running while the person is signed out of the computer. | [Spec-006](../specs/006-local-ipc-and-daemon-control.md) |
 | `sidekicks daemon uninstall` · `start` · `stop` · `restart` · `status` | Removes, starts, stops, restarts or reports the background service. | [Spec-006](../specs/006-local-ipc-and-daemon-control.md) |
 | `sidekicks daemon update [--check]` | Checks for, and applies, a newer background service; it never updates the app. | [Spec-023](../specs/023-self-host-secure-defaults.md), [Plan-005](../plans/005-local-ipc-and-daemon-control.md) |
