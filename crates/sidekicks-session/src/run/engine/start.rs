@@ -83,7 +83,7 @@ impl RunEngine {
                     start_driver,
                     interrupt_driver,
                 },
-            queue_item,
+            opening_words,
             provider,
             output_speed,
             running_statements,
@@ -130,7 +130,7 @@ impl RunEngine {
             .assert_run_ready(&RunSetupContext {
                 run_id,
                 session_id: starting.session_id,
-                queue_item,
+                opening_words,
                 workspace_id,
                 execution_posture,
             })
@@ -277,7 +277,7 @@ impl RunEngine {
                 }),
                 interrupt_driver: Box::new(move || interrupt_turn(run_id)),
             },
-            queue_item: None,
+            opening_words: None,
             provider,
             output_speed: None,
             running_statements,
@@ -286,14 +286,14 @@ impl RunEngine {
         Ok(run_id)
     }
 
-    /// Continues the interrupted run `request.turn.run_id` on its next turn, admitted from
-    /// `request.queue_item`: every setup gate again, as at a start, the driver's start of the turn
-    /// with the posture the posture gate resolved, then `running` stamped with it; what the
-    /// provider reports meanwhile waits for that write. A gate's or the driver's failure leaves
-    /// the run interrupted, every terminal hook releasing what the gates took for the continue,
-    /// and is returned; a `running` write that fails once the driver started the turn does so
-    /// after the turn is interrupted. Fails with [`RunRefusal::InvalidTransition`] for a run that
-    /// does not read interrupted or is already being continued.
+    /// Continues the interrupted run `request.turn.run_id` on its next turn, admitted from the item
+    /// whose words `request.opening_words` carries: every setup gate again, as at a start, the
+    /// driver's start of the turn with the posture the posture gate resolved, then `running`
+    /// stamped with it; what the provider reports meanwhile waits for that write. A gate's or the
+    /// driver's failure leaves the run interrupted, every terminal hook releasing what the gates
+    /// took for the continue, and is returned; a `running` write that fails once the driver started
+    /// the turn does so after the turn is interrupted. Fails with [`RunRefusal::InvalidTransition`]
+    /// for a run that does not read interrupted or is already being continued.
     pub async fn continue_run(
         &self,
         request: RunContinueRequest,
@@ -307,7 +307,7 @@ impl RunEngine {
                     start_driver,
                     interrupt_driver,
                 },
-            queue_item,
+            opening_words,
         } = request;
         let run = self.require_run(run_id).await?;
         if run.state != RunState::Interrupted {
@@ -326,7 +326,7 @@ impl RunEngine {
                 .assert_run_ready(&RunSetupContext {
                     run_id,
                     session_id: run.session_id,
-                    queue_item: Some(queue_item),
+                    opening_words,
                     workspace_id,
                     execution_posture,
                 })

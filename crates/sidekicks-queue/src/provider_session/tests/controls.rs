@@ -130,7 +130,7 @@ async fn a_run_gated_at_a_stored_level_whose_folder_is_gone_reads_it_unavailable
         .assert_run_ready(&RunSetupContext {
             run_id: opening.run_id,
             session_id: opening.session_id,
-            queue_item: None,
+            opening_words: None,
             workspace_id: None,
             execution_posture: compose_execution_posture(PermissionLevel::Ask, git_folder),
         })
@@ -178,7 +178,7 @@ async fn a_level_move_re_postures_a_live_run() {
         .assert_run_ready(&RunSetupContext {
             run_id: opening.run_id,
             session_id: opening.session_id,
-            queue_item: None,
+            opening_words: None,
             workspace_id: None,
             execution_posture: compose_execution_posture(PermissionLevel::Readonly, root.clone()),
         })
@@ -356,7 +356,7 @@ async fn a_followed_level_moves_a_live_session() {
         .assert_run_ready(&RunSetupContext {
             run_id: opening.run_id,
             session_id: opening.session_id,
-            queue_item: None,
+            opening_words: None,
             workspace_id: None,
             execution_posture: compose_execution_posture(PermissionLevel::Readonly, root.clone()),
         })
@@ -586,7 +586,7 @@ fn gated_at(opening: &Opening, run_id: RunId, level: PermissionLevel) -> RunSetu
     RunSetupContext {
         run_id,
         session_id: opening.session_id,
-        queue_item: None,
+        opening_words: None,
         workspace_id: None,
         execution_posture: compose_execution_posture(level, slash()),
     }

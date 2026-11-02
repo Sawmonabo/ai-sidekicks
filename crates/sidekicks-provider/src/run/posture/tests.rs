@@ -126,7 +126,7 @@ fn run_context(session_id: SessionId, execution_posture: ExecutionPosture) -> Ru
     RunSetupContext {
         run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
         session_id,
-        queue_item: None,
+        opening_words: None,
         workspace_id: None,
         execution_posture,
     }

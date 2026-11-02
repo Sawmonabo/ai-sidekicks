@@ -89,7 +89,7 @@ async fn start_ask_parent(
     engine
         .start_run(RunStartRequest {
             turn,
-            queue_item: None,
+            opening_words: None,
             provider: test_provider(),
             output_speed: None,
             running_statements: None,

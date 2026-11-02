@@ -121,7 +121,7 @@ impl RunEngine {
             .assert_run_ready(&RunSetupContext {
                 run_id,
                 session_id,
-                queue_item: None,
+                opening_words: None,
                 workspace_id: None,
                 execution_posture,
             })
@@ -239,7 +239,7 @@ impl RunEngine {
                 .assert_run_ready(&RunSetupContext {
                     run_id,
                     session_id: run.session_id,
-                    queue_item: None,
+                    opening_words: None,
                     workspace_id: None,
                     execution_posture,
                 })

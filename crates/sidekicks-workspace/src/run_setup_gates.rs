@@ -10,7 +10,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemSummary;
+use sidekicks_contracts::run::queue::MessageContent;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
@@ -25,8 +25,9 @@ pub struct RunSetupContext {
     pub run_id: RunId,
     /// Its session.
     pub session_id: SessionId,
-    /// The queue item the run was admitted from; absent for a turn the daemon started itself.
-    pub queue_item: Option<QueueItemSummary>,
+    /// The words of the queue item the run was admitted from, a message's or a plan message's;
+    /// absent for a review and for a turn the daemon started itself.
+    pub opening_words: Option<MessageContent>,
     /// The workspace the send that started the run bound it to; absent where none was named.
     pub workspace_id: Option<WorkspaceId>,
     /// The posture the run runs at: the one it was requested at, or a daemon turn's session's.

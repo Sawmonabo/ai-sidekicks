@@ -14,7 +14,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_provider::driver::contract::ProviderDriver;
-use sidekicks_session::queue_store::summary::summary_of;
 use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
 use sidekicks_session::run::agent::read_lead_agent_through;
 use sidekicks_session::run::engine::errors::RunEngineError;
@@ -23,7 +22,9 @@ use sidekicks_session::run::start_request::RunContinueRequest;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
-use super::{Placed, QueueAdmission, is_invalid_transition, is_waiting, log_failure};
+use super::{
+    Placed, QueueAdmission, is_invalid_transition, is_waiting, log_failure, opening_words,
+};
 use crate::error::QueueError;
 use crate::recorder::lead_run_queued;
 
@@ -104,7 +105,7 @@ impl QueueAdmission {
                     execution_posture,
                     true,
                 ),
-                queue_item: summary_of(opening.clone()),
+                opening_words: opening_words(&opening.body),
             })
             .await;
         if let Err(continue_error) = continued {

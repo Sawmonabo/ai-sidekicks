@@ -32,7 +32,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::failure_cause::{DaemonFailureOrigin, RunFailureCause};
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
+use sidekicks_contracts::run::queue::{MessageContent, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -46,9 +46,8 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_session::driver_resolution::{read_session_driver, resolve_admitted_account};
-use sidekicks_session::queue_store::summary::summary_of;
 use sidekicks_session::queue_store::{
-    QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
+    QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
 use sidekicks_session::run::agent::RunAgentReader;
 use sidekicks_session::run::engine::RunEngine;
@@ -480,7 +479,7 @@ impl QueueAdmission {
                     execution_posture,
                     false,
                 ),
-                queue_item: Some(summary_of(opening.clone())),
+                opening_words: opening_words(&opening.body),
                 provider,
                 output_speed: opening
                     .body
@@ -812,6 +811,16 @@ fn provider_work(
         start: ProviderStartEstimate::new(providers.descriptor(provider)?, joins_running_process),
         workflow_node_key: None,
     })
+}
+
+// The words an opening carries, which stand in for a first message the session has not yet
+// recorded: a message's or a plan message's; a review has none.
+fn opening_words(body: &QueueItemBody) -> Option<MessageContent> {
+    match body {
+        QueueItemBody::Message(message) => Some(message.content.clone()),
+        QueueItemBody::PlanMessage { text, .. } => Some(text.clone()),
+        QueueItemBody::Review { .. } => None,
+    }
 }
 
 fn is_waiting(item: &QueueItemRecord) -> bool {
