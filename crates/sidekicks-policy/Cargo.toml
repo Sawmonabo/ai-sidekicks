@@ -3,7 +3,7 @@ name = "sidekicks-policy"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "The rules: shell commands and their read bound, destructive git, the Cedar authorizer and the ask rules."
+description = "The rules: shell commands and their read bound, destructive git, the Cedar authorizer, the workflow start rule and the ask rules."
 license.workspace = true
 publish.workspace = true
 
