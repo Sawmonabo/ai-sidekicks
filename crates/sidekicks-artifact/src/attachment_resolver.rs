@@ -3,7 +3,7 @@
 //! marker naming why, so the list never shortens and the recipient reads which file is missing.
 
 use std::error::Error;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -19,22 +19,28 @@ use sidekicks_store::database::stored_column::text_column;
 
 use crate::payload_store::{ContentHash, PayloadStore};
 use crate::refusals::ArtifactError;
-use crate::validation::FILE_NAME_MEMBER;
+use crate::validation::MANIFEST_FILE_NAME_SQL;
 
-// The manifest's newest payload reference within the message's session; a manifest whose payload
-// was reclaimed has none.
-const SELECT_PAYLOAD_SQL: &str = "SELECT refs.storage_path, refs.media_type
+// The manifest's newest payload reference within the message's session, with the file name the
+// manifest records; a manifest whose payload was reclaimed has none.
+static SELECT_PAYLOAD_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT refs.storage_path, refs.media_type, {MANIFEST_FILE_NAME_SQL}
   FROM artifact_manifests AS manifests
   JOIN artifact_payload_refs AS refs ON refs.manifest_id = manifests.id
   WHERE manifests.id = @artifactId AND manifests.session_id = @sessionId
   ORDER BY refs.created_at DESC, refs.id DESC
-  LIMIT 1";
+  LIMIT 1"
+    )
+});
 
 // The file name a manifest within its session records, where it records one as text.
-const SELECT_FILE_NAME_SQL: &str = "SELECT json_extract(metadata, @fileNamePath)
-  FROM artifact_manifests
-  WHERE id = @artifactId AND session_id = @sessionId
-    AND json_type(metadata, @fileNamePath) = 'text'";
+static SELECT_FILE_NAME_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {MANIFEST_FILE_NAME_SQL} FROM artifact_manifests
+  WHERE id = @artifactId AND session_id = @sessionId"
+    )
+});
 
 /// One attachment's stored payload as its row names it.
 struct StoredPayload {
@@ -117,28 +123,22 @@ fn read_stored_payload(
     artifact_id: &ArtifactId,
 ) -> Result<Option<StoredPayload>, ArtifactError> {
     let stored = connection
-        .prepare_cached(SELECT_PAYLOAD_SQL)?
+        .prepare_cached(&SELECT_PAYLOAD_SQL)?
         .query_row(
             named_params! {
                 "@artifactId": artifact_id.text().as_str(),
                 "@sessionId": session_id.text().as_str(),
             },
             |row| {
-                Ok((
-                    text_column(row, 0, ContentHash::from_stored)?,
-                    row.get::<_, String>(1)?,
-                ))
+                Ok(StoredPayload {
+                    content_hash: text_column(row, 0, ContentHash::from_stored)?,
+                    media_type: row.get(1)?,
+                    file_name: row.get(2)?,
+                })
             },
         )
         .optional()?;
-    let Some((content_hash, media_type)) = stored else {
-        return Ok(None);
-    };
-    Ok(Some(StoredPayload {
-        content_hash,
-        media_type,
-        file_name: read_manifest_file_name(connection, session_id, artifact_id)?,
-    }))
+    Ok(stored)
 }
 
 /// The file name the manifest `artifact_id` of `session_id` records, read on `connection`; `None`
@@ -148,17 +148,17 @@ pub fn read_manifest_file_name(
     session_id: &SessionId,
     artifact_id: &ArtifactId,
 ) -> rusqlite::Result<Option<String>> {
-    connection
-        .prepare_cached(SELECT_FILE_NAME_SQL)?
+    let file_name = connection
+        .prepare_cached(&SELECT_FILE_NAME_SQL)?
         .query_row(
             named_params! {
                 "@artifactId": artifact_id.text().as_str(),
                 "@sessionId": session_id.text().as_str(),
-                "@fileNamePath": format!("$.{FILE_NAME_MEMBER}"),
             },
             |row| row.get(0),
         )
-        .optional()
+        .optional()?;
+    Ok(file_name.flatten())
 }
 
 #[cfg(test)]
