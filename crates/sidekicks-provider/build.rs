@@ -27,7 +27,7 @@ const CODEX_PROTOCOL_BUNDLE_SHA3_256: &str =
 const CODEX_PROTOCOL_RELEASE: &str = "rust-v0.163.0";
 
 /// The protocol types the provider crate sends, generated with every type they reach.
-const CODEX_SENT_TYPES: [&str; 32] = [
+const CODEX_SENT_TYPES: [&str; 33] = [
     "ThreadStartParams",
     "ThreadResumeParams",
     "ThreadForkParams",
@@ -60,11 +60,13 @@ const CODEX_SENT_TYPES: [&str; 32] = [
     "ThreadReadParams",
     "EnvironmentAddParams",
     "ListMcpServerStatusParams",
+    "LoginAccountParams",
 ];
 
-/// The sent types whose members carry absent, `null` and a value as three meanings, which
-/// generated code would fold into two; each is written by hand where its path names.
-const CODEX_HAND_WRITTEN_TYPES: [(&str, &str); 2] = [
+/// The sent types generated code cannot carry, each written by hand where its path names: those
+/// whose members carry absent, `null` and a value as three meanings, which it would fold into two,
+/// and the login's, whose credentials it would hold as plain strings.
+const CODEX_HAND_WRITTEN_TYPES: [(&str, &str); 3] = [
     (
         "TurnStartParams",
         "crate::driver::codex::thread::settings::CodexTurnStartParams",
@@ -72,6 +74,10 @@ const CODEX_HAND_WRITTEN_TYPES: [(&str, &str); 2] = [
     (
         "ThreadSettingsUpdateParams",
         "crate::driver::codex::thread::settings::CodexThreadSettingsUpdateParams",
+    ),
+    (
+        "LoginAccountParams",
+        "crate::driver::codex::account::login::CodexLoginAccountParams",
     ),
 ];
 
