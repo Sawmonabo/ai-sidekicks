@@ -169,7 +169,7 @@ async fn wait_for_replacement(
     let task_watch = closed
         .scope
         .task_watches
-        .watch(&closed.scope, run_id, mcp_task_id);
+        .watch(&closed.scope, run_id, mcp_task_id, contact);
     let replacement = wait_for_connection(
         standing,
         Some(closed),

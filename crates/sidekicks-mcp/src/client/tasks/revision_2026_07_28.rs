@@ -161,11 +161,12 @@ pub(super) async fn follow_task(
     mcp_task_id: &str,
     contact: &watch::Sender<McpTaskContact>,
 ) -> McpToolCallEnd {
-    let watch = connection
-        .scope
-        .task_watches
-        .watch(&connection.scope, run_id, mcp_task_id);
-    let end = poll_until_end(&watch.wake, contact, |_| {
+    let watch =
+        connection
+            .scope
+            .task_watches
+            .watch(&connection.scope, run_id, mcp_task_id, contact);
+    let end = poll_until_end(&watch.wake, &watch.contact, |_| {
         poll_once(connection, standing, mcp_task_id, &watch)
     })
     .await;

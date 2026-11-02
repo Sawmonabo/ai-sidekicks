@@ -133,25 +133,18 @@ pub(super) async fn follow_task(
     resumption: Option<McpTaskResumption>,
     contact: &watch::Sender<McpTaskContact>,
 ) -> McpToolCallEnd {
-    let watch = connection
-        .scope
-        .task_watches
-        .watch(&connection.scope, run_id, mcp_task_id);
+    let watch =
+        connection
+            .scope
+            .task_watches
+            .watch(&connection.scope, run_id, mcp_task_id, contact);
     if resumption == Some(McpTaskResumption::AfterRestart) {
         watch.owe_restart_cancel();
     }
     let held = Mutex::new(None);
     let bound = Mutex::new(ReaskBound::Unstarted);
-    let end = poll_until_end(&watch.wake, contact, |answered| {
-        poll_once(
-            connection,
-            mcp_task_id,
-            &watch,
-            &held,
-            &bound,
-            answered,
-            contact,
-        )
+    let end = poll_until_end(&watch.wake, &watch.contact, |answered| {
+        poll_once(connection, mcp_task_id, &watch, &held, &bound, answered)
     })
     .await;
     watch.end(&end, &connection.endpoint).await;
@@ -168,7 +161,6 @@ async fn poll_once(
     held: &Mutex<Option<HeldResult>>,
     bound: &Mutex<ReaskBound>,
     answered: AnsweredClock,
-    contact: &watch::Sender<McpTaskContact>,
 ) -> Result<PollStep, McpRequestError> {
     if let Some(end) = take_held_end(connection, held) {
         return Ok(PollStep::End(end));
@@ -181,22 +173,12 @@ async fn poll_once(
         poll_interval_ms = reading.poll_interval_ms,
         "a tool server task was polled"
     );
-    if let Some(step) =
-        cancel_after_restart(connection, mcp_task_id, watch, bound, &reading, contact).await
+    if let Some(step) = cancel_after_restart(connection, mcp_task_id, watch, bound, &reading).await
     {
         return Ok(step);
     }
     let status = reading.status.as_str();
-    let bound_end = keep_reask_bound(
-        connection,
-        mcp_task_id,
-        watch,
-        bound,
-        status,
-        answered,
-        contact,
-    )
-    .await;
+    let bound_end = keep_reask_bound(connection, mcp_task_id, watch, bound, status, answered).await;
     if let Some(end) = bound_end {
         return Ok(PollStep::End(end));
     }
@@ -232,11 +214,7 @@ async fn keep_reask_bound(
     bound: &Mutex<ReaskBound>,
     status: &str,
     answered: Duration,
-    contact: &watch::Sender<McpTaskContact>,
 ) -> Option<McpToolCallEnd> {
-    if watch.take_lost_answer() {
-        write_did_not_ask_again(contact, true);
-    }
     let is_waiting_on_input = status == "input_required";
     let current = *lock(bound);
     let next = match current {
@@ -249,7 +227,7 @@ async fn keep_reask_bound(
         ReaskBound::Unstarted | ReaskBound::Running { .. } if !is_waiting_on_input => {
             // The server moved on before asking again.
             if watch.end_reask_wait().await {
-                write_did_not_ask_again(contact, true);
+                write_did_not_ask_again(watch, true);
             }
             ReaskBound::Spent
         }
@@ -261,7 +239,7 @@ async fn keep_reask_bound(
         }
         ReaskBound::Running { .. } => {
             let has_undelivered_answer = watch.end_reask_wait().await;
-            write_did_not_ask_again(contact, has_undelivered_answer);
+            write_did_not_ask_again(watch, has_undelivered_answer);
             ReaskBound::RanOut
         }
     };
@@ -290,15 +268,15 @@ async fn keep_reask_bound(
 /// question it waits on was withdrawn at the start, and gives the step the poll ends with: the end
 /// the cancel reads, or a wait when the cancel failed, nothing held, so the next poll that reads
 /// `input_required` sends it again. `None` once no cancel is owed: none was, the poll read another
-/// status, or the server refused, which writes the contact `CancelRefused`, no stop having asked
-/// for it, and leaves the follow going on as a live one.
+/// status, or the server refused, which takes `CancelRefused` as the task's standing arm, no stop
+/// having asked for it, unless a stop's refusal stands, and leaves the follow going on as a live
+/// one.
 async fn cancel_after_restart(
     connection: &McpServerConnection,
     mcp_task_id: &str,
     watch: &TaskWatch<'_>,
     bound: &Mutex<ReaskBound>,
     reading: &V1TaskReading,
-    contact: &watch::Sender<McpTaskContact>,
 ) -> Option<PollStep> {
     if !watch.owes_restart_cancel() {
         return None;
@@ -315,10 +293,8 @@ async fn cancel_after_restart(
             watches.settle_restart_cancel(&connection.scope, mcp_task_id);
             // A re-bound follow's bound would cancel the task again.
             *lock(bound) = ReaskBound::Spent;
-            contact.send_modify(|state| {
-                *state = McpTaskContact::CancelRefused {
-                    is_from_stop: false,
-                };
+            watch.contact.write_standing(McpTaskContact::CancelRefused {
+                is_from_stop: false,
             });
             None
         }
@@ -360,13 +336,14 @@ async fn cancel_waiting_task(
     }
 }
 
-// Writes the contact `DidNotAskAgain`, a kept answer undelivered as `has_undelivered_answer` says.
-fn write_did_not_ask_again(contact: &watch::Sender<McpTaskContact>, has_undelivered_answer: bool) {
-    contact.send_modify(|state| {
-        *state = McpTaskContact::DidNotAskAgain {
+// Takes `DidNotAskAgain` as the task's standing arm, a kept answer undelivered as
+// `has_undelivered_answer` says.
+fn write_did_not_ask_again(watch: &TaskWatch<'_>, has_undelivered_answer: bool) {
+    watch
+        .contact
+        .write_standing(McpTaskContact::DidNotAskAgain {
             has_undelivered_answer,
-        };
-    });
+        });
 }
 
 /// The end of task `mcp_task_id` from one `tasks/get`, as its follow reads a terminal status;

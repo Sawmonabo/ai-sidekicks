@@ -13,7 +13,9 @@ use crate::client::dispatch::tests::{
     Fixture, StoredReceipt, receipt_without_task, silent_call_server, task_server, until,
 };
 use crate::client::dispatch::{McpCallCompletionError, McpToolDispatchError};
-use crate::client::tasks::McpTaskContact::{NotConfigured, Reached, Reconfigured};
+use crate::client::tasks::McpTaskContact::{
+    CancelRefused, Lost, NotConfigured, Reached, Reconfigured,
+};
 use crate::client::tasks::{McpServerEndpoint, McpToolCallEnd};
 use crate::client::test_server::{
     Reply, Responder, board_accepted, board_answer, board_form, completed, contact, input_required,
@@ -99,6 +101,58 @@ async fn a_task_whose_connection_a_reconnect_replaces_is_followed_on_the_new_one
         "the next poll is on the new one"
     );
     assert_eq!(*contact.borrow(), Reached);
+}
+
+// Mutation: give the re-bound follow a contact of its own in place of the task's watch's, so its
+// first answered poll shows `Reached` where the refused stop stood.
+#[tokio::test(start_paused = true)]
+async fn a_refused_stop_still_reads_refused_after_an_outage_and_a_reconnect() {
+    let fixture = fixture_at_address().await;
+    let (standing, old) = fixture
+        .connect(task_server(|method, earlier| match (method, earlier) {
+            ("tasks/get", 0) => v1_status_reply("working"),
+            ("tasks/get", _) => Reply::Silent,
+            _ => method_not_found(),
+        }))
+        .await;
+    let contact = contact();
+    let cancellation = CancellationToken::new();
+
+    let (dispatched, ()) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &cancellation),
+        async {
+            until(|| old.requests("tasks/get").len() == 1).await;
+            cancellation.cancel();
+            let mut seen = contact.subscribe();
+            seen.wait_for(|state| *state == CancelRefused { is_from_stop: true })
+                .await
+                .expect("the contact stays open");
+            timeout(
+                Duration::from_secs(600),
+                seen.wait_for(|state| *state == Lost),
+            )
+            .await
+            .expect("the outage reads lost")
+            .expect("the contact stays open");
+            fixture
+                .connect(task_server(|method, earlier| match (method, earlier) {
+                    ("tasks/get", 0) => v1_status_reply("working"),
+                    ("tasks/get", _) => v1_status_reply("completed"),
+                    ("tasks/result", _) => {
+                        Reply::Answer(json!({ "result": text_result("tracked") }))
+                    }
+                    _ => method_not_found(),
+                }))
+                .await;
+        },
+    );
+    let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+
+    assert_eq!(end.expect("the call ends"), tracked_end());
+    written.expect("the caller writes the end");
+    assert_eq!(*contact.borrow(), CancelRefused { is_from_stop: true });
 }
 
 // Mutations: finish the task's watch at `ConnectionClosed`, or drop its asked keys, so the

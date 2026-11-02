@@ -419,8 +419,9 @@ fn closed_error(standing: &McpStandingConnection) -> McpToolDispatchError {
 }
 
 /// Asks the server to cancel the followed task `mcp_task_id` at its caller's cancel, its follow
-/// going on to the end the server gives: a refused cancel sets `contact` to `CancelRefused`, and a
-/// failed one is logged. A task resumed after a restart then owes its follow no cancel of its own.
+/// going on to the end the server gives: a refused cancel takes `CancelRefused` as the task's
+/// standing arm on `contact`, and a failed one is logged. A task resumed after a restart then owes
+/// its follow no cancel of its own.
 async fn cancel_followed_task(
     connection: &McpServerConnection,
     generation: McpTaskGeneration,
@@ -433,11 +434,12 @@ async fn cancel_followed_task(
         .settle_restart_cancel(&connection.scope, mcp_task_id);
     match connection.cancel_task(generation, mcp_task_id).await {
         Ok(McpTaskCancelOutcome::Taken) => {}
-        Ok(McpTaskCancelOutcome::Refused) => {
-            contact.send_modify(|state| {
-                *state = McpTaskContact::CancelRefused { is_from_stop: true };
-            });
-        }
+        Ok(McpTaskCancelOutcome::Refused) => connection.scope.task_watches.write_standing_arm(
+            &connection.scope,
+            mcp_task_id,
+            contact,
+            McpTaskContact::CancelRefused { is_from_stop: true },
+        ),
         Err(error) => tracing::warn!(
             error = &error as &(dyn std::error::Error + 'static),
             server = connection.scope.server_name.as_str(),

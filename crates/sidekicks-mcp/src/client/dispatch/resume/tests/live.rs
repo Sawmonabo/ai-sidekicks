@@ -198,8 +198,8 @@ fn another_form_server(method: &str, earlier: usize) -> Reply {
 }
 
 // Mutations: in `keep_reask_bound`, leave the kept question open when a poll reads another status
-// first, or write no contact for a kept answer then lost; in `ask_v1_task_question`, mark no
-// answer lost at a re-ask of another form, or let it take the kept question.
+// first, or write no contact for a kept answer then lost; in `ask_v1_task_question`, write no
+// `DidNotAskAgain` at a re-ask of another form, or let it take the kept question.
 #[rstest]
 #[case::another_status(another_status_server, 1)]
 #[case::another_form(another_form_server, 2)]

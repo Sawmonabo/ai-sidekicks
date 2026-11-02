@@ -20,12 +20,13 @@ use sidekicks_provider::port::question::{
 };
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
-use tokio::sync::{Notify, oneshot};
+use tokio::sync::{Notify, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 use crate::client::connection::McpConnectionScope;
+use crate::client::poll::TaskContact;
 use crate::client::tasks::watches::answers::{V1TaskAnswer, V1TaskAnswerState};
-use crate::client::tasks::{McpServerEndpoint, McpToolCallEnd};
+use crate::client::tasks::{McpServerEndpoint, McpTaskContact, McpToolCallEnd};
 
 /// A followed task's key: its session, its server's name and its id.
 type WatchKey = (SessionId, String, String);
@@ -47,6 +48,8 @@ pub(crate) struct TaskWatches {
 struct WatchedTask {
     wake: Arc<Notify>,
     run_id: RunId,
+    /// The task's contact and its standing arm, which a re-bound follow adopts with the entry.
+    contact: TaskContact,
     /// Canceled once the task stops being followed, which ends its questions' waits for the run.
     ended: CancellationToken,
     /// The request ids of the task's questions taken by the card.
@@ -62,8 +65,6 @@ struct WatchedTask {
     /// Whether a follow that adopted the entry still waits for the server to ask a 2025-11-25
     /// task's question again, which any ask ends.
     awaits_reask: bool,
-    /// Whether an ask of another form withdrew the person's kept answer, until the follow reads it.
-    has_lost_answer: bool,
     /// Whether a 2025-11-25 task resumed after a restart is still to be canceled at the first
     /// answered poll that reads it waiting on input, across a re-bind too.
     owes_restart_cancel: bool,
@@ -120,6 +121,8 @@ pub(in crate::client) struct TaskWatch<'watches> {
     watches: &'watches TaskWatches,
     key: WatchKey,
     pub(super) wake: Arc<Notify>,
+    /// The task's contact, shared with every other writer of it.
+    pub(super) contact: TaskContact,
     /// Whether the follow left its entry in place, so its drop removes nothing.
     is_left: bool,
 }
@@ -151,43 +154,65 @@ impl TaskWatches {
         }
     }
 
-    /// Follows `mcp_task_id` on `scope`'s server for run `run_id`, adopting the entry a follow
-    /// its connection's close cut left, with its questions and asked keys, which then waits for the
-    /// server to ask again.
+    /// Follows `mcp_task_id` on `scope`'s server for run `run_id`, `contact` saying whether its
+    /// server answers, adopting the entry a follow its connection's close cut left, with its
+    /// questions, asked keys and standing arm, which then waits for the server to ask again.
     pub(in crate::client) fn watch(
         &self,
         scope: &McpConnectionScope,
         run_id: RunId,
         mcp_task_id: &str,
+        contact: &watch::Sender<McpTaskContact>,
     ) -> TaskWatch<'_> {
         let key = watch_key(scope, mcp_task_id);
-        let wake = match lock(&self.watched).entry(key.clone()) {
+        let (wake, contact) = match lock(&self.watched).entry(key.clone()) {
             Entry::Occupied(mut left) => {
-                left.get_mut().awaits_reask = true;
-                Arc::clone(&left.get().wake)
+                let left = left.get_mut();
+                left.awaits_reask = true;
+                (Arc::clone(&left.wake), left.contact.clone())
             }
             Entry::Vacant(vacant) => {
                 let wake = Arc::new(Notify::new());
+                let contact = TaskContact::new(contact.clone());
                 vacant.insert(WatchedTask {
                     wake: Arc::clone(&wake),
                     run_id,
+                    contact: contact.clone(),
                     ended: CancellationToken::new(),
                     open_questions: Vec::new(),
                     kept_question: None,
                     detached_takes: Vec::new(),
                     asked: HashSet::new(),
                     awaits_reask: false,
-                    has_lost_answer: false,
                     owes_restart_cancel: false,
                 });
-                wake
+                (wake, contact)
             }
         };
         TaskWatch {
             watches: self,
             key,
             wake,
+            contact,
             is_left: false,
+        }
+    }
+
+    /// Takes `arm` as the standing arm of `scope`'s task `mcp_task_id`, as its contact's
+    /// [`TaskContact::write_standing`] does; shown on `contact` at once while the task has no
+    /// watch yet, whose follow then takes it from there.
+    pub(in crate::client) fn write_standing_arm(
+        &self,
+        scope: &McpConnectionScope,
+        mcp_task_id: &str,
+        contact: &watch::Sender<McpTaskContact>,
+        arm: McpTaskContact,
+    ) {
+        // Held across the write, so a watch made meanwhile reads the arm from `contact`.
+        let watched = lock(&self.watched);
+        match watched.get(&watch_key(scope, mcp_task_id)) {
+            Some(task) => task.contact.write_standing(arm),
+            None => contact.send_modify(|state| *state = arm),
         }
     }
 
@@ -215,8 +240,8 @@ impl TaskWatches {
     /// connection whose close cancels `closing`, and waits for the person's answer. The task's
     /// question a closed connection left open takes an ask of its form, `_meta` aside: its kept
     /// answer is the response, else the ask waits on it; an ask of another form withdraws it
-    /// first, a kept answer then lost. Any ask ends a re-bound follow's wait for it. `None` when
-    /// the client follows no such task on the server.
+    /// first, a kept answer then lost, which the task's contact reads at once. Any ask ends a
+    /// re-bound follow's wait for it. `None` when the client follows no such task on the server.
     pub(in crate::client) async fn ask_v1_task_question(
         &self,
         scope: &McpConnectionScope,
@@ -238,10 +263,15 @@ impl TaskWatches {
                 .upgrade()
                 .filter(|answer| answer.params == params);
             let Some(answer) = same_form else {
-                if self.withdraw_kept_question(&key, kept).await
-                    && let Some(task) = lock(&self.watched).get_mut(&key)
-                {
-                    task.has_lost_answer = true;
+                if self.withdraw_kept_question(&key, kept).await {
+                    let contact = lock(&self.watched)
+                        .get(&key)
+                        .map(|task| task.contact.clone());
+                    if let Some(contact) = contact {
+                        contact.write_standing(McpTaskContact::DidNotAskAgain {
+                            has_undelivered_answer: true,
+                        });
+                    }
                 }
                 return self
                     .ask_v1_task_question_anew(scope, mcp_task_id, params, closing, key)
@@ -758,13 +788,6 @@ impl TaskWatch<'_> {
         lock(&self.watches.watched)
             .get(&self.key)
             .is_some_and(|task| task.owes_restart_cancel)
-    }
-
-    /// Whether an ask of another form withdrew the person's kept answer since this was last read.
-    pub(super) fn take_lost_answer(&self) -> bool {
-        lock(&self.watches.watched)
-            .get_mut(&self.key)
-            .is_some_and(|task| std::mem::take(&mut task.has_lost_answer))
     }
 
     /// Records that the card took the task's input request `input_key`, so it is never asked
