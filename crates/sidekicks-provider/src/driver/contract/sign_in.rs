@@ -26,7 +26,9 @@ pub struct ProviderSignInTakeoverRequest {
     /// The folder on this computer the binding's project root is read at; `None` for a binding
     /// with no project root.
     pub root_folder: Option<PathBuf>,
-    /// The server's canonical address, the one its sign-in is kept under.
+    /// The whole address the server's entry declares, its user name and query kept, which the
+    /// driver matches against the provider's entry and its saved sign-in. It is held only in
+    /// memory, and is never the stripped address the inventory serves.
     pub server_address: McpServerAddress,
     /// How long the flow waits for the person in the browser before it ends unfinished.
     pub lifetime: Duration,

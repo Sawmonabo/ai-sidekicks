@@ -112,6 +112,8 @@ pub(crate) struct AddressedServer {
 
 impl AddressedServer {
     /// The server at `address`, signed in to as `owner_client` when its owner issued one.
+    /// `address` is the whole one the server's entry declares, its user name and query kept, held
+    /// only in memory and never the stripped address the inventory serves.
     #[cfg_attr(
         not(test),
         expect(
