@@ -7,8 +7,14 @@
 //! any store over the same custody, is served from memory, so a request to the server costs no
 //! keychain call. A save writes the keychain first and memory after, so a refused write leaves the
 //! sign-in held as it was. A keychain refusal is never remembered, so the next read asks again.
+//!
+//! The custody also keeps the set of servers that hold a sign-in, written under each server's
+//! lock by the save that keeps a sign-in and by every removal, so the set never reads a sign-in
+//! that is gone. A sign-out counts on the server, and an attempt's save that began before the
+//! latest sign-out is refused, so a sign-out is never undone by a sign-in it raced.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -20,6 +26,7 @@ use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
 use subtle::ConstantTimeEq as _;
+use tokio::sync::watch;
 
 use crate::sign_in::canonical_server_address;
 
@@ -68,6 +75,16 @@ pub(crate) enum SignInCustodyError {
     },
 }
 
+// Why an attempt's save was refused: the server was signed out after the attempt began.
+#[derive(Debug, thiserror::Error)]
+#[error("the MCP server was signed out while this sign-in ran, so it was not kept")]
+struct SignedOutSince;
+
+/// How many times a server was signed out, read when a sign-in begins: its save is refused once
+/// the server has been signed out again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SignOutGeneration(u64);
+
 /// Every server's sign-in custody over the one keychain service the sign-ins are filed under,
 /// shared by every credential store so each server's item is read once per daemon life.
 #[cfg_attr(
@@ -82,13 +99,17 @@ pub(crate) struct SignInCustody {
     keychain: Arc<dyn SecretKeychain>,
     /// Each server's custody by its canonical address, made at its first store.
     servers: Mutex<HashMap<String, Arc<ServerCustody>>>,
+    /// The canonical addresses of the servers a sign-in is held for.
+    signed_in_addresses: watch::Sender<BTreeSet<String>>,
 }
 
-// One server's custody: its keychain account and what was last read or kept there. The state's
-// lock is held across the keychain call, so a read and a write on one server never cross.
+// One server's custody: its keychain account, what was last read or kept there and how many
+// sign-outs it had. The state's lock is held across the keychain call, so a read and a write on
+// one server never cross, and the count only moves under it.
 struct ServerCustody {
     account: String,
     held: tokio::sync::Mutex<HeldState>,
+    sign_outs: AtomicU64,
 }
 
 // What this daemon life knows of a server's item.
@@ -103,6 +124,8 @@ enum SecretsOnSave {
     Held,
     // A sign-in attempt's own, which replace the held ones.
     Attempt {
+        // The server's sign-outs when the attempt began; a later one refuses the save.
+        since: SignOutGeneration,
         // Its proof key, or none for a bearer sign-in.
         dpop_key: Option<Arc<DpopKeyScalar>>,
         // The secret the server issued its client, or none for a public client.
@@ -123,28 +146,60 @@ impl SignInCustody {
         Arc::new(Self {
             keychain,
             servers: Mutex::new(HashMap::new()),
+            signed_in_addresses: watch::Sender::new(BTreeSet::new()),
         })
+    }
+
+    /// The canonical addresses of the servers that hold a sign-in, as each sign-in is kept or
+    /// forgotten.
+    pub(crate) fn signed_in_addresses(&self) -> watch::Receiver<BTreeSet<String>> {
+        self.signed_in_addresses.subscribe()
+    }
+
+    /// Marks the server at `canonical_address` as holding no sign-in: what every removal of its
+    /// sign-in, and every request that finds it needs one, writes.
+    pub(crate) fn mark_signed_out(&self, canonical_address: &str) {
+        self.signed_in_addresses
+            .send_if_modified(|addresses| addresses.remove(canonical_address));
+    }
+
+    // Marks the server at `canonical_address` as holding a sign-in, which only a kept save writes.
+    fn mark_signed_in(&self, canonical_address: &str) {
+        self.signed_in_addresses
+            .send_if_modified(|addresses| addresses.insert(canonical_address.to_owned()));
+    }
+
+    /// How many times the server at `address` has been signed out, which a sign-in beginning now
+    /// hands to [`SignInCustody::attempt_credential_store`].
+    pub(crate) fn sign_out_generation(&self, address: &McpServerAddress) -> SignOutGeneration {
+        SignOutGeneration(self.server(address).sign_outs.load(Ordering::Acquire))
     }
 
     /// The credential store of the server at `address` for its held sign-in: a save keeps the
     /// held proof key and client secret, as a renewal must.
-    pub(crate) fn credential_store(&self, address: &McpServerAddress) -> McpCredentialStore {
+    pub(crate) fn credential_store(
+        self: &Arc<Self>,
+        address: &McpServerAddress,
+    ) -> McpCredentialStore {
         self.store(address, SecretsOnSave::Held)
     }
 
-    /// The credential store of one sign-in attempt at `address`: its save replaces the held
-    /// sign-in whole, keeping `dpop_key`, the attempt's own key (the one the attempt's OAuth client
-    /// signs with), or none for a bearer sign-in, and `client_secret`, the secret the server
-    /// issued the attempt's client, or none for a public client.
+    /// The credential store of one sign-in attempt at `address` that began at `since`: its save
+    /// replaces the held sign-in whole, keeping `dpop_key`, the attempt's own key (the one the
+    /// attempt's OAuth client signs with), or none for a bearer sign-in, and `client_secret`, the
+    /// secret the server issued the attempt's client, or none for a public client. The save is
+    /// refused when the server was signed out after `since`.
     pub(crate) fn attempt_credential_store(
-        &self,
+        self: &Arc<Self>,
         address: &McpServerAddress,
+        since: SignOutGeneration,
         dpop_key: Option<Arc<DpopKeyScalar>>,
         client_secret: Option<SecretString>,
     ) -> McpCredentialStore {
         self.store(
             address,
             SecretsOnSave::Attempt {
+                since,
                 dpop_key,
                 client_secret,
             },
@@ -152,32 +207,37 @@ impl SignInCustody {
     }
 
     fn store(
-        &self,
+        self: &Arc<Self>,
         address: &McpServerAddress,
         secrets_on_save: SecretsOnSave,
     ) -> McpCredentialStore {
+        McpCredentialStore {
+            custody: Arc::clone(self),
+            server: self.server(address),
+            secrets_on_save,
+        }
+    }
+
+    // The custody of the server at `address`, made at its first use.
+    fn server(&self, address: &McpServerAddress) -> Arc<ServerCustody> {
         let account = canonical_server_address(address);
-        let server = Arc::clone(
+        Arc::clone(
             lock(&self.servers)
                 .entry(account.clone())
                 .or_insert_with(|| {
                     Arc::new(ServerCustody {
                         account,
                         held: tokio::sync::Mutex::new(HeldState::Unread),
+                        sign_outs: AtomicU64::new(0),
                     })
                 }),
-        );
-        McpCredentialStore {
-            keychain: Arc::clone(&self.keychain),
-            server,
-            secrets_on_save,
-        }
+        )
     }
 }
 
 /// One server's sign-in as rmcp's credential store, over the custody it came from.
 pub(crate) struct McpCredentialStore {
-    keychain: Arc<dyn SecretKeychain>,
+    custody: Arc<SignInCustody>,
     server: Arc<ServerCustody>,
     secrets_on_save: SecretsOnSave,
 }
@@ -191,12 +251,44 @@ impl McpCredentialStore {
         self.read_through(&mut state).await
     }
 
-    /// Forgets the server's sign-in, from the keychain and then from memory; `false` when none was
-    /// kept. Fails with the [`KeychainRefusal`], the sign-in still held, when the keychain refuses.
+    /// Forgets the server's sign-in, from the keychain and then from memory, and marks the server
+    /// signed out; `false` when none was kept. Fails with the [`KeychainRefusal`], the sign-in
+    /// still held, when the keychain refuses.
     pub(crate) async fn remove(&self) -> Result<bool, KeychainRefusal> {
         let mut state = self.server.held.lock().await;
-        let was_kept = self.keychain.remove(&self.server.account).await?;
+        self.forget(&mut state).await
+    }
+
+    /// Signs the server out under one hold of its custody: reads the held sign-in, removes it from
+    /// the keychain and memory, counts the sign-out, so a sign-in begun before it is never kept,
+    /// and marks the server signed out. Answers the sign-in removed, whose tokens are to be
+    /// revoked, or `None` when none was kept or the item did not read as a sign-in, which is
+    /// removed all the same. Fails with the [`KeychainRefusal`], the sign-in still held and in
+    /// use, when the keychain refuses the read or the removal.
+    pub(crate) async fn sign_out(&self) -> Result<Option<Arc<HeldSignIn>>, KeychainRefusal> {
+        let mut state = self.server.held.lock().await;
+        let held = match self.read_through(&mut state).await {
+            Ok(held) => held,
+            Err(SignInCustodyError::Keychain(refusal)) => return Err(refusal),
+            Err(error @ SignInCustodyError::Unreadable { .. }) => {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "an MCP server's kept sign-in did not read, so it is removed unrevoked"
+                );
+                None
+            }
+        };
+        self.forget(&mut state).await?;
+        self.server.sign_outs.fetch_add(1, Ordering::AcqRel);
+        Ok(held)
+    }
+
+    // Removes the server's item and forgets it in `state`, the custody's lock held, and marks the
+    // server signed out.
+    async fn forget(&self, state: &mut HeldState) -> Result<bool, KeychainRefusal> {
+        let was_kept = self.custody.keychain.remove(&self.server.account).await?;
         *state = HeldState::Read(None);
+        self.custody.mark_signed_out(&self.server.account);
         Ok(was_kept)
     }
 
@@ -208,7 +300,7 @@ impl McpCredentialStore {
         if let HeldState::Read(held) = state {
             return Ok(held.clone());
         }
-        let held = match self.keychain.read(&self.server.account).await? {
+        let held = match self.custody.keychain.read(&self.server.account).await? {
             None => None,
             Some(item) => Some(Arc::new(
                 serde_json::from_str::<HeldSignIn>(item.expose_secret()).map_err(|error| {
@@ -232,6 +324,8 @@ impl CredentialStore for McpCredentialStore {
         Ok(held.map(|held| held.credentials.clone()))
     }
 
+    // An attempt's save is refused once the server was signed out after the attempt began, and a
+    // kept save marks the server signed in, both under the custody's lock.
     async fn save(&self, credentials: StoredCredentials) -> Result<(), AuthError> {
         let mut state = self.server.held.lock().await;
         let (dpop_key, client_secret) = match &self.secrets_on_save {
@@ -246,9 +340,15 @@ impl CredentialStore for McpCredentialStore {
                 )
             }
             SecretsOnSave::Attempt {
+                since,
                 dpop_key,
                 client_secret,
-            } => (dpop_key.clone(), client_secret.clone()),
+            } => {
+                if self.server.sign_outs.load(Ordering::Acquire) != since.0 {
+                    return Err(AuthError::CredentialStoreError(SignedOutSince.to_string()));
+                }
+                (dpop_key.clone(), client_secret.clone())
+            }
         };
         let sign_in = HeldSignIn {
             credentials,
@@ -257,11 +357,13 @@ impl CredentialStore for McpCredentialStore {
         };
         let item =
             SecretString::from(serde_json::to_string(&sign_in).expect("a sign-in writes as JSON"));
-        self.keychain
+        self.custody
+            .keychain
             .write_verified(&self.server.account, &item)
             .await
             .map_err(|refusal| store_error(&SignInCustodyError::from(refusal)))?;
         *state = HeldState::Read(Some(Arc::new(sign_in)));
+        self.custody.mark_signed_in(&self.server.account);
         Ok(())
     }
 
@@ -289,11 +391,9 @@ impl CredentialStore for McpCredentialStore {
         if !is_same_credentials(&held.credentials, credentials) {
             return Ok(());
         }
-        self.keychain
-            .remove(&self.server.account)
+        self.forget(&mut state)
             .await
             .map_err(|refusal| store_error(&SignInCustodyError::from(refusal)))?;
-        *state = HeldState::Read(None);
         Ok(())
     }
 }
@@ -366,8 +466,9 @@ mod dpop_key_text {
     }
 }
 
-// The client secret in the item, as its own text.
+// The client secret in the item, as its own text, read through a buffer wiped when it drops.
 mod client_secret_text {
+    use secrecy::zeroize::Zeroizing;
     use secrecy::{ExposeSecret as _, SecretString};
     use serde::{Deserialize as _, Deserializer, Serializer};
 
@@ -388,7 +489,8 @@ mod client_secret_text {
     pub(super) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Option<SecretString>, D::Error> {
-        Ok(Option::<String>::deserialize(deserializer)?.map(SecretString::from))
+        let text = Option::<String>::deserialize(deserializer)?.map(Zeroizing::new);
+        Ok(text.map(|text| SecretString::from(text.as_str())))
     }
 }
 
@@ -527,5 +629,99 @@ mod tests {
             .expect("the held sign-in is read")
             .expect("the sign-in is still held");
         assert_eq!(access_token(&loaded), "test-access-token-1");
+    }
+
+    /// An attempt that began before a sign-out never keeps its sign-in: its save is refused, the
+    /// keychain holds nothing and the server reads signed out, while an attempt begun after the
+    /// sign-out keeps its own. Killed by a save that skips the sign-out count, by a sign-out that
+    /// does not count, and by a refused save that still marks the server signed in.
+    #[tokio::test]
+    async fn a_sign_in_begun_before_a_sign_out_is_never_kept() {
+        let (_data_folder, _platform_store, keychain) = test_keychain();
+        let custody = SignInCustody::new(Arc::clone(&keychain));
+        let address = server_address();
+        let canonical_address = canonical_server_address(&address);
+        custody
+            .credential_store(&address)
+            .save(credentials("test-access-token-1"))
+            .await
+            .expect("the first sign-in is kept");
+        let begun_before = custody.attempt_credential_store(
+            &address,
+            custody.sign_out_generation(&address),
+            None,
+            None,
+        );
+
+        custody
+            .credential_store(&address)
+            .sign_out()
+            .await
+            .expect("the sign-out removes the sign-in");
+        let refused = begun_before.save(credentials("test-access-token-2")).await;
+
+        assert!(matches!(refused, Err(AuthError::CredentialStoreError(_))));
+        assert!(
+            keychain
+                .read(&canonical_address)
+                .await
+                .expect("the keychain answers")
+                .is_none()
+        );
+        assert!(
+            !custody
+                .signed_in_addresses()
+                .borrow()
+                .contains(&canonical_address)
+        );
+
+        custody
+            .attempt_credential_store(&address, custody.sign_out_generation(&address), None, None)
+            .save(credentials("test-access-token-3"))
+            .await
+            .expect("a sign-in begun after the sign-out is kept");
+        assert!(
+            custody
+                .signed_in_addresses()
+                .borrow()
+                .contains(&canonical_address)
+        );
+    }
+
+    /// The sign-out answers the very sign-in it removed, a rotation kept before it included, and
+    /// leaves nothing held: the read and the removal are one call under one hold, so no renewal
+    /// lands between them. Killed by answering a sign-in read before the rotation, and by a
+    /// sign-out that leaves the item or the memory behind.
+    #[tokio::test]
+    async fn a_sign_out_answers_the_sign_in_it_removed() {
+        let (_data_folder, _platform_store, keychain) = test_keychain();
+        let custody = SignInCustody::new(Arc::clone(&keychain));
+        let address = server_address();
+        let store = custody.credential_store(&address);
+        store
+            .save(credentials("test-access-token-1"))
+            .await
+            .expect("the sign-in is kept");
+        custody
+            .credential_store(&address)
+            .save(credentials("test-access-token-2"))
+            .await
+            .expect("the renewal's rotation is kept");
+
+        let removed = store
+            .sign_out()
+            .await
+            .expect("the keychain answers")
+            .expect("a sign-in was held");
+
+        assert_eq!(access_token(&removed.credentials), "test-access-token-2");
+        assert!(store.load().await.expect("the custody answers").is_none());
+        assert!(
+            keychain
+                .read(&canonical_server_address(&address))
+                .await
+                .expect("the keychain answers")
+                .is_none()
+        );
     }
 }

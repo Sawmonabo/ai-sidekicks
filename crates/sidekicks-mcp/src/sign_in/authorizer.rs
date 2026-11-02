@@ -9,9 +9,12 @@
 //! - A 401 `invalid_token` renews only while the held token is still the refused one; when another
 //!   request has replaced it, the request is sent again with the held token.
 //! - The authorizer renews as the client the sign-in holds, its secret included, against the
-//!   server's metadata. A sign-in another authorization server issued is forgotten when the
-//!   authorizer is made, its issuer compared as rmcp compares two: equal, or equal but for a slash
-//!   ending an empty path.
+//!   server's metadata, through the server's filtered OAuth client, which signs the renewal with
+//!   the sign-in's proof key for a `DPoP` sign-in. A sign-in another authorization server issued
+//!   is forgotten when the authorizer is made, its issuer compared equal but for a slash ending
+//!   either, so a slash alone never forgets a sign-in.
+//! - A request that finds the server needs a sign-in marks it signed out, so the signed-in set
+//!   never lists a server whose every call needs a new sign-in.
 //! - A renewal refused with `invalid_grant` forgets the sign-in, through the credential store's
 //!   rejection hook, and the server needs a sign-in. One refused with `invalid_dpop_proof` is
 //!   tried once more with a fresh proof, then fails the request with the sign-in kept, as a
@@ -33,7 +36,7 @@ use oauth2::TokenResponse as _;
 use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue};
 use reqwest::{Method, Url};
 use rmcp::transport::auth::{
-    AuthError, AuthorizationManager, AuthorizationMetadata, OAuthClientConfig,
+    AuthError, AuthorizationManager, AuthorizationMetadata, OAuthClientConfig, OAuthHttpClient,
 };
 use secrecy::ExposeSecret as _;
 use sidekicks_contracts::dpop::{DPOP_AUTHORIZATION_SCHEME, DPOP_PROOF_HEADER_NAME};
@@ -50,6 +53,7 @@ use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::{
     DpopKeyScalar, HeldSignIn, McpCredentialStore, SignInCustody, SignInCustodyError,
 };
+use crate::sign_in::oauth_http_client::{OAuthHttpPools, ServerOAuthHttpClient};
 
 /// The `error` a server's challenge names for a token it no longer takes (RFC 6750 §3.1).
 const INVALID_TOKEN: &str = "invalid_token";
@@ -102,6 +106,10 @@ pub(crate) enum SignInAuthorizationError {
 pub(crate) struct SignInAuthorizer {
     /// rmcp's manager of the server's sign-in, which reads and renews its token.
     manager: AuthorizationManager,
+    /// The manager's filtered OAuth client, whose key slot signs a `DPoP` sign-in's renewal.
+    http_client: Arc<ServerOAuthHttpClient>,
+    /// Every server's custody, which the signed-in set is kept in.
+    custody: Arc<SignInCustody>,
     /// The server's custody, for the held token type and proof key.
     store: McpCredentialStore,
     /// The daemon's one renewal lock, keyed by each server's canonical address.
@@ -114,14 +122,16 @@ pub(crate) struct SignInAuthorizer {
 
 impl SignInAuthorizer {
     /// The authorizer of the server at `address` under the sign-in `custody` holds for it,
-    /// renewing through `manager` against the server's `metadata` as the held client, its secret
-    /// included; `renewals` is the daemon's one renewal lock, shared by every authorizer. Fails
-    /// with [`SignInAuthorizationError::SignInRequired`] when no sign-in is held, or the held one
-    /// was issued by another authorization server than `metadata` names and is forgotten.
+    /// renewing against the server's `metadata` as the held client, its secret included, through
+    /// a client of `pools` that signs with the held proof key; `renewals` is the daemon's one
+    /// renewal lock, shared by every authorizer. Fails with
+    /// [`SignInAuthorizationError::SignInRequired`], the server marked signed out, when no
+    /// sign-in is held, or the held one was issued by another authorization server than
+    /// `metadata` names and is forgotten.
     pub(crate) async fn new(
-        custody: &SignInCustody,
+        custody: &Arc<SignInCustody>,
+        pools: &OAuthHttpPools,
         address: &McpServerAddress,
-        mut manager: AuthorizationManager,
         metadata: AuthorizationMetadata,
         renewals: Arc<KeyedLock<String>>,
     ) -> Result<Self, SignInAuthorizationError> {
@@ -129,10 +139,10 @@ impl SignInAuthorizer {
         let account = canonical_server_address(address);
         let held = {
             let _hold = renewals.acquire(account.clone()).await;
-            let held = store
-                .held()
-                .await?
-                .ok_or(SignInAuthorizationError::SignInRequired)?;
+            let Some(held) = store.held().await? else {
+                custody.mark_signed_out(&account);
+                return Err(SignInAuthorizationError::SignInRequired);
+            };
             if let (Some(held_issuer), Some(issuer)) = (
                 held.credentials.issuer.as_deref(),
                 metadata.issuer.as_deref(),
@@ -146,7 +156,17 @@ impl SignInAuthorizer {
             }
             held
         };
+        let http_client = Arc::new(pools.server_client(address));
+        http_client.set_dpop_key(held.dpop_key.clone());
+        let mut manager = AuthorizationManager::new_with_oauth_http_client(
+            address.as_str(),
+            Arc::clone(&http_client) as Arc<dyn OAuthHttpClient>,
+        )
+        .await
+        .expect("a server address is a web address");
         manager.set_metadata(metadata);
+        // rmcp configures a client only with a redirect address, and a renewal sends none, so the
+        // server's address stands in, as rmcp's own `configure_client_id` does.
         let mut client =
             OAuthClientConfig::new(held.credentials.client_id.clone(), address.as_str());
         if let Some(client_secret) = &held.client_secret {
@@ -158,6 +178,8 @@ impl SignInAuthorizer {
         manager.set_credential_store(custody.credential_store(address));
         Ok(Self {
             manager,
+            http_client,
+            custody: Arc::clone(custody),
             store,
             renewals,
             account,
@@ -171,6 +193,8 @@ impl SignInAuthorizer {
     // both read under the server's hold.
     async fn current_token(&self) -> Result<(String, Arc<HeldSignIn>), SignInAuthorizationError> {
         let _hold = self.renewals.acquire(self.account.clone()).await;
+        let before = self.store.held().await?;
+        self.sign_renewals_for(before.as_deref());
         let access_token = retry_refused_proof(|| self.manager.get_access_token()).await?;
         let held = self
             .store
@@ -225,6 +249,13 @@ impl SignInAuthorizer {
         ])
     }
 
+    // Signs the renewals sent from now on with the proof key `held` keeps, a sign-in kept since
+    // the authorizer was made perhaps bound to another, or none of them for a bearer sign-in.
+    fn sign_renewals_for(&self, held: Option<&HeldSignIn>) {
+        self.http_client
+            .set_dpop_key(held.and_then(|held| held.dpop_key.clone()));
+    }
+
     // The proof key `held` keeps, made from its scalar only when it differs from the last one.
     fn dpop_key(&self, held: &HeldSignIn) -> Result<Arc<DpopKey>, SignInAuthorizationError> {
         let scalar = held
@@ -256,9 +287,11 @@ impl SignInAuthorizer {
         }
         let _hold = self.renewals.acquire(self.account.clone()).await;
         let Some(held) = self.store.held().await? else {
+            self.custody.mark_signed_out(&self.account);
             return Ok(false);
         };
         let Some(token_response) = held.credentials.token_response.as_ref() else {
+            self.custody.mark_signed_out(&self.account);
             return Ok(false);
         };
         let held_token = token_response.access_token().secret();
@@ -271,9 +304,13 @@ impl SignInAuthorizer {
         if !is_held_token_refused {
             return Ok(true);
         }
+        self.sign_renewals_for(Some(&held));
         match retry_refused_proof(|| self.manager.refresh_token()).await {
             Ok(_) => Ok(true),
-            Err(SignInAuthorizationError::SignInRequired) => Ok(false),
+            Err(SignInAuthorizationError::SignInRequired) => {
+                self.custody.mark_signed_out(&self.account);
+                Ok(false)
+            }
             Err(error) => Err(error),
         }
     }
@@ -290,9 +327,13 @@ impl McpRequestAuthorizer for SignInAuthorizer {
         let uri = uri.to_owned();
         let dpop_nonce = dpop_nonce.map(str::to_owned);
         Box::pin(async move {
-            Ok(self
+            let authorization = self
                 .authorization(&method, &uri, dpop_nonce.as_deref())
-                .await?)
+                .await;
+            if matches!(authorization, Err(SignInAuthorizationError::SignInRequired)) {
+                self.custody.mark_signed_out(&self.account);
+            }
+            Ok(authorization?)
         })
     }
 
@@ -346,18 +387,10 @@ fn is_refused_proof(error: &AuthError) -> bool {
         == Some(INVALID_DPOP_PROOF)
 }
 
-// Whether `left` and `right` name one authorization server as rmcp compares two issuers: equal,
-// or equal once a slash ending an otherwise empty path is dropped from each.
+// Whether `left` and `right` name one authorization server: equal once a slash ending either is
+// dropped, whatever its path, since a provider may keep an issuer with or without one.
 fn is_same_issuer(left: &str, right: &str) -> bool {
-    left == right || without_root_slash(left) == without_root_slash(right)
-}
-
-// `issuer` without the slash that ends it when its path is otherwise empty.
-fn without_root_slash(issuer: &str) -> &str {
-    issuer
-        .strip_suffix('/')
-        .filter(|stripped| Url::parse(stripped).is_ok_and(|url| matches!(url.path(), "" | "/")))
-        .unwrap_or(issuer)
+    left.strip_suffix('/').unwrap_or(left) == right.strip_suffix('/').unwrap_or(right)
 }
 
 // The `Authorization` value presenting `access_token` under `scheme`, kept out of any print.

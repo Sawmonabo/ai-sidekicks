@@ -5,10 +5,12 @@
 //!   refused with 400 and the attempt keeps waiting, so a forged return cannot end the real one and
 //!   no token request is sent for it.
 //! - **Settling.** A callback that passes takes the attempt out of the server's open attempts, so
-//!   a new launch no longer ends it. An error settles it as a failure; a code is exchanged through
-//!   the attempt's manager, which keeps the tokens through the attempt's credential store. Either
-//!   way the attempt appends its one completion event and the browser is sent to its result page;
-//!   the attempt, and with it the listener, goes once that page has been served.
+//!   a new launch no longer ends it. An error settles it as a failure the daemon's own client did
+//!   not finish, so the next press goes to a provider's flow; a code is exchanged through the
+//!   attempt's manager, which keeps the tokens through the attempt's credential store, marking the
+//!   server signed in. Either way the attempt appends its one completion event and the browser is
+//!   sent to its result page; the attempt, and with it the listener, goes once that page has been
+//!   served.
 
 #![cfg_attr(
     not(test),
@@ -115,12 +117,7 @@ impl RedirectCallbackOwner for AttemptRedemption {
             };
             // Settled on a task of its own, so a browser that leaves mid-exchange still gets its
             // sign-in kept and its one event appended.
-            let settling = tokio::spawn(settle(
-                service,
-                self.canonical_address.clone(),
-                attempt,
-                callback,
-            ));
+            let settling = tokio::spawn(settle(service, attempt, callback));
             match settling.await {
                 Ok((page, attempt)) => {
                     *lock(&self.settled) = Some(attempt);
@@ -138,11 +135,11 @@ impl RedirectCallbackOwner for AttemptRedemption {
     }
 }
 
-// Settles the taken attempt on `callback`: redeems a code, marks the server signed in on success,
-// appends the one completion event, and answers the result page with the attempt to keep.
+// Settles the taken attempt on `callback`: redeems a code, or marks that the daemon's own client
+// did not finish on an error, appends the one completion event, and answers the result page with
+// the attempt to keep.
 async fn settle(
     service: Arc<SignInService>,
-    canonical_address: String,
     attempt: SignInAttempt,
     callback: RedirectCallback,
 ) -> (ResultPage, SignInAttempt) {
@@ -152,15 +149,13 @@ async fn settle(
                 error_code = error.as_str(),
                 "the authorization server sent an MCP sign-in back with an error"
             );
+            service.mark_unfinished_logged(attempt.address()).await;
             Some(SignInFailureReason::CallbackCarriedError)
         }
         AuthorizationResponse::Code(code) => redeem(&attempt, &code, callback.issuer.as_deref())
             .await
             .err(),
     };
-    if failure.is_none() {
-        service.mark_signed_in(&canonical_address);
-    }
     if let Err(error) = append_sign_in_completed(&service.events, &attempt.binding, failure).await {
         tracing::warn!(
             error = &error as &(dyn std::error::Error + 'static),
@@ -302,7 +297,7 @@ mod tests {
         .await;
         let harness = harness().await;
         let browser_url = launch_to_browser(&harness, &addressed_target(&server.base)).await;
-        let signed_in = harness.service.signed_in_addresses();
+        let signed_in = harness.service.custody.signed_in_addresses();
 
         let (status, _) = return_to(&browser_url, forged).await;
 
@@ -347,20 +342,24 @@ mod tests {
     }
 
     /// A return that settles as a failure appends one failure event carrying the daemon's own
-    /// reason and none of the server's words, and leaves the server signed out. Killed by
-    /// appending the server's text as the reason, and by a second or a missing event.
+    /// reason and none of the server's words, and leaves the server signed out; an error sent
+    /// back marks that the daemon's own client did not finish, so the next press goes to a
+    /// provider's flow. Killed by appending the server's text as the reason, by a second or a
+    /// missing event, and by an error callback that marks nothing.
     #[rstest]
     #[case::the_server_sent_an_error(
         false,
         &[("error", "access_denied"), ("error_description", REFUSED_CODE_DESCRIPTION)],
         SignInFailureReason::CallbackCarriedError,
-        0
+        0,
+        true
     )]
     #[case::the_server_refused_the_code(
         true,
         &[("code", "test-code")],
         SignInFailureReason::CodeNotRedeemed,
-        1
+        1,
+        false
     )]
     #[tokio::test]
     async fn a_failed_sign_in_appends_one_failure_in_the_daemons_words(
@@ -368,6 +367,7 @@ mod tests {
         #[case] parameters: &[(&str, &str)],
         #[case] reason: SignInFailureReason,
         #[case] token_requests: usize,
+        #[case] is_marked_unfinished: bool,
     ) {
         let server = serve_authorization_server(FakeServerAnswers {
             is_issuer_in_response: true,
@@ -396,6 +396,23 @@ mod tests {
         assert!(!payload.contains(REFUSED_CODE_DESCRIPTION), "{payload}");
         assert!(!payload.contains("access_denied"), "{payload}");
         assert!(!payload.contains(&server.base), "{payload}");
-        assert!(harness.service.signed_in_addresses().borrow().is_empty());
+        assert!(
+            harness
+                .service
+                .custody
+                .signed_in_addresses()
+                .borrow()
+                .is_empty()
+        );
+        let address = McpServerAddress::new(&server.base).expect("a server address");
+        assert_eq!(
+            harness
+                .admitted_clients
+                .read(&address)
+                .await
+                .expect("the admitted client reads")
+                .is_some_and(|admitted| admitted.is_own_client_unfinished),
+            is_marked_unfinished
+        );
     }
 }

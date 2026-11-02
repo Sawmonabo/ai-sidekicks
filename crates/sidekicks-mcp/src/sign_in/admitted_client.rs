@@ -1,8 +1,9 @@
 //! Which sign-in client each MCP server admitted, one row per canonical server address however
 //! many bindings or providers name the server: the provider whose own client a completed provider
-//! flow signed in with, and the mark that the daemon's own client ended an attempt with no
-//! callback, which outlives a restart so the next press goes to a provider's flow. Neither is a
-//! credential, and a sign-out keeps the row.
+//! flow signed in with, and the mark that the daemon's own client's attempt did not finish (it ran
+//! out, the daemon stopped, or the server sent the browser back with an error), which outlives a
+//! restart so the next press goes to a provider's flow, and which clears where no provider's flow
+//! admits the server. Neither is a credential, and a sign-out keeps the row.
 
 use std::borrow::Cow;
 use std::sync::{Arc, LazyLock};
@@ -43,6 +44,10 @@ const RECORD_ADMITTED_PROVIDER_SQL: &str = "INSERT INTO mcp_server_admitted_clie
     admitted_oauth_client = excluded.admitted_oauth_client,
     own_client_unfinished_at = NULL";
 
+// No provider's flow admits the server, so the daemon's own client is the one to try again.
+const CLEAR_OWN_CLIENT_UNFINISHED_SQL: &str = "UPDATE mcp_server_admitted_clients
+  SET own_client_unfinished_at = NULL WHERE server_address = @server_address";
+
 // The mark keeps any provider the server admitted before.
 static MARK_OWN_CLIENT_UNFINISHED_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -58,7 +63,7 @@ static MARK_OWN_CLIENT_UNFINISHED_SQL: LazyLock<String> = LazyLock::new(|| {
 pub(crate) struct AdmittedClient {
     /// The provider whose own client the server admitted, once that provider's flow completed.
     pub(crate) provider: Option<ProviderId>,
-    /// Whether the daemon's own client last ended an attempt with no callback.
+    /// Whether the daemon's own client's last attempt did not finish.
     pub(crate) is_own_client_unfinished: bool,
 }
 
@@ -147,14 +152,31 @@ impl AdmittedClientStore {
         .await
     }
 
-    /// Marks that the daemon's own client ended an attempt at `address` with no callback. Fails
-    /// with [`AdmittedClientError::Write`] when the write is not kept.
+    /// Marks that the daemon's own client's attempt at `address` did not finish. Fails with
+    /// [`AdmittedClientError::Write`] when the write is not kept.
     pub(crate) async fn mark_own_client_unfinished(
         &self,
         address: &McpServerAddress,
     ) -> Result<(), AdmittedClientError> {
         self.write(
             MARK_OWN_CLIENT_UNFINISHED_SQL.as_str(),
+            vec![text_binding(
+                "@server_address",
+                &canonical_server_address(address),
+            )],
+        )
+        .await
+    }
+
+    /// Clears the mark that the daemon's own client did not finish at `address`, once no
+    /// provider's flow admits the server. Fails with [`AdmittedClientError::Write`] when the write
+    /// is not kept.
+    pub(crate) async fn clear_own_client_unfinished(
+        &self,
+        address: &McpServerAddress,
+    ) -> Result<(), AdmittedClientError> {
+        self.write(
+            CLEAR_OWN_CLIENT_UNFINISHED_SQL,
             vec![text_binding(
                 "@server_address",
                 &canonical_server_address(address),

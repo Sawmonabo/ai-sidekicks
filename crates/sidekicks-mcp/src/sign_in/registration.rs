@@ -3,7 +3,8 @@
 //! - **The order.** What is known of the server's admitted client comes first: a provider's
 //!   client it admitted, or the daemon's own client's last attempt that did not finish, goes to
 //!   the provider's flow with no request sent. A redirect address whose host is not loopback is
-//!   never signed in by the daemon's own client. Then a client the server's owner issued; else
+//!   never signed in by the daemon's own client, nor is a server whose metadata does not list the
+//!   `S256` PKCE method, which the client must refuse. Then a client the server's owner issued; else
 //!   dynamic registration, with one adjusted retry when the server refuses the redirect or the
 //!   metadata; else, where the server offers no registration, the client metadata document this
 //!   deployment's relay serves, when the server takes one for a public client on a loopback
@@ -24,6 +25,8 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_std::port_registration::PortRegistration;
 use url::{Host, Url};
 
+use crate::errors::SignInUnsupportedReason;
+use crate::oauth::client_authentication::TOKEN_ENDPOINT_AUTH_METHODS;
 use crate::oauth::pushed_authorization::PushedAuthorizationRefusal;
 use crate::sign_in::admitted_client::{AdmittedClient, AdmittedClientStore};
 use crate::sign_in::oauth_http_client::address_policy::is_loopback_address;
@@ -37,6 +40,9 @@ pub static RELAY_ADDRESS: PortRegistration<RelayAddress> = PortRegistration::new
 /// The name the daemon registers its own client under, which the server shows on its consent
 /// page.
 const CLIENT_NAME: &str = "Sidekicks";
+
+/// The PKCE method the daemon's client always challenges with (RFC 7636 §4.2).
+const PKCE_METHOD: &str = "S256";
 
 /// The OIDC `application_type` the one adjusted registration asks for in place of rmcp's
 /// `native`.
@@ -96,7 +102,13 @@ pub(crate) enum SignInClient {
     },
     /// The server publishes no sign-in metadata, or metadata the daemon cannot use
     /// (`mcp.server.signInUnsupported`).
-    Unsupported,
+    Unsupported {
+        /// Why, which the refusal names.
+        reason: SignInUnsupportedReason,
+    },
+    /// The daemon's own client's last attempt here did not finish, so a provider's own flow signs
+    /// in, and where none admits the server the daemon's own client is chosen again.
+    OwnClientUnfinished,
     /// The daemon's own client is not the one to use; a provider's own flow signs in.
     ProviderFlow {
         /// The provider whose client the server admitted before, when one did.
@@ -137,16 +149,14 @@ pub(crate) async fn choose_client(
         Ok(Some(AdmittedClient {
             is_own_client_unfinished: true,
             ..
-        })) => {
-            return SignInClient::ProviderFlow {
-                admitted_provider: None,
-            };
-        }
+        })) => return SignInClient::OwnClientUnfinished,
         Ok(_) => {}
     }
     // Endpoints rmcp made up from the server's address are no sign-in the server publishes.
     if !resolution.source.is_discovered() {
-        return SignInClient::Unsupported;
+        return SignInClient::Unsupported {
+            reason: SignInUnsupportedReason::NoSignInRoute,
+        };
     }
     if !is_loopback_address(request.redirect_address) {
         return SignInClient::ProviderFlow {
@@ -154,6 +164,17 @@ pub(crate) async fn choose_client(
         };
     }
     let metadata = resolution.metadata;
+    // A server that does not list `S256` may ignore the challenge, so the client refuses it before
+    // the browser opens, the field's absence included.
+    let takes_s256 = metadata
+        .code_challenge_methods_supported
+        .as_ref()
+        .is_some_and(|methods| methods.iter().any(|method| method == PKCE_METHOD));
+    if !takes_s256 {
+        return SignInClient::Unsupported {
+            reason: SignInUnsupportedReason::NoS256Challenge,
+        };
+    }
     let has_registration_endpoint = metadata.registration_endpoint.is_some();
     let document_client_id = relay
         .port()
@@ -213,8 +234,8 @@ async fn register(
         // registration that follows replaces this client with the one the server issues.
         let adjusted = OAuthClientConfig::new(String::new(), redirect_address)
             .with_application_type(ADJUSTED_APPLICATION_TYPE);
-        if manager.configure_client(adjusted).is_err() {
-            return SignInClient::Unsupported;
+        if let unsupported @ SignInClient::Unsupported { .. } = configure(manager, adjusted) {
+            return unsupported;
         }
         registered = manager
             .register_client(CLIENT_NAME, redirect_address, &scopes)
@@ -223,9 +244,16 @@ async fn register(
     match registered {
         Ok(config) => SignInClient::OwnClient(config),
         Err(error) => match http_client.registration_outcome() {
-            // The metadata names no flow the daemon's client can run: no `S256` challenge or no
-            // `code` response.
-            RegistrationOutcome::NotSent => SignInClient::Unsupported,
+            // The metadata names no flow the daemon's client can run: no `code` response.
+            RegistrationOutcome::NotSent => {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the authorization server's metadata names no flow the sign-in can run"
+                );
+                SignInClient::Unsupported {
+                    reason: SignInUnsupportedReason::UnusableMetadata,
+                }
+            }
             RegistrationOutcome::Answered { status, .. } if is_refusal(status) => {
                 SignInClient::ProviderFlow {
                     admitted_provider: None,
@@ -242,11 +270,19 @@ async fn register(
 }
 
 // Configures the daemon's own client `config` on `manager`; metadata whose endpoints are not web
-// addresses is metadata the daemon cannot use.
+// addresses is metadata the daemon cannot use, its cause logged.
 fn configure(manager: &mut AuthorizationManager, config: OAuthClientConfig) -> SignInClient {
     match manager.configure_client(config.clone()) {
         Ok(()) => SignInClient::OwnClient(config),
-        Err(_) => SignInClient::Unsupported,
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the authorization server's metadata names endpoints the sign-in cannot use"
+            );
+            SignInClient::Unsupported {
+                reason: SignInUnsupportedReason::UnusableMetadata,
+            }
+        }
     }
 }
 
@@ -288,7 +324,7 @@ fn client_document_address(
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false);
     let takes_public_clients = fields
-        .get("token_endpoint_auth_methods_supported")
+        .get(TOKEN_ENDPOINT_AUTH_METHODS)
         .and_then(serde_json::Value::as_array)
         .is_some_and(|methods| methods.iter().any(|method| method.as_str() == Some("none")));
     if !takes_documents || !takes_public_clients {

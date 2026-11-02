@@ -21,6 +21,7 @@ use url::Url;
 use super::{
     ClientRequest, RelayAddress, SignInClient, choose_client, classify_pushed_authorization_refusal,
 };
+use crate::errors::SignInUnsupportedReason;
 use crate::oauth::pushed_authorization::PushedAuthorizationRefusal;
 use crate::schema::schema_parts;
 use crate::sign_in::admitted_client::{
@@ -56,10 +57,22 @@ enum Admitted {
     OwnClientUnfinished,
 }
 
+/// The PKCE methods the server's metadata lists.
+#[derive(Clone, Copy)]
+enum Pkce {
+    /// `S256`.
+    S256,
+    /// `plain` alone.
+    PlainOnly,
+    /// The metadata names no method.
+    Unlisted,
+}
+
 /// One row of the registration table: the server, this computer and the sign-in asked for.
 struct Row {
     /// `None` when the server publishes no metadata.
     registration: Option<RegistrationEndpoint>,
+    pkce: Pkce,
     takes_public_clients: bool,
     has_relay: bool,
     owner_client_id: Option<&'static str>,
@@ -72,6 +85,7 @@ impl Row {
     fn with(registration: Option<RegistrationEndpoint>) -> Self {
         Self {
             registration,
+            pkce: Pkce::S256,
             takes_public_clients: true,
             has_relay: true,
             owner_client_id: None,
@@ -98,7 +112,8 @@ fn without_endpoint() -> Row {
 enum Arm {
     OwnClient(String),
     Failed,
-    Unsupported,
+    Unsupported(SignInUnsupportedReason),
+    OwnClientUnfinished,
     ProviderFlow(Option<String>),
 }
 
@@ -114,7 +129,8 @@ fn arm_of(client: SignInClient) -> Arm {
     match client {
         SignInClient::OwnClient(config) => Arm::OwnClient(config.client_id),
         SignInClient::Failed { .. } => Arm::Failed,
-        SignInClient::Unsupported => Arm::Unsupported,
+        SignInClient::Unsupported { reason } => Arm::Unsupported(reason),
+        SignInClient::OwnClientUnfinished => Arm::OwnClientUnfinished,
         SignInClient::ProviderFlow { admitted_provider } => {
             Arm::ProviderFlow(admitted_provider.map(|provider| provider.as_str().to_owned()))
         }
@@ -161,13 +177,17 @@ async fn serve(row: &Row) -> (String, Arc<Mutex<FakeServer>>) {
             "authorization_endpoint": format!("{base}/authorize"),
             "token_endpoint": format!("{base}/token"),
             "response_types_supported": ["code"],
-            "code_challenge_methods_supported": ["S256"],
             "client_id_metadata_document_supported": true,
             "token_endpoint_auth_methods_supported":
                 if row.takes_public_clients { json!(["none"]) } else { json!(["private_key_jwt"]) },
         });
         if let Some(endpoint) = registration_endpoint {
             metadata["registration_endpoint"] = json!(endpoint);
+        }
+        match row.pkce {
+            Pkce::S256 => metadata["code_challenge_methods_supported"] = json!(["S256"]),
+            Pkce::PlainOnly => metadata["code_challenge_methods_supported"] = json!(["plain"]),
+            Pkce::Unlisted => {}
         }
         metadata
     });
@@ -256,7 +276,16 @@ fn answer(status: u16, body: &str) -> Response {
 #[case::no_endpoint_and_no_relay(Row { has_relay: false, ..without_endpoint() },
     provider_flow(), &[])]
 // rmcp's made-up endpoints taken as a sign-in route.
-#[case::no_metadata(Row::with(None), Arm::Unsupported, &[])]
+#[case::no_metadata(Row::with(None), Arm::Unsupported(SignInUnsupportedReason::NoSignInRoute),
+    &[])]
+// An authorization request sent where PKCE may be ignored: no method listed, or no `S256`. The
+// owner-issued client sends no registration, so only the sign-in's own check refuses it.
+#[case::no_pkce_method_listed(
+    Row { pkce: Pkce::Unlisted, owner_client_id: Some("owner-client"), ..answering(&[CREATED]) },
+    Arm::Unsupported(SignInUnsupportedReason::NoS256Challenge), &[])]
+#[case::only_plain_pkce(
+    Row { pkce: Pkce::PlainOnly, owner_client_id: Some("owner-client"), ..answering(&[CREATED]) },
+    Arm::Unsupported(SignInUnsupportedReason::NoS256Challenge), &[])]
 #[case::pushed_authorization_refused_invalid_client(
     Row { pushed_refusal: Some(PushedAuthorizationRefusal::InvalidClient),
           ..answering(&[CREATED]) },
@@ -266,7 +295,7 @@ fn answer(status: u16, body: &str) -> Response {
     Arm::ProviderFlow(Some("provider-a".to_owned())), &[])]
 #[case::an_own_client_attempt_that_did_not_finish(
     Row { admitted: Admitted::OwnClientUnfinished, ..answering(&[CREATED]) },
-    provider_flow(), &[])]
+    Arm::OwnClientUnfinished, &[])]
 // The daemon's own client used for a callback it never binds.
 #[case::a_non_loopback_owner_redirect(
     Row { owner_client_id: Some("owner-client"),
