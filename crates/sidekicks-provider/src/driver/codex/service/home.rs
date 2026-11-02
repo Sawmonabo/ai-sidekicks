@@ -1,7 +1,8 @@
 //! The Codex home one service runs on, and the three kinds of service the daemon keeps there: its
-//! own on an account home, the switching home, the capability read's or an MCP sign-in's, the
-//! lasting one on the person's own Codex folder that terminals join, and one already there that is
-//! not the daemon's, which it only joins; and how the driver resolves the home an account runs in.
+//! own on an account home, the switching home, the capability read's, an MCP sign-in's or a pasted
+//! key's status read's, the lasting one on the person's own Codex folder that terminals join, and
+//! one already there that is not the daemon's, which it only joins; and how the driver resolves the
+//! home an account runs in.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -42,6 +43,9 @@ pub(crate) enum CodexHomeKind {
     /// A folder of the daemon's own, made for one MCP server's sign-in through Codex's own client
     /// and deleted after it, holding only that server's entry and the sign-in Codex saves.
     McpSignIn,
+    /// A folder of the daemon's own that one status read of a pasted API key runs one short-lived
+    /// service in.
+    TokenStatusRead,
 }
 
 /// The Codex home one service runs on.
@@ -55,7 +59,7 @@ pub(crate) struct CodexServiceHome {
 
 impl CodexServiceHome {
     /// The account the home belongs to; `None` for the switching home, the person's own folder
-    /// and the folders the capability read and an MCP sign-in run in.
+    /// and the folders the capability read, an MCP sign-in and a pasted key's status read run in.
     pub(crate) fn provider_account_id(&self) -> Option<&ProviderAccountId> {
         match &self.kind {
             CodexHomeKind::Account(provider_account_id)
@@ -63,7 +67,8 @@ impl CodexServiceHome {
             CodexHomeKind::Switching
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
-            | CodexHomeKind::McpSignIn => None,
+            | CodexHomeKind::McpSignIn
+            | CodexHomeKind::TokenStatusRead => None,
         }
     }
 }
@@ -93,7 +98,8 @@ impl CodexConversationHome {
             | CodexHomeKind::ApiKeyAccount(_)
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
-            | CodexHomeKind::McpSignIn => Self::Account,
+            | CodexHomeKind::McpSignIn
+            | CodexHomeKind::TokenStatusRead => Self::Account,
         }
     }
 

@@ -79,7 +79,7 @@ enum CodexAccountSignInError {
     #[error("Codex's sign-in has ended")]
     Ended,
     /// Codex's account read answered in a shape this build cannot read.
-    #[error("Codex's account read after the sign-in could not be read")]
+    #[error("Codex's account read answered in a shape that could not be read")]
     StatusUnreadable,
 }
 
@@ -217,19 +217,30 @@ async fn read_signed_in_account(
         .ensure_started(service.dependencies().startup_timeout)
         .await?;
     let connection = service.connection()?;
-    let reading = read_codex_account(&connection, CODEX_AUTH_PROBE_TIMEOUT).await?;
-    let (mode, is_named) = match reading {
-        CodexAccountReading::SignedIn { kind, has_email } => {
-            let mode = read_codex_auth_mode(&kind);
-            let is_named = mode == ProviderAuthMode::OauthSubscription && has_email;
-            (Some(mode), is_named)
-        }
-        CodexAccountReading::SignedOut => (None, false),
-        CodexAccountReading::Unreadable => {
-            return Err(CodexAccountSignInError::StatusUnreadable.into());
-        }
+    let (mode, is_named) = match read_signed_in_mode(&connection).await? {
+        Some((mode, is_named)) => (Some(mode), is_named),
+        None => (None, false),
     };
     Ok(ProviderSignInObservation::read_now(mode, is_named))
+}
+
+/// How the service on `connection` signs in, through `account/read`: its mode, with whether Codex
+/// names a subscription's email, or `None` signed out. Fails as the request does, and where the
+/// reply cannot be read, which says nothing of the sign-in.
+pub(super) async fn read_signed_in_mode(
+    connection: &CodexAppServerConnection,
+) -> Result<Option<(ProviderAuthMode, bool)>, DriverError> {
+    match read_codex_account(connection, CODEX_AUTH_PROBE_TIMEOUT).await? {
+        CodexAccountReading::SignedIn { kind, has_email } => {
+            let mode = read_codex_auth_mode(&kind);
+            Ok(Some((
+                mode,
+                mode == ProviderAuthMode::OauthSubscription && has_email,
+            )))
+        }
+        CodexAccountReading::SignedOut => Ok(None),
+        CodexAccountReading::Unreadable => Err(CodexAccountSignInError::StatusUnreadable.into()),
+    }
 }
 
 // What a started login shows the person: its address, its device code and its bound.

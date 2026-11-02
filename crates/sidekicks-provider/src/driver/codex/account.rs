@@ -1,6 +1,7 @@
 //! The Codex driver's account legs: Codex's own acts on one account's home, each sent on the
-//! service that home's own Codex runs, or on a short-lived one started there for the act, and
-//! where its memory import reads and lands.
+//! service that home's own Codex runs, or on a short-lived one started there for the act; the
+//! status read of a pasted API key, on a service of its own apart from every home; and where its
+//! memory import reads and lands.
 
 pub(crate) mod api_key;
 pub(crate) mod auth_file;
@@ -11,6 +12,7 @@ mod sign_in;
 mod sign_out;
 pub(crate) mod switch;
 pub(crate) mod token_refresh;
+mod token_status;
 mod window_start;
 
 use std::collections::HashMap;
@@ -20,7 +22,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use secrecy::SecretString;
+use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_std::mutex_lock::lock;
@@ -55,7 +58,7 @@ pub(crate) const CODEX_FILE_CREDENTIAL_STORE: &str = "cli_auth_credentials_store
 
 /// The switch that keeps a service's sign-in in its process's memory alone, so it writes no
 /// `auth.json`: the switching service's, which runs on tokens the daemon hands it, and an API-key
-/// home's, which runs on the key it is handed.
+/// home's and a pasted key's status read's, which run on the key they are handed.
 pub(crate) const CODEX_EPHEMERAL_CREDENTIAL_STORE: &str =
     "cli_auth_credentials_store=\"ephemeral\"";
 
@@ -241,7 +244,19 @@ impl ProviderAccountLegs for CodexAccountLegs {
     }
 
     fn token_status_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenStatusLegs>> {
-        None
+        Some(self)
+    }
+}
+
+impl ProviderTokenStatusLegs for CodexAccountLegs {
+    // The read runs in a folder of its own, so neither the account nor its folders are read.
+    fn read_token_status<'call>(
+        &'call self,
+        _provider_account_id: &'call ProviderAccountId,
+        _folders: &'call ProviderAccountFolders,
+        token: &'call SecretString,
+    ) -> BoxFuture<'call, Result<Option<ProviderAuthMode>, DriverError>> {
+        token_status::read_codex_token_status(self, token).boxed()
     }
 }
 

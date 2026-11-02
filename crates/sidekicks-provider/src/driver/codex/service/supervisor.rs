@@ -344,8 +344,8 @@ impl CodexService {
     }
 
     /// The account the service runs on: its home's, or the one the switching service carries;
-    /// `None` on the person's own folder, the capability read's, an MCP sign-in's, and a switching
-    /// service handed no account yet.
+    /// `None` on the person's own folder, the daemon's own folders for one read or sign-in, and a
+    /// switching service handed no account yet.
     pub(crate) fn provider_account_id(&self) -> Option<ProviderAccountId> {
         match &self.home.kind {
             CodexHomeKind::Switching => self.dependencies.switching.carried_account(),
@@ -353,7 +353,8 @@ impl CodexService {
             | CodexHomeKind::ApiKeyAccount(_)
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
-            | CodexHomeKind::McpSignIn => self.home.provider_account_id().cloned(),
+            | CodexHomeKind::McpSignIn
+            | CodexHomeKind::TokenStatusRead => self.home.provider_account_id().cloned(),
         }
     }
 
@@ -527,7 +528,8 @@ impl CodexService {
             | CodexHomeKind::ApiKeyAccount(_)
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
-            | CodexHomeKind::McpSignIn => None,
+            | CodexHomeKind::McpSignIn
+            | CodexHomeKind::TokenStatusRead => None,
         }
     }
 

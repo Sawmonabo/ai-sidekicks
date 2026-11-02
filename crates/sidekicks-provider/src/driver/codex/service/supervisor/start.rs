@@ -171,7 +171,9 @@ pub(super) async fn start_codex_service(
         CodexHomeKind::Account(_) | CodexHomeKind::ApiKeyAccount(_) | CodexHomeKind::Switching => {
             start_relayed_service(&service, launch, &cancel, &executable).await
         }
-        CodexHomeKind::CapabilityRead | CodexHomeKind::McpSignIn => {
+        CodexHomeKind::CapabilityRead
+        | CodexHomeKind::McpSignIn
+        | CodexHomeKind::TokenStatusRead => {
             start_own_child_service(&service, launch, &cancel, &executable).await
         }
         // A read's transient service on the folder is the daemon's own child, as the capability
@@ -234,7 +236,8 @@ async fn start_relayed_service(
             CodexHomeKind::Account(_)
             | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
-            | CodexHomeKind::McpSignIn => Ok(()),
+            | CodexHomeKind::McpSignIn
+            | CodexHomeKind::TokenStatusRead => Ok(()),
         }
     }
     .await;

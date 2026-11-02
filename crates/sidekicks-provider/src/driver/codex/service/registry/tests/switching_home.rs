@@ -2,7 +2,7 @@
 //! listed for the backup, holding the conversations a purge deletes there, and apart from the
 //! account home whose socket a terminal's plain `codex` joins.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -19,6 +19,7 @@ use crate::driver::codex::account::CODEX_EPHEMERAL_CREDENTIAL_STORE;
 use crate::driver::codex::service::home::{CodexConversationHome, CodexHomeKind};
 use crate::driver::codex::service::registry::{home_socket_path, switching_home};
 use crate::driver::codex::service::supervisor::CodexServiceDependencies;
+use crate::driver::codex::service::supervisor::test_service::read_tree;
 use crate::driver::codex::service::switching::test_sign_in::{
     AccountHomes, compose_access_token, write_sign_in,
 };
@@ -51,31 +52,6 @@ fn sign_in(dependencies: &CodexServiceDependencies, account_home: &Path) {
         api_keys: HashMap::new(),
     }
     .register_on(dependencies.switching.provider_accounts());
-}
-
-// Every entry under `folder`, by path, with a file's bytes; a socket, a link or a folder by its
-// kind.
-fn read_tree(folder: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
-    let mut tree = BTreeMap::new();
-    let mut pending = vec![folder.to_owned()];
-    while let Some(next) = pending.pop() {
-        for entry in std::fs::read_dir(&next).expect("the folder lists") {
-            let path = entry.expect("the entry reads").path();
-            let file_type = std::fs::symlink_metadata(&path)
-                .expect("the entry reads")
-                .file_type();
-            let content = if file_type.is_dir() {
-                pending.push(path.clone());
-                b"folder".to_vec()
-            } else if file_type.is_file() {
-                std::fs::read(&path).expect("the file reads")
-            } else {
-                format!("{file_type:?}").into_bytes()
-            };
-            tree.insert(path, content);
-        }
-    }
-    tree
 }
 
 // Fails when a restart stops the switching service, when the next daemon launches another instead

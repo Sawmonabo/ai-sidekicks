@@ -10,6 +10,7 @@ use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
 use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome};
+use crate::driver::codex::service::supervisor::CodexProgramResolver;
 use crate::driver::codex::service::supervisor::test_service::{
     CODEX_HOME_NAME, CodexServiceScript, HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE,
     StandInLaunches, TestCodexProgram, UnheardEvents, serve_as_codex_service_stand_in,
@@ -34,18 +35,19 @@ async fn an_app_server_stand_in() {
     serve_as_codex_service_stand_in().await;
 }
 
-// Legs whose short-lived services run this test program as Codex through a script in `folder`,
-// on `codex_home` with `environment` added; answered with the script, whose drop ends what it
-// launched.
-fn stand_in_legs(
+/// Legs whose services run this test program as Codex through a script in `folder`, resolved
+/// through what `program` makes of it, on `codex_home` with `environment` added; answered with
+/// the script, whose drop ends what it launched.
+pub(super) fn stand_in_legs(
     folder: &Path,
     codex_home: &Path,
     environment: &[(&str, &str)],
+    program: impl FnOnce(TestCodexProgram) -> Arc<dyn CodexProgramResolver>,
 ) -> (Arc<CodexAccountLegs>, CodexServiceScript) {
     let script = write_codex_service_script(folder, APP_SERVER_STAND_IN, None);
     let dependencies = test_codex_service_dependencies(
         folder,
-        Arc::new(TestCodexProgram {
+        program(TestCodexProgram {
             program: script.path().to_owned(),
             environment: std::iter::once((
                 CODEX_HOME_NAME.to_owned(),
@@ -90,7 +92,8 @@ async fn a_short_lived_service_keeps_its_sign_in_in_the_home_s_file() {
     let folder = short_socket_folder().expect("a scratch folder is made");
     let codex_home = folder.path().join("account");
     std::fs::create_dir_all(&codex_home).expect("the home is made");
-    let (legs, _script) = stand_in_legs(folder.path(), &codex_home, &[]);
+    let (legs, _script) =
+        stand_in_legs(folder.path(), &codex_home, &[], |program| Arc::new(program));
     let startup_timeout = legs.dependencies.startup_timeout;
 
     let started = legs
@@ -121,7 +124,12 @@ async fn a_short_lived_service_that_never_drains_is_killed_at_the_grace() {
     let folder = short_socket_folder().expect("a scratch folder is made");
     let codex_home = folder.path().join("account");
     std::fs::create_dir_all(&codex_home).expect("the home is made");
-    let (legs, _script) = stand_in_legs(folder.path(), &codex_home, &[(HANG_UP_IGNORED_NAME, "1")]);
+    let (legs, _script) = stand_in_legs(
+        folder.path(),
+        &codex_home,
+        &[(HANG_UP_IGNORED_NAME, "1")],
+        |program| Arc::new(program),
+    );
     let startup_timeout = legs.dependencies.startup_timeout;
 
     let acted = tokio::time::timeout(

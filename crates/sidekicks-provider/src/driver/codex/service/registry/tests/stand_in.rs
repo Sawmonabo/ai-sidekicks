@@ -11,7 +11,7 @@ use std::time::Duration;
 use futures::future::BoxFuture;
 use serde_json::Value;
 use sidekicks_contracts::run::control::ProcessExit;
-use sidekicks_platforms::{ProgramStart, pin_running_process, short_socket_folder};
+use sidekicks_platforms::{pin_running_process, short_socket_folder};
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 
@@ -21,8 +21,8 @@ use crate::driver::codex::service::record::LastingServiceRecordFile;
 use crate::driver::codex::service::registry::OneHome;
 use crate::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
 use crate::driver::codex::service::supervisor::test_service::{
-    CODEX_HOME_NAME, CodexServiceScript, ExitsHeard, LAUNCH_ARGUMENTS_FILE, REQUEST_RECORD_NAME,
-    TestCodexProgram, UnheardEvents, serve_as_codex_service_stand_in,
+    CODEX_HOME_NAME, CodexServiceScript, ExitsHeard, LAUNCH_ARGUMENTS_FILE, ProgramPerHome,
+    TestCodexProgram, UnheardEvents, request_record, serve_as_codex_service_stand_in,
     test_codex_service_dependencies, write_codex_service_script,
 };
 use crate::driver::codex::service::supervisor::{CodexProgramResolver, CodexServiceDependencies};
@@ -130,59 +130,6 @@ fn account_home(folder: &Path, kind: CodexHomeKind) -> CodexServiceHome {
     let codex_home = folder.join("account");
     std::fs::create_dir_all(&codex_home).expect("the home is made");
     CodexServiceHome { codex_home, kind }
-}
-
-// The test's stand-in run with each home as its `CODEX_HOME`, as the daemon's own resolver runs
-// Codex, recording each home's requests in a file of its own beside the homes.
-struct ProgramPerHome {
-    program: TestCodexProgram,
-    records_folder: PathBuf,
-}
-
-impl CodexProgramResolver for ProgramPerHome {
-    fn resolve<'call>(
-        &'call self,
-        home: &'call CodexServiceHome,
-    ) -> BoxFuture<'call, Result<ResolvedProviderExecutable, DriverError>> {
-        let mut environment: Vec<(String, String)> = self
-            .program
-            .environment
-            .iter()
-            .filter(|(name, _)| name != CODEX_HOME_NAME)
-            .cloned()
-            .collect();
-        environment.extend([
-            (
-                CODEX_HOME_NAME.to_owned(),
-                home.codex_home.display().to_string(),
-            ),
-            (
-                REQUEST_RECORD_NAME.to_owned(),
-                request_record(&self.records_folder, &home.codex_home)
-                    .display()
-                    .to_string(),
-            ),
-        ]);
-        let resolved = ResolvedProviderExecutable {
-            requested_command: "codex".to_owned(),
-            resolved_executable_path: self.program.program.clone(),
-            start: ProgramStart {
-                program: self.program.program.clone(),
-                leading_arguments: Vec::new(),
-            },
-            environment,
-        };
-        Box::pin(async move { Ok(resolved) })
-    }
-}
-
-// The file the requests of the service on `codex_home` are recorded in, under `records_folder`.
-fn request_record(records_folder: &Path, codex_home: &Path) -> PathBuf {
-    let name = codex_home
-        .file_name()
-        .expect("a home names a folder")
-        .to_string_lossy();
-    records_folder.join(format!("{name}-requests"))
 }
 
 /// The requests the service on `codex_home` under [`per_home_services`] was sent, whole and in

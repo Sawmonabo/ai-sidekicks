@@ -233,9 +233,10 @@ pub(crate) fn read_sign_in_address(
 /// observes whether the provider accepts it, run once per registration and once per re-supply.
 pub trait ProviderTokenStatusLegs: Send + Sync {
     /// The signed-in mode the provider's own status read reports for `token` on
-    /// `provider_account_id`'s account, run in `folders` with the token handed to that one child on
-    /// the provider's documented channel; `None` when it reports no signed-in mode. Has no bound of
-    /// its own, the caller bounds it. Fails with the driver's error when the read could not run.
+    /// `provider_account_id`'s account, run in a folder made for the read with the token handed to
+    /// that one child on the provider's documented channel, so no file in the account's home
+    /// `folders` changes; `None` when it reports no signed-in mode. Has no bound of its own, the
+    /// caller bounds it. Fails with the driver's error when the read could not run.
     fn read_token_status<'call>(
         &'call self,
         provider_account_id: &'call ProviderAccountId,
