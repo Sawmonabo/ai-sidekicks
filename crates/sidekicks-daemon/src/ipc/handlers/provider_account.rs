@@ -81,7 +81,8 @@ pub(crate) struct ProviderAccountMethodSources {
     pub(crate) account_switch: Arc<AccountSwitch>,
 }
 
-/// Registers every `provider.account.*` method but the usage read, over `sources`. Fails the start when a method is already registered.
+/// Registers every `provider.account.*` method but the usage read, over `sources`. Fails the
+/// start when a method is already registered.
 pub(crate) fn register_provider_account_methods(
     registry: &mut MethodRegistryBuilder,
     sources: ProviderAccountMethodSources,
