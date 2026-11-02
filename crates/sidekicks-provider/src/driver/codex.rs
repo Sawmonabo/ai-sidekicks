@@ -239,6 +239,10 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         McpDeclaredConfigMember::OauthScopes,
         McpDeclaredConfigMember::OauthResource,
     ],
+    mcp_server_names: mcp::server_name::CODEX_MCP_SERVER_NAMES,
+    // It has no `local` scope: a project's `local` server is a user entry, off, switched on in the
+    // sessions of that project alone.
+    is_mcp_local_scope_emulated: true,
     // Codex's own limit on a skill's name.
     skill_name_max_length: Some(64),
     background_work: None,

@@ -24,8 +24,8 @@ use crate::driver::codex::mcp::config::{
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::mcp_server::read::{McpRootReading, McpServerDeclaration, McpServerPolicy};
 
-// The file a project's `.codex` folder holds its config in.
-const PROJECT_CONFIG_FILE_NAME: &str = "config.toml";
+/// The file a project's `.codex` folder holds its config in.
+pub(super) const PROJECT_CONFIG_FILE_NAME: &str = "config.toml";
 /// The config table of the plugins' switches and their servers' overrides.
 pub(crate) const PLUGINS_KEY: &str = "plugins";
 /// The member of the plugins' table holding the switch every plugin without its own takes.

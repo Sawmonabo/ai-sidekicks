@@ -528,7 +528,7 @@ pub struct ProviderBuildChange {
 /// ran on, and the recovery data its binding kept, which names the home holding it where the
 /// provider keeps that apart from the account's.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PurgedConversation {
+pub struct SessionConversation {
     /// The handle the conversation was resumed from.
     pub resume_handle: String,
     /// The account it ran on.
@@ -545,7 +545,7 @@ pub struct PurgeSessionParams {
     /// The session.
     pub session_id: SessionId,
     /// Its conversations, newest first.
-    pub conversations: Vec<PurgedConversation>,
+    pub conversations: Vec<SessionConversation>,
 }
 
 /// Params of `update_session_mode`: Build or Plan, applied by the provider from the next turn.

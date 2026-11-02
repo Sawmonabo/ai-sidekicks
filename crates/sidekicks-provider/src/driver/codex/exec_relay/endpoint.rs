@@ -18,8 +18,8 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::{HeaderValue, StatusCode, header};
 
+use crate::bearer_token::BearerToken;
 use crate::driver::codex::exec_relay::CodexExecRelay;
-use crate::driver::codex::exec_relay::bearer_token::RelayBearerToken;
 
 /// How many of the executor's messages wait for one client before the executor's reader waits.
 const CLIENT_QUEUE_CAPACITY: usize = 256;
@@ -31,7 +31,7 @@ const ACCEPT_RETRY_LONGEST: Duration = Duration::from_secs(1);
 /// The relay's listener and the token a connection must present now.
 pub(super) struct RelayEndpoint {
     address: SocketAddr,
-    token: Arc<Mutex<Arc<RelayBearerToken>>>,
+    token: Arc<Mutex<Arc<BearerToken>>>,
     accepting: JoinHandle<()>,
 }
 
@@ -40,7 +40,7 @@ impl RelayEndpoint {
     /// the system's error when no port can be bound.
     pub(super) async fn listen(
         relay: Weak<CodexExecRelay>,
-        token: RelayBearerToken,
+        token: BearerToken,
     ) -> io::Result<Self> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
         let address = listener.local_addr()?;
@@ -59,12 +59,12 @@ impl RelayEndpoint {
     }
 
     /// Puts `token` in place of the one before it, which no later connection presents.
-    pub(super) fn replace_token(&self, token: RelayBearerToken) {
+    pub(super) fn replace_token(&self, token: BearerToken) {
         *lock(&self.token) = Arc::new(token);
     }
 
     /// The token a connection must present now.
-    pub(super) fn token(&self) -> Arc<RelayBearerToken> {
+    pub(super) fn token(&self) -> Arc<BearerToken> {
         Arc::clone(&lock(&self.token))
     }
 }
@@ -80,7 +80,7 @@ impl Drop for RelayEndpoint {
 // keep failing.
 async fn accept_connections(
     listener: TcpListener,
-    token: Arc<Mutex<Arc<RelayBearerToken>>>,
+    token: Arc<Mutex<Arc<BearerToken>>>,
     relay: Weak<CodexExecRelay>,
 ) {
     let mut retry_wait = ACCEPT_RETRY_FIRST;
@@ -109,11 +109,7 @@ async fn accept_connections(
 }
 
 // Admits one connection by its token and carries messages both ways until either side closes.
-async fn serve_connection(
-    stream: TcpStream,
-    token: Arc<RelayBearerToken>,
-    relay: Weak<CodexExecRelay>,
-) {
+async fn serve_connection(stream: TcpStream, token: Arc<BearerToken>, relay: Weak<CodexExecRelay>) {
     #[expect(
         clippy::result_large_err,
         reason = "the WebSocket handshake's callback fixes this return type"
