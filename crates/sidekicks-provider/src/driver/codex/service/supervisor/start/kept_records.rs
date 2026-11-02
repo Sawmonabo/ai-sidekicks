@@ -160,13 +160,13 @@ async fn end_former_service(
     locked: &Arc<LockedServiceRecord>,
     record: LastingServiceRecord,
 ) -> KeptRecordEnd {
+    const LEFT_RUNNING: &str = "What a former Codex service left running could not be ended.";
     let entry = codex_lasting_service_environment_entry();
     let process = record.process.clone();
     let ended = tokio::task::spawn_blocking(move || process.end_survivors(&entry))
         .await
         .map_err(io::Error::other)
         .and_then(|ended| ended);
-    const LEFT_RUNNING: &str = "What a former Codex service left running could not be ended.";
     let mut unended: Vec<CodexError> = match ended {
         Ok(end) => end
             .unended
@@ -266,7 +266,7 @@ pub(super) async fn take_kept_service(
         return Ok(None);
     };
     if !record.is_draining
-        && let Some(physical_socket) = record.physical_socket
+        && let Some(physical_socket) = record.physical_socket.clone()
     {
         let Some(lasting) = repin(record.process.clone()).await? else {
             retire_former_service(locked, record).await?;
