@@ -50,9 +50,9 @@ impl CodexRunControl {
     /// `Interrupted` for a turn it stopped, `AlreadyInterrupted` for a newest turn that ended
     /// interrupted, and `AlreadyEnded` for one that ended otherwise, for a helper no message has
     /// reached and for a conversation Codex does not hold. A bound route is marked first, as an
-    /// interrupt marks it, and cleared when the stop fails. Codex holds no helper's hook call here, so no pausing or paused helper
-    /// is stopped differently. Fails as a request fails, and with `CodexError::Unanswered` past
-    /// [`CODEX_DETACHED_INTERRUPT_DEADLINE`].
+    /// interrupt marks it, and cleared when the stop fails. Codex holds no helper's hook call
+    /// here, so no pausing or paused helper is stopped differently. Fails as a request fails, and
+    /// with `CodexError::Unanswered` past [`CODEX_DETACHED_INTERRUPT_DEADLINE`].
     pub(crate) async fn stop_child_run(
         &self,
         params: &HelperStopParams,
