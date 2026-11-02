@@ -722,10 +722,10 @@ interface ProviderAccountUsageWindow {
 // `ProviderRequest`, the provider whose rules are listed.
 interface ProviderStandingRuleListResponse {
   rules: Array<{
-    ruleId: string; // daemon-minted from the rule's place, its file and its text, so one file path in two places names two rules
+    ruleId: string; // daemon-minted from the rule's place, its file, its scope, its decision and its text, so one file path in two places names two rules
     provider: ProviderId;
     text: string; // the rule as the provider's file spells it
-    effect: "allow" | "deny";
+    decision: string; // the provider's own word for what the rule does: the name of Claude Code's list (`allow`, `deny` or `ask`), or the word a Codex rule file writes, such as `allow`, `prompt` or `forbidden`
     scope?: // absent for a rule of the system folder or the managed settings
       | { kind: "accountHome"; accountId: ProviderAccountId }
       | { kind: "project"; projectId: ProjectId };
