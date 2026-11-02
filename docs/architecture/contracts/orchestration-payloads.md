@@ -580,12 +580,31 @@ type AgentRunQueuedPayload = {
   // admission refuses a provider with no account to run on.
   admittedProviderAccountId: ProviderAccountId;
 } & (
-  | { agentId: AgentId; resolvedAgent?: never }
+  | {
+      agentId: AgentId;
+      resolvedAgent?: never;
+      providerChild?: ProviderChildStart; // only on a run reached as providerSubagent: the helper it is for
+    }
   | {
       agentId?: never;
       resolvedAgent: AgentListEntry & { resolvedConfiguration: AgentResolvedConfiguration };
+      providerChild?: never;
     }
 );
+
+// A provider's own helper as the run it starts names it: the handle the daemon minted for it at its
+// first start and the ids its provider gave it and its parent.
+interface ProviderChildStart {
+  childHandle: string; // UUID
+  provider: ProviderId;
+  subagentId: SubagentId;
+  parentSubagentId?: SubagentId; // absent under the lead
+  parentChildHandle?: string; // absent under the lead or where no node holds the parent
+  name?: string;
+  role?: string;
+  providerPath?: string;
+  startCallId?: ToolCallId; // the provider's call that started this run of the helper
+}
 
 // Orchestration queue-admission carrier (D-013-9) — IN-PROCESS seam type, not a wire shape,
 // declared in `crates/sidekicks-daemon/src/orchestration/` and never in

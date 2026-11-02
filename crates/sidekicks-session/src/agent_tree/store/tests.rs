@@ -44,6 +44,7 @@ fn provider() -> ProviderId {
 
 fn new_node(session_id: SessionId, own_run_id: RunId, subagent_id: &str) -> NewAgentTreeNode {
     NewAgentTreeNode {
+        child_handle: UuidTextForm::from(mint_uuid_v7()),
         session_id,
         provider_name: provider(),
         subagent_id: subagent_id.to_owned(),
@@ -72,8 +73,9 @@ fn inserted_node_reads_back_and_its_provider_key_is_unique() {
     let (_database, connection) = open();
     let session_id = test_session_id();
     let parent_run = insert_run(&connection, session_id);
-    let (parent_handle, parent) = insert_node(&new_node(session_id, parent_run, "parent"));
-    run_statement(&connection, &parent).expect("the parent's row is written");
+    let parent = new_node(session_id, parent_run, "parent");
+    let parent_handle = parent.child_handle;
+    run_statement(&connection, &insert_node(&parent)).expect("the parent's row is written");
 
     let own_run = insert_run(&connection, session_id);
     let node = NewAgentTreeNode {
@@ -85,11 +87,11 @@ fn inserted_node_reads_back_and_its_provider_key_is_unique() {
         start_call_id: Some("call-1".to_owned()),
         ..new_node(session_id, own_run, "child")
     };
-    let (child_handle, insert) = insert_node(&node);
-    assert_eq!(run_statement(&connection, &insert), Ok(1));
+    assert_eq!(run_statement(&connection, &insert_node(&node)), Ok(1));
 
+    // The row holds the handle the node was given, never one the store minted.
     let expected = AgentTreeNode {
-        child_handle,
+        child_handle: node.child_handle,
         session_id,
         provider_name: provider(),
         subagent_id: "child".to_owned(),
@@ -108,11 +110,11 @@ fn inserted_node_reads_back_and_its_provider_key_is_unique() {
         Some(expected.clone())
     );
     assert_eq!(
-        read_node(&connection, child_handle).expect("the read reads"),
+        read_node(&connection, node.child_handle).expect("the read reads"),
         Some(expected)
     );
 
-    let (_, again) = insert_node(&new_node(session_id, own_run, "child"));
+    let again = insert_node(&new_node(session_id, own_run, "child"));
     let refusal = run_statement(&connection, &again).expect_err("the same helper is refused");
     assert!(
         is_constraint_failure(&refusal, rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE),
@@ -129,8 +131,8 @@ fn binding_the_newest_run_keeps_the_first_start() {
         start_call_id: Some("call-1".to_owned()),
         ..new_node(session_id, first_run, "child")
     };
-    let (child_handle, insert) = insert_node(&node);
-    run_statement(&connection, &insert).expect("the node's row is written");
+    let child_handle = node.child_handle;
+    run_statement(&connection, &insert_node(&node)).expect("the node's row is written");
 
     let newest_run = insert_run(&connection, session_id);
     let later = node
@@ -160,8 +162,8 @@ fn a_parent_handle_naming_no_node_is_refused() {
         parent_child_handle: Some(UuidTextForm::from(mint_uuid_v7())),
         ..new_node(session_id, own_run, "orphan")
     };
-    let (_, insert) = insert_node(&node);
-    let refusal = run_statement(&connection, &insert).expect_err("a missing parent is refused");
+    let refusal =
+        run_statement(&connection, &insert_node(&node)).expect_err("a missing parent is refused");
     assert!(
         is_constraint_failure(&refusal, rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY),
         "{refusal:?}"

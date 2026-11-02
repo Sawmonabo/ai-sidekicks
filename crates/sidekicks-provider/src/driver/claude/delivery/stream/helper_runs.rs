@@ -18,7 +18,8 @@ use crate::driver::claude::delivery::system::read_claude_helper_end;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeChildRunRoute, ClaudeRunRoute};
 use crate::driver::run_control::HelperStopReason;
 use crate::run::delivery::{
-    DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome, LateAppendableRow,
+    ChildRunSubagent, DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome,
+    LateAppendableRow,
 };
 use crate::thread_frame_router::{SubagentLifecycleEmission, SubagentLifecycleEventType};
 
@@ -31,6 +32,10 @@ impl ClaudeDeliveryStream {
         lead_at_read: Option<ClaudeBoundRun>,
         emission: SubagentLifecycleEmission,
     ) {
+        // A helper id the transcript cannot hold names no helper a row or a node could show.
+        let Ok(subagent_id) = SubagentId::new(emission.subagent_id.clone()) else {
+            return;
+        };
         let routes = &self.dependencies.routes;
         let lead = lead_at_read.or_else(|| routes.lead_run_on(session.session_id));
         let is_lead_turn = lead.is_some();
@@ -49,6 +54,8 @@ impl ClaudeDeliveryStream {
             self.open_turn(session, &lead).await;
         }
         let parent_tool_call_id = emission.parent_tool_call_id.as_deref();
+        let tool_call_id =
+            parent_tool_call_id.and_then(|call| ToolCallId::new(call.to_owned()).ok());
         let mut child_run_id = None;
         if emission.event_type == SubagentLifecycleEventType::Started {
             let child = InboundDelivery::ChildRun {
@@ -60,6 +67,14 @@ impl ClaudeDeliveryStream {
                     }),
                 },
                 parent_run_id: lead.run_id,
+                subagent: ChildRunSubagent {
+                    subagent_id: subagent_id.clone(),
+                    parent_subagent_id: None,
+                    name: None,
+                    role: None,
+                    provider_path: None,
+                    start_call_id: tool_call_id.clone(),
+                },
             };
             let (run_id, refusal) =
                 match self.send(session, child, Some("system/task_started")).await {
@@ -103,18 +118,13 @@ impl ClaudeDeliveryStream {
         // A helper's end names the child run its start was given.
         let child_run_id = child_run_id
             .or_else(|| routes.child_run_for(session.session_id, &emission.subagent_id));
-        let Ok(subagent_id) = SubagentId::new(emission.subagent_id.clone()) else {
-            return;
-        };
         let payload = SubagentLifecyclePayload {
             session_id: session.session_id,
             run_id: lead.run_id,
             provider: DESCRIPTOR.provider_id(),
             subagent_id,
             child_run_id,
-            parent_tool_call_id: emission
-                .parent_tool_call_id
-                .and_then(|tool_call_id| ToolCallId::new(tool_call_id).ok()),
+            parent_tool_call_id: tool_call_id,
             source_epoch: None,
             source_position: None,
         };

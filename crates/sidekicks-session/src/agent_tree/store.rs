@@ -7,7 +7,7 @@ use rusqlite::{Connection, OptionalExtension as _, Row, named_params};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::{UuidText, UuidTextForm, mint_uuid_v7};
+use sidekicks_contracts::wire::id::{UuidText, UuidTextForm};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
@@ -82,6 +82,8 @@ pub struct AgentTreeNode {
 /// A helper the tree does not hold yet, as its provider named it when its first own run started.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewAgentTreeNode {
+    /// The handle the daemon minted for the helper, which its first run's event carries.
+    pub child_handle: UuidTextForm,
     /// The session the helper runs in.
     pub session_id: SessionId,
     /// The provider that named the helper.
@@ -106,14 +108,13 @@ pub struct NewAgentTreeNode {
     pub started_at: WireInstant,
 }
 
-/// The handle minted for `node` and the statement that writes its row. Refused when the session
-/// already holds the provider's helper, when its parent's node is missing, or when its run is.
-pub fn insert_node(node: &NewAgentTreeNode) -> (UuidTextForm, WriteStatement) {
-    let child_handle = UuidTextForm::from(mint_uuid_v7());
-    let statement = WriteStatement {
+/// The statement that writes `node`'s row under the handle it carries. Refused when the session
+/// already holds the provider's helper or the handle, or when its parent's node is missing.
+pub fn insert_node(node: &NewAgentTreeNode) -> WriteStatement {
+    WriteStatement {
         sql: Cow::Borrowed(INSERT_NODE_SQL),
         bindings: StatementBindings::Named(vec![
-            text_binding("@childHandle", child_handle.text().as_str()),
+            text_binding("@childHandle", node.child_handle.text().as_str()),
             text_binding("@sessionId", node.session_id.text().as_str()),
             text_binding("@providerName", node.provider_name.as_str()),
             text_binding("@subagentId", &node.subagent_id),
@@ -133,13 +134,12 @@ pub fn insert_node(node: &NewAgentTreeNode) -> (UuidTextForm, WriteStatement) {
             text_binding("@startedAt", node.started_at.as_str()),
         ]),
         expected_row_count: Some(1),
-    };
-    (child_handle, statement)
+    }
 }
 
 /// Binds the known node `child_handle` to its newest own run `own_run_id`, started by the call
 /// `start_call_id` where its provider names one, at `updated_at`; its first start stays. Refused
-/// when no node holds the handle or the run is missing.
+/// when no node holds the handle.
 pub fn bind_newest_run(
     child_handle: UuidTextForm,
     own_run_id: RunId,

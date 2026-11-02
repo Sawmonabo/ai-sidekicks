@@ -12,24 +12,35 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
+use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, RunQueuedSessionAgentPayload,
 };
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
+use sidekicks_provider::run::delivery::ChildRunSubagent;
 use sidekicks_provider::run::posture::{compose_execution_posture, resolve_posture};
+use sidekicks_store::database::schema::SchemaParts;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::EventReadAfterCursorRequest;
 use sidekicks_store::events::log_service::test_fixture::open_log;
+use sidekicks_store::events::projection::SessionProjection as _;
 use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate, RunSetupGateError};
 
+use crate::agent_tree::projection::AgentTreeProjection;
+use crate::agent_tree::store::{AgentTreeNode, find_node};
 use crate::plan_holds::NoPlanHolds;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::errors::RunEngineError;
@@ -67,6 +78,7 @@ async fn start_ask_parent(
             params![run_id.text().as_str(), session_id.text().as_str()],
         )
         .expect("the test queues the parent");
+    bind_run_to_first_provider(database, run_id);
     let queued = AgentRunQueuedPayload::SessionAgent(RunQueuedSessionAgentPayload {
         session_id,
         run_id,
@@ -74,6 +86,7 @@ async fn start_ask_parent(
         new_state: AgentRunQueuedNewState::Value,
         agent_id: AgentId::try_from(mint_uuid_v7()).expect("a minted UUID is an agent id"),
         resolved_agent: None,
+        provider_child: None,
         parent_run_id: None,
         reached_by: None,
         effective_run_config: None,
@@ -99,6 +112,74 @@ async fn start_ask_parent(
     run_id
 }
 
+// The questions' schema with the agent tree's table, which a subagent's start writes its node to.
+fn subagent_schema_parts() -> SchemaParts {
+    schema_parts().with_parts(crate::agent_tree::schema::schema_parts())
+}
+
+// The helper `subagent_id` beneath the helper `parent_subagent_id`, its run started by the call
+// `start_call_id`.
+fn helper(
+    subagent_id: &str,
+    parent_subagent_id: Option<&str>,
+    start_call_id: &str,
+) -> ChildRunSubagent {
+    ChildRunSubagent {
+        subagent_id: SubagentId::new(subagent_id.to_owned()).expect("a helper id"),
+        parent_subagent_id: parent_subagent_id
+            .map(|parent| SubagentId::new(parent.to_owned()).expect("a helper id")),
+        name: None,
+        role: None,
+        provider_path: None,
+        start_call_id: Some(ToolCallId::new(start_call_id.to_owned()).expect("a call id")),
+    }
+}
+
+// The run a subagent's start left running.
+fn running(started: Option<SubagentRunStart>) -> RunId {
+    match started {
+        Some(SubagentRunStart::Running(run_id)) => run_id,
+        unstarted @ (Some(SubagentRunStart::Refused(..)) | None) => {
+            panic!("the subagent runs: {unstarted:?}")
+        }
+    }
+}
+
+// The run's `agent.run.queued` payload and the `occurredAt` its envelope records.
+fn queued_event(database: &TestDatabase, run_id: &RunId) -> (Value, String) {
+    let (payload, occurred_at): (String, String) = database
+        .reader()
+        .query_row(
+            "SELECT payload, occurred_at FROM session_events
+              WHERE run_id = ?1 AND type = 'agent.run.queued'",
+            params![run_id.text().as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("the run's queued event reads");
+    (
+        serde_json::from_str(&payload).expect("the payload is JSON"),
+        occurred_at,
+    )
+}
+
+// The handle a run's `agent.run.queued` names its helper by.
+fn queued_child_handle(queued: &Value) -> UuidTextForm {
+    UuidTextForm::new(
+        queued["providerChild"]["childHandle"]
+            .as_str()
+            .expect("the queued run names its helper's handle"),
+    )
+    .expect("the handle is a UUID")
+}
+
+// The node of the first provider's helper `subagent_id` in `session_id`.
+fn stored_node(database: &TestDatabase, session_id: SessionId, subagent_id: &str) -> AgentTreeNode {
+    let provider = ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a provider id");
+    find_node(&database.reader(), session_id, &provider, subagent_id)
+        .expect("the node reads")
+        .expect("the helper has a node")
+}
+
 // The payload of the run's one event of `event_type`, if it has one.
 fn run_event_payload(database: &TestDatabase, run_id: &RunId, event_type: &str) -> Option<Value> {
     let payloads: Vec<String> = database
@@ -121,7 +202,7 @@ fn run_event_payload(database: &TestDatabase, run_id: &RunId, event_type: &str) 
 // posture to stamp.
 #[tokio::test]
 async fn a_subagent_runs_at_the_posture_its_session_moved_to_since_its_parent_started() {
-    let database = TestDatabase::new(schema_parts());
+    let database = TestDatabase::new(subagent_schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let git_folder = home.path().join("repo.git");
@@ -136,7 +217,7 @@ async fn a_subagent_runs_at_the_posture_its_session_moved_to_since_its_parent_st
     let sandboxed = posture_at(PermissionLevel::Sandboxed, &git_folder);
     session_postures.move_to(sandboxed.clone());
     let started = engine
-        .start_provider_subagent_run(parent)
+        .start_provider_subagent_run(parent, helper("helper-1", None, "call-1"))
         .await
         .expect("the subagent's start is answered");
 
@@ -159,7 +240,7 @@ async fn a_subagent_runs_at_the_posture_its_session_moved_to_since_its_parent_st
 // whose cause is not the one the run's failure records.
 #[tokio::test]
 async fn a_subagent_whose_sandboxed_root_is_gone_is_refused_and_ended() {
-    let database = TestDatabase::new(schema_parts());
+    let database = TestDatabase::new(subagent_schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let git_folder = home.path().join("repo.git");
@@ -174,7 +255,7 @@ async fn a_subagent_whose_sandboxed_root_is_gone_is_refused_and_ended() {
     session_postures.move_to(posture_at(PermissionLevel::Sandboxed, &git_folder));
     std::fs::remove_dir(&git_folder).expect("the git folder is removed");
     let started = engine
-        .start_provider_subagent_run(parent)
+        .start_provider_subagent_run(parent, helper("helper-1", None, "call-1"))
         .await
         .expect("a refused subagent is answered, not failed");
 
@@ -349,7 +430,7 @@ impl RunSetupGate for EndingGate {
 async fn a_subagent_whose_run_ends_during_its_gates_lets_its_posture_go_unrefused(
     #[case] refuses: bool,
 ) {
-    let database = TestDatabase::new(schema_parts());
+    let database = TestDatabase::new(subagent_schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let git_folder = home.path().join("repo.git");
@@ -374,7 +455,7 @@ async fn a_subagent_whose_run_ends_during_its_gates_lets_its_posture_go_unrefuse
     gate.is_armed.store(true, Ordering::SeqCst);
 
     let started = engine
-        .start_provider_subagent_run(parent)
+        .start_provider_subagent_run(parent, helper("helper-1", None, "call-1"))
         .await
         .expect("the subagent's start is answered");
 
@@ -437,4 +518,153 @@ async fn a_continue_whose_run_ends_during_its_gates_interrupts_no_turn() {
         engine.execution_postures.resolved_posture_for(&run_id),
         None
     );
+}
+
+// A helper's first start writes its node in its run's own append, under the handle its
+// `agent.run.queued` carries and at that event's instant; a node the append refuses leaves no run
+// and no event behind. Killed by the node written in a write after the run's, which the second
+// half finds as a third run and event, by the event naming another handle or none, and by the
+// store minting its own handle.
+#[tokio::test]
+async fn a_helpers_start_writes_its_node_in_its_runs_own_append() {
+    let database = TestDatabase::new(subagent_schema_parts());
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let git_folder = home.path().join("repo.git");
+    std::fs::create_dir(&git_folder).expect("the git folder is made");
+    let engine = test_engine(&database, log.service, home.path());
+    let session_postures = Arc::new(TestSessionPostures::default());
+    engine
+        .set_session_postures(Arc::downgrade(&session_postures) as Weak<_>)
+        .expect("a new engine holds no posture source yet");
+    let parent = start_ask_parent(&database, &engine, &session_postures, &git_folder).await;
+
+    let child = running(
+        engine
+            .start_provider_subagent_run(parent, helper("helper-1", None, "call-1"))
+            .await
+            .expect("the subagent's start is answered"),
+    );
+
+    let (queued, occurred_at) = queued_event(&database, &child);
+    let session_id = SessionId::new(queued["sessionId"].as_str().expect("a session id"))
+        .expect("the queued run names its session");
+    let node = stored_node(&database, session_id, "helper-1");
+    assert_eq!(node.child_handle, queued_child_handle(&queued));
+    assert_eq!(node.own_run_id, child);
+    assert_eq!(node.start_call_id.as_deref(), Some("call-1"));
+    assert_eq!(node.parent_subagent_id, None);
+    assert_eq!(node.parent_child_handle, None);
+    assert_eq!(node.started_at.as_str(), occurred_at);
+    assert_eq!(node.updated_at.as_str(), occurred_at);
+
+    // A node write the database refuses, after the start's reads have passed.
+    database
+        .reader()
+        .execute_batch(
+            "CREATE TRIGGER refuse_agent_tree_node BEFORE INSERT ON agent_tree_nodes
+             BEGIN SELECT RAISE(ABORT, 'the test refuses the node'); END;",
+        )
+        .expect("the test refuses every new node");
+    let refused = engine
+        .start_provider_subagent_run(parent, helper("helper-2", None, "call-2"))
+        .await;
+
+    assert!(
+        matches!(refused, Err(RunEngineError::Append(_))),
+        "{refused:?}"
+    );
+    let count = |sql: &str| -> i64 {
+        database
+            .reader()
+            .query_row(sql, [], |row| row.get(0))
+            .expect("the test counts rows")
+    };
+    assert_eq!(count("SELECT COUNT(*) FROM runs"), 2);
+    assert_eq!(
+        count("SELECT COUNT(*) FROM session_events WHERE type = 'agent.run.queued'"),
+        2
+    );
+}
+
+// A helper's later start binds its node to the newer run, keeping its handle and its first start; a
+// helper started beneath it hangs under its node; and the fold rebuilds every row as the live
+// writes left it. Killed by an insert per start, which the unique key refuses, a new handle per
+// start, `started_at` rewritten on a bind, the parent link left unresolved, and by a fold that
+// mints a handle, inserts a handle it already wrote or times a row by the clock.
+#[tokio::test]
+async fn a_helpers_later_start_binds_its_node_and_a_rebuild_writes_the_same_rows() {
+    let database = TestDatabase::new(subagent_schema_parts());
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let git_folder = home.path().join("repo.git");
+    std::fs::create_dir(&git_folder).expect("the git folder is made");
+    let engine = test_engine(&database, Arc::clone(&log.service), home.path());
+    let session_postures = Arc::new(TestSessionPostures::default());
+    engine
+        .set_session_postures(Arc::downgrade(&session_postures) as Weak<_>)
+        .expect("a new engine holds no posture source yet");
+    let parent = start_ask_parent(&database, &engine, &session_postures, &git_folder).await;
+
+    let first = running(
+        engine
+            .start_provider_subagent_run(parent, helper("helper-1", None, "call-1"))
+            .await
+            .expect("the first start is answered"),
+    );
+    let second = running(
+        engine
+            .start_provider_subagent_run(parent, helper("helper-1", None, "call-2"))
+            .await
+            .expect("the later start is answered"),
+    );
+    running(
+        engine
+            .start_provider_subagent_run(second, helper("helper-2", Some("helper-1"), "call-3"))
+            .await
+            .expect("the nested start is answered"),
+    );
+
+    let (first_queued, first_at) = queued_event(&database, &first);
+    let (second_queued, second_at) = queued_event(&database, &second);
+    let session_id = SessionId::new(first_queued["sessionId"].as_str().expect("a session id"))
+        .expect("the queued run names its session");
+    let helper_one = stored_node(&database, session_id, "helper-1");
+    assert_eq!(helper_one.child_handle, queued_child_handle(&first_queued));
+    assert_eq!(helper_one.child_handle, queued_child_handle(&second_queued));
+    assert_eq!(helper_one.own_run_id, second);
+    assert_eq!(helper_one.start_call_id.as_deref(), Some("call-2"));
+    assert_eq!(helper_one.started_at.as_str(), first_at);
+    assert_eq!(helper_one.updated_at.as_str(), second_at);
+    let helper_two = stored_node(&database, session_id, "helper-2");
+    assert_eq!(helper_two.parent_subagent_id.as_deref(), Some("helper-1"));
+    assert_eq!(
+        helper_two.parent_child_handle,
+        Some(helper_one.child_handle)
+    );
+
+    let page = log
+        .service
+        .read_after_cursor(EventReadAfterCursorRequest {
+            session_id,
+            after_cursor: None,
+            limit: None,
+        })
+        .await
+        .expect("the log reads");
+    assert!(!page.has_more, "one page holds the test's log");
+    let mut statements = AgentTreeProjection.clear_statements(&session_id);
+    let mut fold = AgentTreeProjection.fold(&session_id);
+    for envelope in &page.events {
+        let event = SessionEvent::from_envelope(envelope).expect("each event reads");
+        fold.apply(envelope, &event, &mut statements)
+            .expect("each event folds");
+    }
+    log.writer
+        .write(statements)
+        .await
+        .expect("the rebuilt rows are written");
+
+    assert_eq!(stored_node(&database, session_id, "helper-1"), helper_one);
+    assert_eq!(stored_node(&database, session_id, "helper-2"), helper_two);
 }

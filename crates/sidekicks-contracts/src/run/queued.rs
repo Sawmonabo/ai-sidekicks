@@ -10,9 +10,13 @@ use crate::agent::methods::agent_entry;
 use crate::orchestration::OrchestrationRunConfig;
 use crate::provider::account::record::ProviderAccountId;
 use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
+use crate::provider::id::ProviderId;
+use crate::provider::tool_call::ToolCallId;
 use crate::run::id::RunId;
+use crate::run::subagent::SubagentId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::id::UuidTextForm;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::FreeFormText;
 use crate::wire::{Never, literal};
@@ -56,6 +60,67 @@ agent_entry! {
         /// The configuration it was resolved from, whose definition it names.
         pub resolved_configuration: AgentResolvedConfiguration,
     }
+}
+
+/// A provider's own helper as the run it starts names it: the handle the daemon keeps for it and
+/// the ids its provider gave it and its parent.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderChildStart {
+    /// The handle the daemon minted for the helper at its first start.
+    pub child_handle: UuidTextForm,
+    /// The provider that started the helper.
+    pub provider: ProviderId,
+    /// The provider's own id for the helper.
+    pub subagent_id: SubagentId,
+    /// The provider's id for the helper it runs under; absent under the lead.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "SubagentId")]
+    pub parent_subagent_id: Option<SubagentId>,
+    /// The handle of the helper it runs under; absent under the lead or where no node holds it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "UuidTextForm")]
+    pub parent_child_handle: Option<UuidTextForm>,
+    /// The name its provider gave it, where the provider names helpers.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
+    pub name: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The role its provider started it in.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
+    pub role: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// Its path in its provider's tree, where the provider keeps one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
+    pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// The provider's call that started this run of the helper, where the provider names one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ToolCallId")]
+    pub start_call_id: Option<ToolCallId>,
 }
 
 /// Declares one arm of [`AgentRunQueuedPayload`] with the members every arm repeats.
@@ -129,6 +194,15 @@ run_queued_payload! {
         )]
         #[schemars(with = "Never")]
         pub resolved_agent: Option<Never>,
+        /// The provider's own helper the run is for; present only on a run reached as
+        /// `providerSubagent`.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ProviderChildStart")]
+        pub provider_child: Option<Box<ProviderChildStart>>,
     }
 }
 
@@ -146,6 +220,14 @@ run_queued_payload! {
         )]
         #[schemars(with = "Never")]
         pub agent_id: Option<Never>,
+        /// Only a run reached as a provider's own helper names that helper.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        pub provider_child: Option<Never>,
     }
 }
 
@@ -194,6 +276,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     definitions: &[
         Definition::read::<ChildRunProvenance>(),
         Definition::read::<ResolvedAgent>(),
+        Definition::read::<ProviderChildStart>(),
         Definition::read::<AgentRunQueuedPayload>().checked(),
     ],
     constants: &[],

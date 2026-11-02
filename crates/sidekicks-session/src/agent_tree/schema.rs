@@ -35,4 +35,6 @@ CREATE INDEX idx_agent_tree_nodes_name ON agent_tree_nodes(session_id, name)
 CREATE INDEX idx_agent_tree_nodes_provider_path ON agent_tree_nodes(session_id, provider_path)
   WHERE provider_path IS NOT NULL;
 CREATE INDEX idx_agent_tree_nodes_own_run ON agent_tree_nodes(own_run_id);
+-- A deleted node's children, which its foreign key looks up on every delete, the clear's included.
+CREATE INDEX idx_agent_tree_nodes_parent ON agent_tree_nodes(parent_child_handle);
 ";
