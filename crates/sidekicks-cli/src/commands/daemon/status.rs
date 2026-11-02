@@ -1,8 +1,10 @@
 //! `sidekicks daemon status`: the background service's own facts, as text on the person's clock or
 //! with `--json` as the service sent them, the exit saying whether it serves (0) or serves with a
 //! fault (1). A service on a protocol this command does not speak gets one line naming both
-//! protocols; a service that is not answering, where it wrote down why its start failed, gets that
-//! reason in place of the client's line, and exits 69 either way.
+//! protocols. The text closes with whether the service starts at login, where the system registers
+//! it. A service that is not answering gets that line first; where the person turned its login
+//! agent off, or it wrote down why its start failed, that reason stands in place of the client's
+//! line; it exits 69 either way.
 
 use std::fs;
 use std::io::{self, Write};
@@ -27,10 +29,11 @@ use sidekicks_contracts::daemon::status::{
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
 use sidekicks_contracts::method::Method;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
-use sidekicks_platforms::daemon_run_folder;
+use sidekicks_platforms::{daemon_run_folder, service_registration};
 use tokio_util::sync::CancellationToken;
 
 use crate::command_context::CommandContext;
+use crate::commands::daemon::registration::{LoginStart, read_login_start};
 use crate::connected_command::run_connected;
 use crate::exit_codes::ExitCode;
 use crate::local_time::LocalClock;
@@ -45,7 +48,8 @@ pub(crate) struct StatusArgs {
 
 /// Shows the background service's status and answers the exit its state names. Fails as the
 /// connection, the call, a reply that does not read, or the write to stdout does; a service not
-/// answering whose status file names why writes that reason to stderr and answers 69.
+/// answering whose login agent is turned off, or whose status file names why, writes that reason
+/// to stderr and answers 69.
 pub(crate) fn show_status<Output: Write, ErrorOutput: Write>(
     args: &StatusArgs,
     context: &mut CommandContext<Output, ErrorOutput>,
@@ -58,9 +62,33 @@ pub(crate) fn show_status<Output: Write, ErrorOutput: Write>(
     let reply =
         match run_connected(async |connection, cancel| read_status(connection, cancel).await) {
             Ok(reply) => reply,
-            Err(failure) => return report_cannot_start(failure, context),
+            Err(failure) => return report_not_answering(failure, clock.is_some(), context),
         };
-    write_status(&reply, clock.as_ref(), &mut context.stdout)
+    let login_line = match clock {
+        Some(_) => read_status_login_start(&mut context.stderr)?.map(|start| start.line(true)),
+        None => None,
+    };
+    write_status(&reply, clock.as_ref(), login_line, &mut context.stdout)
+}
+
+/// Whether the service starts at login, for the text form; `None` on a system with no
+/// registration, and where the read failed, whose cause is written to `stderr` as a warning so
+/// the status still shows. Fails as that write does.
+fn read_status_login_start(stderr: &mut impl Write) -> io::Result<Option<LoginStart>> {
+    let Some(registration) = service_registration() else {
+        return Ok(None);
+    };
+    match read_login_start(registration) {
+        Ok(start) => Ok(Some(start)),
+        Err(failure) => {
+            writeln!(
+                stderr,
+                "warning: could not read whether the background service starts at login: {:#}",
+                anyhow::Error::new(failure)
+            )?;
+            Ok(None)
+        }
+    }
 }
 
 /// The status reply as the service sent it, and whether this command speaks its protocol.
@@ -98,14 +126,16 @@ async fn read_status(
 }
 
 /// Writes `reply` to `stdout` in one write, as JSON when `clock` is `None` and else as text on
-/// `clock`, and answers the exit its state names. A compatible reply is read whole and held to its
-/// contract before anything is written; fails as that read or the write does.
+/// `clock` closed by `login_line` as a block of its own, and answers the exit its state names. A
+/// compatible reply is read whole and held to its contract before anything is written; fails as
+/// that read or the write does.
 fn write_status(
     reply: &StatusReply,
     clock: Option<&LocalClock>,
+    login_line: Option<&str>,
     stdout: &mut impl Write,
 ) -> anyhow::Result<ExitCode> {
-    let (text, code) = match reply {
+    let (mut text, code) = match reply {
         StatusReply::Compatible(json) => {
             let response = serde_json::from_str::<DaemonStatusReadResponse>(json.get())
                 .context("the background service's status does not read")?;
@@ -132,6 +162,11 @@ fn write_status(
             (text, exit_code_for_state(read_process_state(json)))
         }
     };
+    if let Some(line) = login_line {
+        text.push('\n');
+        text.push_str(line);
+        text.push('\n');
+    }
     stdout.write_all(text.as_bytes())?;
     stdout.flush()?;
     Ok(code)
@@ -164,11 +199,14 @@ fn exit_code_for_state(state: Option<DaemonProcessState>) -> ExitCode {
     }
 }
 
-/// Where `failure` is the service not answering and its status file names why its start failed,
-/// writes that reason to stderr and answers 69; otherwise answers `failure` itself, with why the
-/// status file did not read where it is there but does not.
-fn report_cannot_start<Output: Write, ErrorOutput: Write>(
+/// Where `failure` is the service not answering: in the text form (`is_text`), a login agent the
+/// person turned off writes that line to stderr and answers 69, and any other registration's line
+/// goes to stdout first; then, where its status file names why its start failed, writes that
+/// reason to stderr and answers 69. Otherwise answers `failure` itself, with why the status file
+/// did not read where it is there but does not.
+fn report_not_answering<Output: Write, ErrorOutput: Write>(
     failure: anyhow::Error,
+    is_text: bool,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
     let is_not_answering = matches!(
@@ -179,6 +217,16 @@ fn report_cannot_start<Output: Write, ErrorOutput: Write>(
     );
     if !is_not_answering {
         return Err(failure);
+    }
+    if is_text && let Some(start) = read_status_login_start(&mut context.stderr)? {
+        let line = start.line(false);
+        if start == LoginStart::TurnedOff {
+            writeln!(context.stderr, "{line}")?;
+            context.stderr.flush()?;
+            return Ok(ExitCode::Unavailable);
+        }
+        writeln!(context.stdout, "{line}")?;
+        context.stdout.flush()?;
     }
     let cannot_start = match read_cannot_start() {
         Ok(Some(cannot_start)) => cannot_start,
@@ -628,7 +676,7 @@ mod tests {
 
     fn written(reply: &StatusReply) -> (String, ExitCode) {
         let mut stdout = Vec::new();
-        let code = write_status(reply, None, &mut stdout).expect("the status is written");
+        let code = write_status(reply, None, None, &mut stdout).expect("the status is written");
         (String::from_utf8(stdout).expect("UTF-8"), code)
     }
 

@@ -1,10 +1,14 @@
 //! `sidekicks daemon start`: a daemon that answers the handshake, or answers that it is repairing
-//! its database file, is already running; otherwise its program starts as a lasting child and the
-//! command waits for its handshake. A started daemon that never answers is ended, and one that
-//! exits first is named with its exit and why its start failed; either exits 69.
+//! its database file, is already running. Otherwise a login agent registered for this account's
+//! home is started through the system's service manager, unless the person turned it off, and the
+//! service manager keeps it; with none, or with no one at the screen, its program starts as a
+//! lasting child. The command then waits for the handshake. A lasting child that never answers is
+//! ended, and one that exits first is named with its exit and why its start failed; an agent's
+//! service that never answers is left running; each exits 69.
 
+use std::convert::Infallible;
 use std::fs::OpenOptions;
-use std::future::Future;
+use std::future::{Future, pending};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -22,12 +26,15 @@ use sidekicks_client::daemon_connection::{
 use sidekicks_client::daemon_ending::{DaemonEndingTerms, end_unanswered_process};
 use sidekicks_client::error::ClientError;
 use sidekicks_contracts::daemon::recovery::DaemonRepairingDetails;
+use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_platforms::{
-    LastingChild, LastingCommand, NULL_DEVICE_PATH, PinnedProcess, leave_daemon_scope,
-    read_child_exit, spawn_lasting_child,
+    LastingChild, LastingCommand, NULL_DEVICE_PATH, PinnedProcess, ServiceOwner,
+    ServiceRegistrationError, leave_daemon_scope, read_child_exit, service_registration,
+    spawn_lasting_child,
 };
 
 use crate::command_context::CommandContext;
+use crate::commands::daemon::registration::{read_owner, registration_failure};
 use crate::commands::daemon::status::read_cannot_start;
 use crate::connected_command::run_listening_for_ctrl_c;
 use crate::daemon_program::daemon_program;
@@ -130,13 +137,18 @@ impl<'a, ErrorOutput: Write> RepairLine<'a, ErrorOutput> {
 
 /// Starts this machine's background service unless one answers, on a runtime of its own, and
 /// answers once a daemon answers the handshake: `daemon start` calls it, and so does an account
-/// command that needs the service running. The program is `daemon_path`, else the one installed
-/// beside this program; the wait for its handshake lasts `deadline`, moved on by each answer that
-/// the daemon is repairing its database file, whose details go to `on_repairing`. Fails with
-/// [`CommandFailure::StartTimedOut`] when the started daemon does not answer in time, which is then
-/// ended; [`CommandFailure::DaemonExited`] when it exits first and no other daemon answers;
-/// `ClientError::Canceled` after a Ctrl-C; and as the program's resolution, its start or a
-/// handshake that fails other than as a starting daemon's does.
+/// command that needs the service running. A login agent registered for this account's home is
+/// started through the service manager; otherwise the program is `daemon_path`, else the one
+/// installed beside this program, started as a lasting child. The wait for the handshake lasts
+/// `deadline`, moved on by each answer that the daemon is repairing its database file, whose
+/// details go to `on_repairing`. Fails with [`CommandFailure::TurnedOffInLoginItems`] or
+/// [`CommandFailure::AppServiceTurnedOff`] for an agent the person turned off, with nothing
+/// started; [`CommandFailure::RegisteredNotAnswering`] when an agent's service does not answer in
+/// time, which is left running; [`CommandFailure::StartTimedOut`] when a lasting child does not,
+/// which is then ended; [`CommandFailure::DaemonExited`] when it exits first and no other daemon
+/// answers; `ClientError::Canceled` after a Ctrl-C; and as the registration's reads and start,
+/// the program's resolution, its start or a handshake that fails other than as a starting
+/// daemon's does.
 pub(crate) fn start_daemon(
     daemon_path: Option<&Path>,
     deadline: Duration,
@@ -150,6 +162,76 @@ pub(crate) fn start_daemon(
     })
 }
 
+/// How a start reaches the service.
+enum StartRoute {
+    /// The login agent was started through the service manager, which keeps its process.
+    Agent,
+    /// The program starts as this command's lasting child.
+    LastingChild,
+}
+
+/// Starts the login agent registered for this account's home where there is one and someone is
+/// at the screen, and answers how the start goes on. Blocks on the service manager. Fails with
+/// [`CommandFailure::TurnedOffInLoginItems`] for the command line's own agent turned off,
+/// [`CommandFailure::AppServiceTurnedOff`] for the app's, and as [`registration_failure`] turns a
+/// failed read or start.
+fn start_registered_agent() -> anyhow::Result<StartRoute> {
+    let Some(registration) = service_registration() else {
+        return refuse_app_turned_off().map(|()| StartRoute::LastingChild);
+    };
+    match read_owner(&registration)? {
+        ServiceOwner::None => refuse_app_turned_off().map(|()| StartRoute::LastingChild),
+        ServiceOwner::CommandLine => {
+            // launchd starts a list turned off in Login Items when asked, so the switch is read
+            // first.
+            let is_turned_off = registration.is_turned_off().map_err(|failure| {
+                registration_failure(
+                    failure,
+                    "could not read whether the background service is turned off in Login Items",
+                )
+            })?;
+            if is_turned_off {
+                return Err(CommandFailure::TurnedOffInLoginItems.into());
+            }
+            let has_screen_session = registration.has_screen_session().map_err(|failure| {
+                registration_failure(failure, "could not read whether anyone is at the screen")
+            })?;
+            if !has_screen_session {
+                return refuse_app_turned_off().map(|()| StartRoute::LastingChild);
+            }
+            registration.kickstart().map_err(|failure| {
+                registration_failure(failure, "could not start the background service")
+            })?;
+            Ok(StartRoute::Agent)
+        }
+        ServiceOwner::App => {
+            refuse_app_turned_off()?;
+            match registration.kickstart() {
+                Ok(()) => Ok(StartRoute::Agent),
+                Err(ServiceRegistrationError::Refused { .. }) => {
+                    Err(CommandFailure::AppServiceTurnedOff.into())
+                }
+                Err(failure) => Err(registration_failure(
+                    failure,
+                    "could not start the background service",
+                )),
+            }
+        }
+    }
+}
+
+/// Fails with [`CommandFailure::AppServiceTurnedOff`] where the status file reads that the app's
+/// login agent is turned off in Login Items, and as the status file's read does.
+fn refuse_app_turned_off() -> anyhow::Result<()> {
+    if matches!(
+        read_cannot_start()?,
+        Some(DaemonCannotStart::TurnedOffInLoginItems {})
+    ) {
+        return Err(CommandFailure::AppServiceTurnedOff.into());
+    }
+    Ok(())
+}
+
 /// [`start_daemon`]'s body on its runtime.
 async fn start_and_wait(
     daemon_path: Option<&Path>,
@@ -160,6 +242,36 @@ async fn start_and_wait(
         .context("could not find where the background service listens")?;
     if is_daemon_answering(&endpoint, &mut on_repairing).await? {
         return Ok(DaemonStart::AlreadyRunning);
+    }
+    let route = tokio::task::spawn_blocking(start_registered_agent)
+        .await
+        .context("the background service's start stopped before it answered")??;
+    if let StartRoute::Agent = route {
+        // The service manager owns the started process, so nothing here ends the wait early.
+        let waited = wait_for_handshake(
+            endpoint,
+            deadline,
+            &mut on_repairing,
+            pending::<Infallible>(),
+        )
+        .await;
+        return match waited {
+            Ok(HandshakeWaitEnd::Connected(connection)) => {
+                connection.close().await;
+                Ok(DaemonStart::Started {
+                    scope_refused: None,
+                })
+            }
+            Ok(HandshakeWaitEnd::Ended(never)) => match never {},
+            Err(failure) if is_not_ready_yet(&failure) => {
+                Err(CommandFailure::RegisteredNotAnswering {
+                    waited: deadline,
+                    last_failure: failure,
+                }
+                .into())
+            }
+            Err(failure) => Err(failure.into()),
+        };
     }
     let LastingChild {
         process, mut exit, ..
