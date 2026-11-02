@@ -19,7 +19,7 @@ use sidekicks_provider::account::home_lock::AccountHomeLock;
 use sidekicks_provider::account::observer::{AccountLiveTurns, ProviderAccountObserver};
 use sidekicks_provider::account::registry::{ProviderAccountRegistry, RegisteredAccount};
 use sidekicks_provider::account::sign_in::{
-    ProviderAccountNotificationPublisher, ProviderSignInBroker,
+    ProviderAccountNotificationPublisher as _, ProviderSignInBroker,
 };
 use sidekicks_provider::account::token_custody::ProviderTokenCustody;
 use sidekicks_provider::account::wake_helper::MachineWakeHelper;
@@ -30,6 +30,7 @@ use sidekicks_provider::driver::contract::account::{
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
+use self::notifications::ProviderAccountNotifications;
 use crate::orchestration::account_switch::AccountSwitch;
 
 mod credential_home;
@@ -68,7 +69,7 @@ pub(crate) struct ProviderAccountMethodSources {
     /// The sessions with a turn live on an account, which hold its removal.
     pub(crate) live_turns: Arc<dyn AccountLiveTurns>,
     /// Where an account's change goes out on `provider.account.subscribe`.
-    pub(crate) publisher: Arc<dyn ProviderAccountNotificationPublisher>,
+    pub(crate) publisher: Arc<ProviderAccountNotifications>,
     /// The daemon's read connections, over the stored quota readings.
     pub(crate) database_reads: Arc<DatabaseReadPool>,
     /// This machine's own device, whose sign-in may take the provider's callback here.
@@ -80,8 +81,7 @@ pub(crate) struct ProviderAccountMethodSources {
     pub(crate) account_switch: Arc<AccountSwitch>,
 }
 
-/// Registers every `provider.account.*` method but the usage read and the subscription, over
-/// `sources`. Fails the start when a method is already registered.
+/// Registers every `provider.account.*` method but the usage read, over `sources`. Fails the start when a method is already registered.
 pub(crate) fn register_provider_account_methods(
     registry: &mut MethodRegistryBuilder,
     sources: ProviderAccountMethodSources,
@@ -93,7 +93,8 @@ pub(crate) fn register_provider_account_methods(
     credential_home::register_provider_account_credential_home_reset(registry, &sources)?;
     sign_in::register_provider_account_sign_in(registry, &sources)?;
     current_update::register_provider_account_current_update(registry, &sources)?;
-    memory_import::register_provider_account_memory_import(registry, &sources)
+    memory_import::register_provider_account_memory_import(registry, &sources)?;
+    notifications::register_provider_account_subscribe(registry, &sources)
 }
 
 impl ProviderAccountMethodSources {

@@ -42,8 +42,8 @@ use sidekicks_provider::driver::contract::error::DriverError;
 
 use super::ProviderAccountMethodSources;
 
-// Why the helper is not installed once the last account's wake switch turned off.
-const WAKE_HELPER_REMOVED_REASON: &str =
+/// Why the helper is not installed once the last account's wake switch turned off.
+pub(super) const WAKE_HELPER_REMOVED_REASON: &str =
     "No account wakes this computer, so the helper was removed";
 
 /// Registers the three verbs. `register` refuses an unknown provider `provider.notFound`, a
