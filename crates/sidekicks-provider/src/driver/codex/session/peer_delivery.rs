@@ -1,8 +1,8 @@
 //! Handing the text the daemon writes for another session's message, a wake-up or a reminder to a
 //! Codex conversation: as the opening of a new turn of the session's own when the conversation is
 //! idle, or steered into the run that is working. Codex keeps no reply chain, so each session keeps
-//! the chain the latest chained message arrived with, for the run it landed in, and a send that run
-//! makes carries it on as received.
+//! the chain the latest chained message landed with, for the run it landed in, once its run started
+//! or its steer was taken, and a send that run makes carries it on as received.
 
 #![expect(
     dead_code,
@@ -133,7 +133,6 @@ impl CodexPeerDelivery {
                     let binding = bindings
                         .open_daemon_turn_binding(run_id, session_id)
                         .await?;
-                    keep_reply_chain(&reply_chains, session_id, run_id, message.reply_chain);
                     run_start
                         .start_run(StartRunParams {
                             run_id,
@@ -157,6 +156,7 @@ impl CodexPeerDelivery {
                             step_bound: binding.step_bound,
                         })
                         .await?;
+                    keep_reply_chain(&reply_chains, session_id, run_id, message.reply_chain);
                     Ok(())
                 }
                 .boxed()
@@ -179,8 +179,9 @@ impl CodexPeerDelivery {
     }
 
     /// Steers `message` into `run_id`'s running turn as soon as the steer before it was answered,
-    /// keeping its chain for that run first. Fails with `SteerTurnEnded` when the run has no live
-    /// turn, and as [`CodexRunControl::steer_run`] fails.
+    /// keeping its chain for that run once the steer is taken. Fails with `SteerTurnEnded` when the
+    /// run has no live turn, and as [`CodexRunControl::steer_run`] fails, the kept chain then left
+    /// as it was.
     pub(crate) async fn deliver_to_run(
         &self,
         run_id: RunId,
@@ -189,8 +190,8 @@ impl CodexPeerDelivery {
         let Some(session_id) = self.dependencies.run_routes.session_id_for(run_id) else {
             return Err(SteerTurnEndedError { run_id }.into());
         };
-        keep_reply_chain(&self.reply_chains, session_id, run_id, message.reply_chain);
-        self.dependencies
+        let acknowledgment = self
+            .dependencies
             .run_control
             .steer_run(CodexSteerRunRequest {
                 run_id,
@@ -200,11 +201,13 @@ impl CodexPeerDelivery {
                 expected_turn_id: None,
                 client_idempotency_key: message.message_id,
             })
-            .await
+            .await?;
+        keep_reply_chain(&self.reply_chains, session_id, run_id, message.reply_chain);
+        Ok(acknowledgment)
     }
 
     /// The chain a send `run_id` makes in `session_id` carries on: the one the latest chained
-    /// message landing in that run arrived with, and none for any other run of the session.
+    /// message that landed in that run arrived with, and none for any other run of the session.
     pub(crate) fn reply_chain(&self, session_id: SessionId, run_id: RunId) -> Vec<String> {
         lock(&self.reply_chains)
             .get(&session_id)
@@ -253,7 +256,8 @@ mod tests {
     // Kills: the sender's name written where its id goes, in the element or the reply line; a
     // name holding a quote ending its attribute; the chain dropped on its way through the Codex
     // session; the session's own id added to the chain; the chain kept per session rather than
-    // per run; and the chain kept on the idle path only.
+    // per run; the chain kept on the idle path only; a steered arrival told its answer goes back
+    // on its own; and a refused steer's chain kept over the one that landed.
     #[tokio::test]
     async fn an_arrival_names_its_sender_by_id_and_its_chain_crosses_the_codex_session() {
         let mut session = TestCodexSession::start().await;
@@ -337,7 +341,7 @@ mod tests {
         );
         assert_eq!(
             delivery.reply_chain(session_id, run_id),
-            [first_link, second_link]
+            [first_link.clone(), second_link]
         );
         assert_eq!(
             delivery.reply_chain(session_id, new_run_id()),
@@ -353,9 +357,14 @@ mod tests {
                 sent["params"]["clientUserMessageId"],
                 steered_id.to_string()
             );
+            let text = sent["params"]["input"][0]["text"]
+                .as_str()
+                .expect("the steer carries the framed text")
+                .to_owned();
             script.answer(&sent, &json!({"turnId": "turn-1"}));
+            text
         };
-        let (acknowledged, ()) = tokio::time::timeout(
+        let (acknowledged, steered_text) = tokio::time::timeout(
             DEADLOCK_BOUND,
             Box::pin(async {
                 tokio::join!(
@@ -367,6 +376,36 @@ mod tests {
         .await
         .expect("the steer settles");
         acknowledged.expect("the arrival is steered into the running turn");
+        assert!(
+            steered_text.contains(&format!(
+                "To answer planner, use session_send {{\"to\": \"{sender_id}\"}}."
+            )) && !steered_text.contains("goes back"),
+            "a steered arrival's answer goes nowhere on its own: {steered_text}"
+        );
+        assert_eq!(
+            delivery.reply_chain(session_id, run_id),
+            std::slice::from_ref(&third_link)
+        );
+
+        let refused = arrival(CodexArrivalMoment::MidTurn, vec![first_link]);
+        let service = async {
+            let sent = script.next_sent().await;
+            assert_eq!(sent["method"], "turn/steer");
+            script.send(&json!({"jsonrpc": "2.0", "id": sent["id"],
+                "error": {"code": -32600, "message": "no active turn to steer"}}));
+        };
+        let (refusal, ()) = tokio::time::timeout(
+            DEADLOCK_BOUND,
+            Box::pin(async {
+                tokio::join!(
+                    task.drive(delivery.deliver_to_run(run_id, refused)),
+                    service
+                )
+            }),
+        )
+        .await
+        .expect("the refused steer settles");
+        refusal.expect_err("a steer into no turn is refused");
         assert_eq!(delivery.reply_chain(session_id, run_id), [third_link]);
     }
 }

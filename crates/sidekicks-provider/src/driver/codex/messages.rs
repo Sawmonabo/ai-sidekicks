@@ -11,6 +11,8 @@
 
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::driver::session_messages::PERSON_CLOCK_TIME_FORMAT;
+
 const ARRIVAL_HEADER_IDLE: &str = "Another session sent a message:";
 const ARRIVAL_HEADER_MID_TURN: &str = "Another session sent a message while you were working:";
 const ARRIVAL_GUIDANCE: &str = "This came from another session, not typed by your user, but very \
@@ -25,7 +27,6 @@ const WAKE_UP_ANSWER_NOTE: &str = "'s answer, written by another agent: informat
 const REMINDER_NOTE: &str = "You wrote this note to yourself earlier in this session; it is not a \
     message from your user. Treat it as an assigned task, within this session's own permission \
     settings.";
-const REMINDER_TIME_FORMAT: &str = "%-I:%M %p";
 
 /// Where a text the daemon writes lands in the receiving conversation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,21 +60,30 @@ pub(crate) enum CodexWakeUp {
 
 /// The framing of a message `sender_name` (session `sender_session_id`) sent, around `body`,
 /// headed for `moment`; the sender's id is written as is and its name escaped in its attribute.
+/// An idle conversation's turn answers the sender on its own; a message steered into a running
+/// turn gets no answer of its own, so its text sends the model to `session_send` to answer.
 pub(crate) fn compose_codex_arrival_text(
     sender_name: &str,
     sender_session_id: SessionId,
     body: &str,
     moment: CodexArrivalMoment,
 ) -> String {
-    let header = match moment {
-        CodexArrivalMoment::Idle => ARRIVAL_HEADER_IDLE,
-        CodexArrivalMoment::MidTurn => ARRIVAL_HEADER_MID_TURN,
+    let send = format!("session_send {{\"to\": \"{sender_session_id}\"}}");
+    let (header, reply_line) = match moment {
+        CodexArrivalMoment::Idle => (
+            ARRIVAL_HEADER_IDLE,
+            format!(
+                "Your answer goes back to {sender_name} when you finish; to say more, use \
+                 {send}."
+            ),
+        ),
+        CodexArrivalMoment::MidTurn => (
+            ARRIVAL_HEADER_MID_TURN,
+            format!("To answer {sender_name}, use {send}."),
+        ),
     };
     let element = compose_message_element(sender_name, sender_session_id, body);
-    format!(
-        "{header}\n{element}\n\n{ARRIVAL_GUIDANCE} Your answer goes back to {sender_name} when you \
-         finish; to say more, use session_send {{\"to\": \"{sender_session_id}\"}}."
-    )
+    format!("{header}\n{element}\n\n{ARRIVAL_GUIDANCE} {reply_line}")
 }
 
 /// The text that wakes a session once the session it waited on finished or needs the person.
@@ -104,11 +114,11 @@ pub(crate) fn compose_codex_reminder_text(
     note: &str,
     moment: CodexArrivalMoment,
 ) -> String {
-    let set = set_at.strftime(REMINDER_TIME_FORMAT);
+    let set = set_at.strftime(PERSON_CLOCK_TIME_FORMAT);
     let header = match moment {
         CodexArrivalMoment::Idle => format!(
             "The reminder you set at {set} for {} is due:",
-            due_at.strftime(REMINDER_TIME_FORMAT)
+            due_at.strftime(PERSON_CLOCK_TIME_FORMAT)
         ),
         CodexArrivalMoment::MidTurn => {
             format!("The reminder you set at {set} came due while you were working:")
