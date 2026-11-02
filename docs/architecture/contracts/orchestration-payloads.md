@@ -44,9 +44,9 @@ interface AgentRunCreateResponse {
 
 // AgentChildRunLinkList — wire: agent.childRunLink.list. A read OF the daemon's parent-to-child
 // index (the paragraph after the registry below), for the WHOLE session: every child at every
-// depth, whether it has a run of its own (an agent the bridge's `agent_run` started, linked in
-// run_links — single-parent: `child_run_id` is the PK, so a child appears under exactly one parent;
-// D-013-3) or is a provider's own helper inside its parent's run. The pane's list, the transcript's
+// depth, whether it has a run of its own (an agent the bridge's `agent_run` started, linked by
+// its own `runs` row's one `parent_run_id`, so a child appears under exactly one parent; D-013-3)
+// or is a provider's own helper inside its parent's run. The pane's list, the transcript's
 // child rows and each child's own view all read this one source; the screen reads it again on
 // agent.subagent.started, agent.subagent.completed, agent.run.queued, agent.run.rejected and each
 // run state change.

@@ -2,24 +2,9 @@
 
 The multi-agent orchestration tables of the daemon's one SQLite schema. The [Local SQLite Schema](local-sqlite-schema.md) holds its pragmas, its conventions and every other area.
 
-DDL per Plan-013 D-013-5. Posture per table: `run_links` and `agents` are events-canonical projections ([ADR-016](../../decisions/016-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events`; never written except by the projector), and so is `agent_tree_nodes`, each node written in the `agent.run.queued` of its helper's run and folded again from that event on a rebuild; `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented), and so are the session-messaging tables and the `agents.pending_switch` column (written before a switch is acknowledged, since no event records a switch being asked for, and kept by a rebuild), so none of them is rebuilt from the log.
+DDL per Plan-013 D-013-5. A child run's link to its parent is no table of its own: it is the `parent_run_id` and `reached_by` of the child's own `runs` row ([Local SQLite Schema §Runs](local-sqlite-schema.md#runs-plan-002)), written from its `agent.run.queued`. Posture per table: `agents` is an events-canonical projection ([ADR-016](../../decisions/016-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events`; never written except by the projector), and so is `agent_tree_nodes`, each node written in the `agent.run.queued` of its helper's run and folded again from that event on a rebuild; `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented), and so are the session-messaging tables and the `agents.pending_switch` column (written before a switch is acknowledged, since no event records a switch being asked for, and kept by a rebuild), so none of them is rebuilt from the log.
 
 ```sql
--- Owner: Plan-013 (events-canonical projection of the agent.run.queued orchestration-carrier fields — D-013-3)
-CREATE TABLE run_links (
-  parent_run_id     TEXT NOT NULL,
-  child_run_id      TEXT NOT NULL,
-  session_id        TEXT NOT NULL,                      -- session provenance (I-013-3): local and relay rebuild scope by session
-  reached_by        TEXT NOT NULL
-                    CHECK(reached_by IN ('providerSubagent', 'bridgeRun', 'workflowStep')),   -- how the child was reached (D-013-12)
-  created_at        TEXT NOT NULL,
-  PRIMARY KEY (child_run_id),                       -- single-parent: a child run links to exactly one parent (one-shot agent.run.queued linkage D-013-3)
-  CHECK (parent_run_id <> child_run_id)             -- a run never parents itself
-) STRICT;
-
-CREATE INDEX idx_run_links_parent ON run_links(parent_run_id); -- parent → children scans (agent.childRunLink.list; the session's agent tree)
-CREATE INDEX idx_run_links_session ON run_links(session_id);
-
 -- Owner: Plan-013 (events-canonical projection of the agent events).
 -- No wire verb brings an agent into a session or takes one out: a row appears where an agent
 -- takes part -- the session's own lead, a delegation from it, or an agent the person named in the
