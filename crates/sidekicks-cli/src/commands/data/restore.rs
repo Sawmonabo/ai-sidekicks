@@ -17,7 +17,7 @@ use crate::command_context::CommandContext;
 use crate::commands::data::offline_mode::run_offline_command;
 use crate::confirmation::{ConfirmationArgs, confirm};
 use crate::exit_codes::{CommandFailure, ExitCode};
-use crate::local_time::LocalClock;
+use crate::local::time::LocalClock;
 
 /// The `data restore` command's argument and option.
 #[derive(Debug, Args)]

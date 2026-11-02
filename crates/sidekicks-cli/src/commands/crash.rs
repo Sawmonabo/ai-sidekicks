@@ -12,7 +12,7 @@ use sidekicks_contracts::method_descriptor::EmptyPayload;
 use crate::command_context::CommandContext;
 use crate::connected_command::run_connected;
 use crate::exit_codes::ExitCode;
-use crate::local_time::LocalClock;
+use crate::local::time::LocalClock;
 
 /// The `crash` commands.
 #[derive(Debug, Subcommand)]

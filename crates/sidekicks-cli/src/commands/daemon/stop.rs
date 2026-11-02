@@ -26,7 +26,7 @@ use crate::commands::daemon::ending::end_running_daemon;
 use crate::confirmation::{ConfirmationArgs, confirm};
 use crate::connected_command::{cancel_on_ctrl_c, run_listening_for_ctrl_c};
 use crate::exit_codes::ExitCode;
-use crate::local_number::LocalNumberFormat;
+use crate::local::number::LocalNumberFormat;
 
 /// The question the stop asks before it ends anything.
 const STOP_QUESTION: &str = "Stop the background service? Work in flight stops, and nothing new \

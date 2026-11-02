@@ -4,6 +4,7 @@
 use icu_decimal::DecimalFormatter;
 use icu_decimal::input::Decimal;
 use icu_decimal::options::DecimalFormatterOptions;
+use icu_locale_core::Locale;
 use sidekicks_platforms::{LocaleCategory, system_locale};
 
 /// This computer's number format, which every count a command prints is written in.
@@ -15,8 +16,13 @@ pub(crate) struct LocalNumberFormat {
 impl LocalNumberFormat {
     /// Reads this computer's number locale.
     pub(crate) fn read() -> Self {
-        let formatter = system_locale(LocaleCategory::Number).map(|locale| {
-            DecimalFormatter::try_new((&locale).into(), DecimalFormatterOptions::default())
+        Self::of_locale(system_locale(LocaleCategory::Number).as_ref())
+    }
+
+    /// The number format of `locale`, plain digits for the POSIX locale (`None`).
+    pub(crate) fn of_locale(locale: Option<&Locale>) -> Self {
+        let formatter = locale.map(|locale| {
+            DecimalFormatter::try_new(locale.into(), DecimalFormatterOptions::default())
                 .expect("the compiled number data covers every locale through its fallback")
         });
         Self { formatter }

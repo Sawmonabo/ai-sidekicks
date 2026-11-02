@@ -36,7 +36,7 @@ use crate::command_context::CommandContext;
 use crate::commands::daemon::registration::{LoginStart, read_login_start};
 use crate::connected_command::run_connected;
 use crate::exit_codes::ExitCode;
-use crate::local_time::LocalClock;
+use crate::local::time::LocalClock;
 
 /// `daemon status`'s options.
 #[derive(Debug, Args)]

@@ -10,15 +10,11 @@ use std::io::{self, Write};
 use std::panic::{self, AssertUnwindSafe};
 
 use clap::{CommandFactory as _, FromArgMatches as _, Parser, Subcommand};
-use icu_decimal::DecimalFormatter;
-use icu_decimal::input::Decimal;
-use icu_decimal::options::DecimalFormatterOptions;
-use icu_locale_core::Locale;
 use sidekicks_client::error::ClientError;
 use sidekicks_contracts::daemon::recovery::{
     DaemonRepairingDetails, DaemonRepairingLinePart, describe_daemon_repairing_line,
 };
-use sidekicks_platforms::{LocaleCategory, end_as_ctrl_c, service_registration, system_locale};
+use sidekicks_platforms::{end_as_ctrl_c, service_registration};
 
 use crate::command_context::CommandContext;
 use crate::commands::crash::{CrashCommand, run_crash_command};
@@ -26,6 +22,7 @@ use crate::commands::daemon::{DaemonCommand, ServiceRegistrationCommand, run_dae
 use crate::commands::data::{DataCommand, run_data_command};
 use crate::commands::open::{OpenArgs, open};
 use crate::exit_codes::{ExitCode, ProcessEnding, exit_code_for_failure};
+use crate::local::number::LocalNumberFormat;
 
 /// The program's arguments; each command joins [`Command`].
 #[derive(Debug, Parser)]
@@ -211,25 +208,20 @@ fn repairing_details(failure: &anyhow::Error) -> Option<DaemonRepairingDetails> 
 pub(crate) fn describe_repairing(details: DaemonRepairingDetails) -> String {
     write_repairing_line(
         describe_daemon_repairing_line(details.progress),
-        system_locale(LocaleCategory::Number).as_ref(),
+        &LocalNumberFormat::read(),
     )
 }
 
-/// The repair's line from its parts, each count grouped as `locale` writes numbers, and in plain
-/// digits for the POSIX locale (`None`).
-fn write_repairing_line(parts: Vec<DaemonRepairingLinePart>, locale: Option<&Locale>) -> String {
-    let formatter = locale.map(|locale| {
-        DecimalFormatter::try_new(locale.into(), DecimalFormatterOptions::default())
-            .expect("the compiled number data covers every locale through its fallback")
-    });
+/// The repair's line from its parts, each count written in `numbers`' format.
+fn write_repairing_line(
+    parts: Vec<DaemonRepairingLinePart>,
+    numbers: &LocalNumberFormat,
+) -> String {
     parts
         .into_iter()
-        .map(|part| match (part, &formatter) {
-            (DaemonRepairingLinePart::Words(words), _) => words,
-            (DaemonRepairingLinePart::Count(count), Some(formatter)) => {
-                formatter.format(&Decimal::from(count)).to_string()
-            }
-            (DaemonRepairingLinePart::Count(count), None) => count.to_string(),
+        .map(|part| match part {
+            DaemonRepairingLinePart::Words(words) => words,
+            DaemonRepairingLinePart::Count(count) => numbers.count(count),
         })
         .collect()
 }
@@ -311,6 +303,7 @@ mod tests {
     use super::{report_failure, run_program, write_repairing_line};
     use crate::command_context::CommandContext;
     use crate::exit_codes::{ExitCode, ProcessEnding};
+    use crate::local::number::LocalNumberFormat;
 
     /// A stream whose reader went away.
     struct ClosedPipe;
@@ -449,7 +442,7 @@ mod tests {
             total: SafeInt::new(56_789).expect("a safe integer"),
         }));
 
-        let line = write_repairing_line(parts, locale.as_ref());
+        let line = write_repairing_line(parts, &LocalNumberFormat::of_locale(locale.as_ref()));
 
         assert_eq!(
             line,
