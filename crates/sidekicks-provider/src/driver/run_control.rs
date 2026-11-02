@@ -381,6 +381,48 @@ pub struct HelperTokenLimitParams {
     pub subagent_id: SubagentId,
 }
 
+/// How the provider took the stop of one helper; an error or a passed deadline is the call's `Err`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HelperStopOutcome {
+    /// The helper was stopped for good.
+    Stopped,
+    /// The helper's running turn was interrupted, and its provider can continue it.
+    Interrupted,
+    /// The helper was found interrupted and left so.
+    AlreadyInterrupted,
+    /// The helper had ended, or its provider no longer holds it.
+    AlreadyEnded,
+}
+
+/// Params of `reattach_helpers`: the helpers a session's tree held live before a restart, with
+/// their ancestors, given parents first. The daemon owns that order, so a driver takes them as
+/// given.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReattachHelpersParams {
+    /// The session.
+    pub session_id: SessionId,
+    /// The helpers, parents first.
+    pub helpers: Vec<ReattachedHelper>,
+}
+
+/// One helper a driver re-attaches after a restart, as the session's tree holds it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReattachedHelper {
+    /// The helper's newest own run.
+    pub run_id: RunId,
+    /// The provider's id of the helper.
+    pub subagent_id: SubagentId,
+    /// The provider's id of the helper it runs under; `None` under the lead.
+    pub parent_subagent_id: Option<SubagentId>,
+    /// The provider's call that started its newest own run, where the provider names one.
+    pub start_call_id: Option<sidekicks_contracts::provider::tool_call::ToolCallId>,
+    /// Its path in its provider's tree; `None` on a provider that keeps no tree paths.
+    pub provider_path: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    /// Whether its own run was live before the restart. An ancestor included only for its place in
+    /// the tree was not.
+    pub was_live: bool,
+}
+
 /// The binding a turn the daemon starts on a session itself runs on, and the session's agent.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DaemonTurnBinding {
