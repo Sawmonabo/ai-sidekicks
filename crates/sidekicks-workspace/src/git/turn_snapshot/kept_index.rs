@@ -41,9 +41,9 @@ impl KeptIndex {
 
 /// The kept index of `checkout`, at `indexes/<sha256 of the checkout's real path>` in its capture
 /// folder: seeded from the checkout's live index, or empty when HEAD is unborn, and refreshed when
-/// it is absent or HEAD differs from the one recorded beside it, else reused as it stands. The
-/// caller holds the checkout's lock. Fails as resolving the checkout, its HEAD, the seed, git or
-/// the file system do.
+/// it is absent or HEAD differs from the one recorded beside it, else reused as it stands; a lock
+/// file a git ended mid-write left beside it is removed first. The caller holds the checkout's
+/// lock. Fails as resolving the checkout, its HEAD, the seed, git or the file system do.
 pub(crate) async fn open_kept_index(
     checkout: &SnapshotCheckout<'_>,
 ) -> Result<KeptIndex, CaptureStepError> {
@@ -53,6 +53,12 @@ pub(crate) async fn open_kept_index(
     let indexes = checkout.capture_folder.indexes_folder();
     let path = indexes.join(&name);
     let seeded_head = indexes.join(format!("{name}.{SEEDED_HEAD_EXTENSION}"));
+    // A git cut at its time bound, or a daemon crash, leaves this lock, which would fail every
+    // later stage into the index; under the checkout's lock no live git holds it.
+    tokio::fs::remove_file(indexes.join(format!("{name}.lock")))
+        .await
+        .none_if_missing()
+        .map_err(CaptureStepError::KeptIndex)?;
     let head = checkout.resolve_base_commit().await?;
     // An unborn HEAD is recorded as an empty file, which no id reads as.
     let head_record = head.as_ref().map_or("", GitObjectId::as_str);

@@ -34,8 +34,8 @@ fn traced_refreshes(trace: &Path) -> Vec<Vec<String>> {
         .collect()
 }
 
-// Fails when the kept index is seeded without the index guards, reseeded while HEAD stands, or
-// kept after HEAD moves.
+// Fails when the kept index is seeded without the index guards, reseeded while HEAD stands, kept
+// after HEAD moves, or left behind a lock file a git ended mid-write left beside it.
 #[tokio::test]
 async fn the_kept_index_is_seeded_with_its_guards_and_again_only_when_head_moves() {
     let root = tempfile::tempdir().expect("the temporary folder is made");
@@ -69,6 +69,9 @@ async fn the_kept_index_is_seeded_with_its_guards_and_again_only_when_head_moves
         .expect("the index is reused");
     let after_reuse = traced_refreshes(&trace);
     commit_empty(&git, &repository, "moved").await;
+    let mut stale_lock = seeded.path().as_os_str().to_owned();
+    stale_lock.push(".lock");
+    std::fs::write(&stale_lock, b"").expect("a stale lock is left");
     let reseeded = open_kept_index(&checkout)
         .await
         .expect("the index is reseeded");
@@ -88,4 +91,5 @@ async fn the_kept_index_is_seeded_with_its_guards_and_again_only_when_head_moves
     }
     assert_eq!(after_reuse.len(), 1, "an unmoved HEAD reuses it");
     assert_eq!(after_move.len(), 2, "a moved HEAD reseeds it");
+    assert!(!Path::new(&stale_lock).exists(), "the stale lock is gone");
 }
