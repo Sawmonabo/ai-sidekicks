@@ -15,34 +15,12 @@ use sidekicks_contracts::workflow::definition::document::WorkflowVersionId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowRunStatus;
 use sidekicks_contracts::workflow::run::trigger::{
-    WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
+    WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
 };
 use sidekicks_contracts::worktree::lifecycle::{BranchContextId, WorktreeId};
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-
-/// A run's place in its chain: it starts a chain of its own, or it joins the chain whose first run
-/// is `chain_root_run_id`, through an error trigger when `is_from_error`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the run engine's start, which writes them with the run's started event"
-    )
-)]
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum WorkflowRunChainPlace {
-    /// The run is its chain's first run.
-    Starts,
-    /// The run joins another run's chain.
-    Joins {
-        /// The chain's first run.
-        chain_root_run_id: WorkflowRunId,
-        /// Whether an error trigger started it.
-        is_from_error: bool,
-    },
-}
 
 /// The execution context of a run that works in a project's repository: the checkout the engine
 /// prepared for it and that repository's git common folder.
@@ -148,7 +126,7 @@ pub(crate) fn workflow_run_creation_statements(
     let started_by = serde_json::to_string(&creation.started_by)
         .expect("a run's starter writes as JSON, holding only text and ids");
     let (chain_root_run_id, is_from_error) = match &creation.chain {
-        WorkflowRunChainPlace::Starts => (run_id, false),
+        WorkflowRunChainPlace::Starts {} => (run_id, false),
         WorkflowRunChainPlace::Joins {
             chain_root_run_id,
             is_from_error,
@@ -156,7 +134,7 @@ pub(crate) fn workflow_run_creation_statements(
     };
     // A first run's own row holds the chain's count and its answer; a joining run's holds neither.
     let first_run_value = |value: i64| match creation.chain {
-        WorkflowRunChainPlace::Starts => Value::Integer(value),
+        WorkflowRunChainPlace::Starts {} => Value::Integer(value),
         WorkflowRunChainPlace::Joins { .. } => Value::Null,
     };
     let mut statements = vec![WriteStatement {
@@ -234,12 +212,13 @@ mod tests {
     use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
     use sidekicks_contracts::workflow::run::id::WorkflowRunId;
     use sidekicks_contracts::workflow::run::trigger::{
-        WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy, WorkflowTriggerKind,
+        WorkflowRunChainPlace, WorkflowRunMode, WorkflowRunTrigger, WorkflowStartedBy,
+        WorkflowTriggerKind,
     };
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 
-    use super::{WorkflowRunChainPlace, WorkflowRunCreation, workflow_run_creation_statements};
+    use super::{WorkflowRunCreation, workflow_run_creation_statements};
     use crate::schema::schema_parts;
     use crate::test_rows::{TEST_SESSION_ID, insert_workflow_version};
 
@@ -307,7 +286,7 @@ mod tests {
         writer
             .write(workflow_run_creation_statements(&creation(
                 ROOT_RUN_ID,
-                WorkflowRunChainPlace::Starts,
+                WorkflowRunChainPlace::Starts {},
             )))
             .await
             .expect("a chain's first run is stored");
