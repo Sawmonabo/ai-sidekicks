@@ -699,7 +699,10 @@ type ProviderAccountNotification =
 // COMPLETENESS RIDES `source`, and the prune rule turns on it. A `probe`-source reading set is the
 // account's WHOLE standing and replaces the stored set for that account; a `run`-source reading is
 // the provider's own sparse push and is merged into it, pruning no window it does not name. Without
-// the distinction one sparse push would delete every window it happened not to mention.
+// the distinction one sparse push would delete every window it happened not to mention. On the
+// event the mark is `usage.rateLimit.updated`'s `wholeSet`, the keys of every window the read
+// named; a stored window's `source` is `probe` where its reading carried that mark and `run` where
+// it did not.
 interface ProviderAccountUsageWindow {
   // Which account this window describes. Required, and NOT inferable from position: the read
   // returns one flat array across every registered account, and two accounts of one provider can
