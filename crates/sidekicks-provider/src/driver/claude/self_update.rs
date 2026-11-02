@@ -53,8 +53,8 @@ pub(crate) enum ClaudeUpdateOptOut {
     },
 }
 
-/// A variable that keeps Claude Code from updating itself, named for what it turns off, in the order
-/// the read checks them.
+/// A variable that keeps Claude Code from updating itself, named for what it turns off, in the
+/// order the read checks them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeUpdateOptOutVariable {
     /// `DISABLE_UPDATES`, set when `1`: blocks every update, `claude update` included.
