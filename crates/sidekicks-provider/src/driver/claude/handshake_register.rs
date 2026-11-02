@@ -33,6 +33,7 @@ use crate::driver::claude::session::transport::declarations::{
 };
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
+use crate::driver::contract::error::DriverError;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -47,10 +48,10 @@ const CLAUDE_PROMPT_NAME_SUFFIX: &str = " (MCP)";
 type ClaudeRestingCommandStart =
     BoxFuture<'static, Result<Vec<ClaudeListedCommand>, ClaudeLaunchError>>;
 
-/// One read of a resting session's command list, which every concurrent read of the session
-/// awaits; its failure is shared, so it is held behind an `Arc`.
-pub(crate) type ClaudeRestingCommandRead =
-    Shared<BoxFuture<'static, Result<Vec<ClaudeListedCommand>, Arc<ClaudeLaunchError>>>>;
+// One read of a resting session's command list, which every concurrent read of the session
+// awaits; its failure, answered as a start's, is shared, so it is held behind an `Arc`.
+type ClaudeRestingCommandRead =
+    Shared<BoxFuture<'static, Result<Vec<ClaudeListedCommand>, Arc<DriverError>>>>;
 
 /// A run whose output speed settled on its process's handshake, with the state the process declared
 /// it runs at; the run engine compares it with the level the run carried.
@@ -253,29 +254,32 @@ impl ClaudeHandshakeRegister {
 
     /// The command read of resting `session_id` in flight, else the one `start` begins. The read
     /// runs to its end whoever still waits on it, so a dropped caller leaves no process behind,
-    /// and it is forgotten as it settles, so the next read starts afresh.
+    /// and it is forgotten as it settles, so the next read starts afresh. Fails, for every
+    /// waiter, as a session's start fails for the same failure.
     pub(crate) fn join_resting_command_read(
         &self,
         session_id: SessionId,
         start: impl FnOnce() -> ClaudeRestingCommandStart,
-    ) -> ClaudeRestingCommandRead {
+    ) -> impl Future<Output = Result<Vec<ClaudeListedCommand>, DriverError>> {
         let mut reads = lock(&self.resting_reads);
-        if let Some(read) = reads.get(&session_id) {
-            return read.clone();
-        }
-        let held = Arc::clone(&self.resting_reads);
-        let read = start()
-            .map(move |listed| {
-                // The session's only entry until this removes it: a read is begun only where
-                // none is held.
-                lock(&held).remove(&session_id);
-                listed.map_err(Arc::new)
-            })
-            .boxed()
-            .shared();
-        reads.insert(session_id, read.clone());
-        drop(tokio::spawn(read.clone()));
-        read
+        let read = if let Some(read) = reads.get(&session_id) {
+            read.clone()
+        } else {
+            let held = Arc::clone(&self.resting_reads);
+            let read = start()
+                .map(move |listed| {
+                    // The session's only entry until this removes it: a read is begun only where
+                    // none is held.
+                    lock(&held).remove(&session_id);
+                    listed.map_err(|error| Arc::new(DriverError::from(error)))
+                })
+                .boxed()
+                .shared();
+            reads.insert(session_id, read.clone());
+            drop(tokio::spawn(read.clone()));
+            read
+        };
+        read.map(|listed| listed.map_err(|failure| DriverError::shared(&failure)))
     }
 
     /// The command and skill entries one live session declared, all of them, stamped with
@@ -552,4 +556,81 @@ fn report_rejected_entry(
         .map(|(key, value)| (key.to_owned(), value))
         .collect(),
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::FutureExt;
+    use rstest::rstest;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+
+    use super::{ClaudeHandshakeRegister, ClaudeRestingCommandStart};
+    use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
+    use crate::driver::claude::session::transport::control::ClaudeControlSubtype;
+    use crate::driver::claude::spawn::launch::ClaudeLaunchError;
+    use crate::driver::contract::error::DriverError;
+    use crate::driver::test_registry::new_session_id;
+
+    fn sign_in_refused() -> ClaudeLaunchError {
+        ClaudeLaunchError::Session(ClaudeSessionError::AuthenticationRequired {
+            detail: "Not logged in".to_owned(),
+        })
+    }
+
+    fn initialize_unanswered() -> ClaudeLaunchError {
+        ClaudeLaunchError::Session(ClaudeSessionError::Unanswered {
+            subtype: ClaudeControlSubtype::Initialize,
+            cause: ClaudeUnansweredCause::Deadline,
+        })
+    }
+
+    fn spawn_failed() -> ClaudeLaunchError {
+        ClaudeLaunchError::Spawn(std::io::Error::other("no such program"))
+    }
+
+    // How a waiter's failure answers: its kind, and the code a client reads.
+    fn answer_of(error: &DriverError) -> (&'static str, Option<RefusalCode>) {
+        if let DriverError::Refused(refusal) = error {
+            ("refused", Some(refusal.code))
+        } else if let DriverError::Unanswered(unanswered) = error {
+            ("unanswered", Some(unanswered.refusal.code))
+        } else if let DriverError::Internal(_) = error {
+            ("internal", None)
+        } else {
+            ("other", None)
+        }
+    }
+
+    // Killed by a failed read answered as internal, for the read's own waiter or one that joined
+    // it, and by a failure that keeps its kind but not its code.
+    #[rstest]
+    #[case::a_refused_sign_in(
+        sign_in_refused,
+        ("refused", Some(RefusalCode::ProviderAccountNotAuthenticated))
+    )]
+    #[case::no_answer_in_time(
+        initialize_unanswered,
+        ("unanswered", Some(RefusalCode::ProviderTimeout))
+    )]
+    #[case::a_failed_start(spawn_failed, ("internal", None))]
+    #[tokio::test]
+    async fn every_waiter_on_a_failed_resting_read_gets_a_start_s_answer(
+        #[case] failure: fn() -> ClaudeLaunchError,
+        #[case] expected: (&'static str, Option<RefusalCode>),
+    ) {
+        let register = ClaudeHandshakeRegister::default();
+        let session_id = new_session_id();
+
+        let first = register
+            .join_resting_command_read(session_id, || async move { Err(failure()) }.boxed());
+        let second =
+            register.join_resting_command_read(session_id, || -> ClaudeRestingCommandStart {
+                unreachable!("a second read joins the one in flight")
+            });
+
+        for answer in [first.await, second.await] {
+            let error = answer.expect_err("the read failed");
+            assert_eq!(answer_of(&error), expected);
+        }
+    }
 }

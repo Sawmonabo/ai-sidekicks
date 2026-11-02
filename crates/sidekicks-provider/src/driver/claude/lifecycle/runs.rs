@@ -202,8 +202,8 @@ impl ClaudeDriver {
     /// session's as its process declared them, once any restart in flight settles; a resting
     /// session's from a process that keeps nothing, started in the folder its runs work in on the
     /// binding's account, which concurrent reads of the session share and none keeps. Fails as
-    /// the live list fails, as the folder or the account's environment cannot be read, and
-    /// `Internal` as the read fails.
+    /// the live list fails, as the folder or the account's environment cannot be read, and as a
+    /// session's start fails where the read fails.
     pub(crate) async fn list_provider_commands(
         &self,
         params: ListProviderCommandsParams,
@@ -241,8 +241,7 @@ impl ClaudeDriver {
                 self.starts
                     .read_session_commands(environment, run_folder, provider_account_id)
             })
-            .await
-            .map_err(|error| DriverError::Internal(Box::new(error)))?;
+            .await?;
         Ok(ProviderCommandBindingGroup {
             run_id: params.run_id,
             entries: compose_resting_command_entries(params.session_id, &params.binding, &rows),
