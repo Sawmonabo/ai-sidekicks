@@ -181,6 +181,7 @@ pub use linux::SHELL_FOLDER_PROBES;
 #[cfg(target_os = "linux")]
 pub use linux::caller_process::{
     read_parent_process, read_peer_process, read_peer_process as unix_domain_peer_process,
+    read_program_path,
 };
 #[cfg(target_os = "linux")]
 pub use linux::descriptor_path::read_descriptor_path;
@@ -225,7 +226,7 @@ pub use macos::SHELL_FOLDER_PROBES;
 #[cfg(target_os = "macos")]
 pub use macos::caller_process::{
     read_parent_process, read_peer_process, read_peer_process as unix_domain_peer_process,
-    read_responsible_process,
+    read_program_path, read_responsible_process,
 };
 #[cfg(target_os = "macos")]
 pub use macos::code_signature::DesktopClientRequirement;
@@ -487,7 +488,8 @@ pub use windows::allocator::{
 pub use windows::askpass::askpass_listener;
 #[cfg(target_os = "windows")]
 pub use windows::caller_process::{
-    read_parent_process, read_peer_process, unix_domain_listener_process, unix_domain_peer_process,
+    read_parent_process, read_peer_process, read_program_path, unix_domain_listener_process,
+    unix_domain_peer_process,
 };
 #[cfg(target_os = "windows")]
 pub use windows::child_command::{
