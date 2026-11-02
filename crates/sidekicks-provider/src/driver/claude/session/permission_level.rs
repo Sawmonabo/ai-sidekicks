@@ -23,12 +23,11 @@ use crate::driver::CommandSandboxAvailability;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::errors::{ClaudeSessionError, record_unheard_claude_failure};
 use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
-use crate::driver::claude::session::ignored_settings::ClaudeSettingsReadError;
 use crate::driver::claude::session::permissions::{
     ClaudePermissionsError, compose_live_claude_permissions,
 };
 use crate::driver::claude::session::settings_file::{
-    ClaudeSettingsSource, ClaudeSettingsSources, read_claude_setting,
+    ClaudeSettingsReadError, ClaudeSettingsSource, ClaudeSettingsSources, read_claude_setting,
 };
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::control::{
