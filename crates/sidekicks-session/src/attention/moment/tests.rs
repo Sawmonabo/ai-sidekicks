@@ -345,6 +345,8 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
     json!({"type": "workflow.run.started", "payload": {
         "sessionId": SESSION, "workflowRunId": WORKFLOW_RUN, "definitionId": DEFINITION,
         "workflowVersionId": VERSION, "mode": "manual", "startedBy": {"kind": "schedule"},
+        "trigger": {"kind": "trigger.manual", "nodeId": "start"}, "chain": {"kind": "starts"},
+        "inputRef": {"kind": "inline", "items": []},
     }}),
     AttentionChange::Nothing
 )]
