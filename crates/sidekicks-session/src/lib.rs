@@ -6,6 +6,7 @@
 //! workspace, provider and mcp and is taken by approval, queue, artifact, recovery and the program.
 
 pub mod addresses;
+pub mod agent_tree;
 pub mod attention;
 pub mod auto_title;
 pub mod changes;
