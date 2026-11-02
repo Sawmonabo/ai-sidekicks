@@ -264,15 +264,18 @@ fn kickstart_arguments(kickstart: SystemServiceKickstart, service_target: &OsStr
     }
 }
 
-// The job's state from `launchctl print`'s text: its process from the job's own `pid` line, one
-// tab in, where a nested section's lines sit deeper.
+// The job's state from `launchctl print`'s text: running where the job's own `pid` line, one tab
+// in, names a process, where a nested section's lines sit deeper.
 fn printed_state(printed: &str) -> SystemServiceState {
-    printed
-        .lines()
-        .find_map(|line| line.strip_prefix("\tpid = ")?.trim().parse::<u32>().ok())
-        .map_or(SystemServiceState::NotRunning, |process_id| {
-            SystemServiceState::Running { process_id }
-        })
+    let has_process = printed.lines().any(|line| {
+        line.strip_prefix("\tpid = ")
+            .is_some_and(|process_id| process_id.trim().parse::<u32>().is_ok())
+    });
+    if has_process {
+        SystemServiceState::Running
+    } else {
+        SystemServiceState::NotRunning
+    }
 }
 
 // The system service in launchd's system domain, as `launchctl` names it.
@@ -296,7 +299,7 @@ mod tests {
     #[rstest]
     #[case::running(
         "system/label = {\n\tactive count = 1\n\tstate = running\n\tpid = 4321\n}\n",
-        SystemServiceState::Running { process_id: 4321 }
+        SystemServiceState::Running
     )]
     #[case::stopped(
         "system/label = {\n\tstate = not running\n\tendpoints = {\n\t\tpid = 77\n\t}\n}\n",

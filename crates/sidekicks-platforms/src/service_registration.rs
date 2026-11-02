@@ -53,11 +53,8 @@ pub enum SystemServiceKickstart {
 /// Whether the service manager runs the system service.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SystemServiceState {
-    /// It runs, as the process `process_id`.
-    Running {
-        /// The service's process.
-        process_id: u32,
-    },
+    /// It runs, as a process.
+    Running,
     /// It has no process: loaded and stopped, or not loaded.
     NotRunning,
 }

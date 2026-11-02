@@ -295,7 +295,7 @@ pub(crate) fn start_system_service<Output: Write, ErrorOutput: Write>(
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
     refuse_other_system_program(args.daemon_path.as_deref(), registration)?;
-    if let SystemServiceState::Running { .. } = read_system_service_state(registration)? {
+    if read_system_service_state(registration)? == SystemServiceState::Running {
         return write_line(context, ALREADY_RUNNING_LINE);
     }
     kickstart_system_service(registration, SystemServiceKickstart::Start)?;
@@ -313,7 +313,7 @@ pub(crate) fn wait_for_system_service(
     let waited = args.deadline();
     let deadline = Instant::now() + waited;
     loop {
-        if let SystemServiceState::Running { .. } = read_system_service_state(registration)? {
+        if read_system_service_state(registration)? == SystemServiceState::Running {
             return Ok(());
         }
         let now = Instant::now();
