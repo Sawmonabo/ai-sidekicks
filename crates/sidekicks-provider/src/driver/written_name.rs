@@ -16,13 +16,43 @@ pub enum WrittenNameKind {
     ToolServerPrompt,
 }
 
-/// How a form spells the tool server's name.
+/// How a form spells the tool server's name or the name itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ServerNameSpelling {
-    /// As the server is configured.
-    AsConfigured,
-    /// Each character outside `A-Za-z0-9_-` written as `_`, as a tool name takes it.
+pub enum WrittenNameSpelling {
+    /// As the server is configured, or the name declared.
+    Unchanged,
+    /// Each character outside `A-Za-z0-9_-` written as `_`.
     ToolNameSafe,
+    /// Each character outside `A-Za-z0-9_` written as `_`, and an empty one written `_`, as a
+    /// Responses API tool name's sanitizer writes it.
+    ResponsesToolNameSafe,
+}
+
+impl WrittenNameSpelling {
+    // `text` spelled this way, onto the end of `written`.
+    fn spell_onto(self, written: &mut String, text: &str) {
+        match self {
+            Self::Unchanged => written.push_str(text),
+            Self::ToolNameSafe => push_safe_characters(written, text, true),
+            Self::ResponsesToolNameSafe if text.is_empty() => written.push('_'),
+            Self::ResponsesToolNameSafe => push_safe_characters(written, text, false),
+        }
+    }
+}
+
+// Each character of `text` onto `written`: itself within `A-Za-z0-9_`, and `-` too where
+// `is_hyphen_kept`, else `_`.
+fn push_safe_characters(written: &mut String, text: &str, is_hyphen_kept: bool) {
+    written.extend(text.chars().map(|character| {
+        if character.is_ascii_alphanumeric()
+            || character == '_'
+            || (is_hyphen_kept && character == '-')
+        {
+            character
+        } else {
+            '_'
+        }
+    }));
 }
 
 /// One form a provider writes a name of one kind in: the name between an opening and a closing,
@@ -39,36 +69,25 @@ pub struct WrittenNameForm {
     /// What comes after the name.
     pub closing: &'static str,
     /// How the server's name is spelled; read only for the two tool-server kinds.
-    pub server_spelling: ServerNameSpelling,
+    pub server_spelling: WrittenNameSpelling,
+    /// How the name is spelled.
+    pub name_spelling: WrittenNameSpelling,
 }
 
 impl WrittenNameForm {
     /// `name` written in this form: the opening, then `server` spelled as the form spells it and
-    /// the joiner where a server is given, then the name and the closing.
+    /// the joiner where a server is given, then the name spelled as the form spells it and the
+    /// closing.
     #[must_use]
     pub fn write(&self, server: Option<&str>, name: &str) -> String {
         let mut written = String::from(self.opening);
         if let Some(server) = server {
-            match self.server_spelling {
-                ServerNameSpelling::AsConfigured => written.push_str(server),
-                ServerNameSpelling::ToolNameSafe => {
-                    written.extend(server.chars().map(tool_name_safe));
-                }
-            }
+            self.server_spelling.spell_onto(&mut written, server);
             written.push_str(self.joiner);
         }
-        written.push_str(name);
+        self.name_spelling.spell_onto(&mut written, name);
         written.push_str(self.closing);
         written
-    }
-}
-
-// `character` as a tool name takes it: itself within `A-Za-z0-9_-`, else `_`.
-fn tool_name_safe(character: char) -> char {
-    if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
-        character
-    } else {
-        '_'
     }
 }
 
@@ -80,7 +99,9 @@ mod tests {
     use crate::driver::descriptor_of;
 
     // Killed by the tool-name spelling applied to Claude's `(MCP)` prompt form or missed on an
-    // `mcp__` form, by a wrong joiner or closing, and by an agent form given to Codex.
+    // `mcp__` form, by a wrong joiner or closing, by an agent form given to Codex, by Claude's
+    // tool name spelled or its server's hyphen dropped, and by Codex's hyphens kept in the server
+    // or the tool name.
     #[rstest]
     #[case::claude_prompts(
         "claude",
@@ -95,6 +116,20 @@ mod tests {
         Some("my.server"),
         "search",
         &["mcp__my_server__search"]
+    )]
+    #[case::claude_hyphenated_tool(
+        "claude",
+        WrittenNameKind::ToolServerTool,
+        Some("my-server"),
+        "list-prs",
+        &["mcp__my-server__list-prs"]
+    )]
+    #[case::codex_hyphenated_tool(
+        "codex",
+        WrittenNameKind::ToolServerTool,
+        Some("my-server"),
+        "list-prs",
+        &["mcp__my_server__list_prs"]
     )]
     #[case::claude_agents(
         "claude",
