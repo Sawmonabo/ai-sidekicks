@@ -7,15 +7,18 @@
 //! paused run.
 
 use std::error::Error;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use rusqlite::{Connection, OptionalExtension as _, named_params};
+use sidekicks_contracts::event::envelope::EventCategory;
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::control::{
     AgentRunControlResponse, AgentRunPauseRequest, AgentRunResumeRequest,
 };
-use sidekicks_contracts::run::events::RunStateChangeState;
+use sidekicks_contracts::run::events::{RunStateChangeState, TurnEndCause};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -37,6 +40,7 @@ use crate::driver_resolution::{LiveRunDriverError, resolve_live_run_driver};
 use crate::interventions::store::run_at_version_statement;
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::{RunEngineError, RunResumeError};
+use crate::run::engine::turns::TURN_END_TYPES_SQL;
 use crate::run::read::{
     RunRead, RunStateReader, read_run_provider, read_run_through, safe_run_version,
 };
@@ -48,6 +52,26 @@ mod tests;
 
 // The version guard is the one companion of a pause's or a resume's move.
 const VERSION_GUARD_COMPANION_INDEX: usize = 0;
+
+// Whether the run's newest turn end is the restart's cut: interrupted with `daemonRestart`. A
+// pause's own end carries no cause, so `IS` reads its missing cause as no match.
+static SELECT_NEWEST_TURN_END_IS_RESTART_CUT_SQL: LazyLock<String> = LazyLock::new(|| {
+    let restart =
+        serde_json::to_value(TurnEndCause::DaemonRestart).expect("a closed word serializes");
+    format!(
+        "SELECT type = '{interrupted}' AND json_extract(payload, '$.cause') IS '{restart}'
+  FROM session_events
+  WHERE category = '{category}'
+    AND type IN ({turn_ends})
+    AND run_id = @run_id
+  ORDER BY turn_number DESC
+  LIMIT 1",
+        interrupted = SessionEventType::AgentTurnInterrupted.as_str(),
+        restart = restart.as_str().expect("a closed word serializes as text"),
+        category = EventCategory::RunLifecycle.as_str(),
+        turn_ends = *TURN_END_TYPES_SQL,
+    )
+});
 
 /// Why a pause or a resume did not finish; each refusal left the run exactly as it was.
 #[derive(Debug, thiserror::Error)]
@@ -169,9 +193,9 @@ impl From<RunPauseError> for HandlerError {
     }
 }
 
-/// The statements [`RunPauseControl`] prepares on a read connection: the run's row and the provider
-/// it runs on.
-pub const RUN_PAUSE_STATEMENT_CAPACITY: usize = 2;
+/// The statements [`RunPauseControl`] prepares on a read connection: the run's row, the provider
+/// it runs on and the run's newest turn end.
+pub const RUN_PAUSE_STATEMENT_CAPACITY: usize = 3;
 
 /// Pauses and resumes runs. Calls on one run take turns, so a resume never reaches the driver
 /// before the pause it follows.
@@ -249,7 +273,10 @@ impl RunPauseControl {
     /// under the queue's lock on the session, which is let go for the driver's call and taken
     /// again to settle them, so a change to them meanwhile finds them taken. The caller holds no
     /// lock of the queue's. Refuses, nothing read, as a pause does for an unknown run, a stale
-    /// version and a run in any other state, then with [`RunPauseError::NoDriver`]. A resume the
+    /// version and a run in any other state, then with [`RunPauseError::NoDriver`]. The driver's
+    /// params say whether the run's newest turn end is the restart's cut of its pause, which the
+    /// continue owes its continuation, failing with [`RunPauseError::Read`] or
+    /// [`RunPauseError::Pool`] where that read fails, nothing moved. A resume the
     /// driver refuses moves nothing, gives the messages back and fails with
     /// [`RunPauseError::Driver`], as does one whose answer never came, which keeps the messages
     /// for the provider's own word to settle. A move refused once the driver took the resume (a
@@ -274,6 +301,15 @@ impl RunPauseControl {
                 move |run, bound| async move {
                     let session_id = *session.get_or_init(|| run.session_id);
                     let driver = resolve_live_run_driver(&self.providers, run_id, bound)?;
+                    let is_continuation_owed = self
+                        .pool
+                        .read(
+                            ReadLength::Short,
+                            move |reader| -> Result<_, RunPauseError> {
+                                Ok(owes_continuation(reader, &run_id)?)
+                            },
+                        )
+                        .await?;
                     let messages = {
                         let hold = continued.hold_session(session_id).await;
                         continued
@@ -285,6 +321,7 @@ impl RunPauseControl {
                         session_id,
                         run_id,
                         messages,
+                        is_continuation_owed,
                     };
                     let resumed = driver.resume_run(params).await;
                     let hold = continued.hold_session(session_id).await;
@@ -560,6 +597,18 @@ fn version_guard(run_id: RunId, expected_run_version: SafeInt<0>) -> RunStateCha
         )],
         ..RunStateChangeCompanions::default()
     }
+}
+
+// Whether `run_id`'s newest turn end is the restart's cut of its pause; a run with no turn end
+// owes nothing.
+fn owes_continuation(reader: &Connection, run_id: &RunId) -> rusqlite::Result<bool> {
+    let is_restart_cut = reader
+        .prepare_cached(&SELECT_NEWEST_TURN_END_IS_RESTART_CUT_SQL)?
+        .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
+            row.get::<_, bool>(0)
+        })
+        .optional()?;
+    Ok(is_restart_cut.unwrap_or(false))
 }
 
 // Gives the messages a failed resume read back, answering `failure`, or the give-back's failure
