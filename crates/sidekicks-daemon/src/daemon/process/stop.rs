@@ -244,6 +244,10 @@ pub(crate) async fn stop_work(
         let drain = session.terminals.drain(remaining()).await;
         tracing::info!("{}", describe_drain(drain));
     }
+    // Before the scheduler, whose jobs and timers it holds.
+    if let Some(provider_accounts) = &mut process.provider_accounts {
+        provider_accounts.stop();
+    }
     // Before the drivers, since a job it runs may still call into them.
     if let Some(scheduler) = process.scheduler.take()
         && let Err(failure) = scheduler.stop().await

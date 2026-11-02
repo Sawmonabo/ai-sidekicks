@@ -251,24 +251,13 @@ impl RunQueue {
     }
 
     /// The queue's admission, which opens the binding of a turn the daemon starts.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start registers the drivers' ports with it"
-    )]
-    pub(crate) fn admission(&self) -> Arc<QueueAdmission> {
+    pub fn admission(&self) -> Arc<QueueAdmission> {
         Arc::clone(&self.admission)
     }
 
     /// The listener a driver tells of a session's provider process that ended, which moves on
     /// what the process kept for runs that ended; it holds the queue's run lifecycle weakly.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start registers the drivers' ports with it"
-        )
-    )]
-    pub(crate) fn process_gone_listener(&self) -> Arc<dyn ProcessGoneListener> {
+    pub fn process_gone_listener(&self) -> Arc<dyn ProcessGoneListener> {
         Arc::new(RunLifecycleListener(Arc::downgrade(&self.lifecycle)))
     }
 

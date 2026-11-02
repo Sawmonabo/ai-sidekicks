@@ -43,8 +43,8 @@ pub(crate) use self::stand_in::{
     REQUEST_RECORD_NAME, StandInLaunches,
 };
 pub use self::stand_in::{
-    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, serve_as_codex_service_stand_in,
-    stand_in_codex_service, write_codex_service_script,
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, RESUMED_TURN_NAME,
+    serve_as_codex_service_stand_in, stand_in_codex_service, write_codex_service_script,
 };
 use crate::command::askpass::command_askpass_program_path;
 use crate::command::channel::command_channel_root;
@@ -492,15 +492,27 @@ pub(crate) const PROBE_THREAD_ID: &str = "probe-thread";
 /// The one tool each server a test service lists for a machine probe has.
 pub(crate) const PROBE_TOOL_NAME: &str = "lookup";
 
+/// The answers a test gives a stand-in service in place of its own, each `None` to keep its own.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct StandInReplies {
+    /// The reply to a config read.
+    pub(crate) config_read: Option<Value>,
+    /// The one turn listed on every conversation the service resumes, which the resume answers as
+    /// running while the turn is in progress.
+    pub(crate) resumed_turn: Option<Value>,
+}
+
 /// Answers one connection's requests on `stream` as far as a start needs, telling `on_request`
 /// each request as it comes: the version, the hooks the daemon starts a terminal service with, as
 /// trusted, and no loaded conversation; a config write is refused, so a start that writes trust
 /// fails. A machine probe is answered too: its ephemeral start opens [`PROBE_THREAD_ID`], each
 /// server its config switches on or sends reports ready, and each listed server is connected with
-/// [`PROBE_TOOL_NAME`]. A config read is answered with `config_read_reply` where one is given.
+/// [`PROBE_TOOL_NAME`]. A config read is answered with `replies`' where one is given, and where a
+/// resumed turn is given, a resume is answered on the conversation it names, under the profile it
+/// asks for, and that conversation's turns are listed as that one turn.
 pub(crate) async fn answer_as_codex_service(
     stream: impl AsyncRead + AsyncWrite + Unpin,
-    config_read_reply: Option<Value>,
+    replies: StandInReplies,
     mut on_request: impl FnMut(&Value),
 ) {
     let hooks =
@@ -542,9 +554,14 @@ pub(crate) async fn answer_as_codex_service(
                 "resources": [],
                 "resourceTemplates": [],
             }], "nextCursor": null}}),
-            Some("config/read") if config_read_reply.is_some() => {
-                json!({"id": id, "result": config_read_reply})
+            Some("config/read") if replies.config_read.is_some() => {
+                json!({"id": id, "result": replies.config_read})
             }
+            Some("thread/resume") if replies.resumed_turn.is_some() => {
+                json!({"id": id, "result": resumed_thread(&request["params"], &replies)})
+            }
+            Some("thread/turns/list") if replies.resumed_turn.is_some() => json!({"id": id,
+                "result": {"data": [replies.resumed_turn], "nextCursor": null}}),
             Some("config/value/write") => json!({"id": id,
                 "error": {"code": -32603, "message": "the test service writes no config"}}),
             Some("initialize") => json!({"id": id,
@@ -563,6 +580,19 @@ pub(crate) async fn answer_as_codex_service(
             }
         }
     }
+}
+
+// A resume's reply on the conversation `params` names, under the profile they ask for, running
+// while `replies`' resumed turn is in progress and idle otherwise.
+fn resumed_thread(params: &Value, replies: &StandInReplies) -> Value {
+    let status = match replies.resumed_turn.as_ref().map(|turn| &turn["status"]) {
+        Some(status) if status == "inProgress" => "active",
+        _ => "idle",
+    };
+    json!({
+        "thread": {"id": params["threadId"], "sessionId": "codex-session", "status": {"type": status}},
+        "activePermissionProfile": {"id": params["permissions"]},
+    })
 }
 
 // The ready notice of each server a probe's start switches on or sends, by its config's server

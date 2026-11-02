@@ -11,6 +11,7 @@ mod mcp_attribution;
 mod method_inputs;
 pub(crate) mod method_tables;
 mod projections;
+mod provider_accounts;
 mod provider_port;
 pub(crate) mod providers;
 mod repo_services;
@@ -94,6 +95,7 @@ use crate::daemon::process::method_inputs::{
     MethodInputsStart, device_id_of, register_method_inputs,
 };
 use crate::daemon::process::method_tables::gate_chain;
+use crate::daemon::process::provider_accounts::ProviderAccountObservation;
 use crate::daemon::process::providers::{
     ProviderStart, Providers, ProvidersRegistration, apply_stored_rows, build_providers,
     hydrate_capabilities, register_providers, sweep_left_staged_worktrees,
@@ -195,6 +197,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) session_attachments: Option<SessionAttachments>,
     /// The attention service's decision task, which ends with the work's stop and is waited out.
     pub(crate) attention: Option<JoinHandle<()>>,
+    /// The provider accounts' background observer, ended by the stop before the scheduler.
+    pub(crate) provider_accounts: Option<ProviderAccountObservation>,
     /// The web address's sender, which ends with the work's stop and is waited out.
     pub(crate) web_address_sender: Option<JoinHandle<()>>,
     /// The clone service, which owns the askpass broker; the stop closes it.
@@ -264,6 +268,7 @@ impl DaemonProcess {
             session: None,
             session_attachments: None,
             attention: None,
+            provider_accounts: None,
             web_address_sender: None,
             clones: None,
             project_list_feed: None,
@@ -595,6 +600,7 @@ impl DaemonProcess {
         // Before the socket serves, so no creation is under way.
         settle_interrupted_creations(self.worktree_creator.insert(inputs.worktree_creator)).await;
         let mcp_inventory = inputs.mcp_inventory;
+        let mut provider_accounts = inputs.provider_accounts;
         let session = self.session.insert(inputs.session);
         let queue = Arc::clone(&session.queue);
         let caller_check = CallerCheck::new(
@@ -665,6 +671,9 @@ impl DaemonProcess {
         // Right after the recovery pass, so the sweep reads what the last stop left before the
         // session services' follows begin.
         self.attention = Some(attention.start(self.work_stop.clone()).await?);
+        // After the pass, so no read or window start meets a run the last stop left live.
+        provider_accounts.start(&followers).await?;
+        self.provider_accounts = Some(provider_accounts);
         // After the sweep, so a delivery the stop left pending is decided before it is sent.
         let send_settings = settings
             .watch()

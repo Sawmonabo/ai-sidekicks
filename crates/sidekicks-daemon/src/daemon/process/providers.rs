@@ -25,9 +25,9 @@ use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_platforms::{PathRules, Spawner, current_user_id};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::account::registry::ProviderAccountRegistry;
 use sidekicks_provider::background_work::BackgroundWorkForms;
 use sidekicks_provider::build_record::BuildRecordReaders;
-use sidekicks_provider::callback_tools::host::CallbackToolHost;
 use sidekicks_provider::capability::refresh::{CapabilityRefresher, CapabilityRefreshing};
 use sidekicks_provider::command::running_set::RunningCommandSets;
 use sidekicks_provider::command::waiting_checks::SystemInputWaitReader;
@@ -46,7 +46,9 @@ use sidekicks_provider::driver::diagnostics::{
 };
 use sidekicks_provider::driver::ports::{DriverPorts, ProcessGoneListener, SessionPlace};
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
+use sidekicks_provider::driver::{
+    DriverServices, ProviderAccountReader, ProviderDescriptor, ProviderRegistration,
+};
 use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
 use sidekicks_provider::process_registry::ProviderProcessRegistry;
 use sidekicks_provider::run::posture::ExecutionPostureService;
@@ -258,6 +260,10 @@ pub(crate) async fn hydrate_capabilities(providers: &Providers) {
 
 /// The services behind the drivers' ports, each built after the drivers.
 pub(crate) struct DriverPortOwners {
+    /// The reads of the accounts a provider runs on.
+    pub(crate) provider_accounts: Arc<dyn ProviderAccountReader>,
+    /// The account registry, which the drivers' account legs read and write.
+    pub(crate) provider_account_registry: Arc<ProviderAccountRegistry>,
     /// The run engine.
     pub(crate) run_engine: Arc<RunEngine>,
     /// The run engine's dispatch of what a provider delivers.
@@ -284,8 +290,6 @@ pub(crate) struct DriverPortOwners {
     pub(crate) approval_rules: Arc<ApprovalRules>,
     /// The places the daemon runs sessions in.
     pub(crate) session_places: Arc<[SessionPlace]>,
-    /// The one callback-tool dispatcher.
-    pub(crate) callback_tool_host: Arc<CallbackToolHost>,
     /// The pause and continue of runs.
     pub(crate) run_pauses: Arc<RunPauseControl>,
     /// The usage record, which meters each provider reading and stops a run at its token limit.
@@ -306,10 +310,6 @@ pub(crate) struct DriverPortOwners {
 
 /// The places the daemon runs sessions in: this computer's own system alone, its login shell's
 /// environment `base_environment` and the current user's id.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the session places through it"
-)]
 pub(crate) fn native_session_places(base_environment: &[(String, String)]) -> Arc<[SessionPlace]> {
     Arc::from([SessionPlace {
         place: None,
@@ -318,17 +318,17 @@ pub(crate) fn native_session_places(base_environment: &[(String, String)]) -> Ar
     }])
 }
 
-/// Registers each port whose owner is built, once, the run engine, its dispatch and the queue's
-/// turn bindings first, so they stand before any driver call. Fails when a port is registered
-/// already, which only a second call does.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the ports through it"
-)]
+/// Registers each port whose owner is built, once, the accounts reader first and then the run
+/// engine, its dispatch and the queue's turn bindings, so they stand before any driver call. Fails
+/// when a port is registered already, which only a second call does.
 pub(crate) fn register_driver_ports(
     ports: &DriverPorts,
     owners: DriverPortOwners,
 ) -> Result<(), PortRegistrationError> {
+    ports.provider_accounts.register(owners.provider_accounts)?;
+    ports
+        .provider_account_registry
+        .register(owners.provider_account_registry)?;
     ports.run_engine.register(owners.run_engine)?;
     ports.inbound_dispatch.register(owners.inbound_dispatch)?;
     ports
@@ -363,9 +363,6 @@ pub(crate) fn register_driver_ports(
     ports.session_rules.register(owners.approval_rules)?;
     ports.session_places.register(owners.session_places)?;
     ports
-        .callback_tool_host
-        .register(owners.callback_tool_host)?;
-    ports
         .session_level_followers
         .register(Arc::new(WeakLevelFollower(Arc::downgrade(
             &owners.provider_sessions,
@@ -375,10 +372,6 @@ pub(crate) fn register_driver_ports(
 
 /// The provider sessions as the drivers' level follower, held weakly: they hold the registry whose
 /// drivers hold this port, so a strong hold would keep both alive for good.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the ports, this follower among them"
-)]
 struct WeakLevelFollower(Weak<ProviderSessions>);
 
 impl SessionLevelFollower for WeakLevelFollower {

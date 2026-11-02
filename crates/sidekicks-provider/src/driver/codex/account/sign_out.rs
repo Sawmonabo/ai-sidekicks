@@ -68,11 +68,13 @@ mod tests {
         let accounts = tempfile::tempdir().expect("a scratch folder is made");
         let database = TestDatabase::new(schema_parts());
         let (registry, _writer) = open_test_registry(&database, accounts.path()).await;
+        let accounts = Arc::new(PortRegistration::new("provider account registry"));
+        assert!(accounts.register(Arc::new(registry)).is_ok());
         let legs = CodexAccountLegs::new(
             CodexServiceRegistry::holding(&scripted),
             Arc::clone(&scripted.dependencies),
             CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
-            Arc::new(registry),
+            accounts,
         );
         let codex_home = scripted.service.home().codex_home.clone();
         let named = ProviderAccountFolders {

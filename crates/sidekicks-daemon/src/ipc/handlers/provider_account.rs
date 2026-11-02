@@ -31,6 +31,7 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 mod credential_home;
 mod list;
 mod memory_import;
+pub(crate) mod notifications;
 mod probe;
 mod registration;
 mod sign_in;

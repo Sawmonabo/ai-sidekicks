@@ -6,7 +6,7 @@
 //! refusal on the first request after the move hands the previous account back the same way.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use futures::FutureExt;
 use futures::future::join_all;
@@ -84,7 +84,8 @@ async fn move_claude_session(
 > {
     let establishment = legs
         .sessions
-        .upgrade()
+        .get()
+        .and_then(Weak::upgrade)
         .ok_or_else(|| DriverError::Internal("the Claude Code driver has stopped".into()))?;
     let previous_sign_in = read_sign_in(legs, &from).await?;
     let target_sign_in = read_sign_in(legs, &to).await?;

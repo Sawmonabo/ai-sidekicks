@@ -36,6 +36,7 @@ use crate::driver::codex::service::registry::CODEX_SWITCHING_HOME_FOLDER;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
@@ -120,9 +121,9 @@ mod version;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use service::supervisor::test_service::{
-    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, ScriptedCodexService,
-    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
-    write_codex_service_script,
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, RESUMED_TURN_NAME,
+    ScriptedCodexService, serve_as_codex_service_stand_in, stand_in_codex_service,
+    start_scripted_codex_service, write_codex_service_script,
 };
 
 /// Codex's fixed facts.
@@ -687,8 +688,14 @@ impl ProviderDriver for CodexDriver {
         None
     }
 
-    // The Codex driver keys nothing it holds in memory by account.
-    fn forget_account(&self, _provider_account_id: &ProviderAccountId) {}
+    fn account_legs(&self) -> Arc<dyn ProviderAccountLegs> {
+        Arc::clone(&self.account_legs) as _
+    }
+
+    // The account legs' count of dead renewals is all the driver keys by account.
+    fn forget_account(&self, provider_account_id: &ProviderAccountId) {
+        self.account_legs.forget_account(provider_account_id);
+    }
 
     fn expire_account_home_diagnostics(
         &self,

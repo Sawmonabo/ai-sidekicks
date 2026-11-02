@@ -36,7 +36,7 @@ use sidekicks_std::random_hex::random_hex;
 use crate::account::credential_home::CredentialHome;
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::registry::{
-    AccountAdmission, HealthObserver, MintedAccount, ProviderAccountRegistry,
+    AccountAdmission, HealthObserver, MintedAccount, ProviderAccountRegistry, RegisteredAccount,
 };
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs, SignInOrigin,
@@ -57,6 +57,14 @@ const ATTEMPT_ID_BYTES: usize = 16;
 pub trait ProviderAccountNotificationPublisher: Send + Sync {
     /// Publishes one notification to the subscription's open streams.
     fn publish(&self, notification: ProviderAccountNotification);
+}
+
+/// Where an account the broker signed in goes to be observed from then on: the background
+/// observer, which reads it on its schedule.
+pub trait SignedInAccountWatcher: Send + Sync {
+    /// Starts observing `account`, which a sign-in just finished on; a failure is the watcher's
+    /// to log.
+    fn watch_signed_in(&self, account: &RegisteredAccount);
 }
 
 /// Why a sign-in start, a code submit or a cancel failed; a failed start leaves no attempt, no
@@ -110,16 +118,18 @@ pub struct ProviderSignInBroker {
 
 impl ProviderSignInBroker {
     /// A broker writing through `registry`, starting each provider's flow through its entry in
-    /// `legs`, and sending its notifications to `publisher`.
+    /// `legs`, sending its notifications to `publisher` and each account it signs in to `watcher`.
     pub fn new(
         registry: Arc<ProviderAccountRegistry>,
         legs: HashMap<ProviderId, Arc<dyn ProviderSignInLegs>>,
         publisher: Arc<dyn ProviderAccountNotificationPublisher>,
+        watcher: Arc<dyn SignedInAccountWatcher>,
     ) -> Self {
         Self {
             attempt: AttemptServices {
                 registry,
                 publisher,
+                watcher,
                 attempts: Arc::new(Mutex::new(LiveAttempts::default())),
             },
             legs,
@@ -230,12 +240,13 @@ impl ProviderSignInBroker {
     }
 }
 
-/// What an attempt reaches beyond its own flow: the registry, the notification publisher and the
-/// broker's live attempts.
+/// What an attempt reaches beyond its own flow: the registry, the notification publisher, the
+/// watcher of a signed-in account and the broker's live attempts.
 #[derive(Clone)]
 struct AttemptServices {
     registry: Arc<ProviderAccountRegistry>,
     publisher: Arc<dyn ProviderAccountNotificationPublisher>,
+    watcher: Arc<dyn SignedInAccountWatcher>,
     attempts: Arc<Mutex<LiveAttempts>>,
 }
 
@@ -456,6 +467,14 @@ impl Attempt {
         match written {
             Some(Ok(())) if observation.is_account_named => {
                 reservation.minted = None;
+                match registry.read(reservation.account_id.clone()).await {
+                    Ok(account) => reservation.services.watcher.watch_signed_in(&account),
+                    Err(error) => tracing::warn!(
+                        error = &error as &(dyn Error + 'static),
+                        "a signed-in account was not read, so it is not observed until the next \
+                         start"
+                    ),
+                }
                 (ProviderSignInOutcome::Succeeded, None)
             }
             Some(Ok(())) | None => (

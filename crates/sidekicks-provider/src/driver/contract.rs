@@ -24,6 +24,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
@@ -523,6 +524,10 @@ pub trait ProviderDriver: Send + Sync {
     /// The inbox addresses the daemon holds for every session, where this provider's sessions
     /// must answer them; `None` for a provider whose sessions answer no inbox.
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>>;
+
+    /// The provider's own acts on one account's home, one object built with the driver, which
+    /// the account plane runs every provider's account acts through.
+    fn account_legs(&self) -> Arc<dyn ProviderAccountLegs>;
 
     /// Drops what the driver keeps in memory for `provider_account_id`'s account, which has been
     /// removed; an account it keeps nothing for is left as it is.

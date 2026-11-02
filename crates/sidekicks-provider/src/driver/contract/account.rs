@@ -4,6 +4,7 @@
 
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
@@ -43,6 +44,10 @@ pub trait ProviderAccountLegs: Send + Sync {
         provider_account_id: ProviderAccountId,
         folders: ProviderAccountFolders,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// These legs as the provider's limits read, which the background observer runs; `None` for a
+    /// provider with no limits read, whose accounts are then never observed.
+    fn observe_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderObserveLegs>>;
 }
 
 /// A provider's own interactive sign-in, run in one account's home: the flow's start, and the

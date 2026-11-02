@@ -27,10 +27,13 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::{
     AttemptId, ProviderAccountNotificationPublisher, ProviderSignInBroker, ProviderSignInError,
+    SignedInAccountWatcher,
 };
 use crate::account::credential_home::CredentialHome;
 use crate::account::registry::tests::register;
-use crate::account::registry::{HealthObservation, ProviderAccountRegistry, open_test_registry};
+use crate::account::registry::{
+    HealthObservation, ProviderAccountRegistry, RegisteredAccount, open_test_registry,
+};
 use crate::driver::contract::account::{
     ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInLegs,
     ProviderSignInObservation, SignInOrigin,
@@ -188,6 +191,16 @@ impl ProviderAccountNotificationPublisher for RecordingPublisher {
     }
 }
 
+/// A watcher that records each account it is handed.
+#[derive(Default)]
+struct RecordingWatcher(Mutex<Vec<ProviderAccountId>>);
+
+impl SignedInAccountWatcher for RecordingWatcher {
+    fn watch_signed_in(&self, account: &RegisteredAccount) {
+        lock(&self.0).push(account.account_id.clone());
+    }
+}
+
 async fn next_notification(
     published: &mut mpsc::UnboundedReceiver<ProviderAccountNotification>,
 ) -> ProviderAccountNotification {
@@ -275,6 +288,7 @@ async fn one_sign_in_attempt_settles_as_the_table_says(
         homes: Mutex::new(Vec::new()),
     });
     let (published_sender, mut published) = mpsc::unbounded();
+    let watcher = Arc::new(RecordingWatcher::default());
     let broker = ProviderSignInBroker::new(
         Arc::clone(&registry),
         HashMap::from([(
@@ -282,6 +296,7 @@ async fn one_sign_in_attempt_settles_as_the_table_says(
             Arc::clone(&legs) as Arc<dyn ProviderSignInLegs>,
         )]),
         Arc::new(RecordingPublisher(published_sender)),
+        Arc::clone(&watcher) as Arc<dyn SignedInAccountWatcher>,
     );
     let events_before = session_event_count(&database.path());
     let request = match &existing {
@@ -378,6 +393,13 @@ async fn one_sign_in_attempt_settles_as_the_table_says(
         failure_reason.is_some(),
         outcome == ProviderSignInOutcome::Failed
     );
+    // A finished sign-in, new or registered, is observed from then on, and no other end is.
+    let watched = lock(&watcher.0).clone();
+    if outcome == ProviderSignInOutcome::Succeeded {
+        assert_eq!(watched, vec![flow.account_id.clone()]);
+    } else {
+        assert!(watched.is_empty(), "{watched:?}");
+    }
 
     // The ended attempt takes no code and no cancel.
     let late_cancel = broker.cancel(&attempt_id).await.expect("a cancel");

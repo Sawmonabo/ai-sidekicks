@@ -14,7 +14,7 @@ use super::stand_in::{
 };
 use crate::driver::codex::service::registry::home_socket_path;
 use crate::driver::codex::service::supervisor::test_service::{
-    HANG_UP_IGNORED_NAME, answer_as_codex_service,
+    HANG_UP_IGNORED_NAME, StandInReplies, answer_as_codex_service,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -109,7 +109,11 @@ async fn a_restart_joins_an_unrecorded_service_on_the_link_and_drains_the_record
         bind_socket_listener(&unrecorded_socket).expect("the unrecorded listener listens");
     let answering = tokio::spawn(async move {
         while let Ok(stream) = unrecorded.accept().await {
-            tokio::spawn(answer_as_codex_service(stream, None, |_request| {}));
+            tokio::spawn(answer_as_codex_service(
+                stream,
+                StandInReplies::default(),
+                |_request| {},
+            ));
         }
     });
     replace_socket_link(&home_socket, &unrecorded_socket).expect("the link names the listener");

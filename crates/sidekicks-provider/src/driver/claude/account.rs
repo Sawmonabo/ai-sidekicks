@@ -1,67 +1,18 @@
 //! The Claude Code driver's account legs: Claude Code's own acts on one account's home, each run
 //! on the folders the caller names, and where its memory import reads and lands.
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 mod limits;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 mod read_folder;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 mod sign_out;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 mod switch;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 mod token_status;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 mod window_start;
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 mod memory;
 
 use std::io;
 use std::path::PathBuf;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, OnceLock, Weak};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -80,8 +31,8 @@ use crate::driver::claude::spawn::environment::{
 use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::installed_build::resolve_claude_build;
 use crate::driver::contract::account::{
-    MemoryImportStore, ProviderAccountLegs, ProviderMemoryImportLegs, ProviderSwitchLegs,
-    ProviderTokenStatusLegs, SessionAccountMove, SessionToMove,
+    MemoryImportStore, ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs,
+    ProviderSwitchLegs, ProviderTokenStatusLegs, SessionAccountMove, SessionToMove,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
@@ -95,13 +46,6 @@ use crate::spawned_version::ResolvedProviderExecutable;
 /// launcher, which every Claude Code process the driver keeps starts through; the driver's
 /// models each account's limits read names, which its sessions' events read their windows by;
 /// and what a switch moves: the driver's sessions, their bindings and the accounts they read.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 pub(crate) struct ClaudeAccountLegs {
     spawner: Spawner,
     launcher: Arc<ClaudeProcessLauncher>,
@@ -111,27 +55,19 @@ pub(crate) struct ClaudeAccountLegs {
     base_environment: Arc<[(String, String)]>,
     reserved_names: Arc<ReservedEnvironmentNames>,
     usage_probe_models: Arc<ClaudeUsageProbeModels>,
-    sessions: Weak<ClaudeSessionEstablishment>,
+    sessions: OnceLock<Weak<ClaudeSessionEstablishment>>,
     bindings: Arc<dyn RuntimeBindingWriter>,
     ports: Arc<DriverPorts>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 impl ClaudeAccountLegs {
     /// The legs over the shared services, starting their kept processes through `launcher` and
-    /// noting each limits read's models in `usage_probe_models` and moving the sessions
-    /// `sessions` brings up; they hold handles and do no I/O.
+    /// noting each limits read's models in `usage_probe_models`; the sessions a switch moves are
+    /// attached once the driver composes them. They hold handles and do no I/O.
     pub(crate) fn new(
         services: &DriverServices,
         launcher: Arc<ClaudeProcessLauncher>,
         usage_probe_models: Arc<ClaudeUsageProbeModels>,
-        sessions: Weak<ClaudeSessionEstablishment>,
     ) -> Self {
         Self {
             spawner: services.spawner.clone(),
@@ -142,10 +78,16 @@ impl ClaudeAccountLegs {
             base_environment: Arc::clone(&services.base_environment),
             reserved_names: Arc::clone(&services.reserved_names),
             usage_probe_models,
-            sessions,
+            sessions: OnceLock::new(),
             bindings: Arc::clone(&services.runtime_bindings),
             ports: Arc::clone(&services.ports),
         }
+    }
+
+    /// Attaches the sessions a switch moves, once the driver has composed them; a second attach
+    /// is ignored, since a driver composes its sessions once.
+    pub(crate) fn attach_sessions(&self, sessions: Weak<ClaudeSessionEstablishment>) {
+        drop(self.sessions.set(sessions));
     }
 
     // The environment a process on `home` starts with, and the build it names. Fails as the
@@ -182,6 +124,10 @@ impl ProviderAccountLegs for ClaudeAccountLegs {
         folders: ProviderAccountFolders,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         sign_out::sign_out_claude_home(self, provider_account_id, folders).boxed()
+    }
+
+    fn observe_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderObserveLegs>> {
+        Some(self)
     }
 }
 
@@ -221,12 +167,11 @@ pub(crate) fn test_account_legs(
     services: &DriverServices,
     sessions: Weak<ClaudeSessionEstablishment>,
 ) -> ClaudeAccountLegs {
-    let launcher = ClaudeProcessLauncher::new(
-        services.spawner.clone(),
-        Arc::clone(&services.child_records),
-        Arc::clone(&services.processes),
-        Arc::clone(&services.ports.provider_accounts),
-        &services.data_folder,
+    let legs = ClaudeAccountLegs::new(
+        services,
+        crate::driver::claude::lifecycle::compose_claude_launcher(services),
+        Arc::default(),
     );
-    ClaudeAccountLegs::new(services, Arc::new(launcher), Arc::default(), sessions)
+    legs.attach_sessions(sessions);
+    legs
 }

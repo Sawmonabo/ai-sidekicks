@@ -2,29 +2,8 @@
 //! service that home's own Codex runs, or on a short-lived one started there for the act, and
 //! where its memory import reads and lands.
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 mod auth_file;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 mod limits;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 mod sign_out;
 #[cfg_attr(
     not(test),
@@ -52,6 +31,8 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 
 use crate::account::credential_home::CredentialHome;
 use crate::account::registry::ProviderAccountRegistry;
@@ -71,13 +52,6 @@ use crate::driver::contract::error::DriverError;
 
 /// The switch that keeps a short-lived service's sign-in in the home's own `auth.json`, as on
 /// every Codex process of an account home.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 const CODEX_FILE_CREDENTIAL_STORE: &str = "cli_auth_credentials_store=\"file\"";
 
 /// The switch that keeps a service's sign-in in its process's memory alone, so it writes no
@@ -88,18 +62,11 @@ pub(crate) const CODEX_EPHEMERAL_CREDENTIAL_STORE: &str =
 /// What Codex's account legs reach a home's Codex through: the driver's services, one per home,
 /// what a short-lived service started for one act runs on, the driver's filing of rate limits, the
 /// account registry, and each account's dead renewals in a row.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 pub(crate) struct CodexAccountLegs {
     registry: Arc<CodexServiceRegistry>,
     dependencies: Arc<CodexServiceDependencies>,
     rate_limits: CodexRateLimitFiling,
-    accounts: Arc<ProviderAccountRegistry>,
+    accounts: Arc<PortRegistration<Arc<ProviderAccountRegistry>>>,
     // Each account's limits reads in a row whose needed renewal left its `auth.json` unchanged,
     // kept in memory as the observer's own misses are.
     dead_renewals: Mutex<HashMap<ProviderAccountId, u8>>,
@@ -108,19 +75,13 @@ pub(crate) struct CodexAccountLegs {
 impl CodexAccountLegs {
     /// The legs over `registry`, whose short-lived services run on `dependencies`, the ones
     /// `registry`'s own services share; limits read are filed through `rate_limits`, the driver's
-    /// own filing, and each account's mode and reset credits read and kept in `accounts`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the driver hands its account legs to the account plane once it is wired"
-        )
-    )]
+    /// own filing, and each account's mode and reset credits read and kept in the registry
+    /// `accounts` registers.
     pub(crate) fn new(
         registry: Arc<CodexServiceRegistry>,
         dependencies: Arc<CodexServiceDependencies>,
         rate_limits: CodexRateLimitFiling,
-        accounts: Arc<ProviderAccountRegistry>,
+        accounts: Arc<PortRegistration<Arc<ProviderAccountRegistry>>>,
     ) -> Self {
         Self {
             registry,
@@ -131,15 +92,20 @@ impl CodexAccountLegs {
         }
     }
 
+    /// Drops the dead renewals counted for `provider_account_id`'s account, which was removed.
+    pub(crate) fn forget_account(&self, provider_account_id: &ProviderAccountId) {
+        lock(&self.dead_renewals).remove(provider_account_id);
+    }
+
+    // The account registry. Fails while it is not registered.
+    fn accounts(&self) -> Result<&Arc<ProviderAccountRegistry>, DriverError> {
+        self.accounts
+            .require_port()
+            .map_err(|error| DriverError::Internal(Box::new(error)))
+    }
+
     // Runs `act` on the service serving in `codex_home`, else on a short-lived service started
     // there for it as `provider_account_id`'s home and stopped after, whatever `act` answered.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the driver hands its account legs to the account plane once it is wired"
-        )
-    )]
     async fn act_on_home_service<Answer>(
         &self,
         provider_account_id: ProviderAccountId,
@@ -181,6 +147,10 @@ impl ProviderAccountLegs for CodexAccountLegs {
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         sign_out::sign_out_codex_home(self, provider_account_id, folders).boxed()
     }
+
+    fn observe_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderObserveLegs>> {
+        Some(self)
+    }
 }
 
 impl ProviderObserveLegs for CodexAccountLegs {
@@ -212,13 +182,6 @@ impl ProviderMemoryImportLegs for CodexAccountLegs {
 
 // What a short-lived service runs on: the driver's own services' dependencies with the file
 // credential store added, and drains of its own, since it is never a lasting service.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 fn compose_short_lived_dependencies(
     shared: &CodexServiceDependencies,
 ) -> Arc<CodexServiceDependencies> {

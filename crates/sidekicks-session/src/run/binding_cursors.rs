@@ -20,6 +20,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
+use sidekicks_provider::account::observer::AccountLiveTurns;
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStore,
     RuntimeBindingStoreError,
@@ -390,6 +391,12 @@ impl RunBindingCursors {
         Ok(())
     }
 
+    /// Whether `binding_id`'s cursor is open, for a test that reads the cursors from outside.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn is_binding_open(&self, binding_id: &RuntimeBindingId) -> bool {
+        lock(&self.epochs).binding(binding_id).is_ok()
+    }
+
     /// The binding `session_id` runs on now: the one its cursors recorded or continued last,
     /// `None` once that run's cursors dropped or the session closed.
     pub fn current_binding(&self, session_id: &SessionId) -> Option<RuntimeBindingId> {
@@ -451,6 +458,31 @@ impl RunBindingCursors {
 
     fn lock_sessions(&self) -> MutexGuard<'_, HeldSessions> {
         lock(&self.sessions)
+    }
+}
+
+impl AccountLiveTurns for RunBindingCursors {
+    /// The sessions holding a run not yet ended on a binding under `provider_account_id`.
+    fn sessions_with_live_turns(&self, provider_account_id: &ProviderAccountId) -> Vec<SessionId> {
+        let sessions = self.lock_sessions();
+        let epochs = lock(&self.epochs);
+        sessions
+            .by_session
+            .iter()
+            .filter(|(_, session)| {
+                session
+                    .binding_ids_by_run
+                    .iter()
+                    .filter(|(run_id, _)| !session.ended_run_ids.contains(run_id))
+                    .flat_map(|(_, binding_ids)| binding_ids)
+                    .any(|binding_id| {
+                        epochs.binding(binding_id).is_ok_and(|binding| {
+                            binding.provider_account_id == *provider_account_id
+                        })
+                    })
+            })
+            .map(|(session_id, _)| *session_id)
+            .collect()
     }
 }
 
@@ -523,7 +555,6 @@ mod tests {
     struct Harness {
         database: TestDatabase,
         session_id: SessionId,
-        epochs: Arc<Mutex<ExecutionEpochs>>,
         cursors: RunBindingCursors,
     }
 
@@ -531,21 +562,19 @@ mod tests {
         async fn new() -> Self {
             let database = TestDatabase::new(schema_parts());
             let store = open_store(&database).await;
-            let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
-                NonZeroUsize::new(8).expect("the cap is not zero"),
-            )));
             let cursors = RunBindingCursors::new(
                 Arc::new(DatabaseReadPool::new(
                     database.path(),
                     RUN_BINDING_CURSORS_STATEMENT_CAPACITY,
                 )),
                 Arc::new(store),
-                Arc::clone(&epochs),
+                Arc::new(Mutex::new(ExecutionEpochs::new(
+                    NonZeroUsize::new(8).expect("the cap is not zero"),
+                ))),
             );
             Self {
                 database,
                 session_id: test_session_id(),
-                epochs,
                 cursors,
             }
         }
@@ -619,11 +648,7 @@ mod tests {
         }
 
         fn is_open(&self, binding_id: &RuntimeBindingId) -> bool {
-            self.epochs
-                .lock()
-                .expect("no test thread panics holding the cursors")
-                .binding(binding_id)
-                .is_ok()
+            self.cursors.is_binding_open(binding_id)
         }
 
         // Has the cursors hear the session close.
