@@ -8,6 +8,7 @@
 use std::collections::HashSet;
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::subagent::SubagentId;
 use tokio::time::Instant;
 
@@ -140,29 +141,34 @@ impl ClaudeDeliveryStream {
         }
     }
 
-    /// Moves the session's stream, every lead run's binding on the session and every live
-    /// helper's onto `provider_account_id`'s account through `bindings`, each binding once, in the
-    /// place the process acknowledged the switch, so each reading metered and each report read
-    /// after it is the new account's. A move not written is logged and the others are still made.
+    /// Moves the session's stream, the binding its lead runs on, every lead run's binding on the
+    /// session and every live helper's onto `provider_account_id`'s account through `bindings`,
+    /// each binding once, in the place the process acknowledged the switch, so each reading
+    /// metered and each report read after it is the new account's and each before it the old
+    /// one's. A move not written is logged and the others are still made.
     pub(super) async fn move_account(
         &self,
         session: &ClaudeSessionStream,
         provider_account_id: &ProviderAccountId,
+        lead_binding_id: RuntimeBindingId,
         bindings: &dyn RuntimeBindingWriter,
     ) {
         session.move_account(provider_account_id.clone());
         let routes = &self.dependencies.routes;
         let mut moved = HashSet::new();
-        let runs = routes
-            .bound_runs_on(session.session_id)
-            .into_iter()
-            .chain(routes.child_runs_on(session.session_id));
-        for run in runs {
-            if !moved.insert(run.binding_id.clone()) {
+        let binding_ids = std::iter::once(lead_binding_id).chain(
+            routes
+                .bound_runs_on(session.session_id)
+                .into_iter()
+                .chain(routes.child_runs_on(session.session_id))
+                .map(|run| run.binding_id),
+        );
+        for binding_id in binding_ids {
+            if !moved.insert(binding_id.clone()) {
                 continue;
             }
             if let Err(error) = bindings
-                .move_account(run.binding_id, provider_account_id.clone())
+                .move_account(binding_id, provider_account_id.clone())
                 .await
             {
                 tracing::warn!(

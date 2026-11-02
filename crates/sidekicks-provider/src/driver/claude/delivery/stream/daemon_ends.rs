@@ -267,10 +267,11 @@ impl ClaudeDeliveryStream {
             }
             ClaudeOwnDelivery::AccountMove {
                 provider_account_id,
+                lead_binding_id,
                 bindings,
                 first_request,
             } => {
-                self.move_account(session, &provider_account_id, &*bindings)
+                self.move_account(session, &provider_account_id, lead_binding_id, &*bindings)
                     .await;
                 // Heard from the next frame on, every one written before the move already read.
                 if let Some(first_request) = first_request {

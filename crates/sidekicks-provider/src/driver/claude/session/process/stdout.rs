@@ -498,8 +498,9 @@ mod tests {
 
     // Fails when the bindings move at the switch's send, which charges the readings written before
     // the answer to the new account, or on the answer's own path to its caller, which leaves the
-    // readings after it on the old one, or when the binding of a helper that outlived its lead's
-    // turn, or the next turn's lead, is left behind.
+    // readings after it on the old one, when the binding of a helper that outlived its lead's turn,
+    // or the next turn's lead, is left behind, and when the binding the lead rests on between turns
+    // moves anywhere but at the answer among the frames.
     #[tokio::test(start_paused = true)]
     async fn usage_frames_that_straddle_the_account_move_are_charged_on_each_side_of_it() {
         let session = ScriptedSession::new().await;
@@ -516,6 +517,7 @@ mod tests {
                 ClaudeAccountMoveMarker {
                     arrivals: session.stream.arrivals().clone(),
                     provider_account_id: moved_to.clone(),
+                    lead_binding_id: binding_id("resting"),
                     bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingWriter>,
                     first_request: None,
                 },
@@ -584,8 +586,12 @@ mod tests {
                 (binding_id("lead"), 10, test_provider_account_id()),
                 (binding_id("lead"), 30, test_provider_account_id()),
                 (binding_id("next-lead"), 20, moved_to.clone()),
-                (binding_id("lead"), 40, moved_to),
+                (binding_id("lead"), 40, moved_to.clone()),
             ]
+        );
+        assert!(
+            moves.contains(&(binding_id("resting"), moved_to, 2)),
+            "the lead's resting binding moves at the answer, after the readings before it: {moves:?}"
         );
     }
 }

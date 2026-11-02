@@ -22,6 +22,8 @@ use crate::driver::claude::account::credentials::{
 };
 use crate::driver::claude::account::{ClaudeAccountLegs, test_account_legs};
 use crate::driver::claude::session::control_requests::ClaudeControlRequests;
+use crate::driver::claude::session::controls::one_turn_legs;
+use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
 use crate::driver::claude::session::process::ClaudeOutputReader;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
@@ -150,20 +152,19 @@ fn folders(root: &Path, name: &str) -> ProviderAccountFolders {
     }
 }
 
-fn environment_value<'a>(start: &'a ScriptedStartRecord, name: &str) -> Option<&'a str> {
-    start
-        .environment
+fn environment_value<'a>(environment: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    environment
         .iter()
         .find(|(key, _)| key == name)
         .map(|(_, value)| value.as_str())
 }
 
 // Between two store accounts an idle and a mid-turn session each get the new store alone, and
-// move onto the account: the session's own account and its resting binding at the answer, a
-// running turn's binding at the marker among its frames, and the stream with it, so a limits
-// report read after the move is the new account's. Killed by the move sent with a token, by the
-// session's account left behind, by the resting binding left on the old account, and by the
-// stream's account left behind.
+// move onto the account at the marker among its frames: the session's own account, its resting
+// binding, a running turn's binding and the stream, so a limits report read after the move is the
+// new account's. Killed by the move sent with a token, by the session's account left behind, by
+// the resting binding left on the old account or moved when the answer is read, ahead of the
+// frames queued before it, and by the stream's account left behind.
 #[rstest]
 #[case::idle(false)]
 #[case::mid_turn(true)]
@@ -176,6 +177,10 @@ async fn a_store_switch_points_the_session_at_the_new_store_in_place(#[case] is_
     let sent_before = switch.channel.control_requests().len();
 
     drop(switch.switch().await);
+    assert!(
+        switch.fixture.bindings.moves().is_empty(),
+        "nothing moves before the session's queue reaches the marker"
+    );
     settle().await;
 
     assert_eq!(
@@ -256,9 +261,13 @@ async fn the_output_reader_names_the_account_the_switch_moved_onto() {
 
 // A token target never reaches the process in place: a busy session starts again only once its
 // turn settled, resuming its conversation by id on the new account's store, with no token in its
-// environment, which the launcher hands it on its pipe instead. Killed by the token sent on `env`,
-// by a relaunch that ends the running turn, and by a relaunch on the old account or a new
-// conversation.
+// environment, which the launcher hands it on its pipe instead, its lead's binding moved before
+// the new process starts, so the binding the relaunch records copies the new account. The
+// conversation stays in the home it was written into: the binding records that home before it
+// moves, and the relaunch resumes there on the new account's store. Killed by the token sent on
+// `env`, by a relaunch that ends the running turn, by a relaunch on the old account or a new
+// conversation, by the binding moved only once the relaunch landed, by the home left unrecorded,
+// and by a relaunch in the new account's own home.
 #[tokio::test(start_paused = true)]
 async fn a_token_target_relaunches_between_turns_and_resumes_by_id() {
     let switch = SwitchFixture::new(Some(ProviderAuthMode::OauthToken)).await;
@@ -284,26 +293,44 @@ async fn a_token_target_relaunches_between_turns_and_resumes_by_id() {
     );
     assert!(switch.fixture.starts.take_started().is_empty());
     switch.fixture.end_turn(&switch.start, switch.session_id);
-    drop(moving.await);
     let relaunched = switch.fixture.next_start().await;
+    assert_eq!(
+        switch.fixture.bindings.moves(),
+        [(binding_id("resting"), switch.to.clone())],
+        "the lead's binding is on the new account before its relaunch starts"
+    );
+    drop(moving.await);
 
     assert!(matches!(
         &relaunched.conversation,
         ClaudeConversationStart::Resume { resume_handle } if resume_handle == conversation
     ));
     assert_eq!(
-        environment_value(&relaunched, SECURE_STORAGE_FOLDER_VARIABLE),
+        environment_value(&relaunched.environment, SECURE_STORAGE_FOLDER_VARIABLE),
         Some(switch.store("to").as_str())
     );
-    assert_eq!(environment_value(&relaunched, OAUTH_TOKEN_VARIABLE), None);
+    assert_eq!(
+        environment_value(&relaunched.environment, OAUTH_TOKEN_VARIABLE),
+        None
+    );
+    let conversation_home = folders(switch.fixture.folder.path(), "from").configuration_folder;
+    assert_eq!(
+        environment_value(&relaunched.environment, "CLAUDE_CONFIG_DIR"),
+        Some(conversation_home.to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        switch.fixture.bindings.recovery_data(),
+        [(
+            binding_id("resting"),
+            claude_conversation_home_metadata(&conversation_home)
+        )]
+    );
     assert_eq!(switch.sent_environments(sent_before), Vec::<Value>::new());
     assert_eq!(switch.admitted(), switch.to);
-    assert!(
-        switch
-            .fixture
-            .bindings
-            .moves()
-            .contains(&(binding_id("resting"), switch.to.clone()))
+    assert_eq!(
+        switch.fixture.bindings.moves(),
+        [(binding_id("resting"), switch.to.clone())],
+        "the binding the relaunch left is never moved again"
     );
 }
 
@@ -353,6 +380,82 @@ async fn a_login_refusal_after_the_move_hands_the_previous_account_back() {
             last.map(|(_, account)| account),
             Some(&test_provider_account_id()),
             "{binding:?}"
+        );
+    }
+}
+
+// A reply begun before an in-place switch streams its messages on after the move, so the switch
+// hears its first request only at the `message_start` of a reply opened after it. Killed by any
+// answered `assistant` frame settling the watch.
+#[tokio::test(start_paused = true)]
+async fn the_first_request_after_a_store_switch_is_heard_at_its_message_start() {
+    let switch = SwitchFixture::new(None).await;
+    switch.start_turn().await;
+    let mut moved = switch.switch().await;
+    settle().await;
+
+    switch.frame(
+        &switch.start,
+        &json!({
+            "type": "assistant",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "message": {
+                "id": "message-begun-before",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "still streaming"}],
+            },
+        }),
+    );
+    settle().await;
+    assert!(
+        poll!(&mut moved.first_request).is_pending(),
+        "a reply begun before the move is no request on the new account"
+    );
+
+    switch.frame(
+        &switch.start,
+        &json!({
+            "type": "stream_event",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "event": {"type": "message_start", "message": {"id": "message-after"}},
+        }),
+    );
+    assert_eq!(
+        moved.first_request.await.expect("the watch is answered"),
+        FirstRequestAfterMove::Ran
+    );
+}
+
+// After an in-place switch, a one-turn copy of the session and the environment a rewind's fork
+// starts with sign in to the store the process was pointed at, in the home that holds the
+// conversation. Killed by a copy started from the environment the process spawned with, and by
+// the signed-in environment keeping the spawn's store.
+#[tokio::test(start_paused = true)]
+async fn a_process_started_from_the_legs_after_a_store_switch_signs_in_to_the_new_store() {
+    let switch = SwitchFixture::new(None).await;
+    drop(switch.switch().await);
+    settle().await;
+    let live = switch
+        .fixture
+        .driver
+        .composed_parts()
+        .expect("composed")
+        .slots()
+        .live_session(switch.session_id)
+        .expect("the session is live");
+
+    let conversation_home = folders(switch.fixture.folder.path(), "from").configuration_folder;
+    for environment in [
+        one_turn_legs(&live, None, None).spawn_environment,
+        live.signed_in_spawn_environment(),
+    ] {
+        assert_eq!(
+            environment_value(&environment, SECURE_STORAGE_FOLDER_VARIABLE),
+            Some(switch.store("to").as_str())
+        );
+        assert_eq!(
+            environment_value(&environment, "CLAUDE_CONFIG_DIR"),
+            Some(conversation_home.to_string_lossy().as_ref())
         );
     }
 }

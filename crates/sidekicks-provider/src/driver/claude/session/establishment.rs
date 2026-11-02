@@ -14,7 +14,7 @@ pub(crate) mod spawn_sources;
 use std::error::Error;
 use std::io;
 use std::num::NonZeroUsize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::{Map, Value};
@@ -330,6 +330,8 @@ pub(crate) struct ClaudeSpawnRequest {
     /// The turn of the run in progress a resume's process continues; `None` for a create and a
     /// resume naming no run in progress.
     pub(crate) continued_turn: Option<ClaudeContinuedTurn>,
+    /// The home holding the resumed conversation, where it is not the account's own.
+    pub(crate) conversation_home: Option<PathBuf>,
 }
 
 impl ClaudeSessionEstablishment {
@@ -366,6 +368,7 @@ impl ClaudeSessionEstablishment {
             row_values: params.row_values,
             effort: params.effort.map(FreeFormText::into_string),
             continued_turn: None,
+            conversation_home: None,
         };
         let output_speed = params.output_speed.map(FreeFormText::into_string);
         let spawned_version = self
@@ -454,7 +457,8 @@ impl ClaudeSessionEstablishment {
             request.provider_account_id.clone(),
             &request.row_values,
         )
-        .await?;
+        .await?
+        .in_conversation_home(request.conversation_home.as_deref());
         let step_bound = context.step_bound;
         let host = sources.ports.callback_tool_host.require_port()?;
         let session_id = request.session_id;
@@ -586,7 +590,7 @@ impl ClaudeSessionEstablishment {
         let level_reports = permission_mode.report_changes();
         let (arrivals, receiver) = claude_session_arrivals(session_id);
         let stream = Arc::new(ClaudeSessionStream::new(
-            provider_account_id.clone(),
+            provider_account_id,
             step_bound,
             arrivals.clone(),
             Arc::clone(&self.routes),
@@ -694,7 +698,7 @@ impl ClaudeSessionEstablishment {
             spawn_binding,
             initialize: started.initialize.clone(),
             command_choices,
-            admitted_account: Mutex::new(provider_account_id),
+            account: stream.account(),
             settings: Mutex::new(ClaudeLiveSettings {
                 execution_posture: legs.execution_posture.clone(),
                 session_mode,
@@ -801,7 +805,7 @@ impl ClaudeSessionEstablishment {
             Arc::clone(live),
             Arc::clone(&stream),
         );
-        let account = live.admitted_provider_account_id();
+        let account = stream.account();
         tokio::spawn(async move {
             drain_claude_session_arrivals(receiver, &mut task, account).await;
         });

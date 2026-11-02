@@ -25,6 +25,7 @@ use crate::driver::claude::output_speed::resolve_claude_output_speed;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes};
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::conversation_file::read_turn_count;
+use crate::driver::claude::session::conversation_home::read_claude_conversation_home;
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionSlotState, ClaudeSessionUnavailableReason,
 };
@@ -141,6 +142,7 @@ impl ClaudeSessionEstablishment {
             // The create's start checked the lead's effort.
             effort: None,
             continued_turn,
+            conversation_home: read_claude_conversation_home(&params.runtime_metadata),
         };
         let output_speed = params.output_speed.map(FreeFormText::into_string);
         let (started, session_position) = self

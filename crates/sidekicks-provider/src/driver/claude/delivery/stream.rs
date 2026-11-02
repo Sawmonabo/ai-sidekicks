@@ -53,6 +53,7 @@ use crate::driver::claude::delivery::system::{
     read_claude_refusal_without_fallback, read_claude_warning, read_claude_worker_shutdown_reason,
 };
 use crate::driver::claude::delivery::turn_end::ClaudeTerminalReason;
+use crate::driver::claude::delivery::turn_readings::is_claude_message_start;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::rate_limit_windows::{
@@ -420,11 +421,11 @@ impl ClaudeDeliveryStream {
             ClaudeWireFrameKind::StreamEvent => self.stream_event(session, &lead, &frame.text),
             ClaudeWireFrameKind::Assistant => {
                 if let Some(message) = message {
-                    session.settle_first_request(if message.error() == Some(CLAUDE_LOGIN_REFUSAL) {
-                        ClaudeFirstRequest::LoginRefused
-                    } else {
-                        ClaudeFirstRequest::Answered
-                    });
+                    // An answered request is heard at its `message_start`, since a reply begun
+                    // before an account move goes on streaming its messages after it.
+                    if message.error() == Some(CLAUDE_LOGIN_REFUSAL) {
+                        session.settle_first_request(ClaudeFirstRequest::LoginRefused);
+                    }
                     let usage = frame.observation.message_usage.as_ref();
                     self.assistant(session, &lead, &message, usage).await;
                 }
@@ -682,6 +683,10 @@ impl ClaudeDeliveryStream {
             session_id: session.session_id,
             run_id: lead.run_id,
         };
+        // Only a reply opened after an account move is the moved account's first request.
+        if session.is_watching_first_request() && is_claude_message_start(text) {
+            session.settle_first_request(ClaudeFirstRequest::Answered);
+        }
         let provider_account_id = session.provider_account_id();
         let usage = {
             let mut readings = session.lock();

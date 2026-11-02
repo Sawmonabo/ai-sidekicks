@@ -361,16 +361,22 @@ impl CallbackToolActivitySink for NoCallbackTools {
 }
 
 /// A binding store that takes every write, so a rewind's fork is adopted, and keeps each account
-/// move in the order made.
+/// move and each recovery data kept, in the order made.
 #[derive(Default)]
 pub(crate) struct TakenBindingWrites {
     moves: Mutex<Vec<(RuntimeBindingId, ProviderAccountId)>>,
+    recovery_data: Mutex<Vec<(RuntimeBindingId, Map<String, Value>)>>,
 }
 
 impl TakenBindingWrites {
     /// Every account move so far: the binding, and the account it moved onto.
     pub(crate) fn moves(&self) -> Vec<(RuntimeBindingId, ProviderAccountId)> {
         lock(&self.moves).clone()
+    }
+
+    /// Every recovery data kept so far: the binding, and the data it holds now.
+    pub(crate) fn recovery_data(&self) -> Vec<(RuntimeBindingId, Map<String, Value>)> {
+        lock(&self.recovery_data).clone()
     }
 }
 
@@ -384,11 +390,13 @@ impl RuntimeBindingWriter for TakenBindingWrites {
 
     fn keep_recovery_data(
         &self,
-        _binding_id: RuntimeBindingId,
-        _runtime_metadata: Map<String, Value>,
+        binding_id: RuntimeBindingId,
+        runtime_metadata: Map<String, Value>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        lock(&self.recovery_data).push((binding_id, runtime_metadata));
         ready(Ok(())).boxed()
     }
+
     fn move_account(
         &self,
         binding_id: RuntimeBindingId,

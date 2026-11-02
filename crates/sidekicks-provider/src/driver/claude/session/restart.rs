@@ -18,6 +18,7 @@ use std::time::SystemTime;
 use futures::future::join_all;
 use serde_json::json;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
@@ -56,6 +57,7 @@ use crate::driver::session_control::{
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 // Every session's crash window and the sessions the driver brings back itself.
 #[derive(Default)]
@@ -76,7 +78,27 @@ struct ClaudeRestartTable {
 // told; dropped, it tells the move the session is gone.
 struct ClaudePendingAccountMove {
     provider_account_id: ProviderAccountId,
-    landed: oneshot::Sender<Result<(), DriverError>>,
+    leg: ClaudeLegBinding,
+    landed: oneshot::Sender<Result<RuntimeBindingId, DriverError>>,
+}
+
+/// The binding a session's lead runs on, which a relaunch onto another account moves before it
+/// starts, so the binding the relaunch records carries the account its process starts on.
+pub(crate) struct ClaudeLegBinding {
+    /// Where the move is written.
+    pub(crate) bindings: Arc<dyn RuntimeBindingWriter>,
+    /// The binding.
+    pub(crate) binding_id: RuntimeBindingId,
+}
+
+impl ClaudeLegBinding {
+    // Moves the binding onto `provider_account_id`'s account. Fails when nothing was recorded.
+    async fn move_to(&self, provider_account_id: ProviderAccountId) -> Result<(), DriverError> {
+        self.bindings
+            .move_account(self.binding_id.clone(), provider_account_id)
+            .await
+            .map_err(DriverError::Internal)
+    }
 }
 
 // Where a session the driver brings back itself stands.
@@ -445,7 +467,11 @@ impl ClaudeSessionRestarts {
             let (restarts, live) = (Arc::clone(self), Arc::clone(live));
             tokio::spawn(async move {
                 let landed = restarts
-                    .relaunch_now_on_account(&live, account_move.provider_account_id)
+                    .relaunch_now_on_account(
+                        &live,
+                        account_move.provider_account_id,
+                        &account_move.leg,
+                    )
                     .await;
                 // A move that stopped waiting needs no answer.
                 account_move.landed.send(landed).unwrap_or(());
@@ -474,18 +500,21 @@ impl ClaudeSessionRestarts {
     /// Moves `live` onto `provider_account_id`'s account by ending its process the way a close
     /// does and resuming its conversation by id on that account, as a relaunch does, so the new
     /// process starts with that account's sign-in: an idle session at once, a busy one when its
-    /// turn settles. Answers once the relaunched process runs; fails `provider.unavailable` once
-    /// the process is no longer the session's or ended first, and with the relaunch's failure,
-    /// which the session directory records too.
+    /// turn settles. `leg` moves onto the account just before the relaunch, after every frame of
+    /// the turn it waited for. Answers the binding the relaunched process runs under once it
+    /// runs; fails `provider.unavailable` once the process is no longer the session's or ended
+    /// first, as the move of `leg` fails, and with the relaunch's failure, which the session
+    /// directory records too.
     pub(crate) async fn relaunch_on_account(
         self: &Arc<Self>,
         live: &Arc<LiveClaudeSession>,
         provider_account_id: ProviderAccountId,
-    ) -> Result<(), DriverError> {
+        leg: ClaudeLegBinding,
+    ) -> Result<RuntimeBindingId, DriverError> {
         let session_id = live.session_id;
         if !self.routes.is_turn_held(session_id) {
             return self
-                .relaunch_now_on_account(live, provider_account_id)
+                .relaunch_now_on_account(live, provider_account_id, &leg)
                 .await;
         }
         let (landed, landing) = oneshot::channel();
@@ -493,6 +522,7 @@ impl ClaudeSessionRestarts {
             session_id,
             ClaudePendingAccountMove {
                 provider_account_id,
+                leg,
                 landed,
             },
         );
@@ -501,37 +531,42 @@ impl ClaudeSessionRestarts {
             .unwrap_or_else(|_dropped| Err(session_process_unavailable(session_id).into()))
     }
 
-    // Relaunches `live` on `provider_account_id`'s account now; the session stays on its account
-    // where its process is no longer its own.
+    // Relaunches `live` on `provider_account_id`'s account now, under a binding that copies
+    // `leg`'s, and answers that binding; the session and `leg` stay on their account where its
+    // process is no longer its own.
     async fn relaunch_now_on_account(
         &self,
         live: &Arc<LiveClaudeSession>,
         provider_account_id: ProviderAccountId,
-    ) -> Result<(), DriverError> {
+        leg: &ClaudeLegBinding,
+    ) -> Result<RuntimeBindingId, DriverError> {
         let session_id = live.session_id;
         let previous = live.admitted_provider_account_id();
-        // Moved first, since the relaunch composes its start from the session's account.
+        // Both moved first: the relaunch composes its start from the session's account, and the
+        // binding it records copies the leg's.
+        leg.move_to(provider_account_id.clone()).await?;
         live.move_admitted_account(provider_account_id);
         // The relaunch resumes on the build installed now, so a build move that waited is done.
         lock(&self.table).pending_build_moves.remove(&session_id);
         let Some(answer) = self.relaunch(live, true).await else {
-            live.move_admitted_account(previous);
+            live.move_admitted_account(previous.clone());
+            leg.move_to(previous).await?;
             return Err(session_process_unavailable(session_id).into());
         };
-        let failure = match &answer.result {
-            DriverResumeResult::Resumed { .. } => None,
+        let relaunched = match &answer.result {
+            DriverResumeResult::Resumed { binding_id, .. } => Ok(binding_id.clone()),
             DriverResumeResult::Failed {
                 provider_failure_detail,
                 ..
             } => {
                 self.report_gone(session_id);
-                Some(DriverError::Internal(
+                Err(DriverError::Internal(
                     provider_failure_detail.as_str().into(),
                 ))
             }
         };
         self.record_relaunch(session_id, answer).await?;
-        failure.map_or(Ok(()), Err)
+        relaunched
     }
 
     /// Moves the account `ended`'s restart starts on to `provider_account_id`'s, while its

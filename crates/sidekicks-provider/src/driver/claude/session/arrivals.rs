@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
@@ -28,6 +29,7 @@ use crate::driver::claude::delivery::stream::{
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::frame_routing::{ClaudeFrameRouting, ClaudeRoutedObservation};
 use crate::driver::claude::run::routes::ClaudeBoundRun;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{
     ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
 };
@@ -111,6 +113,8 @@ pub(crate) enum ClaudeOwnDelivery {
     AccountMove {
         /// The account the bindings move onto.
         provider_account_id: ProviderAccountId,
+        /// The binding the session's lead runs on, moved even when no run is bound.
+        lead_binding_id: RuntimeBindingId,
         /// Where the move is written.
         bindings: Arc<dyn RuntimeBindingWriter>,
         /// Answered how the process's next request goes, where the switch listens for it.
@@ -124,8 +128,9 @@ pub(crate) enum ClaudeOwnDelivery {
 pub(crate) struct ClaudeDeliveryPlace {
     /// The session whose task it is.
     session_id: SessionId,
-    /// The account the session's process runs on.
-    provider_account_id: ProviderAccountId,
+    /// The account the session's process runs on, its stream's own, moved where it acknowledged a
+    /// switch.
+    account: ClaudeProcessAccount,
 }
 
 impl ClaudeDeliveryPlace {
@@ -148,7 +153,7 @@ pub(crate) fn deliver_in_session_order<'dispatch>(
     if let Ok(place) = CLAUDE_DELIVERY_PLACE.try_with(Clone::clone)
         && place.session_id == session_id
     {
-        let origin = claude_delivery_origin(Some(place.provider_account_id), None);
+        let origin = claude_delivery_origin(place.account.read(), None);
         return dispatch_delivery(dispatch, origin, delivery).boxed();
     }
     match streams.get(session_id) {
@@ -285,15 +290,15 @@ pub(crate) trait ClaudeSessionArrivalHandler: Send {
 
 /// Drains `receiver` into `handler` until its `Exit` is handled or every sender is gone, each
 /// arrival and each deadline awaited whole before the next, as the session's own place for a
-/// process running on `provider_account_id`'s home.
+/// process running on the account `account` names now.
 pub(crate) async fn drain_claude_session_arrivals(
     mut receiver: ClaudeArrivalReceiver,
     handler: &mut impl ClaudeSessionArrivalHandler,
-    provider_account_id: ProviderAccountId,
+    account: ClaudeProcessAccount,
 ) {
     let place = ClaudeDeliveryPlace {
         session_id: receiver.session_id,
-        provider_account_id,
+        account,
     };
     loop {
         let deadline = handler.next_deadline();
@@ -420,23 +425,32 @@ impl ClaudeProcessListener for ClaudeSessionListener {
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
     use std::time::Duration;
 
     use futures::FutureExt;
     use futures::future::BoxFuture;
+    use sidekicks_contracts::provider::account::record::ProviderAccountId;
+    use sidekicks_contracts::session::id::SessionId;
     use tokio::time::Instant;
 
     use super::{
         ClaudeOwnDelivery, ClaudeRoutedFrame, ClaudeSessionArrival, ClaudeSessionArrivalHandler,
-        ClaudeTurnAtRead, claude_session_arrivals, drain_claude_session_arrivals,
+        ClaudeTurnAtRead, claude_session_arrivals, deliver_in_session_order,
+        drain_claude_session_arrivals,
     };
+    use crate::driver::claude::delivery::stream::ClaudeSessionStreams;
     use crate::driver::claude::frame_routing::ClaudeRoutedObservation;
     use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
     use crate::driver::claude::session::process::ClaudeStreamFrame;
+    use crate::driver::claude::session::process::account::ClaudeProcessAccount;
     use crate::driver::claude::session::scripted::binding_id;
     use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+    use crate::driver::diagnostics::{DriverDiagnosticKind, RecordedEvents};
     use crate::driver::test_registry::new_session_id;
+    use crate::port::inbound_dispatch::InboundDispatch;
     use crate::run::delivery::InboundDelivery;
+    use crate::run::delivery::InboundOutcome;
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::thread_frame_router::ThreadFrameRoute;
 
@@ -518,7 +532,8 @@ mod tests {
         drop(sender);
 
         let mut log = ArrivalLog::default();
-        drain_claude_session_arrivals(receiver, &mut log, test_provider_account_id()).await;
+        let account = ClaudeProcessAccount::new(Some(test_provider_account_id()));
+        drain_claude_session_arrivals(receiver, &mut log, account).await;
 
         assert_eq!(dispatched.await, None);
         assert_eq!(
@@ -530,6 +545,81 @@ mod tests {
                 "delivery",
                 "third frame"
             ]
+        );
+    }
+
+    // Refuses every delivery, so its dispatch logs the origin it was made from.
+    struct RefusingDispatch;
+
+    impl InboundDispatch for RefusingDispatch {
+        fn dispatch<'dispatch>(
+            &'dispatch self,
+            _delivery: InboundDelivery<'_>,
+        ) -> BoxFuture<'dispatch, Result<InboundOutcome, Box<dyn Error + Send + Sync>>> {
+            async { Err("the test refuses every delivery".into()) }.boxed()
+        }
+    }
+
+    // At its arrival, moves the process onto `moved_to`'s account, as an acknowledged switch does,
+    // then dispatches a delivery in the session's own place.
+    struct MovingDispatcher {
+        session_id: SessionId,
+        account: ClaudeProcessAccount,
+        moved_to: ProviderAccountId,
+    }
+
+    impl ClaudeSessionArrivalHandler for MovingDispatcher {
+        fn arrive(&mut self, _arrival: ClaudeSessionArrival) -> BoxFuture<'_, ()> {
+            self.account.move_to(self.moved_to.clone());
+            let delivery = deliver_in_session_order(
+                &RefusingDispatch,
+                &ClaudeSessionStreams::default(),
+                self.session_id,
+                InboundDelivery::TurnBoundary {
+                    binding_id: binding_id("binding"),
+                },
+            );
+            async move { assert!(delivery.await.is_none(), "the dispatch refuses") }.boxed()
+        }
+
+        fn next_deadline(&self) -> Option<Instant> {
+            None
+        }
+
+        fn deadline_reached(&mut self, _now: Instant) -> BoxFuture<'_, ()> {
+            async {}.boxed()
+        }
+    }
+
+    // A delivery made in the session's own place names the account its process runs on now, one
+    // a switch moved it onto after its task started among them. Killed by the place keeping a
+    // copy of the account it started with.
+    #[tokio::test]
+    async fn a_delivery_in_the_session_s_place_names_the_account_its_process_moved_onto() {
+        let session_id = new_session_id();
+        let (sender, receiver) = claude_session_arrivals(session_id);
+        let account = ClaudeProcessAccount::new(Some(test_provider_account_id()));
+        let moved_to =
+            ProviderAccountId::new("account-moved-to".to_owned()).expect("an account id fits");
+        let mut handler = MovingDispatcher {
+            session_id,
+            account: account.clone(),
+            moved_to: moved_to.clone(),
+        };
+        sender.push(frame("the switch"));
+        drop(sender);
+        let recorded = RecordedEvents::default();
+        let recording = recorded.record_until_dropped();
+
+        drain_claude_session_arrivals(receiver, &mut handler, account).await;
+        drop(recording);
+
+        assert_eq!(
+            recorded.field_on(
+                DriverDiagnosticKind::DeliveryDispatchFailed.counter_name(),
+                "provider_account_id"
+            ),
+            [moved_to.as_str()]
         );
     }
 }

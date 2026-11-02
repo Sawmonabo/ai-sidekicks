@@ -153,6 +153,11 @@ impl ClaudeSessionStream {
         *lock(&self.first_request) = Some(watch);
     }
 
+    // Whether an account move waits to hear how the process's next request goes.
+    pub(super) fn is_watching_first_request(&self) -> bool {
+        lock(&self.first_request).is_some()
+    }
+
     // Answers the watch on the next request, where one is held.
     pub(super) fn settle_first_request(&self, outcome: ClaudeFirstRequest) {
         if let Some(watch) = lock(&self.first_request).take() {
