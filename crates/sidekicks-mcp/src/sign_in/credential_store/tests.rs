@@ -238,11 +238,11 @@ async fn a_sign_out_answers_the_sign_in_it_removed() {
 #[derive(Clone, Copy)]
 enum DuringRenewal {
     /// A sign-out, after the renewal loaded its sign-in.
-    SignOutAfterItsLoad,
+    SignOut,
     /// A new sign-in, after the renewal loaded its sign-in.
-    NewSignInAfterItsLoad,
+    NewSignIn,
     /// A new sign-in, after rmcp took the refresh guard and before the renewal loaded.
-    NewSignInBeforeItsLoad,
+    NewSignInFirst,
 }
 
 /// A renewal's save keeps its tokens only over the sign-in the renewal loaded under rmcp's guard:
@@ -252,9 +252,9 @@ enum DuringRenewal {
 /// writes over whatever is held, or over nothing, by a base recorded when the guard is taken
 /// rather than at the load, and by a refused save whose tokens are dropped.
 #[rstest]
-#[case::a_sign_out(DuringRenewal::SignOutAfterItsLoad)]
-#[case::a_new_sign_in(DuringRenewal::NewSignInAfterItsLoad)]
-#[case::a_new_sign_in_before_the_load(DuringRenewal::NewSignInBeforeItsLoad)]
+#[case::a_sign_out(DuringRenewal::SignOut)]
+#[case::a_new_sign_in(DuringRenewal::NewSignIn)]
+#[case::a_new_sign_in_before_the_load(DuringRenewal::NewSignInFirst)]
 #[tokio::test]
 async fn a_renewal_keeps_its_tokens_only_over_the_sign_in_it_loaded(
     #[case] during_renewal: DuringRenewal,
@@ -271,7 +271,7 @@ async fn a_renewal_keeps_its_tokens_only_over_the_sign_in_it_loaded(
         .expect("the custody answers");
 
     match during_renewal {
-        DuringRenewal::SignOutAfterItsLoad => {
+        DuringRenewal::SignOut => {
             renewal.load().await.expect("the custody answers");
             custody
                 .credential_store(&address)
@@ -279,11 +279,11 @@ async fn a_renewal_keeps_its_tokens_only_over_the_sign_in_it_loaded(
                 .await
                 .expect("the sign-out removes the sign-in");
         }
-        DuringRenewal::NewSignInAfterItsLoad => {
+        DuringRenewal::NewSignIn => {
             renewal.load().await.expect("the custody answers");
             keep(&custody, &address, "test-access-token-3").await;
         }
-        DuringRenewal::NewSignInBeforeItsLoad => {
+        DuringRenewal::NewSignInFirst => {
             keep(&custody, &address, "test-access-token-3").await;
             renewal.load().await.expect("the custody answers");
         }
@@ -292,9 +292,9 @@ async fn a_renewal_keeps_its_tokens_only_over_the_sign_in_it_loaded(
     drop(guard);
 
     let (is_kept, held_token) = match during_renewal {
-        DuringRenewal::SignOutAfterItsLoad => (false, None),
-        DuringRenewal::NewSignInAfterItsLoad => (false, Some("test-access-token-3")),
-        DuringRenewal::NewSignInBeforeItsLoad => (true, Some("test-access-token-2")),
+        DuringRenewal::SignOut => (false, None),
+        DuringRenewal::NewSignIn => (false, Some("test-access-token-3")),
+        DuringRenewal::NewSignInFirst => (true, Some("test-access-token-2")),
     };
     assert_eq!(saved.is_ok(), is_kept, "{saved:?}");
     let held = renewal.load().await.expect("the custody answers");
