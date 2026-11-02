@@ -406,6 +406,28 @@ async fn a_new_own_run_clears_a_stop_that_is_not_final(
     }
 }
 
+// An interrupt's hold ends with the helper's run, so the first tool call of its next own run
+// passes rather than being held with no `paused` reported. Killed by the hold kept past the end
+// (the call is held).
+#[tokio::test(start_paused = true)]
+async fn an_interrupted_helpers_hold_ends_with_its_run() {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.frame(&helper_started("helper", "local_agent", "call-1"));
+    settle().await;
+    lock(&session.parts.run_controls.pauses).hold_interrupted_helper(&session.session_id, "helper");
+
+    session.frame(&helper_ended("helper", "stopped", "Interrupted"));
+    session.frame(&helper_started("helper", "local_agent", "call-2"));
+    settle().await;
+
+    assert_eq!(
+        helper_tool_answer(&session, "helper"),
+        ClaudePauseAnswer::Answer(ClaudeHookAnswer::Pass)
+    );
+}
+
 // The refusal a helper's earlier run was stopped for.
 fn earlier_refusal() -> RunSetupRefusal {
     RunSetupRefusal {

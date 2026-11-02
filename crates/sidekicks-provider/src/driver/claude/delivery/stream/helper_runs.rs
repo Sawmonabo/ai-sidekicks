@@ -1,9 +1,9 @@
 //! A helper's child run: started when routing reads the helper's start, beneath the run of the
 //! helper that launched it, else the lead run, bound by the agent id its frames and requests carry
 //! once the run engine answers, and moved on the helper's own `task_notification`, after which its
-//! route retires. A helper whose run the daemon refused is bound to that ended run all the same,
-//! which absorbs its frames, and is stopped. A helper's new own run clears a stop that is not
-//! final. A helper's start and end are also rows on the run its start went beneath. The start is
+//! route retires and its pause or hold is dropped. A helper whose run the daemon refused is bound
+//! to that ended run all the same, which absorbs its frames, and is stopped. A helper's new own
+//! run clears a stop that is not final. A helper's start and end are also rows on the run its start went beneath. The start is
 //! dispatched on the session's task before any later arrival, so a request of the helper finds its
 //! run bound.
 
@@ -208,6 +208,9 @@ impl ClaudeDeliveryStream {
         };
         self.send(session, delivery, Some("system/task_notification"))
             .await;
+        // A pause or an interrupt's hold ends with the run, so the helper's next own run is not
+        // held unreported; an ended helper holds no call, so none is answered.
+        lock(&self.dependencies.pauses).resume_helper(&session.session_id, &route.agent_id, None);
         routes.retire_child_run(child_run_id);
     }
 
