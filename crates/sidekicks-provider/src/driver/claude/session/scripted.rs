@@ -344,6 +344,7 @@ impl ScriptedSession {
                 agent_id: agent_id.to_owned(),
                 parent_run_id,
                 binding_id: binding_id("helper"),
+                is_refused: false,
             },
         );
         run_id

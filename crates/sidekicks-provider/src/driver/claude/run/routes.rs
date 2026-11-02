@@ -19,12 +19,9 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::watch;
 
 /// Where a helper's child run lives: its session, the agent id its frames and hook callbacks
-/// carry, the run it was started beneath, and the binding the lead's process is attributed on.
+/// carry, the run it was started beneath, the binding the lead's process is attributed on, and
+/// whether the daemon refused the run.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(
-    clippy::struct_field_names,
-    reason = "each field is an id, named as every id field in the daemon is"
-)]
 pub(crate) struct ClaudeChildRunRoute {
     /// The session.
     pub(crate) session_id: SessionId,
@@ -34,6 +31,9 @@ pub(crate) struct ClaudeChildRunRoute {
     pub(crate) parent_run_id: RunId,
     /// The binding the lead's process is attributed on.
     pub(crate) binding_id: RuntimeBindingId,
+    /// Whether the daemon refused the run, which ended at its setup and only absorbs the helper's
+    /// frames, so no helper it launches is started beneath it.
+    pub(crate) is_refused: bool,
 }
 
 /// A run and the runtime binding its deliveries are attributed on.
@@ -404,6 +404,20 @@ impl ClaudeRunRoutes {
             .iter()
             .find(|(_, route)| route.session_id == session_id && route.agent_id == agent_id)
             .map(|(run_id, _)| *run_id)
+    }
+
+    /// The child run of the helper Claude Code named `agent_id` on a session and its route, if one
+    /// is bound.
+    pub(crate) fn child_route_for(
+        &self,
+        session_id: SessionId,
+        agent_id: &str,
+    ) -> Option<(RunId, ClaudeChildRunRoute)> {
+        self.lock()
+            .children
+            .iter()
+            .find(|(_, route)| route.session_id == session_id && route.agent_id == agent_id)
+            .map(|(run_id, route)| (*run_id, route.clone()))
     }
 
     /// Whether a helper of the session still has its child run bound, so it has not ended.

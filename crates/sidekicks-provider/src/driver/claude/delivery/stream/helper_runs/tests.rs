@@ -151,6 +151,27 @@ async fn a_nested_helper_hangs_under_its_launchers_run_and_an_unknown_one_under_
     );
 }
 
+// A helper launched by one whose run the daemon refused hangs under the lead, the refused launcher's
+// id kept, so it gets a run of its own. Killed by the refused launcher's ended run carrying the
+// start (it hangs under that run).
+#[tokio::test(start_paused = true)]
+async fn a_helper_launched_by_a_refused_one_hangs_under_the_lead() {
+    let session = ScriptedSession::new().await;
+    let lead_run = session.hold_lead_turn("lead");
+    session.frame(&init());
+    session.engine.refuse_next_child_run(earlier_refusal());
+    session.frame(&nested_start("p", "call-p", None, None));
+    session.frame(&nested_start("c", "call-c", Some("p"), None));
+    settle().await;
+
+    let nested = child_runs(&session.engine.deliveries())
+        .into_iter()
+        .find(|read| read.helper == "c")
+        .expect("the nested helper's start is delivered");
+    assert_eq!(nested.parent_run_id, Some(lead_run));
+    assert_eq!(nested.launcher.as_deref(), Some("p"));
+}
+
 // A background helper that launches a helper after the lead's turn ended still carries it: the
 // nested start hangs under the launcher's run on the lead's binding, and opens no turn. Killed by
 // dropping the start as unmapped once no lead holds the turn, by opening the turn on the run the

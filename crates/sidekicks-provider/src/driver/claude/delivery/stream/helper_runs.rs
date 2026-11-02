@@ -1,5 +1,5 @@
 //! A helper's child run: started when routing reads the helper's start, beneath the run of the
-//! helper that launched it, else the lead run, bound by the agent id its frames and requests carry
+//! helper that launched it unless the daemon refused that run, else the lead run, bound by the agent id its frames and requests carry
 //! once the run engine answers, and moved on the helper's own `task_notification`, after which its
 //! route retires and its pause or hold is dropped. A helper whose run the daemon refused is bound
 //! to that ended run all the same, which absorbs its frames, and is stopped. A helper's new own
@@ -17,10 +17,9 @@ use super::{
 };
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
-use crate::driver::claude::delivery::requests::attribute_claude_request;
 use crate::driver::claude::delivery::system::read_claude_helper_end;
 use crate::driver::claude::event_normalizer::ClaudeSubagentLifecycleSignal;
-use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeChildRunRoute, ClaudeRunRoute};
+use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeChildRunRoute};
 use crate::driver::run_control::HelperStopReason;
 use crate::run::delivery::{
     ChildRunSubagent, DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome,
@@ -46,12 +45,16 @@ impl ClaudeDeliveryStream {
         let routes = &self.dependencies.routes;
         let turn_lead = lead_at_read.or_else(|| routes.lead_run_on(session.session_id));
         let parent_task_id = signal.and_then(|signal| signal.parent_task_id.as_deref());
-        // A start hangs under its launcher's bound run, and a launcher whose route retired or was
-        // never seen falls to the lead; an end goes on the run its start went beneath.
+        // A start hangs under its launcher's bound run, and a launcher whose route retired, was
+        // never seen or holds a run the daemon refused falls to the lead; an end goes on the run
+        // its start went beneath.
         let carrier = match emission.event_type {
             SubagentLifecycleEventType::Started => parent_task_id
-                .and_then(|parent| {
-                    attribute_claude_request(routes, session.session_id, Some(parent))
+                .and_then(|parent| routes.child_route_for(session.session_id, parent))
+                .filter(|(_, route)| !route.is_refused)
+                .map(|(run_id, route)| ClaudeBoundRun {
+                    run_id,
+                    binding_id: route.binding_id,
                 })
                 .or_else(|| turn_lead.clone()),
             SubagentLifecycleEventType::Completed => self
@@ -126,6 +129,7 @@ impl ClaudeDeliveryStream {
                         agent_id: emission.subagent_id.clone(),
                         parent_run_id: carrier.run_id,
                         binding_id: carrier.binding_id.clone(),
+                        is_refused: refusal.is_some(),
                     },
                 );
                 // Its new own run clears a stop that is not final; refused again, it is stopped
@@ -177,13 +181,10 @@ impl ClaudeDeliveryStream {
     // already interrupted is no late event.
     pub(super) async fn end_helper(&self, session: &ClaudeSessionStream, task: &ClaudeTaskFrame) {
         let routes = &self.dependencies.routes;
-        let Some(child_run_id) = task
+        let Some((child_run_id, route)) = task
             .task_id()
-            .and_then(|task_id| routes.child_run_for(session.session_id, task_id))
+            .and_then(|task_id| routes.child_route_for(session.session_id, task_id))
         else {
-            return;
-        };
-        let Some(ClaudeRunRoute::Child(route)) = routes.route_of(child_run_id) else {
             return;
         };
         let (stop, is_held) = {
@@ -220,11 +221,10 @@ impl ClaudeDeliveryStream {
         session: &ClaudeSessionStream,
         agent_id: &str,
     ) -> Option<ClaudeBoundRun> {
-        let routes = &self.dependencies.routes;
-        let child_run_id = routes.child_run_for(session.session_id, agent_id)?;
-        let Some(ClaudeRunRoute::Child(route)) = routes.route_of(child_run_id) else {
-            return None;
-        };
+        let (_, route) = self
+            .dependencies
+            .routes
+            .child_route_for(session.session_id, agent_id)?;
         Some(ClaudeBoundRun {
             run_id: route.parent_run_id,
             binding_id: route.binding_id,
