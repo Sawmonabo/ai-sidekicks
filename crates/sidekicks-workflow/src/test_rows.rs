@@ -133,15 +133,19 @@ pub struct TestStep<'step> {
 }
 
 /// Stores `step` in run `run_id`, running the test node; a waiting step started waiting when it
-/// started.
+/// started, and a wait on a person holds a wait id made from its execution index.
 pub fn insert_step(connection: &Connection, run_id: &str, step: &TestStep<'_>) {
     let is_waiting = step.status == WorkflowStepStatus::Waiting;
+    let is_person_wait = matches!(
+        step.wait_cause,
+        Some(WorkflowWaitCause::Approval | WorkflowWaitCause::Form | WorkflowWaitCause::Reply)
+    );
     connection
         .execute(
             "INSERT INTO workflow_steps (workflow_run_id, node_id, attempt, execution_index, \
-             status, wait_cause, wait_account_id, resume_at, wait_started_at, started_at, \
-             input_ref, output_ref, log_ref) \
-             VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?10)",
+             status, wait_cause, wait_account_id, resume_at, wait_started_at, wait_id, \
+             started_at, input_ref, output_ref, log_ref) \
+             VALUES (?1, ?2, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?11)",
             params![
                 run_id,
                 TEST_NODE_ID,
@@ -151,6 +155,8 @@ pub fn insert_step(connection: &Connection, run_id: &str, step: &TestStep<'_>) {
                 step.wait_account_id,
                 step.resume_at,
                 is_waiting.then_some(STEP_STARTED_AT),
+                is_person_wait
+                    .then(|| format!("00000000-0000-7000-8000-{:012x}", step.execution_index)),
                 STEP_STARTED_AT,
                 EMPTY_PAYLOAD_REF
             ],
