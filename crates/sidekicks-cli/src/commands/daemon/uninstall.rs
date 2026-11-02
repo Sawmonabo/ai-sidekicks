@@ -5,13 +5,11 @@
 
 use std::io::Write;
 
-use anyhow::Context as _;
-use sidekicks_client::daemon_connection::DaemonEndpoint;
-use sidekicks_client::daemon_ending::{DaemonEndingTerms, DaemonEndingVerb, end_daemon};
-use sidekicks_client::error::ClientError;
+use sidekicks_client::daemon_ending::DaemonEndingVerb;
 use sidekicks_platforms::{ServiceOwner, service_registration};
 
 use crate::command_context::CommandContext;
+use crate::commands::daemon::ending::end_running_daemon;
 use crate::commands::daemon::registration::{LoginRegistration, read_owner, registration_failure};
 use crate::connected_command::run_listening_for_ctrl_c;
 use crate::exit_codes::{CommandFailure, ExitCode};
@@ -40,7 +38,16 @@ fn uninstall_with<Output: Write, ErrorOutput: Write>(
         ServiceOwner::App => return Err(CommandFailure::AppOwnsService.into()),
         ServiceOwner::None => "The background service is not installed.\n",
         ServiceOwner::CommandLine => {
-            stop_running_daemon()?;
+            // Stopped through the one ending, its flush first, so the removal's own stop finds
+            // nothing unwritten; a service not running is already stopped.
+            run_listening_for_ctrl_c(async |ctrl_c| {
+                end_running_daemon(
+                    DaemonEndingVerb::Stop,
+                    "could not stop the background service before removing it",
+                    ctrl_c,
+                )
+                .await
+            })?;
             registration.uninstall().map_err(|failure| {
                 registration_failure(failure, "could not remove the background service")
             })?;
@@ -50,22 +57,4 @@ fn uninstall_with<Output: Write, ErrorOutput: Write>(
     context.stdout.write_all(line.as_bytes())?;
     context.stdout.flush()?;
     Ok(ExitCode::Success)
-}
-
-/// Stops the running service through the one ending, its flush first, so the removal's own stop
-/// finds nothing unwritten; a service not running is already stopped. Fails as the ending does,
-/// and with `ClientError::Canceled` after a Ctrl-C.
-fn stop_running_daemon() -> anyhow::Result<()> {
-    run_listening_for_ctrl_c(async |ctrl_c| {
-        let endpoint = DaemonEndpoint::this_machine()
-            .context("could not find where the background service listens")?;
-        let terms = DaemonEndingTerms::default();
-        tokio::select! {
-            ended = end_daemon(endpoint, DaemonEndingVerb::Stop, &terms) => {
-                ended.context("could not stop the background service before removing it")?;
-                Ok(())
-            }
-            _ = ctrl_c.recv() => Err(ClientError::Canceled.into()),
-        }
-    })
 }

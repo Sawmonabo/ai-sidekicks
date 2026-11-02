@@ -13,18 +13,11 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 /// The `--yes` flag a confirmed command takes.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the confirmed commands take it: daemon stop and restart, data erase and restore"
-    )
-)]
 #[derive(Debug, Args)]
 pub(crate) struct ConfirmationArgs {
     /// Go on without asking first.
     #[arg(long)]
-    yes: bool,
+    pub(crate) yes: bool,
 }
 
 /// The command needs a yes, and neither a terminal to ask at nor `--yes` gives one.
@@ -37,10 +30,6 @@ pub(crate) struct ConfirmationUnavailableError;
 /// ends the wait. Fails with [`ConfirmationUnavailableError`] when stdin is not a terminal and
 /// `--yes` was not given, with `ClientError::Canceled` after a Ctrl-C, and when the prompt cannot
 /// be written or the answer read.
-#[expect(
-    dead_code,
-    reason = "the confirmed commands call it: daemon stop and restart, data erase and restore"
-)]
 pub(crate) async fn confirm(
     sentence: &str,
     args: &ConfirmationArgs,
@@ -69,14 +58,6 @@ pub(crate) async fn confirm(
 
 /// Reads one line from `reader`: `y` or `yes` in any case, spaces around it aside, is a yes, and
 /// anything else, an empty line or the input's end among them, a no.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the confirmed commands read their answer through it: daemon stop and restart, \
-                  data erase and restore"
-    )
-)]
 fn read_answer(mut reader: impl BufRead) -> io::Result<bool> {
     let mut line = String::new();
     reader.read_line(&mut line)?;
