@@ -156,7 +156,7 @@ impl ClaudeSignInReader {
         handed_token: Option<&SecretString>,
     ) -> ClaudeSignInReading {
         let handed = claude_text_variable(environment, OAUTH_TOKEN_VARIABLE)
-            .or_else(|| handed_token.map(|token| token.expose_secret()));
+            .or_else(|| handed_token.map(ExposeSecret::expose_secret));
         if let Some(token) = handed {
             return ClaudeSignInReading::Read(ClaudeAiSignIn {
                 access_token: Zeroizing::new(token.to_owned()),

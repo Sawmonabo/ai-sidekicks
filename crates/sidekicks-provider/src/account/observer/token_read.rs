@@ -117,7 +117,7 @@ mod tests {
             fixture.usage.partial_sets(),
             [(account.account_id.clone(), figures().windows)]
         );
-        assert!(fixture.usage.whole_sets().is_empty());
+        assert_eq!(fixture.usage.whole_sets(), Vec::new());
         assert_eq!(fixture.turns[&claude()].tokens_read(), ["pasted-token"]);
         assert_eq!(usage_rows(&database, &account), [(None::<String>, 1_i64)]);
     }

@@ -109,8 +109,9 @@ pub(super) async fn observe_codex_limits(
         {
             judge_renewal(legs, provider_account_id, &codex_home, before, observation).await
         }
-        ProviderObservation::RefusedInBand | ProviderObservation::Unanswered => Ok(observation),
-        ProviderObservation::SignInRefusedBeforeAnswer
+        ProviderObservation::RefusedInBand
+        | ProviderObservation::Unanswered
+        | ProviderObservation::SignInRefusedBeforeAnswer
         | ProviderObservation::SignInGone
         | ProviderObservation::OutOfScope => Ok(observation),
     }

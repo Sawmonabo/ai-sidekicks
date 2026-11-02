@@ -149,9 +149,10 @@ async fn a_switch_onto_an_api_key_account_hands_the_key() {
     let service = Arc::clone(&fixture.scripted.service);
     let switching = Arc::clone(&fixture.scripted.dependencies.switching);
     let to = fixture.key_account.clone();
+    let key_login = signed_in_on_a_key();
     let (switched, answered) = tokio::join!(
         switching.hand_switch(&service, to.clone(), Vec::new(), switching_person()),
-        answer_through_login(&mut fixture.scripted, &signed_in_on_a_key(), false)
+        answer_through_login(&mut fixture.scripted, &key_login, false)
     );
     switched.expect("the key's login is answered");
     // A switch off another account checks the new login once its hand is let go.
@@ -262,7 +263,8 @@ async fn a_start_with_an_api_key_current_account_hands_the_key(
 #[tokio::test]
 async fn a_key_handed_over_a_key_carried_sends_only_the_login() {
     let mut fixture = Fixture::new(true);
-    fixture.hand_the_key_at_start(&signed_in_on_a_key()).await;
+    let key_login = signed_in_on_a_key();
+    fixture.hand_the_key_at_start(&key_login).await;
     let service = Arc::clone(&fixture.scripted.service);
     let switching = Arc::clone(&fixture.scripted.dependencies.switching);
 
@@ -273,7 +275,7 @@ async fn a_key_handed_over_a_key_carried_sends_only_the_login() {
             Vec::new(),
             switching_person()
         ),
-        answer_through_login(&mut fixture.scripted, &signed_in_on_a_key(), false)
+        answer_through_login(&mut fixture.scripted, &key_login, false)
     );
 
     switched.expect("the key's login is answered");
