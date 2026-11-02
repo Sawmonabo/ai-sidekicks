@@ -2,5 +2,6 @@
 //! settle of an intent whose provider leg may or may not have landed, and the checks a mutation
 //! passes before anything is written.
 
+pub(crate) mod preflight;
 pub(crate) mod receipts;
 pub(crate) mod reconciler;
