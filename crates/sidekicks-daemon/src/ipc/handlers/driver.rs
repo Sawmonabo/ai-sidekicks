@@ -1,6 +1,6 @@
 //! The driver methods a client calls: each installed provider's models and modes, the compaction
 //! of one run's context, the commands an agent's providers publish, and the provider sessions
-//! typed in a terminal. A call that names a session is refused by the session first, then the run
+//! typed in a terminal with each one's provider words. A call that names a session is refused by the session first, then the run
 //! or agent it names, then the binding, and only then by a driver; the terminal sessions' list
 //! names none and is refused by none but a driver.
 
@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
+use sidekicks_contracts::provider::declaration::ProviderDeclarationText;
 use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandBinding, ProviderCommandListResponse,
 };
@@ -24,7 +25,7 @@ use sidekicks_contracts::provider::driver::methods::{
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::{
-    ProviderTerminalSessionList, ProviderTerminalSessionListResponse,
+    ProviderTerminalSessionList, ProviderTerminalSessionListResponse, TerminalSessionProvider,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
@@ -129,8 +130,9 @@ pub(crate) fn register_driver_methods(
     )
 }
 
-// Every driver's sessions typed in a terminal, in the table's order; one driver's failed read
-// fails the call, so a service that is on never reads as holding none.
+// Every driver's sessions typed in a terminal, in the table's order, with the name and resume
+// command of each provider that has one; one driver's failed read fails the call, so a service
+// that is on never reads as holding none.
 async fn list_terminal_sessions(
     sources: &DriverMethodSources,
 ) -> Result<ProviderTerminalSessionListResponse, HandlerError> {
@@ -138,12 +140,38 @@ async fn list_terminal_sessions(
         sources
             .providers
             .drivers()
-            .map(|(_, driver)| driver.list_terminal_sessions()),
+            .map(|(provider, driver)| async move {
+                driver
+                    .list_terminal_sessions()
+                    .await
+                    .map(|sessions| (provider, sessions))
+            }),
     )
     .await?;
+    let mut providers = Vec::new();
+    let mut all_sessions = Vec::new();
+    for (provider, sessions) in lists {
+        if sessions.is_empty() {
+            continue;
+        }
+        let descriptor = sources.providers.descriptor(provider)?;
+        providers.push(TerminalSessionProvider {
+            provider: provider.clone(),
+            name: declaration_text(descriptor.name()),
+            resume_command: declaration_text(descriptor.terminal_resume_command()),
+        });
+        all_sessions.extend(sessions);
+    }
     Ok(ProviderTerminalSessionListResponse {
-        sessions: lists.into_iter().flatten().collect(),
+        sessions: all_sessions,
+        providers,
     })
+}
+
+// A descriptor's fixed words on the wire.
+fn declaration_text(text: &'static str) -> ProviderDeclarationText {
+    ProviderDeclarationText::new(text.to_owned())
+        .expect("a descriptor's words are short and not blank")
 }
 
 // Each installed provider's catalog, the session's own provider first and read against its bound

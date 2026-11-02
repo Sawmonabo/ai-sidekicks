@@ -1,6 +1,6 @@
-//! The service's registration to start at login, as `daemon install` and `daemon uninstall` use
-//! it: who owns it, its install and its removal, behind one trait so a test can answer for the
-//! system's service manager, and a registration failure turned into the run's failure.
+//! The service's registration to start at login, as the daemon commands use it: who owns it, its
+//! install and its removal, behind one trait so a test can answer for the system's service manager;
+//! a registration failure turned into the run's failure; and the line `daemon status` prints for it.
 
 use std::path::Path;
 
@@ -9,6 +9,11 @@ use sidekicks_platforms::{
 };
 
 use crate::exit_codes::CommandFailure;
+
+/// The line for a login agent the person turned off in Login Items, which `daemon status` prints
+/// and a start fails with.
+pub(crate) const TURNED_OFF_IN_LOGIN_ITEMS: &str = "The background service is installed but turned \
+     off in System Settings › General › Login Items & Extensions.";
 
 /// The steps of the service's registration the install and uninstall commands take.
 pub(crate) trait LoginRegistration {
@@ -58,5 +63,42 @@ pub(crate) fn read_owner(registration: &impl LoginRegistration) -> anyhow::Resul
             failure,
             "could not read what runs the background service at login",
         )
+    })
+}
+
+/// Whether the service starts at login, as `daemon status` reports it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum LoginStart {
+    /// No registration starts it.
+    NotInstalled,
+    /// The command line's own login agent, which the person turned off in Login Items.
+    TurnedOff,
+    /// The command line's or the app's login agent starts it.
+    Installed,
+}
+
+impl LoginStart {
+    /// The status line for this, given whether the service answers.
+    pub(crate) const fn line(self, is_answering: bool) -> &'static str {
+        match (self, is_answering) {
+            (Self::NotInstalled, _) => "The background service is not installed.",
+            (Self::TurnedOff, _) => TURNED_OFF_IN_LOGIN_ITEMS,
+            (Self::Installed, true) => "The background service is running and starts at login.",
+            (Self::Installed, false) => {
+                "The background service is installed and starts at login, but is not running."
+            }
+        }
+    }
+}
+
+/// Whether the service starts at login through `registration`: its owner, and for the command
+/// line's own agent whether the person turned it off. Fails as either read does.
+pub(crate) fn read_login_start(
+    registration: ServiceRegistration,
+) -> Result<LoginStart, ServiceRegistrationError> {
+    Ok(match registration.owner()? {
+        ServiceOwner::None => LoginStart::NotInstalled,
+        ServiceOwner::CommandLine if registration.is_turned_off()? => LoginStart::TurnedOff,
+        ServiceOwner::CommandLine | ServiceOwner::App => LoginStart::Installed,
     })
 }

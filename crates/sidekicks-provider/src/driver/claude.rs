@@ -276,6 +276,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     account_home_credential_store_folder: &["store"],
     shell_prefix_command: Some(command_shape::CLAUDE_SHELL_PREFIX_COMMAND),
     token_limits_read_by_turn: true,
+    terminal_resume_command: "claude --resume",
 };
 
 /// Builds the Claude Code driver over the shared services; it stores handles and does no I/O.

@@ -1,6 +1,7 @@
 //! The service's login agent on macOS: a property list in `~/Library/LaunchAgents` named for the
-//! service's launchd label, loaded into the person's login session through `/bin/launchctl`. Only
-//! `launchctl`'s exit status is read, never its printed text, which Apple says is no interface.
+//! service's launchd label, loaded into the person's login session through `/bin/launchctl`, and
+//! whether the person turned it off in the login items. Only `launchctl`'s exit status is read,
+//! never its printed text, which Apple says is no interface.
 
 use std::ffi::OsStr;
 use std::fs;
@@ -10,11 +11,13 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
 
+use nix::unistd::{Uid, User};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::app_identity::DAEMON_LAUNCHD_LABEL;
 use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_DRAIN_BOUND_MS;
 
+use crate::macos::login_items::{LoginItemStatus, LoginItemStatusError, read_login_item_status};
 use crate::service_registration::{ServiceInstall, ServiceOwner, ServiceRegistrationError};
 use crate::{LeftoverSweep, current_user_id, replace_file_atomically};
 
@@ -72,11 +75,15 @@ impl AgentList {
 }
 
 impl ServiceRegistration {
-    /// Which registration starts the service at login: the command line's when its own list is
-    /// in `~/Library/LaunchAgents`, else the app's when launchd has the label loaded in this
-    /// user's login session, else none. Fails when the list's folder or `launchctl` cannot be
-    /// read.
+    /// Which registration starts the service at login: none when `$HOME` is not the account's
+    /// home in the user database, since the agent's service runs with that home and listens under
+    /// it; else the command line's when its own list is in `~/Library/LaunchAgents`, else the
+    /// app's when launchd has the label loaded in this user's login session, else none. Fails when
+    /// the user database, the list's folder or `launchctl` cannot be read.
     pub fn owner(&self) -> Result<ServiceOwner, ServiceRegistrationError> {
+        if !self.is_account_home()? {
+            return Ok(ServiceOwner::None);
+        }
         let path = agent_list_path()?;
         let has_own_list = path
             .try_exists()
@@ -128,6 +135,23 @@ impl ServiceRegistration {
         Ok(ServiceInstall::Loaded)
     }
 
+    /// Whether the person turned the command line's own login agent off in Login Items, which
+    /// launchd does not honor when asked to start it, so a start reads it first. Blocks on the
+    /// system's answer. Fails when the list's folder cannot be read, and with
+    /// [`ServiceRegistrationError::UnknownLoginItemStatus`] on a status this build does not know.
+    pub fn is_turned_off(&self) -> Result<bool, ServiceRegistrationError> {
+        let path = agent_list_path()?;
+        match read_login_item_status(&path) {
+            Ok(status) => Ok(status == LoginItemStatus::TurnedOff),
+            Err(LoginItemStatusError::File(source)) => {
+                Err(ServiceRegistrationError::Read { path, source })
+            }
+            Err(LoginItemStatusError::UnknownStatus { value }) => {
+                Err(ServiceRegistrationError::UnknownLoginItemStatus { value })
+            }
+        }
+    }
+
     /// Starts the registered service in the login session; a running one is left running. Fails
     /// with `launchctl kickstart`'s exit status when it refuses, as it does for an agent that is
     /// not loaded or is turned off.
@@ -156,6 +180,23 @@ impl ServiceRegistration {
         Ok(run_launchctl("print", ["print", &domain_target])?
             .status
             .success())
+    }
+
+    // Whether `$HOME` is this account's home in the user database, so a run under a private home
+    // never reads or starts the account's own agent, whose service could never answer it there.
+    fn is_account_home(self) -> Result<bool, ServiceRegistrationError> {
+        let home = std::env::home_dir().ok_or(ServiceRegistrationError::NoHomeFolder)?;
+        let account = User::from_uid(Uid::from_raw(self.user_id))
+            .map_err(|errno| ServiceRegistrationError::Account {
+                source: io::Error::from(errno),
+            })?
+            .ok_or_else(|| ServiceRegistrationError::Account {
+                source: io::Error::new(
+                    io::ErrorKind::NotFound,
+                    "the account has no entry in the user database",
+                ),
+            })?;
+        Ok(home == account.dir)
     }
 
     // Whether launchd has the label loaded in this user's login session, whichever list it came

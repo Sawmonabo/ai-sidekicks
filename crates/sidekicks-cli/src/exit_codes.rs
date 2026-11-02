@@ -13,6 +13,7 @@ use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
 use sidekicks_platforms::{ChildExit, ServiceRegistrationError};
 
+use crate::commands::daemon::registration::TURNED_OFF_IN_LOGIN_ITEMS;
 use crate::commands::daemon::status::describe_cannot_start;
 use crate::commands::open::AddressHandlerMissingError;
 use crate::confirmation::ConfirmationUnavailableError;
@@ -160,6 +161,28 @@ pub(crate) enum CommandFailure {
     /// The system's service manager refused a step of the service's registration.
     #[error("The system refused the background service's registration")]
     RegistrationRefused(#[source] ServiceRegistrationError),
+    /// The person turned the command line's own login agent off in Login Items, so the start
+    /// leaves it off.
+    #[error("{}", TURNED_OFF_IN_LOGIN_ITEMS)]
+    TurnedOffInLoginItems,
+    /// The person turned the app's login agent off, so the start leaves it off.
+    #[error(
+        "The app's background service is turned off. Turn it on in the app's Settings › Runtime."
+    )]
+    AppServiceTurnedOff,
+    /// The login agent's service did not answer the handshake within the wait after its start; the
+    /// system's service manager keeps it, so it was not stopped.
+    #[error(
+        "The background service did not answer within {} ms of its start",
+        waited.as_millis()
+    )]
+    RegisteredNotAnswering {
+        /// How long the start waited.
+        waited: Duration,
+        /// The last handshake's failure.
+        #[source]
+        last_failure: ClientError,
+    },
 }
 
 impl CommandFailure {
@@ -168,9 +191,12 @@ impl CommandFailure {
         match self {
             Self::StartTimedOut { .. }
             | Self::DaemonExited { .. }
-            | Self::InstalledNotAnswering { .. } => ExitCode::Unavailable,
+            | Self::InstalledNotAnswering { .. }
+            | Self::RegisteredNotAnswering { .. } => ExitCode::Unavailable,
             Self::ServiceRegistrationMissing
             | Self::AppOwnsService
+            | Self::TurnedOffInLoginItems
+            | Self::AppServiceTurnedOff
             | Self::ServiceRunning { .. } => ExitCode::Configuration,
             Self::RegistrationRefused(_) => ExitCode::Software,
             Self::BackupUnreadable { .. } => ExitCode::NoInput,

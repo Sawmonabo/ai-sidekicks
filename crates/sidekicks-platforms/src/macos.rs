@@ -22,6 +22,7 @@ pub(crate) mod descriptor_path;
 pub(crate) mod input_wait;
 pub(crate) mod lasting_child;
 pub(crate) mod loaded_images;
+pub(crate) mod login_items;
 pub(crate) mod managed_preference;
 pub(crate) mod memory;
 pub(crate) mod pinned_process;
