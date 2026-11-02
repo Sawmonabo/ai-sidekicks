@@ -158,12 +158,14 @@ fn find_part_close(text: &str, start: usize) -> Option<usize> {
             }
             // The symbol operators, division among them, and the punctuation an operand follows.
             b'(' | b'[' | b',' | b':' | b';' | b'?' | b'=' | b'!' | b'<' | b'>' | b'+' | b'-'
-            | b'*' | b'%' | b'&' | b'/' => {
+            | b'&' | b'/' => {
                 expects_operand = true;
                 index += 1;
             }
-            // `~` only opens `~>`, whose `>` sets the expectation.
-            b')' | b']' | b'.' | b'|' | b'^' | b'@' | b'#' | b'~' => {
+            // `~` only opens `~>`, whose `>` sets the expectation; `*` and `%` read as division's
+            // left side after them, since the engine reads a `/` there as division whether they
+            // are a path's wildcard and parent or multiplication and remainder.
+            b')' | b']' | b'.' | b'|' | b'^' | b'@' | b'#' | b'~' | b'*' | b'%' => {
                 expects_operand = false;
                 index += 1;
             }
@@ -282,6 +284,10 @@ mod tests {
     #[case::a_lone_close_brace_stays_in_the_part("={{ a } b }}", Ok(whole("a } b")))]
     // A `/` after a value is division; read as a regex it would swallow the close.
     #[case::a_slash_after_a_value_is_division("={{ 4 / 2 }}", Ok(whole("4 / 2")))]
+    // A `/` after a wildcard or a parent step is division, as the engine reads it; read as a regex
+    // it would swallow the close.
+    #[case::a_slash_after_a_wildcard_is_division("={{ $json.* / 2 }}", Ok(whole("$json.* / 2")))]
+    #[case::a_slash_after_a_parent_is_division("={{ a.% / 2 }}", Ok(whole("a.% / 2")))]
     // A `/` after `~>` opens a regex; read as division the `}}` inside it would close the part.
     #[case::a_slash_after_a_chain_opens_a_regex("={{ $x ~> /}}/ }}", Ok(whole("$x ~> /}}/")))]
     // A keyword operator expects an operand, a name that only contains one does not.
