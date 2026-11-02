@@ -4,10 +4,11 @@
 //!
 //! - The dispatch writes a call's end only when the session's close reaches the call: a plain
 //!   call is dropped, which tells the server it is canceled, and its end is unknown; a task is
-//!   canceled on the still-open connection and its end read once; a task waiting for its
-//!   connection's replacement reads unknown. The caller writes every other end through
-//!   [`McpDispatchedCall::complete`], or hands it off, the unknown end of a caller's cancel during
-//!   that wait included.
+//!   canceled on the still-open connection and its end read once, within two requests' bounds,
+//!   or its end is unknown at once when the server refused the caller's cancel already; a task
+//!   waiting for its connection's replacement reads unknown. The caller writes every other end
+//!   through [`McpDispatchedCall::complete`], or hands it off, the unknown end of a caller's
+//!   cancel during that wait included.
 //! - The caller's cancel asks the server to cancel an accepted task beside its follow, which goes
 //!   on to the end the server gives: `failed` after `cancelled`, `completed` when the result came
 //!   first, and on through a refused or failed cancel.
@@ -24,6 +25,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
 use rmcp::service::ServiceError;
+use sidekicks_std::bounded_wait::wait_within;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::WriteError;
 use tokio::sync::watch;
@@ -32,7 +34,7 @@ use tokio_util::sync::CancellationToken;
 use crate::client::connection::McpServerConnection;
 use crate::client::connection::standing::McpStandingConnection;
 use crate::client::poll::{PollError as _, PollFailure};
-use crate::client::requests::McpRequestError;
+use crate::client::requests::{McpRequestError, ORDINARY_REQUEST_TIMEOUT};
 use crate::client::tasks::recorder::McpTaskHandleRecorder;
 use crate::client::tasks::{
     McpTaskCancelOutcome, McpTaskContact, McpTaskGeneration, McpTaskHandleObservation,
@@ -131,6 +133,17 @@ enum CallRace {
     ClientStopping,
     /// The caller canceled a call the server had not accepted as a task.
     Canceled,
+}
+
+/// What the caller's cancel came to.
+enum CallerCancel {
+    /// No task was held, so the call is dropped.
+    Unaccepted,
+    /// The held task was asked to cancel beside its follow.
+    Sent {
+        /// Whether the server refused the cancel.
+        is_refused: bool,
+    },
 }
 
 impl McpToolDispatch {
@@ -287,25 +300,26 @@ async fn race_call(
     cancellation: &CancellationToken,
 ) -> CallRace {
     let mut ending = pin!(ending);
-    // The caller's cancel: false for a call the server has not accepted as a task, which is then
-    // dropped; an accepted task is asked to cancel beside its follow, which goes on.
+    // The caller's cancel: a call the server has not accepted as a task is dropped; an accepted
+    // task is asked to cancel beside its follow, which goes on.
     let mut caller_cancel = pin!(async {
         cancellation.cancelled().await;
         let Some((generation, mcp_task_id)) = sink.held_handle() else {
-            return false;
+            return CallerCancel::Unaccepted;
         };
         let followed = Arc::clone(&lock(following));
         // Boxed, so the request's future is held only once a task is canceled.
-        Box::pin(cancel_followed_task(
+        let is_refused = Box::pin(cancel_followed_task(
             &followed,
             generation,
             &mcp_task_id,
             contact,
         ))
         .await;
-        true
+        CallerCancel::Sent { is_refused }
     });
     let mut is_cancel_sent = false;
+    let mut is_cancel_refused = false;
     loop {
         tokio::select! {
             biased;
@@ -315,24 +329,42 @@ async fn race_call(
                     return CallRace::ClientStopping;
                 }
                 // A plain call is dropped with `ending`, which tells the server its request is
-                // canceled; a task is canceled first, its follow still held.
+                // canceled; a task is canceled first, its follow still held, unless the server
+                // refused the caller's cancel already, which leaves its end unknown.
                 return match sink.held_handle() {
                     None => CallRace::Settled(Ok(McpToolCallEnd::Canceled), CommandOutcome::Unknown),
+                    Some(_) if is_cancel_refused => CallRace::Settled(
+                        Ok(McpToolCallEnd::ConnectionClosed),
+                        CommandOutcome::Unknown,
+                    ),
                     Some((generation, mcp_task_id)) => {
                         let followed = Arc::clone(&lock(following));
-                        let end =
-                            Ok(end_at_session_close(&followed, generation, &mcp_task_id).await);
+                        let ending =
+                            pin!(end_at_session_close(&followed, generation, &mcp_task_id));
+                        // The cancel and one read of the task: two requests' bounds at most.
+                        let end = wait_within(ending, 2 * ORDINARY_REQUEST_TIMEOUT, None)
+                            .await
+                            .unwrap_or_else(|| {
+                                tracing::warn!(
+                                    server = followed.scope.server_name.as_str(),
+                                    "a closing session's tool server task was not read in time; \
+                                     its end is unknown"
+                                );
+                                McpToolCallEnd::ConnectionClosed
+                            });
+                        let end = Ok(end);
                         let outcome = outcome_of(&end);
                         CallRace::Settled(end, outcome)
                     }
                 };
             }
-            is_task_held = &mut caller_cancel, if !is_cancel_sent => {
-                if !is_task_held {
-                    return CallRace::Canceled;
+            cancel = &mut caller_cancel, if !is_cancel_sent => match cancel {
+                CallerCancel::Unaccepted => return CallRace::Canceled,
+                CallerCancel::Sent { is_refused } => {
+                    is_cancel_sent = true;
+                    is_cancel_refused = is_refused;
                 }
-                is_cancel_sent = true;
-            }
+            },
         }
     }
 }
@@ -419,33 +451,52 @@ fn closed_error(standing: &McpStandingConnection) -> McpToolDispatchError {
 }
 
 /// Asks the server to cancel the followed task `mcp_task_id` at its caller's cancel, its follow
-/// going on to the end the server gives: a refused cancel takes `CancelRefused` as the task's
-/// standing arm on `contact`, and a failed one is logged. A task resumed after a restart then owes
-/// its follow no cancel of its own.
+/// going on to the end the server gives; true when the server refused, which takes
+/// `CancelRefused` as the task's standing arm on `contact`. A failed cancel is logged, at debug
+/// for a `-32602`, a task that ended already. A task resumed after a restart then owes its follow
+/// no cancel of its own.
 async fn cancel_followed_task(
     connection: &McpServerConnection,
     generation: McpTaskGeneration,
     mcp_task_id: &str,
     contact: &watch::Sender<McpTaskContact>,
-) {
+) -> bool {
     connection
         .scope
         .task_watches
         .settle_restart_cancel(&connection.scope, mcp_task_id);
     match connection.cancel_task(generation, mcp_task_id).await {
-        Ok(McpTaskCancelOutcome::Taken) => {}
-        Ok(McpTaskCancelOutcome::Refused) => connection.scope.task_watches.write_standing_arm(
-            &connection.scope,
-            mcp_task_id,
-            contact,
-            McpTaskContact::CancelRefused { is_from_stop: true },
-        ),
-        Err(error) => tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
-            server = connection.scope.server_name.as_str(),
-            "a canceled tool server task was not canceled on its server; its follow goes on"
-        ),
+        Ok(McpTaskCancelOutcome::Taken) => false,
+        Ok(McpTaskCancelOutcome::Refused) => {
+            connection.scope.task_watches.write_standing_arm(
+                &connection.scope,
+                mcp_task_id,
+                contact,
+                McpTaskContact::CancelRefused { is_from_stop: true },
+            );
+            true
+        }
+        Err(error) => {
+            if is_ended_task(&error) {
+                tracing::debug!(
+                    server = connection.scope.server_name.as_str(),
+                    "a canceled tool server task had ended already; its follow reads its end"
+                );
+            } else {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    server = connection.scope.server_name.as_str(),
+                    "a canceled tool server task was not canceled on its server; its follow goes on"
+                );
+            }
+            false
+        }
     }
+}
+
+// Whether a cancel failed with `-32602`: the task ended already, or the server no longer knows it.
+fn is_ended_task(error: &McpToolCallError) -> bool {
+    matches!(error.poll_failure(), PollFailure::TaskIdRejected { .. })
 }
 
 /// The end of task `mcp_task_id` when its session closes: the task is canceled on the still-open
@@ -463,16 +514,20 @@ async fn end_at_session_close(
             McpTaskGeneration::V2 => true,
         },
         Ok(McpTaskCancelOutcome::Refused) => false,
+        Err(error) if is_ended_task(&error) => {
+            tracing::debug!(
+                server = connection.scope.server_name.as_str(),
+                "a closing session's tool server task had ended already; it is read once"
+            );
+            true
+        }
         Err(error) => {
-            let is_rejected = matches!(error.poll_failure(), PollFailure::TaskIdRejected { .. });
-            if !is_rejected {
-                tracing::warn!(
-                    error = &error as &(dyn std::error::Error + 'static),
-                    server = connection.scope.server_name.as_str(),
-                    "a closing session's tool server task was not canceled; its end is unknown"
-                );
-            }
-            is_rejected
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                server = connection.scope.server_name.as_str(),
+                "a closing session's tool server task was not canceled; its end is unknown"
+            );
+            false
         }
     };
     let end = if is_read {

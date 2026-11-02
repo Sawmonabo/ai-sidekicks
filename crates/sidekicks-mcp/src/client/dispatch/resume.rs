@@ -107,7 +107,16 @@ impl McpToolDispatch {
             )
             .await
         };
-        let race = race_call(standing, &sink, &following, ending, contact, cancellation).await;
+        // Boxed, so the race, which holds the follow, is kept off the caller's future.
+        let race = Box::pin(race_call(
+            standing,
+            &sink,
+            &following,
+            ending,
+            contact,
+            cancellation,
+        ))
+        .await;
         self.end_dispatch(standing, receipt.id, race).await
     }
 }

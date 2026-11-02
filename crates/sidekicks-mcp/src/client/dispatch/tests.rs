@@ -511,6 +511,50 @@ async fn a_closing_sessions_task_is_canceled_before_its_connection_closes() {
     );
 }
 
+// Mutation: in `race_call`, cancel at the session's close a task whose server refused the caller's
+// cancel already.
+#[tokio::test(start_paused = true)]
+async fn a_closing_sessions_task_whose_cancel_was_refused_is_not_asked_again() {
+    let fixture = Fixture::new().await;
+    let (standing, server) = fixture
+        .connect(task_server(|method, _| match method {
+            "tasks/get" => v1_status_reply("working"),
+            _ => method_not_found(),
+        }))
+        .await;
+    let contact = contact();
+    let cancellation = CancellationToken::new();
+
+    let (dispatched, ()) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &cancellation),
+        async {
+            until(|| !server.requests("tasks/get").is_empty()).await;
+            cancellation.cancel();
+            until(|| *contact.borrow() == CancelRefused { is_from_stop: true }).await;
+            fixture.client.close_session(fixture.session_id).await;
+        },
+    );
+    let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+
+    assert_eq!(
+        server.requests("tasks/cancel").len(),
+        1,
+        "the refused cancel is not sent again"
+    );
+    assert_eq!(
+        end.expect("the call ends"),
+        McpToolCallEnd::ConnectionClosed
+    );
+    assert!(matches!(written, Err(McpCallCompletionError::Settled)));
+    let [stored] = <[_; 1]>::try_from(fixture.receipts()).expect("one receipt");
+    assert_eq!(
+        (stored.status.as_str(), stored.is_completed),
+        ("unknown", true)
+    );
+}
+
 // Mutation: write `unknown` on the cancel's `-32602` without reading the task.
 #[tokio::test(start_paused = true)]
 async fn a_closing_sessions_task_that_ended_meanwhile_is_read_once_for_its_result() {
