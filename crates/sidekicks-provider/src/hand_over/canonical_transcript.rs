@@ -18,7 +18,7 @@ use sidekicks_contracts::event::envelope::{
 };
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::UserMessageSentPayload;
+use sidekicks_contracts::run::queue::{QueueItemId, UserMessageSentPayload};
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_store::events::session::read::{SessionEventReads, SessionLogReadError};
@@ -73,6 +73,9 @@ pub enum CanonicalTranscriptSegment {
         text: String,
         /// Whether the row's body could not be read; the hand-over owes the matching loss.
         is_content_unavailable: bool,
+        /// The queued item a person's message was sent as, where it went through the queue, so
+        /// its files can be named; `None` on every other segment.
+        queue_item_id: Option<QueueItemId>,
     },
     /// The provider's summary of its reasoning.
     Reasoning {
@@ -477,12 +480,15 @@ fn read_row(
     Ok(match TranscriptEventKind::of(event.event_type.as_str()) {
         TranscriptEventKind::TurnStarted => RowFold::CloseTurn,
         TranscriptEventKind::UserMessage => {
-            let message = read_payload::<UserMessageSentPayload>(position, &event.payload)?
-                .message
-                .into_string();
+            let sent = read_payload::<UserMessageSentPayload>(position, &event.payload)?;
             RowFold::Append {
                 role: CanonicalTranscriptRole::User,
-                segment: (!message.is_empty()).then(|| text_segment(position, message)),
+                segment: Some(CanonicalTranscriptSegment::Text {
+                    position,
+                    text: sent.message.into_string(),
+                    is_content_unavailable: false,
+                    queue_item_id: sent.queue_item_id,
+                }),
                 is_body: false,
             }
         }
@@ -533,6 +539,7 @@ fn text_segment(position: u64, text: String) -> CanonicalTranscriptSegment {
         position,
         text,
         is_content_unavailable: false,
+        queue_item_id: None,
     }
 }
 
@@ -541,6 +548,7 @@ fn unavailable_text_segment(position: u64) -> CanonicalTranscriptSegment {
         position,
         text: String::new(),
         is_content_unavailable: true,
+        queue_item_id: None,
     }
 }
 
@@ -752,6 +760,7 @@ mod tests {
                 position,
                 text: text.to_owned(),
                 is_content_unavailable,
+                queue_item_id: None,
             };
         assert_eq!(projection.built_at_position, 5);
         assert_eq!(
@@ -816,6 +825,7 @@ mod tests {
                         position: position(reply),
                         text: "Hello, world.".to_owned(),
                         is_content_unavailable: false,
+                        queue_item_id: None,
                     },
                     CanonicalTranscriptSegment::ToolResult {
                         position: position(completion),

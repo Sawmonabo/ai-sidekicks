@@ -23,11 +23,9 @@ use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use rusqlite::{Connection, OptionalExtension as _, params};
-use serde::Deserialize as _;
-use sidekicks_artifact::validation::FILE_NAME_MEMBER;
-use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::run::queue::UserMessageSentPayload;
+use rusqlite::Connection;
+use sidekicks_artifact::attachment_resolver::read_manifest_file_name;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::queued::AgentRunQueuedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::hand_over::canonical_transcript::{
@@ -46,17 +44,13 @@ use sidekicks_store::data_folder::session_storage_folder;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::events::session::read::{DamagedFromSequenceReader, SessionEventReads};
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
 /// The planning transcript's file name in the fresh session's storage folder.
 pub(crate) const PLANNING_TRANSCRIPT_FILE_NAME: &str = "planning-transcript.txt";
 
 // How many random bytes name one attempt's temporary file.
 const ATTEMPT_NAME_BYTES: usize = 8;
-
-// A manifest's file name within its session, where it records one as text.
-const ATTACHMENT_NAME_SQL: &str = "SELECT json_extract(metadata, ?3) FROM artifact_manifests \
-     WHERE id = ?1 AND session_id = ?2 AND json_type(metadata, ?3) = 'text'";
 
 /// Why the planning transcript could not be written.
 #[derive(Debug, thiserror::Error)]
@@ -228,7 +222,6 @@ fn render_transcript(
         text: PlainTranscript::new(BufWriter::new(file)),
         attachments: AttachmentNames {
             connection,
-            reads: SessionEventReads::new(connection, read_damaged_from_sequence),
             session_id: planning_session_id,
         },
         run: RunHeader::default(),
@@ -419,34 +412,15 @@ fn tool_result_line(
 /// planning session's manifests on the transcript's own connection.
 struct AttachmentNames<'reader> {
     connection: &'reader Connection,
-    reads: SessionEventReads<'reader, &'reader DamagedFromSequenceReader>,
     session_id: SessionId,
 }
 
 impl AttachmentNames<'_> {
-    /// The names of the files the `user.message.sent` row at `position` was sent with, in staging
+    /// The names of the files the message queued as `queue_item_id` was sent with, in staging
     /// order; a file whose manifest records no name is named by its id.
-    fn at(&self, position: u64) -> Result<Vec<String>, TranscriptRenderError> {
-        let sequence = i64::try_from(position).expect("a stored sequence fits an i64");
-        let Some(row) = self
-            .reads
-            .read_at_sequences(&self.session_id, &[sequence])
-            .map_err(CanonicalTranscriptFoldError::from)?
-            .pop()
-        else {
-            return Ok(Vec::new());
-        };
-        let message = UserMessageSentPayload::deserialize(&row.payload).map_err(|cause| {
-            CanonicalTranscriptFoldError::Payload {
-                sequence: position,
-                cause,
-            }
-        })?;
-        let Some(queue_item_id) = message.queue_item_id else {
-            return Ok(Vec::new());
-        };
+    fn of(&self, queue_item_id: &QueueItemId) -> Result<Vec<String>, TranscriptRenderError> {
         let item = QueueItemReader::new(self.connection)
-            .get(&queue_item_id)
+            .get(queue_item_id)
             .map_err(TranscriptRenderError::Attachments)?;
         let Some(attachments) = item
             .as_ref()
@@ -458,29 +432,12 @@ impl AttachmentNames<'_> {
         attachments
             .0
             .iter()
-            .map(|artifact_id| self.name_of(artifact_id))
-            .collect()
-    }
-
-    fn name_of(&self, artifact_id: &ArtifactId) -> Result<String, TranscriptRenderError> {
-        let artifact_text = artifact_id.text();
-        let name = self
-            .connection
-            .prepare_cached(ATTACHMENT_NAME_SQL)
-            .and_then(|mut statement| {
-                statement
-                    .query_row(
-                        params![
-                            artifact_text.as_str(),
-                            self.session_id.text().as_str(),
-                            format!("$.{FILE_NAME_MEMBER}"),
-                        ],
-                        |row| row.get::<_, String>(0),
-                    )
-                    .optional()
+            .map(|artifact_id| {
+                let name = read_manifest_file_name(self.connection, &self.session_id, artifact_id)
+                    .map_err(TranscriptRenderError::Attachments)?;
+                Ok(name.unwrap_or_else(|| artifact_id.text().as_str().to_owned()))
             })
-            .map_err(TranscriptRenderError::Attachments)?;
-        Ok(name.unwrap_or_else(|| artifact_text.as_str().to_owned()))
+            .collect()
     }
 }
 
@@ -516,10 +473,13 @@ impl SessionTranscriptSink for TranscriptFileSink<'_> {
         self.text.segment(&segment)?;
         if let (
             Some(CanonicalTranscriptRole::User),
-            CanonicalTranscriptSegment::Text { position, .. },
+            CanonicalTranscriptSegment::Text {
+                queue_item_id: Some(queue_item_id),
+                ..
+            },
         ) = (self.turn_role, &segment)
         {
-            for name in self.attachments.at(*position)? {
+            for name in self.attachments.of(queue_item_id)? {
                 self.text.line(&format!("[attachment {name}]"))?;
             }
         }

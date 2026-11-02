@@ -21,8 +21,9 @@ use std::sync::{Arc, Mutex};
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
+use sidekicks_artifact::attachment_resolver::read_manifest_file_name;
 use sidekicks_artifact::payload_store::{ContentHash, PayloadStore};
-use sidekicks_artifact::validation::FILE_NAME_MEMBER;
+use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::daemon::data::{DataExportJobId, DataExportProgress};
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -36,6 +37,7 @@ use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::content::codec::{BodyStreamError, out_of_memory_read_failure};
 use sidekicks_store::events::content::read::{
     StoredEventContentRow, hydrate_stored_event, joined_content_length,
@@ -78,8 +80,8 @@ const INTERVENTIONS_SQL: &str = "SELECT intervention.id, intervention.target_run
      JOIN runs AS run ON run.run_id = intervention.target_run_id \
      WHERE run.session_id = ?1 ORDER BY intervention.created_at, intervention.id";
 
-const ARTIFACT_FILES_SQL: &str = "SELECT id, json_extract(metadata, ?2), content_hash \
-     FROM artifact_manifests WHERE session_id = ?1 ORDER BY created_at, id";
+const ARTIFACT_FILES_SQL: &str = "SELECT id, content_hash FROM artifact_manifests \
+     WHERE session_id = ?1 ORDER BY created_at, id";
 
 // Only these columns are read: the registry's other columns stay out of the folder.
 const ACCOUNTS_SQL: &str = "SELECT provider, coalesce(display_label, observed_account_email), \
@@ -589,32 +591,30 @@ fn write_session_files(
 ) -> Result<(), ExportError> {
     let rows = connection
         .prepare_cached(ARTIFACT_FILES_SQL)?
-        .query_map(
-            [session_id.text().as_str(), &format!("$.{FILE_NAME_MEMBER}")],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            },
-        )?
+        .query_map([session_id.text().as_str()], |row| {
+            Ok((
+                text_column(row, 0, |text| ArtifactId::new(&text))?,
+                row.get::<_, String>(1)?,
+            ))
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    for (manifest_id, file_name, content_hash) in rows {
+    for (artifact_id, content_hash) in rows {
         let content_hash = ContentHash::from_stored(content_hash)
             .map_err(|failure| ExportError::Stored(failure.into()))?;
+        let manifest_id = artifact_id.text();
+        let file_name = read_manifest_file_name(connection, session_id, &artifact_id)?;
         let name = file_name
             .as_deref()
             .and_then(|name| Path::new(name).file_name())
-            .map_or_else(|| manifest_id.clone().into(), ToOwned::to_owned);
+            .map_or_else(|| manifest_id.as_str().into(), ToOwned::to_owned);
         let folder = files_folder
             .join(session_id.text().as_str())
-            .join(&manifest_id);
+            .join(manifest_id.as_str());
         fs::create_dir_all(&folder)?;
         match fs::copy(payloads.object_path_of(&content_hash), folder.join(name)) {
             Ok(_bytes) => {}
             Err(failure) if failure.kind() == io::ErrorKind::NotFound => tracing::warn!(
-                manifest = %manifest_id,
+                manifest = %artifact_id,
                 "an export left out a file the store no longer holds"
             ),
             Err(failure) => return Err(failure.into()),

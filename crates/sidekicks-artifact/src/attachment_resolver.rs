@@ -23,13 +23,18 @@ use crate::validation::FILE_NAME_MEMBER;
 
 // The manifest's newest payload reference within the message's session; a manifest whose payload
 // was reclaimed has none.
-const SELECT_PAYLOAD_SQL: &str = "SELECT refs.storage_path, refs.media_type,
-       json_extract(manifests.metadata, @fileNamePath)
+const SELECT_PAYLOAD_SQL: &str = "SELECT refs.storage_path, refs.media_type
   FROM artifact_manifests AS manifests
   JOIN artifact_payload_refs AS refs ON refs.manifest_id = manifests.id
   WHERE manifests.id = @artifactId AND manifests.session_id = @sessionId
   ORDER BY refs.created_at DESC, refs.id DESC
   LIMIT 1";
+
+// The file name a manifest within its session records, where it records one as text.
+const SELECT_FILE_NAME_SQL: &str = "SELECT json_extract(metadata, @fileNamePath)
+  FROM artifact_manifests
+  WHERE id = @artifactId AND session_id = @sessionId
+    AND json_type(metadata, @fileNamePath) = 'text'";
 
 /// One attachment's stored payload as its row names it.
 struct StoredPayload {
@@ -103,8 +108,9 @@ impl AttachmentResolver for ArtifactAttachmentResolver {
     }
 }
 
-// The newest payload of `artifact_id` within `session_id`; a file name that is not text reads as
-// none. Fails as SQLite does, or when a stored key is no content hash.
+// The newest payload of `artifact_id` within `session_id`, with the file name its manifest records;
+// a file name that is not text reads as none. Fails as SQLite does, or when a stored key is no
+// content hash.
 fn read_stored_payload(
     connection: &Connection,
     session_id: &SessionId,
@@ -116,26 +122,43 @@ fn read_stored_payload(
             named_params! {
                 "@artifactId": artifact_id.text().as_str(),
                 "@sessionId": session_id.text().as_str(),
-                "@fileNamePath": format!("$.{FILE_NAME_MEMBER}"),
             },
             |row| {
-                Ok(StoredPayload {
-                    content_hash: text_column(row, 0, ContentHash::from_stored)?,
-                    media_type: row.get(1)?,
-                    file_name: match row.get_ref(2)? {
-                        rusqlite::types::ValueRef::Text(text) => {
-                            Some(String::from_utf8_lossy(text).into_owned())
-                        }
-                        rusqlite::types::ValueRef::Null
-                        | rusqlite::types::ValueRef::Integer(_)
-                        | rusqlite::types::ValueRef::Real(_)
-                        | rusqlite::types::ValueRef::Blob(_) => None,
-                    },
-                })
+                Ok((
+                    text_column(row, 0, ContentHash::from_stored)?,
+                    row.get::<_, String>(1)?,
+                ))
             },
         )
         .optional()?;
-    Ok(stored)
+    let Some((content_hash, media_type)) = stored else {
+        return Ok(None);
+    };
+    Ok(Some(StoredPayload {
+        content_hash,
+        media_type,
+        file_name: read_manifest_file_name(connection, session_id, artifact_id)?,
+    }))
+}
+
+/// The file name the manifest `artifact_id` of `session_id` records, read on `connection`; `None`
+/// when the session holds no such manifest or its name is not text. Fails as SQLite does.
+pub fn read_manifest_file_name(
+    connection: &Connection,
+    session_id: &SessionId,
+    artifact_id: &ArtifactId,
+) -> rusqlite::Result<Option<String>> {
+    connection
+        .prepare_cached(SELECT_FILE_NAME_SQL)?
+        .query_row(
+            named_params! {
+                "@artifactId": artifact_id.text().as_str(),
+                "@sessionId": session_id.text().as_str(),
+                "@fileNamePath": format!("$.{FILE_NAME_MEMBER}"),
+            },
+            |row| row.get(0),
+        )
+        .optional()
 }
 
 #[cfg(test)]

@@ -10,10 +10,10 @@ use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::sql_list_of_every;
 
 /// The statements the artifact services read through the shared read pool: the owner check's two,
-/// a client publish's lookup by its key, an attachment's payload read, the list's two, a read's
-/// four, the chat versions' read of a path's newest hash and their two reads of a chat folder's
-/// mount, and the payload store's reference count and referenced keys.
-pub const ARTIFACT_STATEMENT_CAPACITY: usize = 15;
+/// a client publish's lookup by its key, an attachment's payload read and a manifest's file name,
+/// the list's two, a read's four, the chat versions' read of a path's newest hash and their two
+/// reads of a chat folder's mount, and the payload store's reference count and referenced keys.
+pub const ARTIFACT_STATEMENT_CAPACITY: usize = 16;
 
 /// The questions' list and the artifact tables' own part.
 pub(crate) fn schema_parts() -> SchemaParts {
