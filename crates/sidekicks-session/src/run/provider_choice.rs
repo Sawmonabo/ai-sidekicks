@@ -51,7 +51,7 @@ use crate::run::engine::errors::RunEngineError;
 use crate::run::pause::run_control_response;
 use crate::run::read::{RunRead, RunStateReader, read_run_provider, read_run_through};
 use crate::run::refusals::RunRefusal;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeError};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriteError};
 
 pub mod held;
 pub mod run_end;
@@ -577,15 +577,15 @@ impl ProviderChoiceResolver {
     ) -> Result<AgentRunControlResponse, ProviderChoiceError> {
         let run_id = change.run_id;
         let new_state = change.entry.state();
-        let companions = RunStateChangeCompanions {
+        let companions = RunWriteCompanions {
             statements: vec![settlement_guard(session_id, run_id, dialog, pending)],
             preceding_events: vec![SessionEventDraft::of_session(session_id, settlement)?],
             settled_choices: vec![dialog],
-            ..RunStateChangeCompanions::default()
+            ..RunWriteCompanions::default()
         };
         match self.engine.transition(change, companions).await {
             Ok(written) => Ok(run_control_response(run_id, &written)),
-            Err(RunEngineError::Change(RunStateChangeError::CompanionRefused {
+            Err(RunEngineError::Change(RunWriteError::CompanionRefused {
                 companion_index: SETTLEMENT_GUARD_COMPANION_INDEX,
                 source,
             })) => match read_run_through::<ProviderChoiceError>(&self.pool, run_id).await? {

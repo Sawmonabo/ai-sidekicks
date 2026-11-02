@@ -1,7 +1,7 @@
 //! The `runs` row each run event and each rollback writes in its own write, so the row always
 //! equals a rebuild from the log and every later write can guard against it; the rebuild folds the
-//! log through the same statements. A range the session skipped past as damaged still moves each live run's version past
-//! every version the range stored, so no later change reuses one.
+//! log through the same statements. A range the session skipped past as damaged still moves each
+//! live run's version past every version the range stored, so no later change reuses one.
 
 use std::borrow::Cow;
 use std::collections::HashMap;

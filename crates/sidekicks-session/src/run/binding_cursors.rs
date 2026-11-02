@@ -1,13 +1,15 @@
 //! The epoch cursor of each run's runtime binding. It opens where the run stands at its log's end,
-//! read before any lock, as the binding is recorded or, for a binding its caller minted, before its
-//! row is written, and drops once its run has ended and the session has opened a newer binding, or the session closed,
-//! so the provider's last deliveries on an ended run still find it and are absorbed as late, and a
-//! session holds the cursors of its newest bindings alone. A binding minted for a resume of a
-//! session in a new process carries the cursor of the session's leg on, opened before the resume
-//! runs, since the resumed provider delivers under it at once. A cursor whose row is not written is
-//! forgotten, and an open whose session closes while it reads opens none. An undo's confirmed cut
-//! is fenced here, where a fork's binding joins its run's cursors. The drivers write their bindings
-//! through the cursors, so a binding moved onto another account moves its cursor too.
+//! read before any lock, as the binding is recorded (read again once its row is written, so a
+//! rollback committed meanwhile is not missed) or, for a binding its caller minted, before its row
+//! is written, and drops once its run has ended and the session has opened a newer binding, or the
+//! session closed, so the provider's last deliveries on an ended run still find it and are absorbed
+//! as late, and a session holds the cursors of its newest bindings alone. A binding minted for a
+//! resume of a session in a new process carries the cursor of the session's leg on, opened before
+//! the resume runs, since the resumed provider delivers under it at once. A cursor whose row is not
+//! written is forgotten, and an open whose session closes while it reads opens none. An undo's
+//! confirmed cut is fenced here, where a fork's binding joins its run's cursors. The drivers write
+//! their bindings through the cursors, so a binding moved onto another account moves its cursor
+//! too.
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -197,8 +199,9 @@ impl RunBindingCursors {
     }
 
     /// Records a binding of a run of `session_id` in the store and opens its cursor where the run
-    /// stands at its log's end, dropping the cursors of the session's runs that have ended. Fails with
-    /// [`RunBindingCursorError::RunNotHeld`] for a run no session holds, recording nothing,
+    /// stands at its log's end once the row is written, dropping the cursors of the session's runs
+    /// that have ended. Fails with [`RunBindingCursorError::RunNotHeld`] for a run no session
+    /// holds, recording nothing,
     /// [`RunBindingCursorError::SessionClosed`] for a session that closed meanwhile, its row
     /// recorded and no cursor opened, and with the store's or the read's failure.
     pub async fn create(
@@ -207,16 +210,20 @@ impl RunBindingCursors {
         input: CreateRuntimeBindingInput,
     ) -> Result<RuntimeBinding, RunBindingCursorError> {
         let _in_flight = self.begin(session_id);
-        let (_, standing) = self.read_held_run(input.run_id).await?;
+        let run_id = input.run_id;
+        self.read_held_run(run_id).await?;
         let binding = self.store.create(input).await?;
+        // Read after the write, so a rollback committed while the row was written moves the
+        // cursor into the epoch it opened.
+        let (_, standing) = self.read_held_run(run_id).await?;
         self.open_held(session_id, epoch_binding_of(&binding), standing)?;
         Ok(binding)
     }
 
     /// Opens the cursor of the binding `binding_id` the caller minted for `run_id`, a run of
     /// `session_id`, where the run stands at its log's end, before its row is written, so the
-    /// provider can deliver
-    /// under it at once, dropping the cursors of the session's runs that have ended. Fails with
+    /// provider can deliver under it at once, dropping the cursors of the session's runs that have
+    /// ended. Fails with
     /// [`RunBindingCursorError::RunNotHeld`] for a run no session holds,
     /// [`RunBindingCursorError::SessionClosed`] for a session that closed meanwhile and
     /// [`RunBindingCursorError::Cursor`] for a binding already open, and with the read's failure.
@@ -261,8 +268,8 @@ impl RunBindingCursors {
 
     /// Opens the cursor of `binding_id`, minted for a resume of `leg`'s conversation in a new
     /// process, on `leg`'s run, a run of `session_id`, where `leg`'s cursor stands, else where the
-    /// run stands at its log's end. Fails with
-    /// [`RunBindingCursorError::RunNotHeld`] for a leg whose run no session holds,
+    /// run stands at its log's end. Fails with [`RunBindingCursorError::RunNotHeld`] for a leg
+    /// whose run no session holds,
     /// [`RunBindingCursorError::SessionClosed`] for a session that closed meanwhile,
     /// [`RunBindingCursorError::Cursor`] for a binding already open, and with the read's failure.
     pub async fn open_relaunch(
@@ -310,8 +317,9 @@ impl RunBindingCursors {
     }
 
     // Opens `binding_id`'s cursor on `leg`'s run, a run of `session_id`, where `leg`'s stands, else
-    // where the run stands at its log's end, and where `is_drivers_own` keeps it with `leg` for the relaunch's result, forgetting an earlier
-    // one, all under the one sessions' lock a close is heard under.
+    // where the run stands at its log's end, and where `is_drivers_own` keeps it with `leg` for the
+    // relaunch's result, forgetting an earlier one, all under the one sessions' lock a close is
+    // heard under.
     async fn continue_binding(
         &self,
         session_id: SessionId,
@@ -344,8 +352,8 @@ impl RunBindingCursors {
     }
 
     /// Records the binding a resume runs under, whose cursor `open_relaunch` opened, without
-    /// opening it again. Fails as the store fails, its predecessor missing among the refused writes, and
-    /// then forgets the binding's cursor, recording nothing.
+    /// opening it again. Fails as the store fails, its predecessor missing among the refused
+    /// writes, and then forgets the binding's cursor, recording nothing.
     pub async fn record_relaunch(
         &self,
         relaunch: RuntimeBindingRelaunch,
@@ -381,7 +389,8 @@ impl RunBindingCursors {
             return epochs.fence_cut(cut);
         };
         let run_id = epochs.binding(&binding_id)?.run_id;
-        epochs.fence_cut(cut)?;
+        // Found before the fence changes the epochs, so nothing moves unless the fork's cursor is
+        // held too.
         let session = sessions
             .by_session
             .values_mut()
@@ -392,6 +401,7 @@ impl RunBindingCursors {
                     .is_some_and(|binding_ids| binding_ids.contains(&binding_id))
             })
             .expect("every open cursor is held by its session under the same two locks");
+        epochs.fence_cut(cut)?;
         hold(session, run_id, new_binding_id);
         Ok(())
     }

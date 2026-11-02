@@ -57,7 +57,7 @@ use sidekicks_session::run::engine::errors::RunEngineError;
 use sidekicks_session::run::read::read_run_through;
 use sidekicks_session::run::refusals::RunRefusal;
 use sidekicks_session::run::start_request::RunStartRequest;
-use sidekicks_session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use sidekicks_session::run::state_change::{RunStateChange, RunWriteCompanions};
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
@@ -363,7 +363,7 @@ impl QueueAdmission {
         detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     ) -> Result<(), QueueError> {
         let now = WireInstant::now();
-        let mut companions = RunStateChangeCompanions::default();
+        let mut companions = RunWriteCompanions::default();
         let mut items = Vec::with_capacity(outcomes.len());
         for (item, outcome) in outcomes {
             let (draft, statement) =

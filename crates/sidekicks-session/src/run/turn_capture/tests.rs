@@ -28,7 +28,7 @@ use crate::checkpoints::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{insert_running_run, test_engine};
 use crate::run::engine::undo::RunCut;
-use crate::run::state_change::RunStateChangeCompanions;
+use crate::run::state_change::RunWriteCompanions;
 
 /// A run of its own session in a repository whose execution root is a folder below its checkout,
 /// with a top-level file and one in that folder, the engine that writes its turns and the
@@ -240,7 +240,7 @@ async fn a_late_end_after_a_rollback_and_a_restart_lands_where_its_turn_started(
     let hold = SESSION_APPEND_LOCK.acquire(fixture.session_id).await;
     fixture
         .engine
-        .roll_back(cut, Vec::new(), RunStateChangeCompanions::default(), &hold)
+        .roll_back(cut, Vec::new(), RunWriteCompanions::default(), &hold)
         .await
         .expect("the rollback is written");
     drop(hold);

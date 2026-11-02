@@ -157,7 +157,11 @@ impl TurnCapture {
         let capture = Arc::clone(self);
         // Runs on the writer's pump, so it only spawns the capture.
         let attachment = followers.follow_all(move |event| {
-            if let Some(ending) = turn_ending_of(event) {
+            // A publish that took its follower list before the stop spawns nothing once the stop
+            // closed the tracker, so no capture starts past the stop's wait.
+            if !capture.captures.is_closed()
+                && let Some(ending) = turn_ending_of(event)
+            {
                 capture
                     .captures
                     .spawn_on(Arc::clone(&capture).capture_end(ending), &runtime);

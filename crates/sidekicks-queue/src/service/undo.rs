@@ -29,7 +29,7 @@ use sidekicks_session::queue_store::{QueueItemRecord, placement_statements};
 use sidekicks_session::run::engine::undo::{RunCut, RunRollback};
 use sidekicks_session::run::epochs::{ConfirmedCut, EpochCursorError};
 use sidekicks_session::run::read::{RunStateReader, read_run_through};
-use sidekicks_session::run::state_change::RunStateChangeCompanions;
+use sidekicks_session::run::state_change::RunWriteCompanions;
 use sidekicks_session::run::superseded::StoredRollbackMismatchError;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadError, ReadLength};
@@ -214,7 +214,7 @@ impl RunQueue {
         &self,
         hold: &UndoHold,
         target: &SessionRestoreTarget,
-        companions: RunStateChangeCompanions,
+        companions: RunWriteCompanions,
     ) -> Result<ConversationCut, ConversationCutError> {
         let session_id = hold.session_id;
         let binding_id = self

@@ -18,7 +18,7 @@ use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
 use sidekicks_session::checkpoints::store::list_checkpoints;
 use sidekicks_session::run::engine::errors::RunEngineError;
-use sidekicks_session::run::state_change::{RunStateChangeCompanions, RunStateChangeError};
+use sidekicks_session::run::state_change::{RunWriteCompanions, RunWriteError};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::events::session::appender::SessionEventDraft;
 
@@ -29,9 +29,9 @@ use crate::service::undo::{ConversationCut, ConversationCutError};
 
 /// The companions recovery passes when it undoes to where both sides agree: its resolution, and
 /// `guard`.
-fn recovery_companions(scene: &Scene, guard: WriteStatement) -> RunStateChangeCompanions {
+fn recovery_companions(scene: &Scene, guard: WriteStatement) -> RunWriteCompanions {
     let session_id = scene.fixture.session_id;
-    let mut companions = RunStateChangeCompanions::default();
+    let mut companions = RunWriteCompanions::default();
     companions.statements = vec![guard];
     companions.preceding_events = vec![
         SessionEventDraft::of_session(
@@ -119,7 +119,7 @@ async fn a_cut_the_provider_or_a_companion_refuses_writes_nothing(#[case] unwrit
             matches!(
                 cut,
                 Err(ConversationCutError::Unrecorded(QueueError::Engine(
-                    RunEngineError::Change(RunStateChangeError::CompanionRefused { .. })
+                    RunEngineError::Change(RunWriteError::CompanionRefused { .. })
                 )))
             ),
             "{cut:?}"
@@ -193,7 +193,7 @@ async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
         .await;
     fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RunStateChangeCompanions::default())
+        .cut_conversation(&hold, &scene.target, RunWriteCompanions::default())
         .await
         .expect("the cut applies");
 
@@ -201,7 +201,7 @@ async fn a_checkpoint_a_cut_cut_away_is_unlisted_and_refused() {
         .expect("the session's checkpoints read");
     let again = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RunStateChangeCompanions::default())
+        .cut_conversation(&hold, &scene.target, RunWriteCompanions::default())
         .await;
 
     assert!(listed.is_empty(), "{listed:?}");
@@ -233,7 +233,7 @@ async fn a_cut_applied_on_a_fork_moves_the_session_to_the_forks_binding() {
 
     fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RunStateChangeCompanions::default())
+        .cut_conversation(&hold, &scene.target, RunWriteCompanions::default())
         .await
         .expect("the cut applies");
 
@@ -317,7 +317,7 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
 
     let refused = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RunStateChangeCompanions::default())
+        .cut_conversation(&hold, &scene.target, RunWriteCompanions::default())
         .await;
     let rewinds_while_open = scene.rewinds.load(Ordering::SeqCst);
     let version_while_open = fixture.run_version(scene.run_id);
@@ -326,7 +326,7 @@ async fn a_cut_waits_for_the_turns_end_before_the_provider_is_asked() {
         .await;
     let applied = fixture
         .queue
-        .cut_conversation(&hold, &scene.target, RunStateChangeCompanions::default())
+        .cut_conversation(&hold, &scene.target, RunWriteCompanions::default())
         .await;
 
     assert!(

@@ -73,7 +73,7 @@ use crate::run::provider_choice::held::HeldChoiceAnswers;
 use crate::run::read::{RunRead, RunStateReader, read_run_through, safe_run_version};
 use crate::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::run::session_posture::SessionPostureSource;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeWriter};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions, RunWriter};
 
 /// The statements the engine's reads prepare on a pooled connection: the run's row, the live
 /// provider subagents beneath a run, the ended runs with an open turn, a run's pending interrupts
@@ -162,7 +162,7 @@ pub struct RunEngine {
     pool: Arc<DatabaseReadPool>,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     appender: Arc<SessionEventAppender>,
-    changes: RunStateChangeWriter,
+    changes: RunWriter,
     gates: RunSetupGates,
     execution_postures: Arc<ExecutionPostureService>,
     providers: Arc<ProviderRegistry>,
@@ -213,7 +213,7 @@ impl RunEngine {
         let mut gates = RunSetupGates::default();
         gates.register(Arc::clone(&execution_postures) as Arc<dyn RunSetupGate>);
         Self {
-            changes: RunStateChangeWriter::new(Arc::clone(&pool), Arc::clone(&appender)),
+            changes: RunWriter::new(Arc::clone(&pool), Arc::clone(&appender)),
             pool,
             read_damaged_from_sequence,
             appender,
@@ -353,11 +353,11 @@ impl RunEngine {
     /// where the provider never stopped, hands again the interrupt of every limit the run owes
     /// once it is written, on a task of its own; a move that names no state it leaves hands
     /// nothing, its caller handing them once the provider runs. Refuses as
-    /// `RunStateChangeWriter::write` does; a running change's posture is the start's to stamp.
+    /// `RunWriter::write` does; a running change's posture is the start's to stamp.
     pub async fn transition(
         self: &Arc<Self>,
         change: RunStateChange,
-        companions: RunStateChangeCompanions,
+        companions: RunWriteCompanions,
     ) -> Result<RunRead, RunEngineError> {
         let run_id = change.run_id;
         let is_back_to_running = RunState::from(change.entry.state()) == RunState::Running
@@ -446,14 +446,8 @@ impl RunEngine {
             self.change_with_uninterrupted_turn_end(change, &run, turn_end)
                 .await
         } else {
-            self.change_with_turn_end(
-                change,
-                RunStateChangeCompanions::default(),
-                &run,
-                turn_end,
-                None,
-            )
-            .await
+            self.change_with_turn_end(change, RunWriteCompanions::default(), &run, turn_end, None)
+                .await
         };
         drop(mark);
         let changed = changed?;

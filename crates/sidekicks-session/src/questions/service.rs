@@ -53,7 +53,7 @@ use crate::questions::store::{
 use crate::questions::waits::QuestionWaits;
 use crate::run::engine::RunEngine;
 use crate::run::engine::errors::RunEngineError;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_fixture;
@@ -349,10 +349,10 @@ impl QuestionsService {
                         expected_state: Some(RunState::Running),
                         ..RunStateChange::new(run_id, RunStateEntry::WaitingForInput)
                     },
-                    RunStateChangeCompanions {
+                    RunWriteCompanions {
                         statements: vec![insert],
                         preceding_events: vec![event],
-                        ..RunStateChangeCompanions::default()
+                        ..RunWriteCompanions::default()
                     },
                 )
                 .await
@@ -490,13 +490,13 @@ impl QuestionsService {
                         },
                     )
                 },
-                RunStateChangeCompanions {
+                RunWriteCompanions {
                     statements: vec![settle_question_statement(
                         &question_id,
                         QuestionSettledState::Canceled,
                     )],
                     preceding_events: vec![canceled],
-                    ..RunStateChangeCompanions::default()
+                    ..RunWriteCompanions::default()
                 },
             )
             .await;

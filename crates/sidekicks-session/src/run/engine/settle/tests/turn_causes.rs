@@ -21,7 +21,7 @@ use crate::run::engine::tests::{
     provider_end, started_turn, step_stop, stored_events, token_limit, turn, turn_started_at,
 };
 use crate::run::read::{RunRead, RunStateReader};
-use crate::run::state_change::RunStateChangeCompanions;
+use crate::run::state_change::RunWriteCompanions;
 
 // A run's log the parity test writes through a live engine before the live path or a restart ends
 // it.
@@ -61,7 +61,7 @@ async fn write_cut_log(
     match cut_log {
         CutLog::TwoCutTurns => {
             let ended = engine
-                .end_run_for_interrupt(run_id, 1, None, None, RunStateChangeCompanions::default())
+                .end_run_for_interrupt(run_id, 1, None, None, RunWriteCompanions::default())
                 .await
                 .expect("the person's interrupt ends the run");
             assert!(ended);
@@ -161,7 +161,7 @@ async fn a_restart_ends_each_turn_of_a_log_with_the_cause_the_live_path_writes(
             run_version,
             Some(settling_limit),
             Some(turn(settling_turn)),
-            RunStateChangeCompanions::default(),
+            RunWriteCompanions::default(),
         )
         .await
         .expect("the run ends at its limit");
@@ -233,13 +233,7 @@ async fn a_restart_ends_the_open_turns_of_runs_that_had_ended() {
         .await
         .expect("the limit's interrupt is accepted");
     let ended = engine
-        .end_run_for_interrupt(
-            cut_run_id,
-            1,
-            None,
-            None,
-            RunStateChangeCompanions::default(),
-        )
+        .end_run_for_interrupt(cut_run_id, 1, None, None, RunWriteCompanions::default())
         .await
         .expect("the person's interrupt ends the run");
     assert!(ended);

@@ -23,7 +23,7 @@ use crate::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, continue_request, events, hand_limit_interrupter, held_driver,
     started_turn, step_stop, stored_events, token_limit, turn, turn_started_at,
 };
-use crate::run::state_change::RunStateChangeCompanions;
+use crate::run::state_change::RunWriteCompanions;
 
 // A person's interrupt accepted at `accepted_run_version` ends the run, and a continue runs it
 // again.
@@ -34,7 +34,7 @@ async fn interrupt_and_continue(engine: &RunEngine, run_id: RunId, accepted_run_
             accepted_run_version,
             None,
             None,
-            RunStateChangeCompanions::default(),
+            RunWriteCompanions::default(),
         )
         .await
         .expect("the person's interrupt ends the run");
@@ -71,7 +71,7 @@ async fn a_cut_turn_keeps_its_limit_past_the_runs_end_and_a_stop_that_found_it_e
         .expect("the limit's interrupt is accepted");
     // A person's interrupt, accepted while the limit's is pending, ends the run first.
     let ended = engine
-        .end_run_for_interrupt(run_id, 1, None, None, RunStateChangeCompanions::default())
+        .end_run_for_interrupt(run_id, 1, None, None, RunWriteCompanions::default())
         .await
         .expect("the person's interrupt ends the run");
     assert!(ended);
@@ -221,7 +221,7 @@ async fn a_token_stop_retried_after_a_failed_interrupt_sends_the_interrupt_alone
             1,
             Some(RunLimit::TokenLimit),
             Some(turn(1)),
-            RunStateChangeCompanions::default(),
+            RunWriteCompanions::default(),
         )
         .await
         .expect("the run ends at its limit");
@@ -269,7 +269,7 @@ async fn a_token_stop_after_an_overtaken_limit_and_a_continue_stops_the_run() {
     // A person's interrupt ends the run before the limit's end, which then finds it ended,
     // and a continue runs turn 2.
     let ended = engine
-        .end_run_for_interrupt(run_id, 1, None, None, RunStateChangeCompanions::default())
+        .end_run_for_interrupt(run_id, 1, None, None, RunWriteCompanions::default())
         .await
         .expect("the person's interrupt ends the run");
     assert!(ended);
@@ -279,7 +279,7 @@ async fn a_token_stop_after_an_overtaken_limit_and_a_continue_stops_the_run() {
             1,
             Some(RunLimit::TokenLimit),
             Some(turn(1)),
-            RunStateChangeCompanions::default(),
+            RunWriteCompanions::default(),
         )
         .await
         .expect("the overtaken limit's end is left");
@@ -305,7 +305,7 @@ async fn a_token_stop_after_an_overtaken_limit_and_a_continue_stops_the_run() {
             3,
             Some(RunLimit::TokenLimit),
             Some(turn(2)),
-            RunStateChangeCompanions::default(),
+            RunWriteCompanions::default(),
         )
         .await
         .expect("the run ends at its token limit");
@@ -356,7 +356,7 @@ async fn a_spend_stop_retried_during_a_continue_interrupts_the_continued_run() {
     );
     assert!(lock(&engine.live).cut_turns.is_empty());
     let ended = engine
-        .end_run_for_interrupt(run_id, 1, None, None, RunStateChangeCompanions::default())
+        .end_run_for_interrupt(run_id, 1, None, None, RunWriteCompanions::default())
         .await
         .expect("the person's interrupt ends the run");
     assert!(ended);
@@ -546,7 +546,7 @@ async fn a_turn_two_limits_cut_ends_with_the_higher_ranked_limit(
                 1,
                 Some(RunLimit::StepLimit),
                 Some(turn(1)),
-                RunStateChangeCompanions::default(),
+                RunWriteCompanions::default(),
             )
             .await
             .expect("the step limit's end ends the run");

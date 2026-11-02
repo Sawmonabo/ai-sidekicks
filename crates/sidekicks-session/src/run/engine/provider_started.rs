@@ -32,7 +32,7 @@ use crate::run::engine::{LiveAppend, RunEngine, SubagentRunStart, with_cleanup_f
 use crate::run::projection::insert_queued_run_statement;
 use crate::run::read::{RunRead, RunStateReader};
 use crate::run::refusals::RunRefusal;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunWriteCompanions};
 
 impl RunEngine {
     /// Starts the run of a subagent the provider started beneath `parent_run_id`, sharing its
@@ -100,7 +100,7 @@ impl RunEngine {
                 expected_state: Some(RunState::Queued),
                 ..RunStateChange::new(run_id, RunStateEntry::Starting)
             },
-            RunStateChangeCompanions::default(),
+            RunWriteCompanions::default(),
             None,
         )
         .await?;
@@ -178,7 +178,7 @@ impl RunEngine {
                         },
                     )
                 },
-                RunStateChangeCompanions::default(),
+                RunWriteCompanions::default(),
                 None,
             )
             .await;
@@ -262,7 +262,7 @@ impl RunEngine {
                         },
                     )
                 },
-                RunStateChangeCompanions::default(),
+                RunWriteCompanions::default(),
                 None,
             )
             .await
