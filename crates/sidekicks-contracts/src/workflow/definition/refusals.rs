@@ -88,10 +88,16 @@ workflow_definition_findings! {
     TriggerMissing,
     /// A trigger kind among the other nodes.
     TriggerDuplicate,
+    /// A node named as an earlier node is, which an expression naming it could not tell apart,
+    /// marking the later node.
+    NodeNameDuplicate,
     /// An edge into the trigger.
     EdgeIntoTrigger,
     /// An edge out of a node with no outputs.
     EdgeOutOfTerminal,
+    /// An edge joining the same two handles an earlier edge joins, which would hand its target
+    /// the same items twice.
+    EdgeDuplicate,
     /// A required parameter left empty.
     ParamMissing,
     /// An expression that does not parse.
@@ -197,8 +203,9 @@ pub struct WorkflowConnectionCheckInput {
 }
 
 /// The findings for the rules that need only a document's trigger, as a node, its nodes and edges
-/// and the kinds' handles: the trigger, an empty document, each edge's nodes and ends, the inputs
-/// over their connection limit, cycles, then orphans, each in document order. `node_handles` holds
+/// and the kinds' handles: the trigger, an empty document, repeated node names, each edge's nodes,
+/// ends and repeats, the inputs over their connection limit, cycles, then orphans, each in
+/// document order. `node_handles` holds
 /// each node's handles by node id, built by the caller from the kinds table; a node missing from
 /// it is of a kind the catalog does not list, whose handles and category then go unchecked though
 /// its edges still count toward cycles and reach. An edge naming a node the document does not
@@ -236,6 +243,11 @@ pub fn check_workflow_graph<S: BuildHasher>(
             node_ids: duplicate_trigger_ids,
         });
     }
+    findings.extend(graph.repeated_names().into_iter().map(|node_id| {
+        WorkflowDefinitionFinding::NodeNameDuplicate {
+            node_ids: vec![node_id],
+        }
+    }));
     let findings_by_edge = graph.findings_by_edge();
     let refused_edges = refused_edge_indices(&findings_by_edge);
     findings.extend(findings_by_edge.into_iter().flatten());
@@ -326,6 +338,7 @@ enum EdgeRule {
     NodeMissing,
     EdgeIntoTrigger,
     EdgeOutOfTerminal,
+    EdgeDuplicate,
     ToolEdgeWithoutToolInput,
     HandleTypeUnknown,
     HandleTypeMismatch,
@@ -338,6 +351,7 @@ impl EdgeRule {
             Self::NodeMissing => WorkflowDefinitionFinding::NodeMissing { node_ids },
             Self::EdgeIntoTrigger => WorkflowDefinitionFinding::EdgeIntoTrigger { node_ids },
             Self::EdgeOutOfTerminal => WorkflowDefinitionFinding::EdgeOutOfTerminal { node_ids },
+            Self::EdgeDuplicate => WorkflowDefinitionFinding::EdgeDuplicate { node_ids },
             Self::ToolEdgeWithoutToolInput => {
                 WorkflowDefinitionFinding::ToolEdgeWithoutToolInput { node_ids }
             }
@@ -417,16 +431,47 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
             .is_some_and(|handles| handles.category != WorkflowNodeKindCategory::Trigger)
     }
 
-    // Each edge's own findings, in document order.
+    // Each node after the first holding a name, in document order, the trigger first.
+    fn repeated_names(&self) -> Vec<WorkflowNodeId> {
+        let mut names = HashSet::new();
+        self.nodes
+            .iter()
+            .filter(|node| !names.insert(node.name.as_str()))
+            .map(|node| node.id.clone())
+            .collect()
+    }
+
+    // Each edge's own findings, in document order; an edge joining the handles an earlier one
+    // joins is a repeat.
     fn findings_by_edge(&self) -> Vec<Vec<WorkflowDefinitionFinding>> {
+        let mut joins = HashSet::new();
         self.edges
             .iter()
-            .map(|parsed_edge| self.edge_findings(parsed_edge))
+            .map(|parsed_edge| {
+                let WorkflowEdge {
+                    source,
+                    source_handle,
+                    target,
+                    target_handle,
+                    ..
+                } = parsed_edge.edge;
+                let is_repeat = !joins.insert((
+                    source,
+                    source_handle.as_str(),
+                    target,
+                    target_handle.as_str(),
+                ));
+                self.edge_findings(parsed_edge, is_repeat)
+            })
             .collect()
     }
 
     // The edge's findings, each marking the ends the document holds.
-    fn edge_findings(&self, parsed_edge: &ParsedEdge<'_>) -> Vec<WorkflowDefinitionFinding> {
+    fn edge_findings(
+        &self,
+        parsed_edge: &ParsedEdge<'_>,
+        is_repeat: bool,
+    ) -> Vec<WorkflowDefinitionFinding> {
         let WorkflowEdge { source, target, .. } = parsed_edge.edge;
         let mut held_end_ids: Vec<WorkflowNodeId> = [source, target]
             .into_iter()
@@ -434,7 +479,7 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
             .cloned()
             .collect();
         held_end_ids.dedup();
-        self.edge_rules(parsed_edge)
+        self.edge_rules(parsed_edge, is_repeat)
             .into_iter()
             .map(|rule| rule.finding(held_end_ids.clone()))
             .collect()
@@ -442,8 +487,9 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
 
     // One rule at most for each end the document holds; a rule that names the end's problem
     // outright stands in for the undeclared-handle finding it would also raise. Only when both
-    // ends name a handle their nodes declare is a join of two types a mismatch.
-    fn edge_rules(&self, parsed_edge: &ParsedEdge<'_>) -> Vec<EdgeRule> {
+    // ends name a handle their nodes declare is a join of two types a mismatch, and only an edge
+    // breaking no other rule is refused as a repeat.
+    fn edge_rules(&self, parsed_edge: &ParsedEdge<'_>, is_repeat: bool) -> Vec<EdgeRule> {
         let edge = parsed_edge.edge;
         let has_source = self.node_by_id.contains_key(&edge.source);
         let has_target = self.node_by_id.contains_key(&edge.target);
@@ -464,6 +510,9 @@ impl<'a, S: BuildHasher> GraphFacts<'a, S> {
         }
         if rules.is_empty() && parsed_edge.is_type_mismatch() {
             rules.push(EdgeRule::HandleTypeMismatch);
+        }
+        if rules.is_empty() && is_repeat {
+            rules.push(EdgeRule::EdgeDuplicate);
         }
         rules
     }
