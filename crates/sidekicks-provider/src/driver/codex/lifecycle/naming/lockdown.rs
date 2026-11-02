@@ -1,7 +1,8 @@
-//! The config a title pass's throwaway conversation runs under, as Codex's own terminal sets it
-//! for a structured prompt over transcript text: every feature and tool switch off, web search
-//! off, the built-in read-only profile, and each configured MCP server disabled by name: Codex
-//! merges an override into the config it loaded, so only each server's `enabled` member changes.
+//! The config a throwaway conversation runs under, a title pass's or a window-start turn's, as
+//! Codex's own terminal sets it for a structured prompt over transcript text: every feature and
+//! tool switch off, web search off, the built-in read-only profile, and each configured MCP server
+//! disabled by name: Codex merges an override into the config it loaded, so only each server's
+//! `enabled` member changes.
 
 use serde::{Deserialize, Serialize as _};
 use serde_json::{Map, Value, json};
@@ -9,7 +10,7 @@ use serde_json::{Map, Value, json};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 
-/// The switches a title conversation turns off.
+/// The switches a throwaway conversation turns off.
 const SWITCHES_OFF: [&str; 26] = [
     "features.apps",
     "features.code_mode",
@@ -45,9 +46,9 @@ const WEB_SEARCH_OFF: (&str, &str) = ("web_search", "disabled");
 /// The default permission profile's key, and Codex's built-in read-only profile.
 const READ_ONLY_PERMISSIONS: (&str, &str) = ("default_permissions", ":read-only");
 
-/// The config overrides of a title conversation, each a dotted key and its value, with each of
+/// The config overrides of a throwaway conversation, each a dotted key and its value, with each of
 /// `server_names` disabled under the server table, where a name may hold a dot.
-pub(super) fn compose_title_overrides(server_names: &[String]) -> Vec<(String, Value)> {
+pub(crate) fn compose_lockdown_overrides(server_names: &[String]) -> Vec<(String, Value)> {
     let switches = SWITCHES_OFF
         .iter()
         .map(|key| ((*key).to_owned(), Value::Bool(false)));
@@ -103,4 +104,30 @@ pub(super) fn read_config_server_names(config: &Map<String, Value>) -> Vec<Strin
         .and_then(Value::as_object)
         .map(|servers| servers.keys().cloned().collect())
         .unwrap_or_default()
+}
+
+/// The config the `-c` arguments before `exec` in `arguments` set, each value read back as TOML.
+#[cfg(test)]
+pub(crate) fn read_exec_overrides<Argument: AsRef<str>>(arguments: &[Argument]) -> Value {
+    let exec_at = arguments
+        .iter()
+        .position(|argument| argument.as_ref() == "exec")
+        .expect("the command runs `exec`");
+    let overrides: Map<String, Value> = arguments[..exec_at]
+        .chunks(2)
+        .map(|pair| {
+            assert_eq!(pair[0].as_ref(), "-c", "only overrides come before `exec`");
+            let (key, value) = pair[1]
+                .as_ref()
+                .split_once('=')
+                .expect("an override is key=value");
+            let read: toml::Table =
+                toml::from_str(&format!("value = {value}")).expect("the value is TOML");
+            (
+                key.to_owned(),
+                serde_json::to_value(&read["value"]).expect("a TOML value is JSON"),
+            )
+        })
+        .collect();
+    Value::Object(overrides)
 }

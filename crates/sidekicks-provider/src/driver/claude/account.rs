@@ -16,7 +16,23 @@ mod sign_out;
         reason = "the driver hands its account legs to the account plane once it is wired"
     )
 )]
+mod throwaway_folder;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the driver hands its account legs to the account plane once it is wired"
+    )
+)]
 mod token_status;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the driver hands its account legs to the account plane once it is wired"
+    )
+)]
+mod window_start;
 
 use std::path::PathBuf;
 use std::sync::Arc;
