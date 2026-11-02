@@ -74,6 +74,7 @@ async fn start_ask_parent(
         new_state: AgentRunQueuedNewState::Value,
         agent_id: AgentId::try_from(mint_uuid_v7()).expect("a minted UUID is an agent id"),
         resolved_agent: None,
+        provider_child: None,
         parent_run_id: None,
         reached_by: None,
         effective_run_config: None,

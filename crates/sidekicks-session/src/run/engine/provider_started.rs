@@ -76,6 +76,7 @@ impl RunEngine {
                     new_state: AgentRunQueuedNewState::Value,
                     agent_id,
                     resolved_agent: None,
+                    provider_child: None,
                     parent_run_id: Some(parent_run_id),
                     reached_by: Some(ChildRunProvenance::ProviderSubagent),
                     effective_run_config: None,
