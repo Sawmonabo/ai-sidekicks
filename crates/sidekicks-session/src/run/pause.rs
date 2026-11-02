@@ -275,11 +275,10 @@ impl RunPauseControl {
     /// lock of the queue's. Refuses, nothing read, as a pause does for an unknown run, a stale
     /// version and a run in any other state, then with [`RunPauseError::NoDriver`]. The driver's
     /// params say whether the run's newest turn end is the restart's cut of its pause, which the
-    /// continue owes its continuation, failing with [`RunPauseError::Read`] or
-    /// [`RunPauseError::Pool`] where that read fails, nothing moved. A resume the
-    /// driver refuses moves nothing, gives the messages back and fails with
-    /// [`RunPauseError::Driver`], as does one whose answer never came, which keeps the messages
-    /// for the provider's own word to settle. A move refused once the driver took the resume (a
+    /// continue owes its continuation; a failed read fails with [`RunPauseError::Read`] or
+    /// [`RunPauseError::Pool`], nothing moved. A resume the driver refuses moves nothing, gives the
+    /// messages back and fails with [`RunPauseError::Driver`], as does one whose answer never
+    /// came, which keeps the messages for the provider's own word to settle. A move refused once the driver took the resume (a
     /// process exit ended or interrupted the run meanwhile) refuses from where the run went and
     /// never gives the messages back, the provider holding them.
     pub async fn resume(
