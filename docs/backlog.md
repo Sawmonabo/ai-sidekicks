@@ -221,3 +221,36 @@ Each item names what it is waiting for and what would close it. Delete an item w
 - Summary: The service and its modes run on mimalloc on macOS and Linux and on the system allocator on Windows, because the mimalloc 3.3.2 that `libmimalloc-sys` bundles crashes on x64 processors without the POPCNT instruction, which Chrome's SSE3 floor still admits. The allocator choice lives in `sidekicks-platforms`.
 - Named gate: a `libmimalloc-sys` release that bundles mimalloc 3.4.0 or newer. Nothing in-tree blocks.
 - Exit Criteria: (a) the service on that release; (b) mimalloc running on Windows, the system-allocator branch removed; (c) until then, each newest-release pass checks the pull request's state with `gh pr view 169 -R purpleprotocol/mimalloc_rust`.
+
+## BL-178: jsonata-core reading regex classes as JavaScript does
+
+- Status: `blocked` (external-world wait — a `jsonata-core` release carrying the fix)
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Workflow Implementation Notes](./architecture/workflow-implementation-notes.md) (the Expressions row), [txjmb/jsonata-core#271](https://github.com/txjmb/jsonata-core/pull/271) (the change)
+- Summary: `jsonata-core` 2.2.13 reads `\d`, `\w`, `\s` and `\b` in an expression's regular expression as Unicode classes, so `$contains("٣", /\d/)` is true where jsonata-js answers false. The Cargo workspace's `[patch.crates-io]` takes `jsonata-core` from the user's fork, whose combined branch carries the fix; txjmb/jsonata-core#271 offers it upstream.
+- V1 Release Impact: none; the fork carries the fix until a release does.
+- Named gate: a `jsonata-core` release carrying txjmb/jsonata-core#271.
+- Exit Criteria: that release is taken; the fix is gone from the fork's combined branch and the root `Cargo.toml`'s `jsonata-core` patch re-pinned to its new head, or, when this is the last of BL-178 to BL-180 to close, the patch entry and the fork's `allow-git` line in `deny.toml` are deleted; this entry is deleted.
+
+## BL-179: jsonata-core seeing a cancel inside `$distinct` and `$keys`
+
+- Status: `blocked` (external-world wait — a `jsonata-core` release carrying the fix)
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Workflow Implementation Notes](./architecture/workflow-implementation-notes.md) (the Expressions row), [txjmb/jsonata-core#272](https://github.com/txjmb/jsonata-core/pull/272) (the change)
+- Summary: `jsonata-core` 2.2.13 checks no cancel inside `$distinct`'s and `$keys`'s walks, each quadratic in its input, so a canceled step evaluating one over a large input runs it to the end, far past the 72 ms a cancel has. The Cargo workspace's `[patch.crates-io]` takes `jsonata-core` from the user's fork, whose combined branch carries the fix; txjmb/jsonata-core#272 offers it upstream.
+- V1 Release Impact: none; the fork carries the fix until a release does.
+- Named gate: a `jsonata-core` release carrying txjmb/jsonata-core#272.
+- Exit Criteria: that release is taken; the fix is gone from the fork's combined branch and the root `Cargo.toml`'s `jsonata-core` patch re-pinned to its new head, or, when this is the last of BL-178 to BL-180 to close, the patch entry and the fork's `allow-git` line in `deny.toml` are deleted; this entry is deleted.
+
+## BL-180: jsonata-core ordering object keys as JavaScript does
+
+- Status: `blocked` (external-world wait — a `jsonata-core` release carrying the fix)
+- Priority: `P3`
+- Owner: `unassigned`
+- References: [Workflow Implementation Notes](./architecture/workflow-implementation-notes.md) (the Expressions row), [txjmb/jsonata-core#273](https://github.com/txjmb/jsonata-core/pull/273) (the change)
+- Summary: `jsonata-core` 2.2.13 keeps an object's keys in insertion order, so `$keys({"b":1,"2":2})` is `["b","2"]` where jsonata-js answers `["2","b"]`, its integer-like keys first. The Cargo workspace's `[patch.crates-io]` takes `jsonata-core` from the user's fork, whose combined branch carries the fix, and the workflow expressions build their input with the crate's own conversion; txjmb/jsonata-core#273 offers it upstream.
+- V1 Release Impact: none; the fork carries the fix until a release does.
+- Named gate: a `jsonata-core` release carrying txjmb/jsonata-core#273.
+- Exit Criteria: that release is taken; the fix is gone from the fork's combined branch and the root `Cargo.toml`'s `jsonata-core` patch re-pinned to its new head, or, when this is the last of BL-178 to BL-180 to close, the patch entry and the fork's `allow-git` line in `deny.toml` are deleted; this entry is deleted.
