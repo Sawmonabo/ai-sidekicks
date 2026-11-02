@@ -169,29 +169,28 @@ pub(crate) async fn answer_through_login(
             continue;
         };
         methods.push(method.clone());
-        match method.as_str() {
-            "account/logout" => scripted.script.answer(&message, &json!({})),
-            _ => {
-                assert_eq!(method, CODEX_LOGIN_START_METHOD, "{message}");
-                let carried_at_login = scripted.service.provider_account_id();
-                if is_login_refused {
-                    scripted.script.send(&json!({
-                        "jsonrpc": "2.0",
-                        "id": message["id"],
-                        "error": {"code": -32600, "message": "the API key is not valid"},
-                    }));
-                } else {
-                    scripted
-                        .script
-                        .answer(&message, &json!({"type": message["params"]["type"]}));
-                }
-                return AnsweredHand {
-                    methods,
-                    login: message,
-                    carried_at_login,
-                    answers,
-                };
-            }
+        if method == "account/logout" {
+            scripted.script.answer(&message, &json!({}));
+            continue;
         }
+        assert_eq!(method, CODEX_LOGIN_START_METHOD, "{message}");
+        let carried_at_login = scripted.service.provider_account_id();
+        if is_login_refused {
+            scripted.script.send(&json!({
+                "jsonrpc": "2.0",
+                "id": message["id"],
+                "error": {"code": -32600, "message": "the API key is not valid"},
+            }));
+        } else {
+            scripted
+                .script
+                .answer(&message, &json!({"type": message["params"]["type"]}));
+        }
+        return AnsweredHand {
+            methods,
+            login: message,
+            carried_at_login,
+            answers,
+        };
     }
 }
