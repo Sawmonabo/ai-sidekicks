@@ -6,16 +6,16 @@
 use std::fs::{File, OpenOptions};
 use std::io::{self, ErrorKind};
 use std::os::windows::fs::OpenOptionsExt;
-use std::os::windows::io::AsRawHandle;
 use std::path::Path;
 
 use windows_sys::Win32::Foundation::ERROR_INVALID_FUNCTION;
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-    FILE_SHARE_WRITE, GetFinalPathNameByHandleW, VOLUME_NAME_GUID,
+    FILE_SHARE_WRITE,
 };
 
 use crate::clone_refusal::CloneRefusal;
+use crate::windows::volume::volume_guid_path;
 
 // The high half of an HRESULT that wraps a Win32 code (`HRESULT_FROM_WIN32`): the failure bit and
 // facility 7. reflink-copy's `DeviceIoControl` calls answer in this form.
@@ -23,12 +23,6 @@ const WIN32_HRESULT_HIGH_HALF: u32 = 0x8007_0000;
 
 // The high half of an HRESULT, which holds its failure bit and its facility.
 const HRESULT_HIGH_HALF_MASK: u32 = 0xFFFF_0000;
-
-// The UTF-16 units a volume GUID path's prefix takes before its first separator: `\\?\`.
-const VERBATIM_PREFIX_UNITS: usize = 4;
-
-// Room for a volume GUID path and a short path under it, grown when the path is longer.
-const FIRST_PATH_UNITS: usize = 128;
 
 /// A clone failed, and so did reading which volume its source or its destination's folder is on.
 #[derive(Debug, thiserror::Error)]
@@ -105,60 +99,13 @@ fn win32_code_of(error: &io::Error) -> Option<u32> {
     }
 }
 
-// The volume GUID path (`\\?\Volume{…}\`) of the volume holding the open file or folder `file`,
-// read through its handle and cut after its first separator past the `\\?\` prefix, so two entries
-// on one volume read the same. Fails with the system's error, as a network share's file does, and
-// with `InvalidData` for a path with no separator past the prefix.
-fn volume_guid_path(file: &File) -> io::Result<Vec<u16>> {
-    let mut path = vec![0_u16; FIRST_PATH_UNITS];
-    loop {
-        let room = u32::try_from(path.len()).map_err(io::Error::other)?;
-        // SAFETY: the handle is the open file's, alive for the call, and `path` is a live buffer
-        // of the length given.
-        let written = unsafe {
-            GetFinalPathNameByHandleW(
-                file.as_raw_handle(),
-                path.as_mut_ptr(),
-                room,
-                VOLUME_NAME_GUID,
-            )
-        };
-        if written == 0 {
-            return Err(io::Error::last_os_error());
-        }
-        let written = usize::try_from(written).map_err(io::Error::other)?;
-        // A path that fits comes back without its NUL; one that does not answers the room it
-        // needs, its NUL included.
-        if written < path.len() {
-            path.truncate(written);
-            break;
-        }
-        path.resize(written, 0);
-    }
-    let separator = path
-        .iter()
-        .skip(VERBATIM_PREFIX_UNITS)
-        .position(|&unit| unit == u16::from(b'\\'))
-        .ok_or_else(|| {
-            io::Error::new(
-                ErrorKind::InvalidData,
-                "the volume GUID path holds no separator after its volume",
-            )
-        })?;
-    path.truncate(VERBATIM_PREFIX_UNITS + separator + 1);
-    Ok(path)
-}
-
 #[cfg(test)]
 mod tests {
-    use std::fs::{self, File, OpenOptions};
     use std::io::{self, ErrorKind};
-    use std::os::windows::fs::OpenOptionsExt;
 
     use rstest::rstest;
-    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
 
-    use super::{CloneVolumeReadFailure, refusal_of, volume_guid_path};
+    use super::{CloneVolumeReadFailure, refusal_of};
     use crate::clone_refusal::CloneRefusal;
 
     // `HRESULT_FROM_WIN32` of a code, as reflink-copy's `DeviceIoControl` calls answer it.
@@ -219,31 +166,5 @@ mod tests {
                 }
             }
         }
-    }
-
-    // Fails when the compare takes whole paths, which never match between a file and its folder,
-    // or reads anything but the volume GUID path.
-    #[test]
-    fn a_file_and_its_folder_read_one_volume_guid_path() {
-        let folder = tempfile::tempdir().expect("a scratch folder is made");
-        let path = folder.path().join("file");
-        fs::write(&path, b"a file").expect("the file is written");
-        let file = File::open(&path).expect("the file opens");
-        let opened_folder = OpenOptions::new()
-            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-            .read(true)
-            .open(folder.path())
-            .expect("the folder opens");
-
-        let file_volume = volume_guid_path(&file).expect("the file's volume reads");
-        assert_eq!(
-            volume_guid_path(&opened_folder).expect("the folder's volume reads"),
-            file_volume
-        );
-        let text = String::from_utf16(&file_volume).expect("the volume GUID path is text");
-        assert!(
-            text.starts_with(r"\\?\Volume{") && text.ends_with(r"}\"),
-            "{text} is a volume GUID path"
-        );
     }
 }

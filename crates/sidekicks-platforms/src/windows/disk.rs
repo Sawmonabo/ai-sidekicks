@@ -18,13 +18,13 @@ use windows_sys::Wdk::Storage::FileSystem::{
 use windows_sys::Wdk::System::SystemServices::FILE_FS_FULL_SIZE_INFORMATION;
 use windows_sys::Win32::Foundation::RtlNtStatusToDosError;
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    GetDriveTypeW, GetVolumePathNameW,
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, GetDriveTypeW,
 };
 use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 use windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOTE;
 
 use crate::windows::real_path::verbatim_path;
+use crate::windows::volume::read_volume_root;
 
 /// A file's flush failed, and so did setting its read-only attribute back afterwards.
 #[derive(Debug, thiserror::Error)]
@@ -84,19 +84,8 @@ pub fn volume_free_bytes(folder: &Path) -> io::Result<u64> {
 /// remote drive. Fails with `InvalidInput` when the path holds a NUL, and with the system's error
 /// when its volume cannot be read.
 pub fn is_on_network_file_system(path: &Path) -> io::Result<bool> {
-    let mut verbatim = verbatim_path(path)?;
-    verbatim.push(0);
-    // A volume's root is never longer than the path inside it, plus the separator the system adds
-    // to a root given without one (`\\server\share` comes back `\\server\share\`).
-    let mut volume_root = vec![0_u16; verbatim.len() + 1];
-    let root_length = u32::try_from(volume_root.len()).map_err(io::Error::other)?;
-    // SAFETY: `verbatim` is NUL-terminated, and `volume_root` is a live buffer of the length given.
-    let is_read =
-        unsafe { GetVolumePathNameW(verbatim.as_ptr(), volume_root.as_mut_ptr(), root_length) };
-    if is_read == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: the call above wrote a NUL-terminated root into `volume_root`.
+    let volume_root = read_volume_root(path)?;
+    // SAFETY: the root is a live NUL-terminated string.
     Ok(unsafe { GetDriveTypeW(volume_root.as_ptr()) } == DRIVE_REMOTE)
 }
 
