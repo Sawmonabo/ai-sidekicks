@@ -10,10 +10,9 @@
 //! it. A restore that fails names its step and leaves what it had not reached as it was. The mode
 //! answers the command line with one JSON object on its standard output.
 
-use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::{self, File};
-use std::io::{self, Read as _, Write as _};
+use std::io::{self, Read as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -22,13 +21,12 @@ use sidekicks_contracts::daemon::backup::{BACKUP_DATABASE_FILE_NAME, DaemonBacku
 use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
 use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, EventOccurredAt};
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
-use sidekicks_contracts::wire::AnyValue;
 use sidekicks_platforms::{create_private_folder, flush_folder, remove_tree, rename_replacing};
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::standard_error::write_error_line;
+use sidekicks_std::standard_output::write_json_line;
 use sidekicks_store::backup_mirror::{
     MIRROR_FOLDER_NAME, MIRROR_ROOTS_FILE_NAME, MirrorError, MirrorRoot, bring_level,
     probe_time_precision,
@@ -176,7 +174,7 @@ pub fn run_database_restore(
         [backup_folder] => {
             match restore_from_home(Path::new(backup_folder), schema, service_version) {
                 Ok(()) => DaemonModeOutcome::Result(()),
-                Err(RestoreError::Held(held)) => held_refusal(&held),
+                Err(RestoreError::Held(held)) => held.mode_refusal(),
                 Err(failure) => DaemonModeOutcome::failed(format!(
                     "the restore failed: {}",
                     describe_error(&failure)
@@ -191,7 +189,7 @@ pub fn run_database_restore(
         DaemonModeOutcome::Result(()) => ExitCode::SUCCESS,
         DaemonModeOutcome::Error(_) => ExitCode::FAILURE,
     };
-    if let Err(failure) = write_outcome(&outcome) {
+    if let Err(failure) = write_json_line(&outcome) {
         write_error_line(&format!(
             "the restore's outcome could not be written: {}",
             describe_error(&failure)
@@ -199,24 +197,6 @@ pub fn run_database_restore(
         return ExitCode::FAILURE;
     }
     exit_code
-}
-
-// The refusal a held data folder answers, naming the holder's process id when its record read.
-fn held_refusal(held: &HeldDataFolder) -> DaemonModeOutcome<()> {
-    let fields: BTreeMap<String, AnyValue> = held
-        .process_id
-        .map(|process_id| ("processId".to_owned(), AnyValue(process_id.into())))
-        .into_iter()
-        .collect();
-    DaemonModeOutcome::refused(RefusalCode::DaemonDataFolderHeld, held.to_string(), fields)
-}
-
-// Writes `outcome` as one line of JSON on standard output.
-fn write_outcome(outcome: &DaemonModeOutcome<()>) -> io::Result<()> {
-    let mut standard_output = io::stdout().lock();
-    serde_json::to_writer(&mut standard_output, outcome)?;
-    writeln!(standard_output)?;
-    standard_output.flush()
 }
 
 // The mode's own start: the home folder, handed to the restore with the daemon's schema and this

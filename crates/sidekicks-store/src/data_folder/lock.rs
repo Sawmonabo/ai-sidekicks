@@ -2,12 +2,17 @@
 //! held for the daemon's whole life and freed the moment the daemon dies. The holder writes its
 //! process id beside the lock, so a refused start names it.
 
+use std::collections::BTreeMap;
 use std::fmt::{self, Display};
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
+
+use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::wire::AnyValue;
 
 /// The lock file, in the data folder.
 const LOCK_FILE_NAME: &str = "daemon.lock";
@@ -33,6 +38,19 @@ pub struct HeldDataFolder {
     /// The lock's answer that showed the folder is held.
     #[source]
     pub source: io::Error,
+}
+
+impl HeldDataFolder {
+    /// The `daemon.dataFolder.held` refusal a mode of the daemon's program answers while the data
+    /// folder is held, naming the holder's process id when its record read.
+    pub fn mode_refusal<T>(&self) -> DaemonModeOutcome<T> {
+        let fields: BTreeMap<String, AnyValue> = self
+            .process_id
+            .map(|process_id| ("processId".to_owned(), AnyValue(process_id.into())))
+            .into_iter()
+            .collect();
+        DaemonModeOutcome::refused(RefusalCode::DaemonDataFolderHeld, self.to_string(), fields)
+    }
 }
 
 impl Display for HeldDataFolder {
