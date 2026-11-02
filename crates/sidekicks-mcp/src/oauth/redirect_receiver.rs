@@ -172,8 +172,8 @@ impl RedirectListener {
     /// Binds the listener. With no owner-issued `callback_url` it takes a free port on
     /// `127.0.0.1`, or on `[::1]` when IPv4 loopback is unusable; an owner-issued address sets the
     /// host, port and path, `localhost` binding `127.0.0.1`. Fails with `NotHttp` or `NotLoopback`
-    /// for an owner address the receiver must not bind, `UnusablePath` for a path it cannot route, and
-    /// `Bind` when the system refuses.
+    /// for an owner address the receiver must not bind, `UnusablePath` for a path it cannot route,
+    /// and `Bind` when the system refuses.
     pub async fn bind(
         callback_url: Option<&Url>,
         path: CallbackPath<'_>,
@@ -474,8 +474,9 @@ async fn receive_callback(
     (StatusCode::SEE_OTHER, [(LOCATION, location)]).into_response()
 }
 
-/// Reads a callback's query, which came back on `return_url`: `state` must equal the expected one, compared in constant time, and
-/// exactly one of `code` and `error` must be present; no parameter may repeat.
+/// Reads a callback's query, which came back on `return_url`: `state` must equal the expected one,
+/// compared in constant time, and exactly one of `code` and `error` must be present; no parameter
+/// may repeat.
 fn read_callback(
     parameters: &[(String, String)],
     expected_state: &str,
