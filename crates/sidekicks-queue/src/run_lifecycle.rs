@@ -288,10 +288,10 @@ impl QueueRunLifecycle {
     }
 
     /// Continues the interrupted run `run_id` with the lead's messages waiting for it, once its
-    /// end is settled, unless none waits, an interrupt of it is under way, the provider's live
-    /// process keeps one, which it continues the run with itself, or the run rests from a limit
-    /// and `is_by_send` is false: only a send continues that one. Called under `hold`; fails as a
-    /// read fails.
+    /// end is settled, unless none waits, an interrupt of it or an undo of its session is under
+    /// way (the undo's release continues it), the provider's live process keeps one, which it
+    /// continues the run with itself, or the run rests from a limit and `is_by_send` is false:
+    /// only a send continues that one. Called under `hold`; fails as a read fails.
     pub(crate) async fn continue_interrupted_run(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -306,7 +306,10 @@ impl QueueRunLifecycle {
             .await?
             .is_some_and(|run| run.state == RunState::Interrupted);
         let delivery = &self.deps.delivery;
-        if !is_interrupted || delivery.is_held_for_interrupt(run_id) {
+        if !is_interrupted
+            || delivery.is_held_for_interrupt(run_id)
+            || delivery.is_held_for_undo(session_id)
+        {
             return Ok(());
         }
         if !is_by_send && self.rests_for_send(session_id, run_id).await? {

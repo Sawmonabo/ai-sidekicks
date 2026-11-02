@@ -19,6 +19,7 @@
 
 mod chain;
 mod continued;
+mod interrupt;
 mod state;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_fixture;
@@ -32,7 +33,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
@@ -41,28 +41,25 @@ use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::run_control::{
-    ApplyInterventionParams, InterruptPendingChoice, RunToolBoundary, SteerPayload,
+    ApplyInterventionParams, RunToolBoundary, SteerPayload,
 };
 use sidekicks_provider::process_identity::{ProviderProcessIdentity, ProviderProcessIds};
 use sidekicks_session::driver_resolution::{LiveRunDriverError, read_run_driver};
-use sidekicks_session::queue_store::{
-    QueueItemOutcome, QueueItemReader, QueueItemRecord, placement_statements,
-};
+use sidekicks_session::queue_store::{QueueItemOutcome, QueueItemReader, QueueItemRecord};
 use sidekicks_session::run::read::{RunRead, RunStateReader, read_run_through, safe_run_version};
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::statement::WriteStatement;
-use sidekicks_store::events::session::appender::SessionEventDraft;
 use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 use tracing::Instrument as _;
 
+pub(crate) use self::interrupt::InterruptHoldRelease;
 use crate::delivery::chain::{ChainJob, SessionChain};
 use crate::delivery::state::{DeliveryState, HandRoute, is_kept_by_process};
-use crate::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
+use crate::recorder::{QueueRecordError, QueueRecorder};
 use crate::refusals::UnreturnedReason;
 use crate::session_lock::QueueSessionLock;
 
@@ -74,6 +71,10 @@ pub(crate) trait OpeningMessages: Send + Sync {
     /// Whether the waiting message `item` opens the run it waits for, whose driver is being
     /// started, which that start delivers.
     fn is_opening(&self, item: &QueueItemRecord) -> bool;
+
+    /// Takes the item an undo's release reserved as the opening of `run_id`, which a resume of the
+    /// run delivers first; `None` when none is reserved.
+    fn take_reserved(&self, run_id: RunId) -> Option<QueueItemId>;
 }
 
 /// Continues an interrupted run with the messages waiting for it.
@@ -108,30 +109,6 @@ pub(crate) enum QueueWithdrawal {
     Returned,
     /// Not the queue's to change.
     Unreturned(UnreturnedReason),
-}
-
-/// What one interrupt's release did to its run's hold.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum InterruptHoldRelease {
-    /// The interrupt held nothing: it was released before, or never held.
-    NotHeld,
-    /// Another interrupt still holds the run.
-    StillHeld,
-    /// The run's last hold went; its messages may be handed again.
-    Released,
-}
-
-/// The interrupt's end writes for the messages waiting for its run.
-pub(crate) struct InterruptEndWrites {
-    /// The row moves, committed with the run's end.
-    pub(crate) statements: Vec<WriteStatement>,
-    /// The item events, committed before the run's end event.
-    pub(crate) preceding_events: Vec<SessionEventDraft>,
-    /// The items the writes change, which the caller forgets (a cancel) and raises once they
-    /// commit.
-    pub(crate) changed: Vec<QueueItemRecord>,
-    /// Whether no item event records the change (a placement), as `raise_committed` takes it.
-    pub(crate) moves_order: bool,
 }
 
 /// Why the delivery could not read, resolve a driver or record a message's outcome; every cause
@@ -372,78 +349,6 @@ impl QueueDelivery {
         }
     }
 
-    /// The interrupt's end writes for the lead messages waiting for `run_id`, called on the
-    /// session's chain: `canceled` is given back first, then the messages not handed and not an
-    /// opening (a starting run's opening goes with the rest) are canceled for `ReturnToDraft`,
-    /// placed with `deliver_first` first for `NextTurn`, and left for `KeepWaiting`. Writes nothing
-    /// itself. Fails when a read fails or an event cannot be drafted.
-    pub(crate) async fn interrupt_end_writes(
-        &self,
-        run_id: RunId,
-        pending: InterruptPendingChoice,
-        deliver_first: Option<QueueItemId>,
-        canceled: &[QueueItemId],
-    ) -> Result<InterruptEndWrites, DeliveryError> {
-        self.give_back(canceled);
-        let (run, waiting) = self
-            .shared
-            .deps
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                let run = RunStateReader::new(reader).read_run(&run_id)?;
-                let waiting = QueueItemReader::new(reader).list_waiting_for_run(&run_id)?;
-                Ok::<_, DeliveryError>((run, waiting))
-            })
-            .await?;
-        let is_starting = run.is_some_and(|run| run.state == RunState::Starting);
-        let lead_waiting = self.lead_waiting(waiting, is_starting);
-        let kept: Vec<QueueItemRecord> = {
-            let state = self.lock_state();
-            lead_waiting
-                .into_iter()
-                .filter(|item| state.hand_of(&item.id).is_none())
-                .collect()
-        };
-        let now = WireInstant::now();
-        match pending {
-            InterruptPendingChoice::ReturnToDraft => {
-                let mut statements = Vec::with_capacity(kept.len());
-                let mut preceding_events = Vec::with_capacity(kept.len());
-                for item in &kept {
-                    let (draft, statement) =
-                        outcome_draft_of(item, &QueueItemOutcome::Canceled, &now)
-                            .map_err(QueueRecordError::from)?;
-                    statements.push(statement);
-                    preceding_events.push(draft);
-                }
-                Ok(InterruptEndWrites {
-                    statements,
-                    preceding_events,
-                    changed: kept,
-                    moves_order: false,
-                })
-            }
-            InterruptPendingChoice::NextTurn => {
-                let (statements, changed) = match reordered_of(&kept, deliver_first) {
-                    Some(ordered) => (placement_statements(&ordered, &now), ordered),
-                    None => (Vec::new(), Vec::new()),
-                };
-                Ok(InterruptEndWrites {
-                    statements,
-                    preceding_events: Vec::new(),
-                    changed,
-                    moves_order: true,
-                })
-            }
-            InterruptPendingChoice::KeepWaiting => Ok(InterruptEndWrites {
-                statements: Vec::new(),
-                preceding_events: Vec::new(),
-                changed: Vec::new(),
-                moves_order: false,
-            }),
-        }
-    }
-
     /// Forgets that the provider was handed any of `item_ids` or that one waits for a next turn,
     /// once another's write moved them.
     pub(crate) fn forget(&self, item_ids: &[QueueItemId]) {
@@ -483,30 +388,6 @@ impl QueueDelivery {
         output
     }
 
-    /// Holds back every hand to `run_id` for the interrupt `intervention_id` until its
-    /// [`QueueDelivery::release_interrupt_hold`], a tool boundary's included, and waits out a hand
-    /// to it already inside its driver call, never the jobs queued on the chain. Called under
-    /// `hold`.
-    pub(crate) async fn hold_for_interrupt(
-        &self,
-        hold: &KeyHold<'_, SessionId>,
-        run_id: RunId,
-        intervention_id: InterventionId,
-    ) {
-        self.hold_and_wait_out(
-            hold,
-            |state| {
-                state
-                    .interrupt_holds
-                    .entry(run_id)
-                    .or_default()
-                    .insert(intervention_id);
-            },
-            |in_flight| *in_flight != Some(run_id),
-        )
-        .await;
-    }
-
     // Takes a hold by `take` on the state, then waits until the session's chain has no hand inside
     // its driver call that `is_clear` refuses; the jobs queued on the chain are never waited for.
     // Called under `hold`.
@@ -529,32 +410,6 @@ impl QueueDelivery {
             // A closed follow means the chain ended, with nothing in flight.
             drop(settled);
         }
-    }
-
-    /// Ends the hold the interrupt `intervention_id` took on `run_id`, answering what became of
-    /// the run's hold; a second release of one interrupt changes nothing.
-    pub(crate) fn release_interrupt_hold(
-        &self,
-        run_id: RunId,
-        intervention_id: InterventionId,
-    ) -> InterruptHoldRelease {
-        let mut state = self.lock_state();
-        let Some(holders) = state.interrupt_holds.get_mut(&run_id) else {
-            return InterruptHoldRelease::NotHeld;
-        };
-        if !holders.remove(&intervention_id) {
-            return InterruptHoldRelease::NotHeld;
-        }
-        if !holders.is_empty() {
-            return InterruptHoldRelease::StillHeld;
-        }
-        state.interrupt_holds.remove(&run_id);
-        InterruptHoldRelease::Released
-    }
-
-    /// Whether an interrupt of `run_id` is under way.
-    pub(crate) fn is_held_for_interrupt(&self, run_id: RunId) -> bool {
-        self.lock_state().interrupt_holds.contains_key(&run_id)
     }
 
     /// Records whether the provider holds a credits choice on `run_id`, which a message settles.

@@ -1,11 +1,12 @@
 //! The undo's hold on a session: while an undo stops the session's work, cuts its conversation and
 //! puts its files back, nothing of the session is handed, and every hand, start and continue of
 //! its lead reads the hold. Each undo holds under its own key, so two undos of one session hold it
-//! until both let go.
+//! until both let go, and the last release signals a start that waits to read its opening.
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_std::keyed_lock::KeyHold;
+use tokio::sync::watch;
 
 use crate::delivery::QueueDelivery;
 
@@ -23,6 +24,7 @@ impl QueueDelivery {
                     .undo_holds
                     .entry(session_id)
                     .or_default()
+                    .keys
                     .insert(undo_key);
             },
             Option::is_none,
@@ -31,16 +33,18 @@ impl QueueDelivery {
     }
 
     /// Ends the hold the undo `undo_key` took on `session_id`, answering whether the session's last
-    /// hold went, so its messages may be handed again; a second release of one undo changes
-    /// nothing and answers false.
+    /// hold went, so its messages may be handed again and a start waiting on
+    /// [`QueueDelivery::undo_release`] goes on; a second release of one undo changes nothing and
+    /// answers false.
     pub(crate) fn release_undo_hold(&self, session_id: SessionId, undo_key: &ClientUuid) -> bool {
         let mut state = self.lock_state();
         let Some(holders) = state.undo_holds.get_mut(&session_id) else {
             return false;
         };
-        if !holders.remove(undo_key) || !holders.is_empty() {
+        if !holders.keys.remove(undo_key) || !holders.keys.is_empty() {
             return false;
         }
+        holders.released.send_replace(true);
         state.undo_holds.remove(&session_id);
         true
     }
@@ -48,5 +52,14 @@ impl QueueDelivery {
     /// Whether an undo of `session_id` is under way.
     pub(crate) fn is_held_for_undo(&self, session_id: SessionId) -> bool {
         self.lock_state().undo_holds.contains_key(&session_id)
+    }
+
+    /// The signal of the undos holding `session_id`, which reads `true` once the last of them let
+    /// go; `None` when no undo holds it. A closed signal means the hold went as well.
+    pub(crate) fn undo_release(&self, session_id: SessionId) -> Option<watch::Receiver<bool>> {
+        self.lock_state()
+            .undo_holds
+            .get(&session_id)
+            .map(|holders| holders.released.subscribe())
     }
 }

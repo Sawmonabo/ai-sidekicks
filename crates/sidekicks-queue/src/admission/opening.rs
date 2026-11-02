@@ -1,6 +1,7 @@
 //! The item each run the queue starts or continues opens with: the table of openings whose
-//! outcome is not yet written, the driver's start of the run's turn with it, and the binding of a
-//! turn the daemon starts on a session itself.
+//! outcome is not yet written, with the openings an undo's release reserved beside it; the lock a
+//! read of a run's opening takes once no undo holds the session; the driver's start of the run's
+//! turn with it; and the binding of a turn the daemon starts on a session itself.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -10,6 +11,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::contract::ProviderDriver;
@@ -23,6 +25,7 @@ use sidekicks_session::console_state::read_session_max_steps_per_turn;
 use sidekicks_session::queue_store::{QueueItemBody, QueueItemReader, QueueItemRecord};
 use sidekicks_session::run::agent::read_lead_agent_through;
 use sidekicks_session::run::start_request::RunTurnStart;
+use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 
@@ -32,32 +35,35 @@ use crate::error::QueueError;
 use crate::provider_session::errors::ProviderSessionError;
 
 /// The message each run being started or continued opens with, until the start writes its
-/// outcome.
+/// outcome, and beside them the item an undo's release reserved as a run's opening, which the run's
+/// read of its opening takes first and which no outcome is ever written for.
 #[derive(Default)]
 pub(crate) struct RunOpenings {
-    by_run: Mutex<HashMap<RunId, QueueItemRecord>>,
+    table: Mutex<OpeningsTable>,
+}
+
+// The openings and the reservations, behind the one mutex.
+#[derive(Default)]
+struct OpeningsTable {
+    by_run: HashMap<RunId, QueueItemRecord>,
+    reserved_by_run: HashMap<RunId, QueueItemId>,
 }
 
 impl RunOpenings {
-    /// Records `item` as the opening of `run_id`.
-    pub(super) fn insert(&self, run_id: RunId, item: QueueItemRecord) {
-        self.lock().insert(run_id, item);
-    }
-
-    /// The opening of `run_id`, if one is recorded.
+    /// The opening of `run_id`, if one is recorded; a reservation is never one.
     pub(super) fn get(&self, run_id: RunId) -> Option<QueueItemRecord> {
-        self.lock().get(&run_id).cloned()
+        self.lock().by_run.get(&run_id).cloned()
     }
 
     /// Forgets the opening of `run_id`, answering it.
     pub(super) fn remove(&self, run_id: RunId) -> Option<QueueItemRecord> {
-        self.lock().remove(&run_id)
+        self.lock().by_run.remove(&run_id)
     }
 
     // The table. No holder awaits or panics while it changes, so a poisoned lock still guards a
     // whole table.
-    fn lock(&self) -> MutexGuard<'_, HashMap<RunId, QueueItemRecord>> {
-        lock(&self.by_run)
+    fn lock(&self) -> MutexGuard<'_, OpeningsTable> {
+        lock(&self.table)
     }
 }
 
@@ -65,14 +71,86 @@ impl OpeningMessages for RunOpenings {
     // One a newer lead run took over waits for that run, whose to hand it is.
     fn is_opening(&self, item: &QueueItemRecord) -> bool {
         item.target_run_id.is_some_and(|run_id| {
-            self.lock()
+            let table = self.lock();
+            table
+                .by_run
                 .get(&run_id)
                 .is_some_and(|opening| opening.id == item.id)
+                || table.reserved_by_run.get(&run_id) == Some(&item.id)
         })
+    }
+
+    fn take_reserved(&self, run_id: RunId) -> Option<QueueItemId> {
+        self.lock().reserved_by_run.remove(&run_id)
     }
 }
 
 impl QueueAdmission {
+    /// Takes the session's queue lock for a read of a run's opening, once no undo holds the
+    /// session: while one does, the lock is let go until the undo's release and taken again, as
+    /// often as another undo holds it meanwhile. Answers only a hold taken with no undo holding.
+    pub(super) async fn hold_session_for_opening(
+        &self,
+        session_id: SessionId,
+    ) -> KeyHold<'_, SessionId> {
+        #[cfg(test)]
+        self.head_read_pause.pass().await;
+        loop {
+            let hold = self.deps.session_lock.hold_session(session_id).await;
+            let Some(mut release) = self.deps.delivery.undo_release(session_id) else {
+                return hold;
+            };
+            // The release takes the same lock, so it is let go before the wait.
+            drop(hold);
+            // A signal closed with its hold means the hold went as well.
+            drop(release.wait_for(|is_released| *is_released).await);
+        }
+    }
+
+    /// Records the opening of `run_id` among `candidates`, the waiting items its read found, and
+    /// answers it: the item reserved for the run when `candidates` still holds it, else the first.
+    /// The run's reservation is taken whatever is answered, so a read that finds nothing to open
+    /// with leaves none behind. Called under the session's queue lock.
+    pub(super) fn take_opening(
+        &self,
+        run_id: RunId,
+        candidates: &[QueueItemRecord],
+    ) -> Option<QueueItemRecord> {
+        let mut table = self.deps.openings.lock();
+        let reserved = table.reserved_by_run.remove(&run_id);
+        let opening = reserved
+            .and_then(|reserved| candidates.iter().find(|item| item.id == reserved))
+            .or_else(|| candidates.first())
+            .cloned()?;
+        table.by_run.insert(run_id, opening.clone());
+        Some(opening)
+    }
+
+    /// Reserves `item_id` as the opening of `run_id`, replacing any earlier reservation of the run,
+    /// so the run's next read of its opening takes it whatever the queue's order says and no hand,
+    /// take-back or reorder moves it meanwhile. Called under the session's queue lock.
+    pub(crate) fn reserve_opening(&self, run_id: RunId, item_id: QueueItemId) {
+        self.deps
+            .openings
+            .lock()
+            .reserved_by_run
+            .insert(run_id, item_id);
+    }
+
+    /// Drops the reservation of `run_id`, writing nothing, so the item waits as any message does.
+    pub(crate) fn drop_reservation(&self, run_id: RunId) {
+        self.deps.openings.lock().reserved_by_run.remove(&run_id);
+    }
+
+    /// Drops the reservation of `run_id` only while it still names `item_id`, leaving one a later
+    /// undo made in its place.
+    pub(crate) fn drop_reservation_naming(&self, run_id: RunId, item_id: QueueItemId) {
+        let mut table = self.deps.openings.lock();
+        if table.reserved_by_run.get(&run_id) == Some(&item_id) {
+            table.reserved_by_run.remove(&run_id);
+        }
+    }
+
     /// The turn start of `run_id` opening with `opening`: the driver's start of it once the run's
     /// setup gates pass, and its interrupt. A continue's start is given up when a newer lead run
     /// took the opening over while the gates ran.

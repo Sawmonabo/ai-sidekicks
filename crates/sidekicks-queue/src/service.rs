@@ -158,6 +158,9 @@ pub struct RunQueue {
     this: Weak<RunQueue>,
     // The releases settling once the session's hold is free.
     releases: TaskTracker,
+    // Holds an undo's release before it resumes the paused run it opened.
+    #[cfg(test)]
+    resume_pause: sidekicks_std::pause_point::PausePoint,
     _following: FollowerAttachment,
 }
 
@@ -264,6 +267,8 @@ impl RunQueue {
                 session_lock,
                 this: this.clone(),
                 releases: TaskTracker::new(),
+                #[cfg(test)]
+                resume_pause: sidekicks_std::pause_point::PausePoint::default(),
                 _following: following,
             }
         })
@@ -371,7 +376,8 @@ impl RunQueue {
         if let Some((run_id, run)) = written.resumes
             && !self.delivery.is_held_for_undo(session_id)
         {
-            self.resume_for_send(run_id, run.version).await;
+            // A resume that did not go was logged, and the message waits.
+            let _resumed = self.resume_for_send(run_id, run.version).await;
         }
         Ok(created_response_of(written.item))
     }
@@ -711,18 +717,23 @@ impl RunQueue {
     }
 
     // Resumes the paused or pausing run a send went into, off the session's lock, so the message
-    // goes with the continue; a run moved on meanwhile takes the message as it runs.
-    async fn resume_for_send(&self, run_id: RunId, run_version: i64) {
+    // goes with the continue; a run moved on meanwhile takes the message as it runs. Answers
+    // whether the resume went, a failure logged.
+    async fn resume_for_send(&self, run_id: RunId, run_version: i64) -> bool {
         let request = AgentRunResumeRequest {
             target_run_id: run_id,
             expected_run_version: safe_run_version(run_version),
         };
-        if let Err(error) = self.pauses.resume(&request, &self.delivery).await {
-            tracing::error!(
-                run_id = %run_id,
-                error = &error as &(dyn std::error::Error + 'static),
-                "resuming the paused run a message was sent to failed; the message waits"
-            );
+        match self.pauses.resume(&request, &self.delivery).await {
+            Ok(_resumed) => true,
+            Err(error) => {
+                tracing::error!(
+                    run_id = %run_id,
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "resuming the paused run a message was sent to failed; the message waits"
+                );
+                false
+            }
         }
     }
 

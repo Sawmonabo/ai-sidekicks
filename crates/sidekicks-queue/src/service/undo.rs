@@ -25,7 +25,7 @@ use sidekicks_provider::driver::rewind::{RewindConversationParams, RewindConvers
 use sidekicks_provider::runtime_binding::store::read_binding;
 use sidekicks_session::checkpoints::store::{CheckpointReadError, read_checkpoint};
 use sidekicks_session::driver_resolution::read_run_driver;
-use sidekicks_session::queue_store::placement_statements;
+use sidekicks_session::queue_store::{QueueItemRecord, placement_statements};
 use sidekicks_session::run::engine::undo::{RunCut, RunRollback};
 use sidekicks_session::run::epochs::{ConfirmedCut, EpochCursorError};
 use sidekicks_session::run::read::{RunStateReader, read_run_through};
@@ -217,9 +217,12 @@ impl RunQueue {
     /// as any send is, under the undo's key, so a repeated undo sends it once, and placed ahead of
     /// every lead message waiting for its run. Once the session's last undo lets go, the lead's
     /// next turn is opened once, as a send would open it, for the run its first waiting message
-    /// waits for: the resend, then the sends held meanwhile in the order they were recorded. The
-    /// hold is let go and the turn opened whatever the resend answered; fails afterwards with the
-    /// first failure, the resend's first.
+    /// waits for: the resend, then the sends held meanwhile in the order they were recorded. A run
+    /// that reads its opening later (a queued or interrupted run's start, a paused one's resume)
+    /// has the resend reserved as that opening, so no reorder or `Send now` meanwhile puts another
+    /// message ahead of it; a resume that does not go drops the reservation while it still names
+    /// this resend. The hold is let go and the turn opened whatever the resend answered; fails
+    /// afterwards with the first failure, the resend's first.
     pub async fn release_undo_hold(
         &self,
         hold: UndoHold,
@@ -250,13 +253,15 @@ impl RunQueue {
         }
         let resumes = {
             let queue_hold = self.session_lock.hold_session(session_id).await;
-            if first_failure.is_none()
-                && let Err(error) = self.place_resend_first(session_id, &undo_key).await
-            {
-                first_failure = Some(error);
+            let mut resent = None;
+            if first_failure.is_none() {
+                match self.place_resend_first(session_id, &undo_key).await {
+                    Ok(placed) => resent = placed,
+                    Err(error) => first_failure = Some(error),
+                }
             }
             if self.delivery.release_undo_hold(session_id, &undo_key) {
-                match self.open_after_undo(&queue_hold).await {
+                match self.open_after_undo(&queue_hold, resent).await {
                     Ok(resumes) => resumes,
                     Err(error) => {
                         first_failure.get_or_insert(error);
@@ -267,8 +272,14 @@ impl RunQueue {
                 None
             }
         };
-        if let Some((run_id, run_version)) = resumes {
-            self.resume_for_send(run_id, run_version).await;
+        if let Some((run_id, run_version, reserved_id)) = resumes {
+            #[cfg(test)]
+            self.resume_pause.pass().await;
+            if !self.resume_for_send(run_id, run_version).await
+                && let Some(reserved_id) = reserved_id
+            {
+                self.admission.drop_reservation_naming(run_id, reserved_id);
+            }
         }
         first_failure.map_or(Ok(()), Err)
     }
@@ -380,18 +391,18 @@ impl RunQueue {
     }
 
     // Puts the message sent under `undo_key` first among the unhanded lead messages waiting for
-    // its run, in one write; one no longer waiting, a repeated undo's, stays where it is. Called
-    // under the session's queue lock.
+    // its run, in one write, and answers it; one no longer waiting or handed, a repeated undo's,
+    // stays where it is and is answered `None`. Called under the session's queue lock.
     async fn place_resend_first(
         &self,
         session_id: SessionId,
         undo_key: &ClientUuid,
-    ) -> Result<(), QueueError> {
+    ) -> Result<Option<QueueItemRecord>, QueueError> {
         let Some(resent) = self.read_saved(session_id, undo_key).await? else {
-            return Ok(());
+            return Ok(None);
         };
         let Some(run_id) = resent.target_run_id else {
-            return Ok(());
+            return Ok(None);
         };
         let waiting: Vec<_> = self
             .read_waiting(run_id)
@@ -400,23 +411,26 @@ impl RunQueue {
             .filter(|item| item.child_handle.is_none() && !self.delivery.is_handed(&item.id))
             .collect();
         let Some(ordered) = reordered_of(&waiting, Some(resent.id)) else {
-            return Ok(());
+            return Ok(None);
         };
         self.writer
             .write(placement_statements(&ordered, &WireInstant::now()))
             .await?;
         self.recorder.raise_committed(&ordered, true);
-        Ok(())
+        Ok(Some(resent))
     }
 
     // Opens the lead's next turn as a send would, for the run the first lead message waiting in
     // the session waits for: handed into a live run, a continue of an interrupted one, a start of
-    // a queued one; a paused or pausing one is answered with its version, to resume once the
-    // session's lock is let go. Called under `hold`.
+    // a queued one; a paused or pausing one is answered with its version and the item reserved
+    // for it, to resume once the session's lock is let go. `resent`, when that run's, is
+    // reserved as the opening of every run but a live one, which hands it first in the queue's
+    // order. Called under `hold`.
     async fn open_after_undo(
         &self,
         hold: &KeyHold<'_, SessionId>,
-    ) -> Result<Option<(RunId, i64)>, QueueError> {
+        resent: Option<QueueItemRecord>,
+    ) -> Result<Option<(RunId, i64, Option<QueueItemId>)>, QueueError> {
         let session_id = *hold.key();
         let first = self
             .read_queue(session_id, None, Some(QueueItemState::Queued))
@@ -431,12 +445,28 @@ impl RunQueue {
         let Some(run) = read_run_through::<QueueError>(&self.pool, run_id).await? else {
             return Ok(None);
         };
+        let reads_opening_later = matches!(
+            run.state,
+            RunState::Queued | RunState::Interrupted | RunState::Pausing | RunState::Paused
+        );
+        let reserved_id = resent
+            .filter(|resent| reads_opening_later && resent.target_run_id == Some(run_id))
+            .map(|resent| resent.id);
+        if let Some(reserved_id) = reserved_id {
+            self.admission.reserve_opening(run_id, reserved_id);
+        }
         match run.state {
             RunState::Queued => self.admission.start(session_id, run_id),
             RunState::Interrupted => {
                 self.lifecycle
                     .continue_interrupted_run(hold, run_id, true)
                     .await?;
+                // A run left resting, with no continue under way, would keep the reservation.
+                if let Some(reserved_id) = reserved_id
+                    && !self.admission.is_starting(run_id)
+                {
+                    self.admission.drop_reservation_naming(run_id, reserved_id);
+                }
             }
             RunState::Starting
             | RunState::Running
@@ -446,7 +476,7 @@ impl RunQueue {
             }
             RunState::Pausing | RunState::Paused => {
                 self.delivery.accept_send(hold, &item, run_id).await?;
-                return Ok(Some((run_id, run.version)));
+                return Ok(Some((run_id, run.version, reserved_id)));
             }
             // A message waiting for an ended run moves on with that run's end.
             RunState::Completed | RunState::Stopped | RunState::Failed => {}

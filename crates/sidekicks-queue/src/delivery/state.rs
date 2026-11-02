@@ -1,7 +1,7 @@
 //! What the delivery remembers between calls, all behind its one mutex: the messages handed to a
 //! provider and not yet settled, the messages kept for a run's next turn, the runs holding a
-//! credits choice or held for an interrupt, the sessions held for an undo, and each session's
-//! chain; with the rules that read it.
+//! credits choice or held for an interrupt, the sessions held for an undo with the signal each
+//! one's release sends, and each session's chain; with the rules that read it.
 
 use std::collections::{HashMap, HashSet};
 
@@ -14,6 +14,8 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_provider::driver::message_handing::MessageHanding;
 use sidekicks_provider::process_identity::ProviderProcessIdentity;
 use sidekicks_session::queue_store::QueueItemRecord;
+
+use tokio::sync::watch;
 
 use crate::delivery::chain::SessionChain;
 
@@ -46,6 +48,24 @@ pub(super) struct HandedMessage {
     pub(super) hand_number: u64,
 }
 
+/// The undos holding one session, and the signal their last release sends.
+pub(super) struct UndoHolders {
+    /// The key of each undo holding the session.
+    pub(super) keys: HashSet<ClientUuid>,
+    /// Reads `true` once the session's last undo let go; a start waiting to read its opening
+    /// waits on it.
+    pub(super) released: watch::Sender<bool>,
+}
+
+impl Default for UndoHolders {
+    fn default() -> Self {
+        Self {
+            keys: HashSet::new(),
+            released: watch::Sender::new(false),
+        }
+    }
+}
+
 /// Everything the delivery keeps, guarded by one `std::sync::Mutex` never held across an await.
 #[derive(Default)]
 pub(super) struct DeliveryState {
@@ -61,9 +81,9 @@ pub(super) struct DeliveryState {
     /// Runs an interrupt is under way on, with each interrupt holding it; a run is handed nothing
     /// until every one of them settles.
     pub(super) interrupt_holds: HashMap<RunId, HashSet<InterventionId>>,
-    /// Sessions an undo is under way on, with the key of each undo holding it; nothing of the
-    /// session is handed until every one of them lets go.
-    pub(super) undo_holds: HashMap<SessionId, HashSet<ClientUuid>>,
+    /// Sessions an undo is under way on, with the key of each undo holding it and the signal that
+    /// reads `true` once the last of them lets go; nothing of the session is handed until then.
+    pub(super) undo_holds: HashMap<SessionId, UndoHolders>,
     /// Each session's chain, present only while its drain runs.
     pub(super) chains: HashMap<SessionId, SessionChain>,
     next_hand_number: u64,

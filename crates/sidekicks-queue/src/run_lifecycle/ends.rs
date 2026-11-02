@@ -67,6 +67,8 @@ impl QueueRunLifecycle {
         } else {
             admission.release(run_id);
         }
+        // An opening an undo reserved goes with the run's leftovers, never admitted.
+        admission.drop_reservation(run_id);
         admission.settle_opening(run_id).await?;
         let delivery = &self.deps.delivery;
         delivery.settle(session_id).await;

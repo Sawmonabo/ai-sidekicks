@@ -107,6 +107,10 @@ impl OpeningMessages for OpeningStandIn {
             .expect("the test's openings are readable")
             .contains(&item.id)
     }
+
+    fn take_reserved(&self, _run_id: RunId) -> Option<QueueItemId> {
+        None
+    }
 }
 
 /// A delivery over a session whose lead run runs, bound to the stand-in driver.
