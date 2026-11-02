@@ -89,6 +89,13 @@ impl PlaceRecord {
         self.place == SecretsPlace::OperatingSystem
             || self.moving_to == Some(SecretsPlace::OperatingSystem)
     }
+
+    /// Whether the record names the items file of a Mac's service running while the person is
+    /// logged out, as the place or a move's end, so some items may be in that file.
+    pub fn names_logged_out_service_file(self) -> bool {
+        self.place == SecretsPlace::LoggedOutServiceFile
+            || self.moving_to == Some(SecretsPlace::LoggedOutServiceFile)
+    }
 }
 
 /// Where a move takes the daemon's secrets.
