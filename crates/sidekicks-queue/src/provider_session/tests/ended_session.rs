@@ -1,16 +1,20 @@
 //! A session that closed or is being deleted: an opening, a wake, a restart, a run binding or a
-//! level change is refused under its hold and no process comes up.
+//! level change is refused under its hold and no process comes up; a session deleted takes no
+//! `providerMissing` notice.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 
+use futures::FutureExt as _;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_session::idle_sleep::openings::SessionProcessWaker;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 
-use super::{CLOSE_HELD, Opening, WAIT};
+use sidekicks_provider::driver::contract::error::DriverError;
+
+use super::{CLOSE_HELD, Opening, WAIT, unresolvable_provider};
 use crate::provider_session::errors::ProviderSessionError;
 
 // A run admitted before a close, whose open waits out the close, and an idle sleep's wake that
@@ -178,4 +182,44 @@ async fn an_ended_session_is_refused_an_opening_a_restart_a_binding_and_a_level_
             "no process comes up for the {state:?} session"
         );
     }
+}
+
+// A start on a session deleted, its directory row gone, whose provider is not installed posts no
+// `providerMissing` notice and still fails as its driver failed it. Killed by the session's
+// existence check dropped from the notice's write (the notice lands for a session gone), and by a
+// session gone counted a failure of the post (the start answers that in place of its own).
+#[tokio::test]
+async fn a_deleted_session_takes_no_provider_missing_notice() {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, _| {
+        driver
+            .expect_create_session()
+            .returning(|_params| async { Err(unresolvable_provider(false)) }.boxed());
+    })
+    .await;
+    let reader = opening.database.reader();
+    reader
+        .execute("DELETE FROM runtime_bindings", [])
+        .expect("the session is left with no conversation");
+    reader
+        .execute(
+            "DELETE FROM sessions WHERE id = ?1",
+            [opening.session_id.text().as_str()],
+        )
+        .expect("the session's directory row is deleted");
+
+    let opened = opening
+        .sessions
+        .open(opening.session_id, opening.run_id)
+        .await;
+
+    assert!(
+        matches!(
+            &opened,
+            Err(ProviderSessionError::Driver(
+                DriverError::ExecutableUnresolvable(_)
+            ))
+        ),
+        "{opened:?}"
+    );
+    assert_eq!(opening.provider_missing_notices(), Vec::new());
 }
