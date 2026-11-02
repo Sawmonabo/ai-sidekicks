@@ -669,6 +669,7 @@ mod tests {
                             attachments: vec![file],
                             skills: Vec::new(),
                         }],
+                        is_continuation_owed: false,
                     })
                     .await
             }

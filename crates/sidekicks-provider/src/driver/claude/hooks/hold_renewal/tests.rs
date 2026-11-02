@@ -152,6 +152,7 @@ async fn a_renewal_ends_with_its_hold_and_a_helper_limit_hold_arms_none() {
             session_id: session.session_id,
             run_id: helper,
             messages: Vec::new(),
+            is_continuation_owed: false,
         })
         .await
         .expect("the helper continues");
