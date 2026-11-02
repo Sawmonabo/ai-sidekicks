@@ -1,6 +1,7 @@
 use std::borrow::Cow;
 use std::error::Error;
 
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{
     BillingMode, CredentialGeneration, ProviderAccountHealthState, ProviderAccountId,
 };
@@ -145,13 +146,15 @@ fn statement(sql: &'static str) -> WriteStatement {
 }
 
 // Two handovers of one provider sent together both succeed and leave exactly one current
-// account, the one written last. Killed by the mark set before the old one is cleared, which the
-// one-current index refuses.
+// account, the one written last; a handover the one-current index refuses, because another write
+// marked an account between its clear and its set, answers `provider.account.current.conflict`
+// and keeps the old mark. Killed by the mark set before the old one is cleared, which the
+// one-current index refuses, and by the index's refusal read as the daemon's own failure.
 #[tokio::test]
 async fn concurrent_handovers_leave_one_current_account() {
     let database = TestDatabase::new(schema_parts());
     let data_folder = tempfile::tempdir().expect("a data folder");
-    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
+    let (registry, writer) = open_test_registry(&database, data_folder.path()).await;
     let first = register(&registry, "claude").await;
     let second = register(&registry, "claude").await;
     let third = register(&registry, "claude").await;
@@ -173,7 +176,7 @@ async fn concurrent_handovers_leave_one_current_account() {
         .filter(|account| account.is_default)
         .map(|account| account.account_id)
         .collect();
-    assert_eq!(current, vec![third.account_id]);
+    assert_eq!(current, vec![third.account_id.clone()]);
     let other = registry
         .read(other_provider.account_id)
         .await
@@ -182,6 +185,38 @@ async fn concurrent_handovers_leave_one_current_account() {
         other.is_default,
         "another provider's current account is untouched"
     );
+
+    // Stands in for a writer that marks the cleared account again before the set lands.
+    writer
+        .write(vec![statement(
+            "CREATE TRIGGER forced_mark AFTER UPDATE OF is_default ON provider_accounts
+             WHEN OLD.is_default = 1 AND NEW.is_default = 0
+             BEGIN UPDATE provider_accounts SET is_default = 1 WHERE account_id = NEW.account_id;
+             END",
+        )])
+        .await
+        .expect("the racing mark is made");
+    let lost = registry
+        .make_current(first.account_id.clone())
+        .await
+        .expect_err("the index refuses the second current account");
+    assert!(matches!(
+        lost,
+        ProviderAccountRegistryError::CurrentConflict
+    ));
+    match HandlerError::from(lost) {
+        HandlerError::Refused(refusal) => {
+            assert_eq!(refusal.code, RefusalCode::ProviderAccountCurrentConflict);
+        }
+        other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
+            panic!("expected the conflict's refusal, got {other:?}")
+        }
+    }
+    let still = registry
+        .read(third.account_id)
+        .await
+        .expect("the current account reads");
+    assert!(still.is_default, "the lost handover keeps the old mark");
 }
 
 // Every admitted account's home is the folder minted for its id under the data folder, absolute

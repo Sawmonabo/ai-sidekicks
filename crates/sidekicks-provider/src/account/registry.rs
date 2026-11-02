@@ -465,26 +465,29 @@ impl ProviderAccountRegistry {
 
     /// Makes `account_id` its provider's current account: the provider's mark cleared, then set
     /// on it, in one write. Fails with [`ProviderAccountRegistryError::NotFound`] for an account
-    /// not registered or being removed, keeping the old mark.
+    /// not registered or being removed, and with [`ProviderAccountRegistryError::CurrentConflict`]
+    /// when the one-current index refuses the mark; either keeps the old mark.
     pub async fn make_current(
         &self,
         account_id: ProviderAccountId,
     ) -> Result<RegisteredAccount, ProviderAccountRegistryError> {
         let bindings =
             StatementBindings::Named(vec![text_binding("@account_id", account_id.as_str())]);
-        self.write(vec![
-            WriteStatement {
-                sql: Cow::Borrowed(CLEAR_CURRENT_SQL.as_str()),
-                bindings: bindings.clone(),
-                expected_row_count: None,
-            },
-            WriteStatement {
-                sql: Cow::Borrowed(SET_CURRENT_SQL.as_str()),
-                bindings,
-                expected_row_count: Some(1),
-            },
-        ])
-        .await?;
+        self.writer
+            .write(vec![
+                WriteStatement {
+                    sql: Cow::Borrowed(CLEAR_CURRENT_SQL.as_str()),
+                    bindings: bindings.clone(),
+                    expected_row_count: None,
+                },
+                WriteStatement {
+                    sql: Cow::Borrowed(SET_CURRENT_SQL.as_str()),
+                    bindings,
+                    expected_row_count: Some(1),
+                },
+            ])
+            .await
+            .map_err(current_refusal_or_failure)?;
         self.read(account_id).await
     }
 
@@ -741,17 +744,30 @@ pub(super) fn refusal_or_failure(error: WriteError) -> ProviderAccountRegistryEr
     }
 }
 
+// The current mark's write: the one constraint it can break is the one-current index.
+fn current_refusal_or_failure(error: WriteError) -> ProviderAccountRegistryError {
+    if is_constraint_failure(&error) {
+        ProviderAccountRegistryError::CurrentConflict
+    } else {
+        refusal_or_failure(error)
+    }
+}
+
 // A write naming an account: the one constraint it can break is the unique typed name, since the
 // rest hold by construction (a minted id and home, a default only where none is).
 fn label_refusal_or_failure(error: WriteError) -> ProviderAccountRegistryError {
-    match error.failed_statement() {
-        Some((_, failure))
-            if failure.sqlite_error_code() == Some(ErrorCode::ConstraintViolation) =>
-        {
-            ProviderAccountRegistryError::DisplayLabelTaken
-        }
-        Some(_) | None => refusal_or_failure(error),
+    if is_constraint_failure(&error) {
+        ProviderAccountRegistryError::DisplayLabelTaken
+    } else {
+        refusal_or_failure(error)
     }
+}
+
+// Whether a statement of the write broke a constraint.
+fn is_constraint_failure(error: &WriteError) -> bool {
+    error.failed_statement().is_some_and(|(_, failure)| {
+        failure.sqlite_error_code() == Some(ErrorCode::ConstraintViolation)
+    })
 }
 
 // The generation the write's one statement returned.
