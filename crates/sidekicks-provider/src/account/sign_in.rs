@@ -506,8 +506,9 @@ enum AttemptStage {
 }
 
 /// An account's sign-in slot and its listed attempt, held from the start until the attempt
-/// settles. Dropped, it unlists the attempt, frees the slot and removes a minted home no row took,
-/// so a failed or abandoned start leaves none of them.
+/// settles. Every path that ends it before a row took its minted home removes that home first,
+/// and dropped, it unlists the attempt and frees the slot, so a failed or abandoned start leaves
+/// none of them.
 struct Reservation {
     _in_flight_guard: InFlightGuard,
     services: AttemptServices,
@@ -534,7 +535,10 @@ impl Reservation {
         let home_lock = Arc::clone(&self.services.home_lock);
         let hold = tokio::select! {
             hold = home_lock.hold(self.account_id.clone()) => hold,
-            () = answer.closed() => return,
+            () = answer.closed() => {
+                self.release().await;
+                return;
+            }
         };
         if self.minted.is_none() {
             let read = self.services.registry.read(self.account_id.clone()).await;
@@ -626,9 +630,6 @@ impl Drop for Reservation {
         lock(&self.services.attempts)
             .attempts
             .remove(&self.attempt_id);
-        if let Some(minted) = self.minted.take() {
-            tokio::spawn(abandon(Arc::clone(&self.services.registry), minted));
-        }
     }
 }
 
