@@ -134,7 +134,7 @@ pub(crate) async fn build_provider_account_plane(
         Arc::clone(&reads),
         Arc::clone(&provider_tokens),
     ));
-    // No provider's legs read a pasted token's status yet, so a token registration refuses.
+    // A driver's account legs hand over no token status read, so a token registration refuses.
     let token_custody = Arc::new(ProviderTokenCustody::new(
         Arc::clone(&registry),
         provider_tokens,
