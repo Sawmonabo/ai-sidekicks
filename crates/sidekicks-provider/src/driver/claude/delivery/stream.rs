@@ -236,7 +236,7 @@ impl ClaudeDeliveryStream {
         {
             session
                 .permission_mode()
-                .note_report(mode, frame_kind, &session.provider_account_id);
+                .note_report(mode, frame_kind, &session.provider_account_id());
         }
         if kind == ClaudeWireFrameKind::CommandLifecycle {
             self.read_command_lifecycle(session, &members);
@@ -582,6 +582,7 @@ impl ClaudeDeliveryStream {
             .dialogs
             .observe_assistant_error(lead.run_id, frame.error())
             .await;
+        let provider_account_id = session.provider_account_id();
         let (pieces, rows, counts_step, tasks) = {
             let mut readings = session.lock();
             readings.command_tasks.observe_calls(frame);
@@ -602,7 +603,10 @@ impl ClaudeDeliveryStream {
                 && frame.provider_message_id().is_some_and(|message_id| {
                     readings.counted_step_messages.insert(message_id.to_owned())
                 });
-            let (pieces, unstreamed) = readings.streamed_blocks.finish(frame, rows);
+            let (pieces, unstreamed) =
+                readings
+                    .streamed_blocks
+                    .finish(frame, rows, &provider_account_id);
             let key = frame
                 .uuid()
                 .map(|uuid| ClaudeMessageKey::Uuid(uuid.to_owned()));
@@ -678,9 +682,12 @@ impl ClaudeDeliveryStream {
             session_id: session.session_id,
             run_id: lead.run_id,
         };
+        let provider_account_id = session.provider_account_id();
         let usage = {
             let mut readings = session.lock();
-            readings.streamed_blocks.observe(text, run, Instant::now());
+            readings
+                .streamed_blocks
+                .observe(text, run, &provider_account_id, Instant::now());
             readings.turn_readings.observe_stream_event(text)
         };
         if let (Some(usage), Some(publisher)) = (usage, self.dependencies.turn_readings.port()) {
@@ -705,17 +712,14 @@ impl ClaudeDeliveryStream {
         let Some(sink) = self.dependencies.usage.port() else {
             return;
         };
+        let provider_account_id = session.provider_account_id();
         let windows = read_claude_quota_windows(
             members,
             &self.dependencies.usage_probe_models,
-            &session.provider_account_id,
+            &provider_account_id,
         );
         if let Err(error) = sink
-            .record_quota_windows(
-                DESCRIPTOR.provider_id(),
-                session.provider_account_id.clone(),
-                windows,
-            )
+            .record_quota_windows(DESCRIPTOR.provider_id(), provider_account_id, windows)
             .await
         {
             report_engine_failure(session, "the quota windows", &*error);
@@ -756,7 +760,7 @@ fn record_unmapped(
 ) {
     lock(reports).report(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: Some(session.provider_account_id.clone()),
+        provider_account_id: Some(session.provider_account_id()),
         kind: DriverDiagnosticKind::UnmappedWireKind,
         raw_wire_type: Some(frame_kind.to_owned()),
         disposition_reason: disposition_reason.to_owned(),

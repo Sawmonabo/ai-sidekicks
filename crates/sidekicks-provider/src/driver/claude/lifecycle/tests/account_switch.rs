@@ -154,9 +154,11 @@ fn environment_value<'a>(start: &'a ScriptedStartRecord, name: &str) -> Option<&
 }
 
 // Between two store accounts an idle and a mid-turn session each get the new store alone, and
-// move onto the account: the session's own account and its resting binding at the answer, and a
-// running turn's binding at the marker among its frames. Killed by the move sent with a token, by
-// the session's account left behind, and by the resting binding left on the old account.
+// move onto the account: the session's own account and its resting binding at the answer, a
+// running turn's binding at the marker among its frames, and the stream with it, so a limits
+// report read after the move is the new account's. Killed by the move sent with a token, by the
+// session's account left behind, by the resting binding left on the old account, and by the
+// stream's account left behind.
 #[rstest]
 #[case::idle(false)]
 #[case::mid_turn(true)]
@@ -183,6 +185,26 @@ async fn a_store_switch_points_the_session_at_the_new_store_in_place(#[case] is_
         is_mid_turn
     );
     assert!(switch.fixture.starts.take_started().is_empty());
+
+    switch.frame(
+        &switch.start,
+        &json!({
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+                "unifiedWindows": {"five_hour": {"utilization": 0.25, "resetsAt": 1_790_125_200}},
+            },
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        }),
+    );
+    settle().await;
+    let reported: Vec<ProviderAccountId> = switch
+        .fixture
+        .usage
+        .quota_windows()
+        .into_iter()
+        .map(|(account, _)| account)
+        .collect();
+    assert_eq!(reported, [switch.to.clone()]);
 }
 
 // A token target never reaches the process in place: a busy session starts again only once its
