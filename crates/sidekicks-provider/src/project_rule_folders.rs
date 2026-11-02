@@ -8,45 +8,49 @@ use futures::future::BoxFuture;
 use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 
-/// Writes `rule` into each of `project_folders` with `write`. When a write fails, removes the rule
-/// with `remove` from every folder already written, `written_already` among them (those the rule
-/// reached another way), trying each even after one removal fails; the error keeps the write's
-/// failure and each removal's.
-pub(crate) async fn write_into_project_folders<Write, Remove, WriteError, RemoveError>(
+/// Writes `rule` into each of `project_folders` with `write`, which answers what `remove` needs to
+/// take that folder's change back. When a write fails, takes the rule back with `remove` from every
+/// folder already written, `written_already` among them (those the rule reached another way),
+/// trying each even after one removal fails; the error keeps the write's failure and each
+/// removal's.
+pub(crate) async fn write_into_project_folders<Written, Write, Remove, WriteError, RemoveError>(
     project_folders: &[PathBuf],
     rule: &ProviderAskRule,
     write: Write,
     remove: Remove,
-    written_already: &[PathBuf],
+    written_already: Vec<(PathBuf, Written)>,
 ) -> Result<(), CleanupFailures<WriteError, RemoveError>>
 where
     Write: for<'call> Fn(
         &'call Path,
         &'call ProviderAskRule,
-    ) -> BoxFuture<'call, Result<(), WriteError>>,
+    ) -> BoxFuture<'call, Result<Written, WriteError>>,
     Remove: for<'call> Fn(
         &'call Path,
         &'call ProviderAskRule,
+        &'call Written,
     ) -> BoxFuture<'call, Result<(), RemoveError>>,
 {
-    let mut written: Vec<&Path> = written_already.iter().map(PathBuf::as_path).collect();
+    let mut written = written_already;
     for project_folder in project_folders {
-        if let Err(write_failure) = write(project_folder, rule).await {
-            // Every folder is tried, so one failed removal never leaves more folders holding the
-            // rule than it must.
-            let mut removal_failures = Vec::new();
-            for written_folder in written {
-                if let Err(removal_failure) = remove(written_folder, rule).await {
-                    removal_failures.push(removal_failure);
+        match write(project_folder, rule).await {
+            Ok(change) => written.push((project_folder.clone(), change)),
+            Err(write_failure) => {
+                // Every folder is tried, so one failed removal never leaves more folders holding
+                // the rule than it must.
+                let mut removal_failures = Vec::new();
+                for (written_folder, change) in &written {
+                    if let Err(removal_failure) = remove(written_folder, rule, change).await {
+                        removal_failures.push(removal_failure);
+                    }
                 }
+                return Err(CleanupFailures::new(
+                    write_failure,
+                    removal_failures,
+                    "writing the project rule into every folder",
+                ));
             }
-            return Err(CleanupFailures::new(
-                write_failure,
-                removal_failures,
-                "writing the project rule into every folder",
-            ));
         }
-        written.push(project_folder);
     }
     Ok(())
 }
@@ -95,14 +99,14 @@ mod tests {
             &folders,
             &rule,
             |folder: &Path, _rule: &ProviderAskRule| change_failing_on("/work/d", folder),
-            |folder: &Path, _rule: &ProviderAskRule| {
+            |folder: &Path, _rule: &ProviderAskRule, _change: &()| {
                 removals_tried
                     .lock()
                     .expect("no test thread panics holding the lock")
                     .push(folder.to_path_buf());
                 change_failing_on("/work/b", folder)
             },
-            &[],
+            Vec::new(),
         )
         .await;
 

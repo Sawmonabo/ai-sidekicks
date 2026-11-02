@@ -285,7 +285,7 @@ impl CodexProjectRules for CodexProjectRuleFiles {
         codex_home: &'call Path,
         project_folder: &'call Path,
         rule: &'call ProviderAskRule,
-    ) -> BoxFuture<'call, Result<(), CodexRulesError>> {
+    ) -> BoxFuture<'call, Result<CodexProjectRuleWrite, CodexRulesError>> {
         async move {
             let repository = match self.repositories.port() {
                 Some(repositories) => repositories.read_repository(project_folder).await,
@@ -304,15 +304,20 @@ impl CodexProjectRules for CodexProjectRuleFiles {
 
     fn take_back<'call>(
         &'call self,
-        codex_home: &'call Path,
         project_folder: &'call Path,
-        rule: &'call ProviderAskRule,
+        change: &'call CodexProjectRuleWrite,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>> {
-        async move {
-            take_back_codex_project_rule(&self.sources(codex_home, project_folder), rule).await
-        }
-        .boxed()
+        take_back_codex_project_rule(project_folder, change).boxed()
     }
+}
+
+/// What [`write_codex_project_rule`] changed in the project's own rule file, which
+/// [`take_back_codex_project_rule`] puts back.
+pub(crate) enum CodexProjectRuleWrite {
+    /// The rule takes no line, so the file was left as it was.
+    Unchanged,
+    /// The file was written over `text_before`, its text until then, or made where that is `None`.
+    Written { text_before: Option<String> },
 }
 
 /// Writes `rule` into the project's own rule file, replacing a rule of the other sense over the
@@ -320,14 +325,15 @@ impl CodexProjectRules for CodexProjectRuleFiles {
 /// `common_git_folder`, the repository the project folder belongs to, where it is one. One edit at
 /// a time on the file. Refuses, with nothing written, a kind Codex keeps no project rule on, a
 /// command with no word, a host Codex would refuse and a project whose `.codex` is the Codex home.
+/// Answers what it changed, for a take-back.
 pub(crate) async fn write_codex_project_rule(
     sources: &CodexRuleSources<'_>,
     common_git_folder: Option<&Path>,
     rule: &ProviderAskRule,
-) -> Result<(), CodexRulesError> {
+) -> Result<CodexProjectRuleWrite, CodexRulesError> {
     let written = compose_rule_lines(rule)?;
     if written.is_empty() {
-        return Ok(());
+        return Ok(CodexProjectRuleWrite::Unchanged);
     }
     let opposite = compose_rule_lines(&ProviderAskRule {
         sense: opposite_sense(rule.sense),
@@ -340,17 +346,15 @@ pub(crate) async fn write_codex_project_rule(
     let _hold = RULE_FILE_LOCK
         .acquire(resolve_lock_key(&file_path).await?)
         .await;
-    let text = if let Some(text) = read_if_present(&file_path).await? {
-        text
-    } else {
-        if let Some(common_git_folder) = common_git_folder {
-            add_repository_exclude(common_git_folder, CODEX_PROJECT_RULE_EXCLUDE_PATTERN)
-                .await
-                .map_err(CodexRulesError::Exclude)?;
-        }
-        String::new()
-    };
-    let mut lines: Vec<&str> = rule_lines(&text)
+    let text_before = read_if_present(&file_path).await?;
+    if text_before.is_none()
+        && let Some(common_git_folder) = common_git_folder
+    {
+        add_repository_exclude(common_git_folder, CODEX_PROJECT_RULE_EXCLUDE_PATTERN)
+            .await
+            .map_err(CodexRulesError::Exclude)?;
+    }
+    let mut lines: Vec<&str> = rule_lines(text_before.as_deref().unwrap_or_default())
         .filter(|line| {
             !opposite
                 .iter()
@@ -359,48 +363,39 @@ pub(crate) async fn write_codex_project_rule(
         })
         .collect();
     lines.extend(written.iter().map(String::as_str));
-    write_rule_file(&file_path, &lines).await
+    write_rule_file(&file_path, &lines).await?;
+    Ok(CodexProjectRuleWrite::Written { text_before })
 }
 
-/// Takes the lines [`write_codex_project_rule`] writes for `rule` back out of the project's own
-/// rule file, where a write into another of the project's folders failed, and deletes the file once
-/// it holds no rule. No other rule file is read or touched, so a copy of the rule the person keeps
-/// in a home or project file stays; a file without the lines needs nothing. Refuses the rules the
-/// write refuses and a project whose `.codex` is the Codex home; fails as the file cannot be read,
-/// written or deleted.
+/// Puts the project's own rule file back as it was before [`write_codex_project_rule`] made
+/// `change`, where a write into another of the project's folders failed: the text it held written
+/// back, or the file deleted where the write made it, so a rule the write replaced stands again. No
+/// other rule file is read or touched. Fails as the file cannot be written or deleted.
 pub(crate) async fn take_back_codex_project_rule(
-    sources: &CodexRuleSources<'_>,
-    rule: &ProviderAskRule,
+    project_folder: &Path,
+    change: &CodexProjectRuleWrite,
 ) -> Result<(), CodexRulesError> {
-    let written = compose_rule_lines(rule)?;
-    if is_codex_home_project(sources.project_folder, sources.codex_home).await {
-        return Err(CodexRulesError::ProjectIsCodexHome);
-    }
-    let file_path = project_rule_file(sources.project_folder);
+    let text_before = match change {
+        CodexProjectRuleWrite::Unchanged => return Ok(()),
+        CodexProjectRuleWrite::Written { text_before } => text_before,
+    };
+    let file_path = project_rule_file(project_folder);
     let _hold = RULE_FILE_LOCK
         .acquire(resolve_lock_key(&file_path).await?)
         .await;
-    let Some(text) = read_if_present(&file_path).await? else {
-        return Ok(());
-    };
-    let lines: Vec<&str> = rule_lines(&text).collect();
-    let kept: Vec<&str> = lines
-        .iter()
-        .copied()
-        .filter(|line| !written.iter().any(|rule_line| rule_line == line))
-        .collect();
-    if kept.len() == lines.len() {
-        return Ok(());
-    }
-    if kept.is_empty() {
-        return tokio::fs::remove_file(&file_path).await.map_err(|failure| {
-            CodexRulesError::Delete {
+    match text_before {
+        Some(text) => rewrite_file_in_place(&file_path, text.clone(), CODEX_RULE_FILE_MODE)
+            .await
+            .map_err(CodexRulesError::Write),
+        None => tokio::fs::remove_file(&file_path)
+            .await
+            .none_if_missing()
+            .map(|_was_there| ())
+            .map_err(|failure| CodexRulesError::Delete {
                 path: file_path.clone(),
                 failure,
-            }
-        });
+            }),
     }
-    write_rule_file(&file_path, &kept).await
 }
 
 /// Takes a revoked rule out of every home and project rule file Codex reads for the project's

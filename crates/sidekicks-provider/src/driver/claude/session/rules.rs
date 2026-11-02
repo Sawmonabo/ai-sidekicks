@@ -250,8 +250,8 @@ pub(crate) async fn write_claude_project_rule(
         }
         common_git_folders.insert(resolved.path, resolved.common_git_folder);
     }
-    let written_already: Vec<PathBuf> = written_by_answer
-        .map(Path::to_path_buf)
+    let written_already: Vec<(PathBuf, ())> = written_by_answer
+        .map(|file| (file.to_path_buf(), ()))
         .into_iter()
         .collect();
     let excluded_repositories = Arc::new(Mutex::new(HashSet::new()));
@@ -285,7 +285,7 @@ pub(crate) async fn write_claude_project_rule(
             }
             .boxed()
         },
-        |file: &Path, rule: &ProviderAskRule| {
+        |file: &Path, rule: &ProviderAskRule, _change: &()| {
             async move {
                 remove_rule_from_file(file, rule, path_rules)
                     .await
@@ -293,7 +293,7 @@ pub(crate) async fn write_claude_project_rule(
             }
             .boxed()
         },
-        &written_already,
+        written_already,
     )
     .await
 }

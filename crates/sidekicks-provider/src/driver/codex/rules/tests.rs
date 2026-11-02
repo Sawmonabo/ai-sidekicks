@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures::FutureExt;
 use rstest::rstest;
 use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
 use sidekicks_platforms::PathRules;
@@ -10,11 +11,12 @@ use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_std::port_registration::PortRegistration;
 
 use super::{
-    CodexProjectRule, CodexProjectRuleFiles, CodexRuleSources, CodexRulesError,
-    RULE_EVALUATION_TIME_LIMIT, read_codex_project_rules, remove_codex_project_rule,
-    write_codex_project_rule,
+    CodexProjectRule, CodexProjectRuleFiles, CodexProjectRuleWrite, CodexRuleSources,
+    CodexRulesError, RULE_EVALUATION_TIME_LIMIT, read_codex_project_rules,
+    remove_codex_project_rule, write_codex_project_rule,
 };
 use crate::driver::codex::delivery::asks::CodexProjectRules;
+use crate::project_rule_folders::write_into_project_folders;
 
 fn rule(
     sense: RememberedRuleSense,
@@ -122,7 +124,7 @@ impl Places {
         &self,
         git_folder: Option<&Path>,
         rule: &ProviderAskRule,
-    ) -> Result<(), CodexRulesError> {
+    ) -> Result<CodexProjectRuleWrite, CodexRulesError> {
         let paths = self.paths("home", "project");
         write_codex_project_rule(&self.sources(&paths, true), git_folder, rule).await
     }
@@ -266,33 +268,65 @@ async fn a_revoke_one_of_whose_edits_would_break_its_file_changes_no_file() {
     );
 }
 
-// A write into another of the project's folders failed, so the rule this folder took is taken
-// back through the rollback's own entry point: out of the daemon's own file alone, the person's copy
-// in the home file and the team's in the project kept. Killed by a take-back that removes the rule
-// wherever a file makes it.
+// A block on a command stands in the daemon's own file; an allow for the same command reaches the
+// first of two project folders and fails on the second, so the rollback, through the rule files'
+// own take-back, puts the first folder's file back: the block reads again, and the person's copy
+// in the Codex home and the team's in the project are kept. Killed by a take-back that only takes
+// the allow's lines out, and by one that leaves the file as the write left it.
 #[tokio::test]
-async fn taking_back_a_written_rule_leaves_the_persons_and_the_teams_copies() {
+async fn a_failed_writes_rollback_brings_back_the_rule_it_replaced() {
     let places = Places::new();
-    let home_text = "prefix_rule(pattern=[\"cargo\", \"build\"])\n";
-    let home_file = places.write("home/rules/default.rules", home_text);
-    let team_text = "prefix_rule(pattern=[\"cargo\", \"build\"])\n";
+    // The second folder's `.codex` is the Codex home, which a write refuses.
+    let codex_home = places.path("second/.codex");
+    fs::create_dir_all(codex_home.join("rules")).expect("the folder is made");
+    let home_text = "prefix_rule(pattern=[\"rm\"])\n";
+    let home_file = places.write("second/.codex/rules/default.rules", home_text);
+    let team_text = "prefix_rule(pattern=[\"rm\"])\n";
     let team_file = places.write("project/.codex/rules/team.rules", team_text);
-    let rule = allow_command("cargo build");
     places
-        .write_rule(None, &rule)
+        .write_rule(
+            None,
+            &rule(
+                RememberedRuleSense::Block,
+                ProviderAskActionKind::Command,
+                "rm",
+            ),
+        )
         .await
-        .expect("the rule is written");
-    let project_rules = CodexProjectRuleFiles {
+        .expect("the block is written");
+    let daemon_file = rule_file(&places.path("project"));
+    let block_text = fs::read_to_string(&daemon_file).expect("the daemon's file reads");
+    let project_rules = Arc::new(CodexProjectRuleFiles {
         home_folder: places.path("person"),
         repositories: Arc::new(PortRegistration::new("repositories")),
-    };
+    });
 
-    project_rules
-        .take_back(&places.path("home"), &places.path("project"), &rule)
-        .await
-        .expect("the written rule is taken back");
+    let outcome = write_into_project_folders(
+        &[places.path("project"), places.path("second")],
+        &allow_command("rm"),
+        |project_folder, rule| {
+            let project_rules = Arc::clone(&project_rules);
+            let codex_home = codex_home.clone();
+            async move { project_rules.write(&codex_home, project_folder, rule).await }.boxed()
+        },
+        |project_folder, _rule, change| {
+            let project_rules = Arc::clone(&project_rules);
+            async move { project_rules.take_back(project_folder, change).await }.boxed()
+        },
+        Vec::new(),
+    )
+    .await;
 
-    assert!(!rule_file(&places.path("project")).exists());
+    let failures = outcome.expect_err("the second folder's write is refused");
+    assert!(matches!(
+        failures.original(),
+        CodexRulesError::ProjectIsCodexHome
+    ));
+    assert!(failures.cleanup_failures().is_empty());
+    assert_eq!(
+        fs::read_to_string(&daemon_file).expect("the daemon's file reads"),
+        block_text
+    );
     assert_eq!(
         fs::read_to_string(&home_file).expect("the home file reads"),
         home_text

@@ -43,7 +43,7 @@ use crate::driver::codex::attachments::compose_codex_text_input;
 use crate::driver::codex::delivery::ask_action::read_codex_ask_action;
 use crate::driver::codex::delivery::asks::questions::read_codex_question_prompts;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
-use crate::driver::codex::rules::CodexRulesError;
+use crate::driver::codex::rules::{CodexProjectRuleWrite, CodexRulesError};
 use crate::driver::codex::run::steer::steer_codex_run;
 use crate::driver::codex::server_requests::{
     CodexAskKind, CodexAskOwner, CodexInboundServerRequest, CodexRoutedMethod,
@@ -82,22 +82,22 @@ pub(crate) struct CodexAskOwners {
 /// reads there, or takes back what it wrote.
 pub(crate) trait CodexProjectRules: Send + Sync {
     /// Writes `rule` into `project_folder`'s own rule file, read beside the rules of `codex_home`,
-    /// the session's. Fails as the write fails or Codex would refuse the rule.
+    /// the session's, answering what the write changed. Fails as the write fails or Codex would
+    /// refuse the rule.
     fn write<'call>(
         &'call self,
         codex_home: &'call Path,
         project_folder: &'call Path,
         rule: &'call ProviderAskRule,
-    ) -> BoxFuture<'call, Result<(), CodexRulesError>>;
+    ) -> BoxFuture<'call, Result<CodexProjectRuleWrite, CodexRulesError>>;
 
-    /// Takes the lines `write` wrote for `rule` back out of `project_folder`'s own rule file, read
-    /// beside the rules of `codex_home`, the session's, leaving every other rule file as it is.
-    /// Fails as the removal fails.
+    /// Puts `project_folder`'s own rule file back as it was before `write` made `change`, so a rule
+    /// the write replaced stands again, leaving every other rule file as it is. Fails as the file
+    /// cannot be written or deleted.
     fn take_back<'call>(
         &'call self,
-        codex_home: &'call Path,
         project_folder: &'call Path,
-        rule: &'call ProviderAskRule,
+        change: &'call CodexProjectRuleWrite,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>>;
 }
 
@@ -299,17 +299,11 @@ impl CodexAskHandOff {
                     async move { project_rules.write(&codex_home, project_folder, rule).await }
                         .boxed()
                 },
-                |project_folder, rule| {
+                |project_folder, _rule, change| {
                     let project_rules = Arc::clone(project_rules);
-                    let codex_home = codex_home.clone();
-                    async move {
-                        project_rules
-                            .take_back(&codex_home, project_folder, rule)
-                            .await
-                    }
-                    .boxed()
+                    async move { project_rules.take_back(project_folder, change).await }.boxed()
                 },
-                &[],
+                Vec::new(),
             )
             .await
             .map_err(|error| {
