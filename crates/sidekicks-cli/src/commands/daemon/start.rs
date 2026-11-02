@@ -35,7 +35,6 @@ use sidekicks_platforms::{
     ServiceRegistration, SystemServiceKickstart, SystemServiceOwner, SystemServiceState,
     leave_daemon_scope, read_child_exit, service_registration, spawn_lasting_child,
 };
-
 use tokio::time::{Instant, sleep};
 
 use crate::command_context::CommandContext;
