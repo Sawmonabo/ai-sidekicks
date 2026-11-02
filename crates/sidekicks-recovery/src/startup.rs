@@ -48,12 +48,14 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::error::bound_failure_detail;
+use sidekicks_provider::driver::session_control::KeptRunTurns;
 use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_queue::provider_session::errors::ProviderSessionError;
 use sidekicks_session::interventions::store::read_pending_retries;
 use sidekicks_session::interventions::unresolved::read_ended_runs_with_unresolved;
 use sidekicks_session::run::provider_choice::run_end::read_ended_runs_with_open_choices;
 use sidekicks_session::run::read::RunStateReader;
+use sidekicks_session::run::restart::read_has_own_stop;
 use sidekicks_std::elapsed::elapsed_ms_since;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_store::database::connection::read_pool::{
@@ -165,12 +167,23 @@ struct PassTally {
     restart: RestartTally,
 }
 
-// How a session's resume ended for the runs it did not leave live: the runs it took, and the
-// provider's refusal the others end with, where it refused.
+// How a session's resume ended for the runs it did not leave live: the runs it took, the
+// provider's refusal the others end with, where it refused, and the turns the restart kept of the
+// runs that end with no resume, which are ended on the provider.
 #[derive(Default)]
 struct SessionResume {
     resumed: BTreeSet<RunId>,
     refusal: Option<ResumeRefusal>,
+    kept_turns: Vec<KeptRunTurns>,
+}
+
+// Which of a session's runs in progress have their kept turns ended.
+#[derive(Clone, Copy)]
+enum KeptTurnsOf {
+    // Only the runs a stop of their own ends.
+    OwnStops,
+    // Every run in progress.
+    EveryRun,
 }
 
 // A resume the provider refused: what the runs' recovery needs and the provider's own words.
@@ -428,6 +441,21 @@ impl StartupRecovery {
             )
             .await?;
         tally.restart.add(settled.tally);
+        // The runs are settled; their turns end on the provider off the pass, which only waits
+        // for the driver to hold the session, so no run reaches it before the work.
+        if !resume.kept_turns.is_empty()
+            && let Err(failure) = self
+                .deps
+                .provider_sessions
+                .end_kept_turns(session_id, resume.kept_turns, stop.clone())
+                .await
+        {
+            tracing::warn!(
+                session_id = %session_id,
+                error = &failure as &(dyn Error + 'static),
+                "the turns a restart kept in a session not resumed could not be ended; they run on"
+            );
+        }
         if let Some(refusal) = resume.refusal {
             for run_id in settled.failed_run_ids {
                 status.mark_run_halted(
@@ -454,7 +482,9 @@ impl StartupRecovery {
     // all wait on, is not opened, so no process is started for work the person stopped. Answers the
     // runs the resume took, a paused one among them staying paused, and the provider's refusal
     // where it refused; a session with no conversation to resume, or whose resume failed short of
-    // the provider's answer, answers neither, and its runs are settled as before any resume.
+    // the provider's answer, answers neither, and its runs are settled as before any resume. Where
+    // the session is not opened for its runs in progress, it answers their kept turns too: those
+    // of the runs a stop of their own ends, where every run stops, else those of every run.
     async fn resume_session(
         &self,
         session_id: SessionId,
@@ -466,12 +496,21 @@ impl StartupRecovery {
             .restart_settle
             .rearm_live(session_id, stop)
             .await?;
-        if rearmed
+        let in_progress: Vec<RunId> = rearmed
             .in_progress
             .iter()
-            .all(|live_run| rearmed.stopping.contains(&live_run.run_id))
+            .map(|live_run| live_run.run_id)
+            .collect();
+        if in_progress
+            .iter()
+            .all(|run_id| rearmed.stopping.contains(run_id))
         {
-            return Ok(SessionResume::default());
+            return Ok(SessionResume {
+                kept_turns: self
+                    .read_kept_turns(session_id, in_progress, KeptTurnsOf::OwnStops)
+                    .await?,
+                ..SessionResume::default()
+            });
         }
         if stop.is_cancelled() {
             return Err(PassFailure::Stopped);
@@ -497,6 +536,7 @@ impl StartupRecovery {
                         })
                         .collect(),
                     refusal: None,
+                    kept_turns: Vec::new(),
                 });
             }
             Err(ProviderSessionError::ResumeRefused {
@@ -524,13 +564,65 @@ impl StartupRecovery {
                     "a session's conversation could not be resumed; its runs are settled as \
                      though none came back"
                 );
-                return Ok(SessionResume::default());
+                return Ok(SessionResume {
+                    kept_turns: self
+                        .read_kept_turns(session_id, in_progress, KeptTurnsOf::EveryRun)
+                        .await?,
+                    ..SessionResume::default()
+                });
             }
         };
         Ok(SessionResume {
             resumed: BTreeSet::new(),
             refusal: Some(refusal),
+            kept_turns: self
+                .read_kept_turns(session_id, in_progress, KeptTurnsOf::EveryRun)
+                .await?,
         })
+    }
+
+    // The turns the restart kept of `in_progress`, `of` choosing which, read before the settle
+    // ends the runs: each run's open turns under the provider's ids, a run with none left out, and
+    // whether a stop of its own ends it.
+    async fn read_kept_turns(
+        &self,
+        session_id: SessionId,
+        in_progress: Vec<RunId>,
+        of: KeptTurnsOf,
+    ) -> Result<Vec<KeptRunTurns>, PassFailure> {
+        if in_progress.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.deps
+            .reads
+            .read(ReadLength::Short, move |reader| {
+                let mut kept_turns = Vec::new();
+                for run in RunStateReader::new(reader).list_live_run_resumes(&session_id)? {
+                    if !in_progress.contains(&run.run_id) {
+                        continue;
+                    }
+                    let is_for_stop = read_has_own_stop(reader, &run.run_id)?;
+                    let is_chosen = match of {
+                        KeptTurnsOf::OwnStops => is_for_stop,
+                        KeptTurnsOf::EveryRun => true,
+                    };
+                    let turn_ids: Vec<_> = run
+                        .open_turns
+                        .into_iter()
+                        .filter_map(|turn| turn.provider_turn_id)
+                        .collect();
+                    if is_chosen && !turn_ids.is_empty() {
+                        kept_turns.push(KeptRunTurns {
+                            run_id: run.run_id,
+                            subagent_id: run.subagent_id,
+                            turn_ids,
+                            is_for_stop,
+                        });
+                    }
+                }
+                Ok::<_, PassFailure>(kept_turns)
+            })
+            .await
     }
 
     // A pass the stop ended says nothing of the store; any other failure is the store's.

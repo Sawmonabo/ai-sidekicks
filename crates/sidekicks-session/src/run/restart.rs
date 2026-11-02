@@ -384,15 +384,22 @@ pub(crate) fn settlement_by_stops(
         .map(limit_settlement)
 }
 
+/// Whether a stop of `run_id`'s own settles it at a restart, as [`settlement_by_stops`] reads its
+/// stops on `reader`; a lead's stop never counts for its helper. Fails when SQLite refuses a read
+/// or a stored row does not read as its type, a pending interrupt's record among them.
+pub fn read_has_own_stop(reader: &Connection, run_id: &RunId) -> rusqlite::Result<bool> {
+    let (pending_interrupts, owed_limit) = read_run_stops(reader, run_id)?;
+    Ok(settlement_by_stops(&pending_interrupts, owed_limit).is_some())
+}
+
 /// Whether `run_id` is stopping at a restart, read on `reader`: its own stops settle it, as
-/// [`settlement_by_stops`] reads them, or it is a provider's helper, at any depth, beneath a run
+/// [`read_has_own_stop`] reads them, or it is a provider's helper, at any depth, beneath a run
 /// whose stops do, since that stop ends the process the helper runs in. Fails when SQLite refuses a
 /// read or a stored row does not read as its type, a pending interrupt's record among them.
 pub fn read_is_run_stopping(reader: &Connection, run_id: &RunId) -> rusqlite::Result<bool> {
     let mut run_id = *run_id;
     loop {
-        let (pending_interrupts, owed_limit) = read_run_stops(reader, &run_id)?;
-        if settlement_by_stops(&pending_interrupts, owed_limit).is_some() {
+        if read_has_own_stop(reader, &run_id)? {
             return Ok(true);
         }
         let lead = reader

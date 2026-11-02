@@ -16,6 +16,7 @@ use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -26,7 +27,8 @@ use sidekicks_provider::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus, TakenMessages,
 };
 use sidekicks_provider::driver::session_control::{
-    DriverResumeResult, ProviderTurnAnswer, ResumeSessionParams, ResumedRunAnswer,
+    DriverResumeResult, EndKeptTurnsParams, KeptRunTurns, ProviderTurnAnswer, ResumeSessionParams,
+    ResumedRunAnswer,
 };
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_session::queue_store::{
@@ -94,6 +96,42 @@ fn resuming_driver(
     driver
 }
 
+// Has `driver` expect one end of the turns a restart kept, answered at once, and answers where
+// the params it is handed are recorded.
+fn expect_kept_turns_ended(driver: &mut MockProviderDriver) -> Arc<Mutex<Vec<EndKeptTurnsParams>>> {
+    let ended: Arc<Mutex<Vec<EndKeptTurnsParams>>> = Arc::default();
+    let recorded = Arc::clone(&ended);
+    driver
+        .expect_end_kept_turns()
+        .times(1)
+        .returning(move |params| {
+            lock(&recorded).push(params);
+            async { Ok(()) }.boxed()
+        });
+    ended
+}
+
+// The one end of kept turns recorded in `ended`: its conversation, and its runs in id order.
+fn ended_kept_turns(ended: &Mutex<Vec<EndKeptTurnsParams>>) -> (String, Vec<KeptRunTurns>) {
+    let ended = lock(ended);
+    let [params] = ended.as_slice() else {
+        panic!("the kept turns were ended once: {ended:?}");
+    };
+    let mut runs = params.runs.clone();
+    runs.sort_by_key(|run| run.run_id);
+    (params.conversation.clone(), runs)
+}
+
+// A run's one kept turn, `turn_id`, ended for its own stop where `is_for_stop`.
+fn kept_turn(run_id: RunId, turn_id: &str, is_for_stop: bool) -> KeptRunTurns {
+    KeptRunTurns {
+        run_id,
+        subagent_id: None,
+        turn_ids: vec![ProviderTurnId::new(turn_id.to_owned()).expect("a turn id")],
+        is_for_stop,
+    }
+}
+
 impl PassFixture {
     // Ends the store's seeded run, so only the test's sessions hold work in progress.
     fn end_seeded_run(&self) {
@@ -153,15 +191,22 @@ impl PassFixture {
         helper
     }
 
-    // Opens `run_id`'s first turn in `session_id`.
-    async fn open_turn(&self, session_id: SessionId, run_id: RunId) {
+    // Opens `run_id`'s first turn in `session_id`, under the provider's id `provider_turn_id`
+    // where it reported one.
+    async fn open_turn(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        provider_turn_id: Option<&str>,
+    ) {
+        let mut payload = json!({"sessionId": session_id, "runId": run_id, "runVersion": 1,
+                                 "turnNumber": 1});
+        if let Some(provider_turn_id) = provider_turn_id {
+            payload["providerTurnId"] = json!(provider_turn_id);
+        }
         self.append(
             session_id,
-            json!({
-                "type": "agent.turn.started",
-                "payload": {"sessionId": session_id, "runId": run_id, "runVersion": 1,
-                            "turnNumber": 1},
-            }),
+            json!({"type": "agent.turn.started", "payload": payload}),
         )
         .await;
     }
@@ -420,13 +465,17 @@ async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
 // driver, which expects no resume, is called), by the all-stopping check dropped (the same), and
 // by the stopping helper's arm dropped, and by the settle reading whether each run is stopping
 // as it reaches it, after its lead's end has discharged the lead's stop (session A's helper reads
-// `failed` either way).
+// `failed` either way). Session A's kept turns are handed to its provider once, on its leg's
+// conversation, for the runs a stop of their own ends, its helper left out. Killed by the hand-off
+// skipped or read after the settle (no call), and by the helper's stop read through its lead (the
+// helper named).
 #[tokio::test]
 async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interrupt_again() {
     let answers: Arc<Mutex<HashMap<RunId, ProviderTurnAnswer>>> = Arc::default();
     let named: Arc<Mutex<Vec<(RunId, bool)>>> = Arc::default();
     let interrupted: Arc<Mutex<Vec<RunId>>> = Arc::default();
-    let unopened = MockProviderDriver::new();
+    let mut unopened = MockProviderDriver::new();
+    let kept_ends = expect_kept_turns_ended(&mut unopened);
     let mut resumed = resuming_driver({
         let answers = Arc::clone(&answers);
         let named = Arc::clone(&named);
@@ -479,9 +528,17 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
     let (stopped_session, stopped_lead, _) = fixture.running_session(0).await;
     fixture.record_person_interrupt(stopped_lead);
     let cut_helper = fixture.insert_helper(stopped_session, stopped_lead);
-    fixture.open_turn(stopped_session, cut_helper).await;
+    fixture
+        .open_turn(stopped_session, cut_helper, Some("turn-helper"))
+        .await;
+    fixture
+        .open_turn(stopped_session, stopped_lead, Some("turn-lead"))
+        .await;
     let token_run = test_run_id();
     insert_running_run(&fixture.store.database, stopped_session, token_run);
+    fixture
+        .open_turn(stopped_session, token_run, Some("turn-token"))
+        .await;
     fixture
         .append(
             stopped_session,
@@ -622,6 +679,15 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
         fixture.payloads(&stopped_session, SessionEventType::AgentRunFailed),
         Vec::<Value>::new()
     );
+    let mut kept = vec![
+        kept_turn(stopped_lead, "turn-lead", true),
+        kept_turn(token_run, "turn-token", true),
+    ];
+    kept.sort_by_key(|run| run.run_id);
+    assert_eq!(
+        ended_kept_turns(&kept_ends),
+        ("conversation-1".to_owned(), kept)
+    );
 
     let mut calls = lock(&interrupted).clone();
     calls.sort();
@@ -687,16 +753,19 @@ async fn a_pass_ends_each_stopping_run_by_its_stop_and_hands_the_persons_interru
 // A resume the provider refuses fails the session's running run with the provider's own words,
 // while a stopping run beside it ends by its stop, as the person's; the status read lists the
 // failed run under its session with what its recovery needs and a provider failure; once the
-// session's next run starts, the entry is gone. Killed by `mark_run_halted` not called (no entry),
-// by the restart's own words written (the detail differs), by the failure detail winning over the
-// run's stop (the stopping run reads `failed`), and by the entry never cleared.
+// session's next run starts, the entry is gone; the kept turns of both runs are handed to the
+// provider, each ended for a stop only where the run has one of its own. Killed by `mark_run_halted`
+// not called (no entry), by the restart's own words written (the detail differs), by the failure
+// detail winning over the run's stop (the stopping run reads `failed`), by the entry never cleared,
+// by the refused session's runs left out (no call), and by `is_for_stop` set alike for both.
 #[tokio::test]
 async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run() {
-    let refusing = resuming_driver(|_params| DriverResumeResult::Failed {
+    let mut refusing = resuming_driver(|_params| DriverResumeResult::Failed {
         recovery_condition: RecoveryCondition::RecoveryNeeded,
         provider_failure_detail: FreeFormText::new(REFUSED_DETAIL.to_owned())
             .expect("the refusal's words"),
     });
+    let kept_ends = expect_kept_turns_ended(&mut refusing);
     let fixture =
         PassFixture::over_drivers(vec![Arc::new(refusing) as Arc<dyn ProviderDriver>]).await;
     let _run_starts = fixture.status.follow_run_starts(&fixture.followers);
@@ -705,6 +774,12 @@ async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run
     let stopping_run = test_run_id();
     insert_running_run(&fixture.store.database, session_id, stopping_run);
     fixture.record_person_interrupt(stopping_run);
+    fixture
+        .open_turn(session_id, run_id, Some("turn-failed"))
+        .await;
+    fixture
+        .open_turn(session_id, stopping_run, Some("turn-stopping"))
+        .await;
 
     fixture
         .pass(Arc::clone(&fixture.status))
@@ -725,6 +800,12 @@ async fn a_refused_resume_fails_its_run_and_lists_it_until_the_sessions_next_run
         "interrupted"
     );
     assert_eq!(fixture.run_trigger(session_id, stopping_run), None);
+    let mut kept = vec![
+        kept_turn(run_id, "turn-failed", false),
+        kept_turn(stopping_run, "turn-stopping", true),
+    ];
+    kept.sort_by_key(|run| run.run_id);
+    assert_eq!(ended_kept_turns(&kept_ends).1, kept);
     assert_eq!(
         fixture.halted_runs(session_id).await,
         Some(vec![DaemonRecoveryHaltedRun {
