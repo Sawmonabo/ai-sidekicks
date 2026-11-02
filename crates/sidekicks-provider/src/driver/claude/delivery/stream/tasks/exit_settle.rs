@@ -5,11 +5,8 @@
 
 use std::error::Error;
 
-use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
-
 use crate::driver::claude::delivery::mcp_tasks::ClaudeHeldCallEnd;
-use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeKeptCall;
-use crate::driver::claude::delivery::messages::{ClaudeOpenToolCall, ClaudeToolCallOutcome};
+use crate::driver::claude::delivery::messages::ClaudeOpenToolCall;
 use crate::driver::claude::delivery::stream::{ClaudeDeliveryStream, ClaudeSessionStream};
 
 impl ClaudeDeliveryStream {
@@ -41,16 +38,7 @@ impl ClaudeDeliveryStream {
         let ends = held
             .into_iter()
             .filter_map(|(tool_use_id, opened)| {
-                let (outcome, text) = match kept.call(&tool_use_id) {
-                    ClaudeKeptCall::Ended { outcome, text } => (outcome, text),
-                    ClaudeKeptCall::Recorded => return None,
-                    ClaudeKeptCall::Unkept => (
-                        ClaudeToolCallOutcome::Failed {
-                            end_cause: Some(ToolCallEndCause::ProcessExit),
-                        },
-                        None,
-                    ),
-                };
+                let (outcome, text) = kept.call(&tool_use_id).into_process_end()?;
                 Some(ClaudeHeldCallEnd {
                     tool_use_id,
                     opened,

@@ -15,13 +15,14 @@ use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMo
 
 use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
 
-use super::resume_params;
 use crate::command::channel::command_channel_root;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::session::scripted::channel::{
     ScriptedAnswer, ScriptedChannel, ScriptedWrite,
 };
-use crate::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
+use crate::driver::claude::session::scripted::driver::{
+    ScriptedDriver, create_params, resume_params,
+};
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, settle,
 };

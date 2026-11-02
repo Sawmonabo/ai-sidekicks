@@ -213,7 +213,7 @@ pub struct DriverPorts {
     /// dropped.
     pub tool_call_statuses: Arc<PortRegistration<Arc<dyn ToolCallStatusPublisher>>>,
     /// The session logs' held tool calls, which a resumed or closed session and the start after a
-    /// restart follow or settle; a driver that reads them before it is registered fails that read.
+    /// restart follow or settle; a session resumed before it is registered rebuilds none.
     pub held_tool_calls: Arc<PortRegistration<Arc<dyn HeldToolCallReads>>>,
 }
 

@@ -21,6 +21,7 @@ use sidekicks_store::transcript::whole_patch::stored_patch_files_body;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeCommandTasks;
 use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
+use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeRestoredCalls;
 use crate::driver::claude::delivery::messages::{
     ClaudeMessageBody, ClaudeMessageRow, ClaudeMessageRowKind, ClaudeOpenToolCall,
 };
@@ -211,6 +212,8 @@ pub(crate) struct ClaudeStreamSession {
     pub(crate) command_tasks: ClaudeCommandTasks,
     /// The tool servers' background calls held open until their tasks end.
     pub(crate) tool_server_tasks: ClaudeToolServerTasks,
+    /// The held calls a resume rebuilt that await their restored start.
+    pub(crate) restored_calls: ClaudeRestoredCalls,
     /// What the working line reads about the lead's running turn.
     pub(crate) turn_readings: ClaudeTurnReadings,
 }
@@ -255,6 +258,7 @@ impl ClaudeStreamSession {
             gate: TerminalEmissionGate::new(),
             command_tasks: ClaudeCommandTasks::default(),
             tool_server_tasks: ClaudeToolServerTasks::default(),
+            restored_calls: ClaudeRestoredCalls::default(),
             turn_readings: ClaudeTurnReadings::default(),
         }
     }

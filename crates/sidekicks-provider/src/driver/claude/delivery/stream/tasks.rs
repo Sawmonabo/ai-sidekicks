@@ -1,11 +1,12 @@
 //! The task frames Claude Code reports beside a turn, which may come after the turn that started
 //! them ended: a helper's end moves its child run, a shell or Monitor task becomes a row of the
 //! session's running commands on the run that started it, and a tool server's background call
-//! stays open until its own notification closes it, its progress the status line under it. Also the usage routing metered off a frame,
-//! recorded on the run whose thread spent it, and the move of the session's bindings onto another
-//! account, made in its place among those frames.
+//! stays open until its own notification closes it, its progress the status line under it. Also
+//! the usage routing metered off a frame, recorded on the run whose thread spent it, and the move
+//! of the session's bindings onto another account, made in its place among those frames.
 
 mod exit_settle;
+mod resume;
 
 use std::collections::HashSet;
 
@@ -43,7 +44,8 @@ impl ClaudeDeliveryStream {
     /// Takes one task frame of `kind`, `frame_kind` on the wire, read once off `text`: a helper's
     /// end moves its child run, the frame's command or tool-server task is read on the run that
     /// started it, the helper's child run where a helper started it and `lead` otherwise, a held
-    /// call's end closes it and its progress becomes its status line.
+    /// call's end closes it and its progress becomes its status line, and a call a resume rebuilt
+    /// is kept by its restored start or ended by the first list that leaves it out.
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "only the task frames reach this read, and a move changes no held call"
@@ -70,13 +72,24 @@ impl ClaudeDeliveryStream {
             match kind {
                 ClaudeWireFrameKind::SystemTaskStarted => {
                     held.observe_start(&task, &mut readings.open_tool_calls);
+                    if let Some(task_id) = task.task_id() {
+                        readings.restored_calls.confirm(task_id);
+                    }
                     (Vec::new(), None)
                 }
                 ClaudeWireFrameKind::SystemTaskNotification => {
                     (held.release(&task).into_iter().collect(), None)
                 }
                 ClaudeWireFrameKind::SystemBackgroundTasksChanged => {
-                    (held.settle_unlisted(&task), None)
+                    // The first list after a resume ends the rebuilt calls it leaves out as ended
+                    // with the process, before the list settles any other call it leaves out.
+                    let unrestored = task
+                        .listed_task_ids()
+                        .map(|listed| readings.restored_calls.take_unlisted(listed))
+                        .unwrap_or_default();
+                    let mut ends = held.end_unrestored(unrestored.iter().map(String::as_str));
+                    ends.extend(held.settle_unlisted(&task));
+                    (ends, None)
                 }
                 ClaudeWireFrameKind::SystemTaskProgress => (Vec::new(), held.progress_call(&task)),
                 _ => (Vec::new(), None),

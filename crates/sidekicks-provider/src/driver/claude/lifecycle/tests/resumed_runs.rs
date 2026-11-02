@@ -1,26 +1,22 @@
 //! What a resume answers of each run it names, and the turn of the run in progress a fresh process
 //! continues on that run.
 
-use std::sync::Arc;
-
 use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentId;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use super::{resume_params, start_params};
+use super::start_params;
 use crate::driver::claude::run::routes::ClaudeChildRunRoute;
-use crate::driver::claude::session::scripted::channel::ScriptedChannel;
-use crate::driver::claude::session::scripted::driver::ScriptedDriver;
+use crate::driver::claude::session::scripted::driver::{ScriptedDriver, resume_params};
 use crate::driver::claude::session::scripted::{binding_id, hand_scripted_frame, settle};
 use crate::driver::session_control::{
-    CloseSessionParams, DriverResumeResult, LiveRunResume, OpenTurnResume, ProviderTurnAnswer,
-    ResumeSessionParams, ResumedRunAnswer,
+    DriverResumeResult, LiveRunResume, OpenTurnResume, ProviderTurnAnswer, ResumeSessionParams,
+    ResumedRunAnswer,
 };
 use crate::driver::test_registry::new_run_id;
 use crate::port::run_host::test_host::EngineCall;
@@ -60,22 +56,6 @@ fn answer(run_id: RunId, turn: ProviderTurnAnswer) -> ResumedRunAnswer {
     ResumedRunAnswer { run_id, turn }
 }
 
-// A scripted driver whose session ran, was closed, and has its next process scripted, so a resume
-// of it brings a fresh process up.
-async fn closed_session(fixture: &ScriptedDriver) -> SessionId {
-    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
-    fixture.next_start().await;
-    fixture
-        .driver
-        .close_session(CloseSessionParams { session_id })
-        .await
-        .expect("the close succeeds");
-    fixture
-        .starts
-        .script_session(Arc::new(ScriptedChannel::default()));
-    session_id
-}
-
 // A resume the session's live process answers says that process still runs the turn of the run
 // holding the session's turn and of the helper's run started beneath it, and holds no turn of any
 // other run the resume named. Killed by every run answered `Gone` on that arm (the run whose turn
@@ -83,16 +63,7 @@ async fn closed_session(fixture: &ScriptedDriver) -> SessionId {
 #[tokio::test(start_paused = true)]
 async fn a_resume_the_live_process_answers_holds_only_the_turn_it_runs() {
     let fixture = ScriptedDriver::new();
-    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
-    fixture.next_start().await;
-    fixture
-        .driver
-        .close_session(CloseSessionParams { session_id })
-        .await
-        .expect("the close succeeds");
-    fixture
-        .starts
-        .script_session(Arc::new(ScriptedChannel::default()));
+    let session_id = fixture.closed_session().await;
     let params = resume_params(session_id);
     fixture
         .driver
@@ -168,7 +139,7 @@ async fn a_fresh_process_continues_only_the_turn_of_the_run_in_progress(
     #[case] is_in_progress: bool,
 ) {
     let fixture = ScriptedDriver::new();
-    let session_id = closed_session(&fixture).await;
+    let session_id = fixture.closed_session().await;
     let (lead, helper, other) = (new_run_id(), new_run_id(), new_run_id());
     let lead_turns = if is_in_progress {
         vec![open_turn(1), open_turn(2)]
@@ -220,7 +191,7 @@ async fn a_fresh_process_continues_only_the_turn_of_the_run_in_progress(
 #[tokio::test(start_paused = true)]
 async fn a_continued_turn_runs_on_its_run_and_ends_as_that_turn() {
     let fixture = ScriptedDriver::new();
-    let session_id = closed_session(&fixture).await;
+    let session_id = fixture.closed_session().await;
     let lead = new_run_id();
     let params = resume_params(session_id);
     let resumed_binding = params.binding_id.clone();

@@ -19,13 +19,15 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::record::Record;
 
-use super::{RESTART_WAITS_PASSED, resume_params, start_params};
+use super::{RESTART_WAITS_PASSED, start_params};
 use crate::driver::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, CLAUDE_OUTPUT_STYLE_ROW_ID,
 };
 use crate::driver::claude::session::scripted::channel::{ScriptedChannel, ScriptedWrite};
 use crate::driver::claude::session::scripted::daemon_services::PortCall;
-use crate::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
+use crate::driver::claude::session::scripted::driver::{
+    ScriptedDriver, create_params, resume_params,
+};
 use crate::driver::claude::session::scripted::{binding_id, settle};
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;

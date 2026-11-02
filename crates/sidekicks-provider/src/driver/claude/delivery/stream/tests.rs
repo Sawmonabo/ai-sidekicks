@@ -26,6 +26,7 @@ use crate::runtime_binding::test_store::test_provider_account_id;
 
 mod exit;
 mod held_calls;
+mod resume;
 
 fn init() -> Value {
     json!({

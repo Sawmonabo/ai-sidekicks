@@ -484,7 +484,8 @@ impl ClaudeSessionEstablishment {
         let level_reports = permission_mode.report_changes();
         let (arrivals, receiver) = claude_session_arrivals(session_id);
         let config_folder = claude_config_folder(&legs.spawn_environment, PathRules::NATIVE);
-        let kept_calls = ClaudeKeptCallsSource::new(config_folder, provider_session_id.clone());
+        let kept_calls =
+            ClaudeKeptCallsSource::new(config_folder.clone(), provider_session_id.clone());
         let stream = Arc::new(ClaudeSessionStream::new(
             provider_account_id,
             step_bound,
@@ -497,6 +498,23 @@ impl ClaudeSessionEstablishment {
         let is_continuing_turn = continued_turn.is_some();
         if let Some(turn) = continued_turn {
             stream.continue_turn(turn.run, turn.turn_number, turn.provider_turn_id);
+        }
+        // The calls the resumed conversation held, rebuilt before its process can end one: its
+        // kept files are the resumed conversation's, a fork's predecessor's for a fork.
+        if let ClaudeConversationStart::Resume { resume_handle }
+        | ClaudeConversationStart::Fork { resume_handle, .. } = &conversation
+            && let Err(error) = self
+                .task_services
+                .delivery
+                .rebuild_held_calls(
+                    &stream,
+                    &sources.ports.held_tool_calls,
+                    &ClaudeKeptCallsSource::new(config_folder, resume_handle.clone()),
+                )
+                .await
+        {
+            callback_tools.roll_back();
+            return Err(ClaudeEstablishmentError::HeldToolCalls(error));
         }
         let mut band = ClaudeSessionRoutingBand::new();
         self.routing

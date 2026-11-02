@@ -23,14 +23,14 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
 
-use super::{resume_params, start_params};
+use super::start_params;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{
-    ScriptedDriver, create_params, end_turn_of,
+    ScriptedDriver, create_params, end_turn_of, resume_params,
 };
 use crate::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
 use crate::driver::claude::session::scripted::{

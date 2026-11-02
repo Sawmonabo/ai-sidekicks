@@ -2,7 +2,9 @@
 //! `projects/<project>/<session>/mcp-tasks/`: a call's record `mcp-task-<id>.meta.json`, written
 //! when the call moves to the background, and its saved ending `mcp-task-<id>.outcome.json`,
 //! written as it ends, both naming the call by `toolUseId`. Claude Code deletes the record at the
-//! ending and the saved ending once the model reads it, so a call with neither is not kept.
+//! ending and the saved ending once the model reads it, so a call with neither is not kept. Also
+//! the store's entries a resume rebuilds the held calls through, from the session's log and these
+//! files, and the calls a resumed process has yet to restore.
 
 use std::collections::{HashMap, HashSet};
 use std::io;
@@ -13,7 +15,8 @@ use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
 use sidekicks_std::missing_entry::MissingEntry;
 use tokio::io::AsyncReadExt;
 
-use crate::driver::claude::delivery::messages::ClaudeToolCallOutcome;
+use super::{ClaudeHeldCall, ClaudeHeldCallEnd, ClaudeToolServerTasks};
+use crate::driver::claude::delivery::messages::{ClaudeOpenToolCall, ClaudeToolCallOutcome};
 use crate::driver::claude::session::conversation_file::find_claude_conversation_file;
 use crate::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
 use crate::inbound_json::decode_inbound_json;
@@ -94,6 +97,24 @@ pub(crate) enum ClaudeKeptCall {
     Unkept,
 }
 
+impl ClaudeKeptCall {
+    /// How the call ends once the process that held it is gone: as its saved ending says, or
+    /// failed as ended with the process, with no body, where nothing is kept; `None` for a call
+    /// with its record alone, which still runs.
+    pub(crate) fn into_process_end(self) -> Option<(ClaudeToolCallOutcome, Option<String>)> {
+        match self {
+            Self::Ended { outcome, text } => Some((outcome, text)),
+            Self::Recorded => None,
+            Self::Unkept => Some((
+                ClaudeToolCallOutcome::Failed {
+                    end_cause: Some(ToolCallEndCause::ProcessExit),
+                },
+                None,
+            )),
+        }
+    }
+}
+
 /// What Claude Code keeps of one conversation's background calls, by call.
 #[derive(Default)]
 pub(crate) struct ClaudeKeptCalls {
@@ -138,6 +159,113 @@ impl ClaudeKeptCallsSource {
             return Ok(ClaudeKeptCalls::default());
         };
         read_claude_kept_calls(config_folder, &self.provider_session_id).await
+    }
+}
+
+impl ClaudeToolServerTasks {
+    /// Holds the call `tool_use_id` of the task `task_id`, rebuilt from the session's log, as a
+    /// resumed process's record says it still runs, until its task's restored start or ending.
+    pub(crate) fn hold_restored(
+        &mut self,
+        task_id: String,
+        tool_use_id: String,
+        opened: ClaudeOpenToolCall,
+    ) {
+        self.held_call_ids.insert(tool_use_id.clone());
+        self.held.insert(
+            task_id,
+            ClaudeHeldCall {
+                tool_use_id,
+                opened,
+                newest_run_id: None,
+            },
+        );
+    }
+
+    /// Keeps the call `tool_use_id` of the task `task_id` settled, as the daemon settled it with no
+    /// process, so a restored task's ending still closes it; kept oldest first, so past the cap the
+    /// newest stay.
+    pub(crate) fn keep_settled(
+        &mut self,
+        task_id: String,
+        tool_use_id: String,
+        opened: ClaudeOpenToolCall,
+    ) {
+        self.settled.push(
+            task_id,
+            ClaudeHeldCall {
+                tool_use_id,
+                opened,
+                newest_run_id: None,
+            },
+        );
+    }
+
+    /// The ends of the held calls of `task_ids` the resumed process did not restore, each failed
+    /// as ended with the process, with no body, and settled; a task no longer held is passed over.
+    pub(crate) fn end_unrestored<'a>(
+        &mut self,
+        task_ids: impl Iterator<Item = &'a str>,
+    ) -> Vec<ClaudeHeldCallEnd> {
+        task_ids
+            .filter_map(|task_id| {
+                let call = self.held.remove(task_id)?;
+                self.held_call_ids.remove(&call.tool_use_id);
+                let outcome = ClaudeToolCallOutcome::Failed {
+                    end_cause: Some(ToolCallEndCause::ProcessExit),
+                };
+                Some(self.settle(task_id.to_owned(), call, outcome, None))
+            })
+            .collect()
+    }
+}
+
+/// The tasks of the calls a resume held again from the log, awaiting their restored start: the
+/// resumed process's first background list ends those it leaves out, and its first finished reply
+/// ends every one left.
+#[derive(Default)]
+pub(crate) struct ClaudeRestoredCalls {
+    awaiting: HashSet<String>,
+    is_listed: bool,
+}
+
+impl ClaudeRestoredCalls {
+    /// Awaits the restored start of the task `task_id`.
+    pub(crate) fn await_restore(&mut self, task_id: String) {
+        self.awaiting.insert(task_id);
+    }
+
+    /// Takes the task `task_id`'s restored start: its call is held as any other.
+    pub(crate) fn confirm(&mut self, task_id: &str) {
+        self.awaiting.remove(task_id);
+    }
+
+    /// Takes the tasks the resumed process's first background list leaves out of `listed`; nothing
+    /// at any later list.
+    pub(crate) fn take_unlisted<'a>(
+        &mut self,
+        listed: impl Iterator<Item = &'a str>,
+    ) -> Vec<String> {
+        if self.is_listed {
+            return Vec::new();
+        }
+        self.is_listed = true;
+        let listed: HashSet<&str> = listed.collect();
+        let unlisted: Vec<String> = self
+            .awaiting
+            .iter()
+            .filter(|task_id| !listed.contains(task_id.as_str()))
+            .cloned()
+            .collect();
+        for task_id in &unlisted {
+            self.awaiting.remove(task_id);
+        }
+        unlisted
+    }
+
+    /// Takes every task still awaiting its restore, at the resumed process's first finished reply.
+    pub(crate) fn take_all(&mut self) -> Vec<String> {
+        self.awaiting.drain().collect()
     }
 }
 
