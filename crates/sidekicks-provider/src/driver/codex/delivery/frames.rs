@@ -42,6 +42,7 @@ use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::driver::diagnostics::OnceReportedDiagnostics;
 use crate::driver::run_control::RunToolBoundary;
 use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::question::ProviderQuestion;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::record_readers::read_non_empty_string;
@@ -73,6 +74,10 @@ pub(crate) trait CodexFrameEffects: Send + Sync {
     /// Receives a plan Codex proposed on `run`, its whole `text`, from the plan item `item_id` of
     /// the turn `turn_id`.
     fn plan_proposed(&self, run: &CodexRowRun, text: &str, turn_id: &str, item_id: &str);
+
+    /// Receives a question the agent asked without waiting, recorded open on the card with its
+    /// run left running.
+    fn question_asked(&self, question: ProviderQuestion);
 }
 
 /// What the frame delivery reads and acts through.

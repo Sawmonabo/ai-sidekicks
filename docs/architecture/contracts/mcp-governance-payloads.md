@@ -349,12 +349,20 @@ interface McpLiveApplicationResult {
 // {authorizationUrl?: string} // starts the daemon's own sign-in for that server, whatever kind of
 // server it is, and returns the address of the sign-in page for the client to open; a new
 // mcp.server.signIn on a server whose sign-in is still waiting ends that wait and starts the next
-// attempt; a server that publishes no sign-in route (no protected-resource or authorization-server
-// metadata, or metadata the daemon cannot read) is refused with mcp.server.signInUnsupported;
+// attempt; a binding or server no sign-in the daemon or a provider can run reaches is refused with
+// mcp.server.signInUnsupported, its message naming which cause: a binding not reached at an
+// address, a server that publishes no sign-in route (no protected-resource or authorization-server
+// metadata, or metadata the daemon cannot read), metadata naming no endpoint or flow the daemon's
+// client can use, an authorization server that does not list S256 or a server that does not admit
+// the daemon's own client where no provider's own client signs in, or an owner-issued client whose
+// callback the daemon cannot serve;
 // mcp.server.signInFailed is LAUNCH-phase only — a failure to start the sign-in (discovery,
-// registration, or the provider's own flow in its throwaway home) — and an async completion failure
-// arrives as mcp.server.signIn.completed outcome: 'failure' on the mcp.subscribe stream, never a
-// late JSON-RPC error (Spec-024 §OAuth Orchestration). Its idempotency receipt persists the
+// registration, or a provider's own sign-in that did not finish before it named the address the
+// browser opens; a provider's flow failing first answers the provider's own code, such as
+// provider.unavailable for its process ending, and a fault of the daemon's own
+// system.internalError) — and an async completion failure arrives as
+// mcp.server.signIn.completed outcome: 'failure' on the mcp.subscribe stream, never a late
+// JSON-RPC error (Spec-024 §OAuth Orchestration). Its idempotency receipt persists the
 // acknowledgment with authorizationUrl STRUCTURALLY OMITTED (single-use PKCE-bearing launch
 // material is never durable — Plan-022 I-022-1), so an identical-key retry returns a saved
 // acknowledgment with no URL: the sign-in already started, completion arrives as the event, and a
@@ -366,7 +374,8 @@ interface McpLiveApplicationResult {
 // It deletes the daemon's refresh token for the server, and its signing key where the server
 // demands proof-of-possession tokens, and ends the access tokens it handed out, so each provider's
 // next call to that server carries no token and the server reads `needsAuth` in every session on
-// every provider until the next sign-in
+// every provider until the next sign-in; a credential store that refuses the deletion is refused
+// with mcp.server.signOutFailed, the sign-in then still held and in use
 //   mcp.server.reconnect         McpServerBindingRef & {sessionId?: SessionId, bindingId?: string}
 // → {legs: McpServerLegStatus[]} // operational: restarts the binding's live provider leg(s),
 // LEG-ADDRESSABLE — exactly one leg when bindingId is given (with sessionId, both must name the

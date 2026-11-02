@@ -1,6 +1,7 @@
 //! The plan row's writes, each the statement its event's live write and a rebuild's fold share,
 //! with the guards the live write keeps, the reads of the plans whose held request a run's end or a
-//! restart lets go, and the plans as a run's end and the session list read them.
+//! restart lets go and of the plans a newer plan of their session supersedes, and the plans as a
+//! run's end and the session list read them.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -43,6 +44,51 @@ static END_HOLD_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// Reopens a waiting plan a newer plan of its session took the place of, whether or not it holds a
+// request.
+static SUPERSEDE_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE plans SET state = '{open}' WHERE id = @planId AND state = '{waiting}'",
+        open = <&'static str>::from(PlanState::Open),
+        waiting = <&'static str>::from(PlanState::Waiting)
+    )
+});
+
+// Puts a handed-off plan whose fresh session went before its first turn back up to wait, holding
+// no request, its verdict cleared; where a newer plan of its session already waits, that one
+// stands and this one reopens as a superseded plan does, so one card stands at a time.
+static WAIT_AGAIN_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE plans
+  SET state = CASE WHEN EXISTS (
+        SELECT 1 FROM plans AS newer
+        WHERE newer.session_id = plans.session_id AND newer.state = '{waiting}'
+          AND (newer.created_at, newer.id) > (plans.created_at, plans.id)
+      ) THEN '{open}' ELSE '{waiting}' END,
+      holds_request = 0, fresh_session_id = NULL, resolved_by = NULL, resolved_at = NULL
+  WHERE id = @planId AND state = '{handed_off}'",
+        open = <&'static str>::from(PlanState::Open),
+        waiting = <&'static str>::from(PlanState::Waiting),
+        handed_off = <&'static str>::from(PlanState::HandedOff)
+    )
+});
+
+// Once a handed-off plan reads waiting again, reopens every older waiting plan of its session as a
+// superseded plan reopens, so the plan recorded last is the one card that stands.
+static REOPEN_OLDER_WAITING_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE plans SET state = '{open}'
+  WHERE state = '{waiting}' AND EXISTS (
+    SELECT 1 FROM plans AS put_back
+    WHERE put_back.id = @planId AND put_back.state = '{waiting}'
+      AND put_back.session_id = plans.session_id
+      AND (put_back.created_at, put_back.id) > (plans.created_at, plans.id)
+  )",
+        open = <&'static str>::from(PlanState::Open),
+        waiting = <&'static str>::from(PlanState::Waiting)
+    )
+});
+
 // Settles a waiting plan with a verdict.
 static SETTLE_VERDICT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -59,6 +105,14 @@ static HELD_PLANS_OF_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT id, session_id FROM plans
   WHERE run_id = @runId AND state = '{waiting}' AND holds_request = 1",
+        waiting = <&'static str>::from(PlanState::Waiting)
+    )
+});
+
+// The plans of one session still waiting, on a held request or on none.
+static WAITING_PLANS_OF_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT id FROM plans WHERE session_id = @sessionId AND state = '{waiting}'",
         waiting = <&'static str>::from(PlanState::Waiting)
     )
 });
@@ -98,13 +152,30 @@ pub(crate) fn insert_plan_statement(
     }
 }
 
-/// Reopens `plan_id` as its held request ended; refused unless it waits on a request its driver
-/// holds.
-pub(crate) fn end_hold_statement(plan_id: &PlanId) -> WriteStatement {
-    WriteStatement {
-        sql: Cow::Borrowed(END_HOLD_SQL.as_str()),
+/// Ends `plan_id`'s hold for `reason`, in statements run in order in one write: a newer plan's
+/// supersede reopens it whether or not it holds a request, a fresh session gone puts the handed-off
+/// plan back up to wait unless a newer plan of its session waits, which reopens it instead, and
+/// then reopens its session's older waiting plans, and every other end reopens it only while it
+/// waits on a request its driver holds. The first statement refuses the write unless the plan
+/// stands as its reason needs.
+pub(crate) fn hold_end_statements(
+    plan_id: &PlanId,
+    reason: PlanHoldEndedReason,
+) -> Vec<WriteStatement> {
+    let plan_statement = |sql: &'static str, expected_row_count| WriteStatement {
+        sql: Cow::Borrowed(sql),
         bindings: StatementBindings::Named(vec![text_binding("@planId", plan_id.text().as_str())]),
-        expected_row_count: Some(1),
+        expected_row_count,
+    };
+    match reason {
+        PlanHoldEndedReason::Superseded => vec![plan_statement(SUPERSEDE_SQL.as_str(), Some(1))],
+        PlanHoldEndedReason::FreshSessionGone => vec![
+            plan_statement(WAIT_AGAIN_SQL.as_str(), Some(1)),
+            plan_statement(REOPEN_OLDER_WAITING_SQL.as_str(), None),
+        ],
+        PlanHoldEndedReason::Interrupted
+        | PlanHoldEndedReason::Withdrawn
+        | PlanHoldEndedReason::RunEnded => vec![plan_statement(END_HOLD_SQL.as_str(), Some(1))],
     }
 }
 
@@ -134,21 +205,23 @@ pub fn settle_verdict_statement(
     }
 }
 
-/// `plan.hold.ended` for `held`, for `reason`, with the statement that reopens it.
+/// `plan.hold.ended` for `plan_id` of `session_id`, for `reason`, with the statements that reopen
+/// it, run in order in the event's write.
 pub(crate) fn hold_end_write(
-    held: HeldPlan,
+    session_id: SessionId,
+    plan_id: PlanId,
     reason: PlanHoldEndedReason,
-) -> (WriteStatement, SessionEventDraft) {
+) -> (Vec<WriteStatement>, SessionEventDraft) {
     let event = SessionEventDraft::of_session(
-        held.session_id,
+        session_id,
         &SessionEvent::PlanHoldEnded(PlanHoldEndedPayload {
-            session_id: held.session_id,
-            plan_id: held.plan_id,
+            session_id,
+            plan_id,
             reason,
         }),
     )
     .expect("a plan.hold.ended payload names only checked ids");
-    (end_hold_statement(&held.plan_id), event)
+    (hold_end_statements(&plan_id, reason), event)
 }
 
 /// The plans table as a run's end and the session list read it.
@@ -173,8 +246,8 @@ impl PlanHolds for StoredPlanHolds {
         &self,
         held: HeldPlan,
         reason: PlanHoldEndedReason,
-    ) -> (WriteStatement, SessionEventDraft) {
-        hold_end_write(held, reason)
+    ) -> (Vec<WriteStatement>, SessionEventDraft) {
+        hold_end_write(held.session_id, held.plan_id, reason)
     }
 
     // An indexed lookup of the session's plans.
@@ -194,6 +267,21 @@ pub fn read_held_plans(
     session_id: Option<&SessionId>,
 ) -> rusqlite::Result<Vec<HeldPlan>> {
     HELD_PLANS_SQL.query(connection, session_id, held_plan_of_row)
+}
+
+/// The plans of `session_id` still waiting, whether or not they hold a request. Fails as SQLite
+/// does, or when a stored id does not read.
+pub(crate) fn read_waiting_plans_of_session(
+    connection: &Connection,
+    session_id: &SessionId,
+) -> rusqlite::Result<Vec<PlanId>> {
+    connection
+        .prepare_cached(&WAITING_PLANS_OF_SESSION_SQL)?
+        .query_map(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            |row| text_column(row, 0, |text| PlanId::new(&text)),
+        )?
+        .collect()
 }
 
 // A held plan's row, as both reads select it.

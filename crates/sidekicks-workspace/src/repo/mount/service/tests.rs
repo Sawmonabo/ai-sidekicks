@@ -277,3 +277,33 @@ async fn a_detach_whose_archived_workspace_does_not_read_reports_it_committed() 
         .expect("the mount reads");
     assert_eq!(mount.state, RepoMountState::Detached);
 }
+
+// A chat a plan hands off to in the planning chat's folder reads that folder's root, as the chat
+// it was made for does. Killed by the root read keyed on the chat the folder is made for.
+#[tokio::test]
+async fn a_chat_holding_another_chats_folder_reads_its_root() {
+    let database = TestDatabase::new(schema_parts());
+    let (service, rows) = open_service(&database).await;
+    let planning = SessionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e64").expect("a session id");
+    let fresh = SessionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e65").expect("a session id");
+    let root = PathBuf::from("/home/workspaces/planning");
+    let repo_mount_id = service
+        .attach_managed(planning, &root, None)
+        .await
+        .expect("the chat's folder is registered");
+    rows.execute(
+        "INSERT INTO managed_folder_holds (repo_mount_id, session_id) VALUES (?1, ?2)",
+        [repo_mount_id.text().as_str(), fresh.text().as_str()],
+    )
+    .expect("the fresh chat's hold is admitted");
+
+    for session_id in [planning, fresh] {
+        assert_eq!(
+            service
+                .read_managed_root(session_id)
+                .await
+                .expect("the root reads"),
+            Some(root.clone())
+        );
+    }
+}

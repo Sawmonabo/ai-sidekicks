@@ -595,6 +595,7 @@ checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core",
  "bytes",
+ "form_urlencoded",
  "futures-util",
  "http",
  "http-body",
@@ -610,6 +611,7 @@ dependencies = [
  "serde_core",
  "serde_json",
  "serde_path_to_error",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tower",
@@ -5843,6 +5845,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "oauth2"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51e219e79014df21a225b1860a479e2dcd7cbd9130f4defd4bd0e191ea31d67d"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "getrandom 0.2.17",
+ "http",
+ "rand 0.8.8",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "sha2 0.10.9",
+ "thiserror 1.0.69",
+ "url",
+]
+
+[[package]]
 name = "objc2"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7337,9 +7358,9 @@ dependencies = [
 
 [[package]]
 name = "rmcp"
-version = "3.7.0"
+version = "3.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ece64e19631fc38758181e637c15509a2c2709ee53bfde1e1d58f9dc991f919e"
+checksum = "f8be15815186873ea063bf005011d16c356804973489e40c39116ae3a2878d1f"
 dependencies = [
  "async-trait",
  "base64 0.23.1",
@@ -7351,10 +7372,12 @@ dependencies = [
  "http-body-util",
  "indexmap 2.14.2",
  "libc",
+ "oauth2",
  "pastey",
  "pin-project-lite",
  "process-wrap",
  "rand 0.10.3",
+ "reqwest",
  "rmcp-macros",
  "schemars 1.2.3",
  "serde",
@@ -7366,14 +7389,15 @@ dependencies = [
  "tokio-util",
  "tower-service",
  "tracing",
+ "url",
  "uuid",
 ]
 
 [[package]]
 name = "rmcp-macros"
-version = "3.7.0"
+version = "3.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "967fa7f7935d7d6217d593df0e8e5c9307bcaf256974a5a9ee64476c97735389"
+checksum = "8b0748e054a5f5598b3213cf72099ae6b2745ba4d996c59ccf455150a7dbb839"
 dependencies = [
  "darling 0.24.1",
  "proc-macro2",
@@ -8402,6 +8426,7 @@ version = "0.0.0"
 dependencies = [
  "base16ct 1.0.0",
  "bytes",
+ "diffy",
  "fast_image_resize",
  "file-format",
  "flate2",
@@ -8711,18 +8736,28 @@ dependencies = [
 name = "sidekicks-mcp"
 version = "0.0.0"
 dependencies = [
+ "async-trait",
  "axum",
+ "base64 0.23.1",
  "blake3",
  "bytes",
  "futures",
+ "getrandom 0.4.3",
+ "http",
+ "hyper",
+ "hyper-util",
  "jwt-simple",
+ "oauth2",
  "p256 0.14.0",
  "process-wrap",
  "reqwest",
  "rmcp",
  "rstest",
  "rusqlite",
+ "secrecy",
+ "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sidekicks-contracts",
  "sidekicks-ipc",
  "sidekicks-platforms",
@@ -8732,10 +8767,13 @@ dependencies = [
  "sidekicks-workspace",
  "sse-stream 0.3.0",
  "strum 0.28.0",
+ "subtle",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
  "tracing",
+ "url",
  "uuid",
 ]
 
@@ -8746,6 +8784,7 @@ dependencies = [
  "alacritty_terminal",
  "apple-native-keyring-store",
  "async-io",
+ "base16ct 1.0.0",
  "base64 0.23.1",
  "block2",
  "command-fds",
@@ -8780,6 +8819,7 @@ dependencies = [
  "security-framework",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "sidekicks-contracts",
  "signal-hook",
  "sysinfo",

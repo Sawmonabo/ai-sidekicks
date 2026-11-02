@@ -6,8 +6,9 @@
 //!   event, which locks its row against every other change.
 //! - Then the files only this session names go: its shells end and stay refused until the rows
 //!   are gone, then the provider's copy of each conversation, a chat's managed workspace folder,
-//!   each run's snapshot refs, and the project rules the session wrote into its project's files.
-//!   A failure there leaves the mark and every row, so purging the session again finishes it.
+//!   the session's own storage folder, each run's snapshot refs, and the project rules the
+//!   session wrote into its project's files. A failure there leaves the mark and every row, so
+//!   purging the session again finishes it.
 //! - Then one write, under the session's append lock, deletes every row naming the session and
 //!   appends its `session.event.compacted` receipt on the daemon's sentinel session, led by two
 //!   guards: the session is still marked, and no event of it lies past the receipt's range. An
@@ -28,6 +29,7 @@ pub(crate) mod tests;
 use std::collections::HashSet;
 use std::error::Error;
 use std::io;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
@@ -86,6 +88,7 @@ use crate::data_acts::purge::rows::{
     mark_statement, read_gone_worktree_candidates, read_purge_targets, read_range_and_links,
     session_deletion_statements,
 };
+use crate::hand_over::remove_session_storage_folder;
 
 /// Why one session's purge stopped. A session refused before its rows' write keeps its mark and
 /// every row, though files already deleted stay gone, and purging it again finishes it.
@@ -122,6 +125,9 @@ pub(crate) enum SessionPurgeError {
     /// A chat's managed workspace folder could not be removed.
     #[error(transparent)]
     ManagedFolder(#[from] ManagedWorkspaceError),
+    /// The session's own storage folder could not be removed.
+    #[error("the session's storage folder could not be removed")]
+    StorageFolder(#[source] io::Error),
     /// A run's snapshot refs could not be deleted.
     #[error("a run's snapshot refs could not be deleted")]
     SnapshotRefs {
@@ -183,6 +189,8 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) conversations: Arc<ConversationPurge>,
     /// Removes a chat's managed workspace folder.
     pub(crate) managed_workspaces: Arc<ManagedWorkspaceService>,
+    /// The service's data folder, which holds each session's own storage folder.
+    pub(crate) data_folder: PathBuf,
     /// Deletes a run's snapshot refs.
     pub(crate) snapshots: Arc<TurnSnapshotService>,
     /// Takes a session's project rules out of the providers' files and hands the rest out again.
@@ -299,6 +307,9 @@ impl SessionPurge {
             .map_err(SessionPurgeError::Shells)?;
         deps.conversations.delete_conversations(session_id).await?;
         deps.managed_workspaces.delete_folder(session_id).await?;
+        remove_session_storage_folder(&deps.data_folder, session_id)
+            .await
+            .map_err(SessionPurgeError::StorageFolder)?;
         for context in &targets.run_contexts {
             let pruned = deps
                 .snapshots

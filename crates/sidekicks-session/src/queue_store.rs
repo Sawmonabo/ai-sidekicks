@@ -1,6 +1,7 @@
 //! The `queue_items` rows: the statements that write them, each guarded so a change decided from a
 //! stale read is refused whole, and the reads of a queue in its order. A row is never deleted while
-//! its session is kept; a message's words ride its payload beside its `user.message.sent` row.
+//! its session is kept; a message's words, and a plan message's, ride its payload beside its
+//! `user.message.sent` row.
 
 pub mod send_now;
 pub mod summary;
@@ -16,13 +17,14 @@ use sidekicks_contracts::agent::tree::ChildHandle;
 use sidekicks_contracts::artifacts::attachment_reference::AttachmentReferenceList;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{
-    MessageContent, QueueItemId, QueueItemNotDeliveredKind, QueueItemNotDeliveredReason,
-    QueueItemState,
+    MessageContent, PlanMessage, PlanMessageKind, QueueItemId, QueueItemNotDeliveredKind,
+    QueueItemNotDeliveredReason, QueueItemState,
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
@@ -44,11 +46,17 @@ use sidekicks_store::database::stored_column::{
 use crate::directory::lookups::ENDED_SESSION_STATES_SQL;
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
-/// What a queued item carries, as its payload stores it under its `kind`: a person's message, or
-/// a review of the session's changes, which opens a run of its own and is never handed into a
-/// running or continued turn.
+/// What a queued item carries, as its payload stores it under its `kind`: a person's message, a
+/// review of the session's changes, or a message the daemon sends for a plan's verdict; a review
+/// and a plan message each open a run of their own and are never handed into a running or
+/// continued turn.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    deny_unknown_fields
+)]
 pub enum QueueItemBody {
     /// A message.
     Message(QueueMessageBody),
@@ -57,14 +65,21 @@ pub enum QueueItemBody {
         /// What the review covers.
         target: SessionReviewTarget,
     },
+    /// A message the daemon sends for a plan's verdict.
+    PlanMessage {
+        /// The plan it carries out and what it is for.
+        plan_message: PlanMessage,
+        /// The words it opens its run with.
+        text: MessageContent,
+    },
 }
 
 impl QueueItemBody {
-    /// The message the item carries, `None` for a review.
+    /// The person's message the item carries, `None` for a review or a plan message.
     pub fn as_message(&self) -> Option<&QueueMessageBody> {
         match self {
             Self::Message(message) => Some(message),
-            Self::Review { .. } => None,
+            Self::Review { .. } | Self::PlanMessage { .. } => None,
         }
     }
 }
@@ -161,9 +176,10 @@ pub struct NewQueueItem {
     pub body: QueueItemBody,
     /// The run it goes to.
     pub target_run_id: RunId,
-    /// The device that sent it; absent on a review the daemon queues.
+    /// The device that sent it, or whose verdict a plan message carries out; absent on a review
+    /// the daemon queues.
     pub device_id: Option<DeviceId>,
-    /// The send's own key; absent on a review the daemon queues.
+    /// The send's own key, which every send writes, a review the daemon queues among them.
     pub client_idempotency_key: Option<ClientUuid>,
     /// The waiting item an edit replaces.
     pub replaces_queue_item_id: Option<QueueItemId>,
@@ -221,7 +237,7 @@ pub const QUEUE_ORDER: &str = "ORDER BY position, created_at DESC, id";
 
 // Changes no row when the send's key was already spent in the session, so the write that carries
 // it is refused and nothing saved is replaced; an item with no key never conflicts. Only a
-// person's send and a review reach here, so the queue is the lead's.
+// person's send, a review and a plan message reach here, so the queue is the lead's.
 static INSERT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO queue_items
@@ -256,6 +272,10 @@ static ADMIT_UNDELIVERED_SQL: LazyLock<String> =
 // A message read not delivered that a retry sends again.
 static SUPERSEDE_UNDELIVERED_SQL: LazyLock<String> =
     LazyLock::new(|| leave_not_delivered_sql(QueueItemState::Superseded));
+
+// A message read not delivered and withdrawn once what it carried out ended.
+static CANCEL_UNDELIVERED_SQL: LazyLock<String> =
+    LazyLock::new(|| leave_not_delivered_sql(QueueItemState::Canceled));
 
 static RETARGET_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -441,6 +461,21 @@ static SELECT_QUEUE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// The lead's plan message of one plan and kind that a retry has not superseded; a retry
+// supersedes the item it sends again, so at most one such item stands.
+static SELECT_PLAN_MESSAGE_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {COLUMNS} FROM queue_items
+  WHERE session_id = @session_id AND child_handle IS NULL
+    AND json_extract(payload, '$.kind') = 'planMessage'
+    AND json_extract(payload, '$.planMessage.planId') = @plan_id
+    AND json_extract(payload, '$.planMessage.kind') = @kind
+    AND state <> '{}'
+  {QUEUE_ORDER} LIMIT 1",
+        <&'static str>::from(QueueItemState::Superseded)
+    )
+});
+
 /// The queued messages that target one run, bound to its id at the one `?`, in queue order; a
 /// write that must find none uses it as its guard.
 pub(crate) static SELECT_WAITING_FOR_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -522,6 +557,12 @@ pub fn admit_undelivered_statement(id: &QueueItemId, now: &WireInstant) -> Write
 /// reads not delivered.
 pub fn supersede_undelivered_statement(id: &QueueItemId, now: &WireInstant) -> WriteStatement {
     item_change_statement(&SUPERSEDE_UNDELIVERED_SQL, id, now)
+}
+
+/// The statement that cancels an item read not delivered, so no retry sends it again; refused
+/// unless it reads not delivered.
+pub fn cancel_undelivered_statement(id: &QueueItemId, now: &WireInstant) -> WriteStatement {
+    item_change_statement(&CANCEL_UNDELIVERED_SQL, id, now)
 }
 
 /// The statement that points a waiting item at the run it now goes to; refused once it has left.
@@ -643,6 +684,27 @@ impl<'reader> QueueItemReader<'reader> {
             .prepare_cached(&SELECT_BY_KEY_SQL)?
             .query_row(
                 [session_id.text().as_str(), client_idempotency_key.as_str()],
+                record_of,
+            )
+            .optional()
+    }
+
+    /// The session's plan message of `kind` for `plan_id` that no retry superseded, whatever key
+    /// it was sent under, or `None`.
+    pub fn get_plan_message(
+        &self,
+        session_id: &SessionId,
+        plan_id: &PlanId,
+        kind: PlanMessageKind,
+    ) -> rusqlite::Result<Option<QueueItemRecord>> {
+        self.reader
+            .prepare_cached(&SELECT_PLAN_MESSAGE_SQL)?
+            .query_row(
+                named_params! {
+                    "@session_id": session_id.text().as_str(),
+                    "@plan_id": plan_id.text().as_str(),
+                    "@kind": <&'static str>::from(kind),
+                },
                 record_of,
             )
             .optional()

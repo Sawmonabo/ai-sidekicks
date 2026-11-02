@@ -31,6 +31,9 @@ pub(crate) enum CodexHomeKind {
     /// An empty folder of the daemon's own that the capability read runs one short-lived service
     /// in, signed in to no account.
     CapabilityRead,
+    /// A folder of the daemon's own, made for one MCP server's sign-in through Codex's own client
+    /// and deleted after it, holding only that server's entry and the sign-in Codex saves.
+    McpSignIn,
 }
 
 /// The Codex home one service runs on.
@@ -43,12 +46,14 @@ pub(crate) struct CodexServiceHome {
 }
 
 impl CodexServiceHome {
-    /// The account the home belongs to; `None` for the person's own folder and the capability
-    /// read's.
+    /// The account the home belongs to; `None` for the person's own folder and the folders the
+    /// capability read and an MCP sign-in run in.
     pub(crate) fn provider_account_id(&self) -> Option<&ProviderAccountId> {
         match &self.kind {
             CodexHomeKind::Account(provider_account_id) => Some(provider_account_id),
-            CodexHomeKind::PersonalFolder | CodexHomeKind::CapabilityRead => None,
+            CodexHomeKind::PersonalFolder
+            | CodexHomeKind::CapabilityRead
+            | CodexHomeKind::McpSignIn => None,
         }
     }
 }
@@ -59,7 +64,8 @@ impl CodexServiceHome {
 pub(crate) enum CodexServiceKind {
     /// The daemon's own service with no hook switch: on an account home a lasting service kept in
     /// its record, which a daemon restart keeps running and the next start joins, and on the
-    /// capability read's home the daemon's own child, which the daemon's stop ends.
+    /// capability read's home and an MCP sign-in's the daemon's own child, which the daemon's stop
+    /// ends.
     Account,
     /// The lasting service on the person's own Codex folder that terminals join: started by the
     /// daemon in a session of its own with the daemon's two hooks, kept in its record, outliving a

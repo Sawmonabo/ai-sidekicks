@@ -73,7 +73,8 @@ pub enum ManagedWorkspaceReport {
 /// One write a chat made in its managed workspace.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ManagedWorkspaceWrite {
-    /// The session whose workspace was written.
+    /// The chat the written folder is made for, whose id names it; any chat holding the folder
+    /// may have written it.
     pub session_id: SessionId,
     /// The written entry's path inside the session's workspace, as the system's bytes.
     pub relative_path: PathBuf,

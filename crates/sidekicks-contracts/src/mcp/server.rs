@@ -378,6 +378,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<inventory::McpStoreUnavailableInventoryEntry>(),
         Definition::read::<inventory::McpServerInventoryEntry>(),
         Definition::read::<requests::McpServerListRequest>().checked(),
+        Definition::read::<requests::McpProviderReadFailure>(),
         Definition::read::<requests::McpServerListResponse>().checked(),
         Definition::read::<requests::McpServerReadResponse>().checked(),
         Definition::read::<requests::McpRegistrySearchRequest>().checked(),

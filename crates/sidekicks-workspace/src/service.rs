@@ -68,7 +68,7 @@ mod tests;
 
 /// The statements the service's reads keep prepared on each read connection, the session state
 /// read included.
-pub const WORKSPACE_SERVICE_STATEMENT_CAPACITY: usize = 7;
+pub const WORKSPACE_SERVICE_STATEMENT_CAPACITY: usize = 8;
 
 // A session's live workspace on one mount; `idx_workspaces_live_session_mount` holds it to one row,
 // and an archived workspace is history that does not count.
@@ -119,6 +119,10 @@ static SELECT_ATTACHED_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
         <&'static str>::from(RepoMountState::Attached)
     )
 });
+
+// Whether the session holds the managed mount.
+const SELECT_MANAGED_FOLDER_HOLD_SQL: &str = "SELECT EXISTS (SELECT 1 FROM managed_folder_holds
+  WHERE repo_mount_id = @repo_mount_id AND session_id = @session_id)";
 
 // The trust envelope's attached roots: the canonical root of every attached mount.
 static SELECT_ATTACHED_MOUNT_ROOTS_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -249,7 +253,7 @@ pub(crate) struct AttachedMount {
     pub(crate) canonical_root: PathBuf,
     /// Where the root is; `None` on macOS and Linux.
     pub(crate) place: Option<Place>,
-    /// The chat whose managed workspace the mount is, `None` for a project's mount.
+    /// The chat a managed mount's folder is made for, `None` for a project's mount.
     pub(crate) managed_session_id: Option<SessionId>,
     /// The git common folder recorded at attach; `None` on a managed mount.
     pub(crate) common_folder_anchor: Option<PathBuf>,
@@ -271,10 +275,10 @@ impl WorkspaceService {
     /// root, recording the folder admitted and its checkout. A session that already has a live
     /// workspace on the mount is answered that workspace as it stands, whatever mode and state,
     /// and nothing is probed or written. Refuses `session.notFound`, `repoMount.notFound` for a
-    /// mount not attached, `repoMount.managed` for another chat's managed workspace,
-    /// `workspace.modeUnsupported`, `workspace.rootUnavailable` when the mount's folder is out of
-    /// reach, `repoMount.rootResolutionFailed` when it holds another repository or git cannot
-    /// answer, and `repoMount.outsideTrustEnvelope` for a folder outside the mount's trees.
+    /// mount not attached, `repoMount.managed` for a chat's managed workspace the session does not
+    /// hold, `workspace.modeUnsupported`, `workspace.rootUnavailable` when the mount's folder is
+    /// out of reach, `repoMount.rootResolutionFailed` when it holds another repository or git
+    /// cannot answer, and `repoMount.outsideTrustEnvelope` for a folder outside the mount's trees.
     pub async fn bind(
         &self,
         request: &WorkspaceBindRequest,
@@ -288,11 +292,10 @@ impl WorkspaceService {
             return Ok(bound);
         }
         let mount = self.require_attached_mount(repo_mount_id).await?;
-        // A managed mount is its own chat's folder alone; its owner never changes, so the read
-        // decides.
-        if mount
-            .managed_session_id
-            .is_some_and(|owner| owner != session_id)
+        // A managed mount admits only the chats holding it; a hold goes only with its chat's
+        // purge, so the read decides.
+        if mount.managed_session_id.is_some()
+            && !self.holds_managed_mount(session_id, repo_mount_id).await?
         {
             return Err(RepoRefusal::MountManaged { repo_mount_id }.into());
         }
@@ -487,6 +490,27 @@ impl WorkspaceService {
                 .await?
                 .is_some(),
         )
+    }
+
+    // Whether the session holds the managed mount.
+    async fn holds_managed_mount(
+        &self,
+        session_id: SessionId,
+        repo_mount_id: RepoMountId,
+    ) -> Result<bool, WorkspaceServiceError> {
+        self.reads
+            .read(ReadLength::Short, move |connection| {
+                Ok(connection
+                    .prepare_cached(SELECT_MANAGED_FOLDER_HOLD_SQL)?
+                    .query_row(
+                        named_params! {
+                            "@session_id": session_id.text().as_str(),
+                            "@repo_mount_id": repo_mount_id.text().as_str(),
+                        },
+                        |row| row.get(0),
+                    )?)
+            })
+            .await
     }
 
     // The session's live workspace on the mount as stored, `None` when it has none.

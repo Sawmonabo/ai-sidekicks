@@ -3,7 +3,7 @@
 //! marker naming why, so the list never shortens and the recipient reads which file is missing.
 
 use std::error::Error;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -19,17 +19,28 @@ use sidekicks_store::database::stored_column::text_column;
 
 use crate::payload_store::{ContentHash, PayloadStore};
 use crate::refusals::ArtifactError;
-use crate::validation::FILE_NAME_MEMBER;
+use crate::validation::MANIFEST_FILE_NAME_SQL;
 
-// The manifest's newest payload reference within the message's session; a manifest whose payload
-// was reclaimed has none.
-const SELECT_PAYLOAD_SQL: &str = "SELECT refs.storage_path, refs.media_type,
-       json_extract(manifests.metadata, @fileNamePath)
+// The manifest's newest payload reference within the message's session, with the file name the
+// manifest records; a manifest whose payload was reclaimed has none.
+static SELECT_PAYLOAD_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT refs.storage_path, refs.media_type, {MANIFEST_FILE_NAME_SQL}
   FROM artifact_manifests AS manifests
   JOIN artifact_payload_refs AS refs ON refs.manifest_id = manifests.id
   WHERE manifests.id = @artifactId AND manifests.session_id = @sessionId
   ORDER BY refs.created_at DESC, refs.id DESC
-  LIMIT 1";
+  LIMIT 1"
+    )
+});
+
+// The file name a manifest within its session records, where it records one as text.
+static SELECT_FILE_NAME_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {MANIFEST_FILE_NAME_SQL} FROM artifact_manifests
+  WHERE id = @artifactId AND session_id = @sessionId"
+    )
+});
 
 /// One attachment's stored payload as its row names it.
 struct StoredPayload {
@@ -103,39 +114,50 @@ impl AttachmentResolver for ArtifactAttachmentResolver {
     }
 }
 
-// The newest payload of `artifact_id` within `session_id`; a file name that is not text reads as
-// none. Fails as SQLite does, or when a stored key is no content hash.
+// The newest payload of `artifact_id` within `session_id`, with the file name its manifest records;
+// a file name that is not text reads as none. Fails as SQLite does, or when a stored key is no
+// content hash.
 fn read_stored_payload(
     connection: &Connection,
     session_id: &SessionId,
     artifact_id: &ArtifactId,
 ) -> Result<Option<StoredPayload>, ArtifactError> {
-    let stored = connection
-        .prepare_cached(SELECT_PAYLOAD_SQL)?
+    Ok(connection
+        .prepare_cached(&SELECT_PAYLOAD_SQL)?
         .query_row(
             named_params! {
                 "@artifactId": artifact_id.text().as_str(),
                 "@sessionId": session_id.text().as_str(),
-                "@fileNamePath": format!("$.{FILE_NAME_MEMBER}"),
             },
             |row| {
                 Ok(StoredPayload {
                     content_hash: text_column(row, 0, ContentHash::from_stored)?,
                     media_type: row.get(1)?,
-                    file_name: match row.get_ref(2)? {
-                        rusqlite::types::ValueRef::Text(text) => {
-                            Some(String::from_utf8_lossy(text).into_owned())
-                        }
-                        rusqlite::types::ValueRef::Null
-                        | rusqlite::types::ValueRef::Integer(_)
-                        | rusqlite::types::ValueRef::Real(_)
-                        | rusqlite::types::ValueRef::Blob(_) => None,
-                    },
+                    file_name: row.get(2)?,
                 })
             },
         )
+        .optional()?)
+}
+
+/// The file name the manifest `artifact_id` of `session_id` records, read on `connection`; `None`
+/// when the session holds no such manifest or its name is not text. Fails as SQLite does.
+pub fn read_manifest_file_name(
+    connection: &Connection,
+    session_id: &SessionId,
+    artifact_id: &ArtifactId,
+) -> rusqlite::Result<Option<String>> {
+    let file_name = connection
+        .prepare_cached(&SELECT_FILE_NAME_SQL)?
+        .query_row(
+            named_params! {
+                "@artifactId": artifact_id.text().as_str(),
+                "@sessionId": session_id.text().as_str(),
+            },
+            |row| row.get(0),
+        )
         .optional()?;
-    Ok(stored)
+    Ok(file_name.flatten())
 }
 
 #[cfg(test)]

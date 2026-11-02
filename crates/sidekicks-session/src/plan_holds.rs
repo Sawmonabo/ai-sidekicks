@@ -28,12 +28,13 @@ pub trait PlanHolds: Send + Sync {
         run_id: &RunId,
     ) -> rusqlite::Result<Vec<HeldPlan>>;
 
-    /// `plan.hold.ended` for `held`, for `reason`, with the statement that reopens it.
+    /// `plan.hold.ended` for `held`, for `reason`, with the statements that reopen it, run in
+    /// order in the event's write.
     fn hold_end_write(
         &self,
         held: HeldPlan,
         reason: PlanHoldEndedReason,
-    ) -> (WriteStatement, SessionEventDraft);
+    ) -> (Vec<WriteStatement>, SessionEventDraft);
 
     /// The SQL condition, true while the session whose id `session_id_sql` reads has a plan whose
     /// card waits on the person.
@@ -58,7 +59,7 @@ impl PlanHolds for NoPlanHolds {
         &self,
         _held: HeldPlan,
         _reason: PlanHoldEndedReason,
-    ) -> (WriteStatement, SessionEventDraft) {
+    ) -> (Vec<WriteStatement>, SessionEventDraft) {
         unreachable!("a store that holds no plan is never asked to end a hold")
     }
 

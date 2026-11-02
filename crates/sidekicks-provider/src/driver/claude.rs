@@ -24,6 +24,9 @@ use sidekicks_platforms::{
 };
 
 use crate::command::running_set::takes_no_input;
+use crate::driver::claude::account_credentials::{
+    CONFIG_FOLDER_VARIABLE, SECURE_STORAGE_FOLDER_VARIABLE,
+};
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
@@ -38,6 +41,7 @@ use crate::driver::contract::params_and_results::{
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -178,13 +182,17 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
         ("CLAUDE_CODE_USER_DIALOG_TIMEOUT_MS", "0"),
         // A background command's `timeout` is honored up to Claude Code's own cap.
         ("BASH_MAX_TIMEOUT_MS", "2147483647"),
+        // The question tool's two switches: options carry markdown previews, and the tool also
+        // asks text and number questions under a title; unset, a process asks neither.
+        ("CLAUDE_CODE_QUESTION_PREVIEW_FORMAT", "markdown"),
+        ("CLAUDE_CODE_QUESTION_EXTENDED", "1"),
     ],
     launch_environment_names: &[],
     // The account's configuration home, its credential store, and the scratch folder the daemon
     // keeps per account home, so a session's temporary files sit where its purge finds them.
     credential_home_environment_names: &[
-        "CLAUDE_CONFIG_DIR",
-        "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+        CONFIG_FOLDER_VARIABLE,
+        SECURE_STORAGE_FOLDER_VARIABLE,
         "CLAUDE_CODE_TMPDIR",
     ],
     withheld_environment_names: &[
@@ -203,6 +211,8 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     mcp_config_members: &[],
     skill_name_max_length: None,
     callback_tools_asked: true,
+    // Its sign-in takes the daemon's receiver's address when the authorization server accepts it.
+    can_mcp_sign_in_return_to_daemon_receiver: true,
     background_work: Some(BackgroundWork {
         // Background sessions and their supervisor, a restart of them, and every form that serves
         // or runs a session from elsewhere: Remote Control, a self-hosted runner, the gateway.
@@ -674,6 +684,17 @@ impl ProviderDriver for ClaudeDriver {
 
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>> {
         self.session_inbox_addresser()
+    }
+
+    fn sign_in_with_own_client(
+        &self,
+        request: ProviderSignInTakeoverRequest,
+    ) -> BoxFuture<'_, Result<ProviderSignInTakeover, DriverError>> {
+        self.sign_in_with_own_client(request).boxed()
+    }
+
+    fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.remove_left_sign_in_folders().boxed()
     }
 }
 

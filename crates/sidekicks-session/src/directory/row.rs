@@ -17,7 +17,8 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::run::queue::UserMessageSentPayload;
 use sidekicks_contracts::session::directory::SessionActivity;
 use sidekicks_contracts::session::events::{
-    SessionCreatedPayload, SessionMarkChangePayload, SessionRenamedPayload,
+    SessionCreatedPayload, SessionMarkChangePayload, SessionReactivatedPayload,
+    SessionRenamedPayload,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
@@ -237,8 +238,10 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
                 place: created.place,
             }
         }
-        SessionEventType::SessionActivated | SessionEventType::SessionReactivated => {
-            set_column(ColumnValue::State(SessionState::Active))
+        SessionEventType::SessionActivated => set_column(ColumnValue::State(SessionState::Active)),
+        SessionEventType::SessionReactivated => {
+            let reactivated: SessionReactivatedPayload = payload_as(event_type, event.payload)?;
+            set_column(ColumnValue::State(reactivated.state.into()))
         }
         SessionEventType::SessionArchived => set_column(ColumnValue::State(SessionState::Archived)),
         SessionEventType::SessionClosed => set_column(ColumnValue::State(SessionState::Closed)),
@@ -361,6 +364,7 @@ fn change_of(event: &DirectoryEvent<'_>) -> Result<Option<DirectoryChange>, Dire
         | SessionEventType::PlanHandedOff
         | SessionEventType::PlanKept
         | SessionEventType::PlanHoldEnded
+        | SessionEventType::PlanHandOffFailed
         | SessionEventType::UsageTokenCountRecorded
         | SessionEventType::UsageCostUpdated
         | SessionEventType::UsageContextWindowUpdated

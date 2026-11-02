@@ -1,11 +1,11 @@
 //! A session's controls and the reads of Claude Code itself: the starting level and a level move,
 //! a revoked rule, the models, modes, capabilities and sign-in, the Settings rows and the session
 //! options, the mode, the commands the daemon answers, a side question, a review, the command list
-//! a screen follows, and each session's inbox addresser.
+//! a screen follows, each session's inbox addresser, and the sign-in to an MCP server through
+//! Claude Code's own client.
 
 use std::collections::HashSet;
 use std::error::Error;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -21,12 +21,18 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
+use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::data_folder::plugin_home;
 
 use super::{ClaudeDriver, internal};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
+use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
+use crate::driver::claude::mcp::sign_in::{
+    ClaudeSignInSources, remove_left_claude_sign_ins, sign_in_with_claude_client,
+};
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::controls::{
     ClaudeSideQuestionCopy, claude_full_model_id, one_turn_legs, without_credential_prompts,
@@ -64,6 +70,7 @@ use crate::driver::contract::params_and_results::ProviderCommandsSubscription;
 use crate::driver::contract::params_and_results::{
     GetCapabilitiesResult, ListModelsParams, ListModesParams, ProviderReportedLevel,
 };
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::read_current_account;
 use crate::driver::session_control::{
@@ -499,8 +506,9 @@ impl ClaudeDriver {
         let _only_read = self.capability_read.lock().await;
         let folder = self.capability_read_folder();
         // A read the daemon's stop cut short left its folder behind.
-        remove_capability_read_folder(&folder)
+        tokio::fs::remove_dir_all(&folder)
             .await
+            .none_if_missing()
             .map_err(internal)?;
         tokio::fs::create_dir_all(&folder).await.map_err(internal)?;
         let read = async {
@@ -513,7 +521,7 @@ impl ClaudeDriver {
         }
         .await;
         // The next read removes a folder this removal leaves, so the read's answer stands.
-        if let Err(error) = remove_capability_read_folder(&folder).await {
+        if let Err(error) = tokio::fs::remove_dir_all(&folder).await.none_if_missing() {
             record_unheard_claude_failure(
                 DriverDiagnosticKind::ControlOnlyReadFailed,
                 None,
@@ -759,6 +767,52 @@ impl ClaudeDriver {
 }
 
 impl ClaudeDriver {
+    /// Signs in to `request`'s server through Claude Code's own client, in a process whose config
+    /// and credential folders are one the daemon makes for the sign-in and deletes after. Fails as
+    /// the sign-in through Claude Code fails.
+    pub(crate) async fn sign_in_with_own_client(
+        &self,
+        request: ProviderSignInTakeoverRequest,
+    ) -> Result<ProviderSignInTakeover, DriverError> {
+        let plugin_home = plugin_home(&self.sources.home_folder, &DESCRIPTOR.provider_id());
+        let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
+        let person = ClaudePersonConfigFiles::resolve(
+            &self.sources.base_environment,
+            &self.sources.home_folder,
+        )
+        .await;
+        sign_in_with_claude_client(
+            &*self.starts,
+            ClaudeSignInSources {
+                person: &person,
+                plugin_home: &plugin_home,
+                managed_settings_folder: managed_settings_folder.as_deref(),
+                data_folder: &self.sources.data_folder,
+                account_servers: &self.account_servers,
+                credentials: &self.credentials,
+            },
+            |folder| self.sign_in_environment(folder),
+            request,
+        )
+        .await
+    }
+
+    /// Removes the folders, and their keychain items, of MCP sign-ins a stopped daemon left.
+    /// Fails as the folders' removal fails.
+    pub(crate) async fn remove_left_sign_in_folders(&self) -> Result<(), DriverError> {
+        remove_left_claude_sign_ins(&self.credentials, &self.sources.data_folder, |folder| {
+            self.sign_in_environment(folder)
+        })
+        .await
+    }
+
+    // The environment of an MCP sign-in's process on its own `folder`, which also names the
+    // keychain item the process files the sign-in under.
+    fn sign_in_environment(&self, folder: &Path) -> Result<Vec<(String, String)>, DriverError> {
+        self.sources
+            .process_environment(ClaudeProcessHome::Throwaway { folder }, &[], &[])
+    }
+
     // The folder the capability read makes and removes, under the daemon's data folder.
     fn capability_read_folder(&self) -> PathBuf {
         self.sources.data_folder.join(CLAUDE_CAPABILITY_READ_FOLDER)
@@ -780,14 +834,6 @@ impl ClaudeDriver {
                 .await
             }
         }
-    }
-}
-
-// Removes the capability read's folder and everything in it; one already gone is removed.
-async fn remove_capability_read_folder(folder: &Path) -> io::Result<()> {
-    match tokio::fs::remove_dir_all(folder).await {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-        removed => removed,
     }
 }
 

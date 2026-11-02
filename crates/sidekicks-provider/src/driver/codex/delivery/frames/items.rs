@@ -3,6 +3,8 @@
 //! safety hold a reply's first words end, a plan handed on whole, a command's row in the running
 //! commands, and the tool boundary each finished call of the session's own turn is.
 
+mod async_questions;
+
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value};
@@ -234,6 +236,7 @@ impl CodexFrameDelivery {
             && let Some(turn_id) = turn_id
         {
             self.end_safety_hold(record, turn_id).await;
+            self.hand_async_questions(record, item, item_id, run);
         }
         if item_type(item) == Some("plan")
             && let Some((prose, turn_id)) = prose.as_ref().zip(turn_id)

@@ -204,6 +204,7 @@ session_event_types! {
         PlanHandedOff = "plan.handedOff",
         PlanKept = "plan.kept",
         PlanHoldEnded = "plan.hold.ended",
+        PlanHandOffFailed = "plan.handOff.failed",
     ]
     /// The event types of the `usageTelemetry` category.
     USAGE_TELEMETRY_EVENT_TYPES = UsageTelemetry [

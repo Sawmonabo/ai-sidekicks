@@ -26,7 +26,6 @@ use crate::git::worktree::copy::{TreeCopyError, TreeCopyFollower, TreeCopyPolicy
 use crate::git::worktree::folder_names::read_folder_names;
 use crate::git::worktree::naming::REMOVED_WORKTREES_FOLDER_NAME;
 use crate::git::worktree::path_holds::PathHolds;
-use crate::git::worktree::service::remove_folder;
 
 // The random bytes a leftover's name ends in, written as twice as many hex digits.
 const LEFTOVER_SUFFIX_BYTES: usize = 16;
@@ -237,7 +236,7 @@ pub(crate) async fn move_folder(
 ) -> Result<(), FolderMoveError> {
     match rename_or_copy_folder(tools, from, to, copy).await? {
         FolderPlacement::Renamed => Ok(()),
-        FolderPlacement::Copied => remove_folder(from)
+        FolderPlacement::Copied => sidekicks_platforms::remove_tree_awaited(from)
             .await
             .map_err(FolderMoveError::Incomplete),
     }
@@ -273,7 +272,7 @@ pub(crate) async fn rename_or_copy_folder(
         Err(failure) => Err(failure),
     };
     if let Err(failure) = placed {
-        let cleanup_failures = remove_folder(&copy_folder)
+        let cleanup_failures = sidekicks_platforms::remove_tree_awaited(&copy_folder)
             .await
             .err()
             .into_iter()
@@ -296,7 +295,7 @@ pub(crate) async fn remove_folder_as_leftover(
     rename_folder(folder, &leftover)
         .await
         .map_err(LeftoverRemovalError::Rename)?;
-    remove_folder(&leftover)
+    sidekicks_platforms::remove_tree_awaited(&leftover)
         .await
         .map_err(LeftoverRemovalError::Remove)
 }

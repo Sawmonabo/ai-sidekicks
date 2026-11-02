@@ -1,15 +1,17 @@
 //! The run queue: a person's sends to a session's lead, the reviews of a session's changes queued
-//! as its next item, and the edit, removal and reorder of the messages still waiting. A send is
-//! written whole before anything acts on it. Every decision on a session's waiting messages is
-//! taken under the queue's one lock per session, so a send, a change and a run's end never
-//! interleave; a skill pick is resolved before the lock, so a read waiting at the memory gate never
-//! holds the session's writes. A change to a message a provider was handed takes it back first,
-//! and one the provider does not give back reads not delivered and leaves the change. A send into
-//! a paused or pausing run resumes it once the lock is let go.
+//! as its next item, the messages the daemon sends for a plan's verdict and their withdrawal once
+//! what they carry out has ended, and the edit, removal and reorder of the messages still waiting.
+//! A send is written whole before anything acts on it. Every decision on a session's waiting
+//! messages is taken under the queue's one lock per session, so a send, a change and a run's end
+//! never interleave; a skill pick is resolved before the lock, so a read waiting at the memory gate
+//! never holds the session's writes. A change to a message a provider was handed takes it back
+//! first, and one the provider does not give back reads not delivered and leaves the change. A send
+//! into a paused or pausing run resumes it once the lock is let go.
 
 mod interrupt;
 #[cfg(test)]
 mod tests;
+pub mod withdrawal;
 
 use std::sync::{Arc, LazyLock, Weak};
 
@@ -21,7 +23,7 @@ use sidekicks_contracts::run::queue::{
     AgentQueueItemCancelRequest, AgentQueueItemCancelResponse, AgentQueueItemCanceledState,
     AgentQueueItemChangeRefusedReason, AgentQueueItemCreateRequest, AgentQueueItemCreateResponse,
     AgentQueueItemListRequest, AgentQueueItemListResponse, AgentQueueItemReorderRequest,
-    QueueItemId, QueueItemState,
+    MessageContent, PlanMessage, PlanMessageKind, QueueItemId, QueueItemState,
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::SessionCodeReviewStartRequest;
@@ -40,7 +42,8 @@ use sidekicks_session::changes::refuse_unchangeable_session;
 use sidekicks_session::interventions::store::read_sessions_with_unreleased_interrupts;
 use sidekicks_session::queue_store::summary::summary_of;
 use sidekicks_session::queue_store::{
-    QueueItemOutcome, QueueItemReader, QueueItemRecord, QueueMessageBody, RecordedQueueItemState,
+    QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, QueueMessageBody,
+    RecordedQueueItemState,
 };
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::pause::RunPauseControl;
@@ -73,15 +76,15 @@ use crate::send::{QueueSendItem, QueueSendMessage, QueueSends, QueueSendsDeps};
 use crate::session_lock::{QueueSessionLock, UnreleasedInterrupts};
 
 /// The statements the run queue's reads prepare that no other reading service's set holds: a queue
-/// item by its id and by a send's idempotency key, a session's newest lead run that has not ended
-/// and its current lead run, the sessions with a lead message waiting for a run that ended or has
-/// not started, a session's interrupts whose release left their choice unsettled and the sessions
-/// holding one, the trigger of a run's newest interrupted end, and the queue stream's reads of the
-/// changes after a cursor and of the waiting items from the first place and after a place. Its
-/// other reads (a session's queue, the messages waiting for a run, a run's row, its provider, its
-/// agent and account, a session's state, its lead and its step bound) are in the idle sleep's, the
-/// run engine's and the run pause's sets.
-pub const RUN_QUEUE_STATEMENT_CAPACITY: usize = 11;
+/// item by its id, by a send's idempotency key and by the plan a plan message carries out, a
+/// session's newest lead run that has not ended and its current lead run, the sessions with a lead
+/// message waiting for a run that ended or has not started, a session's interrupts whose release
+/// left their choice unsettled and the sessions holding one, the trigger of a run's newest
+/// interrupted end, and the queue stream's reads of the changes after a cursor and of the waiting
+/// items from the first place and after a place. Its other reads (a session's queue, the messages
+/// waiting for a run, a run's row, its provider, its agent and account, a session's state, its lead
+/// and its step bound) are in the idle sleep's, the run engine's and the run pause's sets.
+pub const RUN_QUEUE_STATEMENT_CAPACITY: usize = 12;
 
 // The detail of a queued run ended because every message it was queued for was removed.
 static EMPTIED_RUN_DETAIL: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -391,6 +394,49 @@ impl RunQueue {
         Ok(created_response_of(written.item))
     }
 
+    /// Queues the message the daemon sends for the verdict `device_id` gave on a plan, `text`
+    /// carrying out `plan_message`, under `client_idempotency_key` (the plan's id for its build,
+    /// the hand-off's key for its seed). It goes as a review does: behind the live lead run's turn
+    /// or the messages waiting to continue the interrupted one, else at once, waking a session
+    /// with no live process, and opens a run of its own with its words; it is recorded as
+    /// `user.message.sent` naming that device and carrying the plan. A send again under the same
+    /// key answers the item the first queued. Refuses as `queue_review` refuses, writing nothing.
+    pub async fn send_plan_message(
+        &self,
+        session_id: SessionId,
+        plan_message: PlanMessage,
+        text: MessageContent,
+        client_idempotency_key: ClientUuid,
+        device_id: DeviceId,
+    ) -> Result<AgentQueueItemCreateResponse, QueueError> {
+        let key = client_idempotency_key;
+        // A repeated send answers what the first one saved, whatever its account or limit is now.
+        if let Some(saved) = self.read_saved(session_id, &key).await? {
+            return Ok(created_response_of(saved));
+        }
+        let (_, provider_account_id, _) = self.admission.admit_session_account(session_id).await?;
+        let run_config = self.admission.lead_run_config(session_id)?;
+        let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
+        if let Some(state) = state {
+            refuse_unchangeable_session(&session_id, state)?;
+        }
+        let hold = self.session_lock.hold_session(session_id).await;
+        if let Some(saved) = self.read_saved(session_id, &key).await? {
+            return Ok(created_response_of(saved));
+        }
+        let item = QueueSendItem::PlanMessage {
+            item_id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is an id"),
+            plan_message,
+            text,
+            device_id,
+            client_idempotency_key: key,
+            provider_account_id,
+            run_config,
+        };
+        let written = self.sends.send(&hold, item, None).await?;
+        Ok(created_response_of(written.item))
+    }
+
     /// A queue, the lead's or a child's, in its order, only the items in `state` when it is
     /// given. Refuses a session the daemon does not hold (`session.notFound`); fails as the read
     /// fails.
@@ -416,9 +462,10 @@ impl RunQueue {
     }
 
     /// Removes a waiting message, after which nothing reaches the agent. Refuses an item the queue
-    /// does not hold, one the agent has taken and one its provider did not give back, which then
-    /// reads not delivered. Removing the last message of a run that has not started ends that run
-    /// `failed` in the same write.
+    /// does not hold, one the agent has taken, one its provider did not give back, which then reads
+    /// not delivered, and a hand-off's seed (`handOffSeed`), which only the hand-off's end
+    /// withdraws. Removing the last message of a run that has not started ends that run `failed` in
+    /// the same write.
     pub async fn cancel(
         &self,
         request: AgentQueueItemCancelRequest,
@@ -439,6 +486,24 @@ impl RunQueue {
         if item.state != RecordedQueueItemState::Queued {
             return Err(left_queue_refusal(&item).into());
         }
+        // A plan's build message is the person's to remove as any of theirs; a hand-off's seed is
+        // the daemon's, which the fresh session's archive withdraws.
+        if let QueueItemBody::PlanMessage { plan_message, .. } = &item.body {
+            match plan_message.kind {
+                PlanMessageKind::Build => {}
+                PlanMessageKind::Seed => {
+                    return Err(change_refused(
+                        AgentQueueItemChangeRefusedReason::HandOffSeed,
+                        &format!(
+                            "Queue item {} is the first message of a hand-off's fresh session, \
+                             which only ending the hand-off cancels",
+                            item.id
+                        ),
+                    )
+                    .into());
+                }
+            }
+        }
         let withdrawal = self
             .delivery
             .take_back(&hold, std::slice::from_ref(&item))
@@ -449,36 +514,7 @@ impl RunQueue {
         if let QueueWithdrawal::Unreturned(reason) = withdrawal {
             return Err(unreturned_refusal(item.id, reason).into());
         }
-        let run_id = item.target_run_id;
-        let is_last_of_queued_run = match run_id {
-            Some(run_id) => self.is_queued_run_emptied_by(run_id, &[item.id]).await?,
-            None => false,
-        };
-        match run_id {
-            Some(run_id) if is_last_of_queued_run => {
-                self.admission
-                    .end_queued_run(
-                        &hold,
-                        run_id,
-                        vec![(item, QueueItemOutcome::Canceled)],
-                        EMPTIED_RUN_DETAIL.clone(),
-                    )
-                    .await?;
-            }
-            _ => {
-                let is_lead = item.child_handle.is_none();
-                self.recorder
-                    .record_outcome(&item, QueueItemOutcome::Canceled, &WireInstant::now())
-                    .await?;
-                self.delivery.forget(&[item.id]);
-                // A message the provider kept no longer holds back the interrupted run's continue.
-                if let Some(run_id) = run_id.filter(|_| is_lead) {
-                    self.lifecycle
-                        .continue_interrupted_run(&hold, run_id, false)
-                        .await?;
-                }
-            }
-        }
+        self.settle_canceled(&hold, item).await?;
         Ok(AgentQueueItemCancelResponse {
             queue_item_id: item_id,
             state: AgentQueueItemCanceledState::Value,
@@ -606,6 +642,47 @@ impl RunQueue {
                 return;
             }
         }
+    }
+
+    // Settles `item`, waiting and given back by its provider, canceled: removing the last message
+    // of a run that has not started ends that run `failed` in the same write, and a lead message
+    // no longer holds back its interrupted run's continue. Called under `hold`.
+    async fn settle_canceled(
+        &self,
+        hold: &KeyHold<'_, SessionId>,
+        item: QueueItemRecord,
+    ) -> Result<(), QueueError> {
+        let run_id = item.target_run_id;
+        let is_last_of_queued_run = match run_id {
+            Some(run_id) => self.is_queued_run_emptied_by(run_id, &[item.id]).await?,
+            None => false,
+        };
+        match run_id {
+            Some(run_id) if is_last_of_queued_run => {
+                self.admission
+                    .end_queued_run(
+                        hold,
+                        run_id,
+                        vec![(item, QueueItemOutcome::Canceled)],
+                        EMPTIED_RUN_DETAIL.clone(),
+                    )
+                    .await?;
+            }
+            _ => {
+                let is_lead = item.child_handle.is_none();
+                self.recorder
+                    .record_outcome(&item, QueueItemOutcome::Canceled, &WireInstant::now())
+                    .await?;
+                self.delivery.forget(&[item.id]);
+                // A message the provider kept no longer holds back the interrupted run's continue.
+                if let Some(run_id) = run_id.filter(|_| is_lead) {
+                    self.lifecycle
+                        .continue_interrupted_run(hold, run_id, false)
+                        .await?;
+                }
+            }
+        }
+        Ok(())
     }
 
     // Resumes the paused or pausing run a send went into, off the session's lock, so the message

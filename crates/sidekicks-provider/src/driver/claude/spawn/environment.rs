@@ -1,8 +1,8 @@
 //! The one place a Claude Code process's environment is composed: the session's environment with
 //! the run's credential variables and the withheld names removed, then the variables the app sets
-//! on every Claude Code process, and the home it runs on: an account's folders with the scratch
-//! folder the daemon keeps under its own data folder for each account, or a throwaway folder that
-//! holds all three for one read.
+//! on every Claude Code process, the question tool's switches among them, and the home it runs on:
+//! an account's folders with the scratch folder the daemon keeps under its own data folder for
+//! each account, or a throwaway folder that holds all three for one read.
 
 use std::path::{Path, PathBuf};
 
@@ -12,6 +12,9 @@ use sidekicks_platforms::PathRules;
 
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::account_credentials::{
+    CONFIG_FOLDER_VARIABLE, SECURE_STORAGE_FOLDER_VARIABLE,
+};
 use crate::spawn_environment::{
     ProviderEnvironmentRequest, SessionEnvironment, SpawnEnvironmentError,
     build_provider_process_environment,
@@ -111,7 +114,7 @@ pub(crate) fn claude_config_folder(
     spawn_environment: &[(String, String)],
     rules: PathRules,
 ) -> Option<PathBuf> {
-    if let Some(configured) = rules.environment_value(spawn_environment, "CLAUDE_CONFIG_DIR") {
+    if let Some(configured) = rules.environment_value(spawn_environment, CONFIG_FOLDER_VARIABLE) {
         return Some(PathBuf::from(configured));
     }
     let home = rules
@@ -133,8 +136,9 @@ pub(crate) fn claude_text_variable<'environment>(
         .filter(|value| !value.is_empty())
 }
 
-/// The whole environment a session process, a relaunch or the sign-in check starts with, with
-/// `additional_mandated_pairs` (a pair a caller sets on this one process) over it. Fails as
+/// The whole environment a session process, a relaunch or the sign-in check starts with, the
+/// question tool's previews and extended questions switched on, with `additional_mandated_pairs`
+/// (a pair a caller sets on this one process) over it. Fails as
 /// `build_provider_process_environment` does: a mandated name claimed twice, or an account or
 /// scratch folder that is relative or ends up empty.
 pub(crate) fn compose_claude_process_environment(
@@ -158,9 +162,9 @@ pub(crate) fn compose_claude_process_environment(
         }
     };
     let credential_homes = [
-        ("CLAUDE_CONFIG_DIR".to_owned(), config_folder),
+        (CONFIG_FOLDER_VARIABLE.to_owned(), config_folder),
         (
-            "CLAUDE_SECURESTORAGE_CONFIG_DIR".to_owned(),
+            SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
             credential_store_folder,
         ),
         ("CLAUDE_CODE_TMPDIR".to_owned(), scratch_folder),
@@ -189,22 +193,31 @@ pub(crate) fn without_interrupted_turn_resume(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use sidekicks_contracts::machine::settings::EnvironmentRow;
+    use sidekicks_contracts::wire::text::{BoundedText, NulFreeText};
     use sidekicks_platforms::PathRules;
+    use sidekicks_workspace::project::refusals::refuse_environment_rows;
 
     use super::{
         ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, ClaudeProcessHome,
         compose_claude_process_environment,
     };
+    use crate::driver::claude::DESCRIPTOR;
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::spawn_environment::{
         ReservedEnvironmentNames, SessionEnvironment, SpawnEnvironmentError,
     };
 
     // Killed by a scratch folder shared across accounts, which a purge of one account would sweep
-    // for every other, and by a shell's own value winning over the account's.
+    // for every other, by a shell's own value winning over the account's or over the question
+    // tool's switches, and by either switch left off.
     #[test]
-    fn the_account_s_own_scratch_folder_is_set_over_the_shells_value() {
-        let base = vec![("CLAUDE_CODE_TMPDIR".to_owned(), "/tmp/shell".to_owned())];
+    fn the_app_s_own_values_are_set_over_the_shells() {
+        let base = vec![
+            ("CLAUDE_CODE_TMPDIR".to_owned(), "/tmp/shell".to_owned()),
+            ("CLAUDE_CODE_QUESTION_EXTENDED".to_owned(), "0".to_owned()),
+        ];
         let reserved_names = ReservedEnvironmentNames::of_providers(&[]);
         let folders = ClaudeAccountFolders {
             config_folder: "/accounts/one/config".to_owned(),
@@ -235,10 +248,33 @@ mod tests {
             Some("/data/claude-scratch/accounts/account-1")
         );
         assert_eq!(
+            PathRules::Posix.environment_value(&environment, "CLAUDE_CODE_QUESTION_EXTENDED"),
+            Some("1")
+        );
+        assert_eq!(
+            PathRules::Posix.environment_value(&environment, "CLAUDE_CODE_QUESTION_PREVIEW_FORMAT"),
+            Some("markdown")
+        );
+        assert_eq!(
             compose_claude_process_environment(request("data"), &[]),
             Err(SpawnEnvironmentError::AccountFolderNotAbsolute {
                 name: "CLAUDE_CODE_TMPDIR".to_owned()
             })
         );
+    }
+
+    // A person's row naming either question switch is refused at save, as every name the app sets
+    // on a Claude Code process is. Killed by the switches set outside the descriptor's variables.
+    #[rstest]
+    #[case::previews("CLAUDE_CODE_QUESTION_PREVIEW_FORMAT")]
+    #[case::extended_questions("claude_code_question_extended")]
+    fn a_row_naming_a_question_switch_is_refused(#[case] name: &str) {
+        let reserved_names = ReservedEnvironmentNames::of_providers(&[&DESCRIPTOR]);
+        let row = EnvironmentRow {
+            name: BoundedText::new(name.to_owned()).expect("the test's name is bounded"),
+            value: NulFreeText::new("0".to_owned()).expect("the test's value has no NUL"),
+        };
+
+        assert!(refuse_environment_rows(&[row], reserved_names.names()).is_err());
     }
 }

@@ -343,7 +343,8 @@ impl RunQueue {
                 intervention_id: sent.intervention_id,
             });
         }
-        // A review is never handed into a turn: it goes first and marked, opening the next run.
+        // A review or a plan message is never handed into a turn: it goes first and marked, opening
+        // the next run.
         let takes_now = item.body.as_message().is_some()
             && item_run_id == run_id
             && matches!(

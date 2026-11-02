@@ -16,13 +16,13 @@ use std::fs::{self, File};
 use std::io::{self, BufWriter, Write as _};
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use rusqlite::Connection;
 use serde::Serialize;
 use serde_json::Value;
 use sidekicks_artifact::payload_store::{ContentHash, PayloadStore};
-use sidekicks_artifact::validation::FILE_NAME_MEMBER;
+use sidekicks_artifact::validation::MANIFEST_FILE_NAME_SQL;
 use sidekicks_contracts::daemon::data::{DataExportJobId, DataExportProgress};
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -78,8 +78,12 @@ const INTERVENTIONS_SQL: &str = "SELECT intervention.id, intervention.target_run
      JOIN runs AS run ON run.run_id = intervention.target_run_id \
      WHERE run.session_id = ?1 ORDER BY intervention.created_at, intervention.id";
 
-const ARTIFACT_FILES_SQL: &str = "SELECT id, json_extract(metadata, ?2), content_hash \
-     FROM artifact_manifests WHERE session_id = ?1 ORDER BY created_at, id";
+static ARTIFACT_FILES_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT id, {MANIFEST_FILE_NAME_SQL}, content_hash FROM artifact_manifests \
+         WHERE session_id = ?1 ORDER BY created_at, id"
+    )
+});
 
 // Only these columns are read: the registry's other columns stay out of the folder.
 const ACCOUNTS_SQL: &str = "SELECT provider, coalesce(display_label, observed_account_email), \
@@ -293,16 +297,9 @@ async fn run_export(
             total_bytes: SafeInt::new(total_bytes).expect("an export's bytes are a safe integer"),
         },
         Err(failure) => {
-            let removed = destination.to_path_buf();
-            let removal = match tokio::task::spawn_blocking(move || {
-                sidekicks_platforms::remove_tree(&removed)
-            })
-            .await
+            if let Err(removal_failure) =
+                sidekicks_platforms::remove_tree_awaited(destination).await
             {
-                Ok(removal) => removal,
-                Err(failure) => Err(io::Error::other(failure)),
-            };
-            if let Err(removal_failure) = removal {
                 tracing::warn!(
                     folder = %destination.display(),
                     error = &removal_failure as &(dyn Error + 'static),
@@ -588,17 +585,14 @@ fn write_session_files(
     payloads: &PayloadStore,
 ) -> Result<(), ExportError> {
     let rows = connection
-        .prepare_cached(ARTIFACT_FILES_SQL)?
-        .query_map(
-            [session_id.text().as_str(), &format!("$.{FILE_NAME_MEMBER}")],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            },
-        )?
+        .prepare_cached(&ARTIFACT_FILES_SQL)?
+        .query_map([session_id.text().as_str()], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     for (manifest_id, file_name, content_hash) in rows {
         let content_hash = ContentHash::from_stored(content_hash)

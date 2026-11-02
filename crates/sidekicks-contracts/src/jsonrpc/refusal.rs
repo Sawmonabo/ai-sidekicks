@@ -368,6 +368,13 @@ refusal_codes! {
     /// The server publishes no sign-in route: no protected-resource or authorization-server
     /// metadata, or metadata the daemon cannot read.
     McpServerSignInUnsupported = "mcp.server.signInUnsupported" (Unimplemented, 422);
+    /// A `fresh` verdict handed the plan off but a step after that did not finish; the plan stays
+    /// handed off and the next `fresh` runs the unfinished steps again (`data.fields`:
+    /// `PlanHandOffUnfinishedDetails`).
+    PlanHandOffUnfinished = "plan.handOffUnfinished" (FailedPrecondition, 409);
+    /// The keychain refused to delete the server's sign-in, so it stays held and in use
+    /// (`data.fields`: `provider`, `scope`, `serverName`, and the keychain's `cause`).
+    McpServerSignOutFailed = "mcp.server.signOutFailed" (Unavailable, 503);
     /// `plan.resolve` named a plan the daemon does not hold.
     PlanNotFound = "plan.notFound" (NotFound, 404);
     /// An address Preview will not open.

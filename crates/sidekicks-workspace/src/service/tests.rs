@@ -29,6 +29,7 @@ const SESSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e70";
 const OTHER_SESSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e71";
 const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e72";
 const WORKSPACE_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e73";
+const NON_HOLDER_SESSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e74";
 
 /// The service over a test database whose sessions `SESSION_ID` and `OTHER_SESSION_ID` exist, and
 /// a connection the test writes rows through.
@@ -140,26 +141,45 @@ async fn a_repeat_bind_answers_the_live_workspace_without_probing_or_writing() {
 }
 
 #[tokio::test]
-async fn a_bind_to_another_chats_managed_mount_is_refused_writing_nothing() {
-    // Catches the managed-owner check dropped: the bind would go on to probe the mount.
+async fn a_bind_to_a_chat_folder_admits_each_holder_and_refuses_any_other_writing_nothing() {
+    // Catches the bind refusing a holder that is not the chat the folder is made for, and a chat
+    // holding none admitted: the planning chat's folder binds the fresh chat holding it, and a
+    // third chat is refused before any probe or write.
     let database = TestDatabase::new(schema_parts());
     let (service, rows) = open_service(&database).await;
+    insert_session_row(&rows, NON_HOLDER_SESSION_ID, None, None);
+    let (_temporary, root) = new_repository().await;
+    let root = root.to_string_lossy();
     rows.execute_batch(&format!(
         "INSERT INTO repo_mounts (id, machine_id, local_path, canonical_root, origin, \
          managed_session_id, attached_at, updated_at) VALUES ('{MOUNT_ID}', 'machine', \
-         '/chats/other', '/chats/other', 'managed', '{OTHER_SESSION_ID}', '{PARENT_ROWS_AT}', \
-         '{PARENT_ROWS_AT}')"
+         '{root}', '{root}', 'managed', '{OTHER_SESSION_ID}', '{PARENT_ROWS_AT}', \
+         '{PARENT_ROWS_AT}');
+         INSERT INTO managed_folder_holds (repo_mount_id, session_id) VALUES \
+         ('{MOUNT_ID}', '{OTHER_SESSION_ID}'), ('{MOUNT_ID}', '{SESSION_ID}')"
     ))
-    .expect("the managed mount is admitted");
+    .expect("the planning chat's folder and its two holds are admitted");
 
-    let refused = service
+    let bound = service
         .bind(&bind_request(SESSION_ID))
         .await
-        .expect_err("another chat's folder is its own");
+        .expect("the chat holding the folder binds it");
+    let refused = service
+        .bind(&bind_request(NON_HOLDER_SESSION_ID))
+        .await
+        .expect_err("a chat holding none is refused");
 
+    assert_eq!(bound.state, WorkspaceState::Preparing);
     assert_eq!(refusal_code(&refused), RefusalCode::RepoMountManaged);
-    assert_eq!(count(&rows, "SELECT count(*) FROM workspaces"), 0);
-    assert_eq!(count(&rows, "SELECT count(*) FROM session_events"), 0);
+    assert_eq!(
+        count(
+            &rows,
+            &format!("SELECT count(*) FROM workspaces WHERE session_id = '{SESSION_ID}'")
+        ),
+        1
+    );
+    assert_eq!(count(&rows, "SELECT count(*) FROM workspaces"), 1);
+    assert_eq!(count(&rows, "SELECT count(*) FROM session_events"), 1);
 }
 
 #[tokio::test]

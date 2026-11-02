@@ -169,11 +169,9 @@ impl ProviderSessions {
         mode: SessionMode,
     ) -> Result<(), ProviderSessionError> {
         let _hold = self.deps.transition_lock.acquire(session_id).await;
-        self.refuse_ended(session_id).await?;
-        let (level, stored) = self.read_controls(session_id).await?;
-        if stored == mode {
+        let Some((level, stored)) = self.controls_before_mode_move(session_id, mode).await? else {
             return Ok(());
-        }
+        };
         let driver = match self.process_state(session_id)? {
             Some(OpenedProcess {
                 state: SessionProcessState::Live | SessionProcessState::Restarting,
@@ -184,12 +182,7 @@ impl ProviderSessions {
                 state: SessionProcessState::Down,
                 ..
             })
-            | None => {
-                return self
-                    .record_move(session_id, level, mode, MovedControls::Mode)
-                    .await
-                    .map_err(|cause| ProviderSessionError::ModeNotStored { session_id, cause });
-            }
+            | None => return self.store_mode(session_id, level, mode).await,
         };
         driver
             .update_session_mode(UpdateSessionModeParams {
@@ -220,6 +213,24 @@ impl ProviderSessions {
                 moved_back,
             }),
         }
+    }
+
+    /// Stores `mode` with the `LevelMoved` notice for a session whose provider has already moved
+    /// to it, under the session's transition lock and with nothing sent to its driver; a session
+    /// already stored in `mode`, as when the provider's own report of the move was followed first,
+    /// takes no write. Fails as [`ProviderSessions::change_mode`] fails for a closed session, and
+    /// with [`ProviderSessionError::ModeNotStored`] carrying `session.notFound` for one gone
+    /// meanwhile.
+    pub async fn record_mode(
+        &self,
+        session_id: SessionId,
+        mode: SessionMode,
+    ) -> Result<(), ProviderSessionError> {
+        let _hold = self.deps.transition_lock.acquire(session_id).await;
+        let Some((level, _stored)) = self.controls_before_mode_move(session_id, mode).await? else {
+            return Ok(());
+        };
+        self.store_mode(session_id, level, mode).await
     }
 
     /// Follows the level or mode the session's live process reported moving to on its own, read
@@ -266,14 +277,8 @@ impl ProviderSessions {
                 })
                 .await?;
             return self
-                .record_move(
-                    session_id,
-                    stored_level,
-                    reported.session_mode,
-                    MovedControls::Mode,
-                )
-                .await
-                .map_err(|cause| ProviderSessionError::ModeNotStored { session_id, cause });
+                .store_mode(session_id, stored_level, reported.session_mode)
+                .await;
         };
         let posture = compose_execution_posture(level, opened.git_folder);
         let resolved = resolve_posture(&posture)
@@ -346,6 +351,30 @@ impl ProviderSessions {
                 ))
             })
             .await
+    }
+
+    // The level and the mode a session stands at before a move to `mode`, read under its held
+    // transition lock once a closed session is refused; `None` when it stands in `mode` already.
+    async fn controls_before_mode_move(
+        &self,
+        session_id: SessionId,
+        mode: SessionMode,
+    ) -> Result<Option<(PermissionLevel, SessionMode)>, ProviderSessionError> {
+        self.refuse_ended(session_id).await?;
+        let (level, stored) = self.read_controls(session_id).await?;
+        Ok((stored != mode).then_some((level, stored)))
+    }
+
+    // Stores the session in `mode` at `level` with the `LevelMoved` notice.
+    async fn store_mode(
+        &self,
+        session_id: SessionId,
+        level: PermissionLevel,
+        mode: SessionMode,
+    ) -> Result<(), ProviderSessionError> {
+        self.record_move(session_id, level, mode, MovedControls::Mode)
+            .await
+            .map_err(|cause| ProviderSessionError::ModeNotStored { session_id, cause })
     }
 
     // Writes the controls `moved` names, the session standing at `level` and `session_mode`, with

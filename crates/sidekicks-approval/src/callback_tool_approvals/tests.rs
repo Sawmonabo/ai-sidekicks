@@ -145,7 +145,7 @@ impl SeamFixture {
             .assert_run_ready(&RunSetupContext {
                 run_id: check.approvals.run_id,
                 session_id: check.approvals.session_id,
-                queue_item: None,
+                opening_words: None,
                 workspace_id: None,
                 execution_posture: posture,
             })
