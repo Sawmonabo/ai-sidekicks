@@ -1,55 +1,85 @@
 //! This user's own folder on a volume, on macOS and Linux: `.ai-sidekicks-<uid>`, made readable by
 //! its owner alone or found and made so again, and refused where a link, a file or another user's
-//! folder holds the name.
+//! folder holds the name, or where another account could swap the folder for its own.
 
-use std::fs::{self, OpenOptions, Permissions};
+use std::fs::{self, File, OpenOptions, Permissions};
 use std::io::{self, ErrorKind};
 use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use std::path::{Path, PathBuf};
 
+use nix::errno::Errno;
+use nix::fcntl::{OFlag, openat};
+use nix::sys::stat::{Mode, mkdirat};
 use nix::unistd::getuid;
 
 use crate::posix::error_codes::is_link_loop;
-use crate::posix::private_folder::{PRIVATE_FOLDER_MODE, create_new_private_folder};
+use crate::posix::private_folder::PRIVATE_FOLDER_MODE;
 use crate::volume::user_folder_name;
 
+// The mode bits that let the folder's group or any other account write in it.
+const GROUP_OR_OTHER_WRITE_BITS: u32 = 0o022;
+
+// The sticky bit, which keeps others from renaming or removing an entry they do not own.
+const STICKY_BIT: u32 = 0o1000;
+
 /// Makes or finds this user's folder `.ai-sidekicks-<uid>` in `place`, readable by its owner alone,
-/// and answers its path; a folder the user made earlier with other bits is made private again.
-/// Answers `None` where `place` refuses the make (`EACCES`, `EPERM`, `EROFS`) or a link, a file or
-/// another user's folder holds the name; fails with any other error.
+/// with no access list entry it inherited, and answers its path; a folder the user made earlier
+/// with other bits is made private again. Answers `None` where `place` refuses the make (`EACCES`,
+/// `EPERM`, `EROFS`), where others may write in `place` and it has no sticky bit, so another
+/// account could rename the folder and plant its own, or where a link, a file or another user's
+/// folder holds the name; fails with any other error.
 pub(crate) fn create_user_folder_in(place: &Path) -> io::Result<Option<PathBuf>> {
     let user = getuid();
-    let folder = place.join(user_folder_name(user));
-    if let Err(error) = create_new_private_folder(&folder) {
-        if is_refusal(&error) {
-            return Ok(None);
-        }
-        if error.kind() != ErrorKind::AlreadyExists {
-            return Err(error);
-        }
+    let name = user_folder_name(user);
+    // The place is held open, so its check, the make and the open all reach the one folder its
+    // path named when the call began.
+    let opened_place = match OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY)
+        .open(place)
+    {
+        Ok(opened_place) => opened_place,
+        Err(error) if is_refusal(&error) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let place_mode = opened_place.metadata()?.mode();
+    if place_mode & GROUP_OR_OTHER_WRITE_BITS != 0 && place_mode & STICKY_BIT == 0 {
+        return Ok(None);
+    }
+    match mkdirat(&opened_place, name.as_str(), Mode::S_IRWXU) {
+        Ok(()) | Err(Errno::EEXIST) => {}
+        Err(errno) if is_refusal(&io::Error::from(errno)) => return Ok(None),
+        Err(errno) => return Err(errno.into()),
     }
     // Opened without following a link, so the owner read and the mode change reach the entry at
     // the name itself: a link there answers `ELOOP`, a file `ENOTDIR`.
-    let opened = match OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(&folder)
-    {
-        Ok(opened) => opened,
-        Err(error)
+    let opened = match openat(
+        &opened_place,
+        name.as_str(),
+        OFlag::O_RDONLY | OFlag::O_DIRECTORY | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+        Mode::empty(),
+    ) {
+        Ok(opened) => File::from(opened),
+        Err(errno) => {
+            let error = io::Error::from(errno);
             if is_refusal(&error)
                 || error.kind() == ErrorKind::NotADirectory
-                || is_link_loop(&error) =>
-        {
-            return Ok(None);
+                || is_link_loop(&error)
+            {
+                return Ok(None);
+            }
+            return Err(error);
         }
-        Err(error) => return Err(error),
     };
     if opened.metadata()?.uid() != user.as_raw() {
         return Ok(None);
     }
     opened.set_permissions(Permissions::from_mode(PRIVATE_FOLDER_MODE))?;
-    Ok(Some(folder))
+    // macOS keeps an access list's entries past a mode change, so the ones the folder inherited
+    // from its place would still let others in.
+    #[cfg(target_os = "macos")]
+    crate::macos::access_control_list::remove_access_control_list(&opened)?;
+    Ok(Some(place.join(name)))
 }
 
 /// Whether this user owns `folder`, read without following a link. Fails with the read's error.
@@ -127,6 +157,59 @@ mod tests {
             None
         );
         assert_eq!(mode_of(target.path()), 0o755);
+    }
+
+    // Fails when the check of the place's mode goes, so a folder in a place others may write with
+    // no sticky bit is answered, or when it refuses a place whose sticky bit keeps the folder the
+    // user's.
+    #[rstest]
+    #[case::open_without_sticky_bit(0o777, false)]
+    #[case::group_writable_without_sticky_bit(0o770, false)]
+    #[case::open_with_sticky_bit(0o1777, true)]
+    fn a_place_others_may_write_gets_a_folder_only_with_its_sticky_bit(
+        #[case] place_mode: u32,
+        #[case] is_folder_made: bool,
+    ) {
+        let place = tempfile::tempdir().expect("a scratch folder");
+        fs::set_permissions(place.path(), Permissions::from_mode(place_mode))
+            .expect("the place's mode is set");
+
+        let made = create_user_folder_in(place.path()).expect("the place is read");
+
+        assert_eq!(made.is_some(), is_folder_made);
+        assert_eq!(user_folder(place.path()).exists(), is_folder_made);
+    }
+
+    // Fails when the access list entries the folder inherits from its place stay, which keep
+    // letting others in after the mode change.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_folder_keeps_no_access_list_entry_its_place_passes_down() {
+        let place = tempfile::tempdir().expect("a scratch folder");
+        let granted = std::process::Command::new("/bin/chmod")
+            .args([
+                "+a",
+                "everyone allow list,search,file_inherit,directory_inherit",
+            ])
+            .arg(place.path())
+            .status()
+            .expect("chmod runs");
+        assert!(granted.success(), "the place's inheritable entry is set");
+
+        let folder = create_user_folder_in(place.path())
+            .expect("the folder is made")
+            .expect("the place holds a folder");
+        let listing = std::process::Command::new("/bin/ls")
+            .arg("-lde")
+            .arg(&folder)
+            .output()
+            .expect("ls runs");
+
+        let listing = String::from_utf8_lossy(&listing.stdout);
+        assert!(
+            !listing.contains("everyone"),
+            "the folder holds no inherited entry: {listing}"
+        );
     }
 
     // Fails when a place that refuses the make answers an error rather than no folder.

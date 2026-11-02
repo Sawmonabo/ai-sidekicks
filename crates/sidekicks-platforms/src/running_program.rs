@@ -1,6 +1,9 @@
 //! The program this process runs: the processor it is built for, and its path on disk, which a
 //! later read finds gone once the program's file is removed, or on Linux replaced.
 
+#[cfg(not(target_os = "linux"))]
+pub(crate) mod replaced_mark;
+
 use std::io;
 use std::path::{Path, PathBuf};
 

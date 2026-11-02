@@ -19,7 +19,8 @@ pub fn read_clone_refusal(
 ) -> Result<CloneRefusal, io::Error> {
     match error.raw_os_error() {
         Some(code) if code == libc::EXDEV => Ok(CloneRefusal::AcrossVolumes),
-        // Linux gives both names one value; each is compared, never matched, so neither goes unread.
+        // Linux gives both names one value; each is compared, never matched, so neither goes
+        // unread.
         Some(code) if code == libc::ENOTSUP || code == libc::EOPNOTSUPP => {
             Ok(CloneRefusal::Unsupported)
         }

@@ -14,6 +14,10 @@ pub(crate) const MOUNT_INFO_PATH: &str = "/proc/self/mountinfo";
 /// One mount of the table: where it sits, the folder of its file system it shows there, and what
 /// it mounts, the last three as the table writes them, so text built from them holds no space.
 pub(crate) struct MountEntry<'a> {
+    /// The mount's id in the table.
+    pub(crate) id: &'a str,
+    /// The id of the mount it sits on, which is not in the table for the namespace's root.
+    pub(crate) parent_id: &'a str,
     /// The folder the mount sits at, decoded.
     pub(crate) mount_point: PathBuf,
     /// The folder of its file system the mount shows at its mount point, decoded.
@@ -32,27 +36,52 @@ pub(crate) fn mount_entries(mount_info: &str) -> impl Iterator<Item = MountEntry
     mount_info.lines().filter_map(read_entry)
 }
 
-/// The mount in `mount_info` whose mount point holds `path` most deeply, compared by components;
-/// `None` when none holds it.
+/// The mount in `mount_info` a lookup of `path` ends in, mount points compared by components:
+/// walking down from the namespace's root, each step takes the mount sitting on the one before
+/// whose mount point holds the path and comes first along it, so a mount over an ancestor folder
+/// hides one mounted deeper before it, and a mount stacked on a point hides the one beneath.
+/// `None` when no mount holds it.
 pub(crate) fn mount_holding<'a>(mount_info: &'a str, path: &Path) -> Option<MountEntry<'a>> {
-    mount_entries(mount_info)
+    let mut entries: Vec<MountEntry<'a>> = mount_entries(mount_info)
         .filter(|entry| path.starts_with(&entry.mount_point))
-        // `max_by_key` keeps the last of equal keys, so of two mounts stacked on one point the later
-        // line wins, as the kernel resolves it.
-        .max_by_key(|entry| entry.mount_point.components().count())
+        .collect();
+    let ids: Vec<&str> = mount_entries(mount_info).map(|entry| entry.id).collect();
+    let mut holding: Option<MountEntry<'a>> = None;
+    loop {
+        let parent_id = holding.as_ref().map(|entry| entry.id);
+        let next = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| match parent_id {
+                Some(parent_id) => entry.parent_id == parent_id,
+                None => !ids.contains(&entry.parent_id),
+            })
+            .min_by_key(|(_, entry)| entry.mount_point.components().count())
+            .map(|(index, _)| index);
+        match next {
+            Some(index) => holding = Some(entries.swap_remove(index)),
+            None => return holding,
+        }
+    }
 }
 
-// One line's mount: before the separator the fourth field is the root and the fifth the mount
-// point, ahead of any optional field; after it, the type and then the source.
+// One line's mount: before the separator the first field is its id, the second its parent's, the
+// fourth the root and the fifth the mount point, ahead of any optional field; after it, the type
+// and then the source.
 fn read_entry(line: &str) -> Option<MountEntry<'_>> {
     let (mount_fields, file_system_fields) = line.split_once(" - ")?;
-    let mut mount_fields = mount_fields.split(' ').skip(3);
+    let mut mount_fields = mount_fields.split(' ');
+    let id = mount_fields.next()?;
+    let parent_id = mount_fields.next()?;
+    let mut mount_fields = mount_fields.skip(1);
     let written_root = mount_fields.next()?;
     let written_mount_point = mount_fields.next()?;
     let mut file_system_fields = file_system_fields.split(' ');
     let file_system_type = file_system_fields.next()?;
     let source = file_system_fields.next()?;
     Some(MountEntry {
+        id,
+        parent_id,
         mount_point: decode(written_mount_point),
         root: decode(written_root),
         written_root,
@@ -75,9 +104,10 @@ mod tests {
 
     const ROOT_LINE: &str = "21 1 8:1 / / rw,relatime shared:1 - ext4 /dev/sda1 rw\n";
 
-    // Fails when a mount point is matched as a string prefix, the earlier of two stacked lines is
-    // kept, a field is read from the wrong place, a mount point is left escaped, or the root, type
-    // or source is decoded, so an id built from them could hold a space.
+    // Fails when a mount point is matched as a string prefix, the mount beneath a stacked one is
+    // kept, a mount hidden under a later mount over an ancestor folder is taken for being deeper, a
+    // field is read from the wrong place, a mount point is left escaped, or the root, type or
+    // source is decoded, so an id built from them could hold a space.
     #[rstest]
     #[case::deepest_over_root(
         "30 21 8:2 / /mnt/data rw - xfs /dev/sdb1 rw",
@@ -88,6 +118,11 @@ mod tests {
         "30 21 0:40 / /mnt/s rw - tmpfs first rw\n31 30 0:41 / /mnt/s rw - tmpfs second rw",
         "/mnt/s/f",
         ("/mnt/s", "/", "tmpfs", "second")
+    )]
+    #[case::over_mount_on_an_ancestor(
+        "30 21 8:2 / /mnt/data rw - xfs /dev/sdb1 rw\n31 21 0:40 / /mnt rw - tmpfs over rw",
+        "/mnt/data/f",
+        ("/mnt", "/", "tmpfs", "over")
     )]
     #[case::escaped_mount_point(
         "30 21 8:3 / /mnt/my\\040disk rw - ext4 /dev/sdc1 rw",
@@ -114,7 +149,7 @@ mod tests {
         "/mnt/d/f",
         ("/mnt/d", "/a\\040b", "ext4", "my\\040source")
     )]
-    fn the_deepest_mount_holding_a_path_is_found_with_its_id_parts_as_written(
+    fn the_mount_a_path_reaches_is_found_with_its_id_parts_as_written(
         #[case] mounts: &str,
         #[case] path: &str,
         #[case] expected: (&str, &str, &str, &str),

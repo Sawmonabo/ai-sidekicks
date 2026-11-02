@@ -48,7 +48,10 @@
               `SIO_AF_UNIX_GETPEERPID`) and the mark that lets `async-io` drive it (`IoSafe`), the \
               run folder's owner and access list (`GetSecurityInfo`, `GetAce`, `IsWellKnownSid`), \
               Windows' volume GUID path read of an open file or folder \
-              (`GetFinalPathNameByHandleW`), \
+              (`GetFinalPathNameByHandleW`), macOS's volume reads (`statfs`'s mount point and \
+              `getattrlist`'s volume UUID) and access list removal (`filesec_init`, \
+              `filesec_set_property`, `fchmodx_np`, `filesec_free`), the Windows user folder's make with its security \
+              descriptor (`CreateDirectoryW`) and its hidden mark (`SetFileInformationByHandle`), \
               a Windows child's output read at its exit (`CancelIoEx`, `PeekNamedPipe`), the \
               daemon's process containment (Windows' kill-on-close job through `CreateJobObjectW`, \
               `SetInformationJobObject` and `AssignProcessToJobObject`, and Linux's `poll` of its \
@@ -271,8 +274,6 @@ pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
 pub use macos::responsibility::become_own_root;
 #[cfg(target_os = "macos")]
-pub(crate) use macos::running_program::is_program_path_marked_replaced;
-#[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "macos")]
 pub use macos::sign_in_move::{SignInMove, sign_in_move};
@@ -471,6 +472,8 @@ pub use program_start::{ProgramStart, program_start};
 pub use recreate_link::recreate_link;
 pub use regular_file_open::RegularFileOpen;
 pub use run_folder::{DaemonRunFolder, RunFolderRefused, askpass_socket_path};
+#[cfg(not(target_os = "linux"))]
+pub(crate) use running_program::replaced_mark::is_program_path_marked_replaced;
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
 #[cfg(any(test, feature = "test-support"))]
 pub use scratch_volume::{ScratchVolume, scratch_volume};
@@ -626,8 +629,6 @@ pub use windows::real_path::real_path;
 pub use windows::run_folder::{
     RUN_FOLDER_FILE_MODE, check_private_run_folder, create_private_run_folder, daemon_run_folder,
 };
-#[cfg(target_os = "windows")]
-pub(crate) use windows::running_program::is_program_path_marked_replaced;
 #[cfg(target_os = "windows")]
 pub use windows::secret_pipe::{SecretPipe, secret_pipe};
 #[cfg(target_os = "windows")]

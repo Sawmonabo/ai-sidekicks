@@ -27,8 +27,9 @@ mod tests {
 
     use crate::{file_facts, file_facts_of};
 
-    // Fails when the link count is fixed or read apart from the other facts, or when an open file's
-    // facts are read through its path, which names another file once one is renamed over it.
+    // Fails when the link count is fixed, when a path and a handle on one file read different
+    // facts, or when an open file's facts are read through its path, which names another file once
+    // one is renamed over it.
     #[test]
     fn a_files_link_count_and_its_open_facts_come_from_one_read_of_that_file() {
         let folder = tempfile::tempdir().expect("a scratch folder is made");
