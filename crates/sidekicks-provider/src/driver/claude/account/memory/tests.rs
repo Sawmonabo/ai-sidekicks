@@ -6,7 +6,7 @@ use sidekicks_store::data_folder::agent_memory_folder;
 
 use crate::account::memory_import::MemoryImportError;
 use crate::account::memory_import::test_fixture::{Fixture, imported_count, snapshot, write};
-use crate::driver::claude::account::ClaudeAccountLegs;
+use crate::driver::claude::account::test_account_legs;
 use crate::driver::contract::account::ProviderMemoryImportLegs;
 use crate::driver::test_registry::test_driver_services;
 
@@ -20,7 +20,7 @@ fn claude_legs(fixture: &Fixture) -> Arc<dyn ProviderMemoryImportLegs> {
         "CLAUDE_CONFIG_DIR".to_owned(),
         claude_folder(fixture).display().to_string(),
     )]);
-    Arc::new(ClaudeAccountLegs::new(&services))
+    Arc::new(test_account_legs(&services))
 }
 
 fn claude_folder(fixture: &Fixture) -> PathBuf {
