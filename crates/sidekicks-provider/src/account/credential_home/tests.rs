@@ -147,11 +147,12 @@ async fn a_reset_leaves_a_husked_home_that_reads_signed_out_and_keeps_its_folder
         *legs.0.lock().expect("the record is not poisoned"),
         [(account.account_id.clone(), folders)]
     );
-    let names: Vec<_> = fs::read_dir(home)
+    let mut names: Vec<_> = fs::read_dir(home)
         .expect("the home's folder is still there")
         .map(|entry| entry.expect("an entry reads").file_name())
         .collect();
-    assert_eq!(names, ["agent-memory"]);
+    names.sort();
+    assert_eq!(names, ["agent-memory", "store"]);
     assert_eq!(
         fs::read(agent_memory_folder(data_folder.path()).join("notes.md"))
             .expect("the shared memory is kept"),
@@ -171,8 +172,10 @@ async fn a_reset_leaves_a_husked_home_that_reads_signed_out_and_keeps_its_folder
     );
 }
 
-// A Claude Code home's `agent-memory` is the daemon's one all-projects memory folder. Killed by
-// the link aimed at the person's own Claude Code memory folder, or at none.
+// A Claude Code home's `agent-memory` is the daemon's one all-projects memory folder, and its
+// credential store folder stands from the mint, readable by its owner alone. Killed by the link
+// aimed at the person's own Claude Code memory folder, or at none, or by a mint that leaves the
+// store folder to the provider.
 #[test]
 fn a_claude_code_home_s_agent_memory_resolves_to_the_all_projects_folder() {
     let data_folder = tempfile::tempdir().expect("a data folder");
@@ -186,4 +189,11 @@ fn a_claude_code_home_s_agent_memory_resolves_to_the_all_projects_folder() {
         real_path(&home.path().join("agent-memory")).expect("the link resolves"),
         real_path(&agent_memory_folder(data_folder.path())).expect("the shared folder resolves")
     );
+    let store = fs::metadata(home.path().join("store")).expect("the store folder stands");
+    assert!(store.is_dir());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        assert_eq!(store.permissions().mode() & 0o777, 0o700);
+    }
 }

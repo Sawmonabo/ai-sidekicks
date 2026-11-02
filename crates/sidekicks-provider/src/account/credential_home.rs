@@ -5,7 +5,8 @@
 //!
 //! Where the provider keeps its agents' memory in its home, that folder is a link to the daemon's
 //! own agent-memory folder, made with the home and again after each reset, so every account's
-//! agents share one memory.
+//! agents share one memory; the folder the provider keeps the sign-in in is made with them,
+//! readable by its owner alone.
 
 use std::fmt;
 use std::fs;
@@ -26,6 +27,7 @@ use sidekicks_store::data_folder::agent_memory_folder;
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::ProviderAccountRegistry;
+use crate::account::resolver::credential_home_folders;
 use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
 use crate::driver::{ProviderAccountFolders, descriptor_of};
@@ -101,8 +103,9 @@ pub fn classify_credential_home(
 
 /// Makes `account_id`'s home under `data_folder`, readable by its owner alone from the moment it
 /// exists, with the folder of homes above it where that is missing, and `provider`'s memory link
-/// in it. Fails with the system's error, `AlreadyExists` when a folder already stands there, which
-/// is never taken over; a home whose link could not be made is removed again.
+/// and credential store folder in it. Fails with the system's error, `AlreadyExists` when a folder
+/// already stands there, which is never taken over; a home whose contents could not be made is
+/// removed again.
 pub(super) fn create_credential_home(
     data_folder: &Path,
     provider: &ProviderId,
@@ -112,11 +115,22 @@ pub(super) fn create_credential_home(
     create_missing_private_folders(&homes)?;
     let home = CredentialHome(homes.join(account_id.as_str()));
     create_new_private_folder(home.path())?;
-    if let Err(error) = link_agent_memory(data_folder, provider, &home) {
+    if let Err(error) = furnish_credential_home(data_folder, provider, &home) {
         remove_credential_home(&home)?;
         return Err(error);
     }
     Ok(home)
+}
+
+// Makes what an empty `home` holds before any sign-in: `provider`'s memory link and the folder it
+// keeps the account's sign-in in, readable by its owner alone.
+fn furnish_credential_home(
+    data_folder: &Path,
+    provider: &ProviderId,
+    home: &CredentialHome,
+) -> io::Result<()> {
+    link_agent_memory(data_folder, provider, home)?;
+    create_missing_private_folders(&credential_home_folders(provider, home).credential_store_folder)
 }
 
 // Links the folder `provider` keeps its agents' memory in under `home` to the daemon's own
@@ -193,7 +207,7 @@ pub async fn reset_credential_home(
         for entry in fs::read_dir(home.path())? {
             remove_tree(&entry?.path())?;
         }
-        link_agent_memory(&data_folder, &provider, &home)
+        furnish_credential_home(&data_folder, &provider, &home)
     })
     .await?;
     Ok(registry
