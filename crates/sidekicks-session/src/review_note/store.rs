@@ -45,7 +45,7 @@ use sidekicks_store::database::statement::{
     StatementBindings, StatementResult, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::{
-    closed_word, optional_text_column, safe_int_column, text_column,
+    closed_word, optional_safe_int_column, optional_text_column, safe_int_column, text_column,
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use tokio::sync::Notify;
@@ -655,13 +655,6 @@ fn stored_note_of(row: &Row<'_>) -> rusqlite::Result<StoredNote> {
 
 fn git_object_id(text: String) -> Result<GitObjectId, StoredNoteMemberInvalid> {
     GitObjectId::new(text).ok_or(StoredNoteMemberInvalid("commit or blob id"))
-}
-
-// The nullable INTEGER column at `index` as a safe integer from 1, `None` for `NULL`.
-fn optional_safe_int_column(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<SafeInt<1>>> {
-    row.get::<_, Option<i64>>(index)?
-        .map(|_| safe_int_column(row, index))
-        .transpose()
 }
 
 // The id a delete's `RETURNING note_id` row names.

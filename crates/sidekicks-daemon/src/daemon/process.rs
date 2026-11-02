@@ -478,7 +478,8 @@ impl DaemonProcess {
             Arc::clone(&reads),
             Arc::clone(&writer),
         )));
-        let configuration = Arc::new(ConfigurationStore::open(Arc::clone(&writer), &reads).await?);
+        let configuration =
+            Arc::new(ConfigurationStore::open(Arc::clone(&writer), Arc::clone(&reads)).await?);
         let mut builder = MethodRegistryBuilder::new();
         let artifacts = register_artifact_methods(
             &mut builder,
