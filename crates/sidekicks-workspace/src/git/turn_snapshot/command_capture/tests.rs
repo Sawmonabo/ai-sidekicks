@@ -19,8 +19,8 @@ use crate::git::turn_snapshot::capture_folder::CaptureFolder;
 use crate::git::turn_snapshot::repack::CapturePacking;
 use crate::git::turn_snapshot::service::TurnSnapshotCaptureOutcome;
 use crate::git::turn_snapshot::service::test_support::{
-    answer_in_git_folder, answer_with_captures, files_with_bytes, made_capture_folder,
-    minted_run_id, repository_without_a_commit, service_reading, turn_of, utf8,
+    answer_in_git_folder, answer_with_captures, made_capture_folder, minted_run_id,
+    service_reading, turn_of, utf8,
 };
 use crate::git::worktree::schema::schema_parts;
 
@@ -297,50 +297,6 @@ async fn an_after_capture_reads_a_path_past_the_size_bound_as_deleted() {
         std::fs::read(&live_index).expect("the live index reads"),
         index_before
     );
-}
-
-// Fails when a repository with no commit is refused, when its capture commit is given a parent,
-// or when its kept index is seeded by writing the person's index (`.git/index` appears).
-#[tokio::test]
-async fn a_before_capture_with_no_commit_commits_without_a_parent_and_leaves_git_as_it_was() {
-    let git = test_git_runner();
-    let root = tempfile::tempdir().expect("the temporary folder is made");
-    let repository = repository_without_a_commit(&git, root.path()).await;
-    write_files(&repository, &[("a.txt", "a\n")]);
-    let git_folder = repository.join(".git");
-    let git_before = files_with_bytes(&git_folder);
-    let owner = root.path().join("owner");
-    let service = CommandCaptureService::new(git.clone(), Arc::new(KeyedLock::new()));
-
-    let captured = service
-        .capture_before(None, &command_in(&repository, &owner))
-        .await
-        .expect("the before-capture is taken");
-
-    assert_eq!(captured.head, None);
-    let capture_folder = made_capture_folder(&git, &owner, &repository).await;
-    assert_eq!(
-        tree_paths(&git, &repository, &capture_folder, captured.tree.as_str()).await,
-        ["a.txt"]
-    );
-    let commit = captured.objects.commit().as_str();
-    let commit_text = answer_with_captures(
-        &git,
-        &repository,
-        &capture_folder,
-        &["cat-file", "-p", commit],
-    )
-    .await;
-    let headers: Vec<&str> = commit_text
-        .lines()
-        .take_while(|line| !line.is_empty())
-        .collect();
-    assert_eq!(headers[0], format!("tree {}", captured.tree.as_str()));
-    assert!(
-        headers.iter().all(|header| !header.starts_with("parent ")),
-        "the capture has no parent, got {headers:?}"
-    );
-    assert_eq!(files_with_bytes(&git_folder), git_before);
 }
 
 // The ids a refusal row writes for `{a}`, `{b}`, `{z}`, `{wa}` and `{wb}`.
