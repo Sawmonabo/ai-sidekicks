@@ -386,6 +386,7 @@ impl DaemonProcess {
         let reads = Arc::clone(&database.pool);
         let event_log = Arc::clone(&database.event_log);
         let truncation = Arc::clone(&database.truncation);
+        let read_damaged_from_sequence = Arc::clone(&database.read_damaged_from_sequence);
         let followers = Arc::clone(&database.followers);
         let status = Arc::clone(&database.status);
         let damage = DispatchDamageWatch(Arc::clone(&database.damage));
@@ -498,6 +499,7 @@ impl DaemonProcess {
                 session_token_path: run_folder.token_path.clone(),
                 reads: Arc::clone(&reads),
                 writer: Arc::clone(&writer),
+                read_damaged_from_sequence,
                 attachments: Arc::clone(&artifacts.attachments) as _,
                 git: git.clone(),
                 base_environment: Arc::clone(&base_environment),

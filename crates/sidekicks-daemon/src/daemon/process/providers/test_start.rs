@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::Spawner;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -62,6 +63,7 @@ impl TestStart {
                     READ_STATEMENT_CAPACITY,
                 )),
                 writer: Arc::clone(&log.writer),
+                read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
                 attachments: Arc::new(NothingServed),
                 git: GitRunner::new(
                     spawner,
