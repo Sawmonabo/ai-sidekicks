@@ -30,6 +30,10 @@ const NOT_ACCOUNT_HOME_LINE: &str = "error: HOME is not set to your home folder,
 struct AgentBootOut;
 
 impl Drop for AgentBootOut {
+    #[expect(
+        clippy::print_stderr,
+        reason = "a drop cannot fail the test, so a failed removal is said on its output"
+    )]
     fn drop(&mut self) {
         let registration = service_registration().expect("macOS registers the service");
         if let Err(error) = registration.uninstall() {

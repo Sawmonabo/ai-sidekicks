@@ -65,7 +65,7 @@ pub(crate) fn run_daemon_command<Output: Write, ErrorOutput: Write>(
         && let Some(registration) = service_registration()
         && registration.runs_as_root()
     {
-        return run_as_account(&registration);
+        return run_as_account(registration);
     }
     match command {
         DaemonCommand::Restart(args) => restart(args, context),
@@ -73,11 +73,11 @@ pub(crate) fn run_daemon_command<Output: Write, ErrorOutput: Write>(
         DaemonCommand::Status(args) => show_status(args, context),
         DaemonCommand::Stop(args) => stop(args, context),
         DaemonCommand::Registration(registration, ServiceRegistrationCommand::Install(args)) => {
-            refuse_other_home(registration)?;
+            refuse_other_home(*registration)?;
             install(args, *registration, context)
         }
         DaemonCommand::Registration(registration, ServiceRegistrationCommand::Uninstall) => {
-            refuse_other_home(registration)?;
+            refuse_other_home(*registration)?;
             uninstall(registration, context)
         }
     }
@@ -87,12 +87,12 @@ pub(crate) fn run_daemon_command<Output: Write, ErrorOutput: Write>(
 /// on this run's terminal, and answers the exit code it ended with. Fails when this program or the
 /// account cannot be named or the run cannot start, and with `ClientError::Canceled` for a run a
 /// Ctrl-C ended.
-fn run_as_account(registration: &ServiceRegistration) -> anyhow::Result<ExitCode> {
+fn run_as_account(registration: ServiceRegistration) -> anyhow::Result<ExitCode> {
     let (program, mut command) =
         this_program_as_account(|program| registration.account_command(program))?;
     let status = command
         .args(std::env::args_os().skip(1))
         .status()
         .with_context(|| format!("could not run {} as this account", program.display()))?;
-    ExitCode::of_program_run(&status)
+    ExitCode::of_program_run(status)
 }

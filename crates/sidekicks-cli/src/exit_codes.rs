@@ -74,8 +74,8 @@ impl ExitCode {
     /// How a run of this program as another account ended, from its `status`: its own exit code,
     /// [`ExitCode::Software`] for a number this program never exits with or another signal's end.
     /// Fails with `ClientError::Canceled` for a run a Ctrl-C ended, so this run ends the same way.
-    pub(crate) fn of_program_run(status: &ExitStatus) -> anyhow::Result<Self> {
-        let exit = read_child_exit(status, None);
+    pub(crate) fn of_program_run(status: ExitStatus) -> anyhow::Result<Self> {
+        let exit = read_child_exit(&status, None);
         if exit.signal_name.as_deref() == Some("SIGINT") {
             return Err(ClientError::Canceled.into());
         }
@@ -712,7 +712,7 @@ mod tests {
         use std::os::unix::process::ExitStatusExt as _;
         use std::process::ExitStatus;
 
-        let ended = |raw: i32| ExitCode::of_program_run(&ExitStatus::from_raw(raw));
+        let ended = |raw: i32| ExitCode::of_program_run(ExitStatus::from_raw(raw));
 
         let codes = [78 << 8, 0, 3 << 8, 15].map(|raw| ended(raw).expect("no Ctrl-C ended it"));
         let interrupted = ended(2).expect_err("a Ctrl-C ended it");

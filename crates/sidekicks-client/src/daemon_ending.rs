@@ -257,9 +257,7 @@ pub async fn flush_daemon<C: DaemonConnector>(
             connection.close().await;
             Ok(())
         }
-        Ok(OpenedConnection::Repairing(_repairing)) | Err(ClientError::Unavailable { .. }) => {
-            Ok(())
-        }
+        Ok(OpenedConnection::Repairing(_)) | Err(ClientError::Unavailable { .. }) => Ok(()),
         Err(error) => Err(error),
     }
 }
