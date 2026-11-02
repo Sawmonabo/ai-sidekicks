@@ -67,6 +67,8 @@ rstest.workspace = true
 sidekicks-store = { workspace = true, features = ["test-support"] }
 # The worktree rows the tests build on.
 sidekicks-workspace = { workspace = true, features = ["test-support"] }
+# The paused clock the tick's tests drive.
+tokio = { workspace = true, features = ["test-util"] }
 uuid.workspace = true
 
 [features]

@@ -1,0 +1,402 @@
+//! A step's wait at the memory gate as the tick reports it, a hold written when it starts and
+//! every 30 seconds while it lasts, and the order ready steps enter the gate in.
+
+use std::collections::BTreeSet;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+use sidekicks_std::mutex_lock::lock;
+use tokio::sync::{Notify, mpsc, watch};
+use tokio_util::sync::CancellationToken;
+
+use crate::engine::ports::StepAdmissionOutcome;
+use crate::engine::tick::{StepReport, StepReportKind};
+
+/// How often a held step repeats its `workflow.phase.waitingOnPool` report while the hold lasts.
+pub(crate) const POOL_WAIT_REPEAT: Duration = Duration::from_secs(30);
+
+/// How a step's wait at the memory gate ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum GateWaitEnd {
+    /// The gate admitted the step, and its `Admitted` report was sent.
+    Admitted,
+    /// The gate released the step before its turn, or its place closed.
+    Withdrawn {
+        /// When the hold began, `None` when the gate never held the step.
+        hold_started_at: Option<WireInstant>,
+    },
+    /// The step was canceled while it waited.
+    Canceled {
+        /// When the hold began, `None` when the gate never held the step.
+        hold_started_at: Option<WireInstant>,
+    },
+    /// The tick stopped taking reports, so the wait was given up.
+    ReportsClosed,
+}
+
+/// Waits for the gate's answer on `admission` for `step`, reporting the hold on `reports`: a
+/// `WaitingOnPool` when it starts and every [`POOL_WAIT_REPEAT`] after, each carrying the first's
+/// instant, then `Admitted`. A step the gate already decided reports no hold.
+pub(crate) async fn wait_at_gate(
+    step: WorkflowStepKey,
+    mut admission: watch::Receiver<Option<StepAdmissionOutcome>>,
+    cancel: &CancellationToken,
+    reports: &mpsc::Sender<StepReport>,
+) -> GateWaitEnd {
+    let decided = *admission.borrow_and_update();
+    match decided {
+        Some(StepAdmissionOutcome::Admitted) => {
+            let admitted = StepReportKind::Admitted {
+                hold_started_at: None,
+            };
+            return match send(reports, &step, WireInstant::now(), admitted).await {
+                Ok(()) => GateWaitEnd::Admitted,
+                Err(ReportsClosed) => GateWaitEnd::ReportsClosed,
+            };
+        }
+        Some(StepAdmissionOutcome::Withdrawn) => {
+            return GateWaitEnd::Withdrawn {
+                hold_started_at: None,
+            };
+        }
+        None => {}
+    }
+    let hold_started_at = WireInstant::now();
+    let held = |hold_started_at: &WireInstant| StepReportKind::WaitingOnPool {
+        hold_started_at: hold_started_at.clone(),
+    };
+    if send(
+        reports,
+        &step,
+        hold_started_at.clone(),
+        held(&hold_started_at),
+    )
+    .await
+    .is_err()
+    {
+        return GateWaitEnd::ReportsClosed;
+    }
+    let repeat = tokio::time::sleep(POOL_WAIT_REPEAT);
+    tokio::pin!(repeat);
+    loop {
+        tokio::select! {
+            biased;
+            () = cancel.cancelled() => {
+                return GateWaitEnd::Canceled { hold_started_at: Some(hold_started_at) };
+            }
+            changed = admission.changed() => {
+                if changed.is_err() {
+                    return GateWaitEnd::Withdrawn { hold_started_at: Some(hold_started_at) };
+                }
+                let outcome = *admission.borrow_and_update();
+                match outcome {
+                    Some(StepAdmissionOutcome::Admitted) => {
+                        let admitted = StepReportKind::Admitted {
+                            hold_started_at: Some(hold_started_at),
+                        };
+                        return match send(reports, &step, WireInstant::now(), admitted).await {
+                            Ok(()) => GateWaitEnd::Admitted,
+                            Err(ReportsClosed) => GateWaitEnd::ReportsClosed,
+                        };
+                    }
+                    Some(StepAdmissionOutcome::Withdrawn) => {
+                        return GateWaitEnd::Withdrawn { hold_started_at: Some(hold_started_at) };
+                    }
+                    None => {}
+                }
+            }
+            () = &mut repeat => {
+                if send(reports, &step, WireInstant::now(), held(&hold_started_at)).await.is_err() {
+                    return GateWaitEnd::ReportsClosed;
+                }
+                let next = repeat.deadline() + POOL_WAIT_REPEAT;
+                repeat.as_mut().reset(next);
+            }
+        }
+    }
+}
+
+/// The tick's report channel is closed.
+struct ReportsClosed;
+
+/// Sends `kind` for `step`, made at `at`, on `reports`.
+async fn send(
+    reports: &mpsc::Sender<StepReport>,
+    step: &WorkflowStepKey,
+    at: WireInstant,
+    kind: StepReportKind,
+) -> Result<(), ReportsClosed> {
+    let report = StepReport {
+        step: step.clone(),
+        at,
+        kind,
+    };
+    reports.send(report).await.map_err(|_closed| ReportsClosed)
+}
+
+/// Where the line of entries to the gate stands.
+#[derive(Debug, Default)]
+struct GateEntryPlaces {
+    /// The place the next turn takes.
+    next: u64,
+    /// The lowest place whose turn is still open; every place below it is done.
+    lowest_open: u64,
+    /// The places above `lowest_open` whose turns are done.
+    finished: BTreeSet<u64>,
+}
+
+/// The line state and the signal that it moved, shared by the order and its turns.
+#[derive(Debug, Default)]
+struct GateEntryLine {
+    /// The places.
+    places: Mutex<GateEntryPlaces>,
+    /// Woken each time the lowest open place moves up.
+    moved: Notify,
+}
+
+/// The order ready steps enter the memory gate in: the order the tick takes their turns, which is
+/// the order they became ready, siblings readied together taken in their `order`.
+#[derive(Debug, Default)]
+pub(crate) struct GateEntryOrder {
+    /// The line its turns share.
+    line: Arc<GateEntryLine>,
+}
+
+impl GateEntryOrder {
+    /// The next turn in the line, behind every turn taken before it.
+    pub(crate) fn take_turn(&self) -> GateEntryTurn {
+        let mut places = lock(&self.line.places);
+        let place = places.next;
+        places.next += 1;
+        GateEntryTurn {
+            line: Arc::clone(&self.line),
+            place,
+        }
+    }
+}
+
+/// One step's turn to enter the gate. Dropping it marks the place done, whether the step entered
+/// the gate or was abandoned, which releases the turn behind it.
+#[derive(Debug)]
+pub(crate) struct GateEntryTurn {
+    /// The line it belongs to.
+    line: Arc<GateEntryLine>,
+    /// Its place in the line.
+    place: u64,
+}
+
+impl GateEntryTurn {
+    /// Returns once every turn taken before this one has been dropped.
+    pub(crate) async fn wait(&self) {
+        loop {
+            let moved = self.line.moved.notified();
+            tokio::pin!(moved);
+            moved.as_mut().enable();
+            if lock(&self.line.places).lowest_open == self.place {
+                return;
+            }
+            moved.await;
+        }
+    }
+}
+
+impl Drop for GateEntryTurn {
+    fn drop(&mut self) {
+        let mut places = lock(&self.line.places);
+        if self.place != places.lowest_open {
+            places.finished.insert(self.place);
+            return;
+        }
+        places.lowest_open += 1;
+        loop {
+            let lowest_open = places.lowest_open;
+            if !places.finished.remove(&lowest_open) {
+                break;
+            }
+            places.lowest_open += 1;
+        }
+        drop(places);
+        self.line.moved.notify_waiters();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use rstest::rstest;
+    use sidekicks_contracts::wire::instant::WireInstant;
+    use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+    use tokio::sync::{mpsc, watch};
+    use tokio::task::JoinHandle;
+    use tokio_util::sync::CancellationToken;
+
+    use super::{GateEntryOrder, GateWaitEnd, wait_at_gate};
+    use crate::engine::ports::StepAdmissionOutcome;
+    use crate::engine::tick::{StepReport, StepReportKind};
+
+    /// The step every test waits for.
+    fn step() -> WorkflowStepKey {
+        serde_json::from_value(serde_json::json!({
+            "workflowRunId": "0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7c",
+            "nodeId": "step", "attempt": 1, "executionIndex": 0,
+        }))
+        .expect("the test's step key reads")
+    }
+
+    /// A wait at the gate for [`step`], run as its own task, with the gate's sender, the step's
+    /// cancel and the reports it sends.
+    fn start_wait(
+        initial: Option<StepAdmissionOutcome>,
+    ) -> (
+        JoinHandle<GateWaitEnd>,
+        watch::Sender<Option<StepAdmissionOutcome>>,
+        CancellationToken,
+        mpsc::Receiver<StepReport>,
+    ) {
+        let (gate, admission) = watch::channel(initial);
+        let cancel = CancellationToken::new();
+        let (reports, received) = mpsc::channel(8);
+        let step_cancel = cancel.clone();
+        let wait =
+            tokio::spawn(
+                async move { wait_at_gate(step(), admission, &step_cancel, &reports).await },
+            );
+        (wait, gate, cancel, received)
+    }
+
+    /// The hold instant of a `WaitingOnPool` report, after checking it names [`step`].
+    fn hold_of(report: StepReport) -> (WireInstant, WireInstant) {
+        assert_eq!(report.step, step());
+        let StepReportKind::WaitingOnPool { hold_started_at } = report.kind else {
+            panic!("the report is not a hold");
+        };
+        (report.at, hold_started_at)
+    }
+
+    /// Lets the waiting task run what the clock just woke.
+    async fn settle() {
+        for _ in 0..4 {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    /// A held step reports its hold at once and again every 30 s, each repeat carrying the first
+    /// report's instant, and its admission carries that instant too. Mutations: no repeat; a
+    /// repeat carrying its own instant; the hold's start taken from the latest repeat; a repeat
+    /// fired before 30 s.
+    #[tokio::test(start_paused = true)]
+    async fn a_hold_repeats_with_its_first_instant() {
+        let (wait, gate, _cancel, mut received) = start_wait(None);
+        let (first_at, first_hold) = hold_of(received.recv().await.expect("the hold is reported"));
+        assert_eq!(first_hold, first_at);
+        // The paused clock moves no wall time, so a real pause makes the repeat's own instant
+        // differ from the first's, which the repeat must not carry.
+        std::thread::sleep(Duration::from_millis(2));
+
+        tokio::time::advance(Duration::from_secs(29)).await;
+        settle().await;
+        assert!(received.try_recv().is_err(), "a repeat came before 30 s");
+        tokio::time::advance(Duration::from_secs(1)).await;
+        settle().await;
+        let (repeat_at, repeat_hold) = hold_of(received.try_recv().expect("the hold repeats"));
+        assert_ne!(repeat_at, first_at);
+        assert_eq!(repeat_hold, first_at);
+        std::thread::sleep(Duration::from_millis(2));
+
+        tokio::time::advance(Duration::from_secs(29)).await;
+        settle().await;
+        assert!(
+            received.try_recv().is_err(),
+            "a second repeat came before 30 s"
+        );
+
+        gate.send_replace(Some(StepAdmissionOutcome::Admitted));
+        assert_eq!(wait.await.expect("the wait ends"), GateWaitEnd::Admitted);
+        let admitted = received.recv().await.expect("the admission is reported");
+        assert!(matches!(
+            admitted.kind,
+            StepReportKind::Admitted { hold_started_at: Some(ref hold) } if *hold == first_at
+        ));
+        assert!(received.recv().await.is_none());
+    }
+
+    /// What ends a wait at the gate.
+    #[derive(Clone, Copy, Debug)]
+    enum Ending {
+        /// The gate had already admitted the step.
+        AlreadyAdmitted,
+        /// The step is canceled while held.
+        Cancel,
+        /// The gate drops its sender while the step is held.
+        DropGate,
+    }
+
+    /// A step the gate already admitted reports no hold; a cancel or a closed gate ends a held
+    /// wait with the hold's first instant. Mutations: a hold written for a step the gate already
+    /// admitted; a cancel ignored while held.
+    #[rstest]
+    #[case::already_admitted(Ending::AlreadyAdmitted)]
+    #[case::canceled_while_held(Ending::Cancel)]
+    #[case::gate_dropped_while_held(Ending::DropGate)]
+    #[tokio::test(start_paused = true)]
+    async fn how_a_wait_ends(#[case] ending: Ending) {
+        let initial =
+            matches!(ending, Ending::AlreadyAdmitted).then_some(StepAdmissionOutcome::Admitted);
+        let (wait, gate, cancel, mut received) = start_wait(initial);
+        let first = received.recv().await.expect("the wait reports");
+        let expected = match ending {
+            Ending::AlreadyAdmitted => {
+                assert!(matches!(
+                    first.kind,
+                    StepReportKind::Admitted {
+                        hold_started_at: None
+                    }
+                ));
+                GateWaitEnd::Admitted
+            }
+            Ending::Cancel => {
+                let (first_at, _) = hold_of(first);
+                cancel.cancel();
+                GateWaitEnd::Canceled {
+                    hold_started_at: Some(first_at),
+                }
+            }
+            Ending::DropGate => {
+                let (first_at, _) = hold_of(first);
+                drop(gate);
+                GateWaitEnd::Withdrawn {
+                    hold_started_at: Some(first_at),
+                }
+            }
+        };
+        assert_eq!(wait.await.expect("the wait ends"), expected);
+        assert!(received.recv().await.is_none());
+    }
+
+    /// A turn waits for every earlier turn, not only the one just before it, and not for the
+    /// order `wait` is called in. Mutations: dropping b releases c (a chain of oneshots); turns
+    /// served in the order `wait` is called.
+    #[tokio::test(start_paused = true)]
+    async fn a_turn_waits_for_every_earlier_turn() {
+        let order = GateEntryOrder::default();
+        let a = order.take_turn();
+        let b = order.take_turn();
+        let c = order.take_turn();
+        drop(b);
+        let short = Duration::from_millis(10);
+        assert!(
+            tokio::time::timeout(short, c.wait()).await.is_err(),
+            "c entered while a was open"
+        );
+        tokio::time::timeout(short, a.wait())
+            .await
+            .expect("the first turn enters at once");
+        drop(a);
+        tokio::time::timeout(short, c.wait())
+            .await
+            .expect("c enters once every earlier turn is dropped");
+    }
+}

@@ -170,6 +170,19 @@ pub(crate) enum NodeKindTableError {
         /// The version.
         version: SafeInt<1>,
     },
+    /// A kind that runs once per item lists more than one main input, so no one input's items
+    /// say what to run over.
+    #[error(
+        "the kind {} at version {} runs once per item but has more than one main input",
+        .kind.0.as_str(),
+        .version.get()
+    )]
+    PerItemInputs {
+        /// The kind.
+        kind: WorkflowNodeKindId,
+        /// The version.
+        version: SafeInt<1>,
+    },
 }
 
 /// Every kind the engine runs, by kind and version, so a node runs the exact version it records.
@@ -180,10 +193,23 @@ pub(crate) struct NodeKindTable {
 
 impl NodeKindTable {
     /// The table of `kinds`. Fails with [`NodeKindTableError::Repeated`] when two list one kind at
-    /// one version.
+    /// one version, and with [`NodeKindTableError::PerItemInputs`] when a kind that runs once per
+    /// item lists more than one main input.
     pub(crate) fn new(kinds: Vec<NodeKind>) -> Result<Self, NodeKindTableError> {
         let mut table: HashMap<WorkflowNodeKindId, HashMap<SafeInt<1>, NodeKind>> = HashMap::new();
         for kind in kinds {
+            let main_inputs = kind
+                .spec
+                .inputs
+                .as_slice()
+                .iter()
+                .filter(|input| !input.is_tool());
+            if kind.spec.per_item == Some(true) && main_inputs.count() > 1 {
+                return Err(NodeKindTableError::PerItemInputs {
+                    kind: kind.spec.kind,
+                    version: kind.spec.version,
+                });
+            }
             let versions = table.entry(kind.spec.kind.clone()).or_default();
             match versions.entry(kind.spec.version) {
                 Entry::Occupied(_) => {
@@ -370,9 +396,10 @@ mod tests {
         );
     }
 
-    /// Each version of a kind answers its own rules, an unlisted version none, and a table listing
-    /// one kind at one version twice is refused. Mutations: look a kind up by id alone; let a later
-    /// entry overwrite an earlier one.
+    /// Each version of a kind answers its own rules, an unlisted version none, a table listing one
+    /// kind at one version twice is refused, and so is a kind run once per item with two main
+    /// inputs, a tool input not counted. Mutations: look a kind up by id alone; let a later entry
+    /// overwrite an earlier one; drop the per-item refusal.
     #[test]
     fn each_version_answers_its_own_rules() {
         let one_output = json!([{ "type": "main", "id": "outputs/main/0", "label": "Out" }]);
@@ -402,6 +429,28 @@ mod tests {
             repeated,
             Err(NodeKindTableError::Repeated { kind, version })
                 if kind.0.as_str() == "test.step" && version.get() == 1
+        ));
+
+        let per_item_inputs = |inputs: Value| {
+            let mut spec = kind_spec("test.merge", 1, &one_output);
+            spec["perItem"] = json!(true);
+            spec["inputs"] = inputs;
+            NodeKindTable::new(vec![pass_through_kind(spec, None)])
+        };
+        assert!(
+            per_item_inputs(json!([
+                { "type": "main", "id": "inputs/main/0", "label": "In" },
+                { "type": "tool", "id": "inputs/tool/0", "label": "Tool" },
+            ]))
+            .is_ok()
+        );
+        assert!(matches!(
+            per_item_inputs(json!([
+                { "type": "main", "id": "inputs/main/0", "label": "A" },
+                { "type": "main", "id": "inputs/main/1", "label": "B" },
+            ])),
+            Err(NodeKindTableError::PerItemInputs { kind, version })
+                if kind.0.as_str() == "test.merge" && version.get() == 1
         ));
     }
 }
