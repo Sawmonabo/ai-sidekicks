@@ -204,7 +204,7 @@ async fn a_store_switch_points_the_session_at_the_new_store_in_place(#[case] is_
         .into_iter()
         .map(|(account, _)| account)
         .collect();
-    assert_eq!(reported, [switch.to.clone()]);
+    assert_eq!(reported, std::slice::from_ref(&switch.to));
 }
 
 // A token target never reaches the process in place: a busy session starts again only once its
