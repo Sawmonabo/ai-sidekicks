@@ -604,9 +604,13 @@ async fn a_move_past_its_bound_lets_the_home_go_and_stays_unmovable_until_its_ca
     let while_running = fixture.legs.move_sign_ins(bounds()).await;
     let calls_while_running = blocking.calls() - calls_before;
     blocking.release();
-    while fixture.unmovable.contains(&account.account_id) {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while fixture.unmovable.contains(&account.account_id) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the mark clears once the call ends");
     let file_once_ended = planted.file();
     let after = fixture.legs.move_sign_ins(bounds()).await;
 

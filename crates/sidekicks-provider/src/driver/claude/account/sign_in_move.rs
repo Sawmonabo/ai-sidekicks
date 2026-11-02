@@ -131,7 +131,7 @@ pub(crate) enum ClaudeSignInMoveError {
     #[error("the sign-in move ended without an answer")]
     Stopped(#[source] tokio::task::JoinError),
     /// A keychain call or the account's whole move did not answer within the bound, as a prompt
-    /// left open does not, or an earlier move of the account that did not still runs; the move
+    /// left open does not, or an earlier move of the account whose call still runs; the move
     /// stopped, and the account's sign-in is where it was or in both places.
     #[error("the keychain did not answer for the Claude Code account in time")]
     KeychainUnanswered {
