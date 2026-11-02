@@ -24,7 +24,7 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::statement::{
-    DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
+    DATABASE_NOW_SQL, StatementBindings, WriteStatement, database_time_sql, text_binding,
 };
 use sidekicks_store::database::stored_column::{StoredJsonFault, closed_word, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
@@ -184,8 +184,9 @@ static PENDING_RECEIPTS_SQL: LazyLock<String> = LazyLock::new(|| {
 static PRUNE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "DELETE FROM mcp_mutation_receipts
-  WHERE status = '{}' AND created_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-1 day')",
-        <&'static str>::from(McpMutationReceiptStatus::Committed)
+  WHERE status = '{}' AND created_at < {}",
+        <&'static str>::from(McpMutationReceiptStatus::Committed),
+        database_time_sql("'-1 day'")
     )
 });
 
@@ -450,7 +451,9 @@ pub(super) mod tests {
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-    use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
+    use sidekicks_store::database::statement::{
+        StatementBindings, WriteStatement, database_time_sql,
+    };
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use sidekicks_store::events::canonicalizer::canonicalize_json;
@@ -751,11 +754,14 @@ pub(super) mod tests {
         ] {
             reader
                 .execute(
-                    "INSERT INTO mcp_mutation_receipts (client_idempotency_key, operation,
-                       provider, scope, server_name, request_digest, status, response_json,
-                       created_at)
-                     VALUES (?1, 'mcp.server.upsert', 'provider-a', 'user', 'docs',
-                       zeroblob(32), ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?4))",
+                    &format!(
+                        "INSERT INTO mcp_mutation_receipts (client_idempotency_key, operation,
+                           provider, scope, server_name, request_digest, status, response_json,
+                           created_at)
+                         VALUES (?1, 'mcp.server.upsert', 'provider-a', 'user', 'docs',
+                           zeroblob(32), ?2, ?3, {})",
+                        database_time_sql("?4")
+                    ),
                     params![key.as_str(), status, response, age],
                 )
                 .expect("the aged receipt is stored");

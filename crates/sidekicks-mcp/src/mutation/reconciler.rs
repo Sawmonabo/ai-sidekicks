@@ -31,7 +31,9 @@ pub(crate) enum McpIntentSettlement {
 pub(crate) enum McpDeclarationObservation {
     /// The config declares no such binding.
     Absent,
-    /// The config declares the binding; the digest of its entry under the receipt's key.
+    /// The config declares the binding; the digest of its entry under the receipt key, the
+    /// receipt's idempotency key and its binding key, as `McpReceiptKey::digest_declaration` takes
+    /// it.
     Present(McpReceiptDigest),
     /// The config could not be read.
     Unread,
