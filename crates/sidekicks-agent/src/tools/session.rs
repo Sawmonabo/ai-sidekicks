@@ -1,7 +1,6 @@
 //! The contracts of the twelve session tools, through which a session reaches the person's other
 //! sessions: the rules every session holds, the errors every tool shares, and each tool's
-//! description, arguments and result. The six that read or reorganize sessions are here, with
-//! `session_send`'s arguments; the rest of the six that act sit in their own files beside them.
+//! description, arguments and result, all twelve here, one file each.
 
 use std::borrow::Cow;
 
@@ -9,18 +8,24 @@ use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 
+pub mod ask;
 pub mod errors;
 pub mod group;
 pub mod list;
 pub mod options;
 pub mod read;
+pub mod remind;
 pub mod rules;
 pub mod search;
 pub mod send;
+pub mod start;
+pub mod stop;
 pub mod update;
+pub mod wait;
 
 #[cfg(test)]
 mod tests;
@@ -71,6 +76,17 @@ pub(crate) fn path_limits() -> String {
 /// most `max` code points.
 pub(crate) fn text_field(words: &str, max: usize) -> String {
     format!("{words} {}", text_limits(max))
+}
+
+/// A permission level as the person reads it on screen.
+pub(crate) fn permission_level_words(level: PermissionLevel) -> &'static str {
+    match level {
+        PermissionLevel::Readonly => "Read-only",
+        PermissionLevel::Ask => "Ask",
+        PermissionLevel::Reviewed => "Reviewed",
+        PermissionLevel::Sandboxed => "Sandboxed",
+        PermissionLevel::Yolo => "YOLO",
+    }
 }
 
 /// States in `schema` that an object holds at least one of `members`, the schema's twin of a

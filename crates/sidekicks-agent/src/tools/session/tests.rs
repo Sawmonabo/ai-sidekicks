@@ -1,5 +1,6 @@
 //! The session tools' arguments as the tool route reads them: the received check before serde,
-//! the line range's two forms, and the rules between fields that garde and the schema hold alike.
+//! the line range's and the reminder delay's written forms, and the rules between fields that
+//! garde and the schema hold alike.
 
 use std::num::NonZeroU64;
 
@@ -11,11 +12,17 @@ use serde_json::{Value, json};
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::schema::{closed_schema_for, received_check};
 
+use crate::tools::session::ask::SessionAskArguments;
 use crate::tools::session::group::SessionGroupArguments;
 use crate::tools::session::list::SessionListArguments;
 use crate::tools::session::read::{LineRange, SessionReadArguments};
+use crate::tools::session::remind::{ReminderDelay, SessionRemindArguments};
 use crate::tools::session::search::SessionSearchArguments;
+use crate::tools::session::send::SessionSendArguments;
+use crate::tools::session::start::SessionStartArguments;
+use crate::tools::session::stop::SessionStopArguments;
 use crate::tools::session::update::SessionUpdateArguments;
+use crate::tools::session::wait::SessionWaitArguments;
 
 /// Reads `message` as the tool route does: the received check, then serde, then garde.
 fn read_received<T>(message: Value) -> Result<T, String>
@@ -42,9 +49,10 @@ where
     (arguments.validate().is_ok(), check.is_valid(message))
 }
 
-// Every tool's received check builds, and the boundary refuses an unknown member and a NUL in a
-// session's name. Killed by dropping `deny_unknown_fields` from `SessionReadArguments`: the check
-// then lets the unknown member through and serde ignores it.
+// Every tool's received check builds, and the boundary refuses an unknown member, a camelCase
+// spelling of a member and a NUL in a session's name. Killed by dropping `deny_unknown_fields`
+// from `SessionReadArguments` or `SessionStartArguments`: the check then lets the member through
+// and serde ignores it.
 #[test]
 fn the_tool_route_builds_each_check_and_refuses_an_unknown_member_or_a_nul() {
     let checks = [
@@ -54,6 +62,12 @@ fn the_tool_route_builds_each_check_and_refuses_an_unknown_member_or_a_nul() {
         received_check::<SessionReadArguments>(),
         received_check::<SessionUpdateArguments>(),
         received_check::<SessionGroupArguments>(),
+        received_check::<SessionStartArguments>(),
+        received_check::<SessionSendArguments>(),
+        received_check::<SessionAskArguments>(),
+        received_check::<SessionWaitArguments>(),
+        received_check::<SessionStopArguments>(),
+        received_check::<SessionRemindArguments>(),
     ];
     for check in checks {
         check.expect("the received check builds");
@@ -66,6 +80,42 @@ fn the_tool_route_builds_each_check_and_refuses_an_unknown_member_or_a_nul() {
     assert!(read_received::<SessionReadArguments>(unknown).is_err());
     let nul = json!({ "session": "build\u{0}er" });
     assert!(read_received::<SessionReadArguments>(nul).is_err());
+
+    let copy = json!({ "message": "Try Decimal.", "from_session": "builder" });
+    let start = read_received::<SessionStartArguments>(copy).expect("a copy's start is taken");
+    assert_eq!(
+        start
+            .from_session
+            .map(|session| session.as_str().to_owned()),
+        Some("builder".to_owned())
+    );
+    let camel_case = json!({ "message": "Try Decimal.", "fromSession": "builder" });
+    assert!(read_received::<SessionStartArguments>(camel_case).is_err());
+    let send = json!({ "to": "builder", "message": "Use Money.", "wait": true });
+    read_received::<SessionSendArguments>(send).expect("a send is taken");
+    let unknown = json!({ "to": "builder", "message": "Use Money.", "reply_to": "s-8f21" });
+    assert!(read_received::<SessionSendArguments>(unknown).is_err());
+    let remind = json!({ "in": "20m", "note": "Check CI." });
+    let remind = read_received::<SessionRemindArguments>(remind).expect("a reminder is taken");
+    assert_eq!(remind.delay.minutes(), 20);
+}
+
+// A reminder's delay reads whole minutes or hours of at least 1 into minutes, and refuses a zero,
+// a missing unit or count, another unit and a count past the minutes it can hold. Killed by
+// dropping the `at least 1` check: `0m` then reads as no delay.
+#[rstest]
+#[case::minutes("20m", Some(20))]
+#[case::hours("2h", Some(120))]
+#[case::zero("0m", None)]
+#[case::no_unit("20", None)]
+#[case::days("2d", None)]
+#[case::no_count("m", None)]
+#[case::signed("+5m", None)]
+#[case::count_overflows("4294967296m", None)]
+#[case::hours_overflow("71582789h", None)]
+fn a_reminder_delay_reads_minutes_or_hours(#[case] text: &str, #[case] minutes: Option<u32>) {
+    let read = text.parse::<ReminderDelay>().ok();
+    assert_eq!(read.map(ReminderDelay::minutes), minutes, "{text}");
 }
 
 /// A line number in a case table.

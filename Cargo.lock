@@ -8347,6 +8347,7 @@ name = "sidekicks-agent"
 version = "0.0.0"
 dependencies = [
  "garde",
+ "jiff",
  "jsonschema",
  "rstest",
  "schemars 1.2.3",
