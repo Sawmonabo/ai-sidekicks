@@ -12,7 +12,7 @@ use crate::client::tasks::{
 use crate::client::test_server::{
     CountingSink, Reply, Responder, board_accepted, board_answer, board_form,
     call_tool_as_dispatched, contact, method_not_found, open_test_server, test_client, text_result,
-    track_call, track_task_handle, tracked_end, v1_initialize_result,
+    track_call, track_task_handle, tracked_end, v1_initialize_result, v1_status_reply, v1_task,
 };
 
 /// A 2025-11-25 server whose `track` tool runs only as a task `task-1`, answering `tasks/get`
@@ -29,29 +29,15 @@ fn task_server(
             "inputSchema": { "type": "object" },
             "execution": { "taskSupport": "required" },
         }] } })),
-        "tools/call" => Reply::Answer(json!({ "result": { "task": task("working") } })),
+        "tools/call" => Reply::Answer(json!({ "result": { "task": v1_task("working") } })),
         "tasks/get" => {
             polls += 1;
             poll_reply(polls)
         }
         "tasks/result" => result_reply(),
-        "tasks/cancel" => Reply::Answer(json!({ "result": task("cancelled") })),
+        "tasks/cancel" => Reply::Answer(json!({ "result": v1_task("cancelled") })),
         _ => method_not_found(),
     })
-}
-
-fn task(status: &str) -> Value {
-    json!({
-        "taskId": "task-1",
-        "status": status,
-        "createdAt": "2026-10-24T12:00:00.000Z",
-        "ttl": 60_000,
-        "pollInterval": 5_000,
-    })
-}
-
-fn status_reply(status: &str) -> Reply {
-    Reply::Answer(json!({ "result": task(status) }))
 }
 
 // Mutations: in `read_task`, read `ttl` from a missing member ("ttlMs"), or pass `None` as
@@ -67,8 +53,8 @@ async fn a_2025_11_25_task_keeps_its_handle_and_interval_and_asks_its_question_o
         &client,
         task_server(
             |poll| match poll {
-                1 | 2 => status_reply("working"),
-                3 => status_reply("input_required"),
+                1 | 2 => v1_status_reply("working"),
+                3 => v1_status_reply("input_required"),
                 _ => Reply::Answer(json!({ "error": { "code": -32603, "message": "late" } })),
             },
             || {
@@ -140,8 +126,8 @@ async fn a_task_whose_server_stops_answering_reads_contact_lost_at_300_s_and_bac
         task_server(
             |poll| match poll {
                 1..=8 => Reply::Silent,
-                9 => status_reply("working"),
-                _ => status_reply("completed"),
+                9 => v1_status_reply("working"),
+                _ => v1_status_reply("completed"),
             },
             || Reply::Answer(json!({ "result": text_result("tracked") })),
         ),
@@ -195,7 +181,7 @@ fn held_question_server(poll_reply: impl Fn(usize) -> Reply + Send + 'static) ->
     let mut results = 0;
     task_server(
         move |poll| match poll {
-            1 => status_reply("working"),
+            1 => v1_status_reply("working"),
             _ => poll_reply(poll),
         },
         move || {
@@ -222,7 +208,7 @@ async fn a_task_whose_question_waits_31_minutes_keeps_one_held_result_and_its_co
     let (client, card) = test_client();
     let (connection, server) = open_test_server(
         &client,
-        held_question_server(|_| status_reply("input_required")),
+        held_question_server(|_| v1_status_reply("input_required")),
     )
     .await;
     let sink = CountingSink::new(&server);
@@ -267,8 +253,8 @@ async fn a_result_held_past_the_answer_while_the_task_works_on_is_never_canceled
         &client,
         task_server(
             |poll| match poll {
-                2 => status_reply("input_required"),
-                _ => status_reply("working"),
+                2 => v1_status_reply("input_required"),
+                _ => v1_status_reply("working"),
             },
             || {
                 let mut params = board_form();
@@ -319,9 +305,9 @@ async fn a_task_holding_its_result_reads_contact_lost_when_its_polls_go_unanswer
     let (connection, server) = open_test_server(
         &client,
         held_question_server(|poll| match poll {
-            2 | 3 | 11 => status_reply("input_required"),
+            2 | 3 | 11 => v1_status_reply("input_required"),
             4..=10 => Reply::Silent,
-            _ => status_reply("completed"),
+            _ => v1_status_reply("completed"),
         }),
     )
     .await;
@@ -377,9 +363,9 @@ fn cancel_server(
     let mut tasks = task_server(
         move |_| {
             if canceled.load(std::sync::atomic::Ordering::SeqCst) {
-                status_reply(after)
+                v1_status_reply(after)
             } else {
-                status_reply("working")
+                v1_status_reply("working")
             }
         },
         || Reply::Answer(json!({ "result": text_result("tracked") })),
@@ -406,7 +392,7 @@ fn cancel_server(
 #[rstest::rstest]
 #[case::taken(
     true,
-    || status_reply("cancelled"),
+    || v1_status_reply("cancelled"),
     "cancelled",
     McpTaskCancelOutcome::Taken,
     McpToolCallEnd::Canceled,
@@ -422,7 +408,7 @@ fn cancel_server(
 )]
 #[case::not_declared(
     false,
-    || status_reply("cancelled"),
+    || v1_status_reply("cancelled"),
     "completed",
     McpTaskCancelOutcome::Refused,
     tracked_end(),
@@ -506,8 +492,8 @@ fn object(value: Value) -> Map<String, Value> {
 fn asking_task_server() -> Responder {
     task_server(
         |poll| match poll {
-            1 => status_reply("working"),
-            _ => status_reply("input_required"),
+            1 => v1_status_reply("working"),
+            _ => v1_status_reply("input_required"),
         },
         || {
             let mut params = board_form();
@@ -585,8 +571,8 @@ async fn a_server_flooding_status_notifications_is_polled_no_more_often_than_250
         &client,
         task_server(
             |poll| match poll {
-                1..=4 => status_reply("working"),
-                _ => status_reply("completed"),
+                1..=4 => v1_status_reply("working"),
+                _ => v1_status_reply("completed"),
             },
             || Reply::Answer(json!({ "result": text_result("tracked") })),
         ),
@@ -751,7 +737,7 @@ async fn a_2025_11_25_result_error_reads_unknown_before_the_end_and_failed_after
     let (client, _card) = test_client();
     let (connection, server) = open_test_server(
         &client,
-        task_server(move |_| status_reply(status), result_reply),
+        task_server(move |_| v1_status_reply(status), result_reply),
     )
     .await;
     let sink = CountingSink::new(&server);

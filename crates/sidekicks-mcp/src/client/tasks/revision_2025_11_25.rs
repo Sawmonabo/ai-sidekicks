@@ -109,31 +109,56 @@ async fn poll_once(
         poll_interval_ms = reading.poll_interval_ms,
         "a tool server task was polled"
     );
-    match reading.status.as_str() {
-        "cancelled" => Ok(PollStep::End(McpToolCallEnd::Canceled)),
-        "completed" | "failed" => {
-            if let Some(end) = take_held_end(connection, held) {
-                return Ok(PollStep::End(end));
-            }
-            // A hold still waiting is dropped and the result read afresh.
-            *lock(held) = None;
+    let status = reading.status.as_str();
+    if matches!(status, "completed" | "failed") {
+        if let Some(end) = take_held_end(connection, held) {
+            return Ok(PollStep::End(end));
+        }
+        // A hold still waiting is dropped and the result read afresh.
+        *lock(held) = None;
+    }
+    if let Some(end) = read_terminal_end(connection, mcp_task_id, status).await {
+        return end.map(PollStep::End);
+    }
+    if status == "input_required" {
+        lock(held).get_or_insert_with(|| hold_result(connection, mcp_task_id, wake));
+    }
+    Ok(PollStep::Wait {
+        suggested_interval_ms: reading.poll_interval_ms,
+    })
+}
+
+/// The end of task `mcp_task_id` from one `tasks/get`, as its follow reads a terminal status;
+/// `None` for any other status. Fails as either request fails.
+pub(super) async fn read_task_end(
+    connection: &McpServerConnection,
+    mcp_task_id: &str,
+) -> Result<Option<McpToolCallEnd>, McpRequestError> {
+    let reading = read_task(connection, mcp_task_id).await?;
+    read_terminal_end(connection, mcp_task_id, &reading.status)
+        .await
+        .transpose()
+}
+
+/// The end a terminal `status` of task `mcp_task_id` gives: canceled, or the result `tasks/result`
+/// reads after `completed` or `failed`; `None` for a status that is not terminal.
+async fn read_terminal_end(
+    connection: &McpServerConnection,
+    mcp_task_id: &str,
+    status: &str,
+) -> Option<Result<McpToolCallEnd, McpRequestError>> {
+    match status {
+        "cancelled" => Some(Ok(McpToolCallEnd::Canceled)),
+        "completed" | "failed" => Some(
             read_result(
                 &connection.requests,
                 mcp_task_id,
                 RequestWait::Ordinary,
                 true,
             )
-            .await
-            .map(PollStep::End)
-        }
-        status => {
-            if status == "input_required" {
-                lock(held).get_or_insert_with(|| hold_result(connection, mcp_task_id, wake));
-            }
-            Ok(PollStep::Wait {
-                suggested_interval_ms: reading.poll_interval_ms,
-            })
-        }
+            .await,
+        ),
+        _ => None,
     }
 }
 

@@ -175,8 +175,7 @@ pub(super) async fn follow_task(
 /// or canceling the task when one of them is a kind the client does not take.
 #[expect(
     clippy::wildcard_enum_match_arm,
-    reason = "rmcp marks the task payload and the input request non-exhaustive, so their states \
-              and kinds cannot all be named"
+    reason = "rmcp marks the input request non-exhaustive, so its kinds cannot all be named"
 )]
 async fn poll_once(
     connection: &McpServerConnection,
@@ -186,17 +185,11 @@ async fn poll_once(
 ) -> Result<PollStep, ServiceError> {
     let reply = connection.requests.get_task(mcp_task_id).await?;
     let suggested_interval_ms = reply.task.task.poll_interval_ms;
-    let input_requests = match reply.task.payload {
-        TaskPayload::Completed { result } => {
-            return Ok(PollStep::End(McpToolCallEnd::Answered { result }));
-        }
-        TaskPayload::Failed { error } => {
-            return Ok(PollStep::End(McpToolCallEnd::Failed { error }));
-        }
-        TaskPayload::Cancelled => return Ok(PollStep::End(McpToolCallEnd::Canceled)),
-        TaskPayload::InputRequired { input_requests } => input_requests,
+    let input_requests = match read_terminal_payload(reply.task.payload) {
+        Ok(end) => return Ok(PollStep::End(end)),
+        Err(TaskPayload::InputRequired { input_requests }) => input_requests,
         // `working`, and any state a later rmcp adds to its open set, waits for the next poll.
-        _ => {
+        Err(_) => {
             return Ok(PollStep::Wait {
                 suggested_interval_ms,
             });
@@ -237,6 +230,30 @@ async fn poll_once(
     Ok(PollStep::Wait {
         suggested_interval_ms,
     })
+}
+
+/// The end of task `mcp_task_id` from one `tasks/get`, as its follow reads a terminal state;
+/// `None` for any other state. Fails as the request fails.
+pub(super) async fn read_task_end(
+    connection: &McpServerConnection,
+    mcp_task_id: &str,
+) -> Result<Option<McpToolCallEnd>, ServiceError> {
+    let reply = connection.requests.get_task(mcp_task_id).await?;
+    Ok(read_terminal_payload(reply.task.payload).ok())
+}
+
+/// The end a terminal task payload carries; any other payload is handed back.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "rmcp marks the task payload non-exhaustive, so its open states cannot all be named"
+)]
+fn read_terminal_payload(payload: TaskPayload) -> Result<McpToolCallEnd, TaskPayload> {
+    match payload {
+        TaskPayload::Completed { result } => Ok(McpToolCallEnd::Answered { result }),
+        TaskPayload::Failed { error } => Ok(McpToolCallEnd::Failed { error }),
+        TaskPayload::Cancelled => Ok(McpToolCallEnd::Canceled),
+        open => Err(open),
+    }
 }
 
 /// One input request of a task the client takes.

@@ -47,13 +47,6 @@ pub(crate) enum CommandOutcome {
 }
 
 /// Why a receipt was not recorded.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tool call's dispatch, which accepts and completes receipts"
-    )
-)]
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CommandReceiptError {
     /// The caller canceled before the receipt was written; nothing was written.
@@ -64,13 +57,6 @@ pub(crate) enum CommandReceiptError {
     Write(#[from] WriteError),
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tool call's dispatch, which accepts and completes receipts"
-    )
-)]
 static ACCEPT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO command_receipts (id, command_id, run_id, status, created_at)
@@ -78,13 +64,6 @@ static ACCEPT_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tool call's dispatch, which accepts and completes receipts"
-    )
-)]
 static CLAIM_SQL: LazyLock<String> = LazyLock::new(|| {
     format!("UPDATE command_receipts SET started_at = {DATABASE_NOW_SQL} WHERE id = ?")
 });
@@ -100,13 +79,6 @@ static COMPLETE_AT_SESSION_CLOSE_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // The inline end leaves a backgrounded call to its result's hand-off.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tool call's dispatch, which accepts and completes receipts"
-    )
-)]
 static COMPLETE_SQL: LazyLock<String> =
     LazyLock::new(|| format!("{} AND backgrounded = 0", *COMPLETE_AT_SESSION_CLOSE_SQL));
 
@@ -129,14 +101,8 @@ const IN_FLIGHT_SQL: &str = "SELECT id, command_id, run_id, mcp_task_id, mcp_tas
   ORDER BY run_id";
 
 /// Writes the command receipts: each receipt recorded and claimed in one write, and its end in
-/// another.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the tool call's dispatch, which accepts and completes receipts"
-    )
-)]
+/// another. Clones write through the same writer.
+#[derive(Clone)]
 pub(crate) struct CommandReceiptStore {
     /// The writer every receipt's writes go through.
     writer: Arc<DatabaseWriter>,
@@ -148,7 +114,7 @@ impl CommandReceiptStore {
         not(test),
         expect(
             dead_code,
-            reason = "the tool call's dispatch, which accepts and completes receipts"
+            reason = "the daemon's start builds the store it hands the tool call's dispatch"
         )
     )]
     pub(crate) fn new(writer: Arc<DatabaseWriter>) -> Self {
@@ -160,13 +126,6 @@ impl CommandReceiptStore {
     /// [`CommandReceiptError::Canceled`] and writing nothing; past that check it runs to its
     /// answer. Fails with [`CommandReceiptError::Write`] as the write fails, a command id that
     /// already has a receipt among the causes, so a command is received once.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tool call's dispatch, which accepts and completes receipts"
-        )
-    )]
     pub(crate) async fn accept_and_claim(
         &self,
         command_id: &str,
@@ -203,13 +162,6 @@ impl CommandReceiptStore {
     /// Records how the claimed command ended, inline. Fails with [`WriteError::Refused`] when the
     /// receipt was never claimed, already ended, or moved to the background, whose end its
     /// result's hand-off writes; and as the write fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tool call's dispatch, which accepts and completes receipts"
-        )
-    )]
     pub(crate) async fn complete(
         &self,
         receipt_id: CommandReceiptId,
@@ -222,13 +174,6 @@ impl CommandReceiptStore {
     /// since nothing is delivered after a close; its delivery stays unwritten. Fails with
     /// [`WriteError::Refused`] when the receipt was never claimed or already ended, and as the
     /// write fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tool call's dispatch, which writes the end a session's close reaches"
-        )
-    )]
     pub(crate) async fn complete_at_session_close(
         &self,
         receipt_id: CommandReceiptId,

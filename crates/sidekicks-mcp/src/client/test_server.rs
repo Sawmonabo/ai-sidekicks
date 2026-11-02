@@ -101,6 +101,22 @@ pub(super) fn v1_initialize_result() -> Value {
     })
 }
 
+/// The 2025-11-25 task `task-1` at `status`, kept 60 s and polled every 5 s.
+pub(super) fn v1_task(status: &str) -> Value {
+    json!({
+        "taskId": "task-1",
+        "status": status,
+        "createdAt": "2026-10-24T12:00:00.000Z",
+        "ttl": 60_000,
+        "pollInterval": 5_000,
+    })
+}
+
+/// A 2025-11-25 server's answer reading [`v1_task`] at `status`.
+pub(super) fn v1_status_reply(status: &str) -> Reply {
+    Reply::Answer(json!({ "result": v1_task(status) }))
+}
+
 /// The refusal of a method the server does not serve, `server/discover` on a 2025-11-25 server.
 pub(super) fn method_not_found() -> Reply {
     Reply::Answer(json!({ "error": { "code": -32601, "message": "Method not found" } }))

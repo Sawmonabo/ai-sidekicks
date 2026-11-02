@@ -129,7 +129,7 @@ impl McpTaskHandleRecorder {
         not(test),
         expect(
             dead_code,
-            reason = "the tool call's dispatch records each task handle through it"
+            reason = "the daemon's start builds the recorder it hands the tool call's dispatch"
         )
     )]
     pub(crate) fn new(writer: Arc<DatabaseWriter>) -> Self {

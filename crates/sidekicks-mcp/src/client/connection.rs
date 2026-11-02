@@ -316,24 +316,19 @@ impl McpServerConnection {
     /// Whether `tool_name` takes a task on this server. On a 2025-11-25 server, the answer comes
     /// from its tools' `execution.taskSupport`, read again first when the server said they
     /// changed; on any other server it is false, since that server decides per call or takes no
-    /// task. Fails as that read fails, and the tools then stay marked changed, so the next task
-    /// call reads them again.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the tool call's dispatch reads it before it records the call"
-        )
-    )]
+    /// task. Fails as that read fails; the tools then stay marked changed, as they do when the
+    /// caller stops waiting for the read, so the next task call reads them again.
     pub(super) async fn is_task_tool(&self, tool_name: &str) -> Result<bool, McpRequestError> {
         if self.task_generation != Some(McpTaskGeneration::V1) {
             return Ok(false);
         }
-        if self.are_tools_stale.swap(false, Ordering::AcqRel)
-            && let Err(error) = self.read_task_tools().await
-        {
-            self.are_tools_stale.store(true, Ordering::Release);
-            return Err(error);
+        if self.are_tools_stale.swap(false, Ordering::AcqRel) {
+            let mut unread = StaleToolsMark {
+                are_tools_stale: &self.are_tools_stale,
+                is_read: false,
+            };
+            self.read_task_tools().await?;
+            unread.is_read = true;
         }
         Ok(lock(&self.task_tools).contains(tool_name))
     }
@@ -394,6 +389,21 @@ async fn end_failed_start(
                 "a tool server's process that failed its start could not be waited for"
             );
             error
+        }
+    }
+}
+
+/// Marks a connection's tools changed again when dropped before their read succeeded: the read
+/// failed, or its caller stopped waiting.
+struct StaleToolsMark<'connection> {
+    are_tools_stale: &'connection AtomicBool,
+    is_read: bool,
+}
+
+impl Drop for StaleToolsMark<'_> {
+    fn drop(&mut self) {
+        if !self.is_read {
+            self.are_tools_stale.store(true, Ordering::Release);
         }
     }
 }

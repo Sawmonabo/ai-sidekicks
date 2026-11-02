@@ -1,12 +1,14 @@
 //! A session's connection to one tool server across its Reconnects: the live connection, which
 //! the client publishes each time it opens one, so an answer given after a Reconnect reaches the
-//! new connection; and the marks that say the session closed or the client is stopping.
+//! new connection; the marks that say the session closed or the client is stopping; and the work
+//! that uses it, which the session's close waits for.
 
 use std::sync::Arc;
 
 use tokio::sync::watch;
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 use tokio_util::task::TaskTracker;
+use tokio_util::task::task_tracker::TaskTrackerToken;
 
 use crate::client::connection::McpServerConnection;
 use crate::client::tasks::McpServerEndpoint;
@@ -20,6 +22,8 @@ pub(crate) struct McpStandingConnection {
     closed: CancellationToken,
     /// The client's one mark, set when the daemon stops.
     stopping: CancellationToken,
+    /// The feed's tracker, which the session's close waits on.
+    tracker: TaskTracker,
 }
 
 /// Where the client publishes a standing connection's live connection, and closes it.
@@ -66,18 +70,47 @@ impl McpStandingConnection {
     pub(crate) fn new(stopping: CancellationToken) -> (Self, McpStandingConnectionFeed) {
         let (sender, receiver) = watch::channel(None);
         let closed = CancellationToken::new();
+        let tracker = TaskTracker::new();
         (
             Self {
                 live: receiver,
                 closed: closed.clone(),
                 stopping,
+                tracker: tracker.clone(),
             },
             McpStandingConnectionFeed {
                 live: sender,
                 closed,
-                tracker: TaskTracker::new(),
+                tracker,
             },
         )
+    }
+
+    /// Counts the caller's work as using the standing connection until the token drops, so the
+    /// session's close waits for it before closing the live connection. Take it before reading
+    /// the closed mark: a close that marks after the read waits for the token.
+    pub(crate) fn track(&self) -> TaskTrackerToken {
+        self.tracker.token()
+    }
+
+    /// Whether the session's connections closed.
+    pub(crate) fn is_closed(&self) -> bool {
+        self.closed.is_cancelled()
+    }
+
+    /// Resolves once the session's connections close.
+    pub(crate) fn closed(&self) -> WaitForCancellationFuture<'_> {
+        self.closed.cancelled()
+    }
+
+    /// Whether the client is stopping.
+    pub(crate) fn is_stopping(&self) -> bool {
+        self.stopping.is_cancelled()
+    }
+
+    /// The live connection, whatever its endpoint, if one is published.
+    pub(crate) fn current(&self) -> Option<Arc<McpServerConnection>> {
+        self.live.borrow().clone()
     }
 
     /// The live connection, when it reaches `endpoint`. Fails with `NotConfigured` when none is

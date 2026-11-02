@@ -20,6 +20,8 @@ mod revision_2025_11_25;
 mod revision_2026_07_28;
 pub(in crate::client) mod watches;
 
+use std::error::Error;
+
 use futures::future::BoxFuture;
 use rmcp::model::ErrorCode;
 use rmcp::service::ServiceError;
@@ -34,6 +36,7 @@ use tokio::sync::watch;
 
 use crate::client::connection::McpServerConnection;
 use crate::client::connection::standing::McpStandingConnection;
+use crate::client::poll::{PollError, PollFailure};
 use crate::client::requests::{McpRequestError, RequestWait};
 use crate::sign_in::canonical_server_address;
 
@@ -256,14 +259,6 @@ impl McpServerConnection {
     /// answers go over `standing`'s live connection, so one given after a Reconnect reaches the
     /// new connection. The caller reads `is_task_tool` first, before anything is recorded, and
     /// passes its answer. Fails as the call or the acceptance fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session's tool-server connections, which the tool-server units open, \
-                      call tools through it"
-        )
-    )]
     pub(crate) async fn call_tool(
         &self,
         standing: &McpStandingConnection,
@@ -316,14 +311,6 @@ impl McpServerConnection {
     /// `tasks.cancel`, so nothing is sent, or answers `-32601` on either protocol. Fails as the
     /// request fails otherwise, a `-32602` for a task that ended or that the server does not know
     /// included.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session's tool-server connections, which the tool-server units open, \
-                      cancel a stopped run's tasks through it"
-        )
-    )]
     pub(crate) async fn cancel_task(
         &self,
         mcp_task_generation: McpTaskGeneration,
@@ -357,6 +344,47 @@ impl McpServerConnection {
                 }
                 Err(error) => Err(McpToolCallError::Service(error)),
             },
+        }
+    }
+
+    /// The end of task `mcp_task_id`, accepted under `mcp_task_generation`, from one read of it: a
+    /// terminal status read as the task's follow reads it, a 2025-11-25 result through
+    /// `tasks/result`. `None`, the end unknown, for any other status or a failed read, which is
+    /// logged.
+    pub(crate) async fn read_task_end(
+        &self,
+        mcp_task_generation: McpTaskGeneration,
+        mcp_task_id: &str,
+    ) -> Option<McpToolCallEnd> {
+        let read: Result<_, Box<dyn Error + Send + Sync>> = match mcp_task_generation {
+            McpTaskGeneration::V1 => revision_2025_11_25::read_task_end(self, mcp_task_id)
+                .await
+                .map_err(Into::into),
+            McpTaskGeneration::V2 => revision_2026_07_28::read_task_end(self, mcp_task_id)
+                .await
+                .map_err(Into::into),
+        };
+        read.unwrap_or_else(|error| {
+            tracing::warn!(
+                error = &*error as &(dyn Error + 'static),
+                server = self.scope.server_name.as_str(),
+                "a tool server task's end could not be read; it reads unknown"
+            );
+            None
+        })
+    }
+}
+
+impl PollError for McpToolCallError {
+    fn poll_failure(&self) -> PollFailure {
+        match self {
+            Self::Request(error) => error.poll_failure(),
+            Self::Service(error) => error.poll_failure(),
+            // The server answered, with something the call cannot take.
+            Self::AcceptanceWithoutHandle
+            | Self::UnsupportedInputRequest
+            | Self::InputRoundsExceeded { .. }
+            | Self::UnexpectedResult => PollFailure::ErrorAnswer,
         }
     }
 }

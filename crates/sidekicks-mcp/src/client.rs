@@ -5,6 +5,7 @@
 
 mod calls;
 mod connection;
+pub(crate) mod dispatch;
 pub(crate) mod http;
 mod idle_window;
 mod poll;
@@ -103,7 +104,8 @@ impl McpClient {
         not(test),
         expect(
             dead_code,
-            reason = "the dispatch reads a session's connection to a tool server through it"
+            reason = "the tool route and the workflow tool step take the standing connection they \
+                      dispatch a call over through it"
         )
     )]
     pub(crate) fn standing_connection(
