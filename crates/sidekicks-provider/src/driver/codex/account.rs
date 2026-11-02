@@ -8,13 +8,6 @@ pub(crate) mod login;
 mod memory;
 mod sign_out;
 mod switch;
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the driver hands its account legs to the account plane once it is wired"
-    )
-)]
 mod window_start;
 
 use std::collections::HashMap;
