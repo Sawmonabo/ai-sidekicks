@@ -32,6 +32,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::call_fixtures::{context, request};
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::descent::CallerCheck;
@@ -597,7 +598,7 @@ async fn a_refused_token_resupply_leaves_the_name_as_it_was() {
         .await
         .expect("the account reads");
     assert_eq!(
-        stored.display_label.as_ref().map(|label| label.as_str()),
+        stored.display_label.as_ref().map(FreeFormText::as_str),
         Some("Work")
     );
 }
