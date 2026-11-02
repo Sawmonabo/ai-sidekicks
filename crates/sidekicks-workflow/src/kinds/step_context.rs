@@ -3,11 +3,11 @@
 //! variables it records for the tick to take.
 
 use std::collections::BTreeMap;
-use std::fmt;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{Map, Value};
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::JsonRecord;
@@ -17,46 +17,18 @@ use sidekicks_contracts::workflow::definition::expression_template::{
 };
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
-use crate::engine::ports::{StepPayloadArtifacts, StepProcessLauncher};
+use crate::engine::ports::{
+    StepAdmissionTicket, StepPayloadArtifacts, StepProcessLauncher, WorkflowNodeKey,
+};
 use crate::expressions::bindings::ExpressionError;
 use crate::expressions::evaluator::{ParamTemplate, StepExpressionsHandle};
+use crate::expressions::param_strings::{ParamPath, ParamPathSegment, walk_param_strings};
 use crate::runs::step_action::StepActionApproval;
 use crate::secrets::redaction::RunRedaction;
 use crate::secrets::resolution::ResolvedStepSecret;
-
-/// One step in a param's value: a member of an object or an entry of an array.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum ParamPathSegment {
-    /// The member of this name.
-    Key(String),
-    /// The entry at this index.
-    Index(usize),
-}
-
-/// Where a string sits in a node's params: the param, then each member or entry below it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ParamPath {
-    /// The param's name.
-    pub(crate) param: String,
-    /// Each member or entry below the param, outermost first.
-    pub(crate) segments: Vec<ParamPathSegment>,
-}
-
-impl fmt::Display for ParamPath {
-    /// Writes the path as `param.member[index]`.
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.param)?;
-        for segment in &self.segments {
-            match segment {
-                ParamPathSegment::Key(key) => write!(formatter, ".{key}")?,
-                ParamPathSegment::Index(index) => write!(formatter, "[{index}]")?,
-            }
-        }
-        Ok(())
-    }
-}
 
 /// Why a step's params could not be read or evaluated.
 #[derive(Debug, thiserror::Error)]
@@ -89,21 +61,33 @@ impl StepParams {
     /// returned in walk order, the order [`StepParams::fill`] takes their values in. Fails with
     /// [`StepParamsError::Unclosed`] for a template whose part never closes.
     pub(crate) fn read(params: &JsonRecord) -> Result<(Self, Vec<ParamTemplate>), StepParamsError> {
-        let mut base = Map::new();
+        let mut base: Map<String, Value> = params
+            .as_map()
+            .iter()
+            .map(|(name, value)| (name.clone(), value.0.clone()))
+            .collect();
         let mut template_paths = Vec::new();
         let mut templates = Vec::new();
-        for (name, value) in params.as_map() {
-            let mut value = value.0.clone();
-            let mut segments = Vec::new();
-            read_param_value(
-                &mut value,
-                name,
-                &mut segments,
-                &mut template_paths,
-                &mut templates,
-            )?;
-            base.insert(name.clone(), value);
-        }
+        walk_param_strings(params, |path, text| {
+            match read_template(text) {
+                Ok(TemplateText::Literal(literal)) => {
+                    if literal.len() != text.len() {
+                        *value_at(&mut base, path) = Value::String(literal.to_owned());
+                    }
+                }
+                Ok(TemplateText::Expression(template)) => {
+                    template_paths.push(path.clone());
+                    templates.push(ParamTemplate::from(&template));
+                }
+                Err(source) => {
+                    return Err(StepParamsError::Unclosed {
+                        path: path.clone(),
+                        source,
+                    });
+                }
+            }
+            Ok(())
+        })?;
         Ok((
             Self {
                 base: Arc::new(base),
@@ -124,63 +108,7 @@ impl StepParams {
     }
 }
 
-/// Reads `value`, sitting at `segments` below param `param`, in place, recording each template's
-/// path and template.
-fn read_param_value(
-    value: &mut Value,
-    param: &str,
-    segments: &mut Vec<ParamPathSegment>,
-    template_paths: &mut Vec<ParamPath>,
-    templates: &mut Vec<ParamTemplate>,
-) -> Result<(), StepParamsError> {
-    match value {
-        Value::String(text) => {
-            let literal = match read_template(text) {
-                Ok(TemplateText::Literal(literal)) => {
-                    (literal.len() != text.len()).then(|| literal.to_owned())
-                }
-                Ok(TemplateText::Expression(template)) => {
-                    template_paths.push(ParamPath {
-                        param: param.to_owned(),
-                        segments: segments.clone(),
-                    });
-                    templates.push(ParamTemplate::from(&template));
-                    None
-                }
-                Err(source) => {
-                    return Err(StepParamsError::Unclosed {
-                        path: ParamPath {
-                            param: param.to_owned(),
-                            segments: segments.clone(),
-                        },
-                        source,
-                    });
-                }
-            };
-            if let Some(literal) = literal {
-                *text = literal;
-            }
-        }
-        Value::Array(entries) => {
-            for (index, entry) in entries.iter_mut().enumerate() {
-                segments.push(ParamPathSegment::Index(index));
-                read_param_value(entry, param, segments, template_paths, templates)?;
-                segments.pop();
-            }
-        }
-        Value::Object(members) => {
-            for (key, entry) in members.iter_mut() {
-                segments.push(ParamPathSegment::Key(key.clone()));
-                read_param_value(entry, param, segments, template_paths, templates)?;
-                segments.pop();
-            }
-        }
-        Value::Null | Value::Bool(_) | Value::Number(_) => {}
-    }
-    Ok(())
-}
-
-/// The value at `path` in `params`, which [`StepParams::read`] recorded from these params.
+/// The value at `path` in `params`, a path the walk of these params gave.
 fn value_at<'params>(
     params: &'params mut Map<String, Value>,
     path: &ParamPath,
@@ -232,17 +160,17 @@ pub(crate) struct StepRecords {
     pub(crate) cancels_other_inputs: bool,
 }
 
-/// What a running step reads and records. The tick holds it while the executor runs and takes its
-/// records between writes.
-#[expect(
-    dead_code,
-    reason = "the tick's dispatch, which builds a step's context, and the kinds' executors, which read it"
-)]
+/// What a running step reads and records. The step's driver holds it while the executor runs, and
+/// takes its records when woken and when the step ends.
+#[expect(dead_code, reason = "the kinds' executors, which read it")]
 pub(crate) struct StepContext {
     /// The session the run lives in.
     pub(crate) session_id: SessionId,
     /// The step.
     pub(crate) step: WorkflowStepKey,
+    /// The node as the memory gate knows it, which an agent step's request and a process step's
+    /// peak read are keyed on.
+    pub(crate) node_key: WorkflowNodeKey,
     /// The node's name.
     pub(crate) node_name: NonEmptyText,
     /// The loop's run index, `$runIndex`.
@@ -251,12 +179,17 @@ pub(crate) struct StepContext {
     pub(crate) permission_level: PermissionLevel,
     /// The folder the run works in.
     pub(crate) working_folder: PathBuf,
+    /// The provider whose shell a command step runs in.
+    pub(crate) provider: ProviderId,
     /// The secrets the node's sensitive params resolved to.
     pub(crate) secrets: Vec<ResolvedStepSecret>,
     /// The step's cancel.
     pub(crate) cancel: CancellationToken,
     /// The run's redaction, which scrubs every record the step writes.
     pub(crate) redaction: Arc<RunRedaction>,
+    /// The step's place at the memory gate, which a script or quick step reports its peak
+    /// through; `None` for a step the gate does not weigh.
+    pub(crate) admission: Option<Arc<dyn StepAdmissionTicket>>,
     /// The check a step's action passes before it runs.
     pub(crate) step_actions: Arc<dyn StepActionApproval>,
     /// The launcher of the processes the step runs.
@@ -271,9 +204,104 @@ pub(crate) struct StepContext {
     expressions: Option<StepExpressionsHandle>,
     /// What the step recorded since the tick last took it.
     records: Mutex<StepRecords>,
+    /// Woken when the step marks progress or asks to cancel its node's other inputs.
+    recorded: Notify,
+}
+
+/// What a step's context is built from: its public members, its node's params and its templates
+/// open on the expression thread.
+pub(crate) struct StepContextParts {
+    /// The session the run lives in.
+    pub(crate) session_id: SessionId,
+    /// The step.
+    pub(crate) step: WorkflowStepKey,
+    /// The node as the memory gate knows it, which an agent step's request and a process step's
+    /// peak read are keyed on.
+    pub(crate) node_key: WorkflowNodeKey,
+    /// The node's name.
+    pub(crate) node_name: NonEmptyText,
+    /// The loop's run index, `$runIndex`.
+    pub(crate) run_index: u64,
+    /// The run's level.
+    pub(crate) permission_level: PermissionLevel,
+    /// The folder the run works in.
+    pub(crate) working_folder: PathBuf,
+    /// The provider whose shell a command step runs in.
+    pub(crate) provider: ProviderId,
+    /// The secrets the node's sensitive params resolved to.
+    pub(crate) secrets: Vec<ResolvedStepSecret>,
+    /// The step's cancel.
+    pub(crate) cancel: CancellationToken,
+    /// The run's redaction, which scrubs every record the step writes.
+    pub(crate) redaction: Arc<RunRedaction>,
+    /// The step's place at the memory gate, which a script or quick step reports its peak
+    /// through; `None` for a step the gate does not weigh.
+    pub(crate) admission: Option<Arc<dyn StepAdmissionTicket>>,
+    /// The check a step's action passes before it runs.
+    pub(crate) step_actions: Arc<dyn StepActionApproval>,
+    /// The launcher of the processes the step runs.
+    pub(crate) processes: Arc<dyn StepProcessLauncher>,
+    /// The store of the step's payloads too large to carry inline.
+    pub(crate) payloads: Arc<dyn StepPayloadArtifacts>,
+    /// The daemon's HTTP client.
+    pub(crate) http: reqwest::Client,
+    /// The node's params.
+    pub(crate) params: StepParams,
+    /// The step's templates open on the expression thread, `None` when its params hold none.
+    pub(crate) expressions: Option<StepExpressionsHandle>,
 }
 
 impl StepContext {
+    /// The context built from `parts`, its redaction masking each of its secrets before any record
+    /// the step makes.
+    pub(crate) fn new(parts: StepContextParts) -> Self {
+        let StepContextParts {
+            session_id,
+            step,
+            node_key,
+            node_name,
+            run_index,
+            permission_level,
+            working_folder,
+            provider,
+            secrets,
+            cancel,
+            redaction,
+            admission,
+            step_actions,
+            processes,
+            payloads,
+            http,
+            params,
+            expressions,
+        } = parts;
+        for secret in &secrets {
+            redaction.add_secret(&secret.value);
+        }
+        Self {
+            session_id,
+            step,
+            node_key,
+            node_name,
+            run_index,
+            permission_level,
+            working_folder,
+            provider,
+            secrets,
+            cancel,
+            redaction,
+            admission,
+            step_actions,
+            processes,
+            payloads,
+            http,
+            params,
+            expressions,
+            records: Mutex::default(),
+            recorded: Notify::new(),
+        }
+    }
+
     /// The node's params for input item `item_index`: the one shared map when they hold no
     /// template, else each template evaluated for the item in one hop. Fails with
     /// [`StepParamsError::Expression`] when the evaluation does.
@@ -299,6 +327,7 @@ impl StepContext {
     #[expect(dead_code, reason = "the kinds' executors")]
     pub(crate) fn mark_progress(&self) {
         lock(&self.records).has_progressed = true;
+        self.recorded.notify_one();
     }
 
     /// Sets the run variables `values`, which later runs keep too when `keep`; a name set again
@@ -321,6 +350,20 @@ impl StepContext {
     #[expect(dead_code, reason = "the kinds' executors")]
     pub(crate) fn cancel_other_inputs(&self) {
         lock(&self.records).cancels_other_inputs = true;
+        self.recorded.notify_one();
+    }
+
+    /// Waits until the step marks progress or asks to cancel its node's other inputs; returns at
+    /// once when it did either since the last wait ended.
+    #[cfg_attr(
+        test,
+        expect(
+            dead_code,
+            reason = "the step's driver, which takes the records when woken"
+        )
+    )]
+    pub(crate) async fn wait_for_records(&self) {
+        self.recorded.notified().await;
     }
 
     /// Takes what the step recorded since the last take, leaving nothing recorded.
@@ -351,10 +394,7 @@ impl StepActionApproval for RefusingPorts {
 
 #[cfg(test)]
 impl StepProcessLauncher for RefusingPorts {
-    fn command_shell(
-        &self,
-        _provider: &sidekicks_contracts::provider::id::ProviderId,
-    ) -> Option<PathBuf> {
+    fn command_shell(&self, _provider: &ProviderId) -> Option<PathBuf> {
         None
     }
 
@@ -393,12 +433,21 @@ impl StepPayloadArtifacts for RefusingPorts {
 }
 
 /// A context for step `run`'s first attempt in a test session, its params `params` with no
-/// template open, writing through `redaction`, its ports refusing every call.
+/// template open and its secrets `secrets`, writing through `redaction`, its ports refusing every
+/// call.
 #[cfg(test)]
-pub(crate) fn test_step_context(params: &JsonRecord, redaction: Arc<RunRedaction>) -> StepContext {
+pub(crate) fn test_step_context(
+    params: &JsonRecord,
+    secrets: Vec<ResolvedStepSecret>,
+    redaction: Arc<RunRedaction>,
+) -> StepContext {
+    use sidekicks_contracts::workflow::definition::document::{
+        WorkflowDefinitionId, WorkflowNodeId,
+    };
+
     let (params, _templates) = StepParams::read(params).expect("the test's params read");
     let ports = Arc::new(RefusingPorts);
-    StepContext {
+    StepContext::new(StepContextParts {
         session_id: SessionId::new("0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7b")
             .expect("the test's session id is a UUID"),
         step: serde_json::from_value(serde_json::json!({
@@ -406,21 +455,27 @@ pub(crate) fn test_step_context(params: &JsonRecord, redaction: Arc<RunRedaction
             "nodeId": "run", "attempt": 1, "executionIndex": 0,
         }))
         .expect("the test's step key reads"),
+        node_key: WorkflowNodeKey::new(
+            WorkflowDefinitionId::new("0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7d")
+                .expect("the test's definition id is a UUID"),
+            &WorkflowNodeId::new("run".to_owned()).expect("the test's node id"),
+        ),
         node_name: NonEmptyText::new("Run".to_owned()).expect("the name is not empty"),
         run_index: 0,
         permission_level: PermissionLevel::Ask,
         working_folder: PathBuf::from("/workspace"),
-        secrets: Vec::new(),
+        provider: ProviderId::new("test-provider".to_owned()).expect("the test's provider id"),
+        secrets,
         cancel: CancellationToken::new(),
         redaction,
+        admission: None,
         step_actions: Arc::clone(&ports) as Arc<dyn StepActionApproval>,
         processes: Arc::clone(&ports) as Arc<dyn StepProcessLauncher>,
         payloads: ports,
         http: reqwest::Client::new(),
         params,
         expressions: None,
-        records: Mutex::default(),
-    }
+    })
 }
 
 #[cfg(test)]
@@ -432,8 +487,10 @@ mod tests {
     use sidekicks_contracts::wire::record::JsonRecord;
     use sidekicks_ipc::redaction::CREDENTIAL_REDACTION;
 
-    use super::{ParamPath, ParamPathSegment, StepParams, StepParamsError, test_step_context};
+    use super::{StepParams, StepParamsError, test_step_context};
+    use crate::expressions::param_strings::{ParamPath, ParamPathSegment};
     use crate::secrets::redaction::RunRedaction;
+    use crate::secrets::resolution::ResolvedStepSecret;
 
     fn params(value: Value) -> JsonRecord {
         serde_json::from_value(value).expect("the test's params read")
@@ -479,12 +536,20 @@ mod tests {
         );
     }
 
-    /// A log line holding one of the run's secrets is stored with the secret masked. Mutation:
-    /// store the line unscrubbed.
+    /// A context built with a resolved secret over a redaction that does not hold it stores a log
+    /// line holding the secret with the secret masked. Mutations: store the line unscrubbed; build
+    /// the context without adding its secrets to the redaction.
     #[test]
-    fn the_log_masks_the_runs_secrets() {
-        let redaction = Arc::new(RunRedaction::new(&[SecretString::from("hunter2secretXYZ")]));
-        let context = test_step_context(&JsonRecord::default(), redaction);
+    fn the_log_masks_the_steps_own_secrets() {
+        let secret = ResolvedStepSecret {
+            parameter: "token".to_owned(),
+            value: SecretString::from("hunter2secretXYZ"),
+        };
+        let context = test_step_context(
+            &JsonRecord::default(),
+            vec![secret],
+            Arc::new(RunRedaction::new(&[])),
+        );
         context.write_log("token hunter2secretXYZ sent");
         assert_eq!(
             context.take_records().log_lines,

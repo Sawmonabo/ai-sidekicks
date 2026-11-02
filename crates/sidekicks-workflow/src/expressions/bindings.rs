@@ -93,7 +93,7 @@ pub(crate) struct ExpressionBindings {
 
 /// Why an expression has no value: a lineage or label failure of an item binding, a read of a
 /// credential's name through `$env`, a part the parser refuses, the evaluator's own failure, the
-/// step's cancel, or the evaluator thread too busy or stopped to take the evaluation.
+/// step's cancel, or the evaluator thread stopped before it answered.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ExpressionError {
     /// `$item('<label>')`, or another binding naming a label, found no item.
@@ -122,9 +122,6 @@ pub(crate) enum ExpressionError {
     /// The step was canceled while this evaluation ran, or before it began.
     #[error("The step was canceled while its expression was evaluated.")]
     Canceled,
-    /// The evaluator thread already holds as many jobs waiting as its channel takes.
-    #[error("The expression thread has too many evaluations waiting.")]
-    EvaluatorBusy,
     /// The evaluator thread stopped, which only a panic on it does, before it answered.
     #[error("The expression thread stopped before it answered.")]
     EvaluatorStopped(#[from] RecvError),
@@ -553,6 +550,40 @@ fn environment_read(node: &AstNode) -> Option<&str> {
 /// Whether `node` is the variable `$env`.
 fn is_environment(node: &AstNode) -> bool {
     matches!(node, AstNode::Variable(name) if name == "env")
+}
+
+/// The bindings of step `current` in a run of the workflow `Nightly` that a manual trigger at node
+/// `L` started at 15:00 UTC on 4 March 2025, reading `input_items` and `steps`, in loop run 0 with
+/// no params, environment rows, run variables or kept values.
+#[cfg(test)]
+pub(crate) fn test_expression_bindings(
+    input_items: Vec<WorkflowItem>,
+    steps: StepOutputs,
+) -> ExpressionBindings {
+    let node_id = |id: &str| WorkflowNodeId::new(id.to_owned()).expect("a node id");
+    ExpressionBindings {
+        step: StepKey {
+            node_id: node_id("current"),
+            execution_index: 0,
+        },
+        input_items: input_items.into(),
+        steps: Arc::new(steps),
+        node_params: Arc::new(HashMap::new()),
+        run_index: 0,
+        run_started_at: "2025-03-04T15:00:00Z".parse().expect("an instant"),
+        time_zone: TimeZone::UTC,
+        environment_rows: Arc::new([]),
+        run_variables: Arc::new(Map::new()),
+        kept_values: Arc::new([]),
+        run_id: WorkflowRunId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e62").expect("a run id"),
+        run_trigger: WorkflowRunTrigger {
+            kind: sidekicks_contracts::workflow::run::trigger::WorkflowTriggerKind::Manual,
+            node_id: node_id("L"),
+        },
+        workflow_id: WorkflowDefinitionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e60")
+            .expect("a definition id"),
+        workflow_name: WorkflowName::new("Nightly".to_owned()).expect("a name"),
+    }
 }
 
 #[cfg(test)]

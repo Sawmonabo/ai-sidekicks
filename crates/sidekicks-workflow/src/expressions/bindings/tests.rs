@@ -8,14 +8,12 @@ use jsonata_core::parser::parse;
 use rstest::rstest;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::workflow::definition::document::{
-    WorkflowDefinitionId, WorkflowName, WorkflowNodeId,
-};
+use sidekicks_contracts::workflow::definition::document::WorkflowNodeId;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::trigger::WorkflowTriggerKind;
 
-use super::{ExpressionBindings, ExpressionError, StepBindings};
+use super::{ExpressionBindings, ExpressionError, StepBindings, test_expression_bindings};
 use crate::definitions::kept_values::WorkflowKeptValue;
 use crate::expressions::lineage::{LineageError, StepKey, StepOutput, StepOutputs};
 use crate::runs::creation::WorkflowRunTrigger;
@@ -38,8 +36,9 @@ fn from_json<T: serde::de::DeserializeOwned>(json: Value) -> T {
     serde_json::from_value(json).expect("the fixture reads")
 }
 
-/// The step `current`, fed by `source`'s two items, in loop run 2 of a run whose instant is 15:00 UTC on 4 March 2025, which is already 5 March on Kiritimati.
-/// `empty` ran with no items; the project holds a plain row and a credential-shaped one.
+/// The step `current`, fed by `source`'s two items, in loop run 2 of a run whose instant is 15:00
+/// UTC on 4 March 2025, which is already 5 March on Kiritimati. `empty` ran with no items; the
+/// project holds a plain row and a credential-shaped one.
 fn bindings() -> ExpressionBindings {
     let source_items: Vec<WorkflowItem> = vec![
         from_json(json!({ "json": { "name": "Bob" }, "pairedItem": { "item": 0 } })),
@@ -83,15 +82,11 @@ fn bindings() -> ExpressionBindings {
     let instant: Timestamp = "2025-03-04T15:00:00Z".parse().expect("an instant");
     let run_id = WorkflowRunId::new(RUN_ID).expect("a run id");
     ExpressionBindings {
-        step: step_key("current"),
-        input_items: source_items.into(),
-        steps: Arc::new(steps),
         node_params: Arc::new(HashMap::from([(
             node_id("source"),
             from_json(json!({ "mode": "fast" })),
         )])),
         run_index: 2,
-        run_started_at: instant,
         time_zone: TimeZone::get("Pacific/Kiritimati").expect("a zone"),
         environment_rows: vec![
             from_json(json!({ "name": "REGION", "value": "eu" })),
@@ -118,13 +113,11 @@ fn bindings() -> ExpressionBindings {
             },
         ]
         .into(),
-        run_id,
         run_trigger: WorkflowRunTrigger {
             kind: WorkflowTriggerKind::Manual,
             node_id: node_id("trigger"),
         },
-        workflow_id: WorkflowDefinitionId::new(DEFINITION_ID).expect("a definition id"),
-        workflow_name: WorkflowName::new("Nightly".to_owned()).expect("a name"),
+        ..test_expression_bindings(source_items, steps)
     }
 }
 

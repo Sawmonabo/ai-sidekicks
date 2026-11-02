@@ -10,10 +10,14 @@
 #[cfg(test)]
 mod tests;
 
+use std::convert::Infallible;
+
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use secrecy::SecretString;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::project::ProjectId;
+use sidekicks_contracts::wire::record::JsonRecord;
+use sidekicks_contracts::workflow::kind::{WorkflowNodeKindSpec, WorkflowParamSpec};
 use sidekicks_contracts::workflow::secret::{
     WorkflowSecretId, WorkflowSecretNotFoundDetails, WorkflowSecretReference,
     WorkflowSecretReferenceNotFound, WorkflowSecretScope, WorkflowSecretStoreUnavailableDetails,
@@ -21,8 +25,11 @@ use sidekicks_contracts::workflow::secret::{
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::credential_store::KeychainRefusal;
-use sidekicks_store::database::connection::read_pool::DatabaseReadError;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
 
+use crate::expressions::param_strings::{ParamPathSegment, walk_param_strings};
 use crate::secrets::store::WorkflowSecretStore;
 
 /// The statements [`find_step_secrets`] runs on a read connection: the live record of one
@@ -107,6 +114,98 @@ impl From<StepSecretRefusal> for HandlerError {
             }
         }
     }
+}
+
+/// Resolves the secrets of a node of kind `spec` whose params are `params`, in a run working in
+/// `project` or in none: each string a param holds whole, nested ones included, that sits on a leaf
+/// `spec` marks sensitive is looked up, under its path's text. Reads nothing when no string is
+/// sensitive. Fails as [`find_step_secrets`] and [`resolve_step_secrets`] do.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the tick's dispatch, which resolves a step's secrets when it launches"
+    )
+)]
+pub(crate) async fn resolve_node_secrets(
+    pool: &DatabaseReadPool,
+    store: &WorkflowSecretStore,
+    project: Option<&ProjectId>,
+    spec: &WorkflowNodeKindSpec,
+    params: &JsonRecord,
+) -> Result<Vec<ResolvedStepSecret>, StepSecretRefusal> {
+    let mut sensitive = Vec::new();
+    let Ok(()) = walk_param_strings(params, |path, text| {
+        if is_sensitive_leaf(&spec.params, &path.param, &path.segments) {
+            sensitive.push((path.to_string(), text.to_owned()));
+        }
+        Ok::<(), Infallible>(())
+    });
+    if sensitive.is_empty() {
+        return Ok(Vec::new());
+    }
+    let project = project.copied();
+    let found = pool
+        .read(ReadLength::Short, move |connection| {
+            find_step_secrets(
+                connection,
+                project.as_ref(),
+                sensitive
+                    .iter()
+                    .map(|(parameter, value)| (parameter.as_str(), value.as_str(), true)),
+            )
+        })
+        .await?;
+    resolve_step_secrets(store, found).await
+}
+
+/// Whether the string at `segments` below the param `param` sits on a leaf of `specs` marked
+/// sensitive: a member enters a collection's field of its name, an entry only a repeating
+/// collection's list, and the walk must end on the leaf itself.
+fn is_sensitive_leaf(
+    specs: &[WorkflowParamSpec],
+    param: &str,
+    segments: &[ParamPathSegment],
+) -> bool {
+    let Some(mut spec) = find_param(specs, param) else {
+        return false;
+    };
+    let mut segments = segments.iter();
+    loop {
+        match spec {
+            WorkflowParamSpec::Leaf(leaf) => {
+                return segments.next().is_none() && leaf.sensitive == Some(true);
+            }
+            WorkflowParamSpec::Collection(collection) => {
+                if collection.multiple == Some(true)
+                    && !matches!(segments.next(), Some(ParamPathSegment::Index(_)))
+                {
+                    return false;
+                }
+                let Some(ParamPathSegment::Key(field)) = segments.next() else {
+                    return false;
+                };
+                let Some(field_spec) = find_param(&collection.fields, field) else {
+                    return false;
+                };
+                spec = field_spec;
+            }
+        }
+    }
+}
+
+/// The param of `specs` whose id is `id`.
+fn find_param<'spec>(
+    specs: &'spec [WorkflowParamSpec],
+    id: &str,
+) -> Option<&'spec WorkflowParamSpec> {
+    specs.iter().find(|spec| {
+        let spec_id = match spec {
+            WorkflowParamSpec::Leaf(leaf) => &leaf.id,
+            WorkflowParamSpec::Collection(collection) => &collection.id,
+        };
+        spec_id.0.as_str() == id
+    })
 }
 
 /// Finds the record of each sensitive parameter's reference, given each parameter as its name, its

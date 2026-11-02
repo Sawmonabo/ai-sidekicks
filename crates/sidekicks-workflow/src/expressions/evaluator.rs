@@ -36,8 +36,8 @@ use crate::expressions::bindings::{ExpressionBindings, ExpressionError, StepBind
 /// The thread's name, as a process listing shows it.
 const THREAD_NAME: &str = "workflow-expressions";
 
-/// The most jobs that wait for the thread; one more is refused, never waited for, so a job's
-/// worst wait is the jobs ahead of it.
+/// The most jobs that wait for the thread; one more waits for room on the channel, so the queue
+/// never holds more and a job's worst wait is the jobs ahead of it.
 const JOB_CAPACITY: usize = 256;
 
 /// The deepest an evaluation nests, in evaluator levels, past which it fails with `D1011`: about
@@ -93,8 +93,8 @@ impl ExpressionEvaluator {
     /// Opens a step's expressions on the thread: its bindings, built once, and `templates`, its
     /// params' `=` templates, each part parsed once. The step's evaluations end
     /// [`ExpressionError::Canceled`] once `step_cancel` is canceled. Must be called inside a tokio
-    /// runtime. Fails with [`ExpressionError::TemplateUnparsable`] for a part the parser refuses,
-    /// [`ExpressionError::EvaluatorBusy`] when the channel is full, and
+    /// runtime, and waits for room when the channel is full. Fails with
+    /// [`ExpressionError::TemplateUnparsable`] for a part the parser refuses, and
     /// [`ExpressionError::EvaluatorStopped`] when the thread stopped.
     pub(crate) async fn open_step(
         &self,
@@ -129,18 +129,18 @@ impl ExpressionEvaluator {
             });
             // A caller that stops waiting now drops the step at its handle's close.
             answer.send(opened).unwrap_or_else(drop);
-        }))?;
+        }))
+        .await;
         answered.await??;
         Ok(handle)
     }
 
-    /// Queues `job` without waiting; fails with [`ExpressionError::EvaluatorBusy`] when the
-    /// channel is full. A stopped thread drops the job, and its answer with it, which the caller
-    /// reads as [`ExpressionError::EvaluatorStopped`].
-    fn send(&self, job: Job) -> Result<(), ExpressionError> {
-        match self.jobs.try_send(job) {
-            Ok(()) | Err(TrySendError::Closed(_)) => Ok(()),
-            Err(TrySendError::Full(_)) => Err(ExpressionError::EvaluatorBusy),
+    /// Queues `job` once the channel has room, waiting on the channel's own reservation. A stopped
+    /// thread drops the job, and its answer with it, which the caller reads as
+    /// [`ExpressionError::EvaluatorStopped`].
+    async fn send(&self, job: Job) {
+        if let Ok(permit) = self.jobs.reserve().await {
+            permit.send(job);
         }
     }
 }
@@ -157,17 +157,15 @@ pub(crate) struct StepExpressionsHandle {
 
 impl StepExpressionsHandle {
     /// Each of the step's templates evaluated for input item `item_index`, in the order the step
-    /// opened with. The job is queued before the first poll, so a full channel answers
-    /// [`ExpressionError::EvaluatorBusy`] at once; the future borrows the handle, so the step
-    /// stays open while it waits. Fails as [`StepExpressions::evaluate_item`] does.
-    pub(crate) fn evaluate_item(
+    /// opened with. The job is queued once the channel has room; the future borrows the handle,
+    /// so the step stays open while it waits. Fails as [`StepExpressions::evaluate_item`] does.
+    pub(crate) async fn evaluate_item(
         &self,
         item_index: usize,
-    ) -> impl Future<Output = Result<Vec<Value>, ExpressionError>> + '_ {
+    ) -> Result<Vec<Value>, ExpressionError> {
         let id = self.id;
         let (answer, answered) = oneshot::channel();
-        let sent = self
-            .evaluator
+        self.evaluator
             .send(Box::new(move |open_steps: &mut OpenSteps| {
                 // A caller that stopped waiting needs no value; only such a caller's step can have
                 // been closed ahead of its job.
@@ -179,11 +177,9 @@ impl StepExpressionsHandle {
                         .send(step.evaluate_item(item_index))
                         .unwrap_or_else(drop);
                 }
-            }));
-        async move {
-            sent?;
-            answered.await?
-        }
+            }))
+            .await;
+        answered.await?
     }
 }
 
