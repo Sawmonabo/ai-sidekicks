@@ -1,7 +1,7 @@
 //! A questions card for tests: it takes one open question per run at a time, as a run waiting on
 //! one does, keeps the rest waiting for their run until it reads running again, and can hold back
-//! its record writes, its takes' outcomes and its withdrawals, or fail the run's read that opens a
-//! question waiting for its run.
+//! its record writes, its takes' outcomes and its withdrawals, or fail its record writes, its
+//! settles of a kept answer or the run's read that opens a question waiting for its run.
 
 use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -47,6 +47,8 @@ pub struct QuestionCard {
     is_waiting_open_failing: AtomicBool,
     /// Set by [`Self::fail_records`].
     is_record_failing: AtomicBool,
+    /// Set by [`Self::fail_settles`].
+    is_settle_failing: AtomicBool,
     /// The request id of every withdrawal taken, in order.
     withdrawals: Mutex<Vec<String>>,
 }
@@ -200,6 +202,12 @@ impl QuestionCard {
     #[cfg(test)]
     pub(crate) fn fail_records(&self) {
         self.is_record_failing.store(true, Ordering::SeqCst);
+    }
+
+    /// Fails each later settle of a kept answer, the question left open, as a write the store
+    /// refused.
+    pub fn fail_settles(&self) {
+        self.is_settle_failing.store(true, Ordering::SeqCst);
     }
 
     /// Waits until `count` record writes wait at the gate of [`Self::hold_records`]; fails the
@@ -434,6 +442,9 @@ impl QuestionPort for QuestionCard {
         _session_id: SessionId,
         request_id: String,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        if self.is_settle_failing.load(Ordering::SeqCst) {
+            return async { Err("the settle's write failed".into()) }.boxed();
+        }
         self.open
             .lock()
             .expect("never poisoned")

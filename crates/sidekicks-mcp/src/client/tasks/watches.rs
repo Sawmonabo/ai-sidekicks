@@ -31,9 +31,6 @@ use crate::client::tasks::{McpServerEndpoint, McpTaskContact, McpToolCallEnd};
 /// A followed task's key: its session, its server's name and its id.
 type WatchKey = (SessionId, String, String);
 
-/// What a take running in its own task sends back: whether the card took its question.
-type TakeOutcome = Result<bool, Box<dyn Error + Send + Sync>>;
-
 /// The tasks a client follows, across its connections, each one's early-poll wake and the run its
 /// questions are asked in; and the questions card every tool-server question goes to. It holds one
 /// entry per followed task, each until the task's poll ends, and in it each of the task's
@@ -57,9 +54,9 @@ struct WatchedTask {
     /// The 2025-11-25 question a closing connection's request left open, for the server's next
     /// ask on another connection.
     kept_question: Option<KeptQuestion>,
-    /// The outcomes of the takes a closing connection's request left, held so each take goes on
-    /// in its run's turn rather than reading its asker as gone.
-    detached_takes: Vec<oneshot::Receiver<TakeOutcome>>,
+    /// Whether the card took each question a closing connection's request left, held so each take
+    /// goes on in its run's turn rather than reading its asker as gone.
+    detached_takes: Vec<oneshot::Receiver<bool>>,
     /// The keys of a 2026-07-28 task's input requests the card took, never asked again.
     asked: HashSet<String>,
     /// Whether a follow that adopted the entry still waits for the server to ask a 2025-11-25
@@ -384,17 +381,22 @@ impl TaskWatches {
     }
 
     /// Settles answered question `request_id` of `session_id`, whose kept answer a server's next
-    /// ask took, in a task of its own beside that ask's response, logging a failure.
+    /// ask took, in a task of its own beside that ask's response. A settle that fails is logged
+    /// and the question withdrawn, so it is not left open with every later answer refused.
     fn settle_kept_answer_later(&self, session_id: SessionId, request_id: String) {
         let Some(port) = self.questions.port().cloned() else {
             return;
         };
         tokio::spawn(async move {
-            if let Err(error) = port.settle_kept_answer(session_id, request_id).await {
+            if let Err(error) = port
+                .settle_kept_answer(session_id, request_id.clone())
+                .await
+            {
                 tracing::warn!(
                     error = &*error as &(dyn Error + 'static),
-                    "a tool server's kept answer was not settled"
+                    "a tool server's kept answer was not settled; its question is withdrawn"
                 );
+                withdraw_questions(port.as_ref(), session_id, vec![request_id]).await;
             }
         });
     }
@@ -439,14 +441,14 @@ impl TaskWatches {
     }
 
     /// Hands the card `question`, answered through `answer` and taken as `take` says; false when
-    /// the card did not take it, which is logged, when it was settled before its run's turn came,
-    /// or when `owner_ended`, its call's or task's end, came first. The take runs in a task of its
-    /// own, so one whose asker or owner stops waiting still completes and its question is
+    /// the card did not take it, which the take logs, when it was settled before its run's turn
+    /// came, or when `owner_ended`, its call's or task's end, came first. The take runs in a task
+    /// of its own, so one whose asker or owner stops waiting still completes and its question is
     /// withdrawn, never left open with nobody to answer it; a question waiting its turn stops
     /// waiting with its asker or its owner and is withdrawn. An asker cut by its connection's close
-    /// leaves a task's question to `detach`, its take going on. Until the card's intake is registered
-    /// this reads as taken while nobody holds `answer`: a 2025-11-25 question is then answered
-    /// `cancel`, and a 2026-07-28 one is never asked again.
+    /// leaves a task's question to `detach`, its take going on. Until the card's intake is
+    /// registered this reads as taken while nobody holds `answer`: a 2025-11-25 question is then
+    /// answered `cancel`, and a 2026-07-28 one is never asked again.
     pub(in crate::client) async fn take_question(
         &self,
         scope: &McpConnectionScope,
@@ -468,12 +470,16 @@ impl TaskWatches {
             let request_id = request_id.clone();
             let server = scope.server_name.clone();
             async move {
-                // Whether the card took it; false when it was settled before its run's turn came.
-                let took: TakeOutcome = match place {
-                    None => port
-                        .take_tool_server_question(question, answer)
-                        .await
-                        .map(|()| true),
+                // Whether the card took it; false when it was settled before its run's turn came,
+                // or refused, which is logged here whether or not its asker still waits.
+                let took = match place {
+                    None => match port.take_tool_server_question(question, answer).await {
+                        Ok(()) => true,
+                        Err(error) => {
+                            log_untaken(server.as_str(), &*error);
+                            false
+                        }
+                    },
                     Some(place) => {
                         let ended = take_question_in_turn(
                             port.as_ref(),
@@ -484,8 +490,8 @@ impl TaskWatches {
                         )
                         .await;
                         match ended {
-                            Ok(QuestionTurnEnd::Taken) => Ok(true),
-                            Ok(QuestionTurnEnd::Settled) => Ok(false),
+                            Ok(QuestionTurnEnd::Taken) => true,
+                            Ok(QuestionTurnEnd::Settled) => false,
                             // Withdrawn already, its asker gone.
                             Ok(QuestionTurnEnd::AskerLeft) => return,
                             // Its asker gone, so no one else logs it.
@@ -497,23 +503,16 @@ impl TaskWatches {
                                 );
                                 return;
                             }
-                            Err(error @ QuestionTurnError::Take { .. }) => Err(Box::new(error)),
+                            Err(error @ QuestionTurnError::Take { .. }) => {
+                                log_untaken(server.as_str(), &error);
+                                false
+                            }
                         }
                     }
                 };
-                match sender.send(took) {
-                    // Delivered, or settled with nothing left to withdraw.
-                    Ok(()) | Err(Ok(false)) => {}
-                    // The asker stopped waiting while the card took the question.
-                    Err(Ok(true)) => {
-                        withdraw_questions(port.as_ref(), session_id, vec![request_id]).await;
-                    }
-                    // Its asker gone, so no one else logs it.
-                    Err(Err(error)) => tracing::warn!(
-                        error = &*error as &(dyn Error + 'static),
-                        server = server.as_str(),
-                        "the questions card did not take a tool server's question"
-                    ),
+                // The asker stopped waiting while the card took the question.
+                if let Err(true) = sender.send(took) {
+                    withdraw_questions(port.as_ref(), session_id, vec![request_id]).await;
                 }
             }
         });
@@ -525,10 +524,7 @@ impl TaskWatches {
             detach,
         };
         let took = tokio::select! {
-            took = pending.taken.as_mut().expect("the take's outcome is read once") => match took {
-                Ok(took) => took,
-                Err(_ended) => Err("the take ended without an outcome".into()),
-            },
+            took = pending.taken.as_mut().expect("the take's outcome is read once") => took,
             // Its call or task ended first; the pending take, dropped, has the question withdrawn.
             () = owner_ended.cancelled() => return false,
         };
@@ -536,9 +532,9 @@ impl TaskWatches {
         pending.taken = None;
         took.unwrap_or_else(|error| {
             tracing::warn!(
-                error = &*error as &(dyn Error + 'static),
+                error = &error as &(dyn Error + 'static),
                 server = scope.server_name.as_str(),
-                "the questions card did not take a tool server's question"
+                "a tool server question's take ended without an outcome"
             );
             false
         })
@@ -577,6 +573,15 @@ impl TaskWatches {
     }
 }
 
+/// Logs that the questions card did not take a question of `server`, refused with `error`.
+fn log_untaken(server: &str, error: &(dyn Error + 'static)) {
+    tracing::warn!(
+        error,
+        server,
+        "the questions card did not take a tool server's question"
+    );
+}
+
 /// Withdraws each of `request_ids` in `session_id` through `port`, logging any the card could not
 /// settle.
 async fn withdraw_questions(
@@ -606,8 +611,8 @@ struct PendingTake<'watches> {
     watches: &'watches TaskWatches,
     session_id: SessionId,
     request_id: String,
-    /// The take's outcome, until it is read.
-    taken: Option<oneshot::Receiver<TakeOutcome>>,
+    /// Whether the card took the question, until it is read.
+    taken: Option<oneshot::Receiver<bool>>,
     detach: Option<TaskQuestionDetach>,
 }
 
@@ -629,7 +634,7 @@ impl Drop for PendingTake<'_> {
         };
         // Closed first, so the take's own task withdraws any outcome that comes after.
         taken.close();
-        if let Ok(Ok(true)) = taken.try_recv() {
+        if let Ok(true) = taken.try_recv() {
             let request_id = std::mem::take(&mut self.request_id);
             self.watches
                 .withdraw_questions_later(self.session_id, vec![request_id]);
@@ -850,7 +855,7 @@ mod tests {
             .await
             .expect("the card takes the question");
         let (sender, taken) = oneshot::channel();
-        sender.send(Ok(true)).expect("the take's outcome is sent");
+        sender.send(true).expect("the take's outcome is sent");
 
         drop(PendingTake {
             watches: &scope.task_watches,

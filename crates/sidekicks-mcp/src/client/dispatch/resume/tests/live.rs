@@ -80,6 +80,33 @@ async fn close_unreplaced(
     until(|| *contact.borrow() == NotConfigured).await;
 }
 
+/// A re-bound 2025-11-25 server whose task waits on input, its first held `tasks/result` never
+/// answering, until `is_done` is set, then completes.
+fn reasked_task_server(is_done: &Arc<AtomicBool>) -> Responder {
+    let is_done = Arc::clone(is_done);
+    task_server(move |method, earlier| match (method, earlier) {
+        ("tasks/get", _) if is_done.load(Ordering::SeqCst) => v1_status_reply("completed"),
+        ("tasks/get", _) => v1_status_reply("input_required"),
+        ("tasks/result", 0) => Reply::Silent,
+        ("tasks/result", _) => tracked_result(),
+        _ => method_not_found(),
+    })
+}
+
+/// Has `server` ask [`task_elicitation`] again under the request id `server-reask`, the same form
+/// under another progress token, once the follow polls it, and waits for the client's answer.
+async fn reask(server: &TestServer) {
+    until(|| !server.requests("tasks/get").is_empty()).await;
+    let mut reask = task_elicitation("second");
+    reask["jsonrpc"] = json!("2.0");
+    reask["id"] = json!("server-reask");
+    server
+        .unasked
+        .send(reask.to_string())
+        .expect("the server is running");
+    until(|| server.answer_to("server-reask").is_some()).await;
+}
+
 /// Publishes a connection to the tracker at its address answering through `responder`, as a
 /// Reconnect's replacement.
 async fn replace(
@@ -122,28 +149,8 @@ async fn a_kept_question_stays_open_across_a_reconnect_and_its_answer_goes_to_th
                 1,
                 "the answer is kept, the question open"
             );
-            let new = replace(&fixture, &feed, {
-                let is_done = Arc::clone(&is_done);
-                task_server(move |method, earlier| match (method, earlier) {
-                    ("tasks/get", _) if is_done.load(Ordering::SeqCst) => {
-                        v1_status_reply("completed")
-                    }
-                    ("tasks/get", _) => v1_status_reply("input_required"),
-                    ("tasks/result", 0) => Reply::Silent,
-                    ("tasks/result", _) => tracked_result(),
-                    _ => method_not_found(),
-                })
-            })
-            .await;
-            until(|| !new.requests("tasks/get").is_empty()).await;
-            // The server asks again, the same form under another progress token.
-            let mut reask = task_elicitation("second");
-            reask["jsonrpc"] = json!("2.0");
-            reask["id"] = json!("server-reask");
-            new.unasked
-                .send(reask.to_string())
-                .expect("the server is running");
-            until(|| new.answer_to("server-reask").is_some()).await;
+            let new = replace(&fixture, &feed, reasked_task_server(&is_done)).await;
+            reask(&new).await;
             is_done.store(true, Ordering::SeqCst);
             new
         },
@@ -170,6 +177,41 @@ async fn a_kept_question_stays_open_across_a_reconnect_and_its_answer_goes_to_th
         [address_task_receipt("completed", true)]
     );
     assert_eq!(*contact.borrow(), Reached);
+}
+
+// Mutation: in `settle_kept_answer_later`, only log a failed settle, so the question stays open
+// with nobody left to withdraw it.
+#[tokio::test(start_paused = true)]
+async fn a_kept_answer_whose_settle_fails_has_its_question_withdrawn() {
+    let fixture = fixture_at_address().await;
+    let (standing, feed, connection, _old) = connect_by_hand(&fixture, asking_task_server()).await;
+    let contact = contact();
+    let uncanceled = CancellationToken::new();
+    let is_done = Arc::new(AtomicBool::new(false));
+
+    let (dispatched, ()) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
+        async {
+            fixture.card.wait_until_taken(1).await;
+            close_unreplaced(&feed, &connection, &contact).await;
+            let kept = fixture.card.answer_open(board_answer()).await.request_id;
+            fixture.card.fail_settles();
+            let new = replace(&fixture, &feed, reasked_task_server(&is_done)).await;
+            reask(&new).await;
+            until(|| fixture.card.withdrawals().contains(&kept)).await;
+            is_done.store(true, Ordering::SeqCst);
+        },
+    );
+    let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+
+    assert!(
+        fixture.card.open_questions().is_empty(),
+        "no question is left open"
+    );
+    assert_eq!(end.expect("the call ends"), tracked_end());
+    written.expect("the caller writes the end");
 }
 
 /// The server's re-bound task whose first poll reads `working`, then completes.
