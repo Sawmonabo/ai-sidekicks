@@ -585,12 +585,15 @@ interface WorkflowPhaseFailedPayload extends WorkflowStepEventPayload {
 }
 // workflow.phase.suspended — a step started waiting: its `waitCause` and, for an `account` wait,
 // the spent account the attention read groups it under and the durable resume instant where the
-// wait armed one; absent, only the person resumes it. A wait on anything else names neither. The
-// deadline a `Timeout` arms is written on the step's row as truth and rides no event.
+// wait armed one; absent, only the person resumes it. A wait on a person carries `waitId`, the wait
+// the person's answer must name to settle it, and `waitDeadlineAt`, the instant it gives up, where
+// the node's `Timeout` armed one; the step's row keeps both as truth. A `chain` wait names none of
+// these.
 type WorkflowPhaseSuspendedPayload = WorkflowStepEventPayload &
   (
     | { waitCause: "account"; providerAccountId: ProviderAccountId; resumeAt?: string } // RFC 3339 UTC
-    | { waitCause: Exclude<WorkflowWaitCause, "account"> }
+    | { waitCause: "approval" | "form" | "reply"; waitId: string; waitDeadlineAt?: string } // RFC 3339 UTC
+    | { waitCause: "chain" }
   );
 // workflow.phase.waitingOnPool — diagnostic, for a step the engine's one memory gate holds before
 // it starts (`waitingMemory`). Memory is the only real pool behind the gate: there is no step count
