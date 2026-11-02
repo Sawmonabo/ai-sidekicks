@@ -1,12 +1,13 @@
 //! The daemon's usage record, the drivers' usage sink: each metered delta becomes one
 //! `usage.tokenCount.recorded` row on the run the reading belongs to, or on the session for a side
-//! question's, and each quota window a provider pushed or an account's own limits read answered
-//! one `usage.rateLimit.updated` row under the machine's sentinel session, both stamped with the
-//! account's credential generation read at the write. A row the provider attributes to one of its turns is stamped with the turn that opened,
-//! so it ranks there wherever it arrives. Each run's reports are taken one at a time against a
-//! tally the engine keeps from the run's first report, seeded once from the log, so a restart
-//! never counts a run from zero and no report reads the run's rows again. A run past its token
-//! limit is stopped on a task of its own, so a report never waits on a driver.
+//! question's, and each quota window a provider pushed or an account's own limits read answered one
+//! `usage.rateLimit.updated` row under the machine's sentinel session, both stamped with the
+//! account's credential generation read at the write. A row the provider attributes to one of its
+//! turns is stamped with the turn that opened, so it ranks there wherever it arrives. Each run's
+//! reports are taken one at a time against a tally the engine keeps from the run's first report,
+//! seeded once from the log, so a restart never counts a run from zero and no report reads the
+//! run's rows again. A run past its token limit is stopped on a task of its own, so a report never
+//! waits on a driver.
 
 mod reads;
 #[cfg(test)]

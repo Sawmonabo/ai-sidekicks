@@ -1,8 +1,8 @@
 //! The one recursive copy of a tree. The copy walks every entry under its source, nothing ignored
 //! and no link followed: each folder is made and takes its source's mode once its entries are in,
 //! each file is cloned where the file system makes one (its mode kept either way), and each link is
-//! made again pointing where it pointed. A copy into a tree that has entries keeps them; a copy into
-//! a folder of its own keeps each file's and link's times.
+//! made again pointing where it pointed. A copy into a tree that has entries keeps them; a copy
+//! into a folder of its own keeps each file's and link's times.
 
 use std::fs::{self, FileTimes, Metadata, Permissions};
 use std::io;

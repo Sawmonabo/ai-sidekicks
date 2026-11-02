@@ -1,8 +1,8 @@
 //! What a limits read that answered figures leaves: its quota windows recorded as the account's
-//! whole set, or, from a pasted token's turn, which names only the windows it was charged to, as
-//! a partial set, and on the account's row when the read was taken, the identity the provider reported
-//! and when it last renewed the home's sign-in, each reported column written only where the
-//! provider reported it, so an absent one keeps what an earlier read stored. The read's time is
+//! whole set, or, from a pasted token's turn, which names only the windows it was charged to, as a
+//! partial set, and on the account's row when the read was taken, the identity the provider
+//! reported and when it last renewed the home's sign-in, each reported column written only where
+//! the provider reported it, so an absent one keeps what an earlier read stored. The read's time is
 //! state on the row rather than an event, so a read that changed no window still says when its
 //! windows were read without growing the log; each of the account's windows then goes out as read
 //! then. Neither moves the account's generation.
@@ -38,9 +38,9 @@ static RECORD_READ_SQL: LazyLock<String> = LazyLock::new(|| {
 
 impl ObserverShared {
     /// Records `figures`, what a read of `account` taken at `read_at` answered: its windows as the
-    /// account's whole set, or as a partial set where a turn read them, then the read's time and what it reported of the account on its row,
-    /// then publishes each of the account's windows as it now reads. Fails when the windows cannot
-    /// be recorded or read back, and with
+    /// account's whole set, or as a partial set where a turn read them, then the read's time and
+    /// what it reported of the account on its row, then publishes each of the account's windows as
+    /// it now reads. Fails when the windows cannot be recorded or read back, and with
     /// [`crate::account::errors::ProviderAccountRegistryError::NotFound`] for an account no longer
     /// registered.
     pub(super) async fn store_figures(
