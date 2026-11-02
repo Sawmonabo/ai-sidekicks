@@ -30,8 +30,8 @@ ts_constants! {
     WORKFLOW_DEFINITION_REFUSED_CODE = RefusalCode::WorkflowDefinitionRefused;
 }
 
-/// Declares the findings: each named rule, with the nodes it marks, then the one finding that also
-/// names a package.
+/// Declares the findings: each named rule, with the nodes it marks, then the two findings that also
+/// carry a text: a package, and why a command's fill does not expand.
 macro_rules! workflow_definition_findings {
     ($($(#[doc = $doc:literal])+ $rule:ident,)+) => {
         /// One finding: the rule a refused document breaks, with the nodes it marks. The validation
@@ -57,6 +57,15 @@ macro_rules! workflow_definition_findings {
                 /// The Code steps.
                 node_ids: BoundedVec<WorkflowNodeId, 1, { usize::MAX }>,
                 /// The package.
+                detail: NonEmptyText,
+            },
+            /// A `Run a command` fill in a place where no reference to it expands, so the value
+            /// would not reach the command as one value.
+            ExpressionNotExpanded {
+                /// The command steps.
+                node_ids: Vec<WorkflowNodeId>,
+                /// Why the first such fill of the step does not expand, naming the fill, and the
+                /// line for a here-document that does not end where bash ends it.
                 detail: NonEmptyText,
             },
         }
