@@ -14,6 +14,7 @@ use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::Never;
+use crate::wire::id::UuidTextForm;
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::SafeInt;
 use crate::wire::text::NonEmptyText;
@@ -138,8 +139,8 @@ macro_rules! phase_suspended_payload {
             /// `account` wait, the spent account the attention read groups it under and the
             /// durable resume instant where the wait armed one; absent, only the person resumes
             /// it. A wait on anything else names neither. A wait on a person's approval, form or
-            /// reply carries the deadline its node's `Timeout` arms; a wait on an account or a
-            /// chain's question carries none.
+            /// reply carries the deadline its node's `Timeout` arms and the `waitId` its answer
+            /// names; a wait on an account or a chain's question carries neither.
             #[derive(
                 Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
             )]
@@ -180,6 +181,14 @@ phase_suspended_payload! {
         )]
         #[schemars(with = "Never")]
         wait_deadline_at: Option<Never>,
+        /// Never present: only a wait on a person carries a wait id.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        wait_id: Option<Never>,
     }
     /// Waiting on a person's approval.
     Approval {
@@ -208,6 +217,8 @@ phase_suspended_payload! {
         #[schemars(with = "WireInstant")]
         #[garde(dive)]
         wait_deadline_at: Option<WireInstant>,
+        /// The wait the person's answer must name to settle it.
+        wait_id: UuidTextForm,
     }
     /// Waiting on a person's form.
     Form {
@@ -236,6 +247,8 @@ phase_suspended_payload! {
         #[schemars(with = "WireInstant")]
         #[garde(dive)]
         wait_deadline_at: Option<WireInstant>,
+        /// The wait the person's answer must name to settle it.
+        wait_id: UuidTextForm,
     }
     /// Waiting on a person's chat reply.
     Reply {
@@ -264,6 +277,8 @@ phase_suspended_payload! {
         #[schemars(with = "WireInstant")]
         #[garde(dive)]
         wait_deadline_at: Option<WireInstant>,
+        /// The wait the person's answer must name to settle it.
+        wait_id: UuidTextForm,
     }
     /// Waiting on its chain's question.
     Chain {
@@ -291,6 +306,14 @@ phase_suspended_payload! {
         )]
         #[schemars(with = "Never")]
         wait_deadline_at: Option<Never>,
+        /// Never present: only a wait on a person carries a wait id.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        wait_id: Option<Never>,
     }
 }
 

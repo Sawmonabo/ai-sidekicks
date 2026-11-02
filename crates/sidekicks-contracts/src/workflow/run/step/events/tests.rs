@@ -7,6 +7,7 @@ const SESSION: &str = "018f0000-0000-7000-8000-000000000001";
 const WORKFLOW_RUN: &str = "018f0000-0000-7000-8000-000000000004";
 const ACCOUNT: &str = "018f0000-0000-7000-8000-00000000000c";
 const DEADLINE: &str = "2020-01-01T10:00:00.000Z";
+const WAIT: &str = "018f0000-0000-7000-8000-00000000000d";
 
 /// A step event's payload: the step it names, then `members`.
 fn step_payload(members: Value) -> Value {
@@ -21,9 +22,9 @@ fn step_payload(members: Value) -> Value {
 }
 
 #[rstest]
-#[case::approval(json!({"waitCause": "approval"}), true)]
-#[case::form(json!({"waitCause": "form"}), true)]
-#[case::reply(json!({"waitCause": "reply"}), true)]
+#[case::approval(json!({"waitCause": "approval", "waitId": WAIT}), true)]
+#[case::form(json!({"waitCause": "form", "waitId": WAIT}), true)]
+#[case::reply(json!({"waitCause": "reply", "waitId": WAIT}), true)]
 #[case::account(json!({"waitCause": "account", "providerAccountId": ACCOUNT}), false)]
 #[case::chain(json!({"waitCause": "chain"}), false)]
 fn phase_suspended_carries_a_deadline_only_on_a_wait_on_a_person(
