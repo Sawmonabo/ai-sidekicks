@@ -313,7 +313,7 @@ pub(crate) async fn wait_for_system_service(
     ctrl_c: &mut CtrlCListener,
 ) -> anyhow::Result<()> {
     wait_until_running(
-        || read_system_service_state(registration),
+        move || read_system_service_state(registration),
         args.deadline(),
         ctrl_c.recv(),
     )
@@ -321,17 +321,21 @@ pub(crate) async fn wait_for_system_service(
 }
 
 /// Reads the state with `read_state` every [`SYSTEM_SERVICE_READ_INTERVAL`] until it is running,
-/// `waited` passes or `ctrl_c` arrives. Fails with [`CommandFailure::SystemServiceNotRunning`]
-/// where the wait ends first, `ClientError::Canceled` on Ctrl-C, and as a read fails.
+/// `waited` passes or `ctrl_c` arrives, each read on a blocking thread so a Ctrl-C ends the wait
+/// without waiting on the read. Fails with [`CommandFailure::SystemServiceNotRunning`] where the
+/// wait ends first, `ClientError::Canceled` on Ctrl-C, and as a read fails.
 async fn wait_until_running(
-    mut read_state: impl FnMut() -> anyhow::Result<SystemServiceState>,
+    read_state: impl Fn() -> anyhow::Result<SystemServiceState> + Copy + Send + 'static,
     waited: Duration,
     ctrl_c: impl Future,
 ) -> anyhow::Result<()> {
     let deadline = Instant::now() + waited;
     let running = async {
         loop {
-            if read_state()? == SystemServiceState::Running {
+            let state = tokio::task::spawn_blocking(read_state)
+                .await
+                .context("the background service's state read stopped before it answered")??;
+            if state == SystemServiceState::Running {
                 return Ok(());
             }
             let now = Instant::now();
