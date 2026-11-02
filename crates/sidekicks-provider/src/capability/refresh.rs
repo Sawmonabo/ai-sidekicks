@@ -337,6 +337,7 @@ mod tests {
         let table = [ProviderRegistration {
             descriptor: PROVIDERS[0],
             build: gated_driver,
+            stop_recorded_services: None,
         }];
         let database = TestDatabase::new(schema_parts());
         let (refresher, refreshing) = CapabilityRefresher::start(

@@ -38,6 +38,7 @@ use crate::driver::attachments::AttachmentResolver;
 use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
+use crate::driver::daemon_stop::RecordedServicesStop;
 use crate::driver::ports::DriverPorts;
 use crate::output_validation::is_canonical_semver;
 use crate::process_registry::ProviderProcessRegistry;
@@ -455,10 +456,13 @@ pub const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
     ProviderRegistration {
         descriptor: &claude::DESCRIPTOR,
         build: claude::build,
+        // Claude Code runs only as the daemon's child and keeps no lasting service.
+        stop_recorded_services: None,
     },
     ProviderRegistration {
         descriptor: &codex::DESCRIPTOR,
         build: codex::build,
+        stop_recorded_services: Some(codex::stop_recorded_services),
     },
 ];
 
@@ -705,13 +709,17 @@ pub async fn read_current_account(
         .into_required()
 }
 
-/// One registered provider: its descriptor and the function that builds its driver from the shared
-/// services, storing its handles without I/O.
+/// One registered provider: its descriptor, the function that builds its driver from the shared
+/// services, storing its handles without I/O, and the function that ends its recorded services.
 pub struct ProviderRegistration {
     /// The provider's fixed facts.
     pub descriptor: &'static ProviderDescriptor,
     /// Builds the driver.
     pub build: fn(&DriverServices) -> Arc<dyn ProviderDriver>,
+    /// Ends, with no daemon running and no database, every lasting service the provider's records
+    /// under the data folder still name, each record removed; `None` for a provider that keeps
+    /// none. Fails with every failure met, every other record still settled.
+    pub stop_recorded_services: Option<RecordedServicesStop>,
 }
 
 /// Whether every id in `table` matches the provider id pattern.

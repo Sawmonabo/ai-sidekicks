@@ -18,10 +18,10 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::test_registry::test_driver_services;
-use sidekicks_provider::driver::{PROVIDERS, ProviderRegistration};
+use sidekicks_provider::driver::test_registry::{
+    registrations_of_mock_drivers, test_driver_services,
+};
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_session::conversation_purge::{
@@ -137,13 +137,7 @@ pub(crate) async fn test_purge(
     let shells = table_fixture(gate_reader).await;
 
     // A driver with no expectations fails the test on any call.
-    let table: Vec<ProviderRegistration> = PROVIDERS
-        .iter()
-        .map(|descriptor| ProviderRegistration {
-            descriptor,
-            build: |_| Arc::new(MockProviderDriver::new()),
-        })
-        .collect();
+    let table = registrations_of_mock_drivers();
     let services = test_driver_services();
     let conversations = Arc::new(ConversationPurge::new(
         Arc::clone(&reads),

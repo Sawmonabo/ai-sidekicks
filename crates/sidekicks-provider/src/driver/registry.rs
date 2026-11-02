@@ -207,26 +207,17 @@ pub fn test_provider() -> ProviderId {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 
     use super::{ProviderRegistry, test_provider};
+    use crate::driver::PROVIDERS;
     use crate::driver::capabilities::DriverCapabilityFlag;
-    use crate::driver::contract::MockProviderDriver;
-    use crate::driver::test_registry::test_driver_services;
-    use crate::driver::{PROVIDERS, ProviderRegistration};
+    use crate::driver::test_registry::{registrations_of_mock_drivers, test_driver_services};
 
     #[tokio::test]
     async fn the_registry_keeps_the_table_order_and_refuses_an_unknown_id() {
         let services = test_driver_services();
-        let table: Vec<ProviderRegistration> = PROVIDERS
-            .iter()
-            .map(|descriptor| ProviderRegistration {
-                descriptor,
-                build: |_| Arc::new(MockProviderDriver::new()),
-            })
-            .collect();
+        let table = registrations_of_mock_drivers();
         let registry = ProviderRegistry::register_from(&table, &services);
 
         let registered: Vec<&str> = registry

@@ -87,6 +87,12 @@ impl LastingServiceRecordFile {
         Ok(Self::at(record))
     }
 
+    /// Where the record's file sits, for a test that writes one by hand.
+    #[cfg(test)]
+    pub(crate) fn path(&self) -> &Path {
+        &self.record
+    }
+
     // The record at `record`, with its folder's lock beside it.
     fn at(record: PathBuf) -> Self {
         let lock = record.with_file_name(RECORDS_LOCK_NAME);

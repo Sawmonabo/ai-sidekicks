@@ -175,10 +175,11 @@ mod tests {
     use rusqlite::params;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_provider::driver::contract::MockProviderDriver;
+    use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::registry::{ProviderRegistry, test_provider};
-    use sidekicks_provider::driver::test_registry::test_driver_services;
-    use sidekicks_provider::driver::{PROVIDERS, ProviderRegistration};
+    use sidekicks_provider::driver::test_registry::{
+        registrations_of_mock_drivers, test_driver_services,
+    };
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
@@ -234,13 +235,7 @@ mod tests {
         );
 
         // A driver with no expectations fails the test on any call, the purge among them.
-        let table: Vec<ProviderRegistration> = PROVIDERS
-            .iter()
-            .map(|descriptor| ProviderRegistration {
-                descriptor,
-                build: |_| Arc::new(MockProviderDriver::new()),
-            })
-            .collect();
+        let table = registrations_of_mock_drivers();
         let services = test_driver_services();
         let purge = ConversationPurge::new(
             Arc::new(DatabaseReadPool::new(

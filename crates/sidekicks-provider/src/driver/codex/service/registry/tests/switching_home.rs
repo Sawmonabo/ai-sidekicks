@@ -30,13 +30,13 @@ use crate::driver::codex::service::switching::test_sign_in::{
     AccountHomes, compose_access_token, write_sign_in,
 };
 use crate::driver::codex::session::purge::purge_codex_conversations;
-use crate::driver::contract::MockProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::registry::ProviderRegistry;
 use crate::driver::session_control::{PurgeSessionParams, PurgedConversation};
-use crate::driver::test_registry::{new_session_id, test_driver_services};
-use crate::driver::{PROVIDERS, ProviderRegistration};
+use crate::driver::test_registry::{
+    new_session_id, registrations_of_mock_drivers, test_driver_services,
+};
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
 
@@ -208,13 +208,7 @@ async fn a_restart_rejoins_the_switching_service_by_its_record_and_the_backup_li
     next.shutdown(DaemonStopIntent::Stop).await;
     let is_stopped = wait_until_gone(kept_process).await;
 
-    let table: Vec<ProviderRegistration> = PROVIDERS
-        .iter()
-        .map(|descriptor| ProviderRegistration {
-            descriptor,
-            build: |_| Arc::new(MockProviderDriver::new()),
-        })
-        .collect();
+    let table = registrations_of_mock_drivers();
     let providers = ProviderRegistry::register_from(&table, &test_driver_services());
     let listed: Vec<(String, PathBuf)> = switching_homes(&providers, &data_folder)
         .into_iter()

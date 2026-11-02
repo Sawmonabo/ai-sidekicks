@@ -32,7 +32,9 @@ use crate::driver::codex::service::home::{
 };
 use crate::driver::codex::service::record::recorded_home_keys;
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
-use crate::driver::codex::service::supervisor::start::kept_records::stop_kept_services;
+use crate::driver::codex::service::supervisor::start::kept_records::{
+    KeptServicesStop, report_kept_service_unstopped, stop_kept_services,
+};
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::supervisor::test_service::ScriptedCodexService;
 use crate::driver::codex::service::supervisor::{
@@ -492,7 +494,10 @@ impl CodexServiceRegistry {
         join_all(services.iter().map(|service| service.shutdown(intent))).await;
         match intent {
             DaemonStopIntent::Stop => {
-                stop_kept_services(self.dependencies.data_folder.clone()).await;
+                let data_folder = self.dependencies.data_folder.clone();
+                for failure in stop_kept_services(data_folder, KeptServicesStop::DaemonStop).await {
+                    report_kept_service_unstopped(&failure);
+                }
             }
             DaemonStopIntent::Restart => {}
         }

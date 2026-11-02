@@ -35,6 +35,9 @@ use crate::driver::codex::permission_level::list_codex_modes;
 use crate::driver::codex::service::registry::CODEX_SWITCHING_HOME_FOLDER;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::codex::service::supervisor::start::kept_records::{
+    KeptServicesStop, stop_kept_services,
+};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
@@ -44,7 +47,7 @@ use crate::driver::contract::params_and_results::{
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
-use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::{DaemonStopIntent, RecordedServicesStopError};
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
@@ -263,6 +266,25 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
 /// Builds the Codex driver over the shared services; it stores handles and does no I/O.
 pub(super) fn build(services: &DriverServices) -> Arc<dyn ProviderDriver> {
     Arc::new(CodexDriver::new(services))
+}
+
+/// Ends, with no daemon running, every lasting Codex service a record under `data_folder` still
+/// names, the terminal service's, each account home's and the switching home's, a draining one
+/// too, and removes each record. Fails with every failure met, every other record still settled.
+pub(super) fn stop_recorded_services(
+    data_folder: &Path,
+) -> BoxFuture<'static, Result<(), RecordedServicesStopError>> {
+    let data_folder = data_folder.to_owned();
+    async move {
+        let failures = stop_kept_services(data_folder, KeptServicesStop::Erase).await;
+        if failures.is_empty() {
+            return Ok(());
+        }
+        Err(RecordedServicesStopError {
+            failures: failures.into_iter().map(DriverError::from).collect(),
+        })
+    }
+    .boxed()
 }
 
 /// The service registry the next driver [`build_over_scripted_service`] builds holds.

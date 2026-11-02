@@ -78,6 +78,7 @@ async fn harness(build: fn(&DriverServices) -> Arc<dyn ProviderDriver>) -> Harne
         &[ProviderRegistration {
             descriptor: PROVIDERS[0],
             build,
+            stop_recorded_services: None,
         }],
         &services,
     ));
