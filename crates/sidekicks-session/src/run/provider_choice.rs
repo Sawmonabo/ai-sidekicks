@@ -145,6 +145,7 @@ impl From<RunEngineError> for ProviderChoiceError {
             | RunEngineError::Append(_)
             | RunEngineError::Read(_)
             | RunEngineError::Pool(_)
+            | RunEngineError::Standing(_)
             | RunEngineError::Several(_)) => Self::Change(other),
         }
     }

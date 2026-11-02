@@ -24,6 +24,8 @@ use crate::run::engine::tests::{
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::RunStateChangeCompanions;
 
+mod checkpoints;
+
 // Killed by the append not writing an event's turn number, which lets every guard pass on a
 // NULL column, by the start guard reading `=` for `>=`, which lets a start numbered below the
 // newest through, or by either guard spelling the category other than the stored word.

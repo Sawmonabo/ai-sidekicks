@@ -172,7 +172,8 @@ async fn open_run(
             "the conversations a Codex session left were not recorded on its first run's binding"
         );
     }
-    route_accepted_turn(&runs.run_routes, record, run_id, turn_id);
+    // A turn Codex started by itself opened with no message the daemon queued.
+    route_accepted_turn(&runs.run_routes, record, run_id, turn_id, None);
     Ok(())
 }
 
@@ -227,12 +228,14 @@ mod tests {
     use crate::driver::codex::session::test_fixture::{
         TestCodexSession, answer_fork, turn_completed, turn_started,
     };
+    use crate::port::run_host::test_host::EngineCall;
 
     /// How long the test waits before it counts a hold on the session's task as a deadlock.
     const DEADLOCK_BOUND: Duration = Duration::from_secs(10);
 
     // Kills: the open of a turn Codex started joining the config fork in flight, whose call waits
-    // behind the open in the session's queue (the test times out).
+    // behind the open in the session's queue (the test times out), and that turn opened as if a
+    // queued message had opened it.
     #[tokio::test]
     async fn a_turn_codex_starts_while_a_config_fork_waits_opens_its_run_and_the_fork_goes_after() {
         let mut session = TestCodexSession::start().await;
@@ -272,9 +275,17 @@ mod tests {
             );
             run_id
         };
-        tokio::time::timeout(DEADLOCK_BOUND, flow)
+        let run_id = tokio::time::timeout(DEADLOCK_BOUND, flow)
             .await
             .expect("the run opens without waiting on the fork behind it");
+        assert!(
+            session
+                .engine
+                .calls()
+                .contains(&EngineCall::StartTurn(run_id, None)),
+            "a turn Codex started by itself opens with no message: {:?}",
+            session.engine.calls()
+        );
         assert_eq!(
             session.task.record.thread_id, "thread-2",
             "the fork went after the turn"

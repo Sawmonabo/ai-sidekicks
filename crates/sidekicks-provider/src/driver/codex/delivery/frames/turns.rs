@@ -99,12 +99,18 @@ impl CodexFrameDelivery {
         if record.active_turn_run(&turn_id).is_none()
             && !record.is_turn_settled(&turn_id)
             && !record.delivery.is_turn_taken_by_no_run(&turn_id)
-            && let Some(starting_run_id) = record.delivery.starting_turn_run_ids.pop_front()
+            && let Some(starting) = record.delivery.starting_turns.pop_front()
         {
-            record.add_active_turn(turn_id.clone(), starting_run_id);
+            record.add_active_turn(turn_id.clone(), starting.run_id);
+            if let Some(opening) = starting.opening {
+                record
+                    .delivery
+                    .turn_opening_by_turn_id
+                    .insert(turn_id.clone(), opening);
+            }
             self.dependencies
                 .run_routes
-                .bind_run(starting_run_id, record.session_id);
+                .bind_run(starting.run_id, record.session_id);
         }
         let Some(turn_run) = self.turn_run_for(record, &turn_id) else {
             report_unattributed("turn/started", Some(&turn_id));
@@ -116,7 +122,8 @@ impl CodexFrameDelivery {
         self.open_turn(record, &turn_id, &turn_run).await;
     }
 
-    // Opens the turn's execution and its numbered turn on the run, once.
+    // Opens the turn's execution and its numbered turn on the run, once, with the message that
+    // opened it where a `turn/start` carried one.
     async fn open_turn(
         &self,
         record: &mut CodexSessionRecord,
@@ -141,6 +148,11 @@ impl CodexFrameDelivery {
                 turn_run.run_id,
                 ProviderTurnId::new(turn_id.to_owned()).ok(),
                 turn_run.binding.step_bound,
+                record
+                    .delivery
+                    .turn_opening_by_turn_id
+                    .get(turn_id)
+                    .copied(),
             )
             .await
         {

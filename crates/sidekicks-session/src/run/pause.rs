@@ -139,6 +139,7 @@ impl From<RunEngineError> for RunPauseError {
             | RunEngineError::Append(_)
             | RunEngineError::Read(_)
             | RunEngineError::Pool(_)
+            | RunEngineError::Standing(_)
             | RunEngineError::Several(_)) => Self::Change(other),
         }
     }

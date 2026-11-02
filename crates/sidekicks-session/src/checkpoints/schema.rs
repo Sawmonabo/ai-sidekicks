@@ -84,8 +84,6 @@ CREATE TABLE session_checkpoints (
   run_id            TEXT NOT NULL,
   epoch             INTEGER NOT NULL CHECK(epoch >= 0),     -- the run's execution epoch
   position          INTEGER NOT NULL CHECK(position >= 0),  -- the turn's position in it
-  head              TEXT,                       -- the checkout's HEAD, NULL when it had none
-  tree              TEXT,                       -- the capture's tree, NULL when none was taken
   created_at        TEXT NOT NULL,
   UNIQUE (session_id, message_sequence)
 ) STRICT;

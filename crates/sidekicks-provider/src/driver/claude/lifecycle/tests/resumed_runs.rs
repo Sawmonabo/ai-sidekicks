@@ -276,7 +276,7 @@ async fn a_continued_turn_runs_on_its_run_and_ends_as_that_turn() {
     assert!(
         !calls.iter().any(|call| matches!(
             call,
-            EngineCall::StartDaemonTurn(_) | EngineCall::StartTurn(_)
+            EngineCall::StartDaemonTurn(_) | EngineCall::StartTurn(..)
         )),
         "no run and no turn starts: {calls:?}"
     );

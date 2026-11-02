@@ -4,7 +4,9 @@ use serde_json::{Value, json};
 use sidekicks_contracts::event::usage::{ApiRetryErrorKind, UsageApiRequestRetriedPayload};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_std::mutex_lock::lock;
 
@@ -90,6 +92,38 @@ async fn a_turns_frames_stay_its_runs_after_the_reader_released_its_hold() {
         [RunStateEntry::Completed {
             intended_close: None
         }]
+    );
+}
+
+// The turn's opening is the queue item of the message the daemon wrote to open it, and a steer
+// opens none. Killed by the opening dropped at the port, and by a steer passed as an opening.
+#[rstest]
+#[case::an_opening_message(false)]
+#[case::only_a_steer(true)]
+#[tokio::test(start_paused = true)]
+async fn a_turn_opened_by_a_written_message_names_that_messages_item(#[case] is_steer: bool) {
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+    let item = QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id");
+    session
+        .start
+        .prompts
+        .lock()
+        .expect("the prompts' lock holds")
+        .record_written(session.session_id, run_id, &item.to_string(), is_steer);
+
+    session.frame(&init());
+    session.frame(&result(&json!({})));
+    settle().await;
+
+    let opening = (!is_steer).then_some(item);
+    assert!(
+        session
+            .engine
+            .calls()
+            .contains(&EngineCall::StartTurn(run_id, opening)),
+        "the turn's start names {opening:?}: {:?}",
+        session.engine.calls()
     );
 }
 

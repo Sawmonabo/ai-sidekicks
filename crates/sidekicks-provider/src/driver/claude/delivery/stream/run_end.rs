@@ -8,6 +8,7 @@
 use serde_json::Value;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
@@ -33,7 +34,8 @@ const CLAUDE_UNRECORDED_TURN_END_DETAIL: &str =
 impl ClaudeDeliveryStream {
     // The first frame of a run's turn opens it: an interrupt still held answered as taken, the
     // continued run's report, the boundary, then the turn numbered under the uuid of the user
-    // message that opened it, the readings of the turn before emptied.
+    // message that opened it, which is that message's queue item, the readings of the turn before
+    // emptied.
     pub(super) async fn open_turn(&self, session: &ClaudeSessionStream, lead: &ClaudeBoundRun) {
         let routes = &self.dependencies.routes;
         if session
@@ -44,10 +46,11 @@ impl ClaudeDeliveryStream {
         {
             return;
         }
-        let turn_id = session
-            .lock_prompts()
-            .take_turn_opening(session.session_id)
-            .and_then(|uuid| ProviderTurnId::new(uuid).ok());
+        let opening_uuid = session.lock_prompts().take_turn_opening(session.session_id);
+        let opening = opening_uuid
+            .as_deref()
+            .and_then(|uuid| QueueItemId::new(uuid).ok());
+        let turn_id = opening_uuid.and_then(|uuid| ProviderTurnId::new(uuid).ok());
         let (interrupted, continues) = {
             let mut readings = session.lock();
             readings.carried_ends.remove(&lead.run_id);
@@ -92,7 +95,7 @@ impl ClaudeDeliveryStream {
         let started = match self
             .dependencies
             .engine
-            .start_turn(lead.run_id, turn_id, session.step_bound)
+            .start_turn(lead.run_id, turn_id, session.step_bound, opening)
             .await
         {
             Ok(started) => started,

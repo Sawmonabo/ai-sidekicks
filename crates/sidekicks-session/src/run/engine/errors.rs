@@ -16,6 +16,7 @@ use crate::run::daemon_turn::DaemonTurnQueueError;
 use crate::run::limit_interrupter::LimitInterruptFailure;
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::RunStateChangeError;
+use crate::transcript::turn_attribution::TurnAttributionError;
 
 /// Why the run engine did not do what it was asked; what each step wrote before the failure is
 /// kept, and the failure says which step failed. Its large failures are boxed, so it stays within
@@ -101,6 +102,9 @@ pub enum RunEngineError {
     /// The read pool did not run a read.
     #[error("the read pool did not run the run's read")]
     Pool(#[source] Box<DatabaseReadError>),
+    /// Where the run stands could not be read from its log.
+    #[error("where the run stands could not be read from its log")]
+    Standing(#[source] Box<TurnAttributionError>),
     /// The run's end or a turn's end landed with the settle of a person's interrupt, and letting go
     /// the run queue's hold of that interrupt failed; the end is kept.
     #[error("run {run_id} settled an interrupt, and its queue hold was not let go")]
@@ -163,6 +167,12 @@ impl From<rusqlite::Error> for RunEngineError {
 impl From<DatabaseReadError> for RunEngineError {
     fn from(error: DatabaseReadError) -> Self {
         Self::Pool(Box::new(error))
+    }
+}
+
+impl From<TurnAttributionError> for RunEngineError {
+    fn from(error: TurnAttributionError) -> Self {
+        Self::Standing(Box::new(error))
     }
 }
 

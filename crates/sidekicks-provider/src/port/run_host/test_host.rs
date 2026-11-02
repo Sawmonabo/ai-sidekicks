@@ -14,6 +14,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
@@ -73,8 +74,8 @@ pub(crate) struct RecordedDelivery {
 pub(crate) enum EngineCall {
     /// A delivery.
     Deliver(Box<RecordedDelivery>),
-    /// A turn opened on the run.
-    StartTurn(RunId),
+    /// A turn opened on the run, with the queue item whose message opened it.
+    StartTurn(RunId, Option<QueueItemId>),
     /// A step counted on the run.
     CountStep(RunId),
     /// A turn's end that moves no run.
@@ -117,7 +118,7 @@ impl RecordingRunEngine {
             .into_iter()
             .filter_map(|call| match call {
                 EngineCall::Deliver(delivery) => Some(*delivery),
-                EngineCall::StartTurn(_)
+                EngineCall::StartTurn(..)
                 | EngineCall::CountStep(_)
                 | EngineCall::RecordTurnEnd(..)
                 | EngineCall::StartDaemonTurn(_)
@@ -149,7 +150,7 @@ impl RecordingRunEngine {
         self.calls().into_iter().find_map(|call| match call {
             EngineCall::StartDaemonTurn(run_id) => Some(run_id),
             EngineCall::Deliver(_)
-            | EngineCall::StartTurn(_)
+            | EngineCall::StartTurn(..)
             | EngineCall::CountStep(_)
             | EngineCall::RecordTurnEnd(..)
             | EngineCall::EndTurnOnProcessExit(_)
@@ -304,8 +305,9 @@ impl RunHost for RecordingRunEngine {
         run_id: RunId,
         _provider_turn_id: Option<ProviderTurnId>,
         _step_bound: Option<SafeInt<1>>,
+        opening: Option<QueueItemId>,
     ) -> BoxFuture<'_, Result<Option<StartedTurn>, RunHostError>> {
-        self.record(EngineCall::StartTurn(run_id));
+        self.record(EngineCall::StartTurn(run_id, opening));
         // Numbered within its run, as the engine numbers a run's turns; an unnumbered turn takes
         // no number.
         let turn_number = (!self.leaves_turns_unnumbered.load(Ordering::SeqCst)).then(|| {

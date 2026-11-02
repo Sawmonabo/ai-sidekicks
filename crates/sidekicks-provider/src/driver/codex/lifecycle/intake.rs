@@ -742,7 +742,13 @@ fn read_held_runs(record: &CodexSessionRecord) -> Vec<RunId> {
                 .copied(),
         )
         .chain(record.delivery.retried_run_id_by_turn_id.values().copied())
-        .chain(record.delivery.starting_turn_run_ids.iter().copied());
+        .chain(
+            record
+                .delivery
+                .starting_turns
+                .iter()
+                .map(|starting| starting.run_id),
+        );
     for run_id in held {
         if !runs.contains(&run_id) {
             runs.push(run_id);

@@ -59,8 +59,6 @@ impl Fixture {
                 epoch: SourceEpoch(SafeInt::ZERO),
                 position: SourcePosition(sequence(message_sequence)),
             },
-            head: None,
-            tree: None,
         }
     }
 

@@ -493,7 +493,7 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
                     }
                     _ => None,
                 },
-                EngineCall::StartTurn(_)
+                EngineCall::StartTurn(..)
                 | EngineCall::CountStep(_)
                 | EngineCall::RecordTurnEnd(..)
                 | EngineCall::StartDaemonTurn(_)

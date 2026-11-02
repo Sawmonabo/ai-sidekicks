@@ -784,6 +784,7 @@ pub(crate) fn drop_codex_turns(
     record.interrupting_turn_ids.clear();
     record.turn_input_by_turn_id.clear();
     record.delivery.unowned_turn_ids.clear();
+    record.delivery.turn_opening_by_turn_id.clear();
     dependencies
         .runs
         .run_routes

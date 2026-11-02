@@ -1,6 +1,7 @@
-//! A run's turns: each start numbered its run's newest start plus one inside its write, each end
-//! written once, riding the run change it ends with or on its own, and the steps of a turn counted
-//! against its step bound.
+//! A run's turns: each start numbered its run's newest start plus one inside its write, the
+//! checkpoint before the message that opened it written in that same write, each end written once,
+//! riding the run change it ends with or on its own, and the steps of a turn counted against its
+//! step bound.
 
 use std::borrow::Cow;
 use std::error::Error;
@@ -17,8 +18,13 @@ use sidekicks_contracts::run::events::{
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
-use sidekicks_contracts::transcript::turn_attribution::TURN_END_EVENT_TYPES;
+use sidekicks_contracts::run::queue::QueueItemId;
+use sidekicks_contracts::session::restore::SnapshotId;
+use sidekicks_contracts::transcript::turn_attribution::{
+    EpochPosition, TURN_END_EVENT_TYPES, standing_after_turn_started,
+};
 use sidekicks_contracts::turn::ProviderTurnId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
 use sidekicks_std::mutex_lock::lock;
@@ -28,7 +34,9 @@ use sidekicks_store::database::statement::{StatementBindings, WriteStatement, te
 use sidekicks_store::database::stored_column::safe_int_column;
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
+use sidekicks_store::events::session::read::session_read_bound;
 
+use crate::checkpoints::store::{Checkpoint, insert_checkpoint_statement};
 use crate::interventions::store::run_at_version_statement;
 use crate::run::engine::errors::RunEngineError;
 use crate::run::engine::limits::LimitStop;
@@ -40,6 +48,7 @@ use crate::run::read::RunRead;
 use crate::run::restart::{TurnCut, limit_turn_cause, read_turn_cuts};
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeError};
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
+use crate::transcript::turn_attribution::RunTurnReads;
 
 // The position among a run change's companions of the guard that the turn it ends has no end yet:
 // the turn's end rides first, so its guard leads the companions.
@@ -65,6 +74,20 @@ static SELECT_NEXT_TURN_NUMBER_SQL: LazyLock<String> = LazyLock::new(|| {
     AND run_id = @run_id",
         EventCategory::RunLifecycle.as_str(),
         SessionEventType::AgentTurnStarted.as_str()
+    )
+});
+
+// The `user.message.sent` a queue item's message was recorded as, by the correlation id the
+// recorder writes, read through the correlation index.
+static SELECT_OPENING_MESSAGE_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT sequence FROM session_events
+  WHERE correlation_id = @correlation_id
+    AND session_id = @session_id
+    AND type = '{}'
+  ORDER BY sequence
+  LIMIT 1",
+        SessionEventType::UserMessageSent.as_str()
     )
 });
 
@@ -179,6 +202,13 @@ impl<Written> WriteWithResend<Written> {
     }
 }
 
+// What a turn start reads before each attempt: the number it takes and, for a turn a recorded
+// message opened, that message's place in the log and where the run stands at the log's end.
+struct TurnStartReading {
+    turn_number: SafeInt<1>,
+    opening: Option<(SafeInt<0>, EpochPosition)>,
+}
+
 /// A turn's end as the log records it: the turn, who reported the end, and how it ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct TurnEnd {
@@ -240,38 +270,61 @@ impl RunEngine {
     /// nothing written once the run has ended. `step_bound` is the turn's effective `Max steps per
     /// turn`, which the caller resolves when the turn opens; the engine counts the turn's steps
     /// against it, whatever the provider. `provider_turn_id` is the provider's own id of the turn,
-    /// recorded on its start, where the provider reports one. Fails with `RunRefusal::NotFound`
-    /// for an unknown run and with the append's failure.
+    /// recorded on its start, where the provider reports one. `opening` is the queue item whose
+    /// message opened the turn: where that message is recorded, the start's own write keeps the
+    /// checkpoint before it, at the turn the start moves the run to, and a message already kept
+    /// keeps its first. Fails with `RunRefusal::NotFound` for an unknown run and with the read's or
+    /// the append's failure.
     pub(crate) async fn start_turn(
         &self,
         run_id: RunId,
         position: Option<SourcePosition>,
         provider_turn_id: Option<ProviderTurnId>,
         step_bound: Option<SafeInt<1>>,
+        opening: Option<QueueItemId>,
     ) -> Result<Option<StartedTurn>, RunEngineError> {
         self.wait_while_continuing(&run_id).await;
+        let checkpoint_id =
+            SnapshotId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a snapshot id");
         let mut attempt = 1;
         let started = loop {
             let run = self.require_run(run_id).await?;
             if run.state.is_terminal() {
                 return Ok(None);
             }
-            let turn_number = self.read_next_turn_number(run_id).await?;
-            let draft = SessionEventDraft::of_session(
-                run.session_id,
-                &SessionEvent::AgentTurnStarted(AgentTurnStartedPayload {
-                    session_id: run.session_id,
-                    run_id,
-                    run_version: safe_run_version(run.version),
-                    turn_number,
-                    position,
-                    provider_turn_id: provider_turn_id.clone(),
-                }),
-            )?;
-            let transactional_prelude = vec![
+            let reading = self.read_turn_start(&run, run_id, opening).await?;
+            let turn_number = reading.turn_number;
+            let payload = AgentTurnStartedPayload {
+                session_id: run.session_id,
+                run_id,
+                run_version: safe_run_version(run.version),
+                turn_number,
+                position,
+                provider_turn_id: provider_turn_id.clone(),
+            };
+            let mut transactional_prelude = vec![
                 run_at_version_statement(&run_id, run.version),
                 no_turn_start_from_statement(&run_id, turn_number),
             ];
+            // After both guards, so a refusal's index still names the guard that refused.
+            if let Some((message_sequence, standing)) = reading.opening {
+                let started_payload =
+                    serde_json::to_value(&payload).expect("a turn start's payload serializes");
+                let started_payload = started_payload
+                    .as_object()
+                    .expect("a turn start's payload serializes as a JSON object");
+                transactional_prelude.push(insert_checkpoint_statement(&Checkpoint {
+                    checkpoint_id: checkpoint_id.clone(),
+                    session_id: run.session_id,
+                    message_sequence,
+                    run_id,
+                    turn: standing_after_turn_started(standing, started_payload),
+                }));
+            }
+            let draft = SessionEventDraft::of_session(
+                run.session_id,
+                &SessionEvent::AgentTurnStarted(payload),
+            )?;
             match self
                 .append(draft, transactional_prelude, Vec::new(), None)
                 .await
@@ -651,17 +704,54 @@ impl RunEngine {
             .await
     }
 
-    // The number the run's next turn start takes: its newest start's plus one, or 1.
-    async fn read_next_turn_number(&self, run_id: RunId) -> Result<SafeInt<1>, RunEngineError> {
+    // What `run_id`'s next turn start reads, on one connection: the number it takes, its newest
+    // start's plus one or 1, and, for an `opening` whose message is recorded, that message's
+    // sequence and where the run stands at the log's end. An opening recorded as no message
+    // reads as none.
+    async fn read_turn_start(
+        &self,
+        run: &RunRead,
+        run_id: RunId,
+        opening: Option<QueueItemId>,
+    ) -> Result<TurnStartReading, RunEngineError> {
+        let session_id = run.session_id;
+        let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
         self.pool
             .read(ReadLength::Short, move |reader| {
-                Ok::<_, RunEngineError>(
-                    reader
-                        .prepare_cached(&SELECT_NEXT_TURN_NUMBER_SQL)?
-                        .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
-                            safe_int_column(row, 0)
-                        })?,
-                )
+                let turn_number = reader
+                    .prepare_cached(&SELECT_NEXT_TURN_NUMBER_SQL)?
+                    .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
+                        safe_int_column(row, 0)
+                    })?;
+                let Some(opening) = opening else {
+                    return Ok::<_, RunEngineError>(TurnStartReading {
+                        turn_number,
+                        opening: None,
+                    });
+                };
+                let message_sequence = reader
+                    .prepare_cached(&SELECT_OPENING_MESSAGE_SQL)?
+                    .query_row(
+                        named_params! {
+                            "@correlation_id": opening.to_string(),
+                            "@session_id": session_id.text().as_str(),
+                        },
+                        |row| safe_int_column(row, 0),
+                    )
+                    .optional()?;
+                let Some(message_sequence) = message_sequence else {
+                    return Ok(TurnStartReading {
+                        turn_number,
+                        opening: None,
+                    });
+                };
+                let log_end = session_read_bound(&*read_damaged_from_sequence, &session_id, None);
+                let standing = RunTurnReads::new(reader, &*read_damaged_from_sequence)
+                    .read_standing_before(&session_id, &run_id, log_end)?;
+                Ok(TurnStartReading {
+                    turn_number,
+                    opening: Some((message_sequence, standing)),
+                })
             })
             .await
     }

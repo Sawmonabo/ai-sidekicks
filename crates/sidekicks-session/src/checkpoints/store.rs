@@ -39,12 +39,14 @@ use crate::checkpoints::schema::{
     CheckpointVersionContent, CheckpointVersionKind, CheckpointVersionLeg, skip_reason_word,
 };
 
+// A prompt already kept keeps its first checkpoint: a second turn its message opens writes nothing.
 static INSERT_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO session_checkpoints
-  (checkpoint_id, session_id, message_sequence, run_id, epoch, position, head, tree, created_at)
-  VALUES (@checkpointId, @sessionId, @messageSequence, @runId, @epoch, @position, @head, @tree,
-          {DATABASE_NOW_SQL})"
+  (checkpoint_id, session_id, message_sequence, run_id, epoch, position, created_at)
+  VALUES (@checkpointId, @sessionId, @messageSequence, @runId, @epoch, @position,
+          {DATABASE_NOW_SQL})
+  ON CONFLICT (session_id, message_sequence) DO NOTHING"
     )
 });
 
@@ -88,8 +90,7 @@ static INSERT_RESTORE_SQL: LazyLock<String> = LazyLock::new(|| {
 macro_rules! select_checkpoints {
     ($tail:literal) => {
         concat!(
-            "SELECT checkpoint_id, session_id, message_sequence, run_id, epoch, position, head,
-       tree, created_at
+            "SELECT checkpoint_id, session_id, message_sequence, run_id, epoch, position, created_at
   FROM session_checkpoints ",
             $tail
         )
@@ -157,10 +158,6 @@ pub struct Checkpoint {
     pub run_id: RunId,
     /// The run's execution epoch and the turn's position in it.
     pub turn: EpochPosition,
-    /// The checkout's HEAD, `None` when it had none.
-    pub head: Option<GitObjectId>,
-    /// The capture's tree, `None` when none was taken.
-    pub tree: Option<GitObjectId>,
 }
 
 /// A checkpoint as its row holds it, with when it was recorded.
@@ -260,8 +257,8 @@ pub enum CheckpointReadError {
 #[error("the stored checkpoint's {0} does not read")]
 struct StoredCheckpointMemberInvalid(&'static str);
 
-/// The checkpoint row `checkpoint` writes at its turn's start. Refused by SQLite when its id or
-/// its prompt is already kept.
+/// The checkpoint row `checkpoint` writes at its turn's start. A prompt already kept writes
+/// nothing; an id already kept is refused by SQLite.
 pub fn insert_checkpoint_statement(checkpoint: &Checkpoint) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(INSERT_CHECKPOINT_SQL.as_str()),
@@ -272,10 +269,8 @@ pub fn insert_checkpoint_statement(checkpoint: &Checkpoint) -> WriteStatement {
             text_binding("@runId", checkpoint.run_id.text().as_str()),
             integer_binding("@epoch", checkpoint.turn.epoch.0),
             integer_binding("@position", checkpoint.turn.position.0),
-            nullable_text_binding("@head", checkpoint.head.as_ref().map(GitObjectId::as_str)),
-            nullable_text_binding("@tree", checkpoint.tree.as_ref().map(GitObjectId::as_str)),
         ]),
-        expected_row_count: Some(1),
+        expected_row_count: None,
     }
 }
 
@@ -507,10 +502,6 @@ fn window_id(text: &str) -> Result<CommandWindowId, IdError> {
     UuidTextForm::new(text).map(CommandWindowId)
 }
 
-fn git_object_id(text: String) -> Result<GitObjectId, StoredCheckpointMemberInvalid> {
-    GitObjectId::new(text).ok_or(StoredCheckpointMemberInvalid("git object id"))
-}
-
 fn snapshot_id(text: String) -> Result<SnapshotId, StoredCheckpointMemberInvalid> {
     SnapshotId::new(text).ok_or(StoredCheckpointMemberInvalid("checkpoint id"))
 }
@@ -527,10 +518,8 @@ fn stored_checkpoint_of(row: &Row<'_>) -> rusqlite::Result<StoredCheckpoint> {
                 epoch: SourceEpoch(safe_int_column(row, 4)?),
                 position: SourcePosition(safe_int_column(row, 5)?),
             },
-            head: optional_text_column(row, 6, git_object_id)?,
-            tree: optional_text_column(row, 7, git_object_id)?,
         },
-        created_at: text_column(row, 8, WireInstant::try_from)?,
+        created_at: text_column(row, 6, WireInstant::try_from)?,
     })
 }
 

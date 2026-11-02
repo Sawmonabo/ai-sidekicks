@@ -393,7 +393,7 @@ impl CodexSessionRecord {
     pub(crate) fn is_turn_in_flight(&self, opening_turn_id: Option<&str>) -> bool {
         let opening = self.delivery.self_started_turn_opening.as_deref();
         !self.active_turns.is_empty()
-            || !self.delivery.starting_turn_run_ids.is_empty()
+            || !self.delivery.starting_turns.is_empty()
             || !self.delivery.unowned_turn_ids.is_empty()
             || !self.ending_turn_ids().is_empty()
             || opening.is_some_and(|opening| Some(opening) != opening_turn_id)

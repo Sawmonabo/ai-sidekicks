@@ -56,6 +56,7 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::run_setup_gates::{RunSetupGate, RunSetupGates};
 use tokio::sync::{SetOnce, SetOnceError};
@@ -84,9 +85,10 @@ use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStat
 /// (`UNSETTLED_HELD_OF_RUN_SQL`), its plans still holding a request (its plan holds' read) and its
 /// open choices (the newest request of each dialog and whether it was settled since), a driver's
 /// read of a session's stored leg (the session's runs and their bindings), whether a run ended at
-/// its setup, and a restart's re-arm of a live run (its newest open turn with its steps, and the
-/// session's step bound).
-pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 25 + RUN_AGENT_STATEMENT_CAPACITY;
+/// its setup, a restart's re-arm of a live run (its newest open turn with its steps, and the
+/// session's step bound), and a turn start's reads of the message that opened it and of where its
+/// run stands (the run's rollbacks and turn starts).
+pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 28 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
@@ -123,6 +125,8 @@ pub(crate) enum InterruptRoute {
 pub struct RunEngineDeps {
     /// The read pool every run read borrows a connection from.
     pub pool: Arc<DatabaseReadPool>,
+    /// Answers where a damaged session's log reads stop, for the reads of where a run stands.
+    pub read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     /// The event log every run event is appended to.
     pub event_log: Arc<EventLogService>,
     /// The posture gate, registered as the first setup gate; every start reads the run's resolved
@@ -156,6 +160,7 @@ struct LiveAppend {
 /// run's turns and the daemon's own stops at a limit.
 pub struct RunEngine {
     pool: Arc<DatabaseReadPool>,
+    read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     appender: Arc<SessionEventAppender>,
     changes: RunStateChangeWriter,
     gates: RunSetupGates,
@@ -194,6 +199,7 @@ impl RunEngine {
     pub fn new(deps: RunEngineDeps, this: Weak<RunEngine>) -> Self {
         let RunEngineDeps {
             pool,
+            read_damaged_from_sequence,
             event_log,
             execution_postures,
             providers,
@@ -209,6 +215,7 @@ impl RunEngine {
         Self {
             changes: RunStateChangeWriter::new(Arc::clone(&pool), Arc::clone(&appender)),
             pool,
+            read_damaged_from_sequence,
             appender,
             gates,
             execution_postures,
