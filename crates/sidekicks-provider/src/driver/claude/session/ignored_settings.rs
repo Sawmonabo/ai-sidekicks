@@ -18,7 +18,7 @@ use sidekicks_contracts::wire::text::ComposedText;
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::settings_file::{
-    is_unreadable_path, read_claude_settings_file,
+    ClaudeSettingsFileError, is_unreadable_path, read_claude_settings_file,
 };
 use crate::driver::claude::spawn::settings::CLAUDE_CLEANUP_PERIOD_DAYS;
 
@@ -40,6 +40,20 @@ pub(crate) struct ClaudeSettingsReadError {
     /// The system's failure.
     #[source]
     pub(crate) failure: io::Error,
+}
+
+/// Fails with the first of `failures` as a settings file's read failure, for a caller that cannot
+/// go on past a managed file it could not read; `Ok` where there is none.
+pub(crate) fn refuse_unread_settings(
+    failures: Vec<ClaudeSettingsReadError>,
+) -> Result<(), ClaudeSettingsFileError> {
+    match failures.into_iter().next() {
+        Some(unread) => Err(ClaudeSettingsFileError::Read {
+            path: unread.path,
+            failure: unread.failure,
+        }),
+        None => Ok(()),
+    }
 }
 
 /// The managed file whose value of one key is in force, and that value.

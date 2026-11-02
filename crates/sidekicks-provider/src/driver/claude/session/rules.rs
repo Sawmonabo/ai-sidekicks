@@ -32,7 +32,9 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::git::exclude::{ExcludeError, add_repository_exclude};
 
-use crate::driver::claude::session::ignored_settings::read_claude_managed_settings;
+use crate::driver::claude::session::ignored_settings::{
+    read_claude_managed_settings, refuse_unread_settings,
+};
 use crate::driver::claude::session::settings_file::{
     ClaudeSettingsFileError, edit_settings_object, hold_settings_file, read_settings_file,
     write_settings_file,
@@ -317,13 +319,7 @@ pub(crate) async fn remove_claude_project_rule(
     let is_revoked = |entry: &str| entries.iter().any(|revoked| revoked == entry);
     if let Some(folder) = managed_settings_folder {
         let managed = read_claude_managed_settings(folder).await;
-        if let Some(unread) = managed.failures.into_iter().next() {
-            return Err(ClaudeSettingsFileError::Read {
-                path: unread.path,
-                failure: unread.failure,
-            }
-            .into());
-        }
+        refuse_unread_settings(managed.failures)?;
         let kept_in = managed.files.into_iter().find(|(_, settings)| {
             settings
                 .get("permissions")

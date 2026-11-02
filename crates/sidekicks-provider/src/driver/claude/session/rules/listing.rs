@@ -32,7 +32,9 @@ use super::{
     remove_list_entries, settings_path,
 };
 use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
-use crate::driver::claude::session::ignored_settings::list_managed_settings_files;
+use crate::driver::claude::session::ignored_settings::{
+    list_managed_settings_files, refuse_unread_settings,
+};
 use crate::driver::claude::session::settings_file::{
     ClaudeSettingsFileError, read_claude_settings_json,
 };
@@ -220,13 +222,7 @@ pub(super) async fn read_managed_settings_files(
     };
     let mut failures = Vec::new();
     let files = list_managed_settings_files(folder, &mut failures).await;
-    if let Some(unlisted) = failures.into_iter().next() {
-        return Err(ClaudeSettingsFileError::Read {
-            path: unlisted.path,
-            failure: unlisted.failure,
-        }
-        .into());
-    }
+    refuse_unread_settings(failures)?;
     Ok(files)
 }
 
