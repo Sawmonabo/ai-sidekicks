@@ -30,15 +30,13 @@ impl RunEngine {
     /// the run's version advances by one whatever state it is in, and `companions` commit in the
     /// same write, their events before the rollback. A run that moved after it was read is read
     /// again and the rollback retried. The caller fences the cut once this returns
-    /// (`RunBindingCursors::fence_cut`). Fails with [`RunRefusal::NotFound`] for an unknown run,
-    /// [`RunRefusal::VersionStale`] for one that kept moving and
-    /// [`RunStateChangeError::CompanionRefused`] for a refusing companion statement; each refusal
-    /// writes nothing.
+    /// (`RunBindingCursors::fence_cut`). Fails with [`NotFound`] for an unknown run,
+    /// [`VersionStale`] for one that kept moving and [`CompanionRefused`] for a refusing companion
+    /// statement; each refusal writes nothing.
     ///
-    /// [`RunRefusal::NotFound`]: crate::run::refusals::RunRefusal::NotFound
-    /// [`RunRefusal::VersionStale`]: crate::run::refusals::RunRefusal::VersionStale
-    /// [`RunStateChangeError::CompanionRefused`]:
-    ///     crate::run::state_change::RunStateChangeError::CompanionRefused
+    /// [`NotFound`]: crate::run::refusals::RunRefusal::NotFound
+    /// [`VersionStale`]: crate::run::refusals::RunRefusal::VersionStale
+    /// [`CompanionRefused`]: crate::run::state_change::RunStateChangeError::CompanionRefused
     pub async fn roll_back(
         &self,
         run_id: RunId,

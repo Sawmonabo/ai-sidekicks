@@ -121,7 +121,8 @@ fn recovery_resolved(session_id: SessionId, run_id: RunId) -> SessionEventDraft 
 }
 
 // Killed by a rollback that does not advance the run's version, by one that swaps its state, and
-// by a rebuild of the runs table that does not fold the rollback, leaving the row a version short.
+// by a rebuild of the runs table that does not read or fold the rollback, leaving the row a version
+// short.
 #[tokio::test]
 async fn a_rollback_advances_the_runs_version_and_leaves_its_state() {
     let fixture = Fixture::new(RunState::Running).await;
@@ -163,8 +164,18 @@ async fn a_rollback_advances_the_runs_version_and_leaves_its_state() {
         )
         .expect("the test puts the row back where the rebuild finds it");
     let reader = fixture.database.reader();
+    // Read as the rebuild reads, by the types the runs fold names.
+    let event_types: Vec<&str> = RunsProjection
+        .event_types()
+        .iter()
+        .map(|event_type| event_type.as_str())
+        .collect();
+    let filter = SessionEventFilter {
+        event_types: Some(&event_types),
+        before_sequence: None,
+    };
     let stored = SessionEventReads::new(&reader, |_: &SessionId| None)
-        .read_after(&fixture.session_id, -1, -1, SessionEventFilter::default())
+        .read_after(&fixture.session_id, -1, -1, filter)
         .expect("the test reads the log");
     let mut fold = RunsProjection.fold(&fixture.session_id);
     let mut statements = Vec::new();
