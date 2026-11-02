@@ -481,6 +481,13 @@ refusal_codes! {
     /// listed or unavailable, a none the row does not offer, text past its length, or a place on a
     /// row that is not set per place.
     ProviderRowValueInvalid = "provider.row.valueInvalid" (InvalidArgument, 422);
+    /// `provider.standingRule.revoke` named a rule that taking out would leave its file one the
+    /// provider refuses, or one that still makes the rule, so the file is left as it was.
+    ProviderStandingRuleRevokeRefused =
+        "provider.standingRule.revokeRefused" (FailedPrecondition, 409);
+    /// `provider.standingRule.revoke` named a rule kept in a file the daemon never edits, the
+    /// administrator's managed or system settings, so it still applies.
+    ProviderStandingRuleUneditable = "provider.standingRule.uneditable" (FailedPrecondition, 409);
     /// Provider driver operation timed out.
     ProviderTimeout = "provider.timeout" (DeadlineExceeded, 504);
     /// Provider driver is currently unavailable.

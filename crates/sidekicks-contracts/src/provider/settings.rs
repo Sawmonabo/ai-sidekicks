@@ -791,7 +791,11 @@ methods! {
             mutating: true,
             params: ProviderStandingRuleRevokeRequest,
             result: ProviderStandingRuleRevokeResponse,
-            refusals: [ProviderNotFound],
+            refusals: [
+                ProviderNotFound,
+                ProviderStandingRuleUneditable,
+                ProviderStandingRuleRevokeRefused,
+            ],
         },
     ];
 }
