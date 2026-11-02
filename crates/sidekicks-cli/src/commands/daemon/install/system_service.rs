@@ -371,15 +371,7 @@ fn read_goal(
     registration: &impl LoggedOutServiceRegistration,
     program: &Path,
 ) -> anyhow::Result<Goal> {
-    let system_service_owner =
-        registration
-            .system_service_owner(Some(program))
-            .map_err(|failure| {
-                registration_failure(
-                    failure,
-                    "could not read which account runs the background service while logged out",
-                )
-            })?;
+    let system_service_owner = read_system_service_owner(registration, Some(program))?;
     if system_service_owner == SystemServiceOwner::OtherAccount {
         return Err(refused(LoggedOutServiceRefusal::OtherAccount, Ok(())));
     }
@@ -397,6 +389,23 @@ fn read_goal(
         owner,
         was_agent_loaded,
     })
+}
+
+/// Which account has the system service installed, read through `registration`, and for this
+/// account whether it starts `daemon_program` where one is given. Fails as
+/// [`registration_failure`] turns the read's failure.
+pub(crate) fn read_system_service_owner(
+    registration: &impl LoggedOutServiceRegistration,
+    daemon_program: Option<&Path>,
+) -> anyhow::Result<SystemServiceOwner> {
+    registration
+        .system_service_owner(daemon_program)
+        .map_err(|failure| {
+            registration_failure(
+                failure,
+                "could not read which account runs the background service while logged out",
+            )
+        })
 }
 
 /// Whether a service holds the data folder at `data_folder`: its lock file locked, read through a

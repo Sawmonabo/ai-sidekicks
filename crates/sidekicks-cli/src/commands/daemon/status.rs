@@ -1,10 +1,10 @@
 //! `sidekicks daemon status`: the background service's own facts, as text on the person's clock or
 //! with `--json` as the service sent them, the exit saying whether it serves (0) or serves with a
 //! fault (1). A service on a protocol this command does not speak gets one line naming both
-//! protocols. The text closes with whether the service starts at login, where the system registers
-//! it. A service that is not answering gets that line first; where the person turned its login
-//! agent off, or it wrote down why its start failed, that reason stands in place of the client's
-//! line; it exits 69 either way.
+//! protocols. The text closes with whether the service starts at login or runs while the person is
+//! logged out, where the system registers it. A service that is not answering gets that line
+//! first; where the person turned it off in Login Items, or it wrote down why its start failed,
+//! that reason stands in place of the client's line; it exits 69 either way.
 
 use std::fs;
 use std::io::{self, Write};
@@ -199,7 +199,7 @@ fn exit_code_for_state(state: Option<DaemonProcessState>) -> ExitCode {
     }
 }
 
-/// Where `failure` is the service not answering: in the text form (`is_text`), a login agent the
+/// Where `failure` is the service not answering: in the text form (`is_text`), a registration the
 /// person turned off writes that line to stderr and answers 69, and any other registration's line
 /// goes to stdout first; then, where its status file names why its start failed, writes that
 /// reason to stderr and answers 69. Otherwise answers `failure` itself, with why the status file
@@ -220,7 +220,7 @@ fn report_not_answering<Output: Write, ErrorOutput: Write>(
     }
     if is_text && let Some(start) = read_status_login_start(&mut context.stderr)? {
         let line = start.line(false);
-        if start == LoginStart::TurnedOff {
+        if start.is_turned_off() {
             writeln!(context.stderr, "{line}")?;
             context.stderr.flush()?;
             return Ok(ExitCode::Unavailable);

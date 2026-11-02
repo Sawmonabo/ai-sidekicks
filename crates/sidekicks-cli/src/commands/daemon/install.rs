@@ -1,7 +1,8 @@
 //! `sidekicks daemon install`: registers the background service to start at login and starts it.
-//! Where the app's own registration runs the service, nothing is written; a registration already
-//! naming this program is left as it is; otherwise the registration is written and, with someone
-//! logged in at the screen, loaded, and the command waits for the service's handshake. With
+//! Where this account's system service runs it while the person is logged out, or the app's own
+//! registration runs it, nothing is written; a registration already naming this program is left as
+//! it is; otherwise the registration is written and, with someone logged in at the screen, loaded,
+//! and the command waits for the service's handshake. With
 //! `--while-signed-out` the system service that runs while the person is logged out replaces it.
 
 pub(crate) mod system_service;
@@ -18,10 +19,12 @@ use sidekicks_client::daemon_connection::handshake_wait::{
 };
 use sidekicks_client::daemon_connection::{DaemonEndpoint, HANDSHAKE_DEADLINE};
 use sidekicks_client::error::ClientError;
-use sidekicks_platforms::{ServiceInstall, ServiceOwner, ServiceRegistration};
+use sidekicks_platforms::{ServiceInstall, ServiceOwner, ServiceRegistration, SystemServiceOwner};
 
 use crate::command_context::CommandContext;
-use crate::commands::daemon::install::system_service::install_while_signed_out;
+use crate::commands::daemon::install::system_service::{
+    install_while_signed_out, read_system_service_owner, write_line,
+};
 use crate::commands::daemon::registration::{LoginRegistration, read_owner, registration_failure};
 use crate::commands::daemon::start::RepairLine;
 use crate::connected_command::run_listening_for_ctrl_c;
@@ -46,7 +49,8 @@ pub(crate) struct InstallArgs {
 
 /// Installs the background service on this computer through `registration`, to start at login
 /// or with `--while-signed-out` to run while the person is logged out, and answers 0 with the
-/// outcome's line on stdout. Fails as [`install_with`] or [`install_while_signed_out`] does.
+/// outcome's line on stdout. Fails as the system service's owner's read, [`install_with`] or
+/// [`install_while_signed_out`] does.
 pub(crate) fn install<Output: Write, ErrorOutput: Write>(
     args: &InstallArgs,
     registration: ServiceRegistration,
@@ -65,23 +69,36 @@ pub(crate) fn install<Output: Write, ErrorOutput: Write>(
     }
     install_with(
         &registration,
+        read_system_service_owner(&registration, None)?,
         args.daemon_path.as_deref(),
         deadline,
         context,
     )
 }
 
-/// Installs through `registration`, its owner read first: the app's registration leaves
-/// everything as it is, and a started service is waited for within `deadline`. Fails as the
+/// Installs through `registration`, with `system_service_owner` read first: this account's system
+/// service and the app's registration leave everything as it is, since a login agent beside either
+/// would run a second service, and a started service is waited for within `deadline`. Fails as the
 /// owner's read, the program's resolution, the install or the wait for the started service fails,
 /// a step the service manager refused as [`CommandFailure::RegistrationRefused`] and a service that
 /// never answers as [`CommandFailure::InstalledNotAnswering`].
 fn install_with<Output: Write, ErrorOutput: Write>(
     registration: &impl LoginRegistration,
+    system_service_owner: SystemServiceOwner,
     daemon_path: Option<&Path>,
     deadline: Duration,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
+    match system_service_owner {
+        SystemServiceOwner::ThisAccount | SystemServiceOwner::ThisAccountOtherProgram => {
+            return write_line(
+                context,
+                "The background service is already installed to run while you are logged out. \
+                 See it with sidekicks daemon status.\n",
+            );
+        }
+        SystemServiceOwner::NotInstalled | SystemServiceOwner::OtherAccount => {}
+    }
     let owner = read_owner(registration)?;
     let line = match owner {
         ServiceOwner::App => {
@@ -161,7 +178,9 @@ mod tests {
     use std::path::Path;
 
     use sidekicks_client::daemon_connection::HANDSHAKE_DEADLINE;
-    use sidekicks_platforms::{ServiceInstall, ServiceOwner, ServiceRegistrationError};
+    use sidekicks_platforms::{
+        ServiceInstall, ServiceOwner, ServiceRegistrationError, SystemServiceOwner,
+    };
 
     use super::install_with;
     use crate::command_context::CommandContext;
@@ -202,8 +221,14 @@ mod tests {
             is_stderr_styled: false,
         };
 
-        let code = install_with(&registration, None, HANDSHAKE_DEADLINE, &mut context)
-            .expect("the install succeeds");
+        let code = install_with(
+            &registration,
+            SystemServiceOwner::NotInstalled,
+            None,
+            HANDSHAKE_DEADLINE,
+            &mut context,
+        )
+        .expect("the install succeeds");
 
         assert_eq!(code, ExitCode::Success);
         assert!(

@@ -210,8 +210,8 @@ pub(crate) enum CommandFailure {
     /// leaves it off.
     #[error("{}", TURNED_OFF_IN_LOGIN_ITEMS)]
     TurnedOffInLoginItems,
-    /// The start was given `--daemon-path`, and the login agent that starts the service runs
-    /// another program, so nothing was started.
+    /// The start was given `--daemon-path`, and the login agent or system service that starts the
+    /// service runs another program, so nothing was started.
     #[error(
         "The background service starts at login with its own program, so --daemon-path is not \
          used. Run the command again without --daemon-path."
@@ -275,6 +275,13 @@ pub(crate) enum CommandFailure {
     /// cause, whose line this is.
     #[error("{0}")]
     SystemServiceKept(SystemServiceKeptCause),
+    /// This account's system service runs the background service while the person is logged
+    /// out, and only root's rights can start it, so nothing was started or stopped.
+    #[error(
+        "The background service runs while you are logged out. Start it with sudo sidekicks \
+         daemon start."
+    )]
+    SystemServiceStartNeedsRoot,
 }
 
 impl CommandFailure {
@@ -298,7 +305,9 @@ impl CommandFailure {
             Self::RegistrationRefused(_) => ExitCode::Software,
             Self::BackupUnreadable { .. } => ExitCode::NoInput,
             Self::LoggedOutServiceRefused { cause, .. } => cause.exit_code(),
-            Self::SystemServiceNeedsRoot => ExitCode::NoPermission,
+            Self::SystemServiceNeedsRoot | Self::SystemServiceStartNeedsRoot => {
+                ExitCode::NoPermission
+            }
             Self::SystemServiceKept(cause) => cause.exit_code(),
         }
     }
@@ -680,6 +689,10 @@ mod tests {
             message: "refused".to_owned(),
         }).into(),
         ProcessEnding::Exit(ExitCode::Software)
+    )]
+    #[case::system_service_start_needs_root(
+        CommandFailure::SystemServiceStartNeedsRoot.into(),
+        ProcessEnding::Exit(ExitCode::NoPermission)
     )]
     #[case::anything_else(anyhow!("failed"), ProcessEnding::Exit(ExitCode::Software))]
     fn a_failure_ends_the_run_as_its_cause_names(

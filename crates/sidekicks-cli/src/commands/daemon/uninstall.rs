@@ -15,7 +15,7 @@ use sidekicks_platforms::{ServiceOwner, SystemServiceOwner};
 
 use crate::command_context::CommandContext;
 use crate::commands::daemon::ending::end_running_daemon;
-use crate::commands::daemon::install::system_service::write_line;
+use crate::commands::daemon::install::system_service::{read_system_service_owner, write_line};
 use crate::commands::daemon::registration::{read_owner, registration_failure};
 use crate::commands::daemon::uninstall::system_service::{
     LoggedOutServiceUninstall, are_secrets_in_files, finish_moving_secrets_back, put_agent_back,
@@ -39,12 +39,7 @@ pub(crate) fn uninstall<Output: Write, ErrorOutput: Write>(
     registration: &impl LoggedOutServiceUninstall,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
-    let system_service_owner = registration.system_service_owner(None).map_err(|failure| {
-        registration_failure(
-            failure,
-            "could not read which account runs the background service while logged out",
-        )
-    })?;
+    let system_service_owner = read_system_service_owner(registration, None)?;
     let owner = read_owner(registration)?;
     match system_service_owner {
         SystemServiceOwner::ThisAccount | SystemServiceOwner::ThisAccountOtherProgram => {

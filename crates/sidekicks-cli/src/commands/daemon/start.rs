@@ -1,10 +1,13 @@
 //! `sidekicks daemon start`: a daemon that answers the handshake, or answers that it is repairing
-//! its database file, is already running. Otherwise a login agent registered for this account's
-//! home is started through the system's service manager, unless the person turned it off or named
-//! a program it does not start, and the service manager keeps it; with none, or with no one at the
-//! screen, its program starts as a lasting child. The command then waits for the handshake. A
-//! lasting child that never answers is ended, and one that exits first is named with its exit and
-//! why its start failed; an agent's service that never answers is left running; each exits 69.
+//! its database file, is already running. Otherwise this account's system service, which runs the
+//! service while the person is logged out, refuses the start: only root can start it, which a run
+//! under `sudo` does with no wait, since root cannot reach the service. Else a login agent
+//! registered for this account's home is started through the system's service manager, and the
+//! service manager keeps it; with none, or with no one at the screen, its program starts as a
+//! lasting child. Either registration the person turned off in Login Items, or a `--daemon-path`
+//! it does not start, refuses the start. The command then waits for the handshake. A lasting child
+//! that never answers is ended, and one that exits first is named with its exit and why its start
+//! failed; an agent's service that never answers is left running; each exits 69.
 
 use std::convert::Infallible;
 use std::fs::OpenOptions;
@@ -29,10 +32,12 @@ use sidekicks_contracts::daemon::recovery::DaemonRepairingDetails;
 use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_platforms::{
     LastingChild, LastingCommand, NULL_DEVICE_PATH, PinnedProcess, ServiceOwner,
-    leave_daemon_scope, read_child_exit, service_registration, spawn_lasting_child,
+    ServiceRegistration, SystemServiceOwner, leave_daemon_scope, read_child_exit,
+    service_registration, spawn_lasting_child,
 };
 
 use crate::command_context::CommandContext;
+use crate::commands::daemon::install::system_service::{read_system_service_owner, write_line};
 use crate::commands::daemon::registration::{read_owner, registration_failure};
 use crate::commands::daemon::status::read_cannot_start;
 use crate::connected_command::run_listening_for_ctrl_c;
@@ -44,9 +49,10 @@ use crate::program::describe_repairing;
 #[derive(Debug, Args)]
 pub(crate) struct StartArgs {
     /// The background service's program to start, in place of the one installed beside this
-    /// program; refused where a login agent that starts another program starts the service.
+    /// program; refused where a login agent or system service that starts another program runs
+    /// the service.
     #[arg(long, value_name = "PATH")]
-    daemon_path: Option<PathBuf>,
+    pub(crate) daemon_path: Option<PathBuf>,
     /// How long to wait for the started background service to answer, in milliseconds [default:
     /// 10000].
     #[arg(long, value_name = "MS")]
@@ -145,8 +151,9 @@ impl<'a, ErrorOutput: Write> RepairLine<'a, ErrorOutput> {
 /// started through the service manager; otherwise the program is `daemon_path`, else the one
 /// installed beside this program, started as a lasting child. The wait for the handshake lasts
 /// `deadline`, moved on by each answer that the daemon is repairing its database file, whose
-/// details go to `on_repairing`. Fails with [`CommandFailure::TurnedOffInLoginItems`] or
-/// [`CommandFailure::AppServiceTurnedOff`] for an agent the person turned off, with nothing
+/// details go to `on_repairing`. Fails with [`CommandFailure::SystemServiceStartNeedsRoot`] where
+/// this account's system service runs the service, [`CommandFailure::TurnedOffInLoginItems`] or
+/// [`CommandFailure::AppServiceTurnedOff`] for a registration the person turned off, with nothing
 /// started; [`CommandFailure::RegisteredNotAnswering`] when an agent's service does not answer in
 /// time, which is left running; [`CommandFailure::StartTimedOut`] when a lasting child does not,
 /// which is then ended; [`CommandFailure::DaemonExited`] when it exits first and no other daemon
@@ -176,14 +183,21 @@ enum StartRoute {
 
 /// Starts the login agent registered for this account's home where there is one and someone is
 /// at the screen, and answers how the start goes on. Blocks on the service manager. Fails with
-/// [`CommandFailure::AgentRunsOtherProgram`] where `daemon_path` names a program the agent does
-/// not start, [`CommandFailure::TurnedOffInLoginItems`] for the command line's own agent turned
-/// off, [`CommandFailure::AppServiceTurnedOff`] for the app's, and as [`registration_failure`]
-/// turns a failed read or start.
+/// [`CommandFailure::SystemServiceStartNeedsRoot`] where this account's system service runs the
+/// service, which this run without root's rights cannot start, as
+/// [`has_system_service_to_start`] fails, with [`CommandFailure::AgentRunsOtherProgram`] where
+/// `daemon_path` names a program the agent does not start,
+/// [`CommandFailure::TurnedOffInLoginItems`] for the command line's own agent turned off,
+/// [`CommandFailure::AppServiceTurnedOff`] for the app's, and as [`registration_failure`] turns a
+/// failed read or start.
 fn start_registered_agent(daemon_path: Option<&Path>) -> anyhow::Result<StartRoute> {
     let Some(registration) = service_registration() else {
         return refuse_app_turned_off().map(|()| StartRoute::LastingChild);
     };
+    // A login agent or lasting child beside the system service would run a second service.
+    if has_system_service_to_start(registration)? {
+        return Err(CommandFailure::SystemServiceStartNeedsRoot.into());
+    }
     match read_owner(&registration)? {
         ServiceOwner::None => refuse_app_turned_off().map(|()| StartRoute::LastingChild),
         ServiceOwner::CommandLine => {
@@ -229,6 +243,73 @@ fn start_registered_agent(daemon_path: Option<&Path>) -> anyhow::Result<StartRou
             Ok(StartRoute::Agent)
         }
     }
+}
+
+/// Whether this account's system service, which runs the background service while the person is
+/// logged out, is installed through `registration`, so a start is its own. Blocks on the system's
+/// answer. Fails with [`CommandFailure::TurnedOffInLoginItems`] where the person turned it off in
+/// Login Items, which launchd does not honor when asked to start it, and as
+/// [`registration_failure`] turns a failed read.
+pub(crate) fn has_system_service_to_start(
+    registration: ServiceRegistration,
+) -> anyhow::Result<bool> {
+    match read_system_service_owner(&registration, None)? {
+        SystemServiceOwner::ThisAccount | SystemServiceOwner::ThisAccountOtherProgram => {}
+        SystemServiceOwner::NotInstalled | SystemServiceOwner::OtherAccount => return Ok(false),
+    }
+    let is_turned_off = registration
+        .is_system_service_turned_off()
+        .map_err(|failure| {
+            registration_failure(
+                failure,
+                "could not read whether the background service is turned off in Login Items",
+            )
+        })?;
+    if is_turned_off {
+        return Err(CommandFailure::TurnedOffInLoginItems.into());
+    }
+    Ok(true)
+}
+
+/// Starts this account's system service with root's rights through `registration`, and answers 0
+/// with the started line on stdout; a running one is left running. Root cannot pass the service's
+/// own-account check, so the start is not waited for. Fails as [`refuse_other_system_program`]
+/// and [`kickstart_system_service`] do, or as a write does.
+pub(crate) fn start_system_service<Output: Write, ErrorOutput: Write>(
+    args: &StartArgs,
+    registration: ServiceRegistration,
+    context: &mut CommandContext<Output, ErrorOutput>,
+) -> anyhow::Result<ExitCode> {
+    refuse_other_system_program(args.daemon_path.as_deref(), registration)?;
+    kickstart_system_service(registration)?;
+    write_line(context, STARTED_LINE)
+}
+
+/// Fails with [`CommandFailure::AgentRunsOtherProgram`] where `daemon_path` names a program this
+/// account's system service does not start, and as the program's resolution or the system
+/// service's read fails.
+pub(crate) fn refuse_other_system_program(
+    daemon_path: Option<&Path>,
+    registration: ServiceRegistration,
+) -> anyhow::Result<()> {
+    let Some(daemon_path) = daemon_path else {
+        return Ok(());
+    };
+    let program = daemon_program(Some(daemon_path))?;
+    match read_system_service_owner(&registration, Some(&program))? {
+        SystemServiceOwner::ThisAccount => Ok(()),
+        SystemServiceOwner::ThisAccountOtherProgram
+        | SystemServiceOwner::NotInstalled
+        | SystemServiceOwner::OtherAccount => Err(CommandFailure::AgentRunsOtherProgram.into()),
+    }
+}
+
+/// Starts this account's system service through `registration`, which needs root's rights; a
+/// running one is left running. Fails as [`registration_failure`] turns a refused start.
+pub(crate) fn kickstart_system_service(registration: ServiceRegistration) -> anyhow::Result<()> {
+    registration
+        .kickstart_system_service()
+        .map_err(|failure| registration_failure(failure, "could not start the background service"))
 }
 
 /// Fails with [`CommandFailure::AppServiceTurnedOff`] where the status file reads that the app's

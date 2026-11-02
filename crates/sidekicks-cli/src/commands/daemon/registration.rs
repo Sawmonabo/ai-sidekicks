@@ -1,17 +1,20 @@
 //! The service's registration to start at login, as the daemon commands use it: who owns it, its
 //! install and its removal, behind one trait so a test can answer for the system's service
-//! manager; a registration failure turned into the run's failure; and the line `daemon status`
-//! prints for it.
+//! manager; a registration failure turned into the run's failure; this program run again as the
+//! account from a run with root's rights; and the line `daemon status` prints for it, this
+//! account's system service that runs while the person is logged out read before the login agent.
 
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
+use anyhow::Context as _;
 use sidekicks_platforms::{
-    ServiceInstall, ServiceOwner, ServiceRegistration, ServiceRegistrationError,
+    ServiceInstall, ServiceOwner, ServiceRegistration, ServiceRegistrationError, SystemServiceOwner,
 };
 
 use crate::daemon_program::this_program;
-use crate::exit_codes::CommandFailure;
+use crate::exit_codes::{CommandFailure, ExitCode};
 
 /// The line for a login agent the person turned off in Login Items, which `daemon status` prints
 /// and a start fails with.
@@ -69,6 +72,25 @@ pub(crate) fn this_program_as_account(
         registration_failure(failure, "could not name the account to run this program as")
     })?;
     Ok((program, command))
+}
+
+/// Runs this program with `arguments` as the account through `registration`, on this run's
+/// terminal, its standard output to `output`, and answers the exit code it ended with. Fails when
+/// this program or the account cannot be named or the run cannot start, and with
+/// `ClientError::Canceled` for a run a Ctrl-C ended.
+pub(crate) fn run_as_account(
+    registration: ServiceRegistration,
+    arguments: impl IntoIterator<Item = impl AsRef<OsStr>>,
+    output: Stdio,
+) -> anyhow::Result<ExitCode> {
+    let (program, mut command) =
+        this_program_as_account(|program| registration.account_command(program))?;
+    let status = command
+        .args(arguments)
+        .stdout(output)
+        .status()
+        .with_context(|| format!("could not run {} as this account", program.display()))?;
+    ExitCode::of_program_run(status)
 }
 
 /// `failure` as the run's failure: a step the service manager refused as
@@ -164,6 +186,11 @@ pub(crate) enum LoginStart {
     TurnedOff,
     /// The command line's or the app's login agent starts it.
     Installed,
+    /// This account's system service runs it while the person is logged out.
+    SystemService {
+        /// Whether the person turned the system service off in Login Items.
+        is_turned_off: bool,
+    },
 }
 
 impl LoginStart {
@@ -171,20 +198,61 @@ impl LoginStart {
     pub(crate) const fn line(self, is_answering: bool) -> &'static str {
         match (self, is_answering) {
             (Self::NotInstalled, _) => "The background service is not installed.",
-            (Self::TurnedOff, _) => TURNED_OFF_IN_LOGIN_ITEMS,
+            (
+                Self::TurnedOff
+                | Self::SystemService {
+                    is_turned_off: true,
+                },
+                _,
+            ) => TURNED_OFF_IN_LOGIN_ITEMS,
             (Self::Installed, true) => "The background service is running and starts at login.",
             (Self::Installed, false) => {
                 "The background service is installed and starts at login, but is not running."
             }
+            (
+                Self::SystemService {
+                    is_turned_off: false,
+                },
+                true,
+            ) => "The background service is running and keeps running while you are logged out.",
+            (
+                Self::SystemService {
+                    is_turned_off: false,
+                },
+                false,
+            ) => {
+                "The background service is installed to keep running while you are logged out, \
+                 but is not running."
+            }
         }
+    }
+
+    /// Whether the person turned the registration that starts the service off in Login Items.
+    pub(crate) const fn is_turned_off(self) -> bool {
+        matches!(
+            self,
+            Self::TurnedOff
+                | Self::SystemService {
+                    is_turned_off: true
+                }
+        )
     }
 }
 
-/// Whether the service starts at login through `registration`: its owner, and for the command
-/// line's own agent whether the person turned it off. Fails as either read does.
+/// Whether the service starts through `registration`: this account's system service first, and
+/// whether the person turned it off; else the login agent's owner, and for the command line's own
+/// agent whether the person turned it off. Fails as any of these reads does.
 pub(crate) fn read_login_start(
     registration: ServiceRegistration,
 ) -> Result<LoginStart, ServiceRegistrationError> {
+    match registration.system_service_owner(None)? {
+        SystemServiceOwner::ThisAccount | SystemServiceOwner::ThisAccountOtherProgram => {
+            return Ok(LoginStart::SystemService {
+                is_turned_off: registration.is_system_service_turned_off()?,
+            });
+        }
+        SystemServiceOwner::NotInstalled | SystemServiceOwner::OtherAccount => {}
+    }
     Ok(match registration.owner()? {
         ServiceOwner::None => LoginStart::NotInstalled,
         ServiceOwner::CommandLine if registration.is_turned_off()? => LoginStart::TurnedOff,
