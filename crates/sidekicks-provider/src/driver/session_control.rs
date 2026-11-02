@@ -105,9 +105,21 @@ pub struct CreateSessionParams {
     /// The account the leg is admitted against, resolved by the daemon before the spawn. The spawn
     /// path pins the account's credential home, so the driver only carries it.
     pub provider_account_id: ProviderAccountId,
+    /// Whether the session follows its provider's current account, `provider_account_id` now, or
+    /// stays on that account whatever becomes current.
+    pub account_pin: SessionAccountPin,
     /// The MCP server-status sink, bound to this leg's session and binding at spawn, so a driver
     /// cannot report for another leg and needs no id for the census it reports while opening.
     pub on_mcp_server_status: Option<McpServerStatusProducer>,
+}
+
+/// Whether a session moves with its provider's current account or stays on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionAccountPin {
+    /// It runs on the provider's current account and moves onto each account made current.
+    FollowsCurrent,
+    /// It stays on the account it was started on, as its agent definition or workflow step names.
+    Pinned,
 }
 
 /// What the daemon hands a driver to resume a session in a fresh process. A resume is a fresh

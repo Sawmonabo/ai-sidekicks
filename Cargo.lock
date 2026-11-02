@@ -8858,6 +8858,7 @@ dependencies = [
  "sidekicks-workspace",
  "starlark",
  "strum 0.28.0",
+ "subtle",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

@@ -1,5 +1,6 @@
 //! The reader of a Codex home's `auth.json`, the sign-in Codex's `file` store keeps there: when
-//! Codex last renewed it and when its access token expires. The tokens never leave the read.
+//! Codex last renewed it and when its access token expires, and the tokens the switching service is
+//! handed, which leave the read only as secrets.
 
 use std::io::ErrorKind;
 use std::path::Path;
@@ -8,6 +9,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use jiff::Timestamp;
 use secrecy::{ExposeSecret as _, SecretString};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer};
 use zeroize::Zeroizing;
 
@@ -21,6 +23,17 @@ pub(crate) struct CodexAuthFile {
     pub(crate) last_refresh: Option<Timestamp>,
     /// The access token's `exp` claim, absent with no tokens or no claim.
     pub(crate) access_token_expiry: Option<Timestamp>,
+}
+
+/// A `ChatGPT` sign-in's tokens as a Codex home's `auth.json` holds them, what `account/login/start`
+/// hands a service as `chatgptAuthTokens`.
+pub(crate) struct CodexAuthTokens {
+    /// `tokens.access_token`.
+    pub(crate) access_token: SecretString,
+    /// `tokens.account_id`, the `ChatGPT` workspace the sign-in is for.
+    pub(crate) chatgpt_account_id: String,
+    /// The identity token's `chatgpt_plan_type` claim, absent where it names none.
+    pub(crate) chatgpt_plan_type: Option<String>,
 }
 
 /// Why a Codex home's `auth.json` could not be read. No variant carries the file's content.
@@ -44,6 +57,9 @@ pub(crate) enum CodexAuthFileError {
     /// The access token's payload is not JSON claims.
     #[error("the access token's claims in the Codex home's auth.json are not JSON: {0}")]
     AccessTokenClaims(JsonFault),
+    /// The identity token is not a JWT whose payload is base64 JSON claims, as the cause says.
+    #[error("the identity token in the Codex home's auth.json does not read")]
+    IdentityToken(#[source] Box<CodexAuthFileError>),
 }
 
 /// Where and how a JSON read failed, without serde's message, which can quote the value it met.
@@ -87,6 +103,10 @@ struct AuthFileMembers {
 struct TokenMembers {
     #[serde(deserialize_with = "deserialize_secret")]
     access_token: SecretString,
+    #[serde(default)]
+    account_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_secret")]
+    id_token: Option<SecretString>,
 }
 
 #[derive(Deserialize)]
@@ -95,10 +115,29 @@ struct ExpiryClaim {
     exp: Option<i64>,
 }
 
+// The identity token's claim Codex reads the plan from.
+#[derive(Deserialize)]
+struct IdentityClaims {
+    #[serde(default, rename = "https://api.openai.com/auth")]
+    auth: Option<IdentityAuthClaim>,
+}
+
+#[derive(Deserialize)]
+struct IdentityAuthClaim {
+    #[serde(default)]
+    chatgpt_plan_type: Option<String>,
+}
+
 fn deserialize_secret<'de, D: Deserializer<'de>>(
     deserializer: D,
 ) -> Result<SecretString, D::Error> {
     String::deserialize(deserializer).map(SecretString::from)
+}
+
+fn deserialize_optional_secret<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<SecretString>, D::Error> {
+    Option::<String>::deserialize(deserializer).map(|text| text.map(SecretString::from))
 }
 
 /// Reads `home`'s `auth.json`: `None` when the home has none. Fails when the file cannot be read,
@@ -106,13 +145,9 @@ fn deserialize_secret<'de, D: Deserializer<'de>>(
 pub(crate) async fn read_codex_auth_file(
     home: &Path,
 ) -> Result<Option<CodexAuthFile>, CodexAuthFileError> {
-    let bytes = match tokio::fs::read(home.join(CODEX_AUTH_FILE_NAME)).await {
-        Ok(bytes) => Zeroizing::new(bytes),
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(CodexAuthFileError::Unreadable(error)),
+    let Some(members) = read_members(home).await? else {
+        return Ok(None);
     };
-    let members: AuthFileMembers = serde_json::from_slice(&bytes)
-        .map_err(|error| CodexAuthFileError::Malformed(error.into()))?;
     let last_refresh = members
         .last_refresh
         .map(|text| text.parse::<Timestamp>())
@@ -129,10 +164,60 @@ pub(crate) async fn read_codex_auth_file(
     }))
 }
 
-// The JWT's `exp` claim as Codex reads it: the payload segment decoded, its signature unchecked
-// (the file is the daemon's own home's), an instant out of range read as none.
+/// Reads the `ChatGPT` sign-in's tokens from `home`'s `auth.json`: `None` when the home has no file,
+/// or a file with no tokens or no account id, as an API-key sign-in writes. Fails as
+/// [`read_codex_auth_file`] does, and when the identity token's claims do not parse.
+pub(crate) async fn read_codex_auth_tokens(
+    home: &Path,
+) -> Result<Option<CodexAuthTokens>, CodexAuthFileError> {
+    let Some(AuthFileMembers {
+        tokens: Some(tokens),
+        ..
+    }) = read_members(home).await?
+    else {
+        return Ok(None);
+    };
+    let Some(chatgpt_account_id) = tokens.account_id else {
+        return Ok(None);
+    };
+    let chatgpt_plan_type = match &tokens.id_token {
+        Some(id_token) => read_claims::<IdentityClaims>(id_token)
+            .map_err(|error| CodexAuthFileError::IdentityToken(Box::new(error)))?
+            .auth
+            .and_then(|auth| auth.chatgpt_plan_type),
+        None => None,
+    };
+    Ok(Some(CodexAuthTokens {
+        access_token: tokens.access_token,
+        chatgpt_account_id,
+        chatgpt_plan_type,
+    }))
+}
+
+// The members of `home`'s `auth.json`, `None` when the home has none.
+async fn read_members(home: &Path) -> Result<Option<AuthFileMembers>, CodexAuthFileError> {
+    let bytes = match tokio::fs::read(home.join(CODEX_AUTH_FILE_NAME)).await {
+        Ok(bytes) => Zeroizing::new(bytes),
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(CodexAuthFileError::Unreadable(error)),
+    };
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .map_err(|error| CodexAuthFileError::Malformed(error.into()))
+}
+
+// The access token's `exp` claim as Codex reads it, an instant out of range read as none.
 fn read_expiry(access_token: &SecretString) -> Result<Option<Timestamp>, CodexAuthFileError> {
-    let mut segments = access_token.expose_secret().split('.');
+    let claim: ExpiryClaim = read_claims(access_token)?;
+    Ok(claim.exp.and_then(|exp| Timestamp::from_second(exp).ok()))
+}
+
+// A JWT's claims as Codex reads them: the payload segment decoded, its signature unchecked (the
+// file is the daemon's own home's).
+fn read_claims<Claims: DeserializeOwned>(
+    token: &SecretString,
+) -> Result<Claims, CodexAuthFileError> {
+    let mut segments = token.expose_secret().split('.');
     let payload = match (segments.next(), segments.next(), segments.next()) {
         (Some(header), Some(payload), Some(signature))
             if !header.is_empty() && !payload.is_empty() && !signature.is_empty() =>
@@ -146,7 +231,6 @@ fn read_expiry(access_token: &SecretString) -> Result<Option<Timestamp>, CodexAu
             .decode(payload)
             .map_err(CodexAuthFileError::AccessTokenEncoding)?,
     );
-    let claim: ExpiryClaim = serde_json::from_slice(&claims)
-        .map_err(|error| CodexAuthFileError::AccessTokenClaims(error.into()))?;
-    Ok(claim.exp.and_then(|exp| Timestamp::from_second(exp).ok()))
+    serde_json::from_slice(&claims)
+        .map_err(|error| CodexAuthFileError::AccessTokenClaims(error.into()))
 }

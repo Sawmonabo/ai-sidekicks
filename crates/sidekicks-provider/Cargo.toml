@@ -63,6 +63,7 @@ sidekicks-store.workspace = true
 sidekicks-workspace.workspace = true
 starlark.workspace = true
 strum.workspace = true
+subtle.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

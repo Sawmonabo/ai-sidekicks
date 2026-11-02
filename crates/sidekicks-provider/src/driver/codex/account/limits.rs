@@ -4,7 +4,8 @@
 //! home's `auth.json`, and keeps its reset credits on the account's row. A
 //! read that answers no figures reads as a lost sign-in when the home's own account read finds none
 //! signed in, or when it needed a renewal (an expired access token) and left the home's `auth.json`
-//! unchanged, twice in a row.
+//! unchanged, twice in a row. A read in the home of the account the switching service carries
+//! hands that service the home's tokens again when the read left them renewed.
 
 use std::path::Path;
 
@@ -15,8 +16,8 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::ProviderAccountFolders;
-use crate::driver::codex::account::CodexAccountLegs;
 use crate::driver::codex::account::auth_file::{CodexAuthFile, read_codex_auth_file};
+use crate::driver::codex::account::{CodexAccountLegs, switch};
 use crate::driver::codex::auth_status::{CODEX_AUTH_PROBE_TIMEOUT, read_codex_auth_status};
 use crate::driver::codex::rate_limits::{CodexRateLimitFiling, CodexRateLimitRead};
 use crate::driver::codex::service::supervisor::CodexService;
@@ -60,6 +61,16 @@ pub(super) async fn observe_codex_limits(
             async |service| read_limits(&legs.rate_limits, service).await,
         )
         .await?;
+    // The read may have renewed the sign-in, which the switching service then takes again.
+    if let Err(error) =
+        switch::hand_switching_service_again(legs, &provider_account_id, &codex_home).await
+    {
+        tracing::warn!(
+            error = &error as &(dyn std::error::Error + 'static),
+            "the codex switching service could not be handed its account's renewed sign-in; its \
+             next refresh request asks for it"
+        );
+    }
     let (observation, reset_credits) = match read {
         LimitsRead::Read(read) if !read.windows.is_empty() => (
             ProviderObservation::Figures(ProviderAccountFigures {

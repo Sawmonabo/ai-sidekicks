@@ -43,6 +43,11 @@ pub(crate) const CODEX_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 /// The JSON-RPC version every message names.
 const JSON_RPC_VERSION: &str = "2.0";
 
+/// What runs on the connection's reader as a request's answer arrives, before any frame after it is
+/// handed on, told whether the service answered with a result rather than an error. It never runs
+/// for a request that went unanswered.
+pub(crate) type CodexAnswerHook = Box<dyn FnOnce(bool) + Send>;
+
 /// A held ask the connection let go of, so its card is withdrawn.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexForgottenRequest {
@@ -219,6 +224,7 @@ struct ConnectionState {
 struct PendingRequest {
     answer_sender: oneshot::Sender<RequestAnswer>,
     sent_at: Option<Instant>,
+    on_answered: Option<CodexAnswerHook>,
 }
 
 /// What the service answered one request: its `result`, or the code and message of its error,
@@ -325,8 +331,32 @@ impl CodexAppServerConnection {
         params: &Params,
         timeout: Duration,
     ) -> Result<Box<RawValue>, CodexError> {
+        self.request_hooked(method, params, timeout, None).await
+    }
+
+    /// Sends a request as [`Self::request`] does, `on_answered` run on the reader at its answer's
+    /// place among the service's frames. Fails as [`Self::request_within`] does.
+    pub(crate) async fn request_ordered<Params: Serialize + Sync>(
+        &self,
+        method: &str,
+        params: &Params,
+        on_answered: CodexAnswerHook,
+    ) -> Result<Box<RawValue>, CodexError> {
+        self.request_hooked(method, params, CODEX_REQUEST_TIMEOUT, Some(on_answered))
+            .await
+    }
+
+    async fn request_hooked<Params: Serialize + Sync>(
+        &self,
+        method: &str,
+        params: &Params,
+        timeout: Duration,
+        on_answered: Option<CodexAnswerHook>,
+    ) -> Result<Box<RawValue>, CodexError> {
         let (answer_sender, answer) = oneshot::channel();
-        let slot = self.shared.reserve_request(method, answer_sender)?;
+        let slot = self
+            .shared
+            .reserve_request(method, answer_sender, on_answered)?;
         let text = serde_json::to_string(&OutboundRequest {
             jsonrpc: JSON_RPC_VERSION,
             id: slot.request_id,
@@ -449,11 +479,13 @@ impl ConnectionShared {
             .unwrap_or_else(|| "it closed".to_owned())
     }
 
-    // Takes the next request id with `answer_sender` waiting on it; fails once closed.
+    // Takes the next request id with `answer_sender` waiting on it and `on_answered` run at its
+    // answer; fails once closed.
     fn reserve_request(
         &self,
         method: &str,
         answer_sender: oneshot::Sender<RequestAnswer>,
+        on_answered: Option<CodexAnswerHook>,
     ) -> Result<PendingRequestSlot<'_>, CodexError> {
         let mut state = self.lock_state();
         if let Some(reason) = &state.close_reason {
@@ -471,6 +503,7 @@ impl ConnectionShared {
             PendingRequest {
                 answer_sender,
                 sent_at: None,
+                on_answered,
             },
         );
         Ok(PendingRequestSlot {
@@ -606,13 +639,17 @@ impl ConnectionShared {
             }
         };
         // Matched as text, so an id the service sent back as a string still finds its request.
-        let answer_sender = response_id
+        let pending = response_id
             .parse::<u64>()
             .ok()
             .filter(|request_id| request_id.to_string() == response_id)
-            .and_then(|request_id| self.lock_state().pending.remove(&request_id))
-            .map(|pending| pending.answer_sender);
-        let Some(answer_sender) = answer_sender else {
+            .and_then(|request_id| self.lock_state().pending.remove(&request_id));
+        let Some(PendingRequest {
+            answer_sender,
+            on_answered,
+            ..
+        }) = pending
+        else {
             CodexTransportDiagnostic::UnknownResponseId { response_id }.report();
             return;
         };
@@ -641,6 +678,9 @@ impl ConnectionShared {
             }
             None => Ok(frame.result.unwrap_or_else(|| RawValue::NULL.to_owned())),
         };
+        if let Some(on_answered) = on_answered {
+            on_answered(answer.is_ok());
+        }
         if answer_sender.send(answer).is_err() {
             // The request stopped waiting between its answer's arrival and its delivery.
             CodexTransportDiagnostic::UnknownResponseId { response_id }.report();

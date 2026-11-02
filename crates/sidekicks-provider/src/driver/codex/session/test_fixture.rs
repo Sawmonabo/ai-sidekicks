@@ -77,8 +77,8 @@ use crate::driver::codex::session::establishment::{
 use crate::driver::codex::session::fork::CodexForkDependencies;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler, CodexSessionInboundSender,
-    codex_session_inbound, drain_codex_session_inbound,
+    CodexAccountMove, CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler,
+    CodexSessionInboundSender, codex_session_inbound, drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::session::slots::CodexSessionSlots;
@@ -92,7 +92,7 @@ use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
 use crate::driver::schema::schema_parts;
-use crate::driver::session_control::CreateSessionParams;
+use crate::driver::session_control::{CreateSessionParams, SessionAccountPin};
 use crate::driver::test_registry::{RecordedQueue, new_session_id};
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, PROVIDERS, ProviderAccountFolders,
@@ -518,7 +518,8 @@ impl TestCodexTask {
             }
             CodexSessionInbound::Ask { .. }
             | CodexSessionInbound::AsksWithdrawn { .. }
-            | CodexSessionInbound::Lifecycle(_) => {
+            | CodexSessionInbound::Lifecycle(_)
+            | CodexSessionInbound::AccountMoved(_) => {
                 panic!(
                     "the test's service asks nothing and its driver calls nothing else of its own"
                 )
@@ -659,6 +660,7 @@ pub(crate) fn create_session_params(session_id: SessionId) -> CreateSessionParam
         tool_servers: None,
         output_schema: None,
         provider_account_id: test_provider_account_id(),
+        account_pin: SessionAccountPin::Pinned,
         on_mcp_server_status: None,
     }
 }
@@ -829,6 +831,11 @@ impl CodexSessionInboundHandler for ItemsToTest {
 
     fn lifecycle(&mut self, call: CodexLifecycleCall) -> BoxFuture<'_, ()> {
         self.hand(CodexSessionInbound::Lifecycle(call));
+        async {}.boxed()
+    }
+
+    fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()> {
+        self.hand(CodexSessionInbound::AccountMoved(account_move));
         async {}.boxed()
     }
 

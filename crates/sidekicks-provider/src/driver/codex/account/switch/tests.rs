@@ -1,0 +1,510 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
+use serde_json::value::RawValue;
+use serde_json::{Value, json};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::account::record::{
+    BillingMode, ProviderAccountHealthState, ProviderAccountId, ProviderAuthMode,
+};
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use tempfile::TempDir;
+use tokio::sync::oneshot;
+use tokio::time::Instant;
+
+use super::{hand_switching_service_again, move_codex_sessions};
+use crate::account::registry::{AccountAdmission, HealthObservation, open_test_registry};
+use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::account::CodexAccountLegs;
+use crate::driver::codex::rate_limits::CodexRateLimitFiling;
+use crate::driver::codex::server_requests::{
+    CodexInboundServerRequest, CodexServerRequestDecision,
+};
+use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::codex::service::supervisor::test_service::{
+    ScriptedCodexService, start_scripted_switching_service,
+};
+use crate::driver::codex::service::switching::CODEX_LOGIN_START_METHOD;
+use crate::driver::codex::service::switching::test_sign_in::{
+    AccountHomes, TEST_PLAN, compose_access_token, write_sign_in,
+};
+use crate::driver::codex::session::inbound::{
+    CodexAccountMove, CodexSessionCall, CodexSessionInboundHandler, codex_session_inbound,
+    drain_codex_session_inbound,
+};
+use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::driver::codex::transport::connection::CodexForgottenRequest;
+use crate::driver::codex::usage_limit_signal::{
+    CodexRateLimitObservation, observe_codex_rate_limit_read,
+};
+use crate::driver::contract::account::{FirstRequestAfterMove, SessionAccountMove, SessionToMove};
+use crate::driver::contract::error::DriverError;
+use crate::driver::diagnostics::RecordedEvents;
+use crate::driver::schema::schema_parts;
+use crate::driver::test_registry::{NothingServed, new_session_id};
+use crate::runtime_binding::test_store::test_provider_account_id;
+
+/// The conversation the moved session runs on the switching service.
+const THREAD: &str = "thread-on-the-switching-service";
+
+/// The `ChatGPT` workspace each test account signs in to, by account.
+const WORKSPACE_LEFT: &str = "workspace-of-the-account-left";
+const WORKSPACE_TO: &str = "workspace-of-the-account-moved-to";
+
+/// What a session's task saw, in order: each frame by method, each move by its account.
+#[derive(Clone, Default)]
+struct SessionQueue(Arc<Mutex<Vec<String>>>);
+
+impl CodexSessionInboundHandler for SessionQueue {
+    fn frame(&mut self, method: String, _params: Box<RawValue>) -> BoxFuture<'_, ()> {
+        lock(&self.0).push(method);
+        async {}.boxed()
+    }
+
+    fn ask(
+        &mut self,
+        _request: CodexInboundServerRequest,
+        _decision: oneshot::Sender<Result<CodexServerRequestDecision, DriverError>>,
+    ) -> BoxFuture<'_, ()> {
+        unreachable!("the service asks nothing")
+    }
+
+    fn asks_withdrawn(&mut self, _dropped: Vec<CodexForgottenRequest>) -> BoxFuture<'_, ()> {
+        unreachable!("the connection stays open")
+    }
+
+    fn held_thread(&mut self, _thread_id: String, _is_held: bool) {}
+
+    fn call(&mut self, _call: CodexSessionCall) -> BoxFuture<'_, ()> {
+        unreachable!("the driver makes no call")
+    }
+
+    fn lifecycle(&mut self, _call: CodexLifecycleCall) -> BoxFuture<'_, ()> {
+        unreachable!("the driver makes no call")
+    }
+
+    fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()> {
+        lock(&self.0).push(format!(
+            "moved to {}",
+            account_move.provider_account_id.as_str()
+        ));
+        // The binding moves once the spend before it is recorded, which the test's task has none
+        // of.
+        let _answered = account_move.moved.send(Ok(()));
+        async {}.boxed()
+    }
+
+    fn next_deadline(&self) -> Option<Instant> {
+        None
+    }
+
+    fn deadline_reached(&mut self, _now: Instant) -> BoxFuture<'_, ()> {
+        unreachable!("no deadline waits")
+    }
+}
+
+/// The switching service on a scripted connection, the legs over a registry holding it, one
+/// session attached to it with its conversation registered, and two accounts signed in each in a
+/// home of its own: the one the service carries, and a registered one to move to.
+struct Fixture {
+    legs: CodexAccountLegs,
+    scripted: ScriptedCodexService,
+    database: TestDatabase,
+    session: SessionToMove,
+    queue: SessionQueue,
+    drained: tokio::task::JoinHandle<()>,
+    left: ProviderAccountId,
+    to: ProviderAccountId,
+    homes: HashMap<ProviderAccountId, PathBuf>,
+    tokens: HashMap<ProviderAccountId, String>,
+    _folder: TempDir,
+}
+
+impl Fixture {
+    async fn new() -> Self {
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let database = TestDatabase::new(schema_parts());
+        let (registry, _writer) = open_test_registry(&database, folder.path()).await;
+        let minted = registry
+            .mint(DESCRIPTOR.provider_id())
+            .expect("the account is minted");
+        let to = minted.account_id().clone();
+        registry
+            .admit(
+                &minted,
+                &AccountAdmission {
+                    display_label: None,
+                    billing_mode: BillingMode::Subscription,
+                    health: Some(HealthObservation {
+                        state: ProviderAccountHealthState::Authenticated,
+                        observed_at: WireInstant::try_from("2026-10-31T18:00:00.000Z".to_owned())
+                            .expect("a wire instant"),
+                    }),
+                    observed_auth_mode: Some(ProviderAuthMode::OauthSubscription),
+                },
+            )
+            .await
+            .expect("the account is admitted");
+        let left = test_provider_account_id();
+        let mut homes = HashMap::new();
+        let mut tokens = HashMap::new();
+        for (account, workspace) in [(&left, WORKSPACE_LEFT), (&to, WORKSPACE_TO)] {
+            let home = folder.path().join(workspace);
+            let token = compose_access_token(workspace);
+            write_sign_in(&home, workspace, &token);
+            homes.insert(account.clone(), home);
+            tokens.insert(account.clone(), token);
+        }
+
+        let mut scripted = start_scripted_switching_service();
+        AccountHomes {
+            homes: homes.clone(),
+            current: left.clone(),
+        }
+        .register_on(scripted.dependencies.switching.provider_accounts());
+        let accounts = Arc::new(PortRegistration::new("provider account registry"));
+        assert!(accounts.register(Arc::new(registry)).is_ok());
+        let legs = CodexAccountLegs::new(
+            CodexServiceRegistry::holding(&scripted),
+            Arc::clone(&scripted.dependencies),
+            CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
+            accounts,
+            Arc::new(NothingServed),
+        );
+
+        // The service carries the account left, as its start handed it.
+        let connection = scripted.service.connection().expect("the service is up");
+        let switching = Arc::clone(&scripted.dependencies.switching);
+        let (handed, _login) = tokio::join!(
+            switching.hand_at_start(&connection),
+            answer_login(&mut scripted)
+        );
+        handed.expect("the start's login is answered");
+
+        let session_id = new_session_id();
+        let (sender, receiver) = codex_session_inbound(session_id);
+        scripted.service.attach_session(sender);
+        scripted
+            .service
+            .register_thread(THREAD.to_owned(), session_id);
+        let queue = SessionQueue::default();
+        let mut handler = queue.clone();
+        let drained = tokio::spawn(async move {
+            drain_codex_session_inbound(receiver, &mut handler).await;
+        });
+        Self {
+            legs,
+            scripted,
+            database,
+            session: SessionToMove {
+                session_id,
+                binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
+                    .expect("a binding id"),
+            },
+            queue,
+            drained,
+            left,
+            to,
+            homes,
+            tokens,
+            _folder: folder,
+        }
+    }
+
+    // Waits until the session's task saw `count` items, as the service's reader routes them on
+    // its own task.
+    async fn wait_until_seen(&self, count: usize) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while lock(&self.queue.0).len() < count {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("the session's task sees the frames");
+    }
+
+    // What the session's task saw, once the service let it go and its queue drained.
+    async fn seen_by_the_session(self) -> Vec<String> {
+        self.scripted
+            .service
+            .detach_session(&self.session.session_id);
+        self.drained.await.expect("the session's task ends");
+        lock(&self.queue.0).clone()
+    }
+
+    // The account's stored credential generation.
+    fn credential_generation(&self) -> i64 {
+        rusqlite::Connection::open(self.database.path())
+            .expect("the database opens")
+            .query_row(
+                "SELECT credential_generation FROM provider_accounts WHERE account_id = ?",
+                [self.to.as_str()],
+                |row| row.get(0),
+            )
+            .expect("the account's row reads")
+    }
+
+    // Every request the connection sent that the test has not read.
+    fn unread_requests(&mut self) -> Vec<Value> {
+        std::iter::from_fn(|| self.scripted.script.sent.try_recv().ok())
+            .map(|text| serde_json::from_str(&text).expect("the connection sends JSON"))
+            .collect()
+    }
+}
+
+// The service sends a frame of the session's conversation.
+fn send_frame(scripted: &ScriptedCodexService, method: &str) {
+    scripted.script.send(&json!({
+        "jsonrpc": "2.0",
+        "method": method,
+        "params": {"threadId": THREAD, "turnId": "turn-1"},
+    }));
+}
+
+// Reads the next request, which must be a login, and answers it.
+async fn answer_login(scripted: &mut ScriptedCodexService) -> Value {
+    let login = scripted.next_request(CODEX_LOGIN_START_METHOD).await;
+    scripted
+        .script
+        .answer(&login, &json!({"type": "chatgptAuthTokens"}));
+    login
+}
+
+// The login's params a hand of `home`'s sign-in to `workspace` sends.
+fn login_params(token: &str, workspace: &str) -> Value {
+    json!({
+        "type": "chatgptAuthTokens",
+        "accessToken": token,
+        "chatgptAccountId": workspace,
+        "chatgptPlanType": TEST_PLAN,
+    })
+}
+
+// A limit reached on the account left.
+fn reached_on_the_account_left() -> CodexRateLimitObservation {
+    observe_codex_rate_limit_read(&json!({"rateLimits": {
+        "limitId": "codex",
+        "primary": {"usedPercent": 100, "windowDurationMins": 300, "resetsAt": 1_800_000_000},
+    }}))
+}
+
+// Settles a move's first request.
+async fn first_request(moved: SessionAccountMove) -> FirstRequestAfterMove {
+    moved
+        .first_request
+        .await
+        .expect("the first request settles")
+}
+
+// Fails when a switch sends anything but one login carrying the new account's tokens, when the
+// move reaches the session at another place among its frames than the login's answer, when the
+// service keeps carrying the account left or its limit readings, when the credential generation
+// moves, when a token reaches a log line, a reply or an error, or when a login follows on a timer.
+#[tokio::test]
+async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
+    let mut fixture = Fixture::new().await;
+    fixture
+        .scripted
+        .service
+        .store_rate_limit_read(reached_on_the_account_left());
+    let generation_before = fixture.credential_generation();
+    let recorded = RecordedEvents::default();
+    let _recording = recorded.record_until_dropped();
+
+    let to = fixture.to.clone();
+    let sessions = vec![fixture.session.clone()];
+    let scripted = &mut fixture.scripted;
+    let script = async {
+        let login = scripted.next_request(CODEX_LOGIN_START_METHOD).await;
+        send_frame(scripted, "thread/tokenUsage/updated");
+        scripted
+            .script
+            .answer(&login, &json!({"type": "chatgptAuthTokens"}));
+        send_frame(scripted, "item/completed");
+        login
+    };
+    let (moved, login) = tokio::join!(move_codex_sessions(&fixture.legs, to, sessions), script);
+    let replies = format!(
+        "{:?}",
+        moved
+            .iter()
+            .map(|moved| moved.as_ref().err())
+            .collect::<Vec<_>>()
+    );
+    let mut settled = Vec::new();
+    for moved in moved {
+        let moved = moved.expect("the move lands");
+        assert_eq!(moved.session_id, fixture.session.session_id);
+        settled.push(first_request(moved).await);
+    }
+
+    // No login comes on a timer, however long the service runs on.
+    tokio::time::pause();
+    tokio::time::sleep(Duration::from_hours(1)).await;
+    tokio::time::resume();
+    fixture.wait_until_seen(3).await;
+    let after = fixture.unread_requests();
+    let carried = fixture.scripted.service.provider_account_id();
+    let readings = fixture.scripted.service.rate_limit_observation();
+    let generation_after = fixture.credential_generation();
+    let to = fixture.to.clone();
+    let token = fixture.tokens[&to].clone();
+    let left_token = fixture.tokens[&fixture.left].clone();
+    let seen = fixture.seen_by_the_session().await;
+
+    assert_eq!(login["params"], login_params(&token, WORKSPACE_TO));
+    assert_eq!(
+        after,
+        Vec::<Value>::new(),
+        "the switch sent more than its login"
+    );
+    assert_eq!(settled, [FirstRequestAfterMove::Unobserved]);
+    assert_eq!(
+        seen,
+        [
+            "thread/tokenUsage/updated".to_owned(),
+            format!("moved to {}", to.as_str()),
+            "item/completed".to_owned(),
+        ]
+    );
+    assert_eq!(carried, Some(to));
+    assert_eq!(readings, CodexRateLimitObservation::default());
+    assert_eq!(generation_before, generation_after);
+    for written in recorded.texts().iter().chain([&replies]) {
+        for secret in [&token, &left_token] {
+            assert!(
+                !written.contains(secret.as_str()),
+                "a token reached {written}"
+            );
+        }
+    }
+}
+
+// Fails when a refused login moves a session, leaves the service carrying the account it was
+// refused, resets the readings of the account still carried, answers a move as landed, loses the
+// refusal's code, or lets the token into the error.
+#[tokio::test]
+async fn a_refused_login_moves_nothing_and_fails_every_move_with_the_refusal() {
+    let mut fixture = Fixture::new().await;
+    fixture
+        .scripted
+        .service
+        .store_rate_limit_read(reached_on_the_account_left());
+    let recorded = RecordedEvents::default();
+    let _recording = recorded.record_until_dropped();
+
+    let to = fixture.to.clone();
+    let sessions = vec![fixture.session.clone()];
+    let scripted = &mut fixture.scripted;
+    let script = async {
+        let login = scripted.next_request(CODEX_LOGIN_START_METHOD).await;
+        scripted.script.send(&json!({
+            "jsonrpc": "2.0",
+            "id": login["id"],
+            "error": {"code": -32600, "message": "the workspace is not allowed"},
+        }));
+    };
+    let (moved, ()) = tokio::join!(move_codex_sessions(&fixture.legs, to, sessions), script);
+
+    let carried = fixture.scripted.service.provider_account_id();
+    let readings = fixture.scripted.service.rate_limit_observation();
+    let left = fixture.left.clone();
+    let token = fixture.tokens[&fixture.to].clone();
+    let session_id = fixture.session.session_id;
+    let seen = fixture.seen_by_the_session().await;
+
+    assert_eq!(moved.len(), 1);
+    let Some(Err((failed, error))) = moved.into_iter().next() else {
+        panic!("the move landed though the login was refused");
+    };
+    assert_eq!(failed, session_id);
+    let written = format!("{error} {error:?}");
+    assert!(
+        !written.contains(token.as_str()),
+        "the token reached the error"
+    );
+    for message in recorded.texts() {
+        assert!(
+            !message.contains(token.as_str()),
+            "the token reached {message}"
+        );
+    }
+    assert_eq!(seen, Vec::<String>::new());
+    assert_eq!(carried, Some(left));
+    assert_eq!(readings, reached_on_the_account_left());
+}
+
+// Fails when an account with no sign-in in its home is sent a login, or its refusal is not
+// `provider.account.notAuthenticated`.
+#[tokio::test]
+async fn a_switch_to_an_account_signed_out_of_its_home_refuses_before_any_login() {
+    let mut fixture = Fixture::new().await;
+    std::fs::remove_file(fixture.homes[&fixture.to].join("auth.json")).expect("auth.json goes");
+
+    let to = fixture.to.clone();
+    let sessions = vec![fixture.session.clone()];
+    let moved = move_codex_sessions(&fixture.legs, to, sessions).await;
+    let sent = fixture.unread_requests();
+    fixture.seen_by_the_session().await;
+
+    let Some(Err((_, DriverError::Refused(refusal)))) = moved.into_iter().next() else {
+        panic!("the move was not refused");
+    };
+    assert_eq!(refusal.code, RefusalCode::ProviderAccountNotAuthenticated);
+    assert_eq!(sent, Vec::<Value>::new());
+}
+
+// Fails when a renewal of the carried account's token while a command runs is handed as anything
+// but one login with the new token, when the daemon stops or resumes the command's turn for it,
+// when an unchanged token is handed again, or when a renewal in the home of an account the service
+// does not carry is handed to it.
+#[tokio::test]
+async fn a_renewed_token_is_handed_once_and_the_running_command_is_left_running() {
+    let mut fixture = Fixture::new().await;
+    send_frame(&fixture.scripted, "item/started");
+    let left = fixture.left.clone();
+    let left_home = fixture.homes[&left].clone();
+    let to = fixture.to.clone();
+    let to_home = fixture.homes[&to].clone();
+
+    let unchanged = hand_switching_service_again(&fixture.legs, &left, &left_home).await;
+    let unchanged_sent = fixture.unread_requests();
+    let renewed = compose_access_token("renewed");
+    write_sign_in(&left_home, WORKSPACE_LEFT, &renewed);
+    write_sign_in(
+        &to_home,
+        WORKSPACE_TO,
+        &compose_access_token("renewed elsewhere"),
+    );
+    let not_carried = hand_switching_service_again(&fixture.legs, &to, &to_home).await;
+    let not_carried_sent = fixture.unread_requests();
+    let (handed, login) = tokio::join!(
+        hand_switching_service_again(&fixture.legs, &left, &left_home),
+        answer_login(&mut fixture.scripted)
+    );
+    let handed_again = hand_switching_service_again(&fixture.legs, &left, &left_home).await;
+    send_frame(&fixture.scripted, "item/completed");
+    fixture.wait_until_seen(2).await;
+    let after = fixture.unread_requests();
+    let seen = fixture.seen_by_the_session().await;
+
+    assert!(unchanged.is_ok() && not_carried.is_ok() && handed.is_ok() && handed_again.is_ok());
+    assert_eq!(unchanged_sent, Vec::<Value>::new());
+    assert_eq!(not_carried_sent, Vec::<Value>::new());
+    assert_eq!(login["params"], login_params(&renewed, WORKSPACE_LEFT));
+    assert_eq!(
+        after,
+        Vec::<Value>::new(),
+        "the renewal sent more than its login"
+    );
+    assert_eq!(seen, ["item/started", "item/completed"]);
+}

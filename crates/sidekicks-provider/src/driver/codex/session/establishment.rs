@@ -63,7 +63,7 @@ use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::error_causes::{ProviderAxisInvalid, UNSPECIFIED_PROVIDER_FAILURE_DETAIL};
 use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
-    ResumedRunAnswer,
+    ResumedRunAnswer, SessionAccountPin,
 };
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::tool_server_route::ToolServerRoute;
@@ -219,8 +219,14 @@ impl CodexSessionEstablishment {
             .await?
             .thread_settings;
         let execution_posture = require_execution_posture(params.execution_posture.as_ref())?;
+        // A session following the current account runs on the switching service, which moves it
+        // with each switch; a pinned one on its account's own.
+        let home = match params.account_pin {
+            SessionAccountPin::FollowsCurrent => CodexConversationHome::Switching,
+            SessionAccountPin::Pinned => CodexConversationHome::Account,
+        };
         let service = self
-            .start_service(&params.provider_account_id, CodexConversationHome::Account)
+            .start_service(&params.provider_account_id, home)
             .await?;
         service.check_takes_new_work(THREAD_START_METHOD)?;
         if let Some(larger_window) = params.larger_window {

@@ -49,7 +49,7 @@ use crate::driver::contract::params_and_results::DriverCliVersionReport;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::ports::SessionRelaunchListener;
 use crate::driver::schema::schema_parts;
-use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
+use crate::driver::session_control::{CreateSessionParams, DriverResumeResult, SessionAccountPin};
 use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
 use crate::driver::{
     AccountFoldersError, CommandSandboxAvailability, CurrentProviderAccount, DriverServices,
@@ -609,6 +609,7 @@ pub(crate) fn create_params(session_id: SessionId) -> CreateSessionParams {
         tool_servers: None,
         output_schema: None,
         provider_account_id: test_provider_account_id(),
+        account_pin: SessionAccountPin::Pinned,
         on_mcp_server_status: None,
     }
 }
