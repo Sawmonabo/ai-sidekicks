@@ -8,7 +8,8 @@ use sidekicks_contracts::run::intervention::{
     InterruptInterventionRecord, InterventionId, RunLimit,
 };
 use sidekicks_contracts::run::state::RunState;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::session_control::ProviderTurnAnswer;
 use sidekicks_store::database::statement::DATABASE_NOW_SQL;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
@@ -59,15 +60,18 @@ fn failed_with_its_turn() -> RestartDecision {
 // limit's (`*_beside_a_pending_step_limit`) or the spend limit's over the token limit's
 // (`token_limit_beside_a_pending_spend_limit`), by dropping the held child's rule (`held_child_*`),
 // by failing a lead the person paused or leaving its pause under way unreached (`*_lead`), by
-// keeping a paused lead past a stop it waits on (`paused_lead_with_a_person_interrupt`), and by
-// giving a run the wrong turn end or none.
+// keeping a paused lead past a stop it waits on (`paused_lead_with_a_person_interrupt`), by
+// failing a provider's helper whose lead's stop wins, which the restart cut
+// (`helper_of_a_stopping_lead_*` read `failed_with_its_turn()` with the stopping arm dropped), and
+// by giving a run the wrong turn end or none.
 #[rstest]
-#[case::queued_behind_a_message(RunState::Queued, false, &[], None, true, None)]
+#[case::queued_behind_a_message(RunState::Queued, false, &[], None, true, false, None)]
 #[case::queued_with_nothing_to_start_it(
     RunState::Queued,
     false,
     &[],
     None,
+    false,
     false,
     Some(RestartDecision {
         settlement: RestartSettlement::Failed,
@@ -80,6 +84,7 @@ fn failed_with_its_turn() -> RestartDecision {
     &[r#"{"pending":"nextTurn"}"#],
     None,
     false,
+    false,
     Some(interrupted(None))
 )]
 #[case::person_naming_step_limit(
@@ -87,6 +92,7 @@ fn failed_with_its_turn() -> RestartDecision {
     false,
     &[r#"{"pending":"returnToDraft","reason":"stepLimit"}"#],
     None,
+    false,
     false,
     Some(interrupted(None))
 )]
@@ -96,6 +102,7 @@ fn failed_with_its_turn() -> RestartDecision {
     &[r#"{"limit":"stepLimit"}"#],
     None,
     false,
+    false,
     Some(interrupted(Some(InterruptReason::StepLimit)))
 )]
 #[case::step_limit_pending_and_owed(
@@ -103,6 +110,7 @@ fn failed_with_its_turn() -> RestartDecision {
     false,
     &[r#"{"limit":"stepLimit"}"#],
     Some(RunLimit::StepLimit),
+    false,
     false,
     Some(interrupted(Some(InterruptReason::StepLimit)))
 )]
@@ -112,6 +120,7 @@ fn failed_with_its_turn() -> RestartDecision {
     &[r#"{"limit":"spendLimit"}"#],
     None,
     false,
+    false,
     Some(interrupted(Some(InterruptReason::SpendLimit)))
 )]
 #[case::token_limit(
@@ -119,6 +128,7 @@ fn failed_with_its_turn() -> RestartDecision {
     true,
     &[r#"{"limit":"tokenLimit"}"#],
     None,
+    false,
     false,
     Some(stopped_at_token_limit())
 )]
@@ -128,6 +138,7 @@ fn failed_with_its_turn() -> RestartDecision {
     &[r#"{"limit":"spendLimit"}"#, r#"{"limit":"tokenLimit"}"#],
     None,
     false,
+    false,
     Some(stopped_at_token_limit())
 )]
 #[case::person_interrupt_beside_an_owed_token_limit(
@@ -135,6 +146,7 @@ fn failed_with_its_turn() -> RestartDecision {
     false,
     &[r#"{"pending":"nextTurn"}"#],
     Some(RunLimit::TokenLimit),
+    false,
     false,
     Some(stopped_at_token_limit())
 )]
@@ -144,6 +156,7 @@ fn failed_with_its_turn() -> RestartDecision {
     &[r#"{"limit":"spendLimit"}"#],
     Some(RunLimit::TokenLimit),
     false,
+    false,
     Some(stopped_at_token_limit())
 )]
 #[case::person_interrupt_beside_an_owed_step_limit(
@@ -151,6 +164,7 @@ fn failed_with_its_turn() -> RestartDecision {
     false,
     &[r#"{"pending":"nextTurn"}"#],
     Some(RunLimit::StepLimit),
+    false,
     false,
     Some(interrupted(None))
 )]
@@ -160,6 +174,7 @@ fn failed_with_its_turn() -> RestartDecision {
     &[r#"{"limit":"stepLimit"}"#, r#"{"pending":"nextTurn"}"#],
     Some(RunLimit::StepLimit),
     false,
+    false,
     Some(interrupted(None))
 )]
 #[case::spend_limit_beside_a_pending_step_limit(
@@ -167,6 +182,7 @@ fn failed_with_its_turn() -> RestartDecision {
     false,
     &[r#"{"limit":"stepLimit"}"#, r#"{"limit":"spendLimit"}"#],
     Some(RunLimit::StepLimit),
+    false,
     false,
     Some(interrupted(Some(InterruptReason::SpendLimit)))
 )]
@@ -176,6 +192,7 @@ fn failed_with_its_turn() -> RestartDecision {
     &[],
     None,
     false,
+    false,
     Some(interrupted(Some(InterruptReason::DaemonRestart)))
 )]
 #[case::held_child_pausing(
@@ -184,14 +201,16 @@ fn failed_with_its_turn() -> RestartDecision {
     &[],
     None,
     false,
+    false,
     Some(interrupted(Some(InterruptReason::DaemonRestart)))
 )]
-#[case::paused_lead(RunState::Paused, false, &[], None, false, None)]
+#[case::paused_lead(RunState::Paused, false, &[], None, false, false, None)]
 #[case::pausing_lead(
     RunState::Pausing,
     false,
     &[],
     None,
+    false,
     false,
     Some(ends(RestartSettlement::Paused, RestartTurnEnd::Interrupted))
 )]
@@ -201,6 +220,7 @@ fn failed_with_its_turn() -> RestartDecision {
     &[r#"{"pending":"nextTurn"}"#],
     None,
     false,
+    false,
     Some(interrupted(None))
 )]
 #[case::running_child(
@@ -208,6 +228,7 @@ fn failed_with_its_turn() -> RestartDecision {
     true,
     &[],
     None,
+    false,
     false,
     Some(failed_with_its_turn())
 )]
@@ -217,15 +238,35 @@ fn failed_with_its_turn() -> RestartDecision {
     &[],
     Some(RunLimit::StepLimit),
     false,
+    false,
     Some(interrupted(Some(InterruptReason::StepLimit)))
 )]
-#[case::running(RunState::Running, false, &[], None, false, Some(failed_with_its_turn()))]
+#[case::helper_of_a_stopping_lead_running(
+    RunState::Running,
+    true,
+    &[],
+    None,
+    false,
+    true,
+    Some(interrupted(Some(InterruptReason::DaemonRestart)))
+)]
+#[case::helper_of_a_stopping_lead_waiting_for_approval(
+    RunState::WaitingForApproval,
+    true,
+    &[],
+    None,
+    false,
+    true,
+    Some(interrupted(Some(InterruptReason::DaemonRestart)))
+)]
+#[case::running(RunState::Running, false, &[], None, false, false, Some(failed_with_its_turn()))]
 fn a_restart_settles_each_live_run_by_what_it_was_waiting_on(
     #[case] state: RunState,
     #[case] has_parent: bool,
     #[case] pending_records: &[&str],
     #[case] owed_limit: Option<RunLimit>,
     #[case] has_queued_item: bool,
+    #[case] is_stopping: bool,
     #[case] expected: Option<RestartDecision>,
 ) {
     let run = LiveRun {
@@ -248,12 +289,16 @@ fn a_restart_settles_each_live_run_by_what_it_was_waiting_on(
             actor: InterventionActor::Daemon(DaemonInterventionActor::Value),
             record: serde_json::from_str::<InterruptInterventionRecord>(record)
                 .expect("the test's record reads as stored"),
+            expected_run_version: SafeInt::new(4).expect("a test version"),
+            client_idempotency_key: ClientUuid::new(mint_uuid_v7().to_string())
+                .expect("a minted UUID is a client key"),
         })
         .collect();
     let facts = RestartFacts {
         pending_interrupts,
         owed_limit,
         turn_cuts: Vec::new(),
+        is_stopping,
         has_queued_item,
     };
 

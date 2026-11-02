@@ -545,6 +545,7 @@ async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued(
         pending_interrupts: Vec::new(),
         owed_limit: None,
         turn_cuts: Vec::new(),
+        is_stopping: false,
         has_queued_item: false,
     };
     let settled = engine
