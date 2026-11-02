@@ -10,7 +10,7 @@ Contracts per D-013-1..20. The Rust types live in the topic modules [Plan-013 D-
 interface OrchestrationRunConfig {
   tokenLimit?: number; // the run's `Tokens per run`, input and output together; absent = `Unlimited`, the default (Spec-014 §Budget Policies)
 }
-type ChildRunProvenance = "providerSubagent" | "bridgeRun" | "workflowStep"; // D-013-12: how a child was reached — the provider's own subagent, the cross-provider bridge's `agent_run`, or a workflow's `agent.run` step (agent-definition-payloads.md §Plan-024). A `providerSubagent` link is written by the provider driver: Claude Code's subagent start and stop notifications and Codex's collaborating-agent events each add or close the run-link row for that subagent, so a provider's own subagents appear in the agent tree like any other child. Internal provenance: stored with the child's link and never drawn, so no mechanism word reaches the screen
+type ChildRunProvenance = "providerSubagent" | "bridgeRun" | "workflowStep"; // D-013-12: how a child was reached — the provider's own subagent, the cross-provider bridge's `agent_run`, or a workflow's `agent.run` step (agent-definition-payloads.md §Plan-024). A `providerSubagent` link is the helper's own run: each start of a provider's own helper (a Claude Code task, a Codex child thread) queues a run whose `agent.run.queued` names the run it started beneath and the helper's agent-tree node, so a provider's own subagents appear in the agent tree like any other child. Internal provenance: stored with the child's link and never drawn, so no mechanism word reaches the screen
 // The reason carried on a system-initiated interrupt, the same set as agent.run.interrupted's
 // `trigger`, which this set rides only. The token limit ends its run, so its `tokenLimit` rides
 // agent.run.stopped's `trigger` instead.
@@ -539,9 +539,9 @@ interface AgentListEntry {
 
 // agent.run.queued payload (Spec-005 §Run Lifecycle): a run's creation, and the one durable record
 // of how it came to be. The linkage members ride a run another run or a workflow created, on this
-// row only and never on the run's state stream; an orchestration-created child's run_links row and
-// its per-run limits rebuild from this event alone, while a provider's own subagent's row is
-// written by the provider driver from that provider's subagent notifications. `effectiveRunConfig`
+// row only and never on the run's state stream; a child's parent link and its per-run limits
+// rebuild from this event alone, and so does a provider's own helper's agent-tree node, written in
+// this event's own write from the `providerChild` member. `effectiveRunConfig`
 // is the admission-resolved OrchestrationRunConfig (request override else session default), kept so
 // the token-limit enforcement rebuilds the same even if session defaults change mid-run (D-013-5).
 //

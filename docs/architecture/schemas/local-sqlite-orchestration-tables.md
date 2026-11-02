@@ -2,7 +2,7 @@
 
 The multi-agent orchestration tables of the daemon's one SQLite schema. The [Local SQLite Schema](local-sqlite-schema.md) holds its pragmas, its conventions and every other area.
 
-DDL per Plan-013 D-013-5. Posture per table: `run_links` and `agents` are events-canonical projections ([ADR-016](../../decisions/016-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events`; never written except by the projector); `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented), and so are the session-messaging tables, the `agents.pending_switch` column (written before a switch is acknowledged, since no event records a switch being asked for) and `agent_tree_nodes` (written by the daemon alone when an agent starts and when it finishes), so none of them is rebuilt from the log.
+DDL per Plan-013 D-013-5. Posture per table: `run_links` and `agents` are events-canonical projections ([ADR-016](../../decisions/016-shared-event-sourcing-scope.md) Option B — rebuilt from `session_events`; never written except by the projector), and so is `agent_tree_nodes`, each node written in the `agent.run.queued` of its helper's run and folded again from that event on a rebuild; `session_budgets` is row-canonical daemon configuration (the `queue_items` posture — mutated by wire method, not evented), and so are the session-messaging tables and the `agents.pending_switch` column (written before a switch is acknowledged, since no event records a switch being asked for, and kept by a rebuild), so none of them is rebuilt from the log.
 
 ```sql
 -- Owner: Plan-013 (events-canonical projection of the agent.run.queued orchestration-carrier fields — D-013-3)
@@ -118,25 +118,37 @@ CREATE TABLE session_budgets (
   CHECK (tokens_per_run IS NULL OR tokens_per_run >= 1)
 ) STRICT;
 
--- The daemon's own agent tree: one row per agent a provider starts inside a run (a Claude Code task,
--- a Codex child thread), written by the daemon alone when the agent starts and when it finishes and
--- never evented. After a daemon restart every child still running is re-attached by its id, and every
--- fan-out count is read from here.
+-- The daemon's own agent tree: one row per helper a provider named in a session (a Claude Code
+-- task, a Codex child thread), keyed by the handle the daemon mints at the helper's first start.
+-- Each start of the helper queues a run of its own, and that run's `agent.run.queued` writes the
+-- node in the event's own write: the first start inserts it, each later one binds its newest own
+-- run. A rebuild folds the nodes again from those events. A helper's state is its newest own run's,
+-- read from `runs`. After a daemon restart every helper still running is re-attached by its
+-- provider id, and every fan-out count is read from here.
 CREATE TABLE agent_tree_nodes (
-  run_id            TEXT NOT NULL,                  -- the run the agent was started in
-  provider_name       TEXT NOT NULL,                  -- provider driver key, as on `agents`
-  subagent_id       TEXT NOT NULL,                  -- the provider's own id for the agent, verbatim: the Claude Code task id or the
-                                                    -- Codex thread id, which is also what a restart resumes it by
-  parent_reference  TEXT,                           -- the provider's own parent link, verbatim: the Claude Code parent tool-call id or
-                                                    -- the Codex parent thread id; NULL where the provider named none
-  state             TEXT NOT NULL
-                    CHECK(state IN ('running', 'completed', 'failed', 'interrupted', 'stopped')),
-                    -- read from the agent's own update (the Claude Code task update, the Codex
-                    -- child turn's frame), never from the lead's result
-  started_at        TEXT NOT NULL,
-  updated_at        TEXT NOT NULL,
-  PRIMARY KEY (run_id, provider_name, subagent_id)   -- one row per agent: a second start for the same agent is refused
+  child_handle         TEXT PRIMARY KEY,                -- the daemon's handle for the helper, a UUID
+  session_id           TEXT NOT NULL,
+  provider_name        TEXT NOT NULL,                   -- provider driver key, as on `agents`
+  subagent_id          TEXT NOT NULL,                   -- the provider's own id for the helper, verbatim: the Claude Code
+                                                        -- task id or the Codex thread id, which is also what a restart resumes it by
+  parent_subagent_id   TEXT,                            -- its parent's provider id; NULL under the lead
+  parent_child_handle  TEXT REFERENCES agent_tree_nodes(child_handle), -- its parent's node; NULL under the lead
+  name                 TEXT,                            -- Codex's nickname; NULL on Claude Code
+  role                 TEXT,                            -- Claude Code's subagent type or Codex's agent role
+  provider_path        TEXT,                            -- the helper's path in Codex's tree; NULL on Claude Code
+  start_call_id        TEXT,                            -- the Claude Code call that started the newest own run, which an
+                                                        -- automatic resume names again; NULL on Codex
+  own_run_id           TEXT NOT NULL,                   -- the newest own run, whose state is the helper's
+  started_at           TEXT NOT NULL,                   -- the first own run's start
+  updated_at           TEXT NOT NULL,                   -- when the newest own run was bound
+  UNIQUE (session_id, provider_name, subagent_id)       -- one node per helper: a later start binds its newest run
 ) STRICT;
+
+CREATE INDEX idx_agent_tree_nodes_name ON agent_tree_nodes(session_id, name) WHERE name IS NOT NULL;
+CREATE INDEX idx_agent_tree_nodes_provider_path ON agent_tree_nodes(session_id, provider_path)
+  WHERE provider_path IS NOT NULL;
+CREATE INDEX idx_agent_tree_nodes_own_run ON agent_tree_nodes(own_run_id);
+CREATE INDEX idx_agent_tree_nodes_parent ON agent_tree_nodes(parent_child_handle); -- a deleted node's children
 
 -- Two sessions trading messages. [Spec-014 §State And Data Implications](../../specs/014-multi-agent-orchestration.md#state-and-data-implications)
 -- declares both of the tables below durable, session-scoped daemon state, because a daemon restart
