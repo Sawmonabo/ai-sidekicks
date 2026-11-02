@@ -1,5 +1,6 @@
 //! A run on Claude Code: its start, the person's controls on it, the requests and choices it
-//! raises, the session goal, the context compaction and the command list it reads.
+//! raises, the session goal, the context compaction, and the command list, a live session's as its
+//! process declared it and a resting one's read afresh.
 
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
@@ -8,6 +9,7 @@ use sidekicks_std::mutex_lock::lock;
 
 use super::ClaudeDriver;
 use crate::driver::claude::compaction::compact_claude_context;
+use crate::driver::claude::handshake_register::compose_resting_command_entries;
 use crate::driver::claude::session::ultracode::{
     apply_claude_ultracode, requested_claude_ultracode,
 };
@@ -196,19 +198,56 @@ impl ClaudeDriver {
         .await?)
     }
 
-    /// The live session's commands and skills as its process declared them.
-    pub(crate) fn list_provider_commands(
+    /// The session's commands, as one group carrying the params' run and binding: a live
+    /// session's as its process declared them, once any restart in flight settles; a resting
+    /// session's from a process that keeps nothing, started in the folder its runs work in on the
+    /// binding's account, which concurrent reads of the session share and none keeps. Fails as
+    /// the live list fails, as the folder or the account's environment cannot be read, and
+    /// `Internal` as the read fails.
+    pub(crate) async fn list_provider_commands(
         &self,
         params: ListProviderCommandsParams,
     ) -> Result<ProviderCommandBindingGroup, DriverError> {
         let parts = self.parts()?;
-        let live = parts.run_start.live_session(params.session_id)?;
-        Ok(parts.run_start.handshakes.enumerate_provider_commands(
-            params.session_id,
-            params.binding,
-            params.run_id,
-            &live,
-        )?)
+        let handshakes = &parts.run_start.handshakes;
+        if let Some(live) = parts
+            .slots()
+            .live_after_transitions(params.session_id)
+            .await
+        {
+            return Ok(handshakes.enumerate_provider_commands(
+                params.session_id,
+                params.binding,
+                params.run_id,
+                &live,
+            )?);
+        }
+        let provider_account_id = params.binding.provider_account_id.clone();
+        let run_folder = self
+            .sources
+            .ports
+            .spawn_contexts
+            .require_port()
+            .map_err(|error| DriverError::Internal(Box::new(error)))?
+            .resolve_run_folder(params.session_id)
+            .await
+            .map_err(DriverError::Internal)?;
+        let environment = self
+            .sources
+            .account_environment(&provider_account_id)
+            .await?;
+        let rows = handshakes
+            .join_resting_command_read(params.session_id, || {
+                self.starts
+                    .read_session_commands(environment, run_folder, provider_account_id)
+            })
+            .await
+            .map_err(|error| DriverError::Internal(Box::new(error)))?;
+        Ok(ProviderCommandBindingGroup {
+            run_id: params.run_id,
+            entries: compose_resting_command_entries(params.session_id, &params.binding, &rows),
+            binding: params.binding,
+        })
     }
 
     /// Sets the session goal on the live process with Claude Code's own `/goal`.

@@ -1,6 +1,7 @@
 //! A naming pass on a resting Claude Code session whose one turn never answers.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -25,6 +26,7 @@ use crate::driver::claude::session::transport::readings::{
 };
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::driver::claude::spawn::launch::bring_up::ClaudeBringUpRequest;
+use crate::driver::claude::spawn::launch::initialize_reply::ClaudeListedCommand;
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
@@ -85,6 +87,15 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
         _environment: Vec<(String, String)>,
         _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<String, ClaudeLaunchError>> {
+        unreachable!("{ONLY_THE_ONE_TURN}")
+    }
+
+    fn read_session_commands(
+        &self,
+        _environment: Vec<(String, String)>,
+        _working_directory: PathBuf,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'static, Result<Vec<ClaudeListedCommand>, ClaudeLaunchError>> {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }
 

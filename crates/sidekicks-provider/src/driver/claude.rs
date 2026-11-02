@@ -573,7 +573,7 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         params: ListProviderCommandsParams,
     ) -> BoxFuture<'_, Result<ProviderCommandBindingGroup, DriverError>> {
-        ready(self.list_provider_commands(params)).boxed()
+        self.list_provider_commands(params).boxed()
     }
 
     fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>> {
