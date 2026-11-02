@@ -399,6 +399,7 @@ impl ClaudeDriver {
                 Arc::clone(&ports.session_wakes),
                 slots.clone(),
                 Arc::clone(&idle_sleep),
+                Arc::clone(&ports.session_message_readings),
             ));
             let run_start = ClaudeRunStart {
                 slots: slots.clone(),

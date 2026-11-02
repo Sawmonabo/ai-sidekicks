@@ -1,10 +1,15 @@
 //! What Claude Code writes back to the daemon's own inbox about a message the daemon sent itself:
 //! the status of that message, the notice that its receiver went idle, and the reply a session
-//! sends to the daemon's address. Each is read as Claude Code writes it; nothing here answers it.
+//! sends to the daemon's address. Each is read as Claude Code writes it and turned into the
+//! session message readings it tells; nothing here answers it.
+
+use std::collections::HashSet;
 
 use serde::Deserialize;
 
 use crate::inbound_json::decode_inbound_json;
+use crate::lenient_json::{LenientList, read_lenient};
+use crate::port::session_message_reading_publisher::{SessionFarReply, SessionMessageReading};
 
 /// The control action reporting what became of a message: delivered, held, dropped or expired.
 const MESSAGE_STATUS_ACTION: &str = "peer_message_status";
@@ -23,18 +28,11 @@ const HOP_CHAIN_SEPARATOR: char = ',';
 
 /// One frame Claude Code wrote to the daemon's inbox about a message the daemon sent, each named by
 /// the id of the message it is about.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the send states read the status, the idle notice and the reply"
-    )
-)]
 #[derive(Debug)]
 pub(crate) enum ClaudeInboxReceipt {
     /// What became of the message `orig_msg_id`: `status` in Claude Code's words, `status_detail`
-    /// saying why an `expired` one ended (`refused` where its receiver refused it), and
-    /// `drop_reason` naming the guard that dropped a `dropped` one.
+    /// saying why an `expired` one ended (`refused` where its receiver refused it), `drop_reason`
+    /// naming the guard that dropped a `dropped` one, and `reason`, Claude Code's sentence.
     MessageStatus {
         /// The id of the message the status is about.
         orig_msg_id: String,
@@ -44,16 +42,18 @@ pub(crate) enum ClaudeInboxReceipt {
         status_detail: Option<String>,
         /// The guard that dropped a `dropped` message, such as `hop-runaway`.
         drop_reason: Option<String>,
+        /// Claude Code's fixed sentence about the status.
+        reason: Option<String>,
+        /// Every message one `dropped` status coalesces, `orig_msg_id` the last of them; empty
+        /// where Claude Code lists none.
+        dropped_msg_ids: Vec<String>,
     },
-    /// The receiver of the message `orig_msg_id` went to `state`, at `finished_at`, the
-    /// millisecond of its turn's end.
+    /// The receiver of the message `orig_msg_id` went to `state`.
     IdleNotice {
         /// The id of the message whose receiver went idle.
         orig_msg_id: String,
         /// The receiver's state, `idle`.
         state: String,
-        /// The millisecond the receiver's turn ended, since the Unix epoch.
-        finished_at: Option<i64>,
     },
     /// A session's message to the daemon's address, read from its `<cross-session-message>`
     /// element with the wrapper stripped.
@@ -69,13 +69,6 @@ pub(crate) enum ClaudeInboxReceipt {
         /// The replying session's name, where it has one.
         from_name: Option<String>,
     },
-}
-
-/// Where the daemon's inbox hands each receipt it reads; the daemon's services take them from
-/// here.
-pub(crate) trait ClaudeInboxReceiptSink: Send + Sync {
-    /// Takes one receipt the daemon's inbox read.
-    fn receipt(&self, receipt: ClaudeInboxReceipt);
 }
 
 /// One line the daemon's inbox received, by its `type`; any other type is no receipt.
@@ -96,8 +89,11 @@ struct ControlFrame {
     status: Option<String>,
     status_detail: Option<String>,
     drop_reason: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    reason: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    dropped_msg_ids: Option<LenientList<String>>,
     state: Option<String>,
-    finished_at: Option<i64>,
 }
 
 /// A `user` frame's members a reply reads.
@@ -142,11 +138,15 @@ fn read_control(control: ControlFrame) -> Option<ClaudeInboxReceipt> {
             status: control.status?,
             status_detail: control.status_detail,
             drop_reason: control.drop_reason,
+            reason: control.reason,
+            dropped_msg_ids: control
+                .dropped_msg_ids
+                .map(|LenientList(ids)| ids)
+                .unwrap_or_default(),
         }),
         IDLE_NOTICE_ACTION => Some(ClaudeInboxReceipt::IdleNotice {
             orig_msg_id,
             state: control.state?,
-            finished_at: control.finished_at,
         }),
         _ => None,
     }
@@ -162,6 +162,88 @@ fn read_far_reply(user: UserFrame) -> Option<ClaudeInboxReceipt> {
         hop_chain: element.hop_chain,
         from_name: element.from_name,
     })
+}
+
+/// The session message readings `receipt` tells: a status by what became of its message, one
+/// refusal per message a `dropped` status coalesces, and a far reply as itself. A status of
+/// another word, and an idle notice no reply wait awaits, tell none and are logged at debug.
+pub(crate) fn session_message_readings(receipt: ClaudeInboxReceipt) -> Vec<SessionMessageReading> {
+    match receipt {
+        ClaudeInboxReceipt::MessageStatus {
+            orig_msg_id,
+            status,
+            status_detail,
+            drop_reason,
+            reason,
+            dropped_msg_ids,
+        } => match status.as_str() {
+            "held" => vec![SessionMessageReading::Held {
+                message_id: orig_msg_id,
+            }],
+            "delivered" => vec![SessionMessageReading::Delivered {
+                message_id: orig_msg_id,
+            }],
+            "expired" if status_detail.as_deref() == Some("refused") => {
+                vec![SessionMessageReading::Refused {
+                    message_id: orig_msg_id,
+                    reason,
+                    drop_reason: None,
+                }]
+            }
+            "expired" => vec![SessionMessageReading::NotDelivered {
+                message_id: orig_msg_id,
+            }],
+            // One receipt coalesces several drops; each message reads refused once.
+            "dropped" => {
+                let mut seen = HashSet::new();
+                dropped_msg_ids
+                    .into_iter()
+                    .chain([orig_msg_id])
+                    .filter(|message_id| seen.insert(message_id.clone()))
+                    .map(|message_id| SessionMessageReading::Refused {
+                        message_id,
+                        reason: reason.clone(),
+                        drop_reason: drop_reason.clone(),
+                    })
+                    .collect()
+            }
+            // Claude Code's own receipt reader takes `denied` as the receiver's refusal.
+            "denied" => vec![SessionMessageReading::Refused {
+                message_id: orig_msg_id,
+                reason,
+                drop_reason: None,
+            }],
+            _ => {
+                tracing::debug!(
+                    orig_msg_id = %orig_msg_id,
+                    status = %status,
+                    "the daemon's inbox read a message status it has no reading for"
+                );
+                Vec::new()
+            }
+        },
+        ClaudeInboxReceipt::IdleNotice { orig_msg_id, state } => {
+            tracing::debug!(
+                orig_msg_id = %orig_msg_id,
+                state = %state,
+                "the daemon's inbox read an idle notice no reply wait awaits"
+            );
+            Vec::new()
+        }
+        ClaudeInboxReceipt::FarReply {
+            from,
+            msg_id,
+            body,
+            hop_chain,
+            from_name,
+        } => vec![SessionMessageReading::FarReply(SessionFarReply {
+            from,
+            message_id: msg_id,
+            body,
+            hop_chain,
+            from_name,
+        })],
+    }
 }
 
 // One element as Claude Code writes it: `<cross-session-message` and its `name="value"`
@@ -206,19 +288,22 @@ mod tests {
         read_receipt(frame.to_string().as_bytes())
     }
 
-    // Killed by a status read without its `orig_msg_id`, by `drop_reason` or `finished_at` left
-    // unread, by the hop chain kept as one string, by the body kept with its tags or newlines, and
+    // Killed by a status read without its `orig_msg_id`, by `drop_reason`, `reason` or
+    // `dropped_msg_ids` left unread, by the hop chain kept as one string, by the body kept with its tags or newlines, and
     // by an `auth` line or a plain forwarded frame read as a receipt.
     #[test]
     fn the_daemon_s_inbox_reads_each_receipt_claude_code_writes_and_nothing_else() {
         let dropped = read(&json!({"type": "control", "action": "peer_message_status",
             "status": "dropped", "reason": "dropped", "drop_reason": "hop-runaway",
-            "orig_msg_id": "m-1", "from": "uds:/tmp/cc-socks/4101.sock"}));
+            "orig_msg_id": "m-1", "dropped_msg_ids": ["m-0", "m-1"],
+            "from": "uds:/tmp/cc-socks/4101.sock"}));
         let Some(ClaudeInboxReceipt::MessageStatus {
             orig_msg_id,
             status,
             status_detail,
             drop_reason,
+            reason,
+            dropped_msg_ids,
         }) = dropped
         else {
             panic!("a dropped status reads as a status: {dropped:?}");
@@ -232,21 +317,15 @@ mod tests {
             ),
             ("m-1", "dropped", None, Some("hop-runaway"))
         );
+        assert_eq!(reason.as_deref(), Some("dropped"));
+        assert_eq!(dropped_msg_ids, ["m-0", "m-1"]);
 
         let idle = read(&json!({"type": "control", "action": "peer_idle_notice",
             "orig_msg_id": "m-2", "state": "idle", "finished_at": 1_790_000_000_123_i64}));
-        let Some(ClaudeInboxReceipt::IdleNotice {
-            orig_msg_id,
-            state,
-            finished_at,
-        }) = idle
-        else {
+        let Some(ClaudeInboxReceipt::IdleNotice { orig_msg_id, state }) = idle else {
             panic!("an idle notice reads as one: {idle:?}");
         };
-        assert_eq!(
-            (orig_msg_id.as_str(), state.as_str(), finished_at),
-            ("m-2", "idle", Some(1_790_000_000_123))
-        );
+        assert_eq!((orig_msg_id.as_str(), state.as_str()), ("m-2", "idle"));
 
         let content = "<cross-session-message from=\"uds:/tmp/cc-socks/4101.sock\" \
             hop-chain=\"0123456789abcdef01234567,89abcdef0123456789abcdef\" from-name=\"builder\" \
