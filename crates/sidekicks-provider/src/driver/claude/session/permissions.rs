@@ -46,7 +46,7 @@ pub(crate) enum ClaudePermissionsError {
     /// the ones written may have failed too.
     #[error(transparent)]
     ProjectRuleWrite(CleanupFailures<ClaudeRulesError>),
-    /// A revoked project rule could not be taken out of the folder's local settings.
+    /// A revoked project rule could not be taken out of the settings files that hold it.
     #[error(transparent)]
     ProjectRuleRemoval(ClaudeRulesError),
 }
@@ -202,13 +202,14 @@ pub(crate) async fn keep_claude_project_rule(
 }
 
 /// Takes a revoked project rule out of every settings file the person keeps for the folder
-/// `removal` names, unless a managed settings file keeps it. Fails as the removal fails.
+/// `removal` names, unless a managed settings file keeps it; a rule no file holds is already out
+/// of force. Fails as the removal fails otherwise.
 pub(crate) async fn revoke_claude_project_rule(
     rule: &ProviderAskRule,
     removal: &ClaudeProjectRuleRemoval<'_>,
     path_rules: PathRules,
 ) -> Result<(), ClaudePermissionsError> {
-    remove_claude_project_rule(
+    match remove_claude_project_rule(
         std::slice::from_ref(removal.project_folder),
         removal.managed_settings_folder,
         removal.config_folder,
@@ -217,5 +218,8 @@ pub(crate) async fn revoke_claude_project_rule(
         rule,
     )
     .await
-    .map_err(ClaudePermissionsError::ProjectRuleRemoval)
+    {
+        Ok(()) | Err(ClaudeRulesError::RuleNotFound) => Ok(()),
+        Err(failure) => Err(ClaudePermissionsError::ProjectRuleRemoval(failure)),
+    }
 }

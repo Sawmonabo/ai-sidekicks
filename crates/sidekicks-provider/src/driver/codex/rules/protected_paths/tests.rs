@@ -98,3 +98,26 @@ async fn a_profile_extending_an_undefined_one_fails_the_read() {
         "{read:?}"
     );
 }
+
+// Profiles that no layer selects one of, with the older sandbox key unset, make Codex refuse its
+// config, so the read fails; the same profiles under the older key list none. Killed by reading
+// unselected profiles as no protected paths, or by refusing them under the older key.
+#[tokio::test]
+async fn profiles_no_layer_selects_fail_the_read_unless_the_older_key_is_set() {
+    let unselected = Machine::new();
+    unselected.write("home-a/codex/config.toml", STRICT_PROFILE);
+    let older_key = Machine::new();
+    older_key.write(
+        "home-a/codex/config.toml",
+        &format!("sandbox_mode = \"workspace-write\"\n{STRICT_PROFILE}"),
+    );
+
+    let refused = read_codex_protected_paths(&unselected.sources()).await;
+    let listed = read_codex_protected_paths(&older_key.sources()).await;
+
+    assert!(
+        matches!(refused, Err(CodexRulesError::ProfileUnselected)),
+        "{refused:?}"
+    );
+    assert_eq!(listed.expect("the older key's config reads"), []);
+}

@@ -164,23 +164,29 @@ impl ConfigFiles {
 fn resolve_layer_denies(
     layers: &[(&Path, &toml::Table)],
 ) -> Result<Vec<DenyEntry>, CodexRulesError> {
-    // Codex walks the layers lowest first, and the last layer naming either key picks the syntax;
-    // a layer naming both picks the profiles.
-    let mut selects_profiles = false;
+    // Codex walks the layers lowest first, and the last layer naming either key picks the syntax,
+    // `true` for the profiles; a layer naming both picks the profiles.
+    let mut selects_profiles = None;
     for (_, table) in layers {
         if table.contains_key(SANDBOX_MODE_KEY) {
-            selects_profiles = false;
+            selects_profiles = Some(false);
         }
         if table.contains_key(DEFAULT_PERMISSIONS_KEY) {
-            selects_profiles = true;
+            selects_profiles = Some(true);
         }
-    }
-    if !selects_profiles {
-        return Ok(Vec::new());
     }
     let mut merged = toml::Value::Table(toml::Table::new());
     for (_, table) in layers {
         merge_toml(&mut merged, &toml::Value::Table((*table).clone()));
+    }
+    let profiles = merged.get(PERMISSIONS_KEY).and_then(toml::Value::as_table);
+    match selects_profiles {
+        Some(true) => {}
+        // Codex refuses profiles that no layer selects one of, as it does an unresolved one.
+        None if profiles.is_some_and(|profiles| !profiles.is_empty()) => {
+            return Err(CodexRulesError::ProfileUnselected);
+        }
+        Some(false) | None => return Ok(Vec::new()),
     }
     let Some(selected) = merged
         .get(DEFAULT_PERMISSIONS_KEY)
@@ -191,7 +197,6 @@ fn resolve_layer_denies(
     if selected.starts_with(BUILT_IN_PROFILE_MARK) {
         return Ok(Vec::new());
     }
-    let profiles = merged.get(PERMISSIONS_KEY).and_then(toml::Value::as_table);
     let chain = resolve_profile_chain(selected, profiles)?;
     // Parents are merged first, so a child's entry replaces its parent's.
     let mut filesystem = toml::Value::Table(toml::Table::new());

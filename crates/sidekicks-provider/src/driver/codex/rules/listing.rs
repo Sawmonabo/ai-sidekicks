@@ -25,14 +25,13 @@ use sidekicks_contracts::provider::settings::{
     ProviderStandingRuleId, ProviderStandingRuleRevokeOutcome, ProviderStandingRuleScope,
 };
 use sidekicks_contracts::repo::mount::RepoMountId;
-use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::PathRules;
-use sidekicks_std::file::atomic_write::rewrite_file_in_place;
 
+use super::removal::remove_rule_calls;
 use super::{
-    AfterFailure, CODEX_RULE_FILE_MODE, CodexRuleSources, CodexRulesError, RULE_FILE_LOCK,
-    RuleFileOrigin, evaluate_rule_files, read_if_present, read_rule_file_texts, resolve_lock_key,
-    rule_lines,
+    CodexRuleSources, CodexRulesError, RULE_FILE_LOCK, RuleFileOrigin, evaluate_rule_files,
+    read_if_present, read_rule_file_texts, resolve_lock_key,
 };
 use crate::standing_rule_id::mint_standing_rule_id;
 
@@ -117,8 +116,9 @@ pub(crate) async fn list_codex_standing_rules(
 /// `AlreadyAbsent` where no rule Codex reads has the id. The edited text is evaluated beside the
 /// files Codex reads with it before it is written. Fails as [`list_codex_standing_rules`] does,
 /// with `RuleInUneditedFile` for a rule of the system folder, which Codex reads for every home and
-/// the daemon never edits, with `RevokeRefused`, the file untouched, where the edited file would not
-/// load or would still make the rule, and with `Write` or `Delete` where the file cannot be changed.
+/// the daemon never edits, with `RevokeRefused`, the file untouched, where the edited file would
+/// not load or would still make the rule, and with `Write` or `Delete` where the file cannot be
+/// changed.
 pub(crate) async fn revoke_codex_standing_rule(
     sources: &CodexRuleListingSources<'_>,
     rule_id: &ProviderStandingRuleId,
@@ -143,26 +143,20 @@ pub(crate) async fn revoke_codex_standing_rule(
             None => return Ok(ProviderStandingRuleRevokeOutcome::AlreadyAbsent),
         }
     };
-    let mut kept = listed.file_text.to_string();
-    let mut spans = listed.spans.clone();
-    spans.sort_by_key(|span| std::cmp::Reverse(span.start));
-    for span in spans {
-        let extent = call_extent(&kept, span);
-        kept.replace_range(extent, "");
-    }
-    if rule_lines(&kept).next().is_none() {
-        tokio::fs::remove_file(&listed.file)
-            .await
-            .map_err(|failure| CodexRulesError::Delete {
-                path: listed.file.clone(),
-                failure,
-            })?;
-    } else {
-        check_edited_file(sources, &listed, &kept).await?;
-        rewrite_file_in_place(&listed.file, kept, CODEX_RULE_FILE_MODE)
-            .await
-            .map_err(CodexRulesError::Write)?;
-    }
+    let revoked = listed.rule.text.as_str();
+    remove_rule_calls(
+        &reading_sources(sources, listed.reading),
+        &listed.file,
+        &listed.file_text,
+        &listed.spans,
+        |evaluated, text| {
+            evaluated
+                .calls
+                .iter()
+                .any(|call| text.get(call.span.clone()) == Some(revoked))
+        },
+    )
+    .await?;
     Ok(ProviderStandingRuleRevokeOutcome::Revoked)
 }
 
@@ -222,57 +216,6 @@ async fn find_rule(
         .find(|listed| listed.rule.rule_id == *rule_id))
 }
 
-// Evaluates the files of the read `listed` was found in with `edited` in place of its file's text,
-// as Codex would load them once it is written; refuses with `RevokeRefused` where the edited file
-// does not load or still writes a call of the revoked text, and fails with `Unloadable` where
-// another file no longer loads.
-async fn check_edited_file(
-    sources: &CodexRuleListingSources<'_>,
-    listed: &ListedRule,
-    edited: &str,
-) -> Result<(), CodexRulesError> {
-    let reading_sources = reading_sources(sources, listed.reading);
-    let mut files = read_rule_file_texts(&reading_sources).await?;
-    for file in &mut files {
-        if file.path == listed.file {
-            edited.clone_into(&mut file.text);
-        }
-    }
-    let revoked = listed.rule.text.as_str();
-    for (file, evaluated) in
-        evaluate_rule_files(files, &reading_sources, AfterFailure::Stop).await?
-    {
-        let is_edited = file.path == listed.file;
-        let evaluated = match evaluated {
-            Ok(evaluated) => evaluated,
-            Err(reason) if is_edited => {
-                return Err(CodexRulesError::RevokeRefused {
-                    path: file.path,
-                    reason,
-                });
-            }
-            Err(reason) => {
-                return Err(CodexRulesError::Unloadable {
-                    path: file.path,
-                    reason,
-                });
-            }
-        };
-        if is_edited
-            && evaluated
-                .calls
-                .iter()
-                .any(|call| file.text.get(call.span.clone()) == Some(revoked))
-        {
-            return Err(CodexRulesError::RevokeRefused {
-                path: file.path,
-                reason: "the file still makes the rule".to_owned(),
-            });
-        }
-    }
-    Ok(())
-}
-
 // The rules listed so far, each id once, with where each sits in the list.
 #[derive(Default)]
 struct RuleListing {
@@ -291,9 +234,7 @@ impl RuleListing {
     ) -> Result<(), CodexRulesError> {
         let reading_sources = reading_sources(sources, reading);
         let files = read_rule_file_texts(&reading_sources).await?;
-        for (file, evaluated) in
-            evaluate_rule_files(files, &reading_sources, AfterFailure::Stop).await?
-        {
+        for (file, evaluated) in evaluate_rule_files(files, &reading_sources).await? {
             let evaluated = evaluated.map_err(|reason| CodexRulesError::Unloadable {
                 path: file.path.clone(),
                 reason,
@@ -382,22 +323,6 @@ fn rule_sources<'a>(
         path_rules: sources.path_rules,
         evaluation_time_limit: sources.evaluation_time_limit,
     }
-}
-
-// The bytes a call's removal takes out of `text`: its whole lines where nothing else is on them,
-// else the call alone.
-fn call_extent(text: &str, span: Range<usize>) -> Range<usize> {
-    let line_start = text[..span.start].rfind('\n').map_or(0, |index| index + 1);
-    let line_end = text[span.end..]
-        .find('\n')
-        .map_or(text.len(), |index| span.end + index + 1);
-    let is_alone = text[line_start..span.start]
-        .chars()
-        .all(is_ecmascript_whitespace)
-        && text[span.end..line_end]
-            .chars()
-            .all(is_ecmascript_whitespace);
-    if is_alone { line_start..line_end } else { span }
 }
 
 pub(super) fn listable_path(path: &Path) -> Result<FilesystemPath, CodexRulesError> {

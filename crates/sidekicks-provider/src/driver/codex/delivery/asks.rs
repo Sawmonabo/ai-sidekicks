@@ -90,8 +90,8 @@ pub(crate) trait CodexProjectRules: Send + Sync {
         rule: &'call ProviderAskRule,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>>;
 
-    /// Takes `rule` back out of `project_folder`'s own rule file, read beside the rules of
-    /// `codex_home`, the session's. Fails as the removal fails.
+    /// Takes `rule` out of each rule file of `codex_home`, the session's, and of `project_folder`
+    /// that makes it. Fails as the removal fails.
     fn remove<'call>(
         &'call self,
         codex_home: &'call Path,

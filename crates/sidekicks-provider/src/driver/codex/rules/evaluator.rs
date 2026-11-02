@@ -175,6 +175,8 @@ pub(super) struct RuleCall {
     pub(super) decision: String,
     /// The call's bytes in the file's text.
     pub(super) span: Range<usize>,
+    /// The allows and blocks the call makes, each once, over every time it runs.
+    pub(super) rules: Vec<ProviderAskRule>,
 }
 
 /// What one rule file makes: every allow and block it holds, and each rule call it writes.
@@ -188,8 +190,8 @@ pub(super) struct EvaluatedRuleFile {
 // What the builtins gather while a file runs, carried from one file to the next as Codex carries
 // it: the program paths each `host_executable` names stay for the later files' examples. The
 // builtins reach it through the evaluator, as Codex's reach its rule builder. `listed` holds the
-// file's rules once each and `called` its calls' places, so a file making many rules is not slowed
-// by its duplicates.
+// file's rules once each and `called` each call's place in `calls`, so a file making many rules is
+// not slowed by its duplicates.
 struct RuleCollector {
     path_rules: PathRules,
     host_executables: HashMap<String, Vec<String>>,
@@ -197,7 +199,7 @@ struct RuleCollector {
     rules: Vec<ProviderAskRule>,
     listed: HashSet<ProviderAskRule>,
     calls: Vec<RuleCall>,
-    called: HashSet<Range<usize>>,
+    called: HashMap<Range<usize>, usize>,
 }
 
 /// Evaluates rule files in the order Codex loads them, in a place that spells paths by
@@ -220,7 +222,7 @@ impl RuleFileEvaluator {
                 rules: Vec::new(),
                 listed: HashSet::new(),
                 calls: Vec::new(),
-                called: HashSet::new(),
+                called: HashMap::new(),
             }),
             working_folder,
             home_folder,
@@ -309,19 +311,29 @@ fn is_canceled(error: &starlark::Error) -> bool {
 }
 
 impl RuleCollector {
-    fn add(&mut self, rule: ProviderAskRule) {
+    // Adds `rule` to the file's rules and to those of the call at `call` in `calls`.
+    fn add(&mut self, call: usize, rule: ProviderAskRule) {
+        let call_rules = &mut self.calls[call].rules;
+        if !call_rules.contains(&rule) {
+            call_rules.push(rule.clone());
+        }
         if self.listed.insert(rule.clone()) {
             self.rules.push(rule);
         }
     }
 
-    fn record_call(&mut self, span: Range<usize>, decision: &str) {
-        if self.called.insert(span.clone()) {
+    // Records the call at `span` once, answering where it sits in `calls`.
+    fn record_call(&mut self, span: Range<usize>, decision: &str) -> usize {
+        let next = self.calls.len();
+        let call = *self.called.entry(span.clone()).or_insert(next);
+        if call == next {
             self.calls.push(RuleCall {
                 decision: decision.to_owned(),
                 span,
+                rules: Vec::new(),
             });
         }
+        call
     }
 
     // Codex's check of one call's examples against that call's rules: no counterexample matches,
@@ -702,7 +714,7 @@ fn rule_builtins(builder: &mut GlobalsBuilder) {
             .collect();
         let span = file_call_span(eval)?;
         let mut collector = rule_collector(eval);
-        collector.record_call(span, decision_word);
+        let call = collector.record_call(span, decision_word);
         if let Some(sense) = decision.sense() {
             for rule in &rules {
                 let subjects = if is_spelled {
@@ -711,12 +723,15 @@ fn rule_builtins(builder: &mut GlobalsBuilder) {
                     vec![render_pattern(rule)]
                 };
                 for subject in subjects {
-                    collector.add(ProviderAskRule {
-                        kind: RememberedScopeKind::Project,
-                        sense,
-                        action: ProviderAskActionKind::Command,
-                        subject,
-                    });
+                    collector.add(
+                        call,
+                        ProviderAskRule {
+                            kind: RememberedScopeKind::Project,
+                            sense,
+                            action: ProviderAskActionKind::Command,
+                            subject,
+                        },
+                    );
                 }
             }
         }
@@ -754,14 +769,17 @@ fn rule_builtins(builder: &mut GlobalsBuilder) {
         let host = normalize_network_rule_host(host).map_err(RuleFileError::InvalidRule)?;
         let span = file_call_span(eval)?;
         let mut collector = rule_collector(eval);
-        collector.record_call(span, decision_word);
+        let call = collector.record_call(span, decision_word);
         if let Some(sense) = decision.sense() {
-            collector.add(ProviderAskRule {
-                kind: RememberedScopeKind::Project,
-                sense,
-                action: ProviderAskActionKind::Network,
-                subject: host,
-            });
+            collector.add(
+                call,
+                ProviderAskRule {
+                    kind: RememberedScopeKind::Project,
+                    sense,
+                    action: ProviderAskActionKind::Network,
+                    subject: host,
+                },
+            );
         }
         Ok(NoneType)
     }

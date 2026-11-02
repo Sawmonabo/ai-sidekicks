@@ -177,49 +177,61 @@ async fn a_block_replaces_the_allow_and_a_revoke_of_the_last_rule_deletes_the_fi
     assert!(!rule_file(&project).exists());
 }
 
+// A revoke takes the rule out of each project and home file that makes it, every other call kept,
+// and refuses, changing nothing, a rule a system file makes or one a call makes beside another
+// rule. Killed by a revoke that edits only the daemon's own file, that edits a system file, that
+// takes a loop's call and with it the loop's other rules, or that reads a rule no file makes as
+// revoked.
 #[tokio::test]
-async fn a_revoke_of_a_rule_the_daemons_file_lacks_names_where_it_is_kept() {
+async fn a_revoke_takes_the_rule_out_of_each_home_and_project_file_and_never_a_system_one() {
     let places = Places::new();
-    let own_text = "prefix_rule(pattern=[\"ls\"])\nprefix_rule(pattern=[\"pnpm\", \"test\"])\n";
-    let own_file = places.write("project/.codex/rules/sidekicks.rules", own_text);
+    let own_file = places.write(
+        "project/.codex/rules/sidekicks.rules",
+        "prefix_rule(pattern=[\"ls\"])\nprefix_rule(pattern=[\"pnpm\", \"test\"])\n",
+    );
     let team_file = places.write(
         "project/.codex/rules/team.rules",
-        "for tool in [\"npm\", \"pnpm\"]:\n    prefix_rule(pattern=[tool, \"test\"])\n",
+        "prefix_rule(pattern=[\"pnpm\", \"test\"])\nprefix_rule(pattern=[\"make\"])\n",
     );
+    let loop_text = "for tool in [\"npm\", \"yarn\"]:\n    prefix_rule(pattern=[tool, \"test\"])\n";
+    let loop_file = places.write("project/.codex/rules/loop.rules", loop_text);
     let persons_file = places.write(
         "home/rules/default.rules",
-        "prefix_rule(pattern=[\"cargo\", \"build\"], decision=\"allow\")\n",
+        "prefix_rule(pattern=[\"cargo\", \"build\"], decision=\"allow\")\n\
+         prefix_rule(pattern=[\"git\", \"status\"])\n",
     );
+    let system_text = "prefix_rule(pattern=[\"go\", \"vet\"], decision=\"allow\")\n";
+    let system_file = places.write("system/rules/base.rules", system_text);
 
-    // The team's file keeps the rule the daemon's file also holds, so the revoke changes nothing.
-    let in_team_file = places.remove_rule(&allow_command("pnpm test")).await;
+    let in_project_files = places.remove_rule(&allow_command("pnpm test")).await;
     let in_persons_file = places.remove_rule(&allow_command("cargo build")).await;
-    let nowhere = places.remove_rule(&allow_command("make")).await;
+    let in_a_loop = places.remove_rule(&allow_command("npm test")).await;
+    let in_system_file = places.remove_rule(&allow_command("go vet")).await;
+    let nowhere = places.remove_rule(&allow_command("make install")).await;
 
+    assert!(in_project_files.is_ok(), "{in_project_files:?}");
+    assert!(in_persons_file.is_ok(), "{in_persons_file:?}");
+    assert!(
+        matches!(
+            &in_a_loop,
+            Err(CodexRulesError::RevokeRefused { path, .. }) if *path == loop_file
+        ),
+        "{in_a_loop:?}"
+    );
     assert!(matches!(
-        in_team_file,
-        Err(CodexRulesError::RuleInUneditedFile { path }) if path == team_file
-    ));
-    assert!(matches!(
-        in_persons_file,
-        Err(CodexRulesError::RuleInUneditedFile { path }) if path == persons_file
+        in_system_file,
+        Err(CodexRulesError::RuleInUneditedFile { path }) if path == system_file
     ));
     assert!(matches!(nowhere, Err(CodexRulesError::RuleNotFound)));
-
-    // A file Codex refuses still keeps the rule its text spells out.
-    let refused_file = places.write(
-        "system/rules/base.rules",
-        "prefix_rule(pattern=[\"go\", \"vet\"], decision=\"allow\")\nundefined_name\n",
-    );
-    let in_refused_file = places.remove_rule(&allow_command("go vet")).await;
-    assert!(matches!(
-        in_refused_file,
-        Err(CodexRulesError::RuleInUneditedFile { path }) if path == refused_file
-    ));
+    let read = |file: &Path| fs::read_to_string(file).expect("the rule file reads");
+    assert_eq!(read(&own_file), "prefix_rule(pattern=[\"ls\"])\n");
+    assert_eq!(read(&team_file), "prefix_rule(pattern=[\"make\"])\n");
     assert_eq!(
-        fs::read_to_string(own_file).expect("the daemon's file reads"),
-        own_text
+        read(&persons_file),
+        "prefix_rule(pattern=[\"git\", \"status\"])\n"
     );
+    assert_eq!(read(&loop_file), loop_text);
+    assert_eq!(read(&system_file), system_text);
 }
 
 #[rstest]
