@@ -4,7 +4,7 @@
 
 use std::ffi::OsStr;
 use std::fs::File;
-use std::io::{self, ErrorKind, Read as _, Write as _};
+use std::io::{self, ErrorKind, Read as _};
 use std::num::NonZeroUsize;
 use std::os::fd::{AsRawFd as _, BorrowedFd};
 use std::os::unix::process::{CommandExt as _, ExitStatusExt as _};
@@ -15,13 +15,14 @@ use alacritty_terminal::event::WindowSize;
 use nix::fcntl::{FcntlArg, OFlag, fcntl};
 use nix::sys::signal::{SigSet, SigmaskHow, Signal, pthread_sigmask};
 use nix::sys::termios::{SetArg, Termios, cfmakeraw, tcgetattr, tcgetsid, tcsetattr};
-use nix::unistd::{Pid, isatty, pipe, tcgetpgrp, tcsetpgrp};
+use nix::unistd::{Pid, isatty, tcgetpgrp, tcsetpgrp};
 use polling::{Event, Events, PollMode, Poller};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 
 use crate::posix::ctrl_c::end_by_default_action;
 use crate::posix::process::group::{signal_group, signal_group_once};
+use crate::posix::secret_pipe::make_secret_pipe;
 use crate::posix::shell_start::take_controlling_terminal;
 use crate::posix::terminal::posix_signal;
 use crate::posix::terminal::pty::Pty;
@@ -39,14 +40,7 @@ pub fn exec_command(command: &mut Command) -> io::Error {
 /// secret shows in no argument and no environment another process reads. Returns only on failure,
 /// with the pipe's or the exec's error.
 pub fn exec_with_secret(command: &mut Command, secret_variable: &str, secret: &[u8]) -> io::Error {
-    let handed = (|| -> io::Result<_> {
-        // The pipe's ends are made without close-on-exec, so the read end stays open across the
-        // exec; a pipe holds far more than a key, so the write never waits for the reader.
-        let (reader, writer) = pipe().map_err(io::Error::from)?;
-        File::from(writer).write_all(secret)?;
-        Ok(reader)
-    })();
-    match handed {
+    match make_secret_pipe(secret) {
         Ok(reader) => {
             command.env(secret_variable, reader.as_raw_fd().to_string());
             command.exec()
@@ -55,9 +49,10 @@ pub fn exec_with_secret(command: &mut Command, secret_variable: &str, secret: &[
     }
 }
 
-/// Reads to its end and closes the descriptor a start through [`exec_with_secret`] left open,
-/// named by `descriptor` as its variable holds it. Fails with `InvalidInput` for a value that names
-/// no descriptor, else with the read's error.
+/// Reads to its end and closes the descriptor a start through [`exec_with_secret`] or
+/// [`SecretPipe::spawn_with_secret`](crate::SecretPipe::spawn_with_secret) left open, named by
+/// `descriptor` as its variable holds it. Fails with `InvalidInput` for a value that names no
+/// descriptor, else with the read's error.
 pub fn take_inherited_secret(descriptor: &OsStr) -> io::Result<Vec<u8>> {
     let number: i32 = descriptor
         .to_str()

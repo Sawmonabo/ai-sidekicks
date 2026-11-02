@@ -2,6 +2,7 @@
 //! started so the daemon's stop reaches them all and none starts once that stop began: a session's
 //! process brought up with its hooks and settings, the processes that keep nothing (the sign-in
 //! probe, the model catalog, the build's version, a session's figures) and the one-turn process.
+//! A process on a token account is handed that account's token there, on a pipe only it reads.
 
 pub(crate) mod bring_up;
 pub(crate) mod control_only;
@@ -10,15 +11,20 @@ pub(crate) mod initialize_reply;
 pub(crate) mod installed_build;
 pub(crate) mod one_turn;
 
+use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
+use secrecy::SecretString;
 use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
+use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_platforms::Spawner;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 
+use crate::driver::ProviderAccountReader;
 use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::process::{
@@ -38,6 +44,9 @@ pub(crate) enum ClaudeLaunchError {
     /// The daemon is stopping, so no process starts.
     #[error("the daemon is stopping, so no Claude Code process starts")]
     Stopping,
+    /// The token sealed for the process's account could not be read.
+    #[error("the token sealed for the Claude Code process's account could not be read")]
+    SealedToken(#[source] Box<dyn Error + Send + Sync>),
     /// The process could not be started.
     #[error("the Claude Code process could not be started")]
     Spawn(#[source] io::Error),
@@ -87,6 +96,7 @@ impl From<ClaudeLaunchError> for DriverError {
             ClaudeLaunchError::Build(error) => error,
             ClaudeLaunchError::Session(error) => error.into(),
             error @ (ClaudeLaunchError::Stopping
+            | ClaudeLaunchError::SealedToken(_)
             | ClaudeLaunchError::Spawn(_)
             | ClaudeLaunchError::ControlOnlyFolder(_)
             | ClaudeLaunchError::Settings(_)
@@ -104,6 +114,7 @@ pub(crate) struct ClaudeProcessLauncher {
     spawner: Spawner,
     child_records: Arc<dyn DaemonChildRecords>,
     processes: Arc<ProviderProcessRegistry>,
+    provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     control_only_folder: PathBuf,
     live: Mutex<LiveProcesses>,
 }
@@ -117,18 +128,20 @@ struct LiveProcesses {
 
 impl ClaudeProcessLauncher {
     /// A launcher spawning on `spawner`'s thread, recording each process in `child_records` and
-    /// counting each spawn in `processes`, whose processes that keep nothing run in a folder under
-    /// `data_folder`.
+    /// counting each spawn in `processes`, reading each account's sealed token through
+    /// `provider_accounts`, whose processes that keep nothing run in a folder under `data_folder`.
     pub(crate) fn new(
         spawner: Spawner,
         child_records: Arc<dyn DaemonChildRecords>,
         processes: Arc<ProviderProcessRegistry>,
+        provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
         data_folder: &Path,
     ) -> Self {
         Self {
             spawner,
             child_records,
             processes,
+            provider_accounts,
             control_only_folder: CLAUDE_CONTROL_ONLY_FOLDER
                 .iter()
                 .fold(data_folder.to_path_buf(), |folder, name| folder.join(name)),
@@ -136,17 +149,24 @@ impl ClaudeProcessLauncher {
         }
     }
 
-    /// Starts one process and keeps it until it exits. Fails with `Stopping` once the daemon's
-    /// stop began, a process that started meanwhile being stopped again, and with `Spawn` when it
-    /// could not be started.
+    /// Starts one process and keeps it until it exits: a launch naming a pasted token's account and
+    /// carrying no token is handed the token sealed for that account, so every process on a token
+    /// account signs in with it. Fails with `Stopping` once the daemon's stop began, a process that
+    /// started meanwhile being stopped again, with `SealedToken` when the account's sign-in or its
+    /// token cannot be read, and with `Spawn` when it could not be started.
     pub(crate) async fn start(
         &self,
-        launch: ClaudeProcessLaunch,
+        mut launch: ClaudeProcessLaunch,
         listener: Arc<dyn ClaudeProcessListener>,
         turn_holds: Option<ClaudeTurnHolds>,
     ) -> Result<Arc<ClaudeCodeProcess>, ClaudeLaunchError> {
         if self.lock().is_stopped {
             return Err(ClaudeLaunchError::Stopping);
+        }
+        if launch.token.is_none()
+            && let Some(provider_account_id) = launch.account.read()
+        {
+            launch.token = self.read_token_account_token(&provider_account_id).await?;
         }
         let process = Arc::new(
             ClaudeCodeProcess::start(
@@ -173,6 +193,34 @@ impl ClaudeProcessLauncher {
             return Err(ClaudeLaunchError::Stopping);
         }
         Ok(process)
+    }
+
+    // The token sealed for `provider_account_id`'s account where it signs in with a pasted token;
+    // `None` for any other account, whose start never reads the keychain. A token account with no
+    // token sealed fails, since its process could sign in as no one.
+    async fn read_token_account_token(
+        &self,
+        provider_account_id: &ProviderAccountId,
+    ) -> Result<Option<SecretString>, ClaudeLaunchError> {
+        let accounts = self
+            .provider_accounts
+            .require_port()
+            .map_err(|error| ClaudeLaunchError::SealedToken(Box::new(error)))?;
+        let mode = accounts
+            .read_observed_auth_mode(provider_account_id.clone())
+            .await
+            .map_err(ClaudeLaunchError::SealedToken)?;
+        if mode != Some(ProviderAuthMode::OauthToken) {
+            return Ok(None);
+        }
+        accounts
+            .read_sealed_token(provider_account_id.clone())
+            .await
+            .map_err(ClaudeLaunchError::SealedToken)?
+            .map(Some)
+            .ok_or_else(|| {
+                ClaudeLaunchError::SealedToken("no token is sealed for the token account".into())
+            })
     }
 
     /// Stops every live process together, each given the daemon's stop drain to exit on its own,
@@ -206,3 +254,6 @@ impl ClaudeProcessLauncher {
 fn drain() -> Duration {
     Duration::from_millis(DAEMON_STOP_TERMINAL_DRAIN_MS)
 }
+
+#[cfg(test)]
+mod tests;

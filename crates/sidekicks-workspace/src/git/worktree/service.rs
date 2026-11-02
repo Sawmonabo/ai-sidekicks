@@ -510,7 +510,7 @@ impl WorktreeService {
         record_folder: Option<&Path>,
     ) -> io::Result<()> {
         match record_folder {
-            Some(record_folder) => remove_folder(record_folder).await,
+            Some(record_folder) => sidekicks_platforms::remove_tree_awaited(record_folder).await,
             None => Ok(()),
         }
     }
@@ -761,13 +761,4 @@ fn read_unreleased_runs(
             })
         })?
         .collect::<rusqlite::Result<_>>()?)
-}
-
-/// Removes `folder` and everything under it off the async workers, as `rm -rf` does; a folder
-/// already gone passes. Fails with the removal's failure.
-pub(crate) async fn remove_folder(folder: &Path) -> io::Result<()> {
-    let folder = folder.to_path_buf();
-    tokio::task::spawn_blocking(move || sidekicks_platforms::remove_tree(&folder))
-        .await
-        .map_err(io::Error::other)?
 }

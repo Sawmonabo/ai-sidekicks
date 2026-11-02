@@ -236,7 +236,7 @@ impl ClaudeSessionControls {
         let turn = self
             .run_one_turn(
                 &legs,
-                live.admitted_provider_account_id.clone(),
+                live.admitted_provider_account_id(),
                 None,
                 None,
                 review_text(SessionReviewTarget::Staged).text,

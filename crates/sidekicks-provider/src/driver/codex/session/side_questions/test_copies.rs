@@ -95,7 +95,7 @@ pub(crate) fn read_only_profile(folder: &Path) -> String {
 }
 
 /// The service's side of a copy's connection.
-type CopySocket = WebSocketStream<interprocess::local_socket::tokio::Stream>;
+pub(crate) type CopySocket = WebSocketStream<interprocess::local_socket::tokio::Stream>;
 
 /// Serves the copy's connection as Codex through the connection's start; answers the connection.
 pub(super) async fn accept_copy(listener: &Listener) -> CopySocket {
@@ -116,9 +116,13 @@ pub(super) async fn accept_copy(listener: &Listener) -> CopySocket {
     socket
 }
 
-// Serves the copy's connection as Codex up to its turn's start: the connection's start and a fork
-// of the stored conversation under `profile`; answers the connection and the fork's params.
-async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<String, Value>) {
+/// Serves the copy's connection as Codex up to its turn's start: the connection's start and a fork
+/// of the stored conversation under `profile`; answers the connection, the fork's params and the
+/// turn's.
+pub(crate) async fn open_copy(
+    listener: &Listener,
+    profile: &str,
+) -> (CopySocket, Map<String, Value>, Value) {
     let mut socket = accept_copy(listener).await;
     let fork = next_socket_request(&mut socket).await;
     assert_eq!(fork["method"], "thread/fork");
@@ -143,7 +147,7 @@ async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<Strin
         .as_object()
         .expect("the fork's params are an object")
         .clone();
-    (socket, fork)
+    (socket, fork, turn["params"].clone())
 }
 
 /// How the copy's one turn ends.
@@ -165,7 +169,7 @@ pub(crate) async fn serve_copy(
     profile: String,
     ending: CopyTurnEnding,
 ) -> Map<String, Value> {
-    let (mut socket, fork) = open_copy(&listener, &profile).await;
+    let (mut socket, fork, _turn) = open_copy(&listener, &profile).await;
     let turn = match ending {
         CopyTurnEnding::Answered => {
             send_on_socket(
@@ -208,7 +212,7 @@ pub(crate) async fn serve_copy(
 /// answers each later request, the let-go of the conversation among them, so a stop does not wait
 /// out its bound; answers the interrupt the daemon sent once it let the connection go.
 pub(crate) async fn serve_unended_copy(listener: Listener, profile: String) -> Value {
-    let (mut socket, _fork) = open_copy(&listener, &profile).await;
+    let (mut socket, _fork, _turn) = open_copy(&listener, &profile).await;
     let interrupt = next_socket_request(&mut socket).await;
     send_on_socket(&mut socket, json!({"id": interrupt["id"], "result": {}})).await;
     while let Some(Ok(message)) = socket.next().await {

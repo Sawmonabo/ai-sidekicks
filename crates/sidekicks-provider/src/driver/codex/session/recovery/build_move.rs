@@ -10,6 +10,7 @@
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::Instant;
@@ -306,7 +307,10 @@ enum ClaimedIdle<'slots> {
 
 fn report_restart_failed(service: &CodexService, error: &CodexError) {
     tracing::warn!(
-        codex_home = %service.home().codex_home.display(),
+        provider_account_id = service
+            .provider_account_id()
+            .as_ref()
+            .map(ProviderAccountId::as_str),
         error = error as &(dyn std::error::Error + 'static),
         "a codex service could not be restarted on the program as it is now"
     );

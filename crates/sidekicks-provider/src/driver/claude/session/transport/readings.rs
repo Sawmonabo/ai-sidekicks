@@ -6,6 +6,7 @@
 use std::path::PathBuf;
 
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
 /// Where a control-only process reading a session's figures starts: the session's own folder,
 /// environment and model, so the project's and the person's own styles are among those it lists
@@ -18,6 +19,8 @@ pub(crate) struct ClaudeSessionFolderReadRequest {
     pub(crate) working_directory: PathBuf,
     /// The model the figures are read for, passed as `--model`.
     pub(crate) model: String,
+    /// The account the process runs under, so a token account's process is handed its token.
+    pub(crate) provider_account_id: ProviderAccountId,
 }
 
 /// What one control-only process reported about the models: its `initialize` reply, whose

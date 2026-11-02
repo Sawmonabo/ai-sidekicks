@@ -11,7 +11,6 @@
 //!   recorded key answers the session that key made, finishing it first when it was left
 //!   `provisioning`.
 
-mod account;
 mod provisioning;
 #[cfg(test)]
 mod tests;
@@ -48,6 +47,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::account::resolver::{current_account_guard, select_current_account};
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::LeadBindingCheckParams;
@@ -75,7 +75,6 @@ use sidekicks_workspace::schema::MountOrigin;
 use sidekicks_workspace::service::{WorkspaceService, WorkspaceServiceError};
 
 use crate::console_state::INSERT_CONSOLE_STATE_SQL;
-use crate::create::account::{ResolvedAccount, read_current_account};
 use crate::create::provisioning::{SessionFinishFailure, SessionToFinish};
 
 /// The statements the creation's reads keep prepared on each read connection: a recorded create,
@@ -92,11 +91,11 @@ const FOLDER_GUARD_INDEX: usize = 3;
 const GROUP_GUARD_INDEX: usize = 4;
 
 const RECORD_CREATE_REQUEST_SQL: &str = "INSERT INTO session_create_requests
-  (client_idempotency_key, session_id, project_id, execution_mode, group_id)
-  VALUES (@key, @sessionId, @projectId, @executionMode, @groupId)";
+  (client_idempotency_key, session_id, project_id, execution_mode, group_id, provider_account_id)
+  VALUES (@key, @sessionId, @projectId, @executionMode, @groupId, @providerAccountId)";
 
-// A create's record joined with the session it made as it reads now, and the lead it was born on
-// with its account.
+// A create's record joined with the session it made as it reads now, the lead it was born on and
+// the account the record keeps it was born on.
 static SELECT_RECORDED_CREATE_SQL: LazyLock<String> = LazyLock::new(|| {
     let session_created = SessionEventType::SessionCreated.as_str();
     format!(
@@ -104,7 +103,7 @@ static SELECT_RECORDED_CREATE_SQL: LazyLock<String> = LazyLock::new(|| {
         session.shape, session.state, session.place,
         json_extract(created.payload, '$.mainAgent.binding'),
         json_extract(created.payload, '$.mainAgent.agentId'),
-        json_extract(created.payload, '$.mainAgent.binding.providerAccountId')
+        request.provider_account_id
    FROM session_create_requests AS request
    JOIN sessions AS session ON session.id = request.session_id
    JOIN session_events AS created
@@ -199,11 +198,12 @@ pub struct SessionCreation {
 #[derive(Debug, thiserror::Error)]
 pub enum SessionCreateError {
     /// A refusal sent with its code: `project.notFound`, `repoMount.notFound`,
-    /// `session.group.refused`, `session.notFound`, `provider.account.notRegistered` or
-    /// `provider.account.current.notSet`.
+    /// `session.group.refused` or `session.notFound`.
     #[error(transparent)]
     Refused(#[from] DomainError),
-    /// The lead's driver refused or failed, `agent.providerAxisInvalid` among its refusals.
+    /// The lead's driver refused or failed, `agent.providerAxisInvalid` among its refusals, or the
+    /// lead's provider has no current account: `provider.account.notRegistered` or
+    /// `provider.account.current.notSet`.
     #[error(transparent)]
     Driver(#[from] DriverError),
     /// The bind of the session to its mount was refused or failed.
@@ -264,6 +264,14 @@ impl From<SessionCreateError> for HandlerError {
             | SessionCreateError::Finish(_)) => Self::Internal(Box::new(fault)),
         }
     }
+}
+
+/// The account a lead runs on, with the guard that keeps it current inside the session's first
+/// write.
+struct ResolvedAccount {
+    provider_account_id: ProviderAccountId,
+    // Refuses the write once the account is no longer its provider's current one.
+    guard: WriteStatement,
 }
 
 /// What a request asks for, whichever shape it has.
@@ -481,7 +489,8 @@ impl SessionCreation {
             let lead_binding = AgentProviderBinding {
                 provider_name: lead.provider_name.clone(),
                 model_id: lead.model_id.clone(),
-                provider_account_id: Some(account.provider_account_id.clone()),
+                // Nothing a create asks for pins an account, so the lead follows the current one.
+                provider_account_id: None,
                 effort: lead.effort.clone(),
                 output_speed: lead.output_speed.clone(),
                 options: lead.options.clone(),
@@ -511,8 +520,7 @@ impl SessionCreation {
                 session_id,
                 &SessionEvent::SessionCreated(Box::new(payload)),
             )?;
-            let transactional_prelude =
-                created_prelude(new_session, account.guard.clone(), &created_at);
+            let transactional_prelude = created_prelude(new_session, &account, &created_at);
             #[cfg(test)]
             self.created_append_pause.pass().await;
             let appended = self
@@ -572,15 +580,25 @@ impl SessionCreation {
         })
     }
 
+    // The lead's provider's current account with its guard. Refuses
+    // `provider.account.notRegistered` or `provider.account.current.notSet` where it has none.
     async fn resolve_account(
         &self,
         provider: &ProviderId,
     ) -> Result<ResolvedAccount, SessionCreateError> {
         let provider = provider.clone();
         self.reads
-            .read(ReadLength::Short, move |connection| {
-                read_current_account(connection, &provider)
-            })
+            .read(
+                ReadLength::Short,
+                move |connection| -> Result<_, SessionCreateError> {
+                    let provider_account_id =
+                        select_current_account(connection, &provider)?.into_required()?;
+                    Ok(ResolvedAccount {
+                        guard: current_account_guard(&provider_account_id, &provider),
+                        provider_account_id,
+                    })
+                },
+            )
             .await
     }
 
@@ -676,7 +694,7 @@ fn target_of(request: &SessionCreateRequest) -> CreateTarget<'_> {
 // account guard, a project session's project, folder and group guards, then a picked advisor.
 fn created_prelude(
     new_session: &NewSession<'_>,
-    account_guard: WriteStatement,
+    account: &ResolvedAccount,
     created_at: &WireInstant,
 ) -> Vec<WriteStatement> {
     let session_id = new_session.session_id;
@@ -701,10 +719,11 @@ fn created_prelude(
                         .as_ref()
                         .map_or(Value::Null, |group| Value::Text(group.as_str().to_owned())),
                 ),
+                text_binding("@providerAccountId", account.provider_account_id.as_str()),
             ]),
             expected_row_count: None,
         },
-        account_guard,
+        account.guard.clone(),
     ];
     if let Some(project) = project {
         prelude.push(project_guard(PROJECT_GUARD_SQL, project, None));

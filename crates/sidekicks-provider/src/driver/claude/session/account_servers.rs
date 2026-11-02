@@ -205,7 +205,7 @@ mod tests {
     use sidekicks_std::mutex_lock::lock;
 
     use super::{ClaudeAccountReadAsk, ClaudeAccountServerReads, HeldRead};
-    use crate::driver::claude::account_credentials::ClaudeSignInReader;
+    use crate::driver::claude::account::credentials::ClaudeSignInReader;
     use crate::driver::claude::mcp::connectors::organization_mark::ClaudeOrganizationMarks;
     use crate::driver::claude::mcp::precedence::ClaudeMcpAccountServers;
     use crate::driver::claude::session::scripted::driver::ScriptedDriver;

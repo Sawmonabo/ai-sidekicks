@@ -7,9 +7,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
 use serde_json::value::RawValue;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics, emit_driver_diagnostic,
 };
@@ -225,20 +225,17 @@ lenient_object!(
 /// Reads one process's control frames, recording each it cannot take, and each request subtype
 /// it does not know once per subtype for the process's life.
 pub(crate) struct ClaudeControlFrameReader {
-    provider_account_id: Option<ProviderAccountId>,
+    account: ClaudeProcessAccount,
     provider_session_id: String,
     once_reported: OnceReportedDiagnostics,
 }
 
 impl ClaudeControlFrameReader {
-    /// A reader for the process running `provider_session_id` on `provider_account_id`'s home,
-    /// `None` for a short read that names no account.
-    pub(crate) fn new(
-        provider_account_id: Option<ProviderAccountId>,
-        provider_session_id: String,
-    ) -> Self {
+    /// A reader for the process running `provider_session_id` on `account`, its diagnostics naming
+    /// the account as it is at each one; empty for a short read that names no account.
+    pub(crate) fn new(account: ClaudeProcessAccount, provider_session_id: String) -> Self {
         Self {
-            provider_account_id,
+            account,
             provider_session_id,
             once_reported: OnceReportedDiagnostics::default(),
         }
@@ -354,7 +351,7 @@ impl ClaudeControlFrameReader {
         );
         DriverDiagnosticRecord {
             provider: DESCRIPTOR.provider_id(),
-            provider_account_id: self.provider_account_id.clone(),
+            provider_account_id: self.account.read(),
             kind,
             raw_wire_type: Some(raw_wire_type),
             disposition_reason: disposition_reason.to_owned(),
@@ -383,6 +380,7 @@ fn read_object<Shape: Lenient>(text: &str) -> Option<Shape> {
 #[cfg(test)]
 mod tests {
     use super::{ClaudeControlFrameReader, ClaudeInboundRequestBody, ClaudeInboundRequestEvent};
+    use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 
     // Far past `serde_json`'s 128-level limit, which a member read into a `Value` would hit.
     const INPUT_DEPTH: usize = 10_000;
@@ -399,7 +397,8 @@ mod tests {
             ),
             input = input
         );
-        let mut reader = ClaudeControlFrameReader::new(None, "session".to_owned());
+        let mut reader =
+            ClaudeControlFrameReader::new(ClaudeProcessAccount::default(), "session".to_owned());
 
         let Some(ClaudeInboundRequestEvent::Request(request)) = reader.read_request(&frame) else {
             panic!("the request reads");

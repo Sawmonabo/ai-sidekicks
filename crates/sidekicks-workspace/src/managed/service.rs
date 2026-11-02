@@ -23,7 +23,6 @@ use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_platforms::remove_tree;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::file::bounded_read::run_on_own_thread;
 use sidekicks_std::file::real_location::resolve_real_path;
@@ -287,7 +286,9 @@ impl ManagedWorkspaceService {
     /// them in its own write. A session with no managed workspace changes nothing. Fails with the
     /// removal's failure.
     pub async fn delete_folder(&self, session_id: SessionId) -> Result<(), ManagedWorkspaceError> {
-        remove_folder(self.workspace_path_of(session_id)).await
+        sidekicks_platforms::remove_tree_awaited(&self.workspace_path_of(session_id))
+            .await
+            .map_err(ManagedWorkspaceError::Removal)
     }
 
     // Starts the watch again when the folder it watched was gone or it has ended, since a watch
@@ -346,7 +347,9 @@ impl ManagedWorkspaceService {
         session_id: SessionId,
         workspace_path: &Path,
     ) -> Result<(), ManagedWorkspaceError> {
-        remove_folder(workspace_path.to_path_buf()).await?;
+        sidekicks_platforms::remove_tree_awaited(workspace_path)
+            .await
+            .map_err(ManagedWorkspaceError::Removal)?;
         self.repo_mounts.delete_managed(session_id).await?;
         Ok(())
     }
@@ -467,14 +470,6 @@ fn count_files(folder: &Path) -> io::Result<Option<u64>> {
         }
     }
     Ok(Some(count))
-}
-
-async fn remove_folder(path: PathBuf) -> Result<(), ManagedWorkspaceError> {
-    tokio::task::spawn_blocking(move || remove_tree(&path))
-        .await
-        .map_err(io::Error::other)
-        .and_then(|removed| removed)
-        .map_err(ManagedWorkspaceError::Removal)
 }
 
 #[cfg(test)]

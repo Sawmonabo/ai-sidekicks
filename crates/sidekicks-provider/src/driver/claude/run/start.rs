@@ -227,7 +227,7 @@ impl ClaudeRunStart {
         let request = DaemonTurnStartRequest {
             session_id,
             provider: DESCRIPTOR.provider_id(),
-            admitted_provider_account_id: live.admitted_provider_account_id.clone(),
+            admitted_provider_account_id: live.admitted_provider_account_id(),
             execution_posture,
             is_provider_started,
             start_turn: Box::new(move |run_id| {

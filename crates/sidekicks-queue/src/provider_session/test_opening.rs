@@ -27,7 +27,7 @@ use sidekicks_provider::driver::capabilities::{
 };
 #[cfg(test)]
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::session_control::CreateSessionParams;
+use sidekicks_provider::driver::session_control::{CreateSessionParams, SessionAccountPin};
 use sidekicks_provider::run::posture::{ExecutionPostureService, compose_execution_posture};
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
@@ -74,6 +74,7 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
                     tool_servers: None,
                     output_schema: None,
                     provider_account_id,
+                    account_pin: SessionAccountPin::Pinned,
                     on_mcp_server_status: None,
                 },
                 function_legs_for: Arc::new(|_| ResumeFunctionLegs::default()),

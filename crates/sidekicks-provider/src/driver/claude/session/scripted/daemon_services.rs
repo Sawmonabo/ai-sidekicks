@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -170,7 +171,7 @@ impl RecordingUsage {
         *lock(&self.reported) = reported;
     }
 
-    /// Every set of quota windows taken so far, with its account, in order.
+    /// Every set of quota windows taken so far, a push or a whole set, with its account, in order.
     pub(crate) fn quota_windows(&self) -> Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)> {
         lock(&self.quota_windows).clone()
     }
@@ -206,6 +207,15 @@ impl UsageSink for RecordingUsage {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         lock(&self.quota_windows).push((provider_account_id, windows));
         ready(Ok(())).boxed()
+    }
+
+    fn record_whole_quota_windows(
+        &self,
+        provider: ProviderId,
+        provider_account_id: ProviderAccountId,
+        windows: Vec<ProviderQuotaWindow>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        self.record_quota_windows(provider, provider_account_id, windows)
     }
 }
 
@@ -357,8 +367,56 @@ impl CallbackToolActivitySink for NoCallbackTools {
     }
 }
 
-/// A binding store that takes every write, so a rewind's fork is adopted.
-pub(crate) struct TakenBindingWrites;
+/// One write a binding store took: an account move or the recovery data kept.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum TakenBindingWrite {
+    /// The binding moved onto the account.
+    Move(RuntimeBindingId, ProviderAccountId),
+    /// The binding holds this recovery data now.
+    RecoveryData(RuntimeBindingId, Map<String, Value>),
+}
+
+/// A binding store that takes every write, so a rewind's fork is adopted, and keeps each account
+/// move and each recovery data kept, in the order made; a test can have it refuse every move.
+#[derive(Default)]
+pub(crate) struct TakenBindingWrites {
+    writes: Mutex<Vec<TakenBindingWrite>>,
+    is_refusing_moves: AtomicBool,
+}
+
+impl TakenBindingWrites {
+    /// Every write so far, in the order made.
+    pub(crate) fn writes(&self) -> Vec<TakenBindingWrite> {
+        lock(&self.writes).clone()
+    }
+
+    /// Every account move so far: the binding, and the account it moved onto.
+    pub(crate) fn moves(&self) -> Vec<(RuntimeBindingId, ProviderAccountId)> {
+        self.writes()
+            .into_iter()
+            .filter_map(|write| match write {
+                TakenBindingWrite::Move(binding_id, account) => Some((binding_id, account)),
+                TakenBindingWrite::RecoveryData(..) => None,
+            })
+            .collect()
+    }
+
+    /// Every recovery data kept so far: the binding, and the data it holds now.
+    pub(crate) fn recovery_data(&self) -> Vec<(RuntimeBindingId, Map<String, Value>)> {
+        self.writes()
+            .into_iter()
+            .filter_map(|write| match write {
+                TakenBindingWrite::RecoveryData(binding_id, data) => Some((binding_id, data)),
+                TakenBindingWrite::Move(..) => None,
+            })
+            .collect()
+    }
+
+    /// Refuses every account move from now on, writing none.
+    pub(crate) fn refuse_moves(&self) {
+        self.is_refusing_moves.store(true, Ordering::SeqCst);
+    }
+}
 
 impl RuntimeBindingWriter for TakenBindingWrites {
     fn rebind(
@@ -370,9 +428,25 @@ impl RuntimeBindingWriter for TakenBindingWrites {
 
     fn keep_recovery_data(
         &self,
-        _binding_id: RuntimeBindingId,
-        _runtime_metadata: Map<String, Value>,
+        binding_id: RuntimeBindingId,
+        runtime_metadata: Map<String, Value>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        lock(&self.writes).push(TakenBindingWrite::RecoveryData(
+            binding_id,
+            runtime_metadata,
+        ));
+        ready(Ok(())).boxed()
+    }
+
+    fn move_account(
+        &self,
+        binding_id: RuntimeBindingId,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        if self.is_refusing_moves.load(Ordering::SeqCst) {
+            return ready(Err("the test refuses every binding move".into())).boxed();
+        }
+        lock(&self.writes).push(TakenBindingWrite::Move(binding_id, provider_account_id));
         ready(Ok(())).boxed()
     }
 }

@@ -16,9 +16,10 @@ use sidekicks_contracts::wire::record::Record;
 use crate::driver::mcp_server::address::read_server_address;
 use crate::driver::mcp_server::read::{McpServerSignInClient, McpServerToolDefaults};
 
-// The members that name how a server is reached: a program for stdio, an address for HTTP.
+// The member that names the program a stdio server runs.
 const COMMAND_MEMBER: &str = "command";
-const URL_MEMBER: &str = "url";
+/// The member of a server entry that names an HTTP server's address.
+pub(crate) const URL_MEMBER: &str = "url";
 /// The member of a server entry that switches the server on or off.
 pub(crate) const ENABLED_MEMBER: &str = "enabled";
 // The header Codex sends a bearer token in.

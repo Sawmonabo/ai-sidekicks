@@ -53,13 +53,9 @@ pub(super) fn compose_sent_entry(
     environment: &[(String, String)],
     root: Option<&PlacedPath>,
 ) -> SentEntry {
-    let placeholders = declared
-        .plugin_folders
-        .map(|folders| ClaudePluginPlaceholders {
-            root: folders.root.to_string_lossy().into_owned(),
-            data: folders.data.to_string_lossy().into_owned(),
-            project: root.map(|root| root.path.as_str().to_owned()),
-        });
+    let placeholders = declared.plugin_folders.map(|folders| {
+        ClaudePluginPlaceholders::new(&folders, root.map(|root| root.path.as_str().to_owned()))
+    });
     match compose_tool_server_entry(declared.entry) {
         Some(entry) => SentEntry::Sent(expand_entry_variables(
             entry,

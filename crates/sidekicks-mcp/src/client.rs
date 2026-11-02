@@ -5,7 +5,7 @@
 
 mod calls;
 mod connection;
-mod http;
+pub(crate) mod http;
 mod idle_window;
 mod poll;
 mod prompts;

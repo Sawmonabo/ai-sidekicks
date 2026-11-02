@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use rstest::rstest;
-use serde_json::{Value, json};
+use serde_json::json;
 use sidekicks_platforms::{
     StandInAnswer, StandInProgram, read_recorded_arguments, write_stand_in_program,
 };
@@ -12,6 +12,7 @@ use tokio::time::Instant;
 
 use super::locked_down_config;
 use crate::driver::child_records::UnrecordedChildren;
+use crate::driver::codex::lifecycle::naming::lockdown::read_exec_overrides;
 use crate::driver::codex::lifecycle::naming::{
     CODEX_NAMING_DEADLINE, CODEX_SERVER_LIST_DEADLINE, name_in_one_shot,
 };
@@ -76,28 +77,6 @@ fn service_running(folder: &Path, program: PathBuf) -> (Arc<CodexService>, Scrip
     )
 }
 
-// The config the `-c` arguments before `exec` set, each value read back as TOML.
-fn read_overrides(arguments: &[String]) -> Value {
-    let exec_at = arguments
-        .iter()
-        .position(|argument| argument == "exec")
-        .expect("the pass runs `exec`");
-    let overrides: serde_json::Map<String, Value> = arguments[..exec_at]
-        .chunks(2)
-        .map(|pair| {
-            assert_eq!(pair[0], "-c", "only overrides come before `exec`");
-            let (key, value) = pair[1].split_once('=').expect("an override is key=value");
-            let read: toml::Table =
-                toml::from_str(&format!("value = {value}")).expect("the value is TOML");
-            (
-                key.to_owned(),
-                serde_json::to_value(&read["value"]).expect("a TOML value is JSON"),
-            )
-        })
-        .collect();
-    Value::Object(overrides)
-}
-
 // Killed by skipping the server list (`exec` would run with no server named in the failing case,
 // and with the listed servers left on in the other), and by dropping the small title model the
 // service's catalog offers.
@@ -150,7 +129,7 @@ async fn a_one_shot_pass_disables_every_listed_server_or_runs_no_exec(
         let mut expected = locked_down_config();
         expected["model"] = json!("gpt-5.6-luna");
         expected["model_reasoning_effort"] = json!("low");
-        assert_eq!(read_overrides(&arguments), expected);
+        assert_eq!(read_exec_overrides(&arguments), expected);
     } else {
         assert!(named.is_err(), "an unread list fails the pass");
         assert!(!arguments_file.exists(), "`exec` never ran");

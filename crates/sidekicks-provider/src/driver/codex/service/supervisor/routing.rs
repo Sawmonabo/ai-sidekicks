@@ -20,13 +20,11 @@ use crate::driver::codex::event_normalizer::{
 };
 use crate::driver::codex::service::config_warnings::CodexConfigWarnings;
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::rate_limit_readings::CodexRateLimitReadings;
 use crate::driver::codex::service::threads::{CodexHeldThreadFrame, CodexThreadFrameHold};
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::codex::usage_limit_signal::{
-    CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD, CodexRateLimitObservation,
-    observe_codex_rate_limit_update,
-};
+use crate::driver::codex::usage_limit_signal::CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD;
 use crate::driver::diagnostics::OnceReportedDiagnostics;
 use crate::thread_frame_router::ChildThreadAnnouncement;
 
@@ -51,9 +49,8 @@ pub(super) struct CodexServiceRouting {
     closed_waiters: HashMap<String, Vec<oneshot::Sender<()>>>,
     /// The config warnings the service sent, and who was told each.
     pub(super) config_warnings: CodexConfigWarnings,
-    /// The account's rate-limit readings; the account outlives a connection, so a reconnect keeps
-    /// them.
-    pub(super) rate_limits: CodexRateLimitObservation,
+    /// The account's rate-limit readings.
+    pub(super) rate_limits: CodexRateLimitReadings,
     /// The out-of-table methods already reported on the current connection.
     reports: OnceReportedDiagnostics,
 }
@@ -194,13 +191,11 @@ impl CodexService {
         let thread_id = read_codex_frame_thread_id(method, &params);
         let (audience, has_rate_limits_changed) = {
             let mut routing = self.lock_routing();
-            let rate_limits_before = (method == CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD)
-                .then(|| routing.rate_limits.clone());
             // Only reported here, once per connection, when the method is outside the table; the
             // session's frame handler reads the route itself.
             let _route = resolve_codex_frame_emission_route(
                 method,
-                self.home().provider_account_id().cloned(),
+                self.provider_account_id(),
                 &mut routing.reports,
             );
             if method == CODEX_THREAD_CLOSED_METHOD
@@ -208,13 +203,10 @@ impl CodexService {
             {
                 routing.settle_closed(Some(thread_id));
             }
-            let audience = match &thread_id {
+            match &thread_id {
                 None => self.route_unthreaded(&mut routing, method, &params),
-                Some(_) => FrameAudience::Nobody,
-            };
-            let has_rate_limits_changed =
-                rate_limits_before.is_some_and(|before| before != routing.rate_limits);
-            (audience, has_rate_limits_changed)
+                Some(_) => (FrameAudience::Nobody, false),
+            }
         };
         if has_rate_limits_changed {
             self.dependencies.events.rate_limits_observed(self);
@@ -266,32 +258,34 @@ impl CodexService {
     }
 
     // A frame naming no conversation: a config warning to the sessions not told it yet, a rate
-    // limit read into the account's readings, and every frame to every session on the service.
+    // limit read into the account's readings, and every frame to every session on the service;
+    // answers whether the readings changed.
     fn route_unthreaded(
         &self,
         routing: &mut CodexServiceRouting,
         method: &str,
         params: &RawValue,
-    ) -> FrameAudience {
+    ) -> (FrameAudience, bool) {
         let sessions = self.lock_threads().sessions();
         if method == CODEX_CONFIG_WARNING_METHOD {
             // Only the sessions not told it already, so a reconnect repeats nothing.
-            return FrameAudience::Sessions(
-                routing
-                    .config_warnings
-                    .record_warning(params.to_owned(), &sessions),
+            return (
+                FrameAudience::Sessions(
+                    routing
+                        .config_warnings
+                        .record_warning(params.to_owned(), &sessions),
+                ),
+                false,
             );
         }
+        let mut has_rate_limits_changed = false;
         if method == CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD {
             match serde_json::from_str::<Value>(params.get()) {
-                Ok(update) => {
-                    routing.rate_limits =
-                        observe_codex_rate_limit_update(routing.rate_limits.clone(), &update);
-                }
-                Err(_unreadable) => return FrameAudience::Nobody,
+                Ok(update) => has_rate_limits_changed = routing.rate_limits.merge_update(&update),
+                Err(_unreadable) => return (FrameAudience::Nobody, false),
             }
         }
-        FrameAudience::Sessions(sessions)
+        (FrameAudience::Sessions(sessions), has_rate_limits_changed)
     }
 
     // A helper's conversation belongs to the session its parent's does.
