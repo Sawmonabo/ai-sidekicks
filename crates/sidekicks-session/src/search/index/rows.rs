@@ -23,7 +23,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_search::index::{IndexRowKind, IndexRowTag, find_page_end};
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::stored_column::{
-    optional_text_column, rowid_column, wrong_type_failure,
+    optional_text_column, unsigned_integer_column, wrong_type_failure,
 };
 use sidekicks_store::events::content::codec::{
     StoredBodyPlace, stored_body_encoding_sql, stored_body_length_sql,
@@ -363,7 +363,7 @@ impl<'connection> IndexRowReader<'connection> {
             .reader
             .prepare_cached(LAST_ROWID_BEFORE_SQL)?
             .query_row((session_id.text().as_str(), before_sequence), |row| {
-                rowid_column(row, 0)
+                unsigned_integer_column(row, 0)
             })
             .optional()?;
         Ok(rowid.map(|rowid| index_key_of(rowid, IndexRowKind::Event)))
@@ -491,8 +491,8 @@ impl<'connection> IndexRowReader<'connection> {
 // Its key, owner and sequence are read first, so a later value that does not read as its type
 // hands the row back damaged.
 fn source_row_of(kind: IndexRowKind, row: &Row<'_>) -> rusqlite::Result<SourceRowRead> {
-    let key = rowid_column(row, 0)?;
-    let owner_key = rowid_column(row, 1)?;
+    let key = unsigned_integer_column(row, 0)?;
+    let owner_key = unsigned_integer_column(row, 1)?;
     let sequence: Option<i64> = row.get(4)?;
     match whole_source_row_of(kind, row, key, owner_key, sequence) {
         Ok(whole) => Ok(SourceRowRead::Whole(whole)),

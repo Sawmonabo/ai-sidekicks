@@ -26,7 +26,7 @@ use sidekicks_contracts::wire::{False, True};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_search::index::{SearchIndex, SearchIndexError, SearchQuery, SessionFind};
-use sidekicks_store::database::stored_column::rowid_column;
+use sidekicks_store::database::stored_column::unsigned_integer_column;
 
 use crate::search::hits::{HitLine, HitLineReader};
 use crate::search::index::rows::IndexRowReader;
@@ -94,7 +94,7 @@ fn answer(
     let session_key: Option<u64> = reader
         .prepare_cached(SESSION_KEY_SQL)?
         .query_row([request.session_id.text().as_str()], |row| {
-            rowid_column(row, 0)
+            unsigned_integer_column(row, 0)
         })
         .optional()?;
     let Some(session_key) = session_key else {
