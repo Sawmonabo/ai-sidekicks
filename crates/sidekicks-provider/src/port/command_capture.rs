@@ -50,7 +50,8 @@ pub enum CommandWindowEnd {
         /// The signal that ended the command.
         signal: Option<i32>,
     },
-    /// The daemon's stop reached the wrapper before its `Go`, so the command never ran.
+    /// The wrapper ended before its command began, by the daemon's stop or a signal while it
+    /// waited for its `Go`, so the command never ran.
     Unrun,
     /// The wrapper's process ended, or its channel stopped being followed, without telling the
     /// command's end.
@@ -67,8 +68,9 @@ pub struct CommandWindowOpenError(#[source] pub Box<dyn Error + Send + Sync>);
 /// channel's other records.
 pub trait CommandCapture: Send + Sync {
     /// Opens a window for `start`, once the wrapper's `Starting` is read; the wrapper is told to
-    /// go once this answers, either way. Fails with [`CommandWindowOpenError`], which leaves the
-    /// command to run with no window.
+    /// go once this answers, either way. Fails with [`CommandWindowOpenError`] only once it
+    /// recorded the command as run uncovered, its capture failed, so the undo names it; the
+    /// command then runs with no window.
     fn open_window(
         &self,
         start: CommandWindowStart,
@@ -78,7 +80,8 @@ pub trait CommandCapture: Send + Sync {
     /// wrapper's `Began` is read after the open.
     fn command_began(&self, window: &CommandWindowId, is_covered: bool) -> BoxFuture<'_, ()>;
 
-    /// Closes `window` as `end` says: at the wrapper's `Exited`, at its `Stopped` before it
-    /// began, or at its process's end where it told neither. Called once per window, last.
+    /// Closes `window` as `end` says: at the wrapper's `Exited` (unrun where it came before the
+    /// command began), at its `Stopped` before it began, or at its process's end where it told
+    /// neither. Called once per window, last.
     fn close_window(&self, window: CommandWindowId, end: CommandWindowEnd) -> BoxFuture<'_, ()>;
 }

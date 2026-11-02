@@ -305,7 +305,7 @@ fn began_first(told: &[PartyRecord], is_covered: bool) -> bool {
 
 // Fails when the wrapper holds `go` to the deadline it holds the acknowledgment to, so a `go` that
 // comes after it, once the daemon captured what the command may change, finds the command run
-// uncovered. The test build's wait is two seconds, and `go` comes three seconds after the
+// uncovered. The test build's wait is four seconds, and `go` comes five seconds after the
 // acknowledgment. Mutation: keep the deadline at `Acknowledged`.
 #[tokio::test]
 async fn an_acknowledged_line_waits_past_the_deadline_for_go_and_runs_covered() {
@@ -399,6 +399,27 @@ async fn a_line_runs_uncovered_without_an_acknowledgment_and_never_once_stopped(
     );
     assert!(began_first(&told, true), "{told:?}");
     assert!(output.status.success());
+}
+
+// Fails when the daemon's stop does not reach a line command once it runs, so an undo's stop of
+// the agent's commands before its cut leaves the command running and the wait for its end hangs.
+// Mutation: run the line's command with no requests followed (`run_child(.., None)`).
+#[tokio::test]
+async fn a_running_line_command_takes_the_daemon_s_stop() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = open_channel(folder.path());
+    let mut watch = channel.watch().await.expect("the channel is watched");
+    let mut command = line_wrapper(&bash_line("echo ready; sleep 30", folder.path()));
+    with_channel(&mut command, &channel);
+    let mut child = command.spawn().expect("the wrapper starts");
+    let party = starting_party(&channel, &mut watch).await;
+    channel
+        .send_request(party, &DaemonRequest::Go {})
+        .await
+        .expect("go is sent");
+    let _output = read_until(&mut child, "ready");
+    stop_in_order(&channel, &mut watch, party).await;
+    assert_eq!(ended_by(&mut child).as_deref(), Some("SIGKILL"));
 }
 
 // Fails when a line that is no agent's command writes a record or waits for `go`, when an agent's
