@@ -1,9 +1,10 @@
 //! A session's inbox across its sleep: the frame that reaches it asleep wakes it and arrives, the
-//! inbox keeps its name, and Claude Code's answer finds the frame's own sender.
+//! inbox keeps its name, and Claude Code's answer finds the frame's own sender while a receipt
+//! about the daemon's own message reaches the receipt sink.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -18,10 +19,12 @@ use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, UnixDomainStream, bind_socket_listener, connect_unix_domain_socket,
     short_socket_folder,
 };
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 
 use super::ClaudeSessionInboxes;
+use crate::driver::claude::inbox::receipts::{ClaudeInboxReceipt, ClaudeInboxReceiptSink};
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
 use crate::driver::claude::session::scripted::scripted_live_session;
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
@@ -54,6 +57,18 @@ impl SessionInboxAddresser for ScratchAddresser {
 
 fn socket_address(path: &Path) -> FilesystemPath {
     FilesystemPath::new(path.display().to_string()).expect("a scratch socket path is a path")
+}
+
+// Keeps every receipt the daemon's inbox hands it.
+#[derive(Default)]
+struct RecordingSink {
+    receipts: Mutex<Vec<ClaudeInboxReceipt>>,
+}
+
+impl ClaudeInboxReceiptSink for RecordingSink {
+    fn receipt(&self, receipt: ClaudeInboxReceipt) {
+        lock(&self.receipts).push(receipt);
+    }
 }
 
 // Brings the session's process up on each wake, its inbox socket the one given.
@@ -98,24 +113,30 @@ async fn next_frame(listener: &Listener) -> Value {
     serde_json::from_str(&line).expect("the line is JSON")
 }
 
-// Writes `frame` as one line on a new connection to `socket`, held open until dropped.
-async fn send_frame(socket: &Path, frame: &Value) -> UnixDomainStream {
+// Writes each of `frames` as one line, in order, on a new connection to `socket`, held open until
+// dropped.
+async fn send_frames(socket: &Path, frames: &[Value]) -> UnixDomainStream {
     let mut connection = connect_unix_domain_socket(socket)
         .await
         .expect("the socket takes a connection");
-    let mut line = frame.to_string();
-    line.push('\n');
+    let mut lines = String::new();
+    for frame in frames {
+        lines.push_str(&frame.to_string());
+        lines.push('\n');
+    }
     connection
-        .write_all(line.as_bytes())
+        .write_all(lines.as_bytes())
         .await
-        .expect("the frame is written");
+        .expect("the frames are written");
     connection
 }
 
 // Killed by a wake that binds the inbox again under another name (the second frame finds no
 // listener), by a held first line dropped across the wake (the process reads nothing), by a frame
-// passed on with its sender's own `from` (no answer could reach the daemon), and by an answer not
-// passed back to that sender.
+// passed on with its sender's own `from` (no answer could reach the daemon), by an answer not
+// passed back to that sender, by a receipt tried before the route (the answer would reach the sink,
+// not its sender), and by a receipt about the daemon's own message, or a line of neither kind, sent
+// to a sender or kept from the sink.
 #[tokio::test]
 async fn a_frame_to_a_sleeping_session_wakes_it_and_arrives_from_the_daemon_s_inbox() {
     if !CAN_BIND_A_SOCKET_LISTENER {
@@ -148,25 +169,35 @@ async fn a_frame_to_a_sleeping_session_wakes_it_and_arrives_from_the_daemon_s_in
         slots,
         Arc::new(ClaudeIdleSleep::default()),
     ));
+    let sink = Arc::new(RecordingSink::default());
+    inboxes.set_receipt_sink(Arc::clone(&sink) as Arc<dyn ClaudeInboxReceiptSink>);
     inboxes.bind(session_id).await;
 
-    let _asleep = send_frame(
+    let _asleep = send_frames(
         Path::new(session_inbox.as_str()),
-        &json!({"type": "user", "from": format!("uds:{}", sender_socket.display()),
+        &[
+            json!({"type": "user", "from": format!("uds:{}", sender_socket.display()),
             "msg_id": "first", "text": "hello"}),
+        ],
     )
     .await;
     let arrived = next_frame(&process).await;
-    let _receipt = send_frame(
+    // The answer goes last, so once it reaches the sender the two lines before it were read.
+    let _receipts = send_frames(
         Path::new(daemon_inbox.as_str()),
-        &json!({"type": "control", "action": "peer_message_status", "status": "delivered",
-            "from": "uds:/elsewhere.sock", "orig_msg_id": "first"}),
+        &[
+            json!({"type": "control", "action": "peer_message_status", "status": "dropped",
+                "drop_reason": "hop-runaway", "orig_msg_id": "own"}),
+            json!({"type": "auth", "token": "proof"}),
+            json!({"type": "control", "action": "peer_message_status", "status": "delivered",
+                "from": "uds:/elsewhere.sock", "orig_msg_id": "first"}),
+        ],
     )
     .await;
     let answered = next_frame(&sender).await;
-    let _awake = send_frame(
+    let _awake = send_frames(
         Path::new(session_inbox.as_str()),
-        &json!({"type": "user", "from": "uds:/other.sock", "msg_id": "second", "text": "again"}),
+        &[json!({"type": "user", "from": "uds:/other.sock", "msg_id": "second", "text": "again"})],
     )
     .await;
     let second = next_frame(&process).await;
@@ -178,6 +209,15 @@ async fn a_frame_to_a_sleeping_session_wakes_it_and_arrives_from_the_daemon_s_in
     assert_eq!(answered["orig_msg_id"], "first");
     assert_eq!(answered["from"], format!("uds:{}", session_inbox.as_str()));
     assert_eq!(second["msg_id"], "second");
+    let receipts = lock(&sink.receipts);
+    assert!(
+        matches!(
+            receipts.as_slice(),
+            [ClaudeInboxReceipt::MessageStatus { orig_msg_id, .. }] if orig_msg_id == "own"
+        ),
+        "only the daemon's own receipt reaches the sink: {receipts:?}"
+    );
+    drop(receipts);
     inboxes.release_all();
 }
 

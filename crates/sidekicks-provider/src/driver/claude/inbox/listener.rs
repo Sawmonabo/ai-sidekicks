@@ -2,7 +2,8 @@
 //! and the daemon's own, which Claude Code's answers come back to. A connection to a session whose
 //! process is up is passed to that process at once; to one asleep or stopping, its first complete
 //! line is held, the session woken for it, and only then is anything passed on, so a wake that
-//! fails closes the connection having written nothing.
+//! fails closes the connection having written nothing. A line the daemon's own inbox receives that
+//! answers no forwarded frame is read as a receipt and handed to the receipt sink.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -25,6 +26,7 @@ use tokio::task::{JoinHandle, JoinSet};
 
 use crate::driver::claude::inbox::address::{fresh_socket_name, is_inbox_socket_name};
 use crate::driver::claude::inbox::forward::ClaudeInboxForwarding;
+use crate::driver::claude::inbox::receipts::{ClaudeInboxReceiptSink, read_receipt};
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
@@ -52,6 +54,8 @@ pub(crate) struct ClaudeSessionInboxes {
     idle_sleep: Arc<ClaudeIdleSleep>,
     // Made with the daemon's inbox, at the first session's bind.
     forwarding: OnceLock<Arc<ClaudeInboxForwarding>>,
+    // Where the daemon's inbox hands its receipts, read once when the daemon's inbox binds.
+    receipt_sink: OnceLock<Arc<dyn ClaudeInboxReceiptSink>>,
     // Bound once, so sessions starting together share one sweep and one bind.
     daemon_inbox: tokio::sync::OnceCell<JoinHandle<()>>,
     session_inboxes: Mutex<HashMap<SessionId, JoinHandle<()>>>,
@@ -83,6 +87,7 @@ impl ClaudeSessionInboxes {
             slots,
             idle_sleep,
             forwarding: OnceLock::new(),
+            receipt_sink: OnceLock::new(),
             daemon_inbox: tokio::sync::OnceCell::new(),
             session_inboxes: Mutex::default(),
         }
@@ -114,6 +119,22 @@ impl ClaudeSessionInboxes {
             listener,
         ));
         lock(&self.session_inboxes).insert(session_id, serving);
+    }
+
+    /// Sets where the daemon's inbox hands each receipt it reads, once, at the driver's start: the
+    /// daemon's inbox reads it when it binds, at the first session's bind.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the send states take the receipts the daemon's inbox reads"
+        )
+    )]
+    pub(crate) fn set_receipt_sink(&self, sink: Arc<dyn ClaudeInboxReceiptSink>) {
+        assert!(
+            self.receipt_sink.set(sink).is_ok(),
+            "the receipt sink is set once, at the driver's start"
+        );
     }
 
     /// A fresh path in the session inbox's folder for one process of the session to listen on, the
@@ -179,7 +200,12 @@ impl ClaudeSessionInboxes {
                 let forwarding = Arc::clone(self.forwarding.get_or_init(|| {
                     Arc::new(ClaudeInboxForwarding::new(address.as_str().to_owned()))
                 }));
-                Ok::<_, io::Error>(tokio::spawn(serve_daemon_inbox(forwarding, listener)))
+                let receipt_sink = self.receipt_sink.get().cloned();
+                Ok::<_, io::Error>(tokio::spawn(serve_daemon_inbox(
+                    forwarding,
+                    receipt_sink,
+                    listener,
+                )))
             })
             .await?;
         Ok(())
@@ -384,9 +410,13 @@ async fn serve_session_inbox(
     }
 }
 
-// Reads every line written to the daemon's inbox and passes each answer to a forwarded frame on to
-// that frame's sender.
-async fn serve_daemon_inbox(forwarding: Arc<ClaudeInboxForwarding>, listener: Listener) {
+// Reads every line written to the daemon's inbox, passing each answer to a forwarded frame on to
+// that frame's sender and each receipt to `receipt_sink`.
+async fn serve_daemon_inbox(
+    forwarding: Arc<ClaudeInboxForwarding>,
+    receipt_sink: Option<Arc<dyn ClaudeInboxReceiptSink>>,
+    listener: Listener,
+) {
     let mut connections = JoinSet::new();
     loop {
         tokio::select! {
@@ -401,8 +431,10 @@ async fn serve_daemon_inbox(forwarding: Arc<ClaudeInboxForwarding>, listener: Li
                     }
                 };
                 let forwarding = Arc::clone(&forwarding);
+                let receipt_sink = receipt_sink.clone();
                 connections.spawn(async move {
-                    if let Err(error) = pass_answers(&forwarding, connection).await {
+                    let passed = pass_answers(&forwarding, receipt_sink.as_deref(), connection);
+                    if let Err(error) = passed.await {
                         record_inbox_failure(None, "reading the daemon's inbox", &error);
                     }
                 });
@@ -417,14 +449,16 @@ async fn serve_daemon_inbox(forwarding: Arc<ClaudeInboxForwarding>, listener: Li
 }
 
 // Passes each answer one connection to the daemon's inbox carries to the sender of the frame it
-// answers; a line that answers no forwarded frame has nowhere to go. Fails as the connection
-// cannot be read.
+// answers, and each other line that is a receipt to `receipt_sink`; a line of neither kind has
+// nowhere to go, logged once for the connection. Fails as the connection cannot be read.
 async fn pass_answers(
     forwarding: &ClaudeInboxForwarding,
+    receipt_sink: Option<&dyn ClaudeInboxReceiptSink>,
     connection: UnixDomainStream,
 ) -> io::Result<()> {
     let mut lines = BufReader::new(connection);
     let mut line = Vec::new();
+    let mut is_unread_logged = false;
     while lines.read_until(b'\n', &mut line).await? > 0 {
         let text = line.strip_suffix(b"\n").unwrap_or(&line);
         if let Some((sender_socket, mut answer)) = forwarding.route_answer(text) {
@@ -433,6 +467,13 @@ async fn pass_answers(
             if let Err(error) = write_answer(&sender_socket, &answer).await {
                 record_inbox_failure(None, "passing an answer to its sender", &error);
             }
+        } else if let Some(receipt) = read_receipt(text) {
+            if let Some(receipt_sink) = receipt_sink {
+                receipt_sink.receipt(receipt);
+            }
+        } else if !is_unread_logged {
+            is_unread_logged = true;
+            tracing::debug!("the daemon's inbox received a line that is no answer and no receipt");
         }
         line.clear();
     }
