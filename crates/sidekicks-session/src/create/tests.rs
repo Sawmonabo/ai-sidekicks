@@ -558,6 +558,46 @@ async fn a_chat_not_born_leaves_no_workspace_and_the_start_keeps_one_being_made(
     );
 }
 
+// Dies to the start's removal taking a folder another chat holds (the namesake's folder and mount
+// gone), and to a removal that counts the founding chat's own hold as another's (the lone folder
+// kept).
+#[tokio::test]
+async fn the_start_removes_an_unborn_chat_s_folder_only_while_no_other_chat_holds_it() {
+    let fixture = Fixture::new().await;
+    let new_session = || SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is an id");
+    let (namesake, holder, alone) = (new_session(), new_session(), new_session());
+    let held = fixture
+        .managed_workspaces
+        .create(namesake)
+        .await
+        .expect("the namesake's workspace is made");
+    fixture.execute(&format!(
+        "INSERT INTO managed_folder_holds (repo_mount_id, session_id) VALUES ('{}', '{holder}')",
+        held.repo_mount_id
+    ));
+    let lone = fixture
+        .managed_workspaces
+        .create(alone)
+        .await
+        .expect("the lone chat's workspace is made");
+
+    fixture
+        .creation
+        .finish_stopped_creates()
+        .await
+        .expect("the stopped creates are finished");
+
+    let mounts_of = |session_id: SessionId| {
+        fixture.count(&format!(
+            "SELECT count(*) FROM repo_mounts WHERE managed_session_id = '{session_id}'"
+        ))
+    };
+    assert!(held.path.exists());
+    assert_eq!(mounts_of(namesake), 1);
+    assert!(!lone.path.exists());
+    assert_eq!(mounts_of(alone), 0);
+}
+
 // Dies to the level statement omitted from `session.activated`'s prelude, and to the advisor's
 // birth row written unconditionally.
 #[tokio::test]

@@ -256,11 +256,10 @@ impl SessionCreation {
     /// write the planning transcript's file and the seed plan while it is still `provisioning`;
     /// then activates it at the hand-off's level in mode `build`. A session whose hand-off ended
     /// is finished as any create, at its driver's starting level. Each failure names its step:
-    /// `birth` refusing `session.notFound` for a key that made no session, `bind` (a chat fails
-    /// [`SessionCreateError::ChatWithoutMount`], since the mount read finds only a chat's own
-    /// managed mount, not the planning chat's folder it holds), `transcriptFile` and `seedPlan`
-    /// for the port, unset as [`SessionCreateError::HandOffSeeding`], and `activation`. The key's
-    /// task ending with no answer fails at `bind`, the finish's first step.
+    /// `birth` refusing `session.notFound` for a key that made no session, `bind`, `transcriptFile`
+    /// and `seedPlan` for the port, unset as [`SessionCreateError::HandOffSeeding`], and
+    /// `activation`. The key's task ending with no answer fails at `bind`, the finish's first
+    /// step.
     pub async fn finish_handed_off(
         self: &Arc<Self>,
         key: ClientUuid,

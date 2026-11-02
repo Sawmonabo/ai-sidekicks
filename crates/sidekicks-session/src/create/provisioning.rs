@@ -68,13 +68,15 @@ static SELECT_PROVISIONING_CREATES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The mount a session binds to: a chat's own managed mount, or its project's attached one, which a
-// project still cloning has not yet.
+// The mount a session binds to: the one managed folder a chat holds, made for it or handed to it
+// by a plan, or its project's attached mount, which a project still cloning has not yet.
 static SELECT_SESSION_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT id, canonical_root FROM repo_mounts
   WHERE state = '{attached}'
-    AND CASE WHEN @projectId IS NULL THEN managed_session_id = @sessionId
+    AND CASE WHEN @projectId IS NULL
+             THEN id IN (SELECT repo_mount_id FROM managed_folder_holds
+                          WHERE session_id = @sessionId)
              ELSE origin = '{attached_origin}' AND project_id = @projectId END",
         attached = <&'static str>::from(RepoMountState::Attached),
         attached_origin = <&'static str>::from(MountOrigin::Attached),
@@ -112,11 +114,16 @@ fn never_born_sql(session_id_sql: &str) -> String {
     )
 }
 
-// The chats whose managed workspace was made but whose create stopped before the chat was born.
+// The chats whose managed workspace was made but whose create stopped before the chat was born,
+// and which no other chat holds. No hold can appear before the removal: a handed-off hold needs
+// its planning chat's `sessions` row, which a chat never born lacks.
 static SELECT_UNBORN_CHATS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT mount.managed_session_id FROM repo_mounts AS mount
   WHERE mount.origin = '{managed}' AND {}
+    AND NOT EXISTS (SELECT 1 FROM managed_folder_holds AS hold
+                     WHERE hold.repo_mount_id = mount.id
+                       AND hold.session_id <> mount.managed_session_id)
   ORDER BY mount.managed_session_id",
         never_born_sql("mount.managed_session_id"),
         managed = <&'static str>::from(MountOrigin::Managed),
@@ -196,8 +203,8 @@ impl SessionCreation {
     /// hand-off names it, which only the hand-off's finish binds and activates; `active` once
     /// activated; and as it reads now when it left `provisioning` meanwhile, an archive among
     /// them, which nothing binds or activates. Runs while its create's key is held, which it never
-    /// takes. Fails with [`SessionCreateError::ChatWithoutMount`] for a chat with no managed mount,
-    /// refuses `repoMount.notFound` for a project with no attached folder,
+    /// takes. Fails with [`SessionCreateError::ChatWithoutMount`] for a chat holding no managed
+    /// folder, refuses `repoMount.notFound` for a project with no attached folder,
     /// `agent.providerAxisInvalid` for a lead whose provider no driver answers now and
     /// `session.notFound` for a session purged meanwhile, and fails as the bind, the starting
     /// level's read and the append fail.
@@ -253,7 +260,7 @@ impl SessionCreation {
     /// recorded none or the bind refuses the folder `repoMount.outsideTrustEnvelope`, as it
     /// refuses a folder no longer a live tree of the mount; answers the mount's root, or `None`
     /// with nothing bound while its project is still cloning. Fails with
-    /// [`SessionCreateError::ChatWithoutMount`] for a chat with no managed mount, refuses
+    /// [`SessionCreateError::ChatWithoutMount`] for a chat holding no managed folder, refuses
     /// `repoMount.notFound` for a project with no attached folder, and fails as the bind does, a
     /// folder whose read timed out among them.
     pub(super) async fn bind_session(

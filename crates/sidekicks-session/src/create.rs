@@ -247,8 +247,9 @@ pub enum SessionCreateError {
     /// An event and the rows it carries were not kept.
     #[error("the session's event was not appended")]
     Append(#[source] SessionEventAppendError),
-    /// A chat has no managed mount to bind to, which its create always makes first.
-    #[error("chat {session_id} has no managed mount to bind to")]
+    /// A chat holds no managed folder to bind to, which its create or its hand-off always gives it
+    /// first.
+    #[error("chat {session_id} holds no managed folder to bind to")]
     ChatWithoutMount {
         /// The chat.
         session_id: SessionId,

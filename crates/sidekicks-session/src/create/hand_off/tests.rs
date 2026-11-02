@@ -8,7 +8,7 @@ use rstest::rstest;
 use rusqlite::{Connection, OptionalExtension};
 use sidekicks_contracts::plan::PlanId;
 use sidekicks_contracts::project::ProjectId;
-use sidekicks_contracts::repo::mount::ExecutionMode;
+use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{PlanMessage, PlanMessageKind, QueueItemId};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
@@ -19,6 +19,7 @@ use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_workspace::repo::mount::service::managed_folder_hold_statement;
 
 use super::{HandOffSeeding, SessionHandOff, record_hand_off_statement};
 use crate::create::tests::{
@@ -355,6 +356,56 @@ async fn a_hand_off_s_finish_binds_its_folder_seeds_and_activates_at_the_verdict
         )),
         Some("build".to_owned())
     );
+}
+
+// Dies to the chat's mount read keyed on the chat the folder was made for: the fresh chat, which
+// only holds the planning chat's folder, fails `ChatWithoutMount` at `bind`.
+#[tokio::test]
+async fn a_chat_s_hand_off_binds_its_fresh_chat_on_the_planning_chat_s_folder() {
+    let fixture = Fixture::new().await;
+    let planning = fixture
+        .creation
+        .create(chat_request(new_key()))
+        .await
+        .expect("the planning chat is made")
+        .session_id;
+    let planning_mount = fixture
+        .text(&format!(
+            "SELECT id FROM repo_mounts WHERE managed_session_id = '{planning}'"
+        ))
+        .expect("the planning chat has its folder");
+    let fresh = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+    fixture
+        .writer
+        .write(vec![managed_folder_hold_statement(
+            RepoMountId::new(&planning_mount).expect("a stored mount id"),
+            planning,
+            fresh,
+        )])
+        .await
+        .expect("the fresh chat holds the planning chat's folder");
+    record_hand_off(&fixture.writer, planning, fresh).await;
+    fixture
+        .creation
+        .create_handed_off(hand_off_key(fresh))
+        .await
+        .expect("the fresh chat is born");
+    let _seeding = RecordingSeeding::set_on(&fixture);
+
+    let state = fixture
+        .creation
+        .finish_handed_off(hand_off_key(fresh))
+        .await
+        .expect("the hand-off finishes");
+
+    assert_eq!(state, SessionState::Active);
+    assert_eq!(
+        fixture.text(&format!(
+            "SELECT repo_mount_id FROM workspaces WHERE session_id = '{fresh}'"
+        )),
+        Some(planning_mount)
+    );
+    assert_eq!(fixture.count(MANAGED_MOUNTS), 1);
 }
 
 // Dies to a hand-off session finished outside the port (the left one bound or active), to the
