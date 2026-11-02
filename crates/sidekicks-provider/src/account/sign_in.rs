@@ -383,6 +383,7 @@ impl Reservation {
             verification_uri,
             user_code,
             expires_at,
+            browser_opened_by_provider,
             code_prompts,
             input,
             completion,
@@ -402,6 +403,7 @@ impl Reservation {
             verification_uri,
             user_code,
             expires_at,
+            browser_opened_by_provider,
         }));
         let ended = attempt.run(legs, code_prompts, completion).await;
         publisher.publish(ended);

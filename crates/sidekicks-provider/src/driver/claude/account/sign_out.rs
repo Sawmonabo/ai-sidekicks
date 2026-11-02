@@ -55,9 +55,12 @@ pub(super) async fn sign_out_claude_home(
     folders: ProviderAccountFolders,
 ) -> Result<(), DriverError> {
     let executable = legs
-        .resolve_build_on(ClaudeProcessHome::Account {
-            folders: &ClaudeAccountFolders::from(&folders),
-        })
+        .resolve_build_on(
+            ClaudeProcessHome::Account {
+                folders: &ClaudeAccountFolders::from(&folders),
+            },
+            &[],
+        )
         .await?;
     let working_folder = compose_claude_scratch_folder(
         &legs.data_folder.to_string_lossy(),

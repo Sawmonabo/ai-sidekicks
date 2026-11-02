@@ -49,11 +49,57 @@ pub(crate) const SECURE_STORAGE_FOLDER_VARIABLE: &str = "CLAUDE_SECURESTORAGE_CO
 /// from, to a custom host.
 pub(crate) const CUSTOM_SIGN_IN_HOST_VARIABLE: &str = "CLAUDE_CODE_CUSTOM_OAUTH_URL";
 
+/// The hosts Claude Code accepts in [`CUSTOM_SIGN_IN_HOST_VARIABLE`], refusing any other.
+const APPROVED_CUSTOM_BASES: [&str; 3] = [
+    "https://beacon.claude-ai.staging.ant.dev",
+    "https://claude.fedstart.com",
+    "https://claude-staging.fedstart.com",
+];
+
+/// What an environment says of a custom sign-in host, read as Claude Code reads it.
+pub(crate) enum ClaudeCustomSignInBase {
+    /// It names none.
+    Unset,
+    /// It names one Claude Code accepts, given here without its trailing `/`.
+    Approved(&'static str),
+    /// It names one Claude Code refuses.
+    Refused,
+}
+
+/// Reads [`CUSTOM_SIGN_IN_HOST_VARIABLE`] in `environment`, a trailing `/` dropped, against the
+/// hosts Claude Code accepts. Never fails.
+pub(crate) fn read_custom_sign_in_base(environment: &[(String, String)]) -> ClaudeCustomSignInBase {
+    let Some(custom) =
+        PathRules::NATIVE.environment_value(environment, CUSTOM_SIGN_IN_HOST_VARIABLE)
+    else {
+        return ClaudeCustomSignInBase::Unset;
+    };
+    let custom = custom.strip_suffix('/').unwrap_or(custom);
+    APPROVED_CUSTOM_BASES
+        .into_iter()
+        .find(|approved| *approved == custom)
+        .map_or(
+            ClaudeCustomSignInBase::Refused,
+            ClaudeCustomSignInBase::Approved,
+        )
+}
+
 /// The variable whose token Claude Code signs in with ahead of its stored sign-in.
 pub(crate) const OAUTH_TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_TOKEN";
 
 /// The variable whose API key Claude Code calls the API with.
 pub(crate) const API_KEY_VARIABLE: &str = "ANTHROPIC_API_KEY";
+
+/// The variable whose refresh token `claude auth login` signs in with, skipping its own flow.
+const OAUTH_REFRESH_TOKEN_VARIABLE: &str = "CLAUDE_CODE_OAUTH_REFRESH_TOKEN";
+
+/// The variables that would sign a process in ahead of its home's own sign-in, which a sign-in and
+/// its status read remove so they act on the home alone.
+pub(crate) const SIGN_IN_OVERRIDE_VARIABLES: [&str; 3] = [
+    OAUTH_TOKEN_VARIABLE,
+    API_KEY_VARIABLE,
+    OAUTH_REFRESH_TOKEN_VARIABLE,
+];
 
 /// How many UTF-16 units at the trimmed key's end Claude Code files its approval under.
 const API_KEY_APPROVAL_UNITS: usize = 20;

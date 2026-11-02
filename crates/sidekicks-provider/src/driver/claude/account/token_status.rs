@@ -31,10 +31,13 @@ pub(super) async fn read_claude_token_status(
         async |folder| {
             let folders = ClaudeAccountFolders::from(folders);
             let executable = legs
-                .resolve_build_on(ClaudeProcessHome::AccountStore {
-                    folder,
-                    credential_store_folder: &folders.credential_store_folder,
-                })
+                .resolve_build_on(
+                    ClaudeProcessHome::AccountStore {
+                        folder,
+                        credential_store_folder: &folders.credential_store_folder,
+                    },
+                    &[],
+                )
                 .await?;
             let sources = probe_claude_sign_in(
                 &legs.launcher,

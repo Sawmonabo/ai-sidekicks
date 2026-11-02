@@ -161,6 +161,7 @@ impl ProviderSignInLegs for ScriptedLegs {
                 .expect("an https address"),
             user_code: None,
             expires_at: None,
+            browser_opened_by_provider: false,
             code_prompts: code_prompts.boxed(),
             input: Box::new(ScriptedInput {
                 end: end_sender,

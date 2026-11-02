@@ -83,6 +83,9 @@ pub(crate) enum ClaudeLaunchError {
         /// What it did not answer.
         what: String,
     },
+    /// The `initialize` reply named its account in a shape that could not be read.
+    #[error("Claude Code's initialize reply could not be read")]
+    InitializeUnreadable(#[source] serde_json::Error),
     /// The build the command names could not be resolved, or its version not read.
     #[error(transparent)]
     Build(#[from] DriverError),
@@ -104,7 +107,8 @@ impl From<ClaudeLaunchError> for DriverError {
             | ClaudeLaunchError::MessageUnwritten(_)
             | ClaudeLaunchError::TurnErrored { .. }
             | ClaudeLaunchError::TurnStopped
-            | ClaudeLaunchError::Unanswered { .. }) => Self::Internal(Box::new(error)),
+            | ClaudeLaunchError::Unanswered { .. }
+            | ClaudeLaunchError::InitializeUnreadable(_)) => Self::Internal(Box::new(error)),
         }
     }
 }

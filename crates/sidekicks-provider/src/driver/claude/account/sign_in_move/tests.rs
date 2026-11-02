@@ -131,6 +131,7 @@ impl ProviderSignInLegs for WaitingSignIn {
                     .expect("an https address"),
                 user_code: None,
                 expires_at: None,
+                browser_opened_by_provider: false,
                 code_prompts: futures::stream::pending().boxed(),
                 input: Box::new(NoInput),
                 completion: futures::future::pending::<ProviderSignInEnd>().boxed(),

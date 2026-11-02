@@ -99,20 +99,23 @@ impl ClaudeAccountLegs {
         drop(self.sessions.set(sessions));
     }
 
-    // The environment a process on `home` starts with, and the build it names. Fails as the
-    // environment cannot be composed or the build resolved.
+    // The environment a process on `home` starts with, `deny_env_vars` removed, and the build it
+    // names. Fails as the environment cannot be composed or the build resolved.
     async fn resolve_build_on(
         &self,
         home: ClaudeProcessHome<'_>,
+        deny_env_vars: &[&str],
     ) -> Result<ResolvedProviderExecutable, DriverError> {
-        let environment = self.compose_environment_on(home)?;
+        let environment = self.compose_environment_on(home, deny_env_vars)?;
         resolve_claude_build(&self.command_search, &self.home_folder, environment).await
     }
 
-    // The environment a process on `home` starts with. Fails as it cannot be composed.
+    // The environment a process on `home` starts with, `deny_env_vars` removed. Fails as it cannot
+    // be composed.
     fn compose_environment_on(
         &self,
         home: ClaudeProcessHome<'_>,
+        deny_env_vars: &[&str],
     ) -> Result<Vec<(String, String)>, DriverError> {
         let data_folder = self.data_folder.to_string_lossy();
         compose_claude_process_environment(
@@ -124,7 +127,7 @@ impl ClaudeAccountLegs {
                     reserved_names: &self.reserved_names,
                     rules: PathRules::NATIVE,
                 },
-                deny_env_vars: &[],
+                deny_env_vars,
                 home,
                 data_folder: &data_folder,
             },

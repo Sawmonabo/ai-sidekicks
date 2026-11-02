@@ -13,8 +13,8 @@ use secrecy::SecretString;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{
     PROVIDER_ACCOUNT_EMAIL_MAX_LEN, PROVIDER_ACCOUNT_ORG_ID_MAX_LEN,
-    PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN, PROVIDER_ACCOUNT_PLAN_MAX_LEN, ProviderAccountId,
-    ProviderAuthMode,
+    PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN, PROVIDER_ACCOUNT_PLAN_MAX_LEN, ProviderAccountHealthState,
+    ProviderAccountId, ProviderAuthMode,
 };
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, PROVIDER_SIGN_IN_USER_CODE_MAX_LEN,
@@ -130,6 +130,8 @@ pub struct ProviderSignInHandle {
     pub user_code: Option<FreeFormText<PROVIDER_SIGN_IN_USER_CODE_MAX_LEN>>,
     /// Where the provider bounds the attempt, in the future and within its ceiling, else `None`.
     pub expires_at: Option<WireInstant>,
+    /// Whether the provider opened the address in a browser itself, so the client opens none.
+    pub browser_opened_by_provider: bool,
     /// One item each time the flow waits for a pasted code, read from its prompt and carrying
     /// none of the prompt's text; empty on a flow that never asks.
     pub code_prompts: BoxStream<'static, ()>,
@@ -179,6 +181,44 @@ pub struct ProviderSignInObservation {
     pub is_account_named: bool,
     /// The kind of sign-in the provider's status read reports; `None` where it reports none.
     pub observed_auth_mode: Option<ProviderAuthMode>,
+}
+
+impl ProviderSignInObservation {
+    /// The status read taken now: signed in with `signed_in_mode`, the account named only where
+    /// `is_account_named` and it is signed in, or signed out where `signed_in_mode` is `None`.
+    pub(crate) fn read_now(
+        signed_in_mode: Option<ProviderAuthMode>,
+        is_account_named: bool,
+    ) -> Self {
+        let (state, observed_auth_mode) = match signed_in_mode {
+            Some(mode) => (ProviderAccountHealthState::Authenticated, mode),
+            None => (
+                ProviderAccountHealthState::ReauthRequired,
+                ProviderAuthMode::None,
+            ),
+        };
+        Self {
+            health: HealthObservation {
+                state,
+                observed_at: WireInstant::now(),
+            },
+            is_account_named: is_account_named && signed_in_mode.is_some(),
+            observed_auth_mode: Some(observed_auth_mode),
+        }
+    }
+}
+
+/// `text` as a sign-in address when it parses as an `https:` address on one of `hosts` with no
+/// port of its own, else `None`, so a flow never hands the person an address its provider did not
+/// name.
+pub(crate) fn read_sign_in_address(
+    text: &str,
+    hosts: &[&str],
+) -> Option<HttpsAddress<PROVIDER_SIGN_IN_VERIFICATION_URI_MAX_LEN>> {
+    let address = HttpsAddress::new(text)?;
+    let parsed = url::Url::parse(address.as_str()).ok()?;
+    let is_provider_host = parsed.host_str().is_some_and(|host| hosts.contains(&host));
+    (is_provider_host && parsed.port().is_none()).then_some(address)
 }
 
 /// A provider's status read of a pasted token or API key: the registration-time invocation that

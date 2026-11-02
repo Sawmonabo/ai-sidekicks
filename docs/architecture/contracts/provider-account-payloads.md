@@ -582,6 +582,7 @@ interface ProviderAccountSignInResponse {
   verificationUri: string; // where the person completes the flow — the provider's own URL, verbatim
   userCode?: string; // present on a device-code arm; the person types it at `verificationUri`
   expiresAt?: string; // RFC 3339 UTC, where the provider bounds the attempt; null/absent = the provider published no bound. A whitelisted field (Spec-025 §Brokered interactive sign-in), admitted under the same parse-and-validate rule as the others: parsed to an RFC 3339 instant, required to be in the future and within the provider's documented attempt ceiling, and OMITTED rather than surfaced where it fails either test. It is a bound on an attempt, not provider state — it carries no OAuth, PKCE, or credential field.
+  browserOpenedByProvider: boolean; // true where the provider opened the address in a browser itself (Claude Code's sign-in at this machine): the client opens nothing, and still draws `Open the sign-in page` with the address
 }
 
 // Cancellation is a FIRST-CLASS OUTCOME, not an abandonment: a broker that could only be abandoned

@@ -185,10 +185,13 @@ async fn run_claude_smallest_turn(
         async |folder| {
             let folders = ClaudeAccountFolders::from(folders);
             let mut executable = legs
-                .resolve_build_on(ClaudeProcessHome::AccountStore {
-                    folder,
-                    credential_store_folder: &folders.credential_store_folder,
-                })
+                .resolve_build_on(
+                    ClaudeProcessHome::AccountStore {
+                        folder,
+                        credential_store_folder: &folders.credential_store_folder,
+                    },
+                    &[],
+                )
                 .await?;
             executable
                 .environment

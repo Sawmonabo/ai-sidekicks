@@ -157,7 +157,7 @@ impl ClaudeAccountLegs {
                 &account.credential_home,
             ));
             let environment = self
-                .compose_environment_on(ClaudeProcessHome::Account { folders: &folders })
+                .compose_environment_on(ClaudeProcessHome::Account { folders: &folders }, &[])
                 .map_err(ClaudeSignInMoveError::Environment)?;
             let sign_in = KeychainSignIn {
                 service: claude_keychain_service(&environment),

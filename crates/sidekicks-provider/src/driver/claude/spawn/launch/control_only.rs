@@ -229,20 +229,32 @@ struct InitializeAccount {
     account: Option<AccountSources>,
 }
 
+// The account's email is read only as whether it is a non-empty string, never kept.
 #[derive(Deserialize)]
 struct AccountSources {
     #[serde(rename = "tokenSource", default)]
     token_source: Option<Value>,
     #[serde(rename = "apiKeySource", default)]
     api_key_source: Option<Value>,
+    #[serde(default, deserialize_with = "is_non_empty_string")]
+    email: bool,
+}
+
+// Whether the value is a non-empty string; the string itself is dropped here.
+fn is_non_empty_string<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<bool, D::Error> {
+    Ok(matches!(Value::deserialize(deserializer)?, Value::String(text) if !text.is_empty()))
 }
 
 /// How an `initialize` reply's account says a process is signed in: the source Claude Code names
-/// for its token and for its API key, each `None` where it names none.
+/// for its token and for its API key, each `None` where it names none, and whether it names the
+/// account's email, which is never kept.
 #[derive(Default)]
 pub(crate) struct ClaudeSignInSources {
     token_source: Option<String>,
     api_key_source: Option<String>,
+    has_email: bool,
 }
 
 impl ClaudeSignInSources {
@@ -252,6 +264,18 @@ impl ClaudeSignInSources {
         self.token_source
             .as_deref()
             .filter(|source| *source != CLAUDE_NO_SIGN_IN_SOURCE)
+    }
+
+    /// The source of the process's API key, where it names one other than `none`.
+    pub(crate) fn api_key_source(&self) -> Option<&str> {
+        self.api_key_source
+            .as_deref()
+            .filter(|source| *source != CLAUDE_NO_SIGN_IN_SOURCE)
+    }
+
+    /// Whether the reply named the account's email.
+    pub(crate) fn has_email(&self) -> bool {
+        self.has_email
     }
 
     /// How the process is signed in, by the first source named: its token's, else its API key's.
@@ -274,8 +298,9 @@ const CLAUDE_NO_SIGN_IN_SOURCE: &str = "none";
 
 /// Brings a process up on the executable's home with nothing kept, under `provider_account_id`'s
 /// account where given and handed `token` as [`ClaudeShortProcess::start`] hands it, and answers
-/// the sign-in sources its `initialize` reply's account names, a blank one read as unnamed. Fails
-/// as the start or `initialize` does.
+/// the sign-in sources its `initialize` reply's account names, a blank one read as unnamed and a
+/// reply naming no account as signed out. Fails as the start or `initialize` does, and with
+/// `InitializeUnreadable` where the reply cannot be read.
 pub(crate) async fn probe_claude_sign_in(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,
@@ -294,7 +319,9 @@ pub(crate) async fn probe_claude_sign_in(
     let reply = short.initialize().await;
     short.close().await;
     let sources = reply?
-        .and_then(|reply| serde_json::from_str::<InitializeAccount>(reply.get()).ok())
+        .map(|reply| serde_json::from_str::<InitializeAccount>(reply.get()))
+        .transpose()
+        .map_err(ClaudeLaunchError::InitializeUnreadable)?
         .and_then(|reply| reply.account);
     let named = |source: Option<Value>| {
         source.and_then(|source| {
@@ -308,6 +335,7 @@ pub(crate) async fn probe_claude_sign_in(
         .map(|sources| ClaudeSignInSources {
             token_source: named(sources.token_source),
             api_key_source: named(sources.api_key_source),
+            has_email: sources.email,
         })
         .unwrap_or_default())
 }

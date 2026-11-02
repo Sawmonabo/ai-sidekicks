@@ -81,10 +81,13 @@ async fn observe_claude_limits(
         async |folder| {
             let folders = ClaudeAccountFolders::from(&folders);
             let executable = legs
-                .resolve_build_on(ClaudeProcessHome::AccountStore {
-                    folder,
-                    credential_store_folder: &folders.credential_store_folder,
-                })
+                .resolve_build_on(
+                    ClaudeProcessHome::AccountStore {
+                        folder,
+                        credential_store_folder: &folders.credential_store_folder,
+                    },
+                    &[],
+                )
                 .await?;
             let debug_file = folder.join(DEBUG_FILE_NAME);
             let mut arguments = compose_claude_control_only_arguments(None);

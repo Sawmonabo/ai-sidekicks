@@ -48,6 +48,12 @@ impl CredentialHome {
     pub(super) fn from_stored(path: String) -> Self {
         Self(PathBuf::from(path))
     }
+
+    /// A home at `path`, for a driver's test that runs its legs on a folder of its own.
+    #[cfg(test)]
+    pub(crate) fn at(path: PathBuf) -> Self {
+        Self(path)
+    }
 }
 
 impl fmt::Debug for CredentialHome {
