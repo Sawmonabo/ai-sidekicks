@@ -1,6 +1,8 @@
 //! A session's checkpoints: what each of its turns captured and copied, enough to put a checkout
 //! back to a point. Every byte sits in files under the owner's capture folder; these tables hold
-//! only names, hashes and paths.
+//! only names, hashes and paths. The copies themselves sit in one folder, each named for its
+//! content's hash.
 
+pub mod copies;
 pub mod schema;
 pub mod store;

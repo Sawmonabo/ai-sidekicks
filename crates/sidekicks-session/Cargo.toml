@@ -11,6 +11,8 @@ publish.workspace = true
 doctest = false
 
 [dependencies]
+# The checkpoint copies' hex names.
+base16ct.workspace = true
 # The skipped-file cursor's base64url encoding.
 base64.workspace = true
 blake3.workspace = true
@@ -40,7 +42,7 @@ satteri-pulldown-cmark.workspace = true
 secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-# The web address's HMAC-SHA256.
+# The web address's HMAC-SHA256, and the checkpoint copies' content hash.
 sha2.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
