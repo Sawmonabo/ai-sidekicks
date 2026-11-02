@@ -53,8 +53,8 @@ pub(super) fn unloaded(thread_id: &'static str, status: &str) -> HelperScript {
     }
 }
 
-// The helper `thread_id` held loaded, its resume refused as Codex refuses a helper whose parent
-// is not loaded.
+// The helper `thread_id` held loaded and running its newest turn, its resume refused as Codex
+// refuses a helper whose parent is not loaded.
 fn refused(thread_id: &'static str) -> HelperScript {
     HelperScript {
         thread_id,
@@ -64,7 +64,7 @@ fn refused(thread_id: &'static str) -> HelperScript {
             "message": "cannot resume multi-agent v2 child: parent is not loaded; resume the \
                         parent first",
         }}),
-        listed_turns: json!([]),
+        listed_turns: json!([page_turn(HELPER_TURN, "inProgress", HELPER_TURN)]),
     }
 }
 
@@ -88,10 +88,12 @@ pub(super) async fn adopt_with_helpers(
 // helper whose turn runs still runs, with its run routed to its conversation; one whose turn is
 // over ended, and so does an unloaded one, each child run ending completed with its
 // `subagent.completed` row as the session opens; an unloaded one whose turn reads running is
-// gone, as is one whose reopen Codex refuses, which leaves the next helper reopened. Killed by no
-// reopen (no helper resume), by every loaded helper read running (the loaded completed case), by
-// the unloaded read skipped (the unloaded completed case reads gone), by no route bound, by the
-// owed end not routed (no end at the open), and by a refusal that stops the reads.
+// gone, as is one whose reopen Codex refuses, whose running turn is interrupted and which leaves
+// the next helper reopened. Killed by no reopen (no helper resume), by every loaded helper read
+// running (the loaded completed case), by the unloaded read skipped (the unloaded completed case
+// reads gone), by no route bound, by the owed end not routed (no end at the open) or read as the
+// daemon's interrupt, by a refusal that stops the reads, and by a refused helper left running (no
+// interrupt).
 #[rstest]
 #[case::loaded_running(vec![
     (loaded("thread-helper-a", "inProgress"), ProviderTurnAnswer::StillRunning),
@@ -119,11 +121,18 @@ async fn an_adopted_helper_is_answered_from_its_newest_turn(
     let mut expected = Vec::new();
     let mut scripts = Vec::new();
     let mut expected_resumes = vec![json!(ADOPTED_THREAD)];
+    let mut expected_interrupts = Vec::new();
     for (script, answer) in helpers {
         let run_id = new_run_id();
         live_runs.push(helper_run(run_id, lead_run_id, script.thread_id));
         if script.is_loaded {
             expected_resumes.push(json!(script.thread_id));
+        }
+        if script.resume_page.get("error").is_some() {
+            expected_interrupts.push(json!({
+                "threadId": script.thread_id,
+                "turnId": HELPER_TURN,
+            }));
         }
         expected.push((run_id, answer));
         scripts.push(script);
@@ -137,6 +146,12 @@ async fn an_adopted_helper_is_answered_from_its_newest_turn(
         .map(|resume| resume["params"]["threadId"].clone())
         .collect();
     assert_eq!(resumed_threads, expected_resumes);
+    let interrupts: Vec<Value> = adoption
+        .interrupts
+        .iter()
+        .map(|interrupt| interrupt["params"].clone())
+        .collect();
+    assert_eq!(interrupts, expected_interrupts);
     for resume in &adoption.resumes[1..] {
         assert_eq!(resume["params"]["excludeTurns"], true);
         assert_eq!(
@@ -148,7 +163,7 @@ async fn an_adopted_helper_is_answered_from_its_newest_turn(
     for (run_id, answer) in &expected {
         assert_eq!(adoption.answer_of(*run_id), *answer);
         assert_eq!(
-            run_routes.begin_helper_interrupt(*run_id).is_some(),
+            run_routes.has_helper_route(*run_id),
             *answer != ProviderTurnAnswer::Gone,
             "the helper's run is routed exactly when it is bound again"
         );
@@ -181,6 +196,10 @@ async fn an_adopted_helper_is_answered_from_its_newest_turn(
                 }]
             );
             assert_eq!(completed_rows, 1);
+            assert_eq!(
+                session.engine.daemon_interrupt_ends_of_run(*run_id),
+                [false]
+            );
         } else {
             assert_eq!(session.engine.moves_of_run(*run_id), Vec::new());
             assert_eq!(completed_rows, 0);

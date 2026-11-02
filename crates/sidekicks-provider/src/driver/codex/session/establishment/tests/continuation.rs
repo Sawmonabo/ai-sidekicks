@@ -73,13 +73,14 @@ pub(super) fn lead_run(run_id: RunId, run_state: RunState) -> LiveRunResume {
     }
 }
 
-// What a resume by handle did: its result, the session it established, and each `thread/resume`
-// and `turn/start` it sent.
+// What a resume by handle did: its result, the session it established, and each `thread/resume`,
+// `turn/start` and `turn/interrupt` it sent.
 pub(super) struct Adoption {
     pub(super) result: DriverResumeResult,
     pub(super) established: Option<CodexEstablishedSession>,
     pub(super) resumes: Vec<Value>,
     pub(super) turn_starts: Vec<Value>,
+    pub(super) interrupts: Vec<Value>,
 }
 
 impl Adoption {
@@ -221,6 +222,7 @@ pub(super) async fn adopt(
     let script = &mut session.scripted.script;
     let mut resumes = Vec::new();
     let mut turn_starts = Vec::new();
+    let mut interrupts = Vec::new();
     let resuming = establishment.resume_by_handle(&params);
     tokio::pin!(resuming);
     let resumed = loop {
@@ -264,6 +266,10 @@ pub(super) async fn adopt(
                     script.answer(&sent, &json!({"data": turns, "nextCursor": null}));
                 }
                 (Some("thread/settings/update"), _) => script.answer(&sent, &json!({})),
+                (Some("turn/interrupt"), _) => {
+                    interrupts.push(sent.clone());
+                    script.answer(&sent, &json!({}));
+                }
                 (Some("turn/start"), _) => {
                     turn_starts.push(sent.clone());
                     match &turn_start_answer {
@@ -284,6 +290,7 @@ pub(super) async fn adopt(
         established: resumed.established,
         resumes,
         turn_starts,
+        interrupts,
     }
 }
 
