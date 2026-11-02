@@ -838,6 +838,8 @@ fn account_state_of(error: &DriverError) -> AgentBindingSwitchAccountState {
         | DriverError::ProviderAxisInvalid(_)
         | DriverError::RuleNotKept(_)
         | DriverError::SkillNotListed(_)
+        | DriverError::NoPersonServerEntry(_)
+        | DriverError::SignInFailed(_)
         | DriverError::Internal(_) => None,
     };
     match code {
