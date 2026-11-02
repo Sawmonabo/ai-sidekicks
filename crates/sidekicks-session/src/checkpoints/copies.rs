@@ -62,13 +62,14 @@ pub enum FileCopyOutcome {
 #[derive(Debug, thiserror::Error)]
 pub enum FileCopyError {
     /// Opening or reading the file, or making the copy's temporary file, failed before anything
-    /// was written; or flushing the copies folder failed once the copy had its name.
+    /// was written; or flushing the copies folder failed once a copy had its name.
     #[error("the checkpoint copy could not be made")]
     Io(#[source] io::Error),
-    /// Hashing, flushing or publishing the copy's temporary file failed, with the temporary
-    /// file's removal's own failure beside it.
+    /// A step on the copy's temporary file failed once it existed (hashing it, checking for a
+    /// copy already named, flushing or publishing it), with the temporary file's removal's own
+    /// failure beside it.
     #[error("the checkpoint copy could not be kept")]
-    Publish(#[source] CleanupFailures<io::Error>),
+    TemporaryFile(#[source] CleanupFailures<io::Error>),
     /// The clone failed for a reason other than the volume refusing it.
     #[error("the file could not be cloned")]
     Clone(#[source] io::Error),
@@ -154,7 +155,8 @@ impl CopyStore {
     }
 
     // Gives the whole file at `temporary`, open as `copy`, its hash's name, or removes it when a
-    // copy already has that name. Only a newly named copy is flushed, with the folder after it.
+    // copy already has that name. Only a newly named copy is flushed; the folder is flushed either
+    // way, so a copy another writer named is on disk before a row names it.
     fn publish(
         &self,
         temporary: &Path,
@@ -165,12 +167,13 @@ impl CopyStore {
         match target.try_exists() {
             Ok(true) => {
                 fs::remove_file(temporary).map_err(|removal_failure| {
-                    FileCopyError::Publish(CleanupFailures::new(
+                    FileCopyError::TemporaryFile(CleanupFailures::new(
                         removal_failure,
                         Vec::new(),
                         KEEPING,
                     ))
                 })?;
+                flush_folder(&self.folder).map_err(FileCopyError::Io)?;
                 return Ok(hash);
             }
             Ok(false) => {}
@@ -180,12 +183,11 @@ impl CopyStore {
             return Err(remove_temporary_after(failure, temporary));
         }
         drop(copy);
-        match blocking_publish_without_replacing(temporary, &target)
-            .map_err(FileCopyError::Publish)?
-        {
-            PublishOutcome::Published => flush_folder(&self.folder).map_err(FileCopyError::Io)?,
-            PublishOutcome::TargetExists => {}
-        }
+        // Published or found named by another writer, the copy is flushed with its folder.
+        let (PublishOutcome::Published | PublishOutcome::TargetExists) =
+            blocking_publish_without_replacing(temporary, &target)
+                .map_err(FileCopyError::TemporaryFile)?;
+        flush_folder(&self.folder).map_err(FileCopyError::Io)?;
         Ok(hash)
     }
 
@@ -224,7 +226,7 @@ fn remove_temporary_after(failure: io::Error, temporary: &Path) -> FileCopyError
         Ok(()) => Vec::new(),
         Err(removal_failure) => vec![removal_failure],
     };
-    FileCopyError::Publish(CleanupFailures::new(failure, removal_failures, KEEPING))
+    FileCopyError::TemporaryFile(CleanupFailures::new(failure, removal_failures, KEEPING))
 }
 
 #[cfg(test)]

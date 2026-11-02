@@ -62,18 +62,20 @@ static INSERT_CHECKPOINT_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // The version takes the checkpoint's next sequence, so the order recorded is the order kept.
 const INSERT_VERSION_SQL: &str = "INSERT INTO checkpoint_versions
-  (checkpoint_id, sequence, path, leg, kind, copy_hash, not_kept_reason, parent_real_path,
+  (checkpoint_id, sequence, path, leg, kind, copy_hash, mode, not_kept_reason, parent_real_path,
    window_id, shadow_id)
   VALUES (@checkpointId,
           (SELECT COALESCE(MAX(sequence) + 1, 0) FROM checkpoint_versions
             WHERE checkpoint_id = @checkpointId),
-          @path, @leg, @kind, @copyHash, @notKeptReason, @parentRealPath, @windowId, @shadowId)";
+          @path, @leg, @kind, @copyHash, @mode, @notKeptReason, @parentRealPath, @windowId,
+          @shadowId)";
 
 static OPEN_WINDOW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO checkpoint_commands
-  (window_id, checkpoint_id, tree_before, head_before, command, tool_call_id, started_at)
-  VALUES (@windowId, @checkpointId, @treeBefore, @headBefore, @command, @toolCallId,
+  (window_id, checkpoint_id, tree_before, head_before, commit_before, command, tool_call_id,
+   started_at)
+  VALUES (@windowId, @checkpointId, @treeBefore, @headBefore, @commitBefore, @command, @toolCallId,
           {DATABASE_NOW_SQL})"
     )
 });
@@ -82,7 +84,8 @@ static OPEN_WINDOW_SQL: LazyLock<String> = LazyLock::new(|| {
 static CLOSE_WINDOW_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE checkpoint_commands
-  SET tree_after = @treeAfter, head_after = @headAfter, covered = @covered,
+  SET tree_after = @treeAfter, head_after = @headAfter, commit_after = @commitAfter,
+      covered = @covered,
       ended_at = {DATABASE_NOW_SQL}
   WHERE window_id = @windowId AND ended_at IS NULL"
     )
@@ -119,7 +122,7 @@ const CHECKPOINTS_OF_SESSION_SQL: &str =
 // Per path, the earliest version of the checkpoints at or past the point: the earliest checkpoint,
 // then the earliest sequence in it. Every kind is kept, so a path with no copy is still named.
 const VERSIONS_AFTER_SQL: &str = "SELECT checkpoint_id, sequence, path, leg, kind, copy_hash,
-       not_kept_reason, parent_real_path, window_id, shadow_id
+       not_kept_reason, parent_real_path, window_id, shadow_id, mode
   FROM (SELECT versions.*,
                ROW_NUMBER() OVER (PARTITION BY versions.path
                                   ORDER BY checkpoints.message_sequence, versions.sequence)
@@ -141,8 +144,8 @@ const UNCOVERED_COMMANDS_SQL: &str = "SELECT commands.window_id, commands.comman
    AND commands.covered = 0
  ORDER BY checkpoints.message_sequence, commands.rowid";
 
-const RESTORE_SQL: &str =
-    "SELECT outcome FROM session_restores WHERE client_idempotency_key = @key";
+const RESTORE_SQL: &str = "SELECT outcome FROM session_restores
+  WHERE client_idempotency_key = @key AND session_id = @sessionId";
 
 /// The daemon-minted id of one command window, which its open and its close name.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -216,6 +219,8 @@ pub struct CommandWindowOpening {
     pub tree_before: Option<GitObjectId>,
     /// The checkout's HEAD before, `None` when it had none.
     pub head_before: Option<GitObjectId>,
+    /// The before-capture's commit, `None` when it failed.
+    pub commit_before: Option<GitObjectId>,
     /// The command's text.
     pub command: String,
     /// The provider's tool call that ran it, `None` when no tool call did.
@@ -231,6 +236,8 @@ pub struct CommandWindowClosing {
     pub tree_after: Option<GitObjectId>,
     /// The checkout's HEAD after, `None` when it had none.
     pub head_after: Option<GitObjectId>,
+    /// The after-capture's commit, `None` when it failed.
+    pub commit_after: Option<GitObjectId>,
     /// Whether the before-capture was taken before the command ran.
     pub is_covered: bool,
 }
@@ -307,8 +314,8 @@ pub fn insert_version_statement(
     checkpoint_id: &SnapshotId,
     version: &CheckpointVersion,
 ) -> WriteStatement {
-    let (copy_hash, not_kept_reason, shadow_id) = match &version.content {
-        CheckpointVersionContent::Copy { hash } => (Some(hash.as_str()), None, None),
+    let (copy, not_kept_reason, shadow_id) = match &version.content {
+        CheckpointVersionContent::Copy { hash, mode } => (Some((hash.as_str(), *mode)), None, None),
         CheckpointVersionContent::Created => (None, None, None),
         CheckpointVersionContent::NotKept { reason } => {
             (None, Some(<&'static str>::from(*reason)), None)
@@ -324,7 +331,13 @@ pub fn insert_version_statement(
             text_binding("@path", version.path.as_str()),
             text_binding("@leg", version.leg.into()),
             text_binding("@kind", kind.into()),
-            nullable_text_binding("@copyHash", copy_hash),
+            nullable_text_binding("@copyHash", copy.map(|(hash, _)| hash)),
+            (
+                Cow::Borrowed("@mode"),
+                copy.map_or(SqlValue::Null, |(_, mode)| {
+                    SqlValue::Integer(i64::from(mode))
+                }),
+            ),
             nullable_text_binding("@notKeptReason", not_kept_reason),
             text_binding("@parentRealPath", version.parent_real_path.as_str()),
             nullable_text_binding("@windowId", window_id.as_ref().map(UuidText::as_str)),
@@ -350,6 +363,10 @@ pub fn open_command_window_statement(opening: &CommandWindowOpening) -> WriteSta
                 "@headBefore",
                 opening.head_before.as_ref().map(GitObjectId::as_str),
             ),
+            nullable_text_binding(
+                "@commitBefore",
+                opening.commit_before.as_ref().map(GitObjectId::as_str),
+            ),
             text_binding("@command", &opening.command),
             nullable_text_binding(
                 "@toolCallId",
@@ -374,6 +391,10 @@ pub fn close_command_window_statement(closing: &CommandWindowClosing) -> WriteSt
             nullable_text_binding(
                 "@headAfter",
                 closing.head_after.as_ref().map(GitObjectId::as_str),
+            ),
+            nullable_text_binding(
+                "@commitAfter",
+                closing.commit_after.as_ref().map(GitObjectId::as_str),
             ),
             (
                 Cow::Borrowed("@covered"),
@@ -419,12 +440,11 @@ pub fn read_checkpoint(
     let checkpoint = match target {
         SessionRestoreTarget::Message { anchor_cursor } => {
             // The start of the log is no message, so no checkpoint stands there.
-            let Some(sequence) = u64::try_from(decode_event_cursor(anchor_cursor)?)
-                .ok()
-                .and_then(SafeInt::<0>::new)
-            else {
+            let Ok(sequence) = u64::try_from(decode_event_cursor(anchor_cursor)?) else {
                 return Ok(None);
             };
+            let sequence =
+                SafeInt::<0>::new(sequence).expect("a decoded cursor's position is a safe integer");
             connection
                 .prepare_cached(CHECKPOINT_BY_MESSAGE_SQL)?
                 .query_row(
@@ -553,17 +573,22 @@ pub fn uncovered_commands(
         .collect()
 }
 
-/// The outcome the undo under `key` saved, `None` when no undo used it. Fails as SQLite does, or
-/// when the stored outcome does not read.
+/// The outcome the undo of `session_id` under `key` saved, `None` when no undo of the session used
+/// it. Fails as SQLite does, or when the stored outcome does not read.
 pub fn read_restore(
     connection: &Connection,
+    session_id: SessionId,
     key: &ClientUuid,
 ) -> rusqlite::Result<Option<SessionRestoreOutcome>> {
     connection
         .prepare_cached(RESTORE_SQL)?
-        .query_row(named_params! { "@key": key.as_str() }, |row| {
-            text_column(row, 0, |text| serde_json::from_str(&text))
-        })
+        .query_row(
+            named_params! {
+                "@key": key.as_str(),
+                "@sessionId": session_id.text().as_str(),
+            },
+            |row| text_column(row, 0, |text| serde_json::from_str(&text)),
+        )
         .optional()
 }
 
@@ -603,6 +628,7 @@ fn stored_version_of(row: &Row<'_>) -> rusqlite::Result<StoredCheckpointVersion>
             hash: text_column(row, 5, |text| {
                 Sha256Hex::new(text).ok_or(StoredCheckpointMemberInvalid("copy hash"))
             })?,
+            mode: row.get(10)?,
         },
         CheckpointVersionKind::Created => CheckpointVersionContent::Created,
         CheckpointVersionKind::NotKept => CheckpointVersionContent::NotKept {

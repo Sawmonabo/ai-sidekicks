@@ -96,7 +96,7 @@ enum Kept {
     Shadow {
         content: Content,
         facts: Facts,
-        new_folder: Option<&'static str>,
+        volume_folder: Option<&'static str>,
     },
 }
 
@@ -224,7 +224,7 @@ const fn not_kept(reason: NotKeptReason, facts: Facts) -> Kept {
     Kept::Shadow {
         content: Content::NotKept(reason),
         facts,
-        new_folder: None,
+        volume_folder: None,
     }
 }
 
@@ -251,7 +251,8 @@ const MADE_AND_CLONED: Calls = Calls {
 
 // Kills each placement row misrouted, a known folder inside the checkout reused, something written
 // on a volume whose top is the checkout (a clone or a session folder past the walk's `None`), a
-// folder this take made left unnamed, and a made folder not learned for the next take.
+// folder this take made or cloned into left unnamed (a known folder named only when made), and a
+// made folder not learned for the next take.
 #[rstest]
 #[case::gone(Answers { open: Open::Gone, ..reads(&[]) }, Kept::Gone, NOTHING)]
 #[case::link(
@@ -276,7 +277,11 @@ const MADE_AND_CLONED: Calls = Calls {
 )]
 #[case::cloned_in_the_capture_folder(
     reads(&[CloneAnswer::Made]),
-    Kept::Shadow { content: Content::InCaptureFolder, facts: Facts::OfOpenFile, new_folder: None },
+    Kept::Shadow {
+        content: Content::InCaptureFolder,
+        facts: Facts::OfOpenFile,
+        volume_folder: None,
+    },
     CAPTURE_CLONE
 )]
 #[case::no_clones_on_the_volume(
@@ -319,7 +324,7 @@ const MADE_AND_CLONED: Calls = Calls {
     Kept::Shadow {
         content: Content::In(MADE_FOLDER),
         facts: Facts::OfOpenFile,
-        new_folder: Some(MADE_FOLDER),
+        volume_folder: Some(MADE_FOLDER),
     },
     MADE_AND_CLONED
 )]
@@ -328,7 +333,7 @@ const MADE_AND_CLONED: Calls = Calls {
     Kept::Shadow {
         content: Content::NotKept(NotKeptReason::TooLarge),
         facts: Facts::OfOpenFile,
-        new_folder: Some(MADE_FOLDER),
+        volume_folder: Some(MADE_FOLDER),
     },
     MADE_AND_CLONED
 )]
@@ -337,7 +342,7 @@ const MADE_AND_CLONED: Calls = Calls {
     Kept::Shadow {
         content: Content::NotKept(NotKeptReason::Failed),
         facts: Facts::OfOpenFile,
-        new_folder: Some(MADE_FOLDER),
+        volume_folder: Some(MADE_FOLDER),
     },
     MADE_AND_CLONED
 )]
@@ -346,13 +351,17 @@ const MADE_AND_CLONED: Calls = Calls {
     Kept::Shadow {
         content: Content::NotKept(NotKeptReason::Failed),
         facts: Facts::OfOpenFile,
-        new_folder: Some(MADE_FOLDER),
+        volume_folder: Some(MADE_FOLDER),
     },
     MADE_AND_CLONED
 )]
 #[case::known_folder(
     Answers { known: &[KNOWN_FOLDER], ..reads(&[ACROSS, CloneAnswer::Made]) },
-    Kept::Shadow { content: Content::In(KNOWN_FOLDER), facts: Facts::OfOpenFile, new_folder: None },
+    Kept::Shadow {
+        content: Content::In(KNOWN_FOLDER),
+        facts: Facts::OfOpenFile,
+        volume_folder: Some(KNOWN_FOLDER),
+    },
     Calls { clones: &[CAPTURE_FOLDER, KNOWN_FOLDER], walks: &[], made: &[] }
 )]
 #[case::known_folder_inside_the_checkout(
@@ -360,7 +369,7 @@ const MADE_AND_CLONED: Calls = Calls {
     Kept::Shadow {
         content: Content::In(MADE_FOLDER),
         facts: Facts::OfOpenFile,
-        new_folder: Some(MADE_FOLDER),
+        volume_folder: Some(MADE_FOLDER),
     },
     MADE_AND_CLONED
 )]
@@ -403,7 +412,7 @@ fn each_placement_keeps_its_clone_or_says_why_none_was_kept(
         Kept::Shadow {
             content,
             facts: expected_facts,
-            new_folder,
+            volume_folder,
         } => Placement::Placed(PlacedShadow {
             content: match content {
                 Content::NotKept(reason) => ShadowContent::NotKept { reason },
@@ -426,7 +435,7 @@ fn each_placement_keeps_its_clone_or_says_why_none_was_kept(
                 Content::InCaptureFolder => Some(PathBuf::from(CAPTURE_FOLDER)),
                 Content::In(folder) => Some(PathBuf::from(folder)),
             },
-            new_folder: new_folder.map(|folder| VolumeFolder {
+            volume_folder: volume_folder.map(|folder| VolumeFolder {
                 volume_id: volume_id(),
                 folder: recorded(folder),
             }),
@@ -438,14 +447,14 @@ fn each_placement_keeps_its_clone_or_says_why_none_was_kept(
     assert_eq!(files.walks, paths(calls.walks), "the checkouts walked for");
     assert_eq!(files.made, paths(calls.made), "the session folders made");
     if let Placement::Placed(PlacedShadow {
-        new_folder: Some(made),
+        volume_folder: Some(made),
         ..
     }) = &placed
     {
         assert_eq!(
             places.known_folder(&volume_id(), Path::new(CHECKOUT)),
-            Some(PathBuf::from(made.folder.as_str())),
-            "the made folder is kept for the next take"
+            Some(made.clone()),
+            "the folder is kept for the next take"
         );
     }
 }
@@ -573,7 +582,10 @@ fn take(
         recorded(checkout.join(relative)),
         capture_clock(),
     ) {
-        ShadowTaken::Taken { shadow, new_folder } => (shadow, new_folder),
+        ShadowTaken::Taken {
+            shadow,
+            volume_folder,
+        } => (shadow, volume_folder),
         ShadowTaken::Gone => panic!("the file is there"),
     }
 }
@@ -602,10 +614,11 @@ fn a_large_file_on_a_scratch_volume_is_shadowed_on_that_volume() {
     let mut places = ShadowPlaces::open(&root.join("owner"), session_id(), Vec::new())
         .expect("the capture folder is made");
 
-    let (shadow, new_folder) = take(&mut places, &checkout, "big");
+    let (shadow, volume_folder) = take(&mut places, &checkout, "big");
 
-    let new_folder = new_folder.expect("the session's folder on the volume is made and named");
-    assert!(Path::new(new_folder.folder.as_str()).starts_with(&mount));
+    let volume_folder =
+        volume_folder.expect("the session's folder on the volume is made and named");
+    assert!(Path::new(volume_folder.folder.as_str()).starts_with(&mount));
     match &shadow.content {
         ShadowContent::Cloned {
             clone_path,
@@ -614,7 +627,7 @@ fn a_large_file_on_a_scratch_volume_is_shadowed_on_that_volume() {
             assert!(is_cloning, "a clone where the volume makes none");
             assert_eq!(
                 Path::new(clone_path.as_str()).parent(),
-                Some(Path::new(new_folder.folder.as_str()))
+                Some(Path::new(volume_folder.folder.as_str()))
             );
             assert_eq!(*volume_id, read_volume(&file).expect("the volume reads").id);
         }
@@ -664,7 +677,7 @@ fn a_checkout_at_its_volumes_top_keeps_no_shadow_and_writes_nothing_there() {
     let mut places = ShadowPlaces::open(&root.join("owner"), session_id(), Vec::new())
         .expect("the capture folder is made");
 
-    let (shadow, new_folder) = take(&mut places, &mount, "big");
+    let (shadow, volume_folder) = take(&mut places, &mount, "big");
 
     assert_eq!(
         shadow.content,
@@ -673,7 +686,7 @@ fn a_checkout_at_its_volumes_top_keeps_no_shadow_and_writes_nothing_there() {
         }
     );
     assert!(shadow.facts.is_some(), "the facts are read");
-    assert_eq!(new_folder, None);
+    assert_eq!(volume_folder, None);
     assert_eq!(listing(&mount), before, "nothing is written on the volume");
 }
 
@@ -692,9 +705,9 @@ fn a_large_file_beside_its_owner_is_cloned_into_the_capture_folder() {
         ShadowPlaces::open(&owner, session_id(), Vec::new()).expect("the capture folder is made");
     let capture_folder = owner.join("captures").join("large");
 
-    let (shadow, new_folder) = take(&mut places, &checkout, "big");
+    let (shadow, volume_folder) = take(&mut places, &checkout, "big");
 
-    assert_eq!(new_folder, None);
+    assert_eq!(volume_folder, None);
     if is_cloning {
         let ShadowContent::Cloned {
             clone_path,
@@ -720,4 +733,44 @@ fn a_large_file_beside_its_owner_is_cloned_into_the_capture_folder() {
         );
         assert_eq!(shadow.time_precision, COARSEST_TIME_PRECISION);
     }
+}
+
+// Kills a removal that takes whatever path a shadow row holds: a clone path outside the session's
+// capture folder and its volume folders is refused and its file left, and one inside is removed.
+#[test]
+fn a_clone_is_removed_only_from_the_session_s_own_folders() {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let places = ShadowPlaces::open(&scratch.path().join("owner"), session_id(), Vec::new())
+        .expect("the capture folder is made");
+    let shadow_at = |clone: &Path| Shadow {
+        shadow_id: ShadowId::mint(),
+        session_id: session_id(),
+        path: recorded("/repo/big"),
+        content: ShadowContent::Cloned {
+            clone_path: recorded(clone),
+            volume_id: None,
+        },
+        facts: None,
+        taken_at: capture_clock(),
+        time_precision: COARSEST_TIME_PRECISION,
+    };
+    let outside = scratch.path().join("big");
+    fs::write(&outside, b"the person's file").expect("the file is written");
+    let inside = places.capture_folder.join("clone");
+    fs::write(&inside, b"a clone").expect("the clone is written");
+
+    let refused = places.remove_shadow_clone(&shadow_at(&outside));
+    places
+        .remove_shadow_clone(&shadow_at(&inside))
+        .expect("a clone in the capture folder is removed");
+
+    assert_eq!(
+        refused.map_err(|error| error.kind()),
+        Err(ErrorKind::InvalidInput)
+    );
+    assert!(
+        outside.exists(),
+        "a file outside the session's folders was removed"
+    );
+    assert!(!inside.exists(), "the clone stayed");
 }

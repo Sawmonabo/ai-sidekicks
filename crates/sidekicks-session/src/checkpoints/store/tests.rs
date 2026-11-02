@@ -151,6 +151,7 @@ fn failed() -> ShadowContent {
 fn copy(digit: char) -> CheckpointVersionContent {
     CheckpointVersionContent::Copy {
         hash: Sha256Hex::new(digit.to_string().repeat(64)).expect("a test hash"),
+        mode: 0o755,
     }
 }
 
@@ -186,7 +187,8 @@ async fn an_undo_puts_back_the_earliest_version_after_the_point() {
     }
 }
 
-// Kills: a reason or kind word mapped to another, and the shadow id dropped on write or read.
+// Kills: a reason or kind word mapped to another, and the shadow id or a copy's mode dropped on
+// write or read.
 #[tokio::test]
 async fn each_kind_of_version_comes_back_as_recorded() {
     let fixture = Fixture::new().await;
@@ -263,6 +265,7 @@ async fn a_path_keeps_one_current_shadow_and_an_open_window_the_one_it_linked() 
                 checkpoint_id: checkpoint.checkpoint_id.clone(),
                 tree_before: None,
                 head_before: None,
+                commit_before: None,
                 command: "make large.bin".to_owned(),
                 tool_call_id: None,
             }),
@@ -356,6 +359,8 @@ async fn a_volume_folder_is_kept_once_per_session() {
     );
 }
 
+// Kills a second outcome under a key overwriting the first, and the read by key alone, which hands
+// one session the outcome another session's undo saved.
 #[tokio::test]
 async fn an_undo_outcome_is_saved_once_under_its_key() {
     let fixture = Fixture::new().await;
@@ -399,8 +404,13 @@ async fn an_undo_outcome_is_saved_once_under_its_key() {
         extended_code(&refusal),
         Some(ffi::SQLITE_CONSTRAINT_PRIMARYKEY)
     );
+    let reader = fixture.database.reader();
     assert_eq!(
-        read_restore(&fixture.database.reader(), &key).expect("the outcome reads"),
+        read_restore(&reader, fixture.session_id, &key).expect("the outcome reads"),
         Some(first)
+    );
+    assert_eq!(
+        read_restore(&reader, test_session_id(), &key).expect("the outcome reads"),
+        None
     );
 }
