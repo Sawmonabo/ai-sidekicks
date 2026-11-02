@@ -2,7 +2,8 @@
 //! says its provider takes them: at once, the provider holding each to its own next step, or at
 //! the turn's next tool boundary, the daemon holding them until then. A message sent while the run
 //! waits on the person's input goes as the next turn instead, except while the provider holds a
-//! credits choice, which the message settles. A review is never handed: it opens a run of its own.
+//! credits choice, which the message settles. A review or a plan message is never handed: it opens
+//! a run of its own.
 //!
 //! A handed message stays `queued` until the provider's record shows it took it, the run's end or
 //! a withdraw settles it. Until then no edit, removal or reorder moves it, except by a withdraw,

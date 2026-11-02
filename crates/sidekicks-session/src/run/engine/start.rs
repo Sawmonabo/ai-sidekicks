@@ -326,7 +326,7 @@ impl RunEngine {
                 .assert_run_ready(&RunSetupContext {
                     run_id,
                     session_id: run.session_id,
-                    opening_words,
+                    opening_words: Some(opening_words),
                     workspace_id,
                     execution_posture,
                 })

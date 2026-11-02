@@ -53,7 +53,6 @@ pub struct RunStartRequest {
 pub struct RunContinueRequest {
     /// The run and how its next turn reaches the driver.
     pub turn: RunTurnStart,
-    /// The words of the item that continues the run, a message's or a plan message's; absent for
-    /// a review.
-    pub opening_words: Option<MessageContent>,
+    /// The words of the message that continues the run.
+    pub opening_words: MessageContent,
 }
