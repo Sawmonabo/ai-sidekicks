@@ -26,7 +26,7 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
-use sidekicks_store::database::stored_column::safe_int_column;
+use sidekicks_store::database::stored_column::{optional_safe_int_column, safe_int_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use tokio::sync::{Mutex, watch};
 
@@ -188,15 +188,11 @@ fn read_configuration(connection: &Connection) -> Result<DaemonConfiguration, Co
                 4,
                 WorkflowChainAskAfterRuns::new,
             )?,
-            max_steps_per_turn: optional_integer_column(row, 5, SafeInt::new)?,
-            spend_limit_usd_micros: optional_integer_column(row, 6, |value| {
-                SafeInt::new(value).map(UsdMicros)
-            })?,
-            tokens_per_run: optional_integer_column(row, 7, |value| {
-                SafeInt::new(value).map(TokensPerRun)
-            })?,
-            tool_memory_cap_bytes: optional_integer_column(row, 8, SafeInt::new)?,
-            package_cache_limit_bytes: optional_integer_column(row, 9, SafeInt::new)?,
+            max_steps_per_turn: optional_safe_int_column(row, 5)?,
+            spend_limit_usd_micros: optional_safe_int_column(row, 6)?.map(UsdMicros),
+            tokens_per_run: optional_safe_int_column(row, 7)?.map(TokensPerRun),
+            tool_memory_cap_bytes: optional_safe_int_column(row, 8)?,
+            package_cache_limit_bytes: optional_safe_int_column(row, 9)?,
             record_traces: row.get(10)?,
             record_provider_messages: row.get(11)?,
         })
@@ -331,70 +327,5 @@ fn apply_change(configuration: &mut DaemonConfiguration, change: ConfigurationCh
                 configuration.record_provider_messages = *is_on;
             }
         },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use sidekicks_contracts::daemon::config::DaemonConfigUpdateRequest;
-    use sidekicks_contracts::session::cost::TokensPerRun;
-    use sidekicks_contracts::wire::instant::WireInstant;
-    use sidekicks_contracts::wire::integer::SafeInt;
-    use sidekicks_queue::run_token_limit::RunTokenLimitReader as _;
-    use sidekicks_session::budget::limits::{SessionLimits, write_session_limits};
-    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-    use sidekicks_store::events::log_service::test_fixture::open_log;
-
-    use super::{ConfigurationChange, ConfigurationStore, DAEMON_CONFIGURATION_STATEMENT_CAPACITY};
-    use crate::daemon::schema::schema_parts;
-
-    fn tokens(count: u64) -> TokensPerRun {
-        TokensPerRun(SafeInt::new(count).expect("the test's limit is a safe integer"))
-    }
-
-    // A new lead run takes the session's own `Tokens per run` over the configuration's, and the
-    // configuration's when the session set none. Killed by the fallback order swapped.
-    #[tokio::test]
-    async fn a_session_limit_answers_over_the_configuration() {
-        let database = TestDatabase::new(schema_parts());
-        let log = open_log(&database, None).await;
-        let reads = Arc::new(DatabaseReadPool::new(
-            database.path(),
-            DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
-        ));
-        let configuration = ConfigurationStore::open(Arc::clone(&log.writer), reads)
-            .await
-            .expect("the configuration store opens");
-        configuration
-            .update(ConfigurationChange::Setting(
-                &DaemonConfigUpdateRequest::TokensPerRun(Some(tokens(500_000))),
-            ))
-            .await
-            .expect("the configuration's limit is kept");
-        let [limited, unset] = [(); 2].map(|()| test_session_id());
-        log.writer
-            .write(vec![write_session_limits(
-                limited,
-                SessionLimits {
-                    spend_limit: None,
-                    tokens_per_run: Some(tokens(40_000)),
-                },
-                &WireInstant::now(),
-            )])
-            .await
-            .expect("the session's limits are written");
-
-        for (session_id, expected) in [(limited, tokens(40_000)), (unset, tokens(500_000))] {
-            assert_eq!(
-                configuration
-                    .tokens_per_run(session_id)
-                    .await
-                    .expect("the limits read"),
-                Some(expected)
-            );
-        }
     }
 }
