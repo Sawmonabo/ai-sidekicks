@@ -190,7 +190,7 @@ fn request_id(server: &TestServer, method: &str) -> Value {
     requests[0].1["id"].clone()
 }
 
-// T2. Mutations: in `call_task_tool`, observe the acceptance after the follow; or never write the
+// Mutations: in `call_task_tool`, observe the acceptance after the follow; or never write the
 // end in `complete`.
 #[tokio::test(start_paused = true)]
 async fn a_task_is_stored_on_its_receipt_before_its_first_poll_and_completes_inline() {
@@ -237,7 +237,7 @@ async fn a_task_is_stored_on_its_receipt_before_its_first_poll_and_completes_inl
     );
 }
 
-// T3. Mutations: send the call before the receipt's write; or store a handle before the server
+// Mutations: send the call before the receipt's write; or store a handle before the server
 // names one.
 #[tokio::test(start_paused = true)]
 async fn a_call_dropped_unanswered_leaves_its_receipt_claimed_without_a_task() {
@@ -264,8 +264,8 @@ async fn a_call_dropped_unanswered_leaves_its_receipt_claimed_without_a_task() {
     );
 }
 
-// T5, a plain call canceled. Mutation: leave the call's await unraced against `cancellation`;
-// the call then waits out its idle window and ends with its timeout.
+// Mutation: leave the call's await unraced against `cancellation`; the call then waits out its
+// idle window and ends with its timeout.
 #[tokio::test(start_paused = true)]
 async fn a_plain_call_canceled_before_its_answer_ends_canceled_with_its_end_unknown() {
     let fixture = Fixture::new().await;
@@ -294,8 +294,8 @@ async fn a_plain_call_canceled_before_its_answer_ends_canceled_with_its_end_unkn
     );
 }
 
-// T5, a plain call cut by the session's close. Mutation: leave the call's await unraced against
-// the closed mark; the close then waits for the call's 30-minute idle window.
+// Mutation: leave the call's await unraced against the closed mark; the close then waits for the
+// call's 30-minute idle window.
 #[tokio::test(start_paused = true)]
 async fn a_plain_call_cut_by_its_sessions_close_is_written_unknown_at_once() {
     let fixture = Fixture::new().await;
@@ -331,8 +331,8 @@ async fn a_plain_call_cut_by_its_sessions_close_is_written_unknown_at_once() {
     );
 }
 
-// T5, a closing session's task. Mutations: close the connection before the cancel, as a close
-// that does not wait for the dispatch would; or write the 2025-11-25 ack as anything but `failed`.
+// Mutations: close the connection before the cancel, as a close that does not wait for the
+// dispatch would; or write the 2025-11-25 ack as anything but `failed`.
 #[tokio::test(start_paused = true)]
 async fn a_closing_sessions_task_is_canceled_before_its_connection_closes() {
     let fixture = Fixture::new().await;
@@ -367,8 +367,7 @@ async fn a_closing_sessions_task_is_canceled_before_its_connection_closes() {
     );
 }
 
-// T5, a closing session's task that ended meanwhile. Mutation: write `unknown` on the cancel's
-// `-32602` without reading the task.
+// Mutation: write `unknown` on the cancel's `-32602` without reading the task.
 #[tokio::test(start_paused = true)]
 async fn a_closing_sessions_task_that_ended_meanwhile_is_read_once_for_its_result() {
     let fixture = Fixture::new().await;
@@ -428,8 +427,8 @@ async fn a_closing_sessions_task_that_ended_meanwhile_is_read_once_for_its_resul
     );
 }
 
-// T5, a call after the close. Mutation: leave the closed mark unread before the call; the call
-// then finds no live connection and fails `NotConnected`.
+// Mutation: leave the closed mark unread before the call; the call then finds no live connection
+// and fails `NotConnected`.
 #[tokio::test(start_paused = true)]
 async fn a_call_after_its_sessions_close_sends_and_writes_nothing() {
     let fixture = Fixture::new().await;
@@ -461,9 +460,8 @@ async fn a_call_after_its_sessions_close_sends_and_writes_nothing() {
     assert_eq!(fixture.receipts(), []);
 }
 
-// T5, a close during the tools read. Mutations: leave the tools read unraced against the closed
-// mark, or read the marks only before it; the read then waits out its 60 s and fails, and the
-// close waits for it.
+// Mutations: leave the tools read unraced against the closed mark, or read the marks only before
+// it; the read then waits out its 60 s and fails, and the close waits for it.
 #[tokio::test(start_paused = true)]
 async fn a_call_whose_session_closes_during_its_tools_read_sends_no_call() {
     let fixture = Fixture::new().await;
@@ -490,8 +488,8 @@ async fn a_call_whose_session_closes_during_its_tools_read_sends_no_call() {
     assert_eq!(fixture.receipts(), []);
 }
 
-// A tools read the caller stops waiting for. Mutation: leave the tools marked read when their read
-// is dropped; the next task call then trusts the tools it read before the change.
+// Mutation: leave the tools marked read when their read is dropped; the next task call then
+// trusts the tools it read before the change.
 #[tokio::test(start_paused = true)]
 async fn a_call_canceled_during_its_tools_read_leaves_the_tools_to_read_again() {
     let fixture = Fixture::new().await;
@@ -528,7 +526,7 @@ async fn a_call_canceled_during_its_tools_read_leaves_the_tools_to_read_again() 
     assert_eq!(fixture.receipts(), []);
 }
 
-// T5, the client's stop. Mutation: write the session's close row under the stop.
+// Mutation: write the session's close row under the stop.
 #[tokio::test(start_paused = true)]
 async fn a_task_cut_by_the_clients_stop_leaves_its_receipt_in_flight() {
     let fixture = Fixture::new().await;
