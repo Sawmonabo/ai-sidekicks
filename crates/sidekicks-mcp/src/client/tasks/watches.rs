@@ -3,7 +3,8 @@
 
 pub(in crate::client) mod answers;
 
-use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::sync::{Arc, Mutex, Weak};
 
@@ -23,8 +24,8 @@ use tokio::sync::{Notify, oneshot};
 use tokio_util::sync::CancellationToken;
 
 use crate::client::connection::McpConnectionScope;
-use crate::client::tasks::McpToolCall;
 use crate::client::tasks::watches::answers::{V1TaskAnswer, V1TaskAnswerState};
+use crate::client::tasks::{McpServerEndpoint, McpToolCall, McpToolCallEnd};
 
 /// A followed task's key: its session, its server's name and its id.
 type WatchKey = (SessionId, String, String);
@@ -36,7 +37,8 @@ type TakeOutcome = Result<bool, Box<dyn Error + Send + Sync>>;
 /// questions are asked in; and the questions card every tool-server question goes to. It holds one
 /// entry per followed task, each until the task's poll ends, and in it each of the task's
 /// questions still open: a 2025-11-25 one until it settles, a 2026-07-28 one, at most 16 a poll,
-/// until the task ends.
+/// until the task ends. A follow on a server at an address that its connection's close cut leaves
+/// its entry for the follow a Reconnect re-binds, which adopts it.
 pub(crate) struct TaskWatches {
     questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
     watched: Mutex<HashMap<WatchKey, WatchedTask>>,
@@ -55,6 +57,8 @@ struct WatchedTask {
     /// The outcomes of the takes a closing connection's request left, held so each take goes on
     /// in its run's turn rather than reading its asker as gone.
     detached_takes: Vec<oneshot::Receiver<TakeOutcome>>,
+    /// The keys of a 2026-07-28 task's input requests the card took, never asked again.
+    asked: HashSet<String>,
 }
 
 /// A 2025-11-25 task's question left open when the connection its request came on closed.
@@ -103,11 +107,13 @@ impl TaskQuestionDetach {
 }
 
 /// One task while it is followed; finished or dropped, it stops following and withdraws its
-/// questions still open.
-pub(super) struct TaskWatch<'watches> {
+/// questions still open, unless it was left for a re-bind to adopt.
+pub(in crate::client) struct TaskWatch<'watches> {
     watches: &'watches TaskWatches,
     key: WatchKey,
     pub(super) wake: Arc<Notify>,
+    /// Whether the follow left its entry in place, so its drop removes nothing.
+    is_left: bool,
 }
 
 /// When the card takes a question: at once, refused while its run waits on something else; or in
@@ -137,30 +143,36 @@ impl TaskWatches {
         }
     }
 
-    /// Follows `mcp_task_id` on `scope`'s server for `call`'s run.
-    pub(super) fn watch(
+    /// Follows `mcp_task_id` on `scope`'s server for `call`'s run, adopting the entry a follow
+    /// its connection's close cut left, with its questions and asked keys.
+    pub(in crate::client) fn watch(
         &self,
         scope: &McpConnectionScope,
         call: &McpToolCall,
         mcp_task_id: &str,
     ) -> TaskWatch<'_> {
         let key = watch_key(scope, mcp_task_id);
-        let wake = Arc::new(Notify::new());
-        lock(&self.watched).insert(
-            key.clone(),
-            WatchedTask {
-                wake: Arc::clone(&wake),
-                run_id: call.run_id,
-                ended: CancellationToken::new(),
-                open_questions: Vec::new(),
-                kept_question: None,
-                detached_takes: Vec::new(),
-            },
-        );
+        let wake = match lock(&self.watched).entry(key.clone()) {
+            Entry::Occupied(left) => Arc::clone(&left.get().wake),
+            Entry::Vacant(vacant) => {
+                let wake = Arc::new(Notify::new());
+                vacant.insert(WatchedTask {
+                    wake: Arc::clone(&wake),
+                    run_id: call.run_id,
+                    ended: CancellationToken::new(),
+                    open_questions: Vec::new(),
+                    kept_question: None,
+                    detached_takes: Vec::new(),
+                    asked: HashSet::new(),
+                });
+                wake
+            }
+        };
         TaskWatch {
             watches: self,
             key,
             wake,
+            is_left: false,
         }
     }
 
@@ -637,8 +649,41 @@ fn watch_key(scope: &McpConnectionScope, mcp_task_id: &str) -> WatchKey {
 }
 
 impl TaskWatch<'_> {
+    /// Ends the follow at `end` on the server at `endpoint`: a follow on a server at an address
+    /// that its connection's close cut leaves its entry, questions and asked keys in place for the
+    /// re-bind to adopt, or for the dispatch to end when it re-binds nothing; any other end
+    /// finishes it.
+    pub(super) async fn end(self, end: &McpToolCallEnd, endpoint: &McpServerEndpoint) {
+        if *end == McpToolCallEnd::ConnectionClosed && endpoint.is_address() {
+            self.leave();
+        } else {
+            self.finish().await;
+        }
+    }
+
+    /// Stops following the task here, leaving its entry with its questions still open, for a
+    /// follow on another connection to adopt.
+    pub(in crate::client) fn leave(mut self) {
+        self.is_left = true;
+    }
+
+    /// Whether the card took the task's input request `input_key`.
+    pub(super) fn is_asked(&self, input_key: &str) -> bool {
+        lock(&self.watches.watched)
+            .get(&self.key)
+            .is_some_and(|task| task.asked.contains(input_key))
+    }
+
+    /// Records that the card took the task's input request `input_key`, so it is never asked
+    /// again, across a re-bind too.
+    pub(super) fn mark_asked(&self, input_key: &str) {
+        if let Some(task) = lock(&self.watches.watched).get_mut(&self.key) {
+            task.asked.insert(input_key.to_owned());
+        }
+    }
+
     /// Stops following the task, withdrawing each of its questions still open on the card.
-    pub(super) async fn finish(self) {
+    async fn finish(self) {
         let removed = lock(&self.watches.watched).remove(&self.key);
         if let Some(task) = removed {
             task.ended.cancel();
@@ -651,6 +696,9 @@ impl TaskWatch<'_> {
 
 impl Drop for TaskWatch<'_> {
     fn drop(&mut self) {
+        if self.is_left {
+            return;
+        }
         let removed = lock(&self.watches.watched).remove(&self.key);
         if let Some(task) = removed {
             task.ended.cancel();

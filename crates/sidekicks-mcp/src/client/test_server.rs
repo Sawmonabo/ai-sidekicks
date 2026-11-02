@@ -8,7 +8,8 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
+use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::run::id::RunId;
@@ -25,9 +26,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::client::McpClient;
 use crate::client::connection::standing::McpStandingConnection;
-use crate::client::connection::{McpConnectionScope, McpServerConnection};
+use crate::client::connection::{McpConnectionScope, McpConnectionStart, McpServerConnection};
 use crate::client::raw_copy::{RawLineTee, RawReplyCopy};
-use crate::client::stdio::StdioProcess;
 use crate::client::tasks::{
     McpServerEndpoint, McpTaskContact, McpTaskDispatchIdentity, McpTaskGeneration,
     McpTaskHandleObservation, McpTaskHandleSink, McpToolCall, McpToolCallEnd, McpToolCallError,
@@ -147,7 +147,12 @@ pub(super) async fn open_test_server(
     client: &McpClient,
     responder: Responder,
 ) -> (Arc<McpServerConnection>, TestServer) {
-    let (opened, server) = start_test_server(test_scope(client), responder, None).await;
+    let (opened, server) = start_test_server(
+        test_scope(client),
+        responder,
+        McpConnectionStart::stdio(None, None),
+    )
+    .await;
     (
         Arc::new(opened.expect("the test server completes its start")),
         server,
@@ -163,12 +168,18 @@ pub(super) fn test_scope(client: &McpClient) -> McpConnectionScope {
     )
 }
 
-/// Starts a server answering through `responder` and opens a connection to it in `scope`,
-/// holding `process` for the connection's life.
+/// The address of the server `tracker` when it is reached at an address, which a connection
+/// over the test's pipe declares through [`McpConnectionStart::http`].
+pub(super) fn tracker_address() -> McpServerAddress {
+    McpServerAddress::new("https://tracker.example.com/mcp").expect("an address")
+}
+
+/// Starts a server answering through `responder` and opens a connection to it in `scope`, over
+/// the test's pipe whatever endpoint `start` declares.
 pub(super) async fn start_test_server(
     scope: McpConnectionScope,
     mut responder: Responder,
-    process: Option<StdioProcess>,
+    start: McpConnectionStart,
 ) -> (
     Result<McpServerConnection, crate::client::connection::McpConnectionError>,
     TestServer,
@@ -234,13 +245,7 @@ pub(super) async fn start_test_server(
         RawLineTee::new(client_read, raw.clone()),
         client_write,
     );
-    let opened = McpServerConnection::open(
-        transport,
-        raw,
-        scope,
-        crate::client::connection::McpConnectionStart::stdio(None, process),
-    )
-    .await;
+    let opened = McpServerConnection::open(transport, raw, scope, start).await;
     (
         opened,
         TestServer {
@@ -384,6 +389,79 @@ pub(super) fn board_answer() -> Vec<QuestionAnswer> {
 /// What the server receives for [`board_answer`].
 pub(super) fn board_accepted() -> Value {
     json!({ "action": "accept", "content": { "board": "Roadmap" } })
+}
+
+/// A 2026-07-28 server declaring tasks, whose `tools/call` starts task `task-1` and whose
+/// `tasks/get` answers the task's state from `state`, given the poll's number and the
+/// `tasks/update` and `tasks/cancel` requests received so far.
+pub(super) fn v2_task_server(
+    mut state: impl FnMut(usize, usize, usize) -> Value + Send + 'static,
+) -> Responder {
+    let (mut polls, mut updates, mut cancels) = (0, 0, 0);
+    Box::new(move |method, _params| match method {
+        "server/discover" => Reply::Answer(json!({ "result": {
+            "resultType": "complete",
+            "supportedVersions": ["2026-07-28"],
+            "capabilities": {
+                "tools": {},
+                "extensions": { "io.modelcontextprotocol/tasks": {} },
+            },
+            "ttlMs": 0,
+            "cacheScope": "private",
+        } })),
+        "tools/call" => {
+            let mut created = v2_task(&json!({ "status": "working" }));
+            created["resultType"] = json!("task");
+            Reply::Answer(json!({ "result": created }))
+        }
+        "tasks/get" => {
+            polls += 1;
+            let mut task = v2_task(&state(polls, updates, cancels));
+            task["resultType"] = json!("complete");
+            Reply::Answer(json!({ "result": task }))
+        }
+        "tasks/update" => {
+            updates += 1;
+            Reply::Answer(json!({ "result": {} }))
+        }
+        "tasks/cancel" => {
+            cancels += 1;
+            Reply::Answer(json!({ "result": {} }))
+        }
+        _ => method_not_found(),
+    })
+}
+
+/// Task `task-1` with `state`'s status and payload members.
+fn v2_task(state: &Value) -> Value {
+    let mut task = json!({
+        "taskId": "task-1",
+        "createdAt": "2026-10-24T12:00:00Z",
+        "lastUpdatedAt": "2026-10-24T12:00:00Z",
+        "ttlMs": 60_000,
+        "pollIntervalMs": 5_000,
+    });
+    task.as_object_mut()
+        .expect("an object")
+        .extend(state.as_object().expect("an object").clone());
+    task
+}
+
+/// A task waiting on the elicitations `keys`, each asking [`board_form`].
+pub(super) fn input_required(keys: &[&str]) -> Value {
+    let requests: Map<String, Value> = keys
+        .iter()
+        .map(|key| {
+            let request = json!({ "method": "elicitation/create", "params": board_form() });
+            ((*key).to_owned(), request)
+        })
+        .collect();
+    json!({ "status": "input_required", "inputRequests": requests })
+}
+
+/// Task `task-1` completed, its result [`text_result`] `tracked` inline.
+pub(super) fn completed() -> Value {
+    json!({ "status": "completed", "result": text_result("tracked") })
 }
 
 /// A tool result holding one line of text.

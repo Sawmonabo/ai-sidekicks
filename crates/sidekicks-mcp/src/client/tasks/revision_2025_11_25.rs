@@ -71,7 +71,9 @@ pub(super) async fn call_task_tool(
     Ok(follow_task(connection, &call, &mcp_task_id, contact).await)
 }
 
-/// Follows `call`'s task `mcp_task_id` to its end, its questions asked in the call's run.
+/// Follows `call`'s task `mcp_task_id` to its end, its questions asked in the call's run; a
+/// follow on a server at an address that its connection's close cut leaves its watch to be
+/// re-bound.
 pub(super) async fn follow_task(
     connection: &McpServerConnection,
     call: &McpToolCall,
@@ -87,7 +89,7 @@ pub(super) async fn follow_task(
         poll_once(connection, mcp_task_id, &watch.wake, &held)
     })
     .await;
-    watch.finish().await;
+    watch.end(&end, &connection.endpoint).await;
     end
 }
 

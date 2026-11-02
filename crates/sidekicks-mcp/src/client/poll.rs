@@ -314,6 +314,8 @@ fn cause_at_contact_lost(cause: McpTaskContact) -> McpTaskContact {
         McpTaskContact::Reached
         | McpTaskContact::Lost
         | McpTaskContact::TaskIdRejected
+        | McpTaskContact::NotConfigured
+        | McpTaskContact::Reconfigured
         | McpTaskContact::CancelRefused { .. } => McpTaskContact::Lost,
     }
 }

@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_provider::port::question::test_card::QuestionCard;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use tokio::time::{Duration, Instant};
@@ -13,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use super::{McpCallCompletionError, McpToolDispatch, McpToolDispatchError};
 use crate::client::McpClient;
 use crate::client::connection::standing::McpStandingConnection;
+use crate::client::connection::{McpConnectionStart, McpServerConnection};
 use crate::client::tasks::McpTaskContact::{CancelRefused, Reached};
 use crate::client::tasks::recorder::McpTaskHandleRecorder;
 use crate::client::tasks::{McpTaskContact, McpToolCallEnd};
@@ -29,24 +32,29 @@ const UNTIL_LIMIT: Duration = Duration::from_secs(120);
 /// A receipt row as stored: its status, whether it was claimed and ended, and its four task
 /// columns.
 #[derive(Debug, PartialEq, Eq)]
-struct StoredReceipt {
-    status: String,
-    is_started: bool,
-    is_completed: bool,
-    task: [Option<String>; 4],
+pub(super) struct StoredReceipt {
+    pub(super) status: String,
+    pub(super) is_started: bool,
+    pub(super) is_completed: bool,
+    pub(super) task: [Option<String>; 4],
 }
 
-/// A dispatch over a fresh database, its client, and a session with the server name `tracker`.
-struct Fixture {
+/// A dispatch over a fresh database, its client with its questions card, and a session with the
+/// server name `tracker`, whose connections reach a stdio server unless `address` names the
+/// server's address.
+pub(super) struct Fixture {
     database: TestDatabase,
-    dispatch: McpToolDispatch,
-    client: McpClient,
-    session_id: SessionId,
-    name: McpServerName,
+    pub(super) writer: Arc<DatabaseWriter>,
+    pub(super) dispatch: McpToolDispatch,
+    pub(super) client: McpClient,
+    pub(super) card: Arc<QuestionCard>,
+    pub(super) session_id: SessionId,
+    pub(super) name: McpServerName,
+    pub(super) address: Option<McpServerAddress>,
 }
 
 impl Fixture {
-    async fn new() -> Self {
+    pub(super) async fn new() -> Self {
         let database = TestDatabase::new(schema_parts());
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -55,31 +63,51 @@ impl Fixture {
         );
         let dispatch = McpToolDispatch::new(
             CommandReceiptStore::new(Arc::clone(&writer)),
-            McpTaskHandleRecorder::new(writer),
+            McpTaskHandleRecorder::new(Arc::clone(&writer)),
         );
-        let (client, _card) = test_client();
+        let (client, card) = test_client();
         Self {
             database,
+            writer,
             dispatch,
             client,
+            card,
             session_id: SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id"),
             name: FreeFormText::new("tracker".to_owned()).expect("a short server name"),
+            address: None,
         }
     }
 
-    /// Connects the session to a server answering through `responder`, and returns the session's
-    /// standing connection to it.
-    async fn connect(&self, responder: Responder) -> (McpStandingConnection, TestServer) {
+    /// Opens a connection of the session to a server answering through `responder`, at
+    /// `address` or a stdio server, without publishing it.
+    pub(super) async fn open(
+        &self,
+        responder: Responder,
+        address: Option<&McpServerAddress>,
+    ) -> (McpServerConnection, TestServer) {
+        let start = address.map_or_else(
+            || McpConnectionStart::stdio(None, None),
+            |address| McpConnectionStart::http(None, address),
+        );
         let (opened, server) = start_test_server(
             self.client
                 .connection_scope(self.session_id, self.name.clone()),
             responder,
-            None,
+            start,
         )
         .await;
-        self.client
-            .add_connection(opened.expect("the test server completes its start"))
-            .await;
+        (opened.expect("the test server completes its start"), server)
+    }
+
+    /// Connects the session to a server answering through `responder`, publishing the connection
+    /// in place of any before it as a Reconnect does, and returns the session's standing
+    /// connection to it.
+    pub(super) async fn connect(
+        &self,
+        responder: Responder,
+    ) -> (McpStandingConnection, TestServer) {
+        let (opened, server) = self.open(responder, self.address.as_ref()).await;
+        self.client.add_connection(opened).await;
         (
             self.client.standing_connection(self.session_id, &self.name),
             server,
@@ -87,7 +115,7 @@ impl Fixture {
     }
 
     /// Every receipt row.
-    fn receipts(&self) -> Vec<StoredReceipt> {
+    pub(super) fn receipts(&self) -> Vec<StoredReceipt> {
         let reader = self.database.reader();
         let mut statement = reader
             .prepare(
@@ -111,7 +139,7 @@ impl Fixture {
 }
 
 /// A claimed receipt at `status`, ended or not, holding no task.
-fn receipt_without_task(status: &str, is_completed: bool) -> StoredReceipt {
+pub(super) fn receipt_without_task(status: &str, is_completed: bool) -> StoredReceipt {
     StoredReceipt {
         status: status.to_owned(),
         is_started: true,
@@ -123,7 +151,9 @@ fn receipt_without_task(status: &str, is_completed: bool) -> StoredReceipt {
 /// A 2025-11-25 server whose `track` tool runs only as task `task-1`, accepted at once; every
 /// other task method, and `tools/list` after the one read at the start, is answered through
 /// `task_reply` with the method and how many of it came before.
-fn task_server(mut task_reply: impl FnMut(&str, usize) -> Reply + Send + 'static) -> Responder {
+pub(super) fn task_server(
+    mut task_reply: impl FnMut(&str, usize) -> Reply + Send + 'static,
+) -> Responder {
     tools_server(
         v1_initialize_result(),
         json!({ "taskSupport": "required" }),
@@ -136,7 +166,7 @@ fn task_server(mut task_reply: impl FnMut(&str, usize) -> Reply + Send + 'static
 
 /// A 2025-11-25 server whose `track` tool runs as a plain call, whose `tools/call` is never
 /// answered.
-fn silent_call_server() -> Responder {
+pub(super) fn silent_call_server() -> Responder {
     tools_server(
         v1_initialize_result(),
         json!({ "taskSupport": "forbidden" }),
@@ -173,7 +203,7 @@ fn tools_server(
 }
 
 /// Waits, on the paused clock, until `condition` holds; fails the test after [`UNTIL_LIMIT`].
-async fn until(mut condition: impl FnMut() -> bool) {
+pub(super) async fn until(mut condition: impl FnMut() -> bool) {
     let started = Instant::now();
     while !condition() {
         assert!(started.elapsed() < UNTIL_LIMIT, "the condition never held");

@@ -101,6 +101,12 @@ impl McpServerEndpoint {
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Whether the server is reached at an address, so a closed connection to it can be replaced
+    /// by a Reconnect; a stdio server's task dies with its process.
+    pub(crate) fn is_address(&self) -> bool {
+        self.0.starts_with(Self::ADDRESS_PREFIX)
+    }
 }
 
 /// A dispatch whose acceptance carried a receiver-generated task id, ready to be recorded.
@@ -226,6 +232,13 @@ pub(crate) enum McpTaskContact {
     /// The polls came back with errors for the 300 s since one last read the task or answered
     /// `-32602`; until one does.
     ErrorsPersisted,
+    /// The task's connection closed and no connection to its server is live in the session, as
+    /// when the server was removed or disabled; until a connection of the task's endpoint
+    /// replaces it.
+    NotConfigured,
+    /// The task's connection closed and the session's connection to its server now reaches
+    /// another address; until a connection of the task's endpoint replaces it.
+    Reconfigured,
     /// The server refused to cancel the task, which runs on and is followed to its end; a
     /// standing arm.
     CancelRefused {
@@ -294,15 +307,11 @@ impl McpServerConnection {
     }
 
     /// Follows the recorded task `mcp_task_id` of `call`, accepted under `mcp_task_generation`,
-    /// to its end, as after a restart: polled at once, its questions asked again in the call's
-    /// session and run, `contact` saying whether its server answers, and a 2026-07-28 task's
-    /// answers going over `standing`'s live connection. Never fails: a failed poll is polled
-    /// again or read as the end it says.
-    #[expect(
-        dead_code,
-        reason = "the session's tool-server connections, which the tool-server units open, \
-                  resume a recorded task through it"
-    )]
+    /// to its end, as after a restart or a Reconnect: polled at once, `contact` saying whether
+    /// its server answers, and a 2026-07-28 task's answers going over `standing`'s live
+    /// connection. The watch a follow cut by an earlier connection's close left is adopted with
+    /// its questions and asked keys; else its questions are asked again in the call's session and
+    /// run. Never fails: a failed poll is polled again or read as the end it says.
     pub(crate) async fn resume_task(
         &self,
         standing: &McpStandingConnection,

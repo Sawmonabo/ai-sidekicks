@@ -48,16 +48,7 @@ pub(crate) enum McpConnectionAbsence {
 /// How a wait for the connection that replaces another ends.
 pub(crate) enum McpReplacement {
     /// A new live connection of the endpoint asked for.
-    Replaced(
-        #[cfg_attr(
-            not(test),
-            expect(
-                dead_code,
-                reason = "the dispatch re-binds a task's follow to it after a Reconnect"
-            )
-        )]
-        Arc<McpServerConnection>,
-    ),
+    Replaced(Arc<McpServerConnection>),
     /// The session's connections closed.
     SessionClosed,
     /// The client is stopping, or is gone.
@@ -130,13 +121,6 @@ impl McpStandingConnection {
     /// Waits for a live connection other than `after` that reaches `endpoint`. Ends early when the
     /// client stops or is dropped, then when the session closes, the stop read first; never times
     /// out.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the dispatch re-binds a task's follow through it after a Reconnect"
-        )
-    )]
     pub(crate) async fn replacement(
         &self,
         after: &Arc<McpServerConnection>,

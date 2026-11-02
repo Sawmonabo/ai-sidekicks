@@ -541,7 +541,7 @@ mod tests {
     use serde_json::json;
     use tokio::time::{Duration, Instant, timeout};
 
-    use super::{DEFAULT_STARTUP_TIMEOUT, McpConnectionError};
+    use super::{DEFAULT_STARTUP_TIMEOUT, McpConnectionError, McpConnectionStart};
     use crate::client::test_server::{
         Reply, method_not_found, open_test_server, start_test_server, test_client, test_scope,
         v1_initialize_result,
@@ -556,7 +556,11 @@ mod tests {
 
         let (opened, _server) = timeout(
             Duration::from_secs(120),
-            start_test_server(test_scope(&client), Box::new(|_, _| Reply::Silent), None),
+            start_test_server(
+                test_scope(&client),
+                Box::new(|_, _| Reply::Silent),
+                McpConnectionStart::stdio(None, None),
+            ),
         )
         .await
         .expect("the start ends");

@@ -261,8 +261,8 @@ mod tests {
     use tokio::time::timeout;
 
     use super::McpClient;
-    use crate::client::connection::McpServerConnection;
     use crate::client::connection::standing::McpReplacement;
+    use crate::client::connection::{McpConnectionStart, McpServerConnection};
     use crate::client::stdio::StdioProcess;
     use crate::client::tasks::McpServerEndpoint;
     use crate::client::test_server::{
@@ -292,7 +292,7 @@ mod tests {
                 "tools/list" => Reply::Answer(json!({ "result": { "tools": [] } })),
                 _ => method_not_found(),
             }),
-            process,
+            McpConnectionStart::stdio(None, process),
         )
         .await;
         opened.expect("the test server completes its start")

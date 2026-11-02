@@ -1,0 +1,346 @@
+use std::sync::Arc;
+
+use serde_json::json;
+use sidekicks_contracts::mcp::server::config::McpServerAddress;
+use tokio::time::{Duration, timeout};
+use tokio_util::sync::CancellationToken;
+
+use crate::client::connection::standing::McpStandingConnection;
+use crate::client::dispatch::tests::{
+    Fixture, StoredReceipt, receipt_without_task, silent_call_server, task_server, until,
+};
+use crate::client::dispatch::{McpCallCompletionError, McpToolDispatchError};
+use crate::client::tasks::McpTaskContact::{NotConfigured, Reached, Reconfigured};
+use crate::client::tasks::{McpServerEndpoint, McpToolCallEnd};
+use crate::client::test_server::{
+    Reply, Responder, board_accepted, board_answer, completed, contact, input_required,
+    method_not_found, text_result, track_call, tracked_end, tracker_address, v1_status_reply,
+    v2_task_server,
+};
+use crate::command_receipts::background_statement;
+
+/// A fixture whose connections reach the server `tracker` at its address.
+async fn fixture_at_address() -> Fixture {
+    let mut fixture = Fixture::new().await;
+    fixture.address = Some(tracker_address());
+    fixture
+}
+
+/// Another address the session's server `tracker` can be configured at.
+fn other_address() -> McpServerAddress {
+    McpServerAddress::new("https://other.example.com/mcp").expect("an address")
+}
+
+/// A 2025-11-25 server whose task `task-1` reads `working` at every poll.
+fn working_task_server() -> Responder {
+    task_server(|method, _| match method {
+        "tasks/get" => v1_status_reply("working"),
+        _ => method_not_found(),
+    })
+}
+
+/// The receipt of task `task-1` on the 2025-11-25 server `tracker` at its address, at `status`.
+fn address_task_receipt(status: &str, is_completed: bool) -> StoredReceipt {
+    let endpoint = McpServerEndpoint::at_address(&tracker_address());
+    StoredReceipt {
+        status: status.to_owned(),
+        is_started: true,
+        is_completed,
+        task: ["task-1", "v1", "tracker", endpoint.as_str()].map(|column| Some(column.to_owned())),
+    }
+}
+
+// Mutations: in `follow_across_reconnects`, return the `ConnectionClosed` end instead of waiting
+// for the replacement, or keep polling the closed connection; in `poll_once`, go on polling a
+// closed connection.
+#[tokio::test(start_paused = true)]
+async fn a_task_whose_connection_a_reconnect_replaces_is_followed_on_the_new_one_to_its_end() {
+    let fixture = fixture_at_address().await;
+    let (standing, old) = fixture.connect(working_task_server()).await;
+    let contact = contact();
+    let uncanceled = CancellationToken::new();
+
+    let (dispatched, new) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
+        async {
+            until(|| !old.requests("tasks/get").is_empty()).await;
+            // The Reconnect publishes the new connection, then closes the old one under the follow.
+            let (_, new) = fixture
+                .connect(task_server(|method, _| match method {
+                    "tasks/get" => v1_status_reply("completed"),
+                    "tasks/result" => Reply::Answer(json!({ "result": text_result("tracked") })),
+                    _ => method_not_found(),
+                }))
+                .await;
+            new
+        },
+    );
+    let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+
+    assert_eq!(end.expect("the call ends"), tracked_end());
+    written.expect("the caller writes the end");
+    assert_eq!(
+        fixture.receipts(),
+        [address_task_receipt("completed", true)]
+    );
+    assert_eq!(
+        old.requests("tasks/get").len(),
+        1,
+        "no poll after the close"
+    );
+    assert_eq!(
+        new.requests("tasks/get").len(),
+        1,
+        "the next poll is on the new one"
+    );
+    assert_eq!(*contact.borrow(), Reached);
+}
+
+// Mutations: finish the task's watch at `ConnectionClosed`, or drop its asked keys, so the
+// re-bound follow asks `k1` a second time; or send the answer over the old connection, or wait
+// for a re-bind before sending it.
+#[tokio::test(start_paused = true)]
+async fn a_2026_07_28_tasks_open_question_is_kept_across_a_reconnect_and_answered_over_the_new_one()
+{
+    let fixture = fixture_at_address().await;
+    let (standing, old) = fixture
+        .connect(v2_task_server(|_, _, _| input_required(&["k1"])))
+        .await;
+    let contact = contact();
+    let uncanceled = CancellationToken::new();
+
+    let (dispatched, new) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
+        async {
+            fixture.card.wait_until_taken(1).await;
+            let (_, new) = fixture
+                .connect(v2_task_server(|_, updates, _| {
+                    if updates == 0 {
+                        input_required(&["k1"])
+                    } else {
+                        completed()
+                    }
+                }))
+                .await;
+            // A poll on the new connection reads `k1` still waiting, where a key asked again shows.
+            until(|| !new.requests("tasks/get").is_empty()).await;
+            fixture.card.answer_open(board_answer()).await;
+            new
+        },
+    );
+    let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+
+    assert_eq!(
+        fixture.card.taken().len(),
+        1,
+        "the kept question is not asked again"
+    );
+    assert!(
+        old.requests("tasks/update").is_empty(),
+        "nothing is answered over the old connection"
+    );
+    let updates = new.requests("tasks/update");
+    assert_eq!(updates.len(), 1);
+    assert_eq!(
+        updates[0].1["params"]["inputResponses"]["k1"],
+        board_accepted()
+    );
+    assert_eq!(end.expect("the call ends"), tracked_end());
+    written.expect("the caller writes the end");
+    let [stored] = <[_; 1]>::try_from(fixture.receipts()).expect("one receipt");
+    assert_eq!(
+        (stored.status.as_str(), stored.is_completed),
+        ("completed", true)
+    );
+}
+
+// Mutations: in `wait_for_replacement`, leave the contact as it was while the server is
+// reconfigured; in `V2TaskAnswer::send`, wait for a connection of the task's endpoint, or send
+// over whatever connection is live.
+#[tokio::test(start_paused = true)]
+async fn a_question_answered_while_its_servers_address_changed_fails_at_once_and_sends_nothing() {
+    let fixture = fixture_at_address().await;
+    let (standing, old) = fixture
+        .connect(v2_task_server(|_, _, _| input_required(&["k1"])))
+        .await;
+    let contact = contact();
+    let uncanceled = CancellationToken::new();
+
+    let (dispatched, (other, answered)) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
+        async {
+            fixture.card.wait_until_taken(1).await;
+            let (opened, other) = fixture
+                .open(
+                    v2_task_server(|_, _, _| completed()),
+                    Some(&other_address()),
+                )
+                .await;
+            fixture.client.add_connection(opened).await;
+            let mut seen = contact.subscribe();
+            seen.wait_for(|state| *state == Reconfigured)
+                .await
+                .expect("the contact stays open");
+            // The test card fails the person's answer by panicking on the answerer's error.
+            let card = Arc::clone(&fixture.card);
+            let answering = tokio::spawn(async move { card.answer_open(board_answer()).await });
+            let answered = timeout(Duration::from_secs(1), answering)
+                .await
+                .expect("the answer fails at once");
+            fixture.client.close_session(fixture.session_id).await;
+            (other, answered)
+        },
+    );
+    let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+
+    assert!(
+        answered.expect_err("the answer fails").is_panic(),
+        "the answer has no connection to go over"
+    );
+    assert!(
+        old.requests("tasks/update").is_empty(),
+        "nothing is answered over the closed connection"
+    );
+    assert!(
+        other.requests("tasks/update").is_empty(),
+        "nothing is answered at another address"
+    );
+    assert!(
+        other.requests("tasks/get").is_empty(),
+        "nothing is polled at another address"
+    );
+    assert_eq!(
+        end.expect("the call ends"),
+        McpToolCallEnd::ConnectionClosed
+    );
+    assert!(matches!(written, Err(McpCallCompletionError::Settled)));
+    let [stored] = <[_; 1]>::try_from(fixture.receipts()).expect("one receipt");
+    assert_eq!(
+        (stored.status.as_str(), stored.is_completed),
+        ("unknown", true)
+    );
+}
+
+// Mutations: in `wait_for_replacement`, leave the contact `Reached` while no connection is live;
+// in `follow_across_reconnects`, end at `ConnectionClosed` without waiting; or leave the wait
+// unraced against the session's close.
+#[tokio::test(start_paused = true)]
+async fn a_task_whose_server_is_no_longer_configured_reads_so_and_waits_until_the_close() {
+    let fixture = fixture_at_address().await;
+    let (standing, feed) = McpStandingConnection::new(CancellationToken::new());
+    let (opened, server) = fixture
+        .open(working_task_server(), fixture.address.as_ref())
+        .await;
+    let connection = Arc::new(opened);
+    feed.publish(Some(Arc::clone(&connection)));
+    let contact = contact();
+    let uncanceled = CancellationToken::new();
+
+    let (dispatched, ()) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
+        async {
+            until(|| !server.requests("tasks/get").is_empty()).await;
+            // The server is removed: no connection of it stays live.
+            feed.publish(None);
+            connection.close().await;
+            until(|| *contact.borrow() == NotConfigured).await;
+            let polls = server.requests("tasks/get").len();
+            tokio::time::sleep(Duration::from_secs(600)).await;
+            assert_eq!(
+                server.requests("tasks/get").len(),
+                polls,
+                "the wait polls nothing"
+            );
+            assert_eq!(*contact.borrow(), NotConfigured);
+            assert_eq!(
+                fixture.receipts(),
+                [address_task_receipt("accepted", false)],
+                "the task waits in flight"
+            );
+            feed.close().await;
+        },
+    );
+    let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+
+    assert_eq!(
+        end.expect("the call ends"),
+        McpToolCallEnd::ConnectionClosed
+    );
+    assert!(matches!(written, Err(McpCallCompletionError::Settled)));
+    assert_eq!(fixture.receipts(), [address_task_receipt("unknown", true)]);
+}
+
+// Mutation: in `wait_for_replacement`, read the client's stop as the session's close, writing the
+// end unknown.
+#[tokio::test(start_paused = true)]
+async fn a_task_waiting_for_its_replacement_when_the_client_stops_stays_in_flight() {
+    let fixture = fixture_at_address().await;
+    let (standing, _server) = fixture.connect(working_task_server()).await;
+    let contact = contact();
+    let uncanceled = CancellationToken::new();
+
+    let (dispatched, ()) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
+        async {
+            let (opened, _other) = fixture
+                .open(working_task_server(), Some(&other_address()))
+                .await;
+            fixture.client.add_connection(opened).await;
+            until(|| *contact.borrow() == Reconfigured).await;
+            fixture.client.stop().await;
+        },
+    );
+
+    assert!(matches!(
+        dispatched,
+        Err(McpToolDispatchError::ClientStopping)
+    ));
+    assert_eq!(
+        fixture.receipts(),
+        [address_task_receipt("accepted", false)]
+    );
+}
+
+// Mutation: in `call`, write the session's close row under the stop, which a backgrounded call
+// takes too.
+#[tokio::test(start_paused = true)]
+async fn a_backgrounded_plain_call_cut_by_the_clients_stop_stays_in_flight() {
+    let fixture = fixture_at_address().await;
+    let (standing, server) = fixture.connect(silent_call_server()).await;
+    let contact = contact();
+    let uncanceled = CancellationToken::new();
+
+    let (dispatched, ()) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
+        async {
+            until(|| server.requests("tools/call").len() == 1).await;
+            fixture
+                .writer
+                .write(vec![background_statement("command-1")])
+                .await
+                .expect("the call moves to the background");
+            fixture.client.stop().await;
+        },
+    );
+
+    assert!(matches!(
+        dispatched,
+        Err(McpToolDispatchError::ClientStopping)
+    ));
+    assert_eq!(
+        fixture.receipts(),
+        [receipt_without_task("accepted", false)]
+    );
+}

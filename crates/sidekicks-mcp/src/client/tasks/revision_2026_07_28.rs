@@ -11,9 +11,9 @@
 //!   any of its other requests is asked, so none flashes on the card.
 //! - A task's input requests past the first 16 are ignored, as Claude Code ignores them.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -27,14 +27,13 @@ use serde_json::{Value, json};
 use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_provider::mcp::elicitation_form::compose_elicitation_content;
 use sidekicks_provider::port::question::{ToolServerAnswerDelivery, ToolServerQuestionAnswer};
-use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 
 use crate::client::calls::TrackedCall;
 use crate::client::connection::McpServerConnection;
 use crate::client::connection::standing::McpStandingConnection;
 use crate::client::poll::{PollStep, follow_task as poll_until_end};
-use crate::client::tasks::watches::{QuestionOutcome, QuestionTake};
+use crate::client::tasks::watches::{QuestionOutcome, QuestionTake, TaskWatch};
 use crate::client::tasks::{
     McpServerEndpoint, McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpToolCall,
     McpToolCallEnd, McpToolCallError, observe_mcp_task_acceptance,
@@ -150,7 +149,8 @@ fn empty_roots() -> Value {
 }
 
 /// Follows `call`'s task `mcp_task_id` to its end, its questions asked in the call's run and
-/// answered over `standing`'s live connection.
+/// answered over `standing`'s live connection; a follow on a server at an address that its
+/// connection's close cut leaves its watch, with the keys asked, to be re-bound.
 pub(super) async fn follow_task(
     connection: &McpServerConnection,
     standing: &McpStandingConnection,
@@ -162,17 +162,16 @@ pub(super) async fn follow_task(
         .scope
         .task_watches
         .watch(&connection.scope, call, mcp_task_id);
-    let asked = Mutex::new(HashSet::new());
     let end = poll_until_end(&watch.wake, contact, || {
-        poll_once(connection, standing, mcp_task_id, &asked)
+        poll_once(connection, standing, mcp_task_id, &watch)
     })
     .await;
-    watch.finish().await;
+    watch.end(&end, &connection.endpoint).await;
     end
 }
 
-/// One poll: the task's state, answering each of its first 16 input requests not answered yet,
-/// or canceling the task when one of them is a kind the client does not take.
+/// One poll: the task's state, answering each of its first 16 input requests not asked yet in
+/// `watch`, or canceling the task when one of them is a kind the client does not take.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "rmcp marks the input request non-exhaustive, so its kinds cannot all be named"
@@ -181,7 +180,7 @@ async fn poll_once(
     connection: &McpServerConnection,
     standing: &McpStandingConnection,
     mcp_task_id: &str,
-    asked: &Mutex<HashSet<String>>,
+    watch: &TaskWatch<'_>,
 ) -> Result<PollStep, ServiceError> {
     let reply = connection.requests.get_task(mcp_task_id).await?;
     let suggested_interval_ms = reply.task.task.poll_interval_ms;
@@ -220,11 +219,12 @@ async fn poll_once(
         }
     }
     for (key, input) in taken {
-        let is_asked = lock(asked).contains(&key);
         // A request the card refused, as a run already waiting on a question refuses one, is
         // asked again on a later poll.
-        if !is_asked && answer_input_request(connection, standing, mcp_task_id, &key, input).await {
-            lock(asked).insert(key);
+        if !watch.is_asked(&key)
+            && answer_input_request(connection, standing, mcp_task_id, &key, input).await
+        {
+            watch.mark_asked(&key);
         }
     }
     Ok(PollStep::Wait {
@@ -394,82 +394,10 @@ mod tests {
 
     use crate::client::tasks::{McpTaskGeneration, McpToolCallEnd};
     use crate::client::test_server::{
-        CountingSink, Reply, Responder, TestServer, board_accepted, board_answer, board_form,
-        call_tool_as_dispatched, contact, method_not_found, open_test_server, test_client,
-        text_result, track_call, track_task_handle, tracked_end,
+        CountingSink, TestServer, board_accepted, board_answer, board_form,
+        call_tool_as_dispatched, completed, contact, input_required, open_test_server, test_client,
+        track_call, track_task_handle, tracked_end, v2_task_server,
     };
-
-    /// A 2026-07-28 server declaring tasks, whose `tools/call` starts task `task-1` and whose
-    /// `tasks/get` answers the task's state from `state`, given the poll's number and the
-    /// `tasks/update` and `tasks/cancel` requests received so far.
-    fn v2_task_server(
-        mut state: impl FnMut(usize, usize, usize) -> Value + Send + 'static,
-    ) -> Responder {
-        let (mut polls, mut updates, mut cancels) = (0, 0, 0);
-        Box::new(move |method, _params| match method {
-            "server/discover" => Reply::Answer(json!({ "result": {
-                "resultType": "complete",
-                "supportedVersions": ["2026-07-28"],
-                "capabilities": {
-                    "tools": {},
-                    "extensions": { "io.modelcontextprotocol/tasks": {} },
-                },
-                "ttlMs": 0,
-                "cacheScope": "private",
-            } })),
-            "tools/call" => {
-                let mut created = v2_task(&json!({ "status": "working" }));
-                created["resultType"] = json!("task");
-                Reply::Answer(json!({ "result": created }))
-            }
-            "tasks/get" => {
-                polls += 1;
-                let mut task = v2_task(&state(polls, updates, cancels));
-                task["resultType"] = json!("complete");
-                Reply::Answer(json!({ "result": task }))
-            }
-            "tasks/update" => {
-                updates += 1;
-                Reply::Answer(json!({ "result": {} }))
-            }
-            "tasks/cancel" => {
-                cancels += 1;
-                Reply::Answer(json!({ "result": {} }))
-            }
-            _ => method_not_found(),
-        })
-    }
-
-    /// Task `task-1` with `state`'s status and payload members.
-    fn v2_task(state: &Value) -> Value {
-        let mut task = json!({
-            "taskId": "task-1",
-            "createdAt": "2026-10-24T12:00:00Z",
-            "lastUpdatedAt": "2026-10-24T12:00:00Z",
-            "ttlMs": 60_000,
-            "pollIntervalMs": 5_000,
-        });
-        task.as_object_mut()
-            .expect("an object")
-            .extend(state.as_object().expect("an object").clone());
-        task
-    }
-
-    /// A task waiting on the elicitations `keys`, each asking [`board_form`].
-    fn input_required(keys: &[&str]) -> Value {
-        let requests: Map<String, Value> = keys
-            .iter()
-            .map(|key| {
-                let request = json!({ "method": "elicitation/create", "params": board_form() });
-                ((*key).to_owned(), request)
-            })
-            .collect();
-        json!({ "status": "input_required", "inputRequests": requests })
-    }
-
-    fn completed() -> Value {
-        json!({ "status": "completed", "result": text_result("tracked") })
-    }
 
     fn updates(server: &TestServer) -> Vec<Value> {
         server
