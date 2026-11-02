@@ -27,13 +27,14 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::database::stored_column::optional_text_column;
 
-use crate::git::process::{GitCall, GitError, GitRunner, in_folder, strip_line_end};
+use crate::git::process::{
+    GitCall, GitError, GitRunner, in_folder, read_git_common_folder, strip_line_end,
+};
 use crate::git::turn_snapshot::capture::{
     EXCLUDE_PER_DIRECTORY_GITIGNORE, SNAPSHOT_INDEX_SEGMENT, SparseListingPartition,
 };
-use crate::git::turn_snapshot::capture_steps::{
-    CaptureStepError, SnapshotCheckout, joined, require_object_id,
-};
+use crate::git::turn_snapshot::capture_folder::CaptureFolder;
+use crate::git::turn_snapshot::capture_steps::{CaptureStepError, SnapshotCheckout, joined};
 use crate::git::turn_snapshot::diagnostics::{
     TurnSnapshotCaptureStep, TurnSnapshotDiagnostic, TurnSnapshotRetentionSkipReason,
 };
@@ -190,8 +191,8 @@ impl TurnSnapshotService {
         input: &TurnSnapshotCaptureInput,
     ) -> TurnSnapshotCaptureOutcome {
         let snapshot_ref = build_turn_snapshot_ref(&input.run_id, input.epoch, input.turn_ordinal);
-        let checkout_root = match self.verify_checkout_root(place, input).await {
-            Ok(checkout_root) => checkout_root,
+        let (checkout_root, capture_folder) = match self.verify_checkout_root(place, input).await {
+            Ok(verified) => verified,
             Err(failure) => {
                 return fail_capture(
                     input,
@@ -206,25 +207,31 @@ impl TurnSnapshotService {
             git: &self.git,
             place,
             root: &checkout_root,
+            capture_folder: &capture_folder,
         };
         self.capture_checkout(&checkout, input, snapshot_ref).await
     }
 
     // The supplied checkout, symlinks resolved, once git names it as the top level of the working
-    // tree holding the execution root.
+    // tree holding the execution root, and the repository's own git folder as the capture folder.
     async fn verify_checkout_root(
         &self,
         place: Option<&Place>,
         input: &TurnSnapshotCaptureInput,
-    ) -> Result<PathBuf, CaptureStepError> {
-        let (supplied, live) = tokio::try_join!(
+    ) -> Result<(PathBuf, CaptureFolder), CaptureStepError> {
+        let (supplied, live, git_common_folder) = tokio::try_join!(
             resolve_symlinks(input.checkout_root.clone()),
-            self.read_live_top_level(place, &input.execution_root)
+            self.read_live_top_level(place, &input.execution_root),
+            async {
+                read_git_common_folder(&self.git, place, &input.execution_root, None)
+                    .await
+                    .map_err(CaptureStepError::from)
+            }
         )?;
         if supplied != live {
             return Err(CaptureStepError::CheckoutMismatch);
         }
-        Ok(supplied)
+        Ok((supplied, CaptureFolder::of_repository(&git_common_folder)?))
     }
 
     // The top level of the working tree holding `execution_root`, symlinks resolved.
@@ -357,32 +364,8 @@ impl TurnSnapshotService {
         };
         let listing: &[u8] = &partition.in_cone_listing;
 
-        // Pins for the one step that hashes worktree bytes: a host `core.autocrlf` changes blob
-        // ids, a host `core.safecrlf=true` fails staging on CRLF bytes under `*.txt text` (git
-        // 2.50.1), and the person's and the system's attribute files must not steer conversion
-        // (the tree's own `.gitattributes` stays honored). `core.fileMode` is not pinned: true
-        // would replace each tracked file's recorded mode with the stat mode, since the scratch
-        // index carries no stat data.
-        let arguments = checkout.in_checkout(&[
-            "-c",
-            "core.autocrlf=false",
-            "-c",
-            "core.safecrlf=false",
-            "-c",
-            "core.attributesFile=/dev/null",
-            "update-index",
-            "--add",
-            "--remove",
-            "-z",
-            "--stdin",
-        ]);
-        let call = GitCall::read(arguments)
-            .with_environment("GIT_INDEX_FILE", scratch_index)
-            .with_environment("GIT_ATTR_NOSYSTEM", "1")
-            .with_input(listing.to_vec());
         checkout
-            .git
-            .run(checkout.place, call)
+            .stage_listing(scratch_index, listing)
             .await
             .map_err(at(Step::StagePaths))?;
 
@@ -391,14 +374,9 @@ impl TurnSnapshotService {
             .await
             .map_err(at(Step::NormalizeEmbeddedRepositories))?;
 
-        let call = GitCall::read(checkout.in_checkout(&["write-tree"]))
-            .with_environment("GIT_INDEX_FILE", scratch_index);
         let tree = checkout
-            .git
-            .run(checkout.place, call)
+            .write_snapshot_tree(scratch_index)
             .await
-            .map_err(CaptureStepError::from)
-            .and_then(|output| require_object_id(&output.stdout))
             .map_err(at(Step::WriteTree))?;
 
         // Read back from the tree just written: the out-of-cone entries the tree lacks. The live

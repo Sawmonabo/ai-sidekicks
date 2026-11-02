@@ -1,6 +1,7 @@
 //! The git steps of one turn-snapshot capture: resolve the base, seed and partition the scratch
-//! index, record embedded repositories, commit the tree and write its ref. The service orders them
-//! and turns a failure into the failed step.
+//! index, stage the listing, record embedded repositories, write and commit the tree and write its
+//! ref, every write into the capture folder. The service orders them and turns a failure into the
+//! failed step.
 //!
 //! - A duplicate capture whose worktree changed leaves an unreferenced tree and commit for gc.
 //! - Host git config, measured on git 2.50.1: `core.ignorecase` and `core.precomposeUnicode` state
@@ -23,7 +24,7 @@ use std::path::{Path, PathBuf};
 use jiff::Timestamp;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
-use sidekicks_platforms::{create_new_file, path_from_program_output};
+use sidekicks_platforms::{NULL_DEVICE_PATH, create_new_file, path_from_program_output};
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::missing_entry::MissingEntry;
@@ -38,9 +39,16 @@ use crate::git::turn_snapshot::capture::{
     SPARSE_SEED_INDEX_LOCK_RETRY_DELAY, SparseListingPartition, UnrecognizedObjectFormat,
     join_nul_terminated_listing, split_nul_terminated_listing_bytes, to_raw_git_date,
 };
+use crate::git::turn_snapshot::capture_folder::{
+    CaptureFolder, CaptureFolderError, git_folder_argument,
+};
 use crate::git::turn_snapshot::refs::USE_REPLACE_REFS_PIN;
 
 const INDEX_COPY_OPERATION: &str = "copying the live index to the scratch index";
+
+/// Every capture write flushes its objects and its ref to disk before git answers, whatever the
+/// host sets, so a crash after the answer loses no snapshot.
+const CORE_FSYNC_PIN: [&str; 2] = ["-c", "core.fsync=objects,reference"];
 
 /// Why one capture step failed; the service reports it with the step's name, and the turn ends
 /// anyway.
@@ -58,6 +66,9 @@ pub(crate) enum CaptureStepError {
     /// git named an object format this code does not know.
     #[error(transparent)]
     ObjectFormat(#[from] UnrecognizedObjectFormat),
+    /// The capture folder could not be opened or made.
+    #[error(transparent)]
+    CaptureFolder(#[from] CaptureFolderError),
     /// The supplied checkout or git's top level could not be resolved.
     #[error("the checkout's folder could not be resolved")]
     CheckoutUnresolved(#[source] io::Error),
@@ -93,8 +104,8 @@ pub(crate) enum CaptureStepError {
     },
 }
 
-/// Where a capture's git calls run: the daemon's git, the project's place and the top level of
-/// the verified checkout every step runs in.
+/// Where a capture's git calls run: the daemon's git, the project's place, the top level of the
+/// verified checkout every step runs in and the capture folder every write goes to.
 pub(crate) struct SnapshotCheckout<'checkout> {
     /// The daemon's git.
     pub(crate) git: &'checkout GitRunner,
@@ -102,6 +113,8 @@ pub(crate) struct SnapshotCheckout<'checkout> {
     pub(crate) place: Option<&'checkout Place>,
     /// The checkout's top level, symlinks resolved.
     pub(crate) root: &'checkout Path,
+    /// Where the capture's objects and its ref are written.
+    pub(crate) capture_folder: &'checkout CaptureFolder,
 }
 
 impl SnapshotCheckout<'_> {
@@ -228,7 +241,11 @@ impl SnapshotCheckout<'_> {
             "-z",
             tree.as_str(),
         ]);
-        let tree_listing = self.git.run(self.place, GitCall::read(arguments)).await?;
+        let mut call = GitCall::read(arguments);
+        for (name, value) in self.capture_folder.read_environment() {
+            call = call.with_environment(name, value);
+        }
+        let tree_listing = self.git.run(self.place, call).await?;
         // Byte keys: decoded names would map distinct non-UTF-8 paths to one string and subtract a
         // boundary path away.
         let recorded: HashSet<&[u8]> =
@@ -238,6 +255,56 @@ impl SnapshotCheckout<'_> {
             .copied()
             .filter(|entry| !recorded.contains(entry))
             .collect())
+    }
+
+    /// Stages every path of the NUL-terminated `listing` into `scratch_index`, hashing the worktree
+    /// bytes into the capture folder, the repository's own `.gitattributes` honored and nothing
+    /// else steering conversion. Fails as git does.
+    pub(crate) async fn stage_listing(
+        &self,
+        scratch_index: &Path,
+        listing: &[u8],
+    ) -> Result<(), CaptureStepError> {
+        // A host `core.autocrlf` changes blob ids, a host `core.safecrlf=true` fails staging on
+        // CRLF bytes under `*.txt text` (git 2.50.1), and the person's and the system's attribute
+        // files must not steer conversion. `core.fileMode` is not pinned: true would replace each
+        // tracked file's recorded mode with the stat mode, since the scratch index carries no stat
+        // data.
+        let attributes_file = format!("core.attributesFile={NULL_DEVICE_PATH}");
+        let arguments = self.write_in_checkout(&[
+            "-c",
+            "core.autocrlf=false",
+            "-c",
+            "core.safecrlf=false",
+            "-c",
+            &attributes_file,
+            "update-index",
+            "--add",
+            "--remove",
+            "-z",
+            "--stdin",
+        ]);
+        let call = self
+            .writing_capture_objects(GitCall::read(arguments))
+            .with_environment("GIT_INDEX_FILE", scratch_index)
+            .with_environment("GIT_ATTR_NOSYSTEM", "1")
+            .with_input(listing.to_vec());
+        self.git.run(self.place, call).await?;
+        Ok(())
+    }
+
+    /// Writes the tree of `scratch_index` into the capture folder and returns its id. Fails as git
+    /// does, or with `NotAnObjectId`.
+    pub(crate) async fn write_snapshot_tree(
+        &self,
+        scratch_index: &Path,
+    ) -> Result<GitObjectId, CaptureStepError> {
+        let arguments = self.write_in_checkout(&["write-tree"]);
+        let call = self
+            .writing_capture_objects(GitCall::read(arguments))
+            .with_environment("GIT_INDEX_FILE", scratch_index);
+        let output = self.git.run(self.place, call).await?;
+        require_object_id(&output.stdout)
     }
 
     /// Records each untracked embedded repository of `listing` (a trailing-slash entry
@@ -295,9 +362,11 @@ impl SnapshotCheckout<'_> {
             let mut cache_info =
                 OsString::from(format!("{GITLINK_MODE},{},", embedded_head.as_str()));
             cache_info.push(embedded_path_text.as_os_str());
-            let mut arguments = self.in_checkout(&["update-index", "--add", "--cacheinfo"]);
+            let mut arguments = self.write_in_checkout(&["update-index", "--add", "--cacheinfo"]);
             arguments.push(cache_info);
-            let call = GitCall::read(arguments).with_environment("GIT_INDEX_FILE", scratch_index);
+            let call = self
+                .writing_capture_objects(GitCall::read(arguments))
+                .with_environment("GIT_INDEX_FILE", scratch_index);
             self.git.run(self.place, call).await?;
         }
         Ok(skipped)
@@ -318,7 +387,7 @@ impl SnapshotCheckout<'_> {
         let date = to_raw_git_date(turn_ended_at);
         // `i18n.commitEncoding=utf-8` because a host setting adds an `encoding` header. The dates
         // are commit fields too, so the identity alone would leak the host's time zone into the id.
-        let arguments = self.in_checkout(&[
+        let arguments = self.write_in_checkout(&[
             "-c",
             "i18n.commitEncoding=utf-8",
             "commit-tree",
@@ -332,7 +401,8 @@ impl SnapshotCheckout<'_> {
         // not.
         let message =
             compose_snapshot_message(skipped_embedded_repositories, sparse_boundary_paths);
-        let call = GitCall::write(arguments)
+        let call = self
+            .writing_capture_objects(GitCall::write(arguments))
             .with_environment("GIT_AUTHOR_NAME", SNAPSHOT_IDENTITY_NAME)
             .with_environment("GIT_AUTHOR_EMAIL", SNAPSHOT_IDENTITY_EMAIL)
             .with_environment("GIT_AUTHOR_DATE", &date)
@@ -344,9 +414,10 @@ impl SnapshotCheckout<'_> {
         require_object_id(&output.stdout)
     }
 
-    /// Writes `snapshot_ref` to `snapshot_commit` only where no ref is: `None` when this call
-    /// wrote it, or the recorded id when one was already there. Fails with git's refusal when no
-    /// ref is found after it, or with `RefReadBack` when the read back fails too.
+    /// Writes `snapshot_ref` to `snapshot_commit` in the capture folder only where no ref is:
+    /// `None` when this call wrote it, or the recorded id when one was already there. Fails with
+    /// git's refusal when no ref is found after it, or with `RefReadBack` when the read back fails
+    /// too.
     pub(crate) async fn write_create_only_ref(
         &self,
         snapshot_ref: &str,
@@ -357,18 +428,18 @@ impl SnapshotCheckout<'_> {
         // referent outside the namespace and exit 0 (git 2.50.1, 2.54.0). With it, 2.50.1 replaces
         // the symref and 2.54.0 refuses; a live referent refuses on both, and the id read back
         // through it is reported as found, not as written here.
-        let arguments = self.in_checkout(&[
-            "update-ref",
-            "--no-deref",
-            snapshot_ref,
-            snapshot_commit.as_str(),
-            "",
-        ]);
-        let Err(refusal) = self
-            .git
-            .run(self.place, GitCall::private_ref_write(arguments))
-            .await
-        else {
+        let arguments = self.in_capture_folder(
+            &CORE_FSYNC_PIN,
+            &[
+                "update-ref",
+                "--no-deref",
+                snapshot_ref,
+                snapshot_commit.as_str(),
+                "",
+            ],
+        );
+        let call = self.writing_capture_objects(GitCall::private_ref_write(arguments));
+        let Err(refusal) = self.git.run(self.place, call).await else {
             return Ok(None);
         };
         // The ref, not git's message, is read, and only after the swap refused, so a concurrent
@@ -390,11 +461,14 @@ impl SnapshotCheckout<'_> {
         snapshot_ref: &str,
     ) -> Result<Option<GitObjectId>, CaptureStepError> {
         // The pattern also matches refs below `<ref>/`, so the exact name is picked out.
-        let arguments = self.in_checkout(&[
-            "for-each-ref",
-            "--format=%(objectname) %(refname)",
-            snapshot_ref,
-        ]);
+        let arguments = self.in_capture_folder(
+            &[],
+            &[
+                "for-each-ref",
+                "--format=%(objectname) %(refname)",
+                snapshot_ref,
+            ],
+        );
         let output = self.git.run(self.place, GitCall::read(arguments)).await?;
         for line in String::from_utf8_lossy(&output.stdout).split('\n') {
             if let Some((object_id, listed_ref)) = line.split_once(' ')
@@ -409,6 +483,34 @@ impl SnapshotCheckout<'_> {
     /// The arguments of a git call in the checkout: `-C <root>` and then `arguments`.
     pub(crate) fn in_checkout(&self, arguments: &[&str]) -> Vec<OsString> {
         in_folder(self.root, arguments)
+    }
+
+    // The arguments of a capture write in the checkout: the flush pin, then `-C <root>` and
+    // `arguments`.
+    fn write_in_checkout(&self, arguments: &[&str]) -> Vec<OsString> {
+        let mut call: Vec<OsString> = CORE_FSYNC_PIN.iter().map(OsString::from).collect();
+        call.extend(self.in_checkout(arguments));
+        call
+    }
+
+    // The arguments of a call against the capture folder's own git folder: `settings`, then
+    // `--git-dir=<folder>` and `arguments`.
+    fn in_capture_folder(&self, settings: &[&str], arguments: &[&str]) -> Vec<OsString> {
+        settings
+            .iter()
+            .map(OsString::from)
+            .chain([git_folder_argument(self.capture_folder.folder())])
+            .chain(arguments.iter().map(OsString::from))
+            .collect()
+    }
+
+    // `call` writing its objects into the capture folder, the repository attached for the history
+    // it builds on.
+    fn writing_capture_objects(&self, mut call: GitCall) -> GitCall {
+        for (name, value) in self.capture_folder.write_environment() {
+            call = call.with_environment(name, value);
+        }
+        call
     }
 }
 
