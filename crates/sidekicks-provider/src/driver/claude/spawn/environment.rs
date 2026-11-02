@@ -40,13 +40,6 @@ pub(crate) const CLAUDE_PROVIDER_SWITCH_VARIABLES: [&str; 6] = [
 /// gateway.
 pub(crate) const CLAUDE_GATEWAY_SWITCH_VARIABLE: &str = "CLAUDE_CODE_USE_GATEWAY";
 
-// The question tool's two switches: options carry markdown previews, and the tool also asks text
-// and number questions under a title; unset, a process the daemon starts asks neither.
-const CLAUDE_QUESTION_VARIABLES: [(&str, &str); 2] = [
-    ("CLAUDE_CODE_QUESTION_PREVIEW_FORMAT", "markdown"),
-    ("CLAUDE_CODE_QUESTION_EXTENDED", "1"),
-];
-
 /// The folders of an account the daemon manages, which Claude Code reads through
 /// `CLAUDE_CONFIG_DIR` and `CLAUDE_SECURESTORAGE_CONFIG_DIR`; each an absolute path.
 pub(crate) struct ClaudeAccountFolders {
@@ -173,11 +166,6 @@ pub(crate) fn compose_claude_process_environment(
         ),
         ("CLAUDE_CODE_TMPDIR".to_owned(), scratch_folder),
     ];
-    let mandated_pairs: Vec<(String, String)> = CLAUDE_QUESTION_VARIABLES
-        .iter()
-        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-        .chain(additional_mandated_pairs.iter().cloned())
-        .collect();
     build_provider_process_environment(
         &ProviderEnvironmentRequest {
             session: request.session,
@@ -185,7 +173,7 @@ pub(crate) fn compose_claude_process_environment(
             deny_env_vars: request.deny_env_vars,
             credential_homes: &credential_homes,
         },
-        &mandated_pairs,
+        additional_mandated_pairs,
     )
 }
 
@@ -202,12 +190,17 @@ pub(crate) fn without_interrupted_turn_resume(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+    use sidekicks_contracts::machine::settings::EnvironmentRow;
+    use sidekicks_contracts::wire::text::{BoundedText, NulFreeText};
     use sidekicks_platforms::PathRules;
+    use sidekicks_workspace::project::refusals::refuse_environment_rows;
 
     use super::{
         ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, ClaudeProcessHome,
         compose_claude_process_environment,
     };
+    use crate::driver::claude::DESCRIPTOR;
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::spawn_environment::{
         ReservedEnvironmentNames, SessionEnvironment, SpawnEnvironmentError,
@@ -265,5 +258,20 @@ mod tests {
                 name: "CLAUDE_CODE_TMPDIR".to_owned()
             })
         );
+    }
+
+    // A person's row naming either question switch is refused at save, as every name the app sets
+    // on a Claude Code process is. Killed by the switches set outside the descriptor's variables.
+    #[rstest]
+    #[case::previews("CLAUDE_CODE_QUESTION_PREVIEW_FORMAT")]
+    #[case::extended_questions("claude_code_question_extended")]
+    fn a_row_naming_a_question_switch_is_refused(#[case] name: &str) {
+        let reserved_names = ReservedEnvironmentNames::of_providers(&[&DESCRIPTOR]);
+        let row = EnvironmentRow {
+            name: BoundedText::new(name.to_owned()).expect("the test's name is bounded"),
+            value: NulFreeText::new("0".to_owned()).expect("the test's value has no NUL"),
+        };
+
+        assert!(refuse_environment_rows(&[row], reserved_names.names()).is_err());
     }
 }
