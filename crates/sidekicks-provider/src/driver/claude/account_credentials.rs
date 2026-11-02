@@ -24,7 +24,7 @@ use unicode_normalization::UnicodeNormalization;
 use zeroize::Zeroizing;
 
 use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
-use crate::driver::claude::mcp::sign_in::ClaudeSavedSignIn;
+use crate::driver::claude::mcp::sign_in::saved_credentials::ClaudeSavedSignIn;
 use crate::driver::claude::spawn::environment::{claude_config_folder, claude_text_variable};
 use crate::inbound_json::decode_inbound_json;
 

@@ -14,14 +14,17 @@
 //! process is closed and the folder removed whatever the outcome, a dropped sign-in's included.
 //! The person's own folders are only read, for the entry.
 
+pub(crate) mod saved_credentials;
+
 use std::error::Error;
 use std::future;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::Duration;
 
 use notify::{RecursiveMode, Watcher as _};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -31,9 +34,10 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::{Interval, MissedTickBehavior};
 use url::Url;
 
+use self::saved_credentials::{complete_client, holds_sign_in_for, read_saved_sign_in};
+use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account_credentials::{
-    ClaudeCredentialReadError, ClaudeSignInReader, ClaudeStoredCredentials,
-    read_claude_credential_file,
+    ClaudeCredentialReadError, ClaudeSignInReader, read_claude_credential_file,
 };
 use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::config::{
@@ -57,10 +61,11 @@ use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::claude::spawn::launch::one_turn::compose_unwatched_answer;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
-    BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInFailure, ProviderSignInReturn,
-    ProviderSignInTakeover, ProviderSignInTakeoverRequest,
+    NoPersonServerEntry, ProviderSignInFailure, ProviderSignInReturn, ProviderSignInTakeover,
+    ProviderSignInTakeoverRequest,
 };
-use crate::driver::mcp_server::address::read_server_address;
+use crate::driver::error_causes::provider_failure_refusal;
+use crate::driver::mcp_server::address::names_server_at;
 use crate::driver::mcp_server::sign_in_folder::SignInFolder;
 use crate::driver::mcp_server::status::FAILURE_TEXT_MAX_CODE_POINTS;
 
@@ -75,6 +80,9 @@ const SIGN_IN_SERVERS_FILE: &str = "sign-in-servers.json";
 
 /// The member of a server file that lists servers by name.
 const MCP_SERVERS_MEMBER: &str = "mcpServers";
+
+/// The member of a server entry naming the server's address.
+const URL_MEMBER: &str = "url";
 
 /// The member of a server entry naming the client its owner issued, and that client's id.
 const OAUTH_MEMBER: &str = "oauth";
@@ -91,12 +99,6 @@ const KEYCHAIN_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 /// credential value.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ClaudeSignInError {
-    /// The binding's server is declared by no entry where its kind keeps one any more.
-    #[error("no Claude Code config declares the MCP server named {name} any more")]
-    ServerEntryGone {
-        /// The server's name.
-        name: String,
-    },
     /// The sign-in's own folder or its server file could not be made.
     #[error("the folder Claude Code's MCP sign-in runs in could not be made")]
     FolderUnmade(#[source] Box<dyn Error + Send + Sync>),
@@ -151,8 +153,9 @@ pub(crate) struct ClaudeReportedError(String);
 
 impl From<ClaudeSignInError> for DriverError {
     /// A sign-in that ran out of time, an answer that does not read, or a sign-in Claude Code did
-    /// not save whole is the sign-in's failure of that kind; every other failure is the driver's
-    /// own.
+    /// not save whole is the sign-in's failure of that kind; a process that ended, or reported an
+    /// error, before the sign-in finished answers `provider.unavailable` with its words bounded as
+    /// `providerFailureDetail`; every other failure is the daemon's own.
     fn from(error: ClaudeSignInError) -> Self {
         match error {
             ClaudeSignInError::Unfinished => {
@@ -164,15 +167,20 @@ impl From<ClaudeSignInError> for DriverError {
             ClaudeSignInError::NoSavedSignIn | ClaudeSignInError::NoClient => {
                 Self::SignInFailed(ProviderSignInFailure::SignInNotSaved)
             }
-            other @ (ClaudeSignInError::ServerEntryGone { .. }
-            | ClaudeSignInError::FolderUnmade(_)
+            ended @ (ClaudeSignInError::ProcessReported(_) | ClaudeSignInError::ProcessEnded) => {
+                Self::from(provider_failure_refusal(
+                    &DESCRIPTOR.provider_id(),
+                    "Claude Code's MCP sign-in process failed before the sign-in finished",
+                    RefusalCode::ProviderUnavailable,
+                    ended,
+                ))
+            }
+            other @ (ClaudeSignInError::FolderUnmade(_)
             | ClaudeSignInError::CallerGone
             | ClaudeSignInError::NoDaemonReceiver
             | ClaudeSignInError::WatchFailed(_)
             | ClaudeSignInError::CredentialsUnreadable(_)
-            | ClaudeSignInError::KeychainItemLeft { .. }
-            | ClaudeSignInError::ProcessReported(_)
-            | ClaudeSignInError::ProcessEnded) => Self::Internal(Box::new(other)),
+            | ClaudeSignInError::KeychainItemLeft { .. }) => Self::Internal(Box::new(other)),
         }
     }
 }
@@ -211,9 +219,10 @@ pub(crate) struct ClaudeSignInSources<'sources> {
 
 /// Signs in to `request`'s server through Claude Code's own client, in one process `starts`
 /// brings up with the environment `environment_on` composes for the sign-in's own folder. Fails
-/// with [`DriverError::NoPersonServerEntry`] for a connector, as the entry's read, the
-/// environment, the start or a control request fails, and with [`ClaudeSignInError`] for every
-/// other failure; the process is closed and the folder removed either way.
+/// with [`DriverError::NoPersonServerEntry`] for a connector or a binding whose entry is gone or
+/// declares another address, as the entry's read, the environment, the start or a control request
+/// fails, and with [`ClaudeSignInError`] for every other failure; the process is closed and the
+/// folder removed either way.
 pub(crate) async fn sign_in_with_claude_client(
     starts: &dyn ClaudeProcessStarts,
     sources: ClaudeSignInSources<'_>,
@@ -232,6 +241,7 @@ pub(crate) async fn sign_in_with_claude_client(
     let entry = read_sign_in_entry(
         &sources,
         &request.binding,
+        &request.server_address,
         &request.provider_account_id,
         has_managed_mcp_file,
     )
@@ -392,21 +402,23 @@ fn sign_in_parent(data_folder: &Path) -> PathBuf {
 // since Claude Code fills them only in the plugin's own files; an organization's as `account`'s
 // managed settings declare it; and none for a server of an administrator's MCP file, which the
 // process then loads itself. Fails with `NoPersonServerEntry` for a connector, whose sign-in is
-// the account's own, and with `ServerEntryGone` where the entry is gone.
+// the account's own, and where no entry declares the server at `address`, so another provider's
+// flow is asked.
 async fn read_sign_in_entry(
     sources: &ClaudeSignInSources<'_>,
     binding: &McpServerBindingRef,
+    address: &McpServerAddress,
     account: &ProviderAccountId,
     has_managed_mcp_file: bool,
 ) -> Result<Option<Map<String, Value>>, DriverError> {
     let internal = |error: Box<dyn Error + Send + Sync>| DriverError::Internal(error);
+    let no_entry = || {
+        DriverError::from(NoPersonServerEntry {
+            binding: binding.clone(),
+        })
+    };
     let entry = match binding {
-        McpServerBindingRef::Connector { .. } => {
-            return Err(NoPersonServerEntry {
-                binding: binding.clone(),
-            }
-            .into());
-        }
+        McpServerBindingRef::Connector { .. } => return Err(no_entry()),
         McpServerBindingRef::Managed { server_name, .. } => {
             let servers = sources
                 .account_servers
@@ -444,14 +456,23 @@ async fn read_sign_in_entry(
         }
     };
     match entry {
-        Some(Value::Object(entry)) => Ok(Some(entry)),
-        Some(
-            Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_),
-        )
-        | None => Err(ClaudeSignInError::ServerEntryGone {
-            name: binding.server_name().as_str().to_owned(),
+        Some(Value::Object(entry))
+            if entry
+                .get(URL_MEMBER)
+                .and_then(Value::as_str)
+                .is_some_and(|url| names_server_at(url, address)) =>
+        {
+            Ok(Some(entry))
         }
-        .into()),
+        Some(
+            Value::Object(_)
+            | Value::Null
+            | Value::Bool(_)
+            | Value::Number(_)
+            | Value::String(_)
+            | Value::Array(_),
+        )
+        | None => Err(no_entry()),
     }
 }
 
@@ -725,169 +746,6 @@ async fn next_check(checks: Option<&mut Interval>) {
         }
         None => future::pending().await,
     }
-}
-
-// Whether `stored` holds a sign-in with an access token for `name`.
-fn holds_sign_in_for(stored: &ClaudeStoredCredentials, name: &McpServerName) -> bool {
-    stored.mcp_oauth.values().any(|sign_in| {
-        sign_in.server_name.as_deref() == Some(name.as_str())
-            && sign_in
-                .access_token
-                .as_deref()
-                .is_some_and(|token| !token.is_empty())
-    })
-}
-
-// Reads the sign-in Claude Code saved for `name` at `address` where it keeps it: the credential
-// folder's file `environment` names, else the keychain item named for that folder, which is
-// removed once read so no token outlives the sign-in. A removal that fails is logged where the
-// read succeeded, and reported beside the read's failure where it did not.
-async fn read_saved_sign_in(
-    credentials: &ClaudeSignInReader,
-    environment: &[(String, String)],
-    name: &McpServerName,
-    address: &McpServerAddress,
-) -> Result<ClaudeSavedSignInReading, ClaudeSignInError> {
-    let from_file = match read_claude_credential_file(environment).await {
-        Ok(Some(stored)) => read_claude_saved_sign_in(stored, name, address),
-        Ok(None) => Err(ClaudeSignInError::NoSavedSignIn),
-        Err(error) => Err(ClaudeSignInError::CredentialsUnreadable(error)),
-    };
-    if from_file.is_ok() {
-        return from_file;
-    }
-    let from_keychain = match credentials.read_keychain_record(environment).await {
-        Ok(Some(stored)) => read_claude_saved_sign_in(stored, name, address),
-        // Nothing in the keychain to read or remove: the file's outcome stands.
-        Ok(None) => return from_file,
-        Err(error) => Err(ClaudeSignInError::CredentialsUnreadable(error)),
-    };
-    match (
-        from_keychain,
-        credentials.remove_keychain_record(environment).await,
-    ) {
-        (from_keychain, Ok(_was_held)) => from_keychain,
-        (Ok(reading), Err(removal)) => {
-            tracing::warn!(
-                error = &removal as &(dyn Error + 'static),
-                "the keychain item of a read MCP sign-in was not removed"
-            );
-            Ok(reading)
-        }
-        (Err(read), Err(removal)) => Err(ClaudeSignInError::KeychainItemLeft {
-            read: Box::new(read),
-            removal,
-        }),
-    }
-}
-
-/// One saved MCP sign-in as Claude Code writes it in its stored credentials, each member read
-/// leniently, since a stub for another server may lack any of them. It derives no `Debug`, since
-/// it holds tokens.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ClaudeSavedSignIn {
-    #[serde(default)]
-    server_name: Option<String>,
-    #[serde(default)]
-    server_url: Option<String>,
-    #[serde(default)]
-    access_token: Option<String>,
-    #[serde(default)]
-    refresh_token: Option<String>,
-    #[serde(default)]
-    expires_at: Option<f64>,
-    #[serde(default)]
-    scope: Option<String>,
-    #[serde(default)]
-    client_id: Option<String>,
-    #[serde(default)]
-    client_secret: Option<String>,
-    #[serde(default)]
-    issuer: Option<String>,
-    #[serde(default)]
-    discovery_state: Option<ClaudeDiscoveryState>,
-}
-
-// What Claude Code kept of the authorization server it found.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ClaudeDiscoveryState {
-    #[serde(default)]
-    authorization_server_url: Option<String>,
-}
-
-/// A saved sign-in read back, its client id where Claude Code kept one.
-struct ClaudeSavedSignInReading {
-    /// The credentials, their client id empty where Claude Code kept none.
-    takeover: ProviderSignInTakeover,
-    /// Whether the saved sign-in named its client.
-    has_client_id: bool,
-}
-
-/// The sign-in `stored` holds for the server `name` at `address`, matched by the saved name and
-/// address, never by Claude Code's key, whose hash Claude Code computes; the expiry Claude Code
-/// keeps in milliseconds since the epoch, the scopes as one space-separated text. Fails with
-/// `NoSavedSignIn` when none with an access token matches.
-fn read_claude_saved_sign_in(
-    stored: ClaudeStoredCredentials,
-    name: &McpServerName,
-    address: &McpServerAddress,
-) -> Result<ClaudeSavedSignInReading, ClaudeSignInError> {
-    let identity = read_server_address(address.as_str())
-        .identity
-        .ok_or(ClaudeSignInError::NoSavedSignIn)?;
-    let sign_in = stored
-        .mcp_oauth
-        .into_values()
-        .find(|sign_in| {
-            sign_in.server_name.as_deref() == Some(name.as_str())
-                && sign_in.server_url.as_deref().is_some_and(|url| {
-                    read_server_address(url).identity.as_ref() == Some(&identity)
-                })
-                && sign_in
-                    .access_token
-                    .as_deref()
-                    .is_some_and(|token| !token.is_empty())
-        })
-        .ok_or(ClaudeSignInError::NoSavedSignIn)?;
-    let has_client_id = sign_in.client_id.is_some();
-    Ok(ClaudeSavedSignInReading {
-        takeover: ProviderSignInTakeover {
-            access_token: sign_in.access_token.unwrap_or_default(),
-            refresh_token: sign_in.refresh_token.filter(|token| !token.is_empty()),
-            expires_at: sign_in
-                .expires_at
-                .filter(|milliseconds| milliseconds.is_finite() && *milliseconds >= 0.0)
-                .map(|milliseconds| UNIX_EPOCH + Duration::from_secs_f64(milliseconds / 1000.0)),
-            scopes: sign_in
-                .scope
-                .map(|scope| scope.split_whitespace().map(str::to_owned).collect())
-                .unwrap_or_default(),
-            token_type: BEARER_TOKEN_TYPE.to_owned(),
-            client_id: sign_in.client_id.unwrap_or_default(),
-            client_secret: sign_in.client_secret.filter(|secret| !secret.is_empty()),
-            issuer: sign_in.issuer.or_else(|| {
-                sign_in
-                    .discovery_state
-                    .and_then(|state| state.authorization_server_url)
-            }),
-        },
-        has_client_id,
-    })
-}
-
-// The saved sign-in with its client id, the one the server's owner issued where Claude Code
-// kept none. Fails with `NoClient` where neither names one.
-fn complete_client(
-    saved: ClaudeSavedSignInReading,
-    configured_client_id: Option<String>,
-) -> Result<ProviderSignInTakeover, ClaudeSignInError> {
-    let mut takeover = saved.takeover;
-    if !saved.has_client_id {
-        takeover.client_id = configured_client_id.ok_or(ClaudeSignInError::NoClient)?;
-    }
-    Ok(takeover)
 }
 
 #[cfg(test)]

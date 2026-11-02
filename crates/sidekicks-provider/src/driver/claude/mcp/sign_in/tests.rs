@@ -5,6 +5,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use rstest::rstest;
 use secrecy::SecretString;
 use serde_json::{Value, json};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::plugin::PluginToken;
@@ -12,7 +13,8 @@ use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::oneshot;
 use url::Url;
 
-use super::{CLAUDE_MCP_SIGN_IN_FOLDER, read_claude_saved_sign_in};
+use super::CLAUDE_MCP_SIGN_IN_FOLDER;
+use super::saved_credentials::read_claude_saved_sign_in;
 use crate::driver::DriverServices;
 use crate::driver::claude::account_credentials::{
     CLAUDE_CREDENTIALS_FILE, SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account,
@@ -20,7 +22,7 @@ use crate::driver::claude::account_credentials::{
 };
 use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
-use crate::driver::claude::session::scripted::starts::ScriptedSignInPlace;
+use crate::driver::claude::session::scripted::starts::{ScriptedProcessWrite, ScriptedSignInPlace};
 use crate::driver::claude::{ClaudeDriver, DESCRIPTOR};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
@@ -359,6 +361,35 @@ async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_e
     assert!(scripted.starts.take_sign_in_starts().is_empty());
 }
 
+// A binding whose server the person's config no longer declares, or declares at another address,
+// reads the no-entry arm before any process starts, so the launch asks the next provider. Killed
+// by a missing entry answered as the driver's own failure, and by an entry matched by its name
+// alone, which signs in to the other address.
+#[rstest]
+#[case::no_entry(json!({"mcpServers": {}}))]
+#[case::another_address(
+    json!({"mcpServers": {SERVER_NAME: {"type": "http", "url": "https://other.example.test/mcp"}}})
+)]
+#[tokio::test]
+async fn a_binding_with_no_entry_at_its_address_reads_the_no_entry_arm(#[case] config: Value) {
+    let scripted = ScriptedDriver::new();
+    std::fs::create_dir_all(&scripted.home).expect("the person's home is made");
+    std::fs::write(scripted.home.join(".claude.json"), config.to_string())
+        .expect("the person's config is written");
+    let (request, _opened, _returned) = request(user_binding());
+
+    let refused = scripted.driver.sign_in_with_own_client(request).await;
+
+    assert!(
+        matches!(
+            &refused,
+            Err(DriverError::NoPersonServerEntry(no_entry)) if no_entry.binding == user_binding()
+        ),
+        "a binding with no entry at its address reads the no-entry arm, not {refused:?}"
+    );
+    assert!(scripted.starts.take_sign_in_starts().is_empty());
+}
+
 // A person whose environment sets `CLAUDE_CONFIG_DIR` keeps their servers in that folder's
 // `.claude.json`, and the sign-in reads the entry there, not the one in the home. Killed by a read
 // that resolves the person's files with no environment.
@@ -429,11 +460,29 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
     );
 }
 
-// A frame the sign-in's process writes reporting an error ends the sign-in with that error's text,
-// its folder still removed. Killed by a sign-in that leaves the process's frames unread, which
-// waits for a browser that never returns.
+// A sign-in's process that writes a frame reporting an error, or exits, before its sign-in ends
+// it as the provider being unavailable, the reported text or the end as the provider's failure
+// detail, its folder still removed. Killed by a sign-in that leaves the process's writes unread,
+// which waits for a browser that never returns, and by either end answered as the daemon's own
+// fault.
+#[rstest]
+#[case::an_error_reported(
+    ScriptedProcessWrite::Frame(json!({
+        "type": "system",
+        "subtype": "api_error",
+        "error": "the authorization server refused the client",
+    })),
+    "the authorization server refused the client"
+)]
+#[case::an_exit(
+    ScriptedProcessWrite::Exit,
+    "process ended before the sign-in finished"
+)]
 #[tokio::test]
-async fn an_error_the_sign_in_process_reports_ends_the_sign_in_with_its_text() {
+async fn a_sign_in_process_that_fails_first_reads_as_the_provider_unavailable(
+    #[case] write: ScriptedProcessWrite,
+    #[case] detail: &str,
+) {
     let scripted = ScriptedDriver::new();
     std::fs::create_dir_all(&scripted.home).expect("the person's home is made");
     std::fs::write(scripted.home.join(".claude.json"), PERSON_CONFIG)
@@ -442,27 +491,25 @@ async fn an_error_the_sign_in_process_reports_ends_the_sign_in_with_its_text() {
         custom_scheme_channel(),
         json!({}),
         ScriptedSignInPlace::File,
-        vec![json!({
-            "type": "system",
-            "subtype": "api_error",
-            "error": "the authorization server refused the client",
-        })],
+        vec![write],
     );
     let (request, _opened, _returned) = request(user_binding());
 
     let refused = scripted.driver.sign_in_with_own_client(request).await;
 
-    let error = refused.expect_err("the sign-in ends with the reported error");
-    let mut chain = error.to_string();
-    let mut source = std::error::Error::source(&error);
-    while let Some(cause) = source {
-        chain.push_str(": ");
-        chain.push_str(&cause.to_string());
-        source = cause.source();
-    }
+    let Err(DriverError::Refused(refusal)) = refused else {
+        panic!("the sign-in is refused as the provider's failure, not {refused:?}");
+    };
+    assert_eq!(refusal.code, RefusalCode::ProviderUnavailable);
+    let failure_detail = refusal
+        .detail
+        .as_ref()
+        .and_then(|fields| fields.get("providerFailureDetail"))
+        .and_then(Value::as_str)
+        .expect("the refusal carries the provider's failure detail");
     assert!(
-        chain.contains("the authorization server refused the client"),
-        "the reported text is the cause: {chain}"
+        failure_detail.contains(detail),
+        "the failure detail names the end: {failure_detail}"
     );
     let left = std::fs::read_dir(sign_ins_folder(&scripted))
         .expect("the sign-ins' folder reads")

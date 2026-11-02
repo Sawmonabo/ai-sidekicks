@@ -541,8 +541,9 @@ pub trait ProviderDriver: Send + Sync {
 
     /// Signs in to an MCP server through the provider's own client, in a folder of the daemon's
     /// own deleted after, and answers the credentials the provider saved there. Fails with
-    /// [`DriverError::NoPersonServerEntry`] for a binding with no entry of the person's, and when
-    /// the entry is gone, the flow fails or ends unfinished, or no saved sign-in reads back.
+    /// [`DriverError::NoPersonServerEntry`] for a binding with no entry of the person's at the
+    /// request's server address, and when the flow fails or ends unfinished, or no saved sign-in
+    /// reads back.
     fn sign_in_with_own_client(
         &self,
         request: ProviderSignInTakeoverRequest,

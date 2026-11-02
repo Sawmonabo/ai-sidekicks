@@ -107,12 +107,20 @@ struct ScriptedStartTables {
 }
 
 // One scripted MCP sign-in's process: its channel, the stored credentials it keeps and where, and
-// the frames it writes once its `initialize` is answered.
+// what it writes once its `initialize` is answered.
 struct ScriptedSignIn {
     channel: Arc<ScriptedChannel>,
     credentials: Value,
     place: ScriptedSignInPlace,
-    frames: Vec<Value>,
+    writes: Vec<ScriptedProcessWrite>,
+}
+
+/// One thing a scripted MCP sign-in's process writes once its `initialize` is answered, in order.
+pub(crate) enum ScriptedProcessWrite {
+    /// A frame, read as the reader reads one.
+    Frame(Value),
+    /// Its exit.
+    Exit,
 }
 
 /// Where a scripted MCP sign-in's process keeps the sign-ins it saves.
@@ -219,20 +227,20 @@ impl ScriptedStarts {
     }
 
     /// Scripts the next MCP sign-in's process to be `channel`, keeping `credentials` as Claude
-    /// Code's stored credentials in `place` once it starts and writing `frames` once its
+    /// Code's stored credentials in `place` once it starts and writing `writes` once its
     /// `initialize` is answered.
     pub(crate) fn script_mcp_sign_in(
         &self,
         channel: Arc<ScriptedChannel>,
         credentials: Value,
         place: ScriptedSignInPlace,
-        frames: Vec<Value>,
+        writes: Vec<ScriptedProcessWrite>,
     ) {
         self.lock().sign_ins.push_back(ScriptedSignIn {
             channel,
             credentials,
             place,
-            frames,
+            writes,
         });
     }
 
@@ -476,7 +484,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 channel,
                 credentials,
                 place,
-                frames,
+                writes,
             } = scripted.ok_or_else(|| spawn_failure("no sign-in process scripted"))?;
             match place {
                 ScriptedSignInPlace::File => {
@@ -505,7 +513,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
             let channel: Arc<dyn ClaudeProcessChannel> = channel;
             Ok(ClaudeMcpProcess {
                 channel,
-                arrivals: scripted_arrivals(frames),
+                arrivals: scripted_arrivals(writes),
             })
         }
         .boxed()
@@ -525,7 +533,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
             let channel: Arc<dyn ClaudeProcessChannel> = channel;
             Ok(ClaudeMcpProcess {
                 channel,
-                arrivals: scripted_arrivals(frames),
+                arrivals: scripted_arrivals(frames.into_iter().map(ScriptedProcessWrite::Frame)),
             })
         }
         .boxed()
@@ -536,20 +544,24 @@ impl ClaudeProcessStarts for ScriptedStarts {
     }
 }
 
-// What a scripted process writes: each of `frames`, read as the reader reads a frame, and then
+// What a scripted process writes: each of `writes`, a frame read as the reader reads one, and then
 // nothing more.
-fn scripted_arrivals(frames: Vec<Value>) -> mpsc::UnboundedReceiver<ClaudeShortProcessArrival> {
+fn scripted_arrivals(
+    writes: impl IntoIterator<Item = ScriptedProcessWrite>,
+) -> mpsc::UnboundedReceiver<ClaudeShortProcessArrival> {
     let (sender, arrivals) = mpsc::unbounded_channel();
-    for frame in frames {
-        let text = frame.to_string();
-        let observation = ClaudeStreamFrameRead::read(&text)
-            .expect("a test frame is an object")
-            .into_observation();
-        sender
-            .send(ClaudeShortProcessArrival::Frame(Box::new(
-                ClaudeStreamFrame { text, observation },
-            )))
-            .expect("the arrivals are held");
+    for write in writes {
+        let arrival = match write {
+            ScriptedProcessWrite::Frame(frame) => {
+                let text = frame.to_string();
+                let observation = ClaudeStreamFrameRead::read(&text)
+                    .expect("a test frame is an object")
+                    .into_observation();
+                ClaudeShortProcessArrival::Frame(Box::new(ClaudeStreamFrame { text, observation }))
+            }
+            ScriptedProcessWrite::Exit => ClaudeShortProcessArrival::Exit,
+        };
+        sender.send(arrival).expect("the arrivals are held");
     }
     arrivals
 }

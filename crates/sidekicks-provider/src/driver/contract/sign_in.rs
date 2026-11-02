@@ -111,7 +111,8 @@ pub enum ProviderSignInFailure {
 }
 
 /// A takeover asked for a binding that has no entry of the person's to copy: a connector, whose
-/// sign-in is the account's own, so no provider flow can sign in to it.
+/// sign-in is the account's own, or a server the person's config no longer declares at the
+/// request's address, so this provider's flow cannot sign in to it.
 #[derive(Debug, thiserror::Error)]
 #[error("the MCP server's binding has no entry of the person's to sign in through")]
 pub struct NoPersonServerEntry {
