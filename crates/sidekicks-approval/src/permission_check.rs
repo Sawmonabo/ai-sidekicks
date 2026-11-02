@@ -377,17 +377,29 @@ impl PermissionCheck {
         .await
     }
 
-    /// Decides one action of a workflow step the daemon runs itself, as `check` names it: free or
-    /// refused as the run's level's table has it, else answered by the session rule over its
-    /// subject the daemon keeps where one is in force, and else its card is raised on the check's
-    /// session and run, asked by its `requested_by`, offering that rule where one may stand. A
-    /// command's line is read once for its category and its rule's words. Fails as a read fails,
-    /// the line's read among them, and as the card's create does.
+    /// Decides one action of a workflow step the daemon runs itself, as `check` names it: a command
+    /// that starts a provider's background work refused at every level, else free or refused as the
+    /// run's level's table has it, else answered by the session rule over its subject the daemon
+    /// keeps where one is in force, and else its card is raised on the check's session and run,
+    /// asked by its `requested_by`, offering that rule where one may stand. A command's line is
+    /// read once for the refusal, its category and its rule's words. Fails as a read fails, the
+    /// line's read among them, and as the card's create does.
     pub(crate) async fn check_step_action(
         &self,
         check: StepActionCheck,
     ) -> Result<ToolCallVerdict, PermissionCheckError> {
         let action = &check.action;
+        let reading = action
+            .read(&self.deps.shell_lines, &self.deps.background_work)
+            .await?;
+        if let Some(refusal) = reading.background_work_refusal {
+            return Ok(ToolCallVerdict::Settled(
+                CallbackToolApprovalOutcome::Deny {
+                    basis: CallbackToolApprovalBasis::Policy,
+                    reason: refusal.to_owned(),
+                },
+            ));
+        }
         match action.gate_at(check.level) {
             StepGate::Free => Ok(ToolCallVerdict::Settled(
                 CallbackToolApprovalOutcome::Allow {
@@ -401,7 +413,6 @@ impl PermissionCheck {
                 },
             )),
             StepGate::Card => {
-                let reading = action.read(&self.deps.shell_lines).await?;
                 self.ask_by_daemon_card(DaemonCardAsk {
                     session_id: check.session_id,
                     run_id: check.run_id,

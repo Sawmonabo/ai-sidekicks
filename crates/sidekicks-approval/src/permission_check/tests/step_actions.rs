@@ -9,6 +9,7 @@ use sidekicks_contracts::approval::{ApprovalResolveRequest, RememberedRuleSense}
 use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerName, McpToolName};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_workflow::runs::step_action::StepAction;
 
 use super::{CheckFixture, STEP_ASKER, command};
@@ -256,6 +257,29 @@ async fn a_steps_card_offers_a_rule_only_over_one_plain_command(
     };
     let (category, subject, offered) = fixture.card_offer(&card.approval_request_id);
     assert_eq!((category.as_str(), subject.as_str(), offered), expected);
+}
+
+// A command step whose line starts a provider's background work is refused at every level, a
+// level that runs commands free and a level that asks alike, before any card, in the provider's
+// own words: by a subcommand, by a flag, and by a line a shell string hands on. Killed by skipping
+// the refusal, by refusing only where the level asks, and by raising the card first.
+#[rstest]
+#[case::subcommand("claude agents")]
+#[case::flag("claude --bg x")]
+#[case::shell_string("sh -c 'claude --bg x'")]
+#[tokio::test]
+async fn a_command_step_starting_background_work_is_refused_at_every_level(#[case] line: &str) {
+    let fixture = CheckFixture::new().await;
+    let refusal = PROVIDERS
+        .iter()
+        .find_map(|descriptor| descriptor.background_work.as_ref())
+        .map(|work| format!("denied: {}", work.refusal))
+        .expect("a provider declares background work");
+    let mut verdicts = Vec::new();
+    for level in LEVELS {
+        verdicts.push(fixture.step_verdict(level, &command_step(line)).await);
+    }
+    assert_eq!(verdicts, vec![refusal; LEVELS.len()]);
 }
 
 // A command step's card shows its filled, masked line, while its category and the rule it offers

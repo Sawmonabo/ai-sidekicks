@@ -11,11 +11,16 @@
 //!   provider's own sandbox, and at YOLO. A command's card shows its filled, masked line, and its
 //!   rule is read from the line of value references as a provider's command ask's is; a program's
 //!   launch line names no rule.
+//! - A command whose line starts a provider's background work is refused at every level, before
+//!   any card, in the provider's own words, as a provider's command ask is.
+
+use std::sync::Arc;
 
 use sidekicks_contracts::approval::ApprovalCategory;
 use sidekicks_contracts::mcp::server::McpApprovalMode;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::background_work::{BackgroundWorkForms, refuse_background_work};
 use sidekicks_provider::mcp::tool_name::compose_tool_server_tool_name;
 use sidekicks_provider::port::permission_ask::ProviderAskAction;
 use sidekicks_workflow::runs::step_action::StepAction;
@@ -50,13 +55,17 @@ pub(crate) enum StepGate {
     },
 }
 
-/// What a step action's card is about and the words a session rule over it names.
+/// What a step action's card is about, the words a session rule over it names, and the refusal of
+/// a command that starts a provider's background work.
 #[derive(Debug)]
 pub(crate) struct StepActionReading {
     /// What the card is about.
     pub(crate) category: ApprovalCategory,
     /// The words a session rule over the action names, `None` where no rule may name it.
     pub(crate) rule_subject: Option<String>,
+    /// The provider's own words refusing a command whose line starts its background work, `None`
+    /// for every other action.
+    pub(crate) background_work_refusal: Option<&'static str>,
 }
 
 /// How the daemon reads a step action for its gate, its card and the session rule over it.
@@ -75,12 +84,13 @@ pub(crate) trait StepActionAsk {
     /// The action as the card shows it and a session rule names its kind.
     fn ask_action(&self) -> ProviderAskAction;
 
-    /// What the card is about and the rule's words: a command's line of value references is read
-    /// once under `shell_lines` for both, and a program names no rule. Fails when the line's read
-    /// panics.
+    /// What the card is about, the rule's words and a background-work refusal: a command's line of
+    /// value references is read once under `shell_lines` for all three, judged against
+    /// `background_work`, and a program names no rule. Fails when the line's read panics.
     async fn read(
         &self,
         shell_lines: &ShellLineReadingBound,
+        background_work: &Arc<BackgroundWorkForms>,
     ) -> Result<StepActionReading, JoinError>;
 }
 
@@ -175,23 +185,30 @@ impl StepActionAsk for StepAction {
     async fn read(
         &self,
         shell_lines: &ShellLineReadingBound,
+        background_work: &Arc<BackgroundWorkForms>,
     ) -> Result<StepActionReading, JoinError> {
         Ok(match self {
             Self::FileWrite { .. } => StepActionReading {
                 category: ApprovalCategory::FileWrite,
                 rule_subject: Some(self.subject()),
+                background_work_refusal: None,
             },
             Self::McpCall { .. } => StepActionReading {
                 category: ApprovalCategory::ToolExecution,
                 rule_subject: Some(self.subject()),
+                background_work_refusal: None,
             },
             Self::Command { line, .. } => {
                 let action = ProviderAskAction::Command {
                     command: line.clone(),
                 };
                 let read_action = action.clone();
+                let background_work = Arc::clone(background_work);
                 read_command_line(shell_lines, &action, move |reader, reading| {
                     StepActionReading {
+                        background_work_refusal: reading.and_then(|reading| {
+                            refuse_background_work(&background_work, reader, reading)
+                        }),
                         category: category_of(reader, reading, &read_action),
                         rule_subject: derive_rule_subject(reading, &read_action),
                     }
@@ -201,6 +218,7 @@ impl StepActionAsk for StepAction {
             Self::Code { .. } => StepActionReading {
                 category: ApprovalCategory::ToolExecution,
                 rule_subject: None,
+                background_work_refusal: None,
             },
         })
     }
