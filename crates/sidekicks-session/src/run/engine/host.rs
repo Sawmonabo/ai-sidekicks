@@ -11,7 +11,7 @@ use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::port::run_host::{RunHost, RunHostError};
 use sidekicks_provider::run::start_request::DaemonTurnStartRequest;
-use sidekicks_provider::run::turn_end::{ProviderTurnEnd, StartedTurn};
+use sidekicks_provider::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
 use sidekicks_provider::runtime_binding::store::RuntimeBinding;
 
 use crate::run::engine::RunEngine;
@@ -44,6 +44,18 @@ impl RunHost for RunEngine {
         async move {
             let written = engine.record_turn_end(run_id, turn_end).await?;
             Ok(written.log_resend_failure(run_id))
+        }
+        .boxed()
+    }
+
+    fn record_daemon_turn_end(
+        &self,
+        run_id: RunId,
+        turn_number: SafeInt<1>,
+        outcome: TurnOutcome,
+    ) -> BoxFuture<'_, Result<bool, RunHostError>> {
+        async move {
+            Ok(RunEngine::record_daemon_turn_end(self, run_id, turn_number, outcome).await?)
         }
         .boxed()
     }

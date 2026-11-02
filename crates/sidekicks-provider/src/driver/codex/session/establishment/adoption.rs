@@ -2,7 +2,8 @@
 //! binding its resume names. A conversation the service holds loaded is joined as it runs, with no
 //! setting sent, since Codex applies none to a loaded conversation, so its running turns, waiting
 //! asks and helpers go on; one no client holds is loaded again with every setting the session
-//! holds. The session's record is rebuilt from the live runs the resume names: each open turn
+//! holds. The session's record is rebuilt from the live runs the resume names: a lead run whose
+//! turn the end of the daemon's own service cut continued in a new turn, every other open turn
 //! Codex lists bound to its run, each loaded helper bound to its child run, and what Codex holds
 //! of each run's turns answered.
 
@@ -13,6 +14,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use tokio::time::Instant;
 
+use super::continuation::answer_continued_runs;
 use super::{
     CodexEstablishedSession, CodexHandleResume, CodexResumedThread, CodexSessionEstablishment,
     compose_failed_resume, prepare_adoption, read_resumed_thread, request_thread_resume,
@@ -144,7 +146,7 @@ impl CodexSessionEstablishment {
             Ok::<_, CodexError>((resumed, result))
         }
         .await;
-        let (resumed, result) = match adopted {
+        let (resumed, mut result) = match adopted {
             Ok(adopted) => adopted,
             Err(error) => {
                 release_registered(&service, &record, &registered);
@@ -165,11 +167,24 @@ impl CodexSessionEstablishment {
             agent_id: params.agent_id,
             step_bound: composed.step_bound,
         };
+        // After every step that can fail, so a failed adoption never leaves a continuation running.
+        let continued = self
+            .continue_cut_runs(
+                &mut record,
+                &connection,
+                &params.live_runs,
+                resumed.status,
+                &resumed.listed_turns,
+                &binding,
+            )
+            .await;
+        answer_continued_runs(&mut result, &continued);
         self.bind_listed_turns(
             &mut record,
             &params.live_runs,
             &resumed.listed_turns,
             &binding,
+            &continued,
         );
         for helper in &helpers {
             restore_helper(&mut record, helper, &binding);
@@ -227,16 +242,27 @@ impl CodexSessionEstablishment {
 
     // Binds each open turn of a lead run that Codex lists to its run, numbered and started as its
     // log recorded it, and the run's deliveries onto `binding`; a listed turn Codex ended is
-    // bound too, so its end, which Codex sent while the daemon was away, ends it.
+    // bound too, so its end, which Codex sent while the daemon was away, ends it. A run in
+    // `continued` is skipped: its cut turns are ended in the log, and a bound one's listed end
+    // would end the run.
     fn bind_listed_turns(
         &self,
         record: &mut CodexSessionRecord,
         live_runs: &[LiveRunResume],
         listed_turns: &[CodexListedTurn],
         binding: &CodexRunBinding,
+        continued: &[ResumedRunAnswer],
     ) {
         let run_routes = &self.dependencies.run_routes;
-        for run in live_runs.iter().filter(|run| run.subagent_id.is_none()) {
+        let is_continued = |run: &LiveRunResume| {
+            continued
+                .iter()
+                .any(|continued| continued.run_id == run.run_id)
+        };
+        for run in live_runs
+            .iter()
+            .filter(|run| run.subagent_id.is_none() && !is_continued(run))
+        {
             let mut is_bound = false;
             for turn in &run.open_turns {
                 let Some(turn_id) = turn.provider_turn_id.as_ref().map(ProviderTurnId::as_str)

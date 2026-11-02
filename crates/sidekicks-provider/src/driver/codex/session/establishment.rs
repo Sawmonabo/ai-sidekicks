@@ -4,6 +4,7 @@
 //! service. A failed resume never becomes a new conversation: it answers the failure.
 
 mod adoption;
+mod continuation;
 mod settings;
 
 use std::path::PathBuf;
