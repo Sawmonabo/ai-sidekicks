@@ -13,22 +13,28 @@ use futures::future::join_all;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_platforms::PathRules;
+use sidekicks_store::database::connection::read_pool::ReadLength;
 use tokio::sync::oneshot;
 
 use super::ClaudeAccountLegs;
 use crate::driver::claude::account::credentials::SECURE_STORAGE_FOLDER_VARIABLE;
 use crate::driver::claude::delivery::stream::ClaudeFirstRequest;
 use crate::driver::claude::session::control_requests::ClaudeAccountMoveMarker;
+use crate::driver::claude::session::conversation_home::{
+    claude_conversation_home_metadata, read_claude_conversation_home,
+};
 use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
 use crate::driver::claude::session::restart::{ClaudeLegBinding, ClaudeSessionStanding};
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings,
 };
-use crate::driver::claude::spawn::environment::ClaudeAccountFolders;
+use crate::driver::claude::spawn::environment::{ClaudeAccountFolders, claude_config_folder};
 use crate::driver::contract::account::{FirstRequestAfterMove, SessionAccountMove, SessionToMove};
 use crate::driver::contract::error::DriverError;
 use crate::driver::error_causes::session_process_unavailable;
+use crate::runtime_binding::store::{RuntimeBindingStoreError, read_binding};
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// Moves each of `sessions` from `from` onto `to` through `legs`, every move at once, as
@@ -98,6 +104,7 @@ async fn move_claude_session(
             // Its restart composes its start from the moved account, as does its next open.
             ClaudeSessionStanding::Held { ended, .. } => {
                 if restarts.move_held_account(&ended, to.clone()) {
+                    keep_process_home(&*legs.bindings, &session, &ended).await?;
                     move_binding(&*legs.bindings, &session, &to).await?;
                     return Ok(unobserved());
                 }
@@ -106,11 +113,13 @@ async fn move_claude_session(
                 settled.wait().await;
             }
             ClaudeSessionStanding::Down => {
+                keep_stored_home(legs, &session).await?;
                 move_binding(&*legs.bindings, &session, &to).await?;
                 return Ok(unobserved());
             }
         }
     };
+    keep_process_home(&*legs.bindings, &session, &live).await?;
     let (watch, heard) = oneshot::channel();
     // The lead's binding moves with the session, never apart from its frames: at the marker an
     // in-place move queues among them, or before a relaunch starts the new process on its copy.
@@ -281,6 +290,63 @@ async fn read_sign_in(
     Ok(ClaudeAccountSignIn::Store(
         ClaudeAccountFolders::from(&folders).credential_store_folder,
     ))
+}
+
+// Records in the lead's binding the home `process` wrote the session's conversation into, before
+// the binding moves off the account whose home it may be, so every later resume finds it there.
+async fn keep_process_home(
+    bindings: &dyn RuntimeBindingWriter,
+    session: &SessionToMove,
+    process: &LiveClaudeSession,
+) -> Result<(), DriverError> {
+    let home = claude_config_folder(
+        &process.spawn_bound_legs.spawn_environment,
+        PathRules::NATIVE,
+    )
+    .ok_or_else(|| DriverError::Internal("the session's process names no home".into()))?;
+    bindings
+        .keep_recovery_data(
+            session.binding_id.clone(),
+            claude_conversation_home_metadata(&home),
+        )
+        .await
+        .map_err(DriverError::Internal)
+}
+
+// Records in the lead's stored binding, for a session with no process, the home of the account it
+// names where its recovery data names no home yet: the home its conversation was written into.
+// Fails closed where the binding has no row or that account's home is gone.
+async fn keep_stored_home(
+    legs: &ClaudeAccountLegs,
+    session: &SessionToMove,
+) -> Result<(), DriverError> {
+    let binding_id = session.binding_id.clone();
+    let binding = legs
+        .pool
+        .read(ReadLength::Short, move |reader| {
+            read_binding(reader, &binding_id).map_err(RuntimeBindingStoreError::from)
+        })
+        .await
+        .map_err(|error| DriverError::Internal(Box::new(error)))?
+        .ok_or_else(|| DriverError::Internal("the session's lead binding has no row".into()))?;
+    if read_claude_conversation_home(&binding.runtime_metadata).is_some() {
+        return Ok(());
+    }
+    let folders = legs
+        .ports
+        .provider_accounts
+        .require_port()
+        .map_err(|error| DriverError::Internal(Box::new(error)))?
+        .resolve_account_folders(binding.spawn_config.provider_account_id)
+        .await?;
+    let mut runtime_metadata = binding.runtime_metadata;
+    runtime_metadata.extend(claude_conversation_home_metadata(
+        &folders.configuration_folder,
+    ));
+    legs.bindings
+        .keep_recovery_data(session.binding_id.clone(), runtime_metadata)
+        .await
+        .map_err(DriverError::Internal)
 }
 
 // The binding the session's lead runs on, moved onto `provider_account_id`'s account at once, for

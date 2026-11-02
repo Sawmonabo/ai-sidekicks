@@ -22,6 +22,7 @@ use crate::driver::claude::account::credentials::{
 };
 use crate::driver::claude::account::{ClaudeAccountLegs, test_account_legs};
 use crate::driver::claude::session::control_requests::ClaudeControlRequests;
+use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
 use crate::driver::claude::session::process::ClaudeOutputReader;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
@@ -261,9 +262,12 @@ async fn the_output_reader_names_the_account_the_switch_moved_onto() {
 // A token target never reaches the process in place: a busy session starts again only once its
 // turn settled, resuming its conversation by id on the new account's store, with no token in its
 // environment, which the launcher hands it on its pipe instead, its lead's binding moved before
-// the new process starts, so the binding the relaunch records copies the new account. Killed by
-// the token sent on `env`, by a relaunch that ends the running turn, by a relaunch on the old
-// account or a new conversation, and by the binding moved only once the relaunch landed.
+// the new process starts, so the binding the relaunch records copies the new account. The
+// conversation stays in the home it was written into: the binding records that home before it
+// moves, and the relaunch resumes there on the new account's store. Killed by the token sent on
+// `env`, by a relaunch that ends the running turn, by a relaunch on the old account or a new
+// conversation, by the binding moved only once the relaunch landed, by the home left unrecorded,
+// and by a relaunch in the new account's own home.
 #[tokio::test(start_paused = true)]
 async fn a_token_target_relaunches_between_turns_and_resumes_by_id() {
     let switch = SwitchFixture::new(Some(ProviderAuthMode::OauthToken)).await;
@@ -306,6 +310,18 @@ async fn a_token_target_relaunches_between_turns_and_resumes_by_id() {
         Some(switch.store("to").as_str())
     );
     assert_eq!(environment_value(&relaunched, OAUTH_TOKEN_VARIABLE), None);
+    let conversation_home = folders(switch.fixture.folder.path(), "from").configuration_folder;
+    assert_eq!(
+        environment_value(&relaunched, "CLAUDE_CONFIG_DIR"),
+        Some(conversation_home.to_string_lossy().as_ref())
+    );
+    assert_eq!(
+        switch.fixture.bindings.recovery_data(),
+        [(
+            binding_id("resting"),
+            claude_conversation_home_metadata(&conversation_home)
+        )]
+    );
     assert_eq!(switch.sent_environments(sent_before), Vec::<Value>::new());
     assert_eq!(switch.admitted(), switch.to);
     assert_eq!(

@@ -4,19 +4,21 @@
 
 use std::error::Error;
 
-use serde_json::Map;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_platforms::PathRules;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 
 use super::ClaudeSessionRestarts;
+use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
 use crate::driver::claude::session::establishment::ClaudeResumeAnswer;
 use crate::driver::claude::session::slots::ClaudeCloseStart;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::ultracode::relaunch_claude_options;
+use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{DriverResumeResult, ResumeSessionParams};
@@ -127,11 +129,11 @@ fn relaunch_failure(detail: &str) -> ClaudeResumeAnswer {
 }
 
 /// The resume that brings `live` back on the legs and level it ran at, the person's later moves
-/// included, under the account it was admitted on, asking for the callback tools and Settings rows
-/// its process was asked for, which the session's own advisor and style still override, under a
-/// binding minted for it. It carries no status sink: the ended process's leg ends with it, and the
-/// relaunch hands in the one the session directory answers for the new binding. `None` when the
-/// model it moved to has no name a resume carries.
+/// included, under the account it runs on now, in the home that holds its conversation, asking for
+/// the callback tools and Settings rows its process was asked for, which the session's own advisor
+/// and style still override, under a binding minted for it. It carries no status sink: the ended
+/// process's leg ends with it, and the relaunch hands in the one the session directory answers
+/// for the new binding. `None` when the model it moved to has no name a resume carries.
 pub(super) fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionParams> {
     let settings = lock(&live.settings).clone();
     let legs = &live.spawn_bound_legs;
@@ -144,7 +146,10 @@ pub(super) fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<Resume
         model: FreeFormText::new(settings.running_model).ok()?,
         // Claude Code's model id names its window, so the driver keeps no figure of its own.
         larger_window: None,
-        runtime_metadata: Map::new(),
+        // The home its process wrote the conversation into, whichever account it runs on now.
+        runtime_metadata: claude_config_folder(&legs.spawn_environment, PathRules::NATIVE)
+            .map(|home| claude_conversation_home_metadata(&home))
+            .unwrap_or_default(),
         mode: settings.session_mode,
         execution_posture: settings.execution_posture,
         output_speed: settings

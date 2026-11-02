@@ -13,6 +13,7 @@ pub(super) mod context_reading;
 pub(crate) mod control_requests;
 pub(super) mod controls;
 pub(crate) mod conversation_file;
+pub(super) mod conversation_home;
 pub(crate) mod errors;
 pub(super) mod establishment;
 pub(super) mod frame_observation;

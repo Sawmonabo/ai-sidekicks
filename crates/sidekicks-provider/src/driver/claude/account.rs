@@ -22,6 +22,7 @@ use secrecy::SecretString;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{PathRules, Spawner};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 use crate::account::credential_home::CredentialHome;
 use crate::command_search::ProviderCommandSearch;
@@ -48,7 +49,8 @@ use crate::spawned_version::ResolvedProviderExecutable;
 /// session's is, the environment every Claude Code process is composed over, and the driver's
 /// launcher, which every Claude Code process the driver keeps starts through; the driver's
 /// models each account's limits read names, which its sessions' events read their windows by;
-/// and what a switch moves: the driver's sessions, their bindings and the accounts they read.
+/// and what a switch moves: the driver's sessions, their bindings, the stored bindings it reads
+/// and the accounts they read.
 pub(crate) struct ClaudeAccountLegs {
     spawner: Spawner,
     launcher: Arc<ClaudeProcessLauncher>,
@@ -60,6 +62,7 @@ pub(crate) struct ClaudeAccountLegs {
     usage_probe_models: Arc<ClaudeUsageProbeModels>,
     sessions: OnceLock<Weak<ClaudeSessionEstablishment>>,
     bindings: Arc<dyn RuntimeBindingWriter>,
+    pool: Arc<DatabaseReadPool>,
     ports: Arc<DriverPorts>,
 }
 
@@ -83,6 +86,7 @@ impl ClaudeAccountLegs {
             usage_probe_models,
             sessions: OnceLock::new(),
             bindings: Arc::clone(&services.runtime_bindings),
+            pool: Arc::clone(&services.pool),
             ports: Arc::clone(&services.ports),
         }
     }

@@ -72,6 +72,18 @@ pub(crate) struct ClaudeSpawnContext {
     pub(crate) step_bound: Option<SafeInt<1>>,
 }
 
+impl ClaudeSpawnContext {
+    /// The context with its configuration home moved to `conversation_home` where one is given:
+    /// the home that holds the conversation a resume continues, which a switch left apart from the
+    /// account's own, while the credential store stays the account's.
+    pub(crate) fn in_conversation_home(mut self, conversation_home: Option<&Path>) -> Self {
+        if let Some(home) = conversation_home {
+            self.account_folders.config_folder = home.to_string_lossy().into_owned();
+        }
+        self
+    }
+}
+
 /// What one spawn's legs are built from: the create's or resume's spawn-bound members and the
 /// context resolved for it.
 pub(crate) struct ClaudeSpawnLegsRequest {
