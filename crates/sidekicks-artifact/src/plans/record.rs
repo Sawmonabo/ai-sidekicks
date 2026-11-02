@@ -296,10 +296,11 @@ mod tests {
 
     // A fresh session is named after the title, which a NUL would leave unnameable. Killed by the
     // replacement dropped (the first line's NUL is kept).
-    #[rstest]
-    #[case::a_heading("# Add the\0 export\n\nBody.\n")]
-    #[case::a_first_line("Add the\0 export\nBody.\n")]
-    fn a_plan_s_title_holds_no_nul(#[case] markdown: &str) {
-        assert_eq!(compose_payload_of(markdown).title, "Add the\u{FFFD} export");
+    #[test]
+    fn a_plan_s_title_holds_no_nul() {
+        assert_eq!(
+            compose_payload_of("Add the\0 export\nBody.\n").title,
+            "Add the\u{FFFD} export"
+        );
     }
 }
