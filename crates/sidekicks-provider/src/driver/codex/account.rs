@@ -29,6 +29,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use tokio::task::JoinHandle;
 
 use crate::account::credential_home::CredentialHome;
 use crate::account::home_lock::AccountHomeLock;
@@ -118,9 +119,14 @@ impl CodexAccountLegs {
         })
     }
 
-    /// Drops the dead renewals counted for `provider_account_id`'s account, which was removed.
-    pub(crate) fn forget_account(&self, provider_account_id: &ProviderAccountId) {
+    /// Drops the dead renewals counted for `provider_account_id`'s account, which was removed,
+    /// and stops the service on its home, answering that stop's task where one ran there.
+    pub(crate) fn forget_account(
+        &self,
+        provider_account_id: &ProviderAccountId,
+    ) -> Option<JoinHandle<()>> {
         lock(&self.dead_renewals).remove(provider_account_id);
+        self.registry.stop_account_service(provider_account_id)
     }
 
     // The account registry. Fails while it is not registered.

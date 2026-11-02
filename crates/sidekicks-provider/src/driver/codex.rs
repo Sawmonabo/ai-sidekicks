@@ -702,9 +702,10 @@ impl ProviderDriver for CodexDriver {
         Arc::clone(&self.account_legs) as _
     }
 
-    // The account legs' count of dead renewals is all the driver keys by account.
+    // The account legs' count of dead renewals and the service on the account's home are all the
+    // driver keeps by account; the service stops on the driver's tracked tasks.
     fn forget_account(&self, provider_account_id: &ProviderAccountId) {
-        self.account_legs.forget_account(provider_account_id);
+        let _stopping = self.account_legs.forget_account(provider_account_id);
     }
 
     fn expire_account_home_diagnostics(
