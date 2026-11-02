@@ -208,13 +208,15 @@ async fn settle_card(
         RaisedRequestSettlement::Approved => CallbackToolApprovalOutcome::Allow {
             basis: CallbackToolApprovalBasis::UserGrant,
         },
-        RaisedRequestSettlement::Rejected { decline_reason } => CallbackToolApprovalOutcome::Deny {
-            basis: CallbackToolApprovalBasis::UserRefusal,
-            reason: decline_reason.map_or_else(
-                || DECLINED_REFUSAL.to_owned(),
-                |words| words.as_str().to_owned(),
-            ),
-        },
+        RaisedRequestSettlement::Rejected { decline_reason, .. } => {
+            CallbackToolApprovalOutcome::Deny {
+                basis: CallbackToolApprovalBasis::UserRefusal,
+                reason: decline_reason.map_or_else(
+                    || DECLINED_REFUSAL.to_owned(),
+                    |words| words.as_str().to_owned(),
+                ),
+            }
+        }
         RaisedRequestSettlement::Canceled => deny_by_policy(CANCELED_REFUSAL),
         RaisedRequestSettlement::Stopped => {
             return Err(Box::new(CallbackToolApprovalError::Stopped));
