@@ -280,20 +280,12 @@ async fn a_daemon_interrupted_helpers_end_is_marked_and_its_route_retired() {
     end_helper(&mut session, HELPER_THREAD, "interrupted").await;
     end_helper(&mut session, "other-helper", "interrupted").await;
 
-    let is_marked = |run_id: RunId| -> Vec<bool> {
-        session
-            .engine
-            .deliveries()
-            .into_iter()
-            .filter(|delivery| {
-                delivery.kind == "runLifecycle"
-                    && delivery.change.as_ref().map(|change| change.run_id) == Some(run_id)
-            })
-            .map(|delivery| delivery.is_daemon_interrupt_end)
-            .collect()
-    };
-    assert_eq!(is_marked(interrupted_run), vec![true]);
-    assert_eq!(is_marked(other_run), vec![false]);
+    let engine = &session.engine;
+    assert_eq!(
+        engine.daemon_interrupt_ends_of_run(interrupted_run),
+        vec![true]
+    );
+    assert_eq!(engine.daemon_interrupt_ends_of_run(other_run), vec![false]);
     for run_id in [interrupted_run, other_run] {
         assert_eq!(
             run_routes.begin_helper_interrupt(run_id),

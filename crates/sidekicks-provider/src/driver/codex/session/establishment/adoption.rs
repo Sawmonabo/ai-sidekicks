@@ -572,10 +572,6 @@ fn restore_helper(
             parent_tool_call_id: None,
         },
     );
-    record
-        .delivery
-        .child_thread_id_by_run_id
-        .insert(helper.run_id, thread_id.clone());
     run_routes.bind_helper_run(helper.run_id, record.session_id, &thread_id);
     Some(CodexRestoredHelper {
         thread_id,

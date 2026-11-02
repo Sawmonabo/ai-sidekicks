@@ -225,10 +225,6 @@ impl CodexFrameDelivery {
         let Some(bound) = child.bound.clone() else {
             return;
         };
-        record
-            .delivery
-            .child_thread_id_by_run_id
-            .remove(&bound.child_run_id);
         let helper_route = self
             .dependencies
             .run_routes
@@ -360,10 +356,6 @@ impl CodexFrameDelivery {
             .await
             .and_then(|outcome| outcome.event_id().cloned());
         let child_run_id = child_run_id?;
-        record
-            .delivery
-            .child_thread_id_by_run_id
-            .insert(child_run_id, child_thread_id.to_owned());
         self.dependencies.run_routes.bind_helper_run(
             child_run_id,
             record.session_id,
