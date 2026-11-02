@@ -335,8 +335,9 @@ pub struct WorkflowApprovalCardRequest {
 /// Raises the durable approval cards workflow waits open; the approval service's workflow gate
 /// card implements it.
 pub trait ApprovalCardRaiser: Send + Sync {
-    /// Raises `request`'s card, returning once it is durable; the answer lands later. Fails when
-    /// the card cannot be written.
+    /// Raises `request`'s card, returning once it is durable; the answer lands later. Idempotent by
+    /// the request's wait id: the restart raises again for a stored wait whose card never landed,
+    /// and a second raise for one wait keeps its one card. Fails when the card cannot be written.
     fn raise(&self, request: WorkflowApprovalCardRequest) -> BoxFuture<'_, Result<(), PortError>>;
 }
 
@@ -371,13 +372,16 @@ pub struct ReplyQuestionRequest {
 /// Opens the questions steps waiting on a person ask; the session's workflow waits implement it
 /// over the question service.
 pub trait PersonWaitQuestions: Send + Sync {
-    /// Opens `request`'s form question. Fails when the question cannot be written.
+    /// Opens `request`'s form question. Idempotent by the request's wait id, as the restart opens
+    /// again a stored wait whose question never landed: a second open answers the first's
+    /// question. Fails when the question cannot be written.
     fn open_form(
         &self,
         request: FormQuestionRequest,
     ) -> BoxFuture<'_, Result<QuestionId, PortError>>;
 
-    /// Opens `request`'s chat-reply question. Fails when the question cannot be written.
+    /// Opens `request`'s chat-reply question. Idempotent by the request's wait id, as
+    /// [`Self::open_form`] is. Fails when the question cannot be written.
     fn open_reply(
         &self,
         request: ReplyQuestionRequest,

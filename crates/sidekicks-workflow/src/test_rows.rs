@@ -46,11 +46,13 @@ pub fn insert_workflow_version(
     let body = serde_json::json!({
         "name": name,
         "trigger": {
-            "id": "start", "kind": "trigger.manual", "kindVersion": 1, "name": "Start", "order": 0
+            "id": "start", "kind": "trigger.manual", "kindVersion": 1, "name": "Start", "order": 0,
+            "params": {}
         },
-        "nodes": [
-            { "id": TEST_NODE_ID, "kind": "human.approval", "kindVersion": 1, "name": "Approve" }
-        ],
+        "nodes": [{
+            "id": TEST_NODE_ID, "kind": "human.approval", "kindVersion": 1, "name": "Approve",
+            "order": 0, "params": {}
+        }],
         "edges": [],
     });
     insert_workflow_version_body(connection, definition_id, version_id, &body);

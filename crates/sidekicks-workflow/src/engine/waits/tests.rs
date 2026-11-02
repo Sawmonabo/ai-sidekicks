@@ -7,7 +7,6 @@ use rusqlite::{Connection, params};
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::wire::AnyValue;
-use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
@@ -34,7 +33,6 @@ use crate::test_rows::{TEST_NODE_ID, TestStep, insert_run, insert_step, insert_w
 const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e50";
 const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e51";
 const RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e52";
-const OTHER_WAIT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e5f";
 const OPENED_AT: &str = "2026-10-02T00:00:00.000Z";
 const ANSWERED_AT: &str = "2026-10-02T00:00:05.000Z";
 // A wait that should stay silent is given this long to show it does not.
@@ -66,14 +64,13 @@ fn test_step(execution_index: u32) -> WorkflowStepKey {
     .expect("the test's step key")
 }
 
-/// The answer settles only the wait it names, of its own kind, strictly before the deadline the
-/// wait opened with. Kills: the approval's handles swapped, the wait id unchecked, `>` in place
-/// of `>=` on the deadline, a late answer taken, the kind unchecked.
+/// The answer settles its wait only when of its own kind, strictly before the deadline the wait
+/// opened with. Kills: the approval's handles swapped, `>` in place of `>=` on the deadline, a late
+/// answer taken, the kind unchecked.
 #[rstest]
 #[case::approved(
     PersonAsk::Approval { prompt: prompt() },
     PersonWaitAnswer::Approval(ApprovalDecision::Approved),
-    true,
     ANSWERED_AT,
     Ok(json!([
         [
@@ -86,7 +83,6 @@ fn test_step(execution_index: u32) -> WorkflowStepKey {
 #[case::rejected(
     PersonAsk::Approval { prompt: prompt() },
     PersonWaitAnswer::Approval(ApprovalDecision::Rejected),
-    true,
     ANSWERED_AT,
     Ok(json!([
         [],
@@ -99,42 +95,30 @@ fn test_step(execution_index: u32) -> WorkflowStepKey {
 #[case::form(
     PersonAsk::Form { prompt: prompt(), input_schema: Map::new() },
     PersonWaitAnswer::Form(Map::from_iter([("email".to_owned(), json!("ada@example.com"))])),
-    true,
     ANSWERED_AT,
     Ok(json!([[{"json": {"email": "ada@example.com"}, "pairedItem": {"item": 0}}]])),
 )]
 #[case::reply(
     PersonAsk::Reply { prompt: prompt() },
     PersonWaitAnswer::Reply(NonEmptyText::new("Ship it".to_owned()).expect("a reply")),
-    true,
     ANSWERED_AT,
     Ok(json!([[{"json": {"reply": "Ship it"}, "pairedItem": {"item": 0}}]])),
-)]
-#[case::another_wait_id(
-    PersonAsk::Approval { prompt: prompt() },
-    PersonWaitAnswer::Approval(ApprovalDecision::Approved),
-    false,
-    ANSWERED_AT,
-    Err(PersonWaitRefusal::NotWaiting),
 )]
 #[case::an_approval_for_a_form_wait(
     PersonAsk::Form { prompt: prompt(), input_schema: Map::new() },
     PersonWaitAnswer::Approval(ApprovalDecision::Approved),
-    true,
     ANSWERED_AT,
     Err(PersonWaitRefusal::NotWaiting),
 )]
 #[case::at_the_deadline(
     PersonAsk::Approval { prompt: prompt() },
     PersonWaitAnswer::Approval(ApprovalDecision::Approved),
-    true,
     "2026-10-02T00:00:10.000Z",
     Err(PersonWaitRefusal::NotWaiting),
 )]
 #[case::a_millisecond_before_the_deadline(
     PersonAsk::Approval { prompt: prompt() },
     PersonWaitAnswer::Approval(ApprovalDecision::Approved),
-    true,
     "2026-10-02T00:00:09.999Z",
     Ok(json!([
         [
@@ -147,7 +131,6 @@ fn test_step(execution_index: u32) -> WorkflowStepKey {
 fn an_answer_settles_only_its_own_wait_before_its_deadline(
     #[case] ask: PersonAsk,
     #[case] answer: PersonWaitAnswer,
-    #[case] names_its_wait: bool,
     #[case] answered_at: &str,
     #[case] expected: Result<Value, PersonWaitRefusal>,
 ) {
@@ -159,15 +142,8 @@ fn an_answer_settles_only_its_own_wait_before_its_deadline(
         cause: opened.cause,
         deadline_at: opened.deadline_at,
     };
-    let wait_id = if names_its_wait {
-        opened.wait_id
-    } else {
-        UuidTextForm::new(OTHER_WAIT_ID).expect("the test's wait id")
-    };
-
     let settled = settle_person_wait(
         &waiting,
-        &wait_id,
         answer,
         &instant(answered_at),
         vec![person("Ada"), person("Bob")],

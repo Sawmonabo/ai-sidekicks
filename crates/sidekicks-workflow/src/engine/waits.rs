@@ -333,15 +333,14 @@ pub(crate) enum PersonWaitRefusal {
     NotWaiting,
 }
 
-/// Makes `answer`, given at `at` and naming `wait_id`, the settlement of `waiting`, whose input is
-/// `input`. An approval puts the input on `approved` or on `rejected`, each item paired to its
-/// index; a form gives one item of its fields and a reply one item `{"reply": <text>}`, each paired
-/// to input item 0 where there is one. Refused `NotWaiting` when `wait_id` is not the step's, the
-/// answer is not of the wait's kind, or `at` is at or after the deadline, even before the deadline
-/// clock fires.
+/// Makes `answer`, given at `at`, the settlement of `waiting`, the step read by the wait id the
+/// answer names, whose input is `input`. An approval puts the input on `approved` or on
+/// `rejected`, each item paired to its index; a form gives one item of its fields and a reply one
+/// item `{"reply": <text>}`, each paired to input item 0 where there is one. Refused `NotWaiting`
+/// when the answer is not of the wait's kind, or `at` is at or after the deadline, even before the
+/// deadline clock fires.
 pub(crate) fn settle_person_wait(
     waiting: &WaitingPersonStep,
-    wait_id: &UuidTextForm,
     answer: PersonWaitAnswer,
     at: &WireInstant,
     input: Vec<WorkflowItem>,
@@ -351,7 +350,7 @@ pub(crate) fn settle_person_wait(
         .deadline_at
         .as_ref()
         .is_some_and(|deadline| deadline.timestamp() <= at.timestamp());
-    if *wait_id != waiting.wait_id || answer.cause() != waiting.cause || is_past_deadline {
+    if answer.cause() != waiting.cause || is_past_deadline {
         return Err(PersonWaitRefusal::NotWaiting);
     }
     let first_input = (!input.is_empty()).then_some(WorkflowPairedItems::One(WorkflowPairedItem {
