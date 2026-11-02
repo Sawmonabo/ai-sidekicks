@@ -21,6 +21,7 @@ use sidekicks_provider::account::sign_in::{
     ProviderAccountNotificationPublisher, ProviderSignInBroker,
 };
 use sidekicks_provider::account::token_custody::ProviderTokenCustody;
+use sidekicks_provider::account::wake_helper::MachineWakeHelper;
 use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::contract::account::{
     ProviderAccountLegs, ProviderMemoryImportLegs,
@@ -68,6 +69,9 @@ pub(crate) struct ProviderAccountMethodSources {
     pub(crate) database_reads: Arc<DatabaseReadPool>,
     /// This machine's own device, whose sign-in may take the provider's callback here.
     pub(crate) machine_device_id: DeviceId,
+    /// The machine's wake helper, which an account's wake switch installs and removes; `None` on
+    /// a system with none.
+    pub(crate) wake_helper: Option<Arc<dyn MachineWakeHelper>>,
 }
 
 /// Registers every `provider.account.*` method but the current-account switch, the usage read and

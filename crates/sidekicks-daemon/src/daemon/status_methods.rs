@@ -1,6 +1,7 @@
 //! `daemon.status.read`: the service's own facts in one reply, for Settings › Runtime and
 //! `sidekicks daemon status`. Processor and memory are read on each call, never on a timer; a call
-//! whose reading fails still answers, with both `null` and the failure in the service log.
+//! whose reading fails still answers, with both `null` and the failure in the service log, and so
+//! does one whose wake helper status cannot be read, with no `wakeHelper`.
 
 use std::sync::Arc;
 
@@ -14,6 +15,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::process_identity::ProcessIdentity;
+use sidekicks_contracts::provider::account::methods::ProviderWakeHelperState;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -22,6 +24,8 @@ use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
+use sidekicks_provider::account::registry::ProviderAccountRegistry;
+use sidekicks_provider::account::wake_helper::{MachineWakeHelper, wake_helper_state};
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_store::credential_store::items::SecretItems;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -53,6 +57,10 @@ pub(crate) struct StatusMethodsDeps {
     pub(crate) secret_items: Arc<SecretItems>,
     /// This machine's two keys, whose last read the status reports while they are not held.
     pub(crate) machine_identity: Arc<MachineIdentity>,
+    /// The provider accounts, whose wake switches decide whether the wake helper is reported.
+    pub(crate) accounts: Arc<ProviderAccountRegistry>,
+    /// The machine's wake helper; `None` on a system with none.
+    pub(crate) wake_helper: Option<Arc<dyn MachineWakeHelper>>,
 }
 
 /// Registers `daemon.status.read`, a read-only query. Fails the start when the method is already
@@ -131,8 +139,35 @@ async fn read_status(deps: &StatusMethodsDeps) -> Result<DaemonStatusReadRespons
         wsl: None,
         secrets_file,
         machine_key: deps.machine_identity.machine_key().await,
-        wake_helper: None,
+        wake_helper: read_wake_helper(deps).await?,
     })
+}
+
+// The wake helper's status while any account's wake switch is on; none on a system with no
+// helper, while every switch is off, or when the status cannot be read, which is logged.
+async fn read_wake_helper(
+    deps: &StatusMethodsDeps,
+) -> Result<Option<ProviderWakeHelperState>, HandlerError> {
+    let Some(helper) = &deps.wake_helper else {
+        return Ok(None);
+    };
+    let accounts = deps.accounts.list(None).await?;
+    if !accounts
+        .iter()
+        .any(|account| account.wake_for_window_start_enabled)
+    {
+        return Ok(None);
+    }
+    match helper.status().await {
+        Ok(status) => Ok(Some(wake_helper_state(status))),
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the wake helper's status could not be read"
+            );
+            Ok(None)
+        }
+    }
 }
 
 // A fault inside the daemon, answered `-32603` with no detail.
@@ -150,11 +185,17 @@ mod tests {
     use sidekicks_contracts::daemon::status::{DaemonProcessState, DaemonStatusRead};
     use sidekicks_contracts::machine::id::MachineId;
     use sidekicks_contracts::method::Method as _;
+    use sidekicks_contracts::provider::account::record::BillingMode;
+    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::UserId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::registry::{Dispatch as _, MethodRegistryBuilder, Reply};
-    use sidekicks_platforms::CredentialStore;
+    use sidekicks_platforms::{CredentialStore, WakeHelperStatus};
+    use sidekicks_provider::account::registry::{
+        AccountAdmission, AccountSettingsChange, ProviderAccountRegistry,
+    };
+    use sidekicks_provider::account::wake_helper::{MachineWakeHelper, ScriptedWakeHelper};
     use sidekicks_recovery::status::RecoveryStatusTracker;
     use sidekicks_std::mutex_lock::lock;
     use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
@@ -170,10 +211,12 @@ mod tests {
     use crate::daemon::schema::schema_parts;
 
     // Every process state the daemon is in at the call is the one the read reports, read at each
-    // call on one registry. Killed by the state read once when the method is registered, and by
-    // any state projected as another.
+    // call on one registry, and the wake helper's status is the helper's own, reported only once
+    // an account's wake switch is on. Killed by the state read once when the method is
+    // registered, by any state projected as another, by the helper's status read as another, and
+    // by the helper reported while every switch is off.
     #[tokio::test]
-    async fn each_process_state_is_reported_as_it_stands_at_the_call() {
+    async fn each_process_state_and_the_wake_helper_are_reported_as_they_stand_at_the_call() {
         let data_folder = tempfile::tempdir().expect("the data folder is made");
         let state = Arc::new(Mutex::new(DaemonProcessState::Starting));
         let read_state = Arc::clone(&state);
@@ -200,6 +243,12 @@ mod tests {
             Arc::clone(&reads),
             Arc::clone(&log.writer),
         );
+        let accounts = Arc::new(ProviderAccountRegistry::new(
+            Arc::clone(&reads),
+            Arc::clone(&log.writer),
+            data_folder.path().to_owned(),
+        ));
+        let wake_helper = Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::TurnedOff));
         let mut builder = MethodRegistryBuilder::new();
         register_status_methods(
             &mut builder,
@@ -222,6 +271,8 @@ mod tests {
                 usage_reader: Arc::new(ProcessTreeUsageReader::new()),
                 secret_items,
                 machine_identity,
+                accounts: Arc::clone(&accounts),
+                wake_helper: Some(wake_helper as Arc<dyn MachineWakeHelper>),
             },
         )
         .expect("the status read registers");
@@ -248,6 +299,48 @@ mod tests {
                 read["processState"],
                 serde_json::to_value(expected).expect("a state writes"),
             );
+            assert_eq!(
+                read.get("wakeHelper"),
+                None,
+                "no account's wake switch is on"
+            );
         }
+
+        let minted = accounts
+            .mint(ProviderId::new("claude".to_owned()).expect("a provider id"))
+            .expect("the account is minted");
+        let account = accounts
+            .admit(
+                &minted,
+                &AccountAdmission {
+                    display_label: None,
+                    billing_mode: BillingMode::Subscription,
+                    health: None,
+                    observed_auth_mode: None,
+                },
+            )
+            .await
+            .expect("the account is admitted");
+        accounts
+            .change_settings(
+                account.account_id,
+                AccountSettingsChange {
+                    wake_for_window_start_enabled: Some(true),
+                    ..AccountSettingsChange::default()
+                },
+            )
+            .await
+            .expect("the wake switch turns on");
+        let Ok(Reply::Result(read)) = registry
+            .dispatch(
+                request(DaemonStatusRead::DESCRIPTOR.method, Some(&json!({}))),
+                context(1),
+            )
+            .await
+        else {
+            panic!("the status read answers");
+        };
+        let read: Value = serde_json::from_slice(&read.json).expect("the read is JSON");
+        assert_eq!(read["wakeHelper"], json!({"state": "turnedOff"}));
     }
 }

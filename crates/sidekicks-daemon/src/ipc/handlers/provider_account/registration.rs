@@ -5,6 +5,9 @@
 //!   removes the home it minted.
 //! - A re-supply changes the account's name and billing before its token, so a token its provider
 //!   refuses leaves the prior token in place.
+//! - The first account whose wake switch turns on installs the machine's wake helper, one that did
+//!   not install leaving the switch off and its reason in the reply, and the last one turned off
+//!   removes it.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -16,25 +19,32 @@ use sidekicks_contracts::method::Method as _;
 use sidekicks_contracts::provider::account::methods::{
     ProviderAccountDelete, ProviderAccountDeleteRequest, ProviderAccountDeleteResponse,
     ProviderAccountRegister, ProviderAccountUpdate, ProviderAccountUpdateRequest,
-    ProviderAccountUpdateResponse,
+    ProviderAccountUpdateResponse, ProviderWakeHelperState,
 };
 use sidekicks_contracts::provider::account::sign_in::{
     ProviderAccountRegisterRequest, ProviderAccountRegisterResponse, TokenResupply,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::True;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
+use sidekicks_platforms::WakeHelperStatus;
 use sidekicks_provider::account::registry::{
     AccountAdmission, AccountSettingsChange, MintedAccount, RegisteredAccount,
 };
 use sidekicks_provider::account::resolver::credential_home_folders;
 use sidekicks_provider::account::token_custody::TokenAccountRegistration;
+use sidekicks_provider::account::wake_helper::{MachineWakeHelper, wake_helper_not_installed};
 use sidekicks_provider::driver::contract::error::DriverError;
 
 use super::ProviderAccountMethodSources;
+
+// Why the helper is not installed once the last account's wake switch turned off.
+const WAKE_HELPER_REMOVED_REASON: &str =
+    "No account wakes this computer, so the helper was removed";
 
 /// Registers the three verbs. `register` refuses an unknown provider `provider.notFound`, a
 /// re-supply naming an account not registered under its provider `provider.account.notFound`, and
@@ -70,11 +80,11 @@ pub(super) fn register_provider_account_registration(
             let sources = Arc::clone(&updating);
             async move {
                 let device = context.calling_device(ProviderAccountUpdate::DESCRIPTOR.method)?;
-                let account = update_account(&sources, request).await?;
+                let (account, wake_helper) = update_account(&sources, request).await?;
                 sources.publish_change(ProviderAccountUpdate::DESCRIPTOR.method, &device, &account);
                 Ok(ProviderAccountUpdateResponse {
                     account: account.to_provider_account(),
-                    wake_helper: None,
+                    wake_helper,
                 })
             }
             .boxed()
@@ -239,12 +249,32 @@ async fn resupply_token(
         .await?)
 }
 
+// Writes `request`'s settings, the wake switch on only once the helper is installed, and has the
+// observer look at the account's windows again where a window switch changed; answers the helper's
+// state where the request carries the wake switch on a machine with a helper.
 async fn update_account(
     sources: &ProviderAccountMethodSources,
     request: ProviderAccountUpdateRequest,
-) -> Result<RegisteredAccount, HandlerError> {
+) -> Result<(RegisteredAccount, Option<ProviderWakeHelperState>), HandlerError> {
     let account = sources.accounts.read(request.account_id).await?;
-    change_settings(
+    let helper = sources
+        .wake_helper
+        .as_deref()
+        .filter(|_| request.wake_for_window_start_enabled.is_some());
+    let mut wake_for_window_start_enabled = request.wake_for_window_start_enabled;
+    let mut wake_helper = None;
+    if let Some(helper) = helper
+        && request.wake_for_window_start_enabled == Some(true)
+    {
+        let installed = install_wake_helper(helper).await;
+        if matches!(installed, ProviderWakeHelperState::NotInstalled { .. }) {
+            wake_for_window_start_enabled = Some(false);
+        }
+        wake_helper = Some(installed);
+    }
+    let is_window_change =
+        request.window_start_enabled.is_some() || wake_for_window_start_enabled.is_some();
+    let account = change_settings(
         sources,
         &account,
         AccountSettingsChange {
@@ -252,10 +282,59 @@ async fn update_account(
             billing_mode: request.billing_mode,
             probe_enabled: request.probe_enabled,
             window_start_enabled: request.window_start_enabled,
-            wake_for_window_start_enabled: request.wake_for_window_start_enabled,
+            wake_for_window_start_enabled,
         },
     )
-    .await
+    .await?;
+    if let Some(helper) = helper
+        && request.wake_for_window_start_enabled == Some(false)
+    {
+        wake_helper = Some(remove_unused_wake_helper(sources, helper).await?);
+    }
+    if is_window_change {
+        sources.observer.look_at_windows(account.account_id.clone());
+    }
+    Ok((account, wake_helper))
+}
+
+// The helper installed where it is not already, behind one administrator prompt; a failed install
+// answers its reason.
+async fn install_wake_helper(helper: &dyn MachineWakeHelper) -> ProviderWakeHelperState {
+    if matches!(helper.status().await, Ok(WakeHelperStatus::Installed)) {
+        return ProviderWakeHelperState::Installed {};
+    }
+    match helper.install().await {
+        Ok(()) => ProviderWakeHelperState::Installed {},
+        Err(error) => wake_helper_not_installed(&error),
+    }
+}
+
+// Removes the helper once no account's wake switch is on, answering `notInstalled` with why; while
+// another account's switch is on, or when the removal fails, which is logged, it stays installed.
+async fn remove_unused_wake_helper(
+    sources: &ProviderAccountMethodSources,
+    helper: &dyn MachineWakeHelper,
+) -> Result<ProviderWakeHelperState, HandlerError> {
+    let accounts = sources.accounts.list(None).await?;
+    if accounts
+        .iter()
+        .any(|account| account.wake_for_window_start_enabled)
+    {
+        return Ok(ProviderWakeHelperState::Installed {});
+    }
+    match helper.uninstall().await {
+        Ok(()) => Ok(ProviderWakeHelperState::NotInstalled {
+            reason: FreeFormText::new(WAKE_HELPER_REMOVED_REASON.to_owned())
+                .expect("the removal's reason is text"),
+        }),
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the wake helper no account uses could not be removed"
+            );
+            Ok(ProviderWakeHelperState::Installed {})
+        }
+    }
 }
 
 // Writes `change` on `account`, a rename refused on an account the person did not name.

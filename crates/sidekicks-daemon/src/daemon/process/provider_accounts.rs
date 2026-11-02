@@ -1,8 +1,9 @@
 //! The provider account plane at the daemon's start: the account registry, the accounts reader the
 //! drivers resolve folders through, the token custody and its sweep of what a stop left, the
 //! background observer over each provider's own legs, the sign-in broker and the sources the
-//! `provider.account.*` methods act through; and, once the recovery pass has run, the observer's
-//! schedule and its follow of each metered turn.
+//! `provider.account.*` methods act through, and the machine's wake helper where the system has
+//! one; and, once the recovery pass has run, the observer's schedule and its follow of each
+//! metered turn.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -13,7 +14,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::usage::UsageTokenCountRecordedPayload;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_platforms::WallClock;
+use sidekicks_platforms::{Spawner, WallClock, wake_helper};
 use sidekicks_provider::account::home_lock::AccountHomeLock;
 use sidekicks_provider::account::observer::{
     AccountLiveTurns, ProviderAccountObserver, ProviderAccountObserverDeps,
@@ -23,6 +24,7 @@ use sidekicks_provider::account::registry::ProviderAccountRegistry;
 use sidekicks_provider::account::resolver::ProviderAccounts;
 use sidekicks_provider::account::sign_in::{ProviderSignInBroker, SignedInAccountWatcher};
 use sidekicks_provider::account::token_custody::ProviderTokenCustody;
+use sidekicks_provider::account::wake_helper::{MachineWakeHelper, SystemWakeHelper};
 use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::contract::account::{
     ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs,
@@ -39,6 +41,9 @@ use tokio::runtime::Handle;
 
 use crate::ipc::handlers::provider_account::ProviderAccountMethodSources;
 use crate::ipc::handlers::provider_account::notifications::ProviderAccountNotifications;
+
+// The wake helper's program, which the service ships beside its own.
+const WAKE_HELPER_PROGRAM_NAME: &str = "sidekicks-wake-helper";
 
 /// What the account plane is built from.
 pub(crate) struct ProviderAccountPlaneStart<'start> {
@@ -62,6 +67,10 @@ pub(crate) struct ProviderAccountPlaneStart<'start> {
     pub(crate) clock: Arc<dyn WallClock>,
     /// This machine's own device, whose sign-in may take the provider's callback here.
     pub(crate) machine_device_id: DeviceId,
+    /// The thread every child starts on, the wake helper's administrator prompt among them.
+    pub(crate) spawner: Spawner,
+    /// The daemon's own program, beside which the wake helper's program is shipped.
+    pub(crate) daemon_program: &'start Path,
 }
 
 /// The account plane, built before the socket serves.
@@ -92,7 +101,16 @@ pub(crate) async fn build_provider_account_plane(
         scheduler,
         clock,
         machine_device_id,
+        spawner,
+        daemon_program,
     } = start;
+    let wake_helper = wake_helper().map(|helper| {
+        Arc::new(SystemWakeHelper::new(
+            helper,
+            spawner,
+            daemon_program.with_file_name(WAKE_HELPER_PROGRAM_NAME),
+        )) as Arc<dyn MachineWakeHelper>
+    });
     let registry = Arc::new(ProviderAccountRegistry::new(
         Arc::clone(&reads),
         Arc::clone(&writer),
@@ -143,6 +161,7 @@ pub(crate) async fn build_provider_account_plane(
         home_lock: Arc::clone(&home_lock),
         scheduler,
         wall_clock: clock,
+        wake_helper: wake_helper.clone(),
     }));
     let publisher = Arc::new(ProviderAccountNotifications::new());
     // No provider's sign-in legs are built yet, so each sign-in refuses as unsupported.
@@ -167,6 +186,7 @@ pub(crate) async fn build_provider_account_plane(
             publisher,
             database_reads: reads,
             machine_device_id,
+            wake_helper,
         },
         reader,
         registry,

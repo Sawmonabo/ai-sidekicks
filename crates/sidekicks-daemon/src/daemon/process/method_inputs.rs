@@ -316,6 +316,7 @@ pub(crate) async fn register_method_inputs(
         stop_work,
         close_data_folder,
     } = start;
+    let wake_helper_spawner = spawner.clone();
     let presence = Arc::new(PresenceRegister::default());
     let reads = Arc::clone(&database.pool);
     let writer = Arc::clone(&database.writer);
@@ -492,6 +493,8 @@ pub(crate) async fn register_method_inputs(
         scheduler: Arc::clone(&scheduler),
         clock,
         machine_device_id: machine_device_id.clone(),
+        spawner: wake_helper_spawner,
+        daemon_program,
     })
     .await;
     register_driver_ports(
@@ -689,6 +692,8 @@ pub(crate) async fn register_method_inputs(
                 usage_reader: Arc::new(ProcessTreeUsageReader::new()),
                 secret_items: Arc::clone(&secret_items),
                 machine_identity,
+                accounts: Arc::clone(&accounts.methods.accounts),
+                wake_helper: accounts.methods.wake_helper.clone(),
             },
             lifecycle: stored.lifecycle,
             retention: stored.retention,
