@@ -1,9 +1,9 @@
 //! The ports through which the workflow engine reaches the services above this crate: the memory
 //! gate a script or quick Code step waits at, the agent runs an agent step starts, the processes a
 //! step launches and the artifacts its large payloads go to, the approval cards and questions a
-//! step waiting on a person opens, the sink of the engine's own records, and the limit a chain's
-//! runs are counted under. The program implements each and hands the ones the dispatch reads to the
-//! engine as one bundle.
+//! step waiting on a person opens, the sink of the engine's own records, the limit a chain's runs
+//! are counted under, and the provider a run's command steps run under. The program implements each
+//! and hands the ones the dispatch reads to the engine as one bundle.
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -394,6 +394,17 @@ pub trait EngineRecordSink: Send + Sync {
 pub trait ChainAskAfterReader: Send + Sync {
     /// `Ask me after one start leads to`, in runs, as set now; `None` is `Never ask`.
     fn chain_ask_after_runs(&self) -> Option<WorkflowChainAskAfterRuns>;
+}
+
+/// Reads, at a run's start, the provider whose shell the run's command steps run in.
+pub trait RunProviderReader: Send + Sync {
+    /// The provider for a run of workflow `workflow_id` in session `session_id`. Fails when it
+    /// cannot be read, which fails the start.
+    fn run_provider<'call>(
+        &'call self,
+        workflow_id: &'call WorkflowDefinitionId,
+        session_id: &'call SessionId,
+    ) -> BoxFuture<'call, Result<ProviderId, PortError>>;
 }
 
 /// What a refusing test port panics or fails with: a test that reaches one has a fault.

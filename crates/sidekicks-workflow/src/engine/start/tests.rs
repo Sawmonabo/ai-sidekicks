@@ -10,13 +10,18 @@ use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::daemon::config::WorkflowChainAskAfterRuns;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::id::MachineId;
+use sidekicks_contracts::project::ProjectId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::{SessionId, UserId};
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::workflow::definition::document::{WorkflowNodeId, WorkflowVersionId};
+use sidekicks_contracts::workflow::definition::document::{
+    WorkflowDefinitionId, WorkflowNodeId, WorkflowVersionId,
+};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::WorkflowRunStatus;
@@ -41,10 +46,13 @@ use sidekicks_workspace::test_rows::project_and_mount_rows;
 
 use super::{
     StartedRun, WORKFLOW_RUN_START_STATEMENT_CAPACITY, WorkflowRunStart, WorkflowRunStartError,
-    WorkflowRunStarter, WorkflowStartArrival, WorkflowStartOutcome,
+    WorkflowRunStarter, WorkflowRunStarterDependencies, WorkflowStartArrival, WorkflowStartOutcome,
+};
+use crate::definitions::kept_values::{
+    WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY, WorkflowKeptValueStore,
 };
 use crate::engine::ports::{
-    ChainAskAfterReader, PortError, REFUSED_PORT_CALL, StepPayloadArtifacts,
+    ChainAskAfterReader, PortError, REFUSED_PORT_CALL, RunProviderReader, StepPayloadArtifacts,
 };
 use crate::schema::schema_parts;
 use crate::test_rows::{TEST_SESSION_ID, insert_run, insert_workflow_version_body};
@@ -55,6 +63,7 @@ const UNKNOWN_VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e72";
 const ROOT_RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e73";
 const ROOT_STARTED_AT: &str = "2026-10-02T00:00:00.000Z";
 const ROWS_AT: &str = "2026-10-14T09:30:00.000Z";
+const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e74";
 
 /// A payload the test's store kept, with the artifact it answered.
 #[derive(Clone, Debug, PartialEq)]
@@ -121,6 +130,30 @@ impl ChainAskAfterReader for AskAfter {
     }
 }
 
+/// The provider reader: answers its provider for the test workflow in the test session, and fails
+/// for any other run or when it holds none.
+struct TestRunProvider(Option<ProviderId>);
+
+impl RunProviderReader for TestRunProvider {
+    fn run_provider<'call>(
+        &'call self,
+        workflow_id: &'call WorkflowDefinitionId,
+        session: &'call SessionId,
+    ) -> BoxFuture<'call, Result<ProviderId, PortError>> {
+        let is_test_run = workflow_id.text().as_str() == DEFINITION_ID && *session == session_id();
+        let provider = self
+            .0
+            .clone()
+            .filter(|_| is_test_run)
+            .ok_or_else(|| PortError::from("the test's reader holds no provider for this run"));
+        Box::pin(async move { provider })
+    }
+}
+
+fn test_provider() -> ProviderId {
+    ProviderId::new("test-provider".to_owned()).expect("the test's provider id")
+}
+
 /// The session a start names: none stored, stored with no working folder, or stored working in a
 /// folder of its own.
 #[derive(Clone, Copy, Debug)]
@@ -131,7 +164,8 @@ enum TestSession {
 }
 
 /// The starter over a test database holding the store's, workspace and workflow tables, the
-/// workflow's version 1 with `body`, and the payloads it stored.
+/// workflow's version 1 with `body`, the payloads it stored, and `provider` as the run's provider,
+/// none failing its read.
 struct Fixture {
     database: TestDatabase,
     rows: Connection,
@@ -145,6 +179,7 @@ impl Fixture {
         body: &Value,
         session: TestSession,
         chain_ask_after: Option<WorkflowChainAskAfterRuns>,
+        provider: Option<ProviderId>,
     ) -> Self {
         let database = TestDatabase::new(schema_parts());
         let writer = Arc::new(
@@ -156,7 +191,8 @@ impl Fixture {
             database.path(),
             EVENT_LOG_STATEMENT_CAPACITY
                 + WORKFLOW_RUN_START_STATEMENT_CAPACITY
-                + MACHINE_REGISTRY_STATEMENT_CAPACITY,
+                + MACHINE_REGISTRY_STATEMENT_CAPACITY
+                + WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY,
         ));
         let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
             writer: Arc::clone(&writer),
@@ -167,6 +203,10 @@ impl Fixture {
             read_damaged_from_sequence: None,
         }));
         let machine_id = MachineId::new(mint_uuid_v7().to_string()).expect("a machine id");
+        let kept_values = Arc::new(WorkflowKeptValueStore::new(
+            Arc::clone(&pool),
+            Arc::clone(&writer),
+        ));
         let machines = Arc::new(MachineRegistry::new(
             Arc::clone(&pool),
             writer,
@@ -177,15 +217,17 @@ impl Fixture {
             },
         ));
         let payloads = Arc::new(KeptPayloads::default());
-        let starter = WorkflowRunStarter::new(
+        let starter = WorkflowRunStarter::new(WorkflowRunStarterDependencies {
             pool,
             event_log,
             machines,
-            Arc::new(Authorizer::load_built_in().expect("the built-in rules load")),
-            Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
-            Arc::new(AskAfter(chain_ask_after)),
-            test_folder(&database).join("data"),
-        );
+            authorizer: Arc::new(Authorizer::load_built_in().expect("the built-in rules load")),
+            payloads: Arc::clone(&payloads) as Arc<dyn StepPayloadArtifacts>,
+            chain_ask_after: Arc::new(AskAfter(chain_ask_after)),
+            provider: Arc::new(TestRunProvider(provider)),
+            kept_values,
+            data_folder: test_folder(&database).join("data"),
+        });
         let rows = database.reader();
         insert_workflow_version_body(&rows, DEFINITION_ID, VERSION_ID, body);
         store_session(&rows, session, &session_folder(&database));
@@ -279,18 +321,19 @@ fn store_session(rows: &Connection, session: TestSession, folder: &Path) {
         insert_session_row(rows, TEST_SESSION_ID, None, None);
     }
     if let TestSession::WithFolder = session {
-        for row in project_and_mount_rows("mount", None) {
+        for row in project_and_mount_rows(MOUNT_ID, None) {
             rows.execute_batch(&row).expect("a project row is stored");
         }
         rows.execute(
             "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, \
-             state, created_at, updated_at) VALUES ('workspace', ?1, 'mount', ?2, ?3, ?4, ?5, ?5)",
+             state, created_at, updated_at) VALUES ('workspace', ?1, ?6, ?2, ?3, ?4, ?5, ?5)",
             params![
                 TEST_SESSION_ID,
                 <&'static str>::from(ExecutionMode::BoundRoot),
                 folder.to_string_lossy(),
                 <&'static str>::from(WorkspaceState::Ready),
-                ROWS_AT
+                ROWS_AT,
+                MOUNT_ID
             ],
         )
         .expect("the session's workspace is stored");
@@ -300,7 +343,8 @@ fn store_session(rows: &Connection, session: TestSession, folder: &Path) {
 // A version body whose trigger declares `inputs`, or none.
 fn body(inputs: Option<Value>) -> Value {
     let mut trigger = json!({
-        "id": "start", "kind": "trigger.manual", "kindVersion": 1, "name": "Start", "order": 0
+        "id": "start", "kind": "trigger.manual", "kindVersion": 1, "name": "Start", "order": 0,
+        "params": {}
     });
     if let Some(inputs) = inputs {
         trigger["inputs"] = inputs;
@@ -413,7 +457,13 @@ async fn a_trigger_start_passes_the_rules_and_a_persons_or_agents_does_not(
     #[case] is_registered_to_another_user: bool,
     #[case] is_started: bool,
 ) {
-    let fixture = Fixture::new(&body(None), TestSession::WithoutFolder, None).await;
+    let fixture = Fixture::new(
+        &body(None),
+        TestSession::WithoutFolder,
+        None,
+        Some(test_provider()),
+    )
+    .await;
     if is_registered_to_another_user {
         fixture
             .rows
@@ -482,6 +532,7 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
         &body(Some(declared)),
         session,
         WorkflowChainAskAfterRuns::new(25),
+        Some(test_provider()),
     )
     .await;
     let input = match case {
@@ -509,11 +560,13 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
 
     match case {
         NothingWritten::HeldOnChain => {
+            let held_on = match outcome.expect("a held start is no failure") {
+                WorkflowStartOutcome::HeldOnChain { chain_root_run_id } => Some(chain_root_run_id),
+                WorkflowStartOutcome::Started(_) => None,
+            };
             assert_eq!(
-                outcome.expect("a held start is no failure"),
-                WorkflowStartOutcome::HeldOnChain {
-                    chain_root_run_id: WorkflowRunId::new(ROOT_RUN_ID).expect("the root's id"),
-                }
+                held_on,
+                Some(WorkflowRunId::new(ROOT_RUN_ID).expect("the root's id"))
             );
             assert_eq!(
                 fixture.count(&format!(
@@ -576,6 +629,7 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
                 &body(Some(declared)),
                 TestSession::WithoutFolder,
                 WorkflowChainAskAfterRuns::new(25),
+                Some(test_provider()),
             )
             .await;
             fixture.store_chain_root(1);
@@ -591,7 +645,7 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
                     .await,
             );
 
-            let (payload, occurred_at, started_at) = fixture.started_record(run.workflow_run_id);
+            let (payload, occurred_at, started_at) = fixture.started_record(run.scope.run_id);
             assert_eq!(
                 payload["trigger"],
                 json!({ "kind": "trigger.schedule", "nodeId": "start" })
@@ -610,14 +664,20 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
                 .join("workflows")
                 .join(DEFINITION_ID)
                 .join("runs")
-                .join(run.workflow_run_id.text().as_str());
-            assert_eq!(run.working_folder, own_folder);
+                .join(run.scope.run_id.text().as_str());
+            assert_eq!(run.scope.working_folder, own_folder);
             assert!(own_folder.is_dir());
             assert_eq!(entries(&own_folder), Vec::<PathBuf>::new());
             assert_eq!(fixture.payloads.writes(), Vec::new());
         }
         WrittenStart::ManualWithALargeInput => {
-            let fixture = Fixture::new(&body(None), TestSession::WithFolder, None).await;
+            let fixture = Fixture::new(
+                &body(None),
+                TestSession::WithFolder,
+                None,
+                Some(test_provider()),
+            )
+            .await;
             let large = item(json!({ "note": "x".repeat(70 * 1024) }));
 
             let run = started(
@@ -638,7 +698,7 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
                 (
                     session_id(),
                     &WorkflowStepKey {
-                        workflow_run_id: run.workflow_run_id,
+                        workflow_run_id: run.scope.run_id,
                         node_id: WorkflowNodeId::new("start".to_owned()).expect("a node id"),
                         attempt: SafeInt::new(1).expect("a first attempt"),
                         execution_index: SafeInt::ZERO,
@@ -655,14 +715,126 @@ async fn a_started_run_records_its_trigger_chain_and_input_and_works_in_its_fold
                 item_count: SafeInt::new(1).expect("one item"),
             };
             assert_eq!(run.trigger_input, artifact);
-            let (payload, occurred_at, started_at) = fixture.started_record(run.workflow_run_id);
+            let (payload, occurred_at, started_at) = fixture.started_record(run.scope.run_id);
             assert_eq!(
                 payload["inputRef"],
                 serde_json::to_value(&artifact).expect("a payload ref writes as JSON")
             );
             assert_eq!(started_at, occurred_at);
-            assert_eq!(run.working_folder, session_folder(&fixture.database));
+            assert_eq!(run.scope.working_folder, session_folder(&fixture.database));
             assert!(!fixture.data_folder().join("workflows").exists());
         }
     }
+}
+
+/// Mutations: pins taken for a trigger run, or dropped for a manual one; the session's level, or
+/// the column's default, in place of the workflow's; the trigger left out of the nodes or the
+/// version's nodes dropped; the scope's start read from the clock apart from the event's instant;
+/// another provider than the reader's; kept values not read.
+#[rstest]
+#[case::a_manual_run(WorkflowStartArrival::Person, true)]
+#[case::a_trigger_run(WorkflowStartArrival::Trigger, false)]
+#[tokio::test]
+async fn the_start_scope_holds_the_pinned_version_the_workflows_level_and_its_pins(
+    #[case] arrival: WorkflowStartArrival,
+    #[case] has_pins: bool,
+) {
+    let mut version_body = body(None);
+    version_body["nodes"] = json!([{
+        "id": "review", "kind": "human.approval", "kindVersion": 1, "name": "Review", "order": 0,
+        "params": { "note": "check the draft" }
+    }]);
+    let fixture = Fixture::new(
+        &version_body,
+        TestSession::WithFolder,
+        None,
+        Some(test_provider()),
+    )
+    .await;
+    let pins = json!({ "review": [{ "json": { "name": "Ada" } }] });
+    fixture
+        .rows
+        .execute(
+            "UPDATE workflow_definitions SET permission_level = ?1, pin_data_json = ?2 \
+             WHERE id = ?3",
+            params![
+                <&'static str>::from(PermissionLevel::Ask),
+                pins.to_string(),
+                DEFINITION_ID
+            ],
+        )
+        .expect("the test sets the workflow's level and pins");
+    fixture
+        .rows
+        .execute(
+            "INSERT INTO workflow_node_state (definition_id, node_id, key, value_json, \
+             kept_by_run_id, updated_at) VALUES (?1, '', 'region', '\"eu\"', ?2, ?3)",
+            params![DEFINITION_ID, ROOT_RUN_ID, ROWS_AT],
+        )
+        .expect("the test keeps a value");
+
+    let run = started(
+        fixture
+            .starter
+            .start(start(arrival, WorkflowRunChainPlace::Starts {}, Vec::new()))
+            .await,
+    );
+
+    let scope = &run.scope;
+    let mut node_ids: Vec<&str> = scope.nodes.keys().map(WorkflowNodeId::as_str).collect();
+    node_ids.sort_unstable();
+    assert_eq!(node_ids, ["review", "start"]);
+    let review = WorkflowNodeId::new("review".to_owned()).expect("a node id");
+    assert_eq!(
+        serde_json::to_value(&scope.node_params[&review]).expect("params write as JSON"),
+        json!({ "note": "check the draft" })
+    );
+    assert_eq!(
+        serde_json::to_value(&scope.pin_data).expect("pins write as JSON"),
+        if has_pins { pins } else { Value::Null }
+    );
+    assert_eq!(scope.permission_level, PermissionLevel::Ask);
+    assert_eq!(scope.provider, test_provider());
+    assert_eq!(
+        scope.project,
+        Some(ProjectId::new(MOUNT_ID).expect("the project's id"))
+    );
+    let (_, occurred_at, _) = fixture.started_record(scope.run_id);
+    assert_eq!(
+        scope.run_started_at,
+        occurred_at
+            .parse::<jiff::Timestamp>()
+            .expect("the event's instant parses")
+    );
+    assert_eq!(
+        scope
+            .kept_values
+            .iter()
+            .map(|kept| (kept.name.as_str(), &kept.value))
+            .collect::<Vec<_>>(),
+        [("region", &json!("eu"))]
+    );
+}
+
+/// Mutations: the scope read after the write (a run row and its event are kept); the run's own
+/// folder left behind; the scope read after the trigger's input (the large input is stored).
+#[tokio::test]
+async fn a_failed_scope_read_writes_no_run() {
+    let fixture = Fixture::new(&body(None), TestSession::WithoutFolder, None, None).await;
+    let large = item(json!({ "note": "x".repeat(70 * 1024) }));
+
+    let outcome = fixture
+        .starter
+        .start(start(
+            WorkflowStartArrival::Person,
+            WorkflowRunChainPlace::Starts {},
+            vec![large],
+        ))
+        .await;
+
+    assert!(matches!(outcome, Err(WorkflowRunStartError::Provider(_))));
+    assert_eq!(fixture.count("SELECT COUNT(*) FROM workflow_runs"), 0);
+    assert_eq!(fixture.count("SELECT COUNT(*) FROM session_events"), 0);
+    assert_eq!(run_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
+    assert_eq!(fixture.payloads.writes(), Vec::new());
 }
