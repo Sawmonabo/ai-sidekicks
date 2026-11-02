@@ -1,14 +1,15 @@
 //! Stopping one Codex turn with `turn/interrupt`, which Codex answers once the turn aborted; the
-//! turn's own `turn/completed` follows, which is when it has ended.
+//! turn's own `turn/completed` follows, which is when it has ended. A conversation's running turn
+//! is found as its newest one and stopped the same way.
 
 use crate::driver::codex::app_server_protocol::TurnInterruptParams;
-use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::errors::{CODEX_INVALID_REQUEST_CODE, CodexError};
+use crate::driver::codex::session::history::read_codex_newest_turn;
+use crate::driver::codex::session::owed_turn_ends::is_codex_turn_in_progress;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 
-const TURN_INTERRUPT_METHOD: &str = "turn/interrupt";
-
-/// JSON-RPC's invalid-request code, which Codex answers an interrupt of no running turn with.
-const INVALID_REQUEST_CODE: i64 = -32600;
+/// The method that stops a turn.
+pub(crate) const TURN_INTERRUPT_METHOD: &str = "turn/interrupt";
 
 /// Codex's words when the conversation runs no turn, or the turn named is the one that just ended.
 const NO_ACTIVE_TURN_MESSAGE: &str = "no active turn to interrupt";
@@ -42,10 +43,29 @@ pub(crate) async fn interrupt_codex_turn(
     match interrupted {
         Ok(_reply) => Ok(CodexTurnInterrupt::Stopped),
         Err(CodexError::ProviderRequest { code, message, .. })
-            if code == INVALID_REQUEST_CODE && message.contains(NO_ACTIVE_TURN_MESSAGE) =>
+            if code == CODEX_INVALID_REQUEST_CODE && message.contains(NO_ACTIVE_TURN_MESSAGE) =>
         {
             Ok(CodexTurnInterrupt::AlreadyEnded)
         }
         Err(error) => Err(error),
     }
+}
+
+/// Interrupts the running turn of the conversation `thread_id`, read as its newest turn, and
+/// answers how Codex took it; `None` where no message has reached the conversation yet, its newest
+/// turn has ended, or that turn is `leave`. Fails as the read or the interrupt fails.
+pub(crate) async fn interrupt_codex_running_turn(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+    leave: Option<&str>,
+) -> Result<Option<CodexTurnInterrupt>, CodexError> {
+    let Some(newest) = read_codex_newest_turn(connection, thread_id).await? else {
+        return Ok(None);
+    };
+    if !is_codex_turn_in_progress(&newest.turn) || leave == Some(newest.id.as_str()) {
+        return Ok(None);
+    }
+    interrupt_codex_turn(connection, thread_id, &newest.id)
+        .await
+        .map(Some)
 }

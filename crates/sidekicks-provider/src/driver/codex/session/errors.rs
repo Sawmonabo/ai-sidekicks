@@ -38,7 +38,8 @@ const FIELD_LEVEL_REFUSAL_PHRASES: &[&str] = &["missing field", "unknown field"]
 /// never reached it, and the connection stays.
 const CODEX_OVERLOADED_CODE: i64 = -32001;
 
-/// JSON-RPC's invalid-request code, which the service's draining answer carries.
+/// JSON-RPC's invalid-request code, which the service's draining answer carries, and its refusal of
+/// an interrupt of no running turn, of a turn not the one running or of a conversation not loaded.
 pub(crate) const CODEX_INVALID_REQUEST_CODE: i64 = -32600;
 
 /// The `data.reason` of the service's answer while it drains toward its exit.

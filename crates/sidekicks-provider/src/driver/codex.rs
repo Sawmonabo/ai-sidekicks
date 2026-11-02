@@ -60,7 +60,7 @@ use crate::driver::run_control::{
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
-    DriverResumeResult, ExportHandoverBriefParams, MoveSessionToForkParams,
+    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
     ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
     SessionCommandAnswer, SetSessionGoalParams, StartingLevel, StartingLevelParams,
@@ -312,6 +312,10 @@ impl ProviderDriver for CodexDriver {
         params: ResumeSessionParams,
     ) -> BoxFuture<'_, Result<DriverResumeResult, DriverError>> {
         self.resume_session(params).boxed()
+    }
+
+    fn end_kept_turns(&self, params: EndKeptTurnsParams) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.end_kept_turns(params).map(Ok).boxed()
     }
 
     fn settle_session(&self, session_id: SessionId) -> BoxFuture<'_, Result<(), DriverError>> {

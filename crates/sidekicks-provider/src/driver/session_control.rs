@@ -207,6 +207,40 @@ pub struct OpenTurnResume {
     pub started_event_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
 }
 
+/// A run's turns a restart kept running on the provider, in a session the start does not resume,
+/// so the driver ends them there.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeptRunTurns {
+    /// The run.
+    pub run_id: RunId,
+    /// The provider's own id of the helper the run is, as its `agent.subagent.started` recorded
+    /// it; `None` for a lead or any run no helper's start names.
+    pub subagent_id: Option<SubagentId>,
+    /// The provider's ids of its turns started with no end, in turn order.
+    pub turn_ids: Vec<ProviderTurnId>,
+    /// Whether a stop of the run's own ends it, so a turn the provider continued under another id
+    /// is ended too.
+    pub is_for_stop: bool,
+}
+
+/// What the daemon hands a driver to end the turns a restart kept in one session the start does
+/// not resume.
+#[derive(Clone, Debug)]
+pub struct EndKeptTurnsParams {
+    /// The session.
+    pub session_id: SessionId,
+    /// The account the session's leg ran on, read back from its stored spawn record.
+    pub provider_account_id: ProviderAccountId,
+    /// The provider's own handle of the leg's conversation, which a lead's turns run on.
+    pub conversation: String,
+    /// The provider's own recovery data the leg's binding kept, handed back as stored.
+    pub runtime_metadata: Map<String, Value>,
+    /// The runs whose turns are ended, each with at least one turn.
+    pub runs: Vec<KeptRunTurns>,
+    /// The recovery pass's stop, which ends the work where it stands.
+    pub stop: CancellationToken,
+}
+
 /// What the provider holds of one run's turn after a resume.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProviderTurnAnswer {
