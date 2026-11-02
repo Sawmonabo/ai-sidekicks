@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::{Value, json};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
@@ -15,7 +14,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
@@ -32,7 +30,7 @@ use crate::driver::run_control::{
     FasterModelRetryOutcome, FasterModelRetryParams, PauseRunParams, ResumeRunParams,
     WaitingMessage,
 };
-use crate::driver::test_registry::new_message_id;
+use crate::driver::test_registry::{new_agent_id, new_message_id};
 use crate::port::question::QuestionPort;
 use crate::port::question::test_card::QuestionCard;
 use crate::run::delivery::LateAppendableRow;
@@ -664,7 +662,7 @@ async fn the_conversations_fixed_start_is_kept_on_its_binding_for_a_resume() {
     let binding = kept.expect("the fixed start is kept on the binding");
     let resumed = compose_resume_session_params(
         live.session_id,
-        AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        new_agent_id(),
         &binding,
         mint_runtime_binding_id(),
         FreeFormText::new("gpt-5".to_owned()).expect("a model"),

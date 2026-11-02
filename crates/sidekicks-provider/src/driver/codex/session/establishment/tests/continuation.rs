@@ -5,7 +5,6 @@
 
 use rstest::rstest;
 use serde_json::{Value, json};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
@@ -28,7 +27,7 @@ use crate::driver::codex::transport::connection::scripted_service::ScriptedServi
 use crate::driver::session_control::{
     DriverResumeResult, LiveRunResume, OpenTurnResume, ProviderTurnAnswer,
 };
-use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::driver::test_registry::{new_agent_id, new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
 use crate::run::posture::compose_execution_posture;
 use crate::run::turn_end::TurnOutcome;
@@ -180,7 +179,7 @@ pub(super) async fn adopt(
         .expect("the binding is recorded");
     let params = compose_resume_session_params(
         new_session_id(),
-        AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        new_agent_id(),
         &binding,
         mint_runtime_binding_id(),
         ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),

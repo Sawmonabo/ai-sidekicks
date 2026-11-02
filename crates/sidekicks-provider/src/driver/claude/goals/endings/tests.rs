@@ -1,15 +1,13 @@
 use rstest::rstest;
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::session::goal::{
     SessionGoal, SessionGoalClearedPayload, SessionGoalStatus, SessionGoalUpdatedPayload,
 };
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::{ClaudeSessionGoal, GoalEnding, GoalEndingInput, GoalTurnEnd, classify_goal_ending};
 use crate::driver::claude::goals::records::GoalStatusRecord;
-use crate::driver::test_registry::new_session_id;
+use crate::driver::test_registry::{new_agent_id, new_session_id};
 
 // What Claude Code wrote, owned so a case can hold it.
 enum Written {
@@ -195,7 +193,7 @@ fn each_row_of_the_goal_table_draws_its_row_and_leaves_its_goal(
 ) {
     let mut session = ClaudeSessionGoal {
         session_id: new_session_id(),
-        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        agent_id: new_agent_id(),
         active_condition: active_before.map(str::to_owned),
     };
     let input = match &written {
