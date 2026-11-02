@@ -23,7 +23,7 @@ Every command the product ships: what a person types into the `sidekicks` comman
 | `sidekicks data erase` | Erases all local data, as Settings' `Erase all data` does; refused while the service runs. | [Spec-020](../specs/020-data-retention-export-and-deletion.md) |
 | `sidekicks data restore <backup>` | Restores a backup with the service stopped, for a computer with no app. | [Spec-013](../specs/013-persistence-and-recovery.md) |
 | `sidekicks daemon install` | Sets up the background service; `--while-signed-out` keeps it running while the person is signed out of the computer. | [Spec-006](../specs/006-local-ipc-and-daemon-control.md) |
-| `sidekicks daemon uninstall` · `start` · `stop` · `restart` · `status` | Removes, starts, stops, restarts or reports the background service. | [Spec-006](../specs/006-local-ipc-and-daemon-control.md) |
+| `sidekicks daemon uninstall` · `start` · `stop` · `restart` · `status` | Removes, starts, stops, restarts or reports the background service; `stop` and `restart` ask first, and `--yes` skips the question. | [Spec-006](../specs/006-local-ipc-and-daemon-control.md) |
 | `sidekicks daemon update [--check]` | Checks for, and applies, a newer background service; it never updates the app. | [Spec-023](../specs/023-self-host-secure-defaults.md), [Plan-005](../plans/005-local-ipc-and-daemon-control.md) |
 | `sidekicks device list` | Lists the person's computers and devices. | [Spec-027](../specs/027-remote-control.md) |
 | `sidekicks device link` · `rename` · `revoke` · `forget` | Links a new device with a code and six digits; renames, revokes or forgets one. | [Spec-027](../specs/027-remote-control.md) |
