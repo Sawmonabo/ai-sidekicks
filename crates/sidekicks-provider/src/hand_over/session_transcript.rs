@@ -674,23 +674,23 @@ mod tests {
     fn the_transcript_file_folds_a_held_call_as_the_brief_does() {
         let log = SessionTestLog::new(schema_parts());
         run_queued(&log, log.run_id, None);
-        let invoked = log.tool_row("agent.toolCall.invoked", "call-1", json!({}), Some("{}"));
+        let invoked = log.tool_row("agent.toolCall.invoked", "call-1", &json!({}), Some("{}"));
         log.tool_row(
             "agent.toolCall.backgrounded",
             "call-1",
-            json!({ "taskId": "t1", "survivesRestart": false }),
+            &json!({ "taskId": "t1", "survivesRestart": false }),
             Some("Moved to the background as task t1"),
         );
         let failed = log.tool_row(
             "agent.toolCall.failed",
             "call-1",
-            json!({ "endCause": "stopped" }),
+            &json!({ "endCause": "stopped" }),
             None,
         );
         log.tool_row(
             "agent.toolCall.completed",
             "call-1",
-            json!({}),
+            &json!({}),
             Some("done"),
         );
 

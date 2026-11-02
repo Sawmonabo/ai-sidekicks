@@ -118,7 +118,7 @@ impl SessionTestLog {
         &self,
         event_type: &str,
         tool_call_id: &str,
-        members: Value,
+        members: &Value,
         body: Option<&str>,
     ) -> i64 {
         let mut payload = json!({

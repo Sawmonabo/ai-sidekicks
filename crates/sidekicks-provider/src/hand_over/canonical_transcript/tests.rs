@@ -239,11 +239,11 @@ fn call(sequence: i64) -> CanonicalTranscriptSegment {
 #[test]
 fn a_failed_row_with_an_end_cause_folds_as_its_calls_failed_result() {
     let log = SessionTestLog::new(schema_parts());
-    let invoked = log.tool_row("agent.toolCall.invoked", "call-1", json!({}), Some("{}"));
+    let invoked = log.tool_row("agent.toolCall.invoked", "call-1", &json!({}), Some("{}"));
     let failed = log.tool_row(
         "agent.toolCall.failed",
         "call-1",
-        json!({ "endCause": "stopped" }),
+        &json!({ "endCause": "stopped" }),
         None,
     );
 
@@ -276,25 +276,25 @@ fn a_failed_row_with_an_end_cause_folds_as_its_calls_failed_result() {
 #[case::closes_follow(true)]
 fn a_held_call_answers_with_its_stand_in_until_a_close_follows(#[case] do_closes_follow: bool) {
     let log = SessionTestLog::new(schema_parts());
-    let invoked = log.tool_row("agent.toolCall.invoked", "call-1", json!({}), Some("{}"));
+    let invoked = log.tool_row("agent.toolCall.invoked", "call-1", &json!({}), Some("{}"));
     let stand_in = "Moved to the background as task t1";
     let backgrounded = log.tool_row(
         "agent.toolCall.backgrounded",
         "call-1",
-        json!({ "taskId": "t1", "survivesRestart": false }),
+        &json!({ "taskId": "t1", "survivesRestart": false }),
         Some(stand_in),
     );
     let (result_sequence, result_text) = if do_closes_follow {
         let failed = log.tool_row(
             "agent.toolCall.failed",
             "call-1",
-            json!({ "endCause": "stopped" }),
+            &json!({ "endCause": "stopped" }),
             None,
         );
         log.tool_row(
             "agent.toolCall.completed",
             "call-1",
-            json!({}),
+            &json!({}),
             Some("done"),
         );
         (failed, "done")
