@@ -97,24 +97,24 @@ pub enum PlanSettleOutcome {
 
 /// Settles plans' verdicts under each plan's lock and writes a hand-off's seed copy.
 pub struct PlanVerdicts {
+    publisher: Arc<ArtifactPublishService>,
     appender: Arc<SessionEventAppender>,
     reads: Arc<DatabaseReadPool>,
-    publisher: Arc<ArtifactPublishService>,
     plan_locks: KeyedLock<PlanId>,
 }
 
 impl PlanVerdicts {
-    /// Verdicts writing through `appender`, reading the plan rows through `reads` and keeping a
-    /// seed copy through `publisher`.
+    /// Verdicts keeping a seed copy through `publisher`, writing through `appender` and reading
+    /// the plan rows through `reads`.
     pub fn new(
+        publisher: Arc<ArtifactPublishService>,
         appender: Arc<SessionEventAppender>,
         reads: Arc<DatabaseReadPool>,
-        publisher: Arc<ArtifactPublishService>,
     ) -> Self {
         Self {
+            publisher,
             appender,
             reads,
-            publisher,
             plan_locks: KeyedLock::new(),
         }
     }

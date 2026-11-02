@@ -40,9 +40,9 @@ async fn fixture_with_lead() -> Fixture {
 fn resolution(fixture: &Fixture, driver: MockProviderDriver) -> PlanResolution {
     PlanResolution::new(
         Arc::new(PlanVerdicts::new(
+            Arc::new(fixture.store.publisher()),
             Arc::clone(&fixture.store.appender),
             Arc::clone(&fixture.store.reads),
-            Arc::new(fixture.store.publisher()),
         )),
         Arc::clone(&fixture.store.reads),
         Arc::new(registry_of_first_provider(Arc::new(driver))),

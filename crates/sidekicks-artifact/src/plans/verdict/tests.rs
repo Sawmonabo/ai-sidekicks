@@ -26,9 +26,9 @@ const TITLE: &str = "Ship the importer";
 /// The verdicts over `fixture`'s store.
 fn verdicts(fixture: &Fixture) -> PlanVerdicts {
     PlanVerdicts::new(
+        Arc::new(fixture.store.publisher()),
         Arc::clone(&fixture.store.appender),
         Arc::clone(&fixture.store.reads),
-        Arc::new(fixture.store.publisher()),
     )
 }
 
