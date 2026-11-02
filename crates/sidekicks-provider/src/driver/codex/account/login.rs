@@ -8,6 +8,10 @@ use serde::{Serialize, Serializer};
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub(crate) enum CodexLoginAccountParams {
+    /// A `ChatGPT` sign-in in a browser on this machine, which returns to Codex's own callback.
+    Chatgpt {},
+    /// A `ChatGPT` sign-in by a device code, finished from a browser on any device.
+    ChatgptDeviceCode {},
     /// A `ChatGPT` sign-in's tokens the daemon read from an account's home and hands a service that
     /// keeps no sign-in of its own; Codex holds them in its memory alone.
     #[serde(rename_all = "camelCase")]

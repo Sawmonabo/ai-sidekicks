@@ -1,5 +1,6 @@
-//! Codex's sign-in state as `account/read` reports it, read into the driver's probe answer, and the
-//! sign-in read that tells a failed resume needing a new sign-in from one needing recovery.
+//! Codex's sign-in state as `account/read` reports it, read into the driver's probe answer and into
+//! the account a sign-in left, and the sign-in read that tells a failed resume needing a new
+//! sign-in from one needing recovery.
 
 use std::time::Duration;
 
@@ -16,6 +17,7 @@ use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::session_control::{
     DriverAuthProbeResult, DriverAuthProbeStatus, build_auth_probe_result,
 };
+use crate::lenient_json::read_is_non_empty_text;
 
 /// The account read, which answers the sign-in Codex holds without touching a conversation.
 const CODEX_ACCOUNT_READ_METHOD: &str = "account/read";
@@ -26,8 +28,9 @@ pub(crate) const CODEX_AUTH_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a failed resume's sign-in read waits; short, so it never delays the failure.
 const CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// The members of an `account/read` reply the reader takes; the account's email and plan are
-/// never read, since only the sign-in kind is safe to show.
+/// The members of an `account/read` reply the readers take; the account's plan is never read, and
+/// its email only as whether it is there, never kept or logged, since only the sign-in kind is safe
+/// to show.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AccountReadReply {
@@ -40,11 +43,55 @@ struct AccountReadReply {
     requires_openai_auth: Option<bool>,
 }
 
-/// The one member of an account the reader takes: its sign-in kind, a closed tag.
+/// The members of an account the readers take: its sign-in kind, a closed tag, and whether it names
+/// an email, the email itself dropped as it is read.
 #[derive(Deserialize)]
 struct AccountKind {
     #[serde(rename = "type")]
     kind: Option<Value>,
+    #[serde(default, deserialize_with = "read_is_non_empty_text")]
+    email: bool,
+}
+
+/// The account an `account/read` reply names.
+pub(crate) enum CodexAccountReading {
+    /// An account is signed in: its sign-in kind as Codex names it, and whether it names an email.
+    SignedIn {
+        /// The sign-in kind, `chatgpt`, `apiKey` or `amazonBedrock` at the pinned release.
+        kind: String,
+        /// Whether the account names a non-empty email; the email is never kept.
+        has_email: bool,
+    },
+    /// No account is signed in.
+    SignedOut,
+    /// The reply could not be read, so it says nothing of the sign-in.
+    Unreadable,
+}
+
+/// Asks `connection` for the account signed in, without a refresh, waiting at most `timeout`.
+/// Fails as the request does; a reply it cannot read answers `Unreadable`.
+pub(crate) async fn read_codex_account(
+    connection: &CodexAppServerConnection,
+    timeout: Duration,
+) -> Result<CodexAccountReading, CodexError> {
+    let reply = request_account(connection, timeout).await?;
+    let Some(reply) = read_codex_object::<AccountReadReply>(reply.get()) else {
+        return Ok(CodexAccountReading::Unreadable);
+    };
+    Ok(match reply.account {
+        Some(Some(account)) => match read_codex_object::<AccountKind>(account.get()) {
+            Some(AccountKind {
+                kind: Some(Value::String(kind)),
+                email,
+            }) if !kind.is_empty() => CodexAccountReading::SignedIn {
+                kind,
+                has_email: email,
+            },
+            Some(_) | None => CodexAccountReading::Unreadable,
+        },
+        Some(None) => CodexAccountReading::SignedOut,
+        None => CodexAccountReading::Unreadable,
+    })
 }
 
 /// Asks `connection` for its sign-in, without a refresh, waiting at most `timeout`. Fails as the

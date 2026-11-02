@@ -97,8 +97,9 @@ pub(crate) fn read_only_profile(folder: &Path) -> String {
 /// The service's side of a copy's connection.
 pub(crate) type CopySocket = WebSocketStream<interprocess::local_socket::tokio::Stream>;
 
-/// Serves the copy's connection as Codex through the connection's start; answers the connection.
-pub(super) async fn accept_copy(listener: &Listener) -> CopySocket {
+/// Serves the next connection the daemon dials, a copy's or any other detached one, as Codex
+/// through the connection's start; answers the connection.
+pub(crate) async fn accept_copy(listener: &Listener) -> CopySocket {
     let stream = listener
         .accept()
         .await

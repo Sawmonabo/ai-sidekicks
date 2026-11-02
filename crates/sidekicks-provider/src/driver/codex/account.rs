@@ -6,6 +6,7 @@ pub(crate) mod auth_file;
 mod limits;
 pub(crate) mod login;
 mod memory;
+mod sign_in;
 mod sign_out;
 mod switch;
 mod window_start;
@@ -22,6 +23,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use tokio::sync::Semaphore;
 
 use crate::account::credential_home::CredentialHome;
 use crate::account::registry::ProviderAccountRegistry;
@@ -35,8 +37,9 @@ use crate::driver::codex::service::supervisor::{
 };
 use crate::driver::contract::account::{
     MemoryImportStore, ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObservation,
-    ProviderObserveLegs, ProviderSignInLegs, ProviderSwitchLegs, ProviderTokenStatusLegs,
-    ProviderWindowTurnLegs, SessionAccountMove, SessionToMove,
+    ProviderObserveLegs, ProviderSignInHandle, ProviderSignInLegs, ProviderSignInObservation,
+    ProviderSwitchLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs, SessionAccountMove,
+    SessionToMove, SignInOrigin,
 };
 use crate::driver::contract::error::DriverError;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -52,8 +55,8 @@ pub(crate) const CODEX_EPHEMERAL_CREDENTIAL_STORE: &str =
 
 /// What Codex's account legs reach a home's Codex through: the driver's services, one per home,
 /// what a short-lived service started for one act runs on, the driver's filing of rate limits, the
-/// account registry, the binding store a switch moves bindings in, and each account's dead
-/// renewals in a row.
+/// account registry, the binding store a switch moves bindings in, each account's dead renewals in
+/// a row, and the one browser sign-in the machine runs at a time.
 pub(crate) struct CodexAccountLegs {
     registry: Arc<CodexServiceRegistry>,
     dependencies: Arc<CodexServiceDependencies>,
@@ -66,6 +69,9 @@ pub(crate) struct CodexAccountLegs {
     // Each account's limits reads in a row whose needed renewal left its `auth.json` unchanged,
     // kept in memory as the observer's own misses are.
     dead_renewals: Mutex<HashMap<ProviderAccountId, u8>>,
+    // One permit, held by the browser sign-in under way: Codex's callback listens on one port
+    // machine-wide, and a second browser sign-in cancels the first's listener.
+    browser_sign_in: Arc<Semaphore>,
 }
 
 impl CodexAccountLegs {
@@ -88,6 +94,7 @@ impl CodexAccountLegs {
             accounts,
             bindings,
             dead_renewals: Mutex::default(),
+            browser_sign_in: Arc::new(Semaphore::new(1)),
         }
     }
 
@@ -103,22 +110,36 @@ impl CodexAccountLegs {
             .map_err(|error| DriverError::Internal(Box::new(error)))
     }
 
-    // Runs `act` on the service serving in `codex_home`, else on a short-lived service started
-    // there for it as `provider_account_id`'s home and ended after, whatever `act` answered, by
-    // Codex's own drain: it finishes what it was writing and exits by itself, waited for within
-    // the grace a stop gives and killed after it, so the act never holds the home for longer.
+    // Runs `act` on the service of `provider_account_id`'s home, `codex_home`, released after
+    // whatever `act` answered.
     async fn act_on_home_service<Answer>(
         &self,
         provider_account_id: ProviderAccountId,
         codex_home: PathBuf,
         act: impl AsyncFnOnce(&CodexService) -> Answer,
     ) -> Answer {
+        let home_service = self.take_home_service(provider_account_id, codex_home);
+        let answer = act(home_service.service().as_ref()).await;
+        home_service.release().await;
+        answer
+    }
+
+    // The service serving in `codex_home`, else a short-lived service on it as
+    // `provider_account_id`'s home, which its release stops.
+    fn take_home_service(
+        &self,
+        provider_account_id: ProviderAccountId,
+        codex_home: PathBuf,
+    ) -> HomeService {
         let running = self
             .registry
             .service_on(&codex_home)
             .filter(|service| service.is_serving());
         if let Some(service) = running {
-            return act(&service).await;
+            return HomeService {
+                service,
+                is_short_lived: false,
+            };
         }
         let home_socket = home_socket_path(&codex_home);
         let service = CodexService::new(
@@ -134,12 +155,36 @@ impl CodexAccountLegs {
             Arc::clone(&self.short_lived_dependencies),
             Vec::new(),
         );
-        let answer = act(&service).await;
-        // Taken off its home as a replaced service is, so its stop asks Codex to drain rather
-        // than signaling it to end at once.
-        service.mark_replaced();
-        service.stop().await;
-        answer
+        HomeService {
+            service,
+            is_short_lived: true,
+        }
+    }
+}
+
+/// The service an act on an account's home runs on: the one serving there, or a short-lived one
+/// started for the act, which its release ends.
+pub(super) struct HomeService {
+    service: Arc<CodexService>,
+    is_short_lived: bool,
+}
+
+impl HomeService {
+    /// The service.
+    pub(super) fn service(&self) -> &Arc<CodexService> {
+        &self.service
+    }
+
+    /// Lets the service go: a short-lived one ends by Codex's own drain, which finishes what it
+    /// was writing and exits by itself, waited for within the grace a stop gives and killed after
+    /// it, so the act never holds the home for longer; a serving one runs on.
+    pub(super) async fn release(self) {
+        if self.is_short_lived {
+            // Taken off its home as a replaced service is, so its stop asks Codex to drain rather
+            // than signaling it to end at once.
+            self.service.mark_replaced();
+            self.service.stop().await;
+        }
     }
 }
 
@@ -177,7 +222,7 @@ impl ProviderAccountLegs for CodexAccountLegs {
     }
 
     fn sign_in_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSignInLegs>> {
-        None
+        Some(self)
     }
 
     fn token_status_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenStatusLegs>> {
@@ -203,6 +248,25 @@ impl ProviderObserveLegs for CodexAccountLegs {
     /// turn's end brings its reading and needs no read.
     fn reads_at_turn_end(&self) -> bool {
         false
+    }
+}
+
+impl ProviderSignInLegs for CodexAccountLegs {
+    fn start_sign_in(
+        &self,
+        provider_account_id: ProviderAccountId,
+        home: CredentialHome,
+        origin: SignInOrigin,
+    ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>> {
+        sign_in::start_codex_sign_in(self, provider_account_id, home, origin).boxed()
+    }
+
+    fn observe_sign_in(
+        &self,
+        provider_account_id: ProviderAccountId,
+        home: CredentialHome,
+    ) -> BoxFuture<'_, Result<ProviderSignInObservation, DriverError>> {
+        sign_in::observe_codex_sign_in(self, provider_account_id, home).boxed()
     }
 }
 
