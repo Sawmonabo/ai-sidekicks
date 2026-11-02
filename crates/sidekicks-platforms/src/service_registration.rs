@@ -201,6 +201,16 @@ impl ServiceRegistration {
         match *self {}
     }
 
+    /// Whether the person turned the system service off; never called, since no value exists.
+    pub fn is_system_service_turned_off(&self) -> Result<bool, ServiceRegistrationError> {
+        match *self {}
+    }
+
+    /// Starts the system service; never called, since no value exists.
+    pub fn kickstart_system_service(&self) -> Result<(), ServiceRegistrationError> {
+        match *self {}
+    }
+
     /// Removes the registration; never called, since no value exists.
     pub fn uninstall(&self) -> Result<(), ServiceRegistrationError> {
         match *self {}

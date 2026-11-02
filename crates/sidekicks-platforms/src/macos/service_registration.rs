@@ -175,16 +175,7 @@ impl ServiceRegistration {
     /// system's answer. Fails when the list's folder cannot be read, and with
     /// [`ServiceRegistrationError::UnknownLoginItemStatus`] on a status this build does not know.
     pub fn is_turned_off(&self) -> Result<bool, ServiceRegistrationError> {
-        let path = self.agent_list_path()?;
-        match read_login_item_status(&path) {
-            Ok(status) => Ok(status == LoginItemStatus::TurnedOff),
-            Err(LoginItemStatusError::File(source)) => {
-                Err(ServiceRegistrationError::Read { path, source })
-            }
-            Err(LoginItemStatusError::UnknownStatus { value }) => {
-                Err(ServiceRegistrationError::UnknownLoginItemStatus { value })
-            }
-        }
+        is_list_turned_off(self.agent_list_path()?)
     }
 
     /// Starts the registered service in the login session; a running one is left running. Fails
@@ -388,15 +379,30 @@ impl ServiceRegistration {
     }
 }
 
-// What one `launchctl` run answered.
-struct LaunchctlAnswer {
+/// Whether the person turned the legacy launchd list at `path` off in Login Items. Blocks on the
+/// system's answer. Fails when the list's folder cannot be read, and with
+/// [`ServiceRegistrationError::UnknownLoginItemStatus`] on a status this build does not know.
+pub(crate) fn is_list_turned_off(path: PathBuf) -> Result<bool, ServiceRegistrationError> {
+    match read_login_item_status(&path) {
+        Ok(status) => Ok(status == LoginItemStatus::TurnedOff),
+        Err(LoginItemStatusError::File(source)) => {
+            Err(ServiceRegistrationError::Read { path, source })
+        }
+        Err(LoginItemStatusError::UnknownStatus { value }) => {
+            Err(ServiceRegistrationError::UnknownLoginItemStatus { value })
+        }
+    }
+}
+
+/// What one `launchctl` run answered.
+pub(crate) struct LaunchctlAnswer {
     status: std::process::ExitStatus,
     stderr: Vec<u8>,
 }
 
 impl LaunchctlAnswer {
-    // Ok when `launchctl` exited 0, else its refusal of `step` with its status and error text.
-    fn succeeded(self, step: &'static str) -> Result<(), ServiceRegistrationError> {
+    /// Ok when `launchctl` exited 0, else its refusal of `step` with its status and error text.
+    pub(crate) fn succeeded(self, step: &'static str) -> Result<(), ServiceRegistrationError> {
         if self.status.success() {
             return Ok(());
         }
@@ -408,9 +414,9 @@ impl LaunchctlAnswer {
     }
 }
 
-// Runs `launchctl` with `arguments` for `step` and waits for it, its output dropped and its error
-// stream kept for a refusal.
-fn run_launchctl(
+/// Runs `launchctl` with `arguments` for `step` and waits for it, its output dropped and its error
+/// stream kept for a refusal. Fails when it cannot be started.
+pub(crate) fn run_launchctl(
     step: &'static str,
     arguments: impl IntoIterator<Item = impl AsRef<OsStr>>,
 ) -> Result<LaunchctlAnswer, ServiceRegistrationError> {

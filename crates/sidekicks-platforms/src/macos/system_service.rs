@@ -14,8 +14,8 @@ use sidekicks_contracts::daemon::lifecycle::SYSTEM_SERVICE_MODE;
 
 use super::administrator_prompt::{SHELL_PROGRAM, run_root_step};
 use super::service_registration::{
-    EXIT_TIME_OUT_SECONDS, SYSTEM_LIST_FOLDER, ServiceRegistration, launchd_list_text,
-    not_loaded_status, read_launchd_list,
+    EXIT_TIME_OUT_SECONDS, SYSTEM_LIST_FOLDER, ServiceRegistration, is_list_turned_off,
+    launchd_list_text, not_loaded_status, read_launchd_list, run_launchctl,
 };
 use crate::service_registration::{ServiceRegistrationError, SystemServiceOwner};
 use crate::spawner::Spawner;
@@ -111,6 +111,25 @@ impl ServiceRegistration {
                 SystemServiceOwner::ThisAccountOtherProgram
             },
         )
+    }
+
+    /// Whether the person turned the system service off in Login Items, which launchd does not
+    /// honor when asked to start it, so a start reads it first. Blocks on the system's answer.
+    /// Fails as [`Self::is_turned_off`] fails.
+    pub fn is_system_service_turned_off(&self) -> Result<bool, ServiceRegistrationError> {
+        is_list_turned_off(system_service_list_path())
+    }
+
+    /// Starts the system service in launchd's system domain, which needs root's rights; a running
+    /// one is left running. Fails with `launchctl kickstart`'s exit status when it refuses, as it
+    /// does without root's rights or for a service that is not loaded.
+    pub fn kickstart_system_service(&self) -> Result<(), ServiceRegistrationError> {
+        let service_target = system_service_target();
+        run_launchctl(
+            "kickstart",
+            [OsStr::new("kickstart"), service_target.as_os_str()],
+        )?
+        .succeeded("kickstart")
     }
 
     /// Installs the system service running `daemon_program` as this account while it is logged
