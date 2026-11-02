@@ -12,7 +12,7 @@ use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::session::helper_roles::remove_codex_helper_roles;
 use crate::driver::contract::error::DriverError;
-use crate::driver::session_control::{PurgeSessionParams, PurgedConversation};
+use crate::driver::session_control::{PurgeSessionParams, SessionConversation};
 
 /// Codex's request that deletes a stored conversation.
 const CODEX_THREAD_DELETE_METHOD: &str = "thread/delete";
@@ -58,7 +58,7 @@ pub(crate) async fn purge_codex_conversations(
 async fn delete_conversation(
     services: &CodexServiceRegistry,
     start_bound: Duration,
-    conversation: &PurgedConversation,
+    conversation: &SessionConversation,
 ) -> Result<(), DriverError> {
     let service = services
         .service_for_conversation(

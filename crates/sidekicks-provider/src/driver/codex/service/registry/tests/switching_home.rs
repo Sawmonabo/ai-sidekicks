@@ -34,7 +34,7 @@ use crate::driver::contract::MockProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::registry::ProviderRegistry;
-use crate::driver::session_control::{PurgeSessionParams, PurgedConversation};
+use crate::driver::session_control::{PurgeSessionParams, SessionConversation};
 use crate::driver::test_registry::{new_session_id, test_driver_services};
 use crate::driver::{PROVIDERS, ProviderRegistration};
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -278,7 +278,7 @@ async fn a_purge_deletes_an_unpinned_conversation_from_the_switching_home_alone(
     CodexConversationHome::Switching.keep_in(&mut runtime_metadata);
     let params = PurgeSessionParams {
         session_id: new_session_id(),
-        conversations: vec![PurgedConversation {
+        conversations: vec![SessionConversation {
             resume_handle: SWITCHING_THREAD.to_owned(),
             provider_account_id: test_provider_account_id(),
             runtime_metadata,
