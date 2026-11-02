@@ -1,26 +1,27 @@
 //! The one place a Claude Code process's environment is composed: the session's environment with
 //! the run's credential variables and the withheld names removed, then the variables the app sets
 //! on every Claude Code process, and the home it runs on: an account's folders with the scratch
-//! folder the daemon keeps under its own data folder for each account, a throwaway folder that
-//! holds all three for one read, or a throwaway folder on an account's own credential store.
+//! folder the daemon keeps under its own data folder for each configuration home, a throwaway
+//! folder that holds all three for one read, or a throwaway folder on an account's own credential
+//! store.
 
 use std::path::{Path, PathBuf};
 
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::PathRules;
 
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::credentials::SECURE_STORAGE_FOLDER_VARIABLE;
+use crate::service_log::provider_home_key;
 use crate::spawn_environment::{
     ProviderEnvironmentRequest, SessionEnvironment, SpawnEnvironmentError,
     build_provider_process_environment,
 };
 
-// The data folder's folder of Claude Code scratch folders, and in it the folder of each account's.
+// The data folder's folder of Claude Code scratch folders, and in it the folder of each home's.
 const CLAUDE_SCRATCH_FOLDER: &str = "claude-scratch";
-const ACCOUNT_SCRATCH_FOLDERS: &str = "accounts";
+const HOME_SCRATCH_FOLDERS: &str = "homes";
 
 /// The environment key that has a resumed Claude Code process continue the turn its conversation
 /// left interrupted, which it otherwise leaves as it is.
@@ -69,12 +70,11 @@ impl From<&ProviderAccountFolders> for ClaudeAccountFolders {
 
 /// The Claude Code home one process runs on.
 pub(crate) enum ClaudeProcessHome<'a> {
-    /// An account's home, with the scratch folder the daemon keeps for it.
+    /// An account's folders, its configuration home possibly the one a switch left its
+    /// conversation in, with the scratch folder the daemon keeps for that home.
     Account {
         /// The account's folders.
         folders: &'a ClaudeAccountFolders,
-        /// The account.
-        provider_account_id: &'a ProviderAccountId,
     },
     /// A folder the daemon made for one read and removes after it, an absolute path: the
     /// configuration home, the credential store and the scratch folder all sit in it, so the read
@@ -102,21 +102,19 @@ pub(crate) struct ClaudeProcessEnvironmentRequest<'a> {
     pub(crate) deny_env_vars: &'a [&'a str],
     /// The home the process runs on.
     pub(crate) home: ClaudeProcessHome<'a>,
-    /// The daemon's data folder, an absolute path, which holds each account's scratch folder.
+    /// The daemon's data folder, an absolute path, which holds each home's scratch folder.
     pub(crate) data_folder: &'a str,
 }
 
-/// The daemon's own scratch folder for `provider_account_id`'s Claude Code home, under
-/// `data_folder`: every process of that home takes it as `CLAUDE_CODE_TMPDIR`, so a session's
-/// temporary files sit where its purge finds them.
-pub(crate) fn compose_claude_scratch_folder(
-    data_folder: &str,
-    provider_account_id: &ProviderAccountId,
-) -> PathBuf {
+/// The daemon's own scratch folder for the Claude Code configuration home `config_folder`, under
+/// `data_folder`, named by the home's key rather than its path: every process of that home takes
+/// it as `CLAUDE_CODE_TMPDIR`, whichever account it signs in to, so a session's temporary files
+/// stay beside its conversation and sit where its purge finds them.
+pub(crate) fn compose_claude_scratch_folder(data_folder: &str, config_folder: &Path) -> PathBuf {
     Path::new(data_folder)
         .join(CLAUDE_SCRATCH_FOLDER)
-        .join(ACCOUNT_SCRATCH_FOLDERS)
-        .join(provider_account_id.as_str())
+        .join(HOME_SCRATCH_FOLDERS)
+        .join(provider_home_key(config_folder))
 }
 
 /// The config folder a Claude Code process started in `spawn_environment`, in a place that spells
@@ -157,13 +155,10 @@ pub(crate) fn compose_claude_process_environment(
     additional_mandated_pairs: &[(String, String)],
 ) -> Result<Vec<(String, String)>, SpawnEnvironmentError> {
     let (config_folder, credential_store_folder, scratch_folder) = match request.home {
-        ClaudeProcessHome::Account {
-            folders,
-            provider_account_id,
-        } => (
+        ClaudeProcessHome::Account { folders } => (
             folders.config_folder.clone(),
             folders.credential_store_folder.clone(),
-            compose_claude_scratch_folder(request.data_folder, provider_account_id)
+            compose_claude_scratch_folder(request.data_folder, Path::new(&folders.config_folder))
                 .to_string_lossy()
                 .into_owned(),
         ),
@@ -222,23 +217,22 @@ mod tests {
     use crate::driver::claude::account::credentials::{
         OAUTH_TOKEN_VARIABLE, SECURE_STORAGE_FOLDER_VARIABLE,
     };
-    use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::spawn_environment::{
         ReservedEnvironmentNames, SessionEnvironment, SpawnEnvironmentError,
     };
 
-    // Killed by a scratch folder shared across accounts, which a purge of one account would sweep
-    // for every other, and by a shell's own value winning over the account's.
+    // Killed by a scratch folder shared across homes, which a purge of one home would sweep for
+    // every other, by one named by the home's path, and by a shell's own value winning over the
+    // home's.
     #[test]
-    fn the_account_s_own_scratch_folder_is_set_over_the_shells_value() {
+    fn the_home_s_own_scratch_folder_is_set_over_the_shells_value() {
         let base = vec![("CLAUDE_CODE_TMPDIR".to_owned(), "/tmp/shell".to_owned())];
         let reserved_names = ReservedEnvironmentNames::of_providers(&[]);
-        let folders = ClaudeAccountFolders {
-            config_folder: "/accounts/one/config".to_owned(),
-            credential_store_folder: "/accounts/one/credentials".to_owned(),
+        let folders = |name: &str| ClaudeAccountFolders {
+            config_folder: format!("/accounts/{name}/config"),
+            credential_store_folder: format!("/accounts/{name}/credentials"),
         };
-        let provider_account_id = test_provider_account_id();
-        let request = |data_folder| ClaudeProcessEnvironmentRequest {
+        let request = |data_folder, folders| ClaudeProcessEnvironmentRequest {
             session: SessionEnvironment {
                 base: &base,
                 every_project_rows: &[],
@@ -247,22 +241,30 @@ mod tests {
                 rules: PathRules::Posix,
             },
             deny_env_vars: &[],
-            home: ClaudeProcessHome::Account {
-                folders: &folders,
-                provider_account_id: &provider_account_id,
-            },
+            home: ClaudeProcessHome::Account { folders },
             data_folder,
         };
+        let scratch_of = |folders| {
+            let environment = compose_claude_process_environment(request("/data", folders), &[])
+                .expect("the environment builds");
+            PathRules::Posix
+                .environment_value(&environment, "CLAUDE_CODE_TMPDIR")
+                .map(str::to_owned)
+        };
 
-        let environment = compose_claude_process_environment(request("/data"), &[])
-            .expect("the environment builds");
-
-        assert_eq!(
-            PathRules::Posix.environment_value(&environment, "CLAUDE_CODE_TMPDIR"),
-            Some("/data/claude-scratch/accounts/account-1")
+        let (one, two) = (folders("one"), folders("two"));
+        let scratch = scratch_of(&one).expect("the scratch folder is set");
+        assert!(
+            scratch.starts_with("/data/claude-scratch/homes/"),
+            "{scratch}"
         );
+        assert!(
+            !scratch.contains("accounts"),
+            "the folder names no path: {scratch}"
+        );
+        assert_ne!(scratch_of(&two), Some(scratch));
         assert_eq!(
-            compose_claude_process_environment(request("data"), &[]),
+            compose_claude_process_environment(request("data", &one), &[]),
             Err(SpawnEnvironmentError::AccountFolderNotAbsolute {
                 name: "CLAUDE_CODE_TMPDIR".to_owned()
             })

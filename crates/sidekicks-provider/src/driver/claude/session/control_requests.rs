@@ -19,6 +19,7 @@ use crate::driver::claude::delivery::stream::ClaudeFirstRequest;
 use crate::driver::claude::session::arrivals::{
     ClaudeArrivalSender, ClaudeOwnDelivery, ClaudeSessionArrival,
 };
+use crate::driver::claude::session::conversation_home::ClaudeConversationHomeKeep;
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, ClaudeUnansweredCause,
 };
@@ -69,6 +70,9 @@ pub(crate) struct ClaudeAccountMoveMarker {
     pub(crate) lead_binding_id: RuntimeBindingId,
     /// Where the move is written.
     pub(crate) bindings: Arc<dyn RuntimeBindingWriter>,
+    /// The home each binding moved names first, where the account moved onto does not hold the
+    /// conversation; `None` where it does.
+    pub(crate) conversation_home: Option<ClaudeConversationHomeKeep>,
     /// Answered how the process's next request after the move goes; `None` where no one listens.
     pub(crate) first_request: Option<oneshot::Sender<ClaudeFirstRequest>>,
 }
@@ -83,6 +87,7 @@ impl ClaudeAccountMoveMarker {
                 provider_account_id: self.provider_account_id,
                 lead_binding_id: self.lead_binding_id,
                 bindings: self.bindings,
+                conversation_home: self.conversation_home,
                 first_request: self.first_request,
             },
         ));

@@ -5,7 +5,6 @@ use std::io;
 use std::path::PathBuf;
 use std::process::Stdio;
 
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::{read_child_exit, wrap_child_command};
 use tokio::process::Command;
 
@@ -23,7 +22,7 @@ const CLAUDE_SIGN_OUT_ARGUMENTS: [&str; 2] = ["auth", "logout"];
 /// Why Claude Code's sign-out did not finish.
 #[derive(Debug, thiserror::Error)]
 enum ClaudeSignOutError {
-    /// The account's scratch folder, where the command runs, could not be made.
+    /// The home's scratch folder, where the command runs, could not be made.
     #[error("the folder Claude Code's sign-out runs in could not be made")]
     WorkingFolder(#[source] io::Error),
     /// The command could not start.
@@ -46,24 +45,24 @@ enum ClaudeSignOutError {
     },
 }
 
-/// Runs `claude auth logout` on `provider_account_id`'s `folders`, the build resolved in that
-/// home's environment, in the account's scratch folder, and answers once it exited cleanly. Its
+/// Runs `claude auth logout` on an account's `folders`, the build resolved in that home's
+/// environment, in the home's scratch folder, and answers once it exited cleanly. Its
 /// output is never read, since it may name the account. Fails with the resolve's error, as the
 /// environment cannot be composed, and with `DriverError::Internal` when the command cannot start
 /// or exits with a failure.
 pub(super) async fn sign_out_claude_home(
     legs: &ClaudeAccountLegs,
-    provider_account_id: ProviderAccountId,
     folders: ProviderAccountFolders,
 ) -> Result<(), DriverError> {
     let executable = legs
         .resolve_build_on(ClaudeProcessHome::Account {
             folders: &ClaudeAccountFolders::from(&folders),
-            provider_account_id: &provider_account_id,
         })
         .await?;
-    let working_folder =
-        compose_claude_scratch_folder(&legs.data_folder.to_string_lossy(), &provider_account_id);
+    let working_folder = compose_claude_scratch_folder(
+        &legs.data_folder.to_string_lossy(),
+        &folders.configuration_folder,
+    );
     run_sign_out(legs, executable, working_folder)
         .await
         .map_err(|error| DriverError::Internal(Box::new(error)))

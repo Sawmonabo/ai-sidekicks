@@ -243,14 +243,15 @@ fn provider(id: &str) -> ProviderId {
     ProviderId::new(id.to_owned()).expect("a test provider id")
 }
 
-// One attempt through each way a sign-in ends: no row while the flow runs, the account's home held
-// from the flow's start until the attempt settles, a code only to the attempt waiting for one, a
-// written row published as the account it now is before one settled end, and the registry as that
-// end leaves it, a new account with the kind of sign-in its status read reported. No published
-// notification carries the prompt or the code, and no session event is appended. Dies to a row
-// inserted at the start, to a raw line forwarded as the failure text, to a code written before the
-// prompt or twice, to a failed new account keeping its home, to the home left free during the
-// flow or held after it, to a written row not published, and to the reported kind not written.
+// One attempt through each way a sign-in ends: no row while the flow runs, the account's home free
+// while the person signs in and after the attempt settles, a code only to the attempt waiting for
+// one, a written row published as the account it now is before one settled end, and the registry
+// as that end leaves it, a new account and a re-signed registered one with the kind of sign-in its
+// status read reported. No published notification carries the prompt or the code, and no session
+// event is appended. Killed by a row inserted at the start, by a raw line forwarded as the failure
+// text, by a code written before the prompt or twice, by a failed new account keeping its home, by
+// the home held across the flow or after it, by a written row not published, and by the reported
+// kind not written, a registered account's included.
 #[rstest]
 #[case::new_named(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Finished,
     Some(ProviderSignInOutcome::Succeeded))]
@@ -346,14 +347,13 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
         assert_eq!(flow.home, account.credential_home.path());
     }
 
-    // No row while the flow runs; the minted home is there to sign in to, and the attempt holds it.
+    // No row while the flow runs; the minted home is there to sign in to, and is free meanwhile.
     assert_eq!(account_ids(&registry).await, existing_ids);
     assert!(flow.home.is_dir());
-    assert!(
+    drop(
         tokio::time::timeout(HELD_HOME_WAIT, home_lock.hold(flow.account_id.clone()))
             .await
-            .is_err(),
-        "the attempt holds the account's home while its flow runs"
+            .expect("the attempt leaves the account's home free while its flow runs"),
     );
     if is_registered {
         assert!(matches!(
@@ -468,8 +468,92 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
                 vec![account.account_id.clone()]
             );
             assert!(flow.home.is_dir(), "a registered account keeps its home");
+            // Registered with no kind; a finished re-sign-in stores the kind its read reported.
+            let expected_mode =
+                (outcome == ProviderSignInOutcome::Succeeded).then_some(OBSERVED_AUTH_MODE);
+            assert_eq!(accounts[0].observed_auth_mode, expected_mode);
         }
     }
     assert_eq!(session_event_count(&database.path()), events_before);
+    assert!(published.try_recv().is_err(), "nothing more is published");
+}
+
+// A registered account's home reset while its sign-in runs fails the attempt and stores nothing:
+// the row stays as the reset left it, nothing is published but the end, and no one is told to
+// watch it. The attempt's store waits for the home's hold. Killed by the end stored with no
+// compare, and by the store taken without the home's hold.
+#[tokio::test]
+async fn a_sign_in_whose_home_changed_under_it_writes_nothing() {
+    let database = TestDatabase::new(schema_parts());
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
+    let registry = Arc::new(registry);
+    let account = register(&registry, "claude").await;
+    let (flow_sender, mut flows) = mpsc::unbounded();
+    let legs = Arc::new(ScriptedLegs {
+        status: Status::Read {
+            is_account_named: true,
+        },
+        flows: flow_sender,
+        homes: Mutex::new(Vec::new()),
+    });
+    let (published_sender, mut published) = mpsc::unbounded();
+    let watcher = Arc::new(RecordingWatcher::default());
+    let home_lock = Arc::new(AccountHomeLock::default());
+    let broker = ProviderSignInBroker::new(
+        Arc::clone(&registry),
+        HashMap::from([(provider("claude"), legs as Arc<dyn ProviderSignInLegs>)]),
+        Arc::new(RecordingPublisher(published_sender)),
+        Arc::clone(&watcher) as Arc<dyn SignedInAccountWatcher>,
+        Arc::clone(&home_lock),
+    );
+    broker
+        .start(
+            ProviderAccountSignInRequest::Registered(RegisteredAccountSignIn {
+                account_id: account.account_id.clone(),
+            }),
+            SignInOrigin::ThisMachine,
+        )
+        .await
+        .expect("the sign-in starts");
+    let flow = flows.next().await.expect("the flow started");
+
+    // A reset holds the home while the flow finishes, so the attempt's store waits behind it.
+    let reset_hold = home_lock.hold(account.account_id.clone()).await;
+    registry
+        .record_home_reset(&account.account_id, &WireInstant::now())
+        .await
+        .expect("the home is reset");
+    let after_reset = registry
+        .read(account.account_id.clone())
+        .await
+        .expect("the account reads");
+    flow.finish(ProviderSignInEnd::Finished);
+    assert!(
+        tokio::time::timeout(HELD_HOME_WAIT, published.next())
+            .await
+            .is_err(),
+        "the attempt's end waits for the home"
+    );
+    drop(reset_hold);
+
+    let ProviderAccountNotification::SignInCompleted {
+        outcome,
+        failure_reason,
+        ..
+    } = next_notification(&mut published).await
+    else {
+        panic!("only the attempt's end is published");
+    };
+    assert_eq!(outcome, ProviderSignInOutcome::Failed);
+    assert!(failure_reason.is_some());
+    assert_eq!(
+        registry
+            .read(account.account_id.clone())
+            .await
+            .expect("the account reads"),
+        after_reset
+    );
+    assert!(lock(&watcher.0).is_empty());
     assert!(published.try_recv().is_err(), "nothing more is published");
 }

@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use serde_json::Map;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -129,7 +130,7 @@ async fn a_naming_pass_whose_one_turn_never_answers_ends_with_none_at_its_deadli
     let driver = ClaudeDriver::with_starts(&fixture.services, Arc::clone(&one_turn) as _);
     let session_id = new_session_id();
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
-    fixture.record_session_leg(session_id, account, "stored-conversation");
+    fixture.record_session_leg(session_id, account, "stored-conversation", Map::new());
     let cancel = CancellationToken::new();
     let params = NameSessionParams {
         session_id,

@@ -32,6 +32,7 @@ use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::controls::{
     ClaudeCopyComposition, ClaudeSideQuestionCopy, claude_full_model_id, without_credential_prompts,
 };
+use crate::driver::claude::session::conversation_home::read_claude_conversation_home;
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
@@ -346,12 +347,8 @@ impl ClaudeDriver {
                     .resolve_spawn_context(session_id, provider_account_id.clone())
                     .await
                     .map_err(DriverError::Internal)?;
-                self.sources.account_process_environment(
-                    &context.account_folders,
-                    &provider_account_id,
-                    &[],
-                    &[],
-                )?
+                self.sources
+                    .account_process_environment(&context.account_folders, &[], &[])?
             }
             None => {
                 self.sources
@@ -444,12 +441,9 @@ impl ClaudeDriver {
                     .resolve_spawn_context(session_id, provider_account_id.clone())
                     .await
                     .map_err(DriverError::Internal)?;
-                let environment = self.sources.account_process_environment(
-                    &context.account_folders,
-                    &provider_account_id,
-                    &[],
-                    &[],
-                )?;
+                let environment =
+                    self.sources
+                        .account_process_environment(&context.account_folders, &[], &[])?;
                 self.read_offered_levels(
                     &environment,
                     &context.working_directory,
@@ -475,8 +469,8 @@ impl ClaudeDriver {
     }
 
     /// Which levels the account `environment` composes and this system run in `working_folder`:
-    /// `provider_account_id`'s catalog and the command sandbox, read at once. A catalog that cannot be read
-    /// offers no Reviewed and is recorded.
+    /// `provider_account_id`'s catalog and the command sandbox, read at once. A catalog that cannot
+    /// be read offers no Reviewed and is recorded.
     async fn read_offered_levels(
         &self,
         environment: &[(String, String)],
@@ -837,10 +831,11 @@ fn account_config_folder(environment: &[(String, String)]) -> PathBuf {
         .expect("every Claude Code home names its config folder")
 }
 
-// The copy of a session at rest, from its resume material: the legs a resume starts with, with no
-// callback tools and on the full id of its model, which the build's catalog resolves since no
-// process of the session declared it, and the daemon's emitted sum for it as the parent's
-// cumulative. Fails as the context, the legs or the catalog cannot be read.
+// The copy of a session at rest, from its resume material: the legs a resume starts with, in the
+// home that holds its conversation, with no callback tools and on the full id of its model, which
+// the build's catalog resolves since no process of the session declared it, and the daemon's
+// emitted sum for it as the parent's cumulative. Fails as the context, the legs or the catalog
+// cannot be read.
 async fn compose_resting_side_question_copy(
     sources: Arc<ClaudeSpawnSources>,
     starts: Arc<dyn ClaudeProcessStarts>,
@@ -853,7 +848,8 @@ async fn compose_resting_side_question_copy(
         resume.provider_account_id.clone(),
         &resume.row_values,
     )
-    .await?;
+    .await?
+    .in_conversation_home(read_claude_conversation_home(&resume.runtime_metadata).as_deref());
     let legs = build_claude_spawn_bound_legs(
         ClaudeSpawnLegsRequest {
             session_id: resume.session_id,
@@ -863,7 +859,6 @@ async fn compose_resting_side_question_copy(
             tool_servers: resume.tool_servers,
             output_schema: None,
             on_mcp_server_status: None,
-            provider_account_id: resume.provider_account_id.clone(),
             command_channel: None,
             context,
             continues_interrupted_turn: false,

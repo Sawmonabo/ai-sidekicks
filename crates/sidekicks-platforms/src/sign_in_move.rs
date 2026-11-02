@@ -24,7 +24,8 @@ pub struct KeychainSignIn {
 }
 
 /// Why a sign-in move stopped; every sign-in before it is moved, and it and every one after it
-/// are where they were or in both places. It never carries a sign-in's bytes.
+/// are where they were or in both places. It never carries a sign-in's bytes, nor its file's path,
+/// which names the account's home.
 #[derive(Debug, thiserror::Error)]
 pub enum SignInMoveError {
     /// The credential store refused or could not answer a call on the item.
@@ -39,35 +40,23 @@ pub enum SignInMoveError {
         source: CredentialStoreError,
     },
     /// The sign-in's file could not be read, removed or flushed.
-    #[error("the sign-in file {} could not be used", path.display())]
-    File {
-        /// The file.
-        path: PathBuf,
-        /// Why.
-        #[source]
-        source: io::Error,
-    },
+    #[error("the sign-in file could not be used")]
+    File(#[source] io::Error),
     /// The sign-in's file could not be written.
-    #[error("the sign-in file {} could not be written", path.display())]
-    Write {
-        /// The file.
-        path: PathBuf,
-        /// Why.
-        #[source]
-        source: AtomicWriteError,
-    },
+    #[error("the sign-in file could not be written")]
+    Write(#[source] AtomicWriteError),
     /// The sign-in's file holds something other than UTF-8 text, which no keychain item holds.
-    #[error("the sign-in file {} is not text", path.display())]
-    NotText {
-        /// The file.
-        path: PathBuf,
-    },
+    #[error("the sign-in file is not text")]
+    NotText,
     /// The copy read back from the destination differs from the source, so the source is kept.
     #[error("the sign-in copied to {destination} read back differently")]
     CopyDiffers {
         /// The destination, a keychain item's service and account or a file's path.
         destination: String,
     },
+    /// A step of the move outlasted the caller's bound, so the move stopped before its next step.
+    #[error("a step of the sign-in move outlasted its bound, so the move stopped")]
+    Overran,
 }
 
 /// The sign-in move on a system with none built: the type has no value, so no method is ever
@@ -83,6 +72,7 @@ impl SignInMove {
         &self,
         _store: &crate::CredentialStore,
         _sign_ins: &[KeychainSignIn],
+        _step_bound: std::time::Duration,
     ) -> Result<(), SignInMoveError> {
         match *self {}
     }
@@ -92,7 +82,13 @@ impl SignInMove {
         &self,
         _store: &crate::CredentialStore,
         _sign_ins: &[KeychainSignIn],
+        _step_bound: std::time::Duration,
     ) -> Result<(), SignInMoveError> {
+        match *self {}
+    }
+
+    /// Removes a stopped move's leftovers; never called, since no value exists.
+    pub fn remove_leftovers(&self, _sign_in_files: &[PathBuf]) -> Vec<io::Error> {
         match *self {}
     }
 }

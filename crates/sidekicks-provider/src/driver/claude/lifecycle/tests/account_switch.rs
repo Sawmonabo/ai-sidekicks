@@ -9,9 +9,10 @@ use std::sync::{Arc, Weak};
 use futures::poll;
 
 use rstest::rstest;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::io::AsyncWriteExt as _;
 use tokio::sync::watch;
 
@@ -25,7 +26,9 @@ use crate::driver::claude::session::control_requests::ClaudeControlRequests;
 use crate::driver::claude::session::controls::one_turn_legs;
 use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
 use crate::driver::claude::session::process::ClaudeOutputReader;
+use crate::driver::claude::session::restart::ClaudeSessionStanding;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
+use crate::driver::claude::session::scripted::daemon_services::TakenBindingWrite;
 use crate::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::driver::claude::session::scripted::starts::ScriptedStartRecord;
 use crate::driver::claude::session::scripted::{
@@ -36,11 +39,16 @@ use crate::driver::contract::account::{
     FirstRequestAfterMove, ProviderSwitchLegs, SessionAccountMove, SessionToMove,
 };
 use crate::driver::diagnostics::{DriverDiagnosticKind, RecordedEvents};
+use crate::driver::session_control::MoveSessionToForkParams;
 use crate::driver::test_registry::new_run_id;
-use crate::runtime_binding::test_store::test_provider_account_id;
+use crate::runtime_binding::store::CreateRuntimeBindingInput;
+use crate::runtime_binding::test_store::{
+    binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
+};
 
 // A driver with one session open on the default account's store, the account `to` registered as
-// `to_mode` says, and the switch leg over its sessions.
+// `to_mode` says, the rows of the session's resting binding and its lead run's binding, each
+// holding a member of recovery data another writer kept, and the switch leg over its sessions.
 struct SwitchFixture {
     fixture: ScriptedDriver,
     channel: Arc<ScriptedChannel>,
@@ -62,6 +70,20 @@ impl SwitchFixture {
         fixture
             .accounts
             .register(to.clone(), folders(fixture.folder.path(), "to"), to_mode);
+        let store = open_store(&fixture.database).await;
+        for name in ["resting", "lead"] {
+            store
+                .create(CreateRuntimeBindingInput {
+                    id: binding_id(name),
+                    runtime_metadata: kept_by_another_writer(),
+                    ..binding_input(
+                        spawn_config_on(test_provider_account_id()),
+                        spawned_build("1.0.0", "/opt/provider/bin"),
+                    )
+                })
+                .await
+                .expect("the binding is recorded");
+        }
         let channel = Arc::new(ScriptedChannel::default());
         let session_id = fixture.create(&channel).await;
         let start = fixture.next_start().await;
@@ -152,6 +174,18 @@ fn folders(root: &Path, name: &str) -> ProviderAccountFolders {
     }
 }
 
+// Recovery data a writer other than the switch kept on a binding.
+fn kept_by_another_writer() -> Map<String, Value> {
+    Map::from_iter([("contextFixedStartTokens".to_owned(), json!(12_000))])
+}
+
+// `kept_by_another_writer` with the member naming `home` as the conversation's.
+fn kept_with_home(home: &Path) -> Map<String, Value> {
+    let mut runtime_metadata = kept_by_another_writer();
+    runtime_metadata.extend(claude_conversation_home_metadata(home));
+    runtime_metadata
+}
+
 fn environment_value<'a>(environment: &'a [(String, String)], name: &str) -> Option<&'a str> {
     environment
         .iter()
@@ -162,9 +196,12 @@ fn environment_value<'a>(environment: &'a [(String, String)], name: &str) -> Opt
 // Between two store accounts an idle and a mid-turn session each get the new store alone, and
 // move onto the account at the marker among its frames: the session's own account, its resting
 // binding, a running turn's binding and the stream, so a limits report read after the move is the
-// new account's. Killed by the move sent with a token, by the session's account left behind, by
-// the resting binding left on the old account or moved when the answer is read, ahead of the
-// frames queued before it, and by the stream's account left behind.
+// new account's. Every binding moved names the old account's home, which holds the conversation,
+// before it moves, the running turn's too, which a run bound after the resting binding kept the
+// home would otherwise copy without it. Killed by the move sent with a token, by the session's
+// account left behind, by the resting binding left on the old account or moved when the answer
+// is read, ahead of the frames queued before it, by the stream's account left behind, and by the
+// marker moving a run's binding without the home.
 #[rstest]
 #[case::idle(false)]
 #[case::mid_turn(true)]
@@ -194,6 +231,19 @@ async fn a_store_switch_points_the_session_at_the_new_store_in_place(#[case] is_
         moves.contains(&(binding_id("lead"), switch.to.clone())),
         is_mid_turn
     );
+    let home = folders(switch.fixture.folder.path(), "from").configuration_folder;
+    let writes = switch.fixture.bindings.writes();
+    for (index, write) in writes.iter().enumerate() {
+        if let TakenBindingWrite::Move(moved, _) = write {
+            assert!(
+                writes[..index].contains(&TakenBindingWrite::RecoveryData(
+                    moved.clone(),
+                    kept_with_home(&home)
+                )),
+                "{moved:?} names the home before it moves: {writes:?}"
+            );
+        }
+    }
     assert!(switch.fixture.starts.take_started().is_empty());
 
     switch.frame(
@@ -266,8 +316,9 @@ async fn the_output_reader_names_the_account_the_switch_moved_onto() {
 // conversation stays in the home it was written into: the binding records that home before it
 // moves, and the relaunch resumes there on the new account's store. Killed by the token sent on
 // `env`, by a relaunch that ends the running turn, by a relaunch on the old account or a new
-// conversation, by the binding moved only once the relaunch landed, by the home left unrecorded,
-// and by a relaunch in the new account's own home.
+// conversation, by the binding moved only once the relaunch landed, by the home left unrecorded
+// or recorded over the recovery data another writer kept, by a relaunch in the new account's own
+// home, and by a scratch folder that follows the account rather than the home.
 #[tokio::test(start_paused = true)]
 async fn a_token_target_relaunches_between_turns_and_resumes_by_id() {
     let switch = SwitchFixture::new(Some(ProviderAuthMode::OauthToken)).await;
@@ -319,11 +370,13 @@ async fn a_token_target_relaunches_between_turns_and_resumes_by_id() {
         Some(conversation_home.to_string_lossy().as_ref())
     );
     assert_eq!(
+        environment_value(&relaunched.environment, "CLAUDE_CODE_TMPDIR"),
+        environment_value(&switch.start.environment, "CLAUDE_CODE_TMPDIR"),
+        "the scratch folder stays with the conversation's home"
+    );
+    assert_eq!(
         switch.fixture.bindings.recovery_data(),
-        [(
-            binding_id("resting"),
-            claude_conversation_home_metadata(&conversation_home)
-        )]
+        [(binding_id("resting"), kept_with_home(&conversation_home))]
     );
     assert_eq!(switch.sent_environments(sent_before), Vec::<Value>::new());
     assert_eq!(switch.admitted(), switch.to);
@@ -426,10 +479,10 @@ async fn the_first_request_after_a_store_switch_is_heard_at_its_message_start() 
     );
 }
 
-// After an in-place switch, a one-turn copy of the session and the environment a rewind's fork
-// starts with sign in to the store the process was pointed at, in the home that holds the
-// conversation. Killed by a copy started from the environment the process spawned with, and by
-// the signed-in environment keeping the spawn's store.
+// After an in-place switch, a one-turn copy of the session and a rewind's fork sign in to the
+// store the process was pointed at, in the home that holds the conversation. Killed by a copy or
+// a fork started from the environment the process spawned with, and by the signed-in environment
+// keeping the spawn's store.
 #[tokio::test(start_paused = true)]
 async fn a_process_started_from_the_legs_after_a_store_switch_signs_in_to_the_new_store() {
     let switch = SwitchFixture::new(None).await;
@@ -443,11 +496,47 @@ async fn a_process_started_from_the_legs_after_a_store_switch_signs_in_to_the_ne
         .slots()
         .live_session(switch.session_id)
         .expect("the session is live");
-
     let conversation_home = folders(switch.fixture.folder.path(), "from").configuration_folder;
+    // Two turns, so a fork after the first has a later turn to discard.
+    let project_folder = conversation_home.join("projects").join("work");
+    std::fs::create_dir_all(&project_folder).expect("the project folder is made");
+    std::fs::write(
+        project_folder.join(format!("{}.jsonl", live.provider_session_id)),
+        concat!(
+            r#"{"type":"user","uuid":"u1","message":{"content":"first"}}"#,
+            "\n",
+            r#"{"type":"assistant","uuid":"a1","message":{"content":"one"}}"#,
+            "\n",
+            r#"{"type":"user","uuid":"u2","message":{"content":"second"}}"#,
+            "\n",
+            r#"{"type":"assistant","uuid":"a2","message":{"content":"two"}}"#,
+            "\n",
+        ),
+    )
+    .expect("the conversation is written");
+    switch
+        .fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    switch
+        .fixture
+        .driver
+        .move_session_to_fork(MoveSessionToForkParams {
+            session_id: switch.session_id,
+            position: SafeInt::new(1).expect("1 is a position"),
+            binding_id: binding_id("resting"),
+        })
+        .await
+        .expect("the fork is answered");
+    let fork = switch.fixture.next_start().await;
+    assert!(matches!(
+        fork.conversation,
+        ClaudeConversationStart::Fork { .. }
+    ));
+
     for environment in [
         one_turn_legs(&live, None, None).spawn_environment,
-        live.signed_in_spawn_environment(),
+        fork.environment,
     ] {
         assert_eq!(
             environment_value(&environment, SECURE_STORAGE_FOLDER_VARIABLE),
@@ -458,4 +547,58 @@ async fn a_process_started_from_the_legs_after_a_store_switch_signs_in_to_the_ne
             Some(conversation_home.to_string_lossy().as_ref())
         );
     }
+}
+
+// A session whose process ended and whose restart is held moves its binding, after naming the
+// home, before its restart's account: a binding that cannot move fails the switch with the held
+// restart still on the old account, so the two never part. Killed by moving the held restart's
+// account before the binding.
+#[tokio::test(start_paused = true)]
+async fn a_held_restart_whose_binding_cannot_move_stays_on_the_old_account() {
+    let switch = SwitchFixture::new(None).await;
+    let parts = switch.fixture.driver.composed_parts().expect("composed");
+    let is_live = || {
+        matches!(
+            parts.restarts.standing(switch.session_id),
+            ClaudeSessionStanding::Live(_)
+        )
+    };
+    // The first exit restarts at once; the second waits out its crash window, held.
+    switch
+        .fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    ScriptedDriver::exit(&switch.start);
+    let relaunched = switch.fixture.next_start().await;
+    while !is_live() {
+        settle().await;
+    }
+    ScriptedDriver::exit(&relaunched);
+    let ended = loop {
+        if let ClaudeSessionStanding::Held { ended, .. } =
+            parts.restarts.standing(switch.session_id)
+        {
+            break ended;
+        }
+        tokio::task::yield_now().await;
+    };
+    switch.fixture.bindings.refuse_moves();
+
+    let moved = switch
+        .legs
+        .move_sessions(
+            test_provider_account_id(),
+            switch.to.clone(),
+            vec![SessionToMove {
+                session_id: switch.session_id,
+                binding_id: binding_id("resting"),
+            }],
+        )
+        .await;
+
+    assert!(matches!(moved.as_slice(), [Err(_)]), "the switch fails");
+    assert_eq!(
+        ended.admitted_provider_account_id(),
+        test_provider_account_id()
+    );
 }

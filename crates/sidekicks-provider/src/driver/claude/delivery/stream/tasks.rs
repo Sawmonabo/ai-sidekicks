@@ -22,6 +22,7 @@ use crate::driver::claude::delivery::run_readings::ClaudeRowDelivery;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::frame_routing::ClaudeMeteredReading;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute};
+use crate::driver::claude::session::conversation_home::ClaudeConversationHomeKeep;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
@@ -145,13 +146,16 @@ impl ClaudeDeliveryStream {
     /// session and every live helper's onto `provider_account_id`'s account through `bindings`,
     /// each binding once, in the place the process acknowledged the switch, so each reading
     /// metered and each report read after it is the new account's and each before it the old
-    /// one's. A move not written is logged and the others are still made.
+    /// one's. Each binding names `conversation_home` first where one is given, so none rests on
+    /// the new account without the home that holds its conversation; a binding whose home or move
+    /// is not written is logged, left where it is, and the others are still moved.
     pub(super) async fn move_account(
         &self,
         session: &ClaudeSessionStream,
         provider_account_id: &ProviderAccountId,
         lead_binding_id: RuntimeBindingId,
         bindings: &dyn RuntimeBindingWriter,
+        conversation_home: Option<&ClaudeConversationHomeKeep>,
     ) {
         session.move_account(provider_account_id.clone());
         let routes = &self.dependencies.routes;
@@ -165,6 +169,17 @@ impl ClaudeDeliveryStream {
         );
         for binding_id in binding_ids {
             if !moved.insert(binding_id.clone()) {
+                continue;
+            }
+            if let Some(home) = conversation_home
+                && let Err(error) = home.keep_in(bindings, binding_id.clone()).await
+            {
+                tracing::warn!(
+                    session_id = %session.session_id,
+                    error = &*error as &(dyn std::error::Error + 'static),
+                    "a Claude Code session's binding could not name the home that holds its \
+                     conversation, so it stays on the account it was on"
+                );
                 continue;
             }
             if let Err(error) = bindings

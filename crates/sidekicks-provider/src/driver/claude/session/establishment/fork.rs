@@ -15,9 +15,9 @@ use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 
 use super::context::ClaudeSpawnContextError;
+use super::errors::ClaudeEstablishmentError;
 use super::{
-    ClaudeCallbackBinding, ClaudeEstablishmentError, ClaudeModelCheck, ClaudeSessionEstablishment,
-    ClaudeSessionStart,
+    ClaudeCallbackBinding, ClaudeModelCheck, ClaudeSessionEstablishment, ClaudeSessionStart,
 };
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::conversation_file::{

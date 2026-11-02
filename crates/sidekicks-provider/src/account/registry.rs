@@ -101,7 +101,7 @@ const KNOWN_HEALTH_STATE_SQL: &str =
 
 // A crossing is judged against the last reading that told, never against one that could not, and
 // a reading that cannot tell crosses nothing. `IS` compares a never-told NULL as not signed in, so
-// a first signed-in reading crosses in.
+// a first signed-in reading crosses in. A reading that reports the kind of sign-in stores it too.
 static RECORD_HEALTH_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "UPDATE provider_accounts
@@ -112,6 +112,7 @@ static RECORD_HEALTH_SQL: LazyLock<String> = LazyLock::new(|| {
          health_state = @health_state,
          health_observed_at = @health_observed_at,
          known_health_state = COALESCE({KNOWN_HEALTH_STATE_SQL}, known_health_state),
+         observed_auth_mode = COALESCE(@observed_auth_mode, observed_auth_mode),
          updated_at = {DATABASE_NOW_SQL}
    WHERE account_id = @account_id AND removal_intent = 0
   RETURNING credential_generation"
@@ -479,6 +480,38 @@ impl ProviderAccountRegistry {
         observation: &HealthObservation,
         observer: HealthObserver,
     ) -> Result<CredentialGeneration, ProviderAccountRegistryError> {
+        self.write_health(account_id, observation, observer, None)
+            .await
+    }
+
+    /// Stores the status read a sign-in on `account_id` took as a [`HealthObserver::Probe`]
+    /// reading does, with `observed_auth_mode`, the kind of sign-in it read, in the same
+    /// statement, where it read one; answers the generation after it. Fails as
+    /// [`Self::record_health`] does.
+    pub async fn record_sign_in(
+        &self,
+        account_id: &ProviderAccountId,
+        observation: &HealthObservation,
+        observed_auth_mode: Option<ProviderAuthMode>,
+    ) -> Result<CredentialGeneration, ProviderAccountRegistryError> {
+        self.write_health(
+            account_id,
+            observation,
+            HealthObserver::Probe,
+            observed_auth_mode,
+        )
+        .await
+    }
+
+    // The health write both readings share, the kind of sign-in kept where `observed_auth_mode`
+    // is `None`.
+    async fn write_health(
+        &self,
+        account_id: &ProviderAccountId,
+        observation: &HealthObservation,
+        observer: HealthObserver,
+        observed_auth_mode: Option<ProviderAuthMode>,
+    ) -> Result<CredentialGeneration, ProviderAccountRegistryError> {
         let results = self
             .write(vec![WriteStatement {
                 sql: Cow::Borrowed(RECORD_HEALTH_SQL.as_str()),
@@ -486,6 +519,10 @@ impl ProviderAccountRegistry {
                     text_binding("@account_id", account_id.as_str()),
                     text_binding("@health_state", observation.state.into()),
                     text_binding("@health_observed_at", observation.observed_at.as_str()),
+                    nullable_text_binding(
+                        "@observed_auth_mode",
+                        observed_auth_mode.map(<&'static str>::from),
+                    ),
                     text_binding(
                         "@authenticated",
                         ProviderAccountHealthState::Authenticated.into(),

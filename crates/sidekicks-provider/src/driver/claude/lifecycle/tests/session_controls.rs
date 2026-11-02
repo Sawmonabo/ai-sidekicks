@@ -18,7 +18,7 @@ use sidekicks_contracts::wire::BoolLiteral;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
+use sidekicks_platforms::{PathRules, RUNS_COMMAND_WRAPPER};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
@@ -26,6 +26,7 @@ use sidekicks_workspace::git::process::test_repository::make_test_repository;
 use super::{resume_params, start_params};
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::lifecycle::ClaudeDriver;
+use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{
     ScriptedDriver, create_params, end_turn_of,
@@ -47,6 +48,7 @@ use crate::driver::contract::params_and_results::RunOpeningItem;
 use crate::driver::run_control::InterruptRunRequest;
 use crate::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, MoveSessionToForkParams,
+    ResumeSessionParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
@@ -382,7 +384,8 @@ async fn a_staged_reviews_command_is_stopped_and_moved_on_the_reviews_own_proces
 // alias instead of its full id, by refusing one on a session at rest, by metering the fork's total
 // from zero or the live parent's cumulative read as zero instead of less the parent's, and by a
 // copy that keeps an askpass or channel variable or sets only `GIT_TERMINAL_PROMPT` of the
-// no-prompt environment.
+// no-prompt environment, and by a copy at rest started in its account's home rather than the one
+// its binding names as holding its conversation, where a switch left it.
 #[tokio::test(start_paused = true)]
 async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_the_fork_less_the_parent() {
     let fixture = ScriptedDriver::new();
@@ -454,9 +457,14 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_the_fork_l
         .await
         .expect("the live session's question is answered");
     assert_eq!(answered(&fixture), 1);
+    let conversation_home = fixture.folder.path().join("conversation-home");
+    let resting_resume = ResumeSessionParams {
+        runtime_metadata: claude_conversation_home_metadata(&conversation_home),
+        ..resume_params(resting_session)
+    };
     fixture
         .driver
-        .ask_side_question(ask(resting_session, Some(resume_params(resting_session))))
+        .ask_side_question(ask(resting_session, Some(resting_resume)))
         .await
         .expect("the resting session's question is answered");
     assert_eq!(answered(&fixture), 2);
@@ -511,6 +519,10 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_the_fork_l
     .into();
     let environments = fixture.starts.take_one_turn_environments();
     assert_eq!(environments.len(), 2);
+    assert_eq!(
+        PathRules::NATIVE.environment_value(&environments[1], "CLAUDE_CONFIG_DIR"),
+        conversation_home.to_str()
+    );
     for environment in &environments {
         assert_eq!(prompt_variables(environment), no_prompt);
     }
