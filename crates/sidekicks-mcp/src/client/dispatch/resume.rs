@@ -211,9 +211,8 @@ async fn wait_for_replacement(
 /// meanwhile why none is, read again at each publication, the arm the cause it held picks once
 /// 300 s pass from `answered_at`, the task's last answered poll, or from the wait's start when no
 /// poll was answered, while `after` is still the one published, and, once one is, the arm it held
-/// before. A wait that ends otherwise
-/// gives the race its end unknown: written by the dispatch at the session's close and by the
-/// caller at its cancel, and nothing written at the client's stop.
+/// before. A wait that ends otherwise gives the race its end unknown: written by the dispatch at
+/// the session's close and by the caller at its cancel, and nothing written at the client's stop.
 async fn wait_for_connection(
     standing: &McpStandingConnection,
     after: Option<&Arc<McpServerConnection>>,
