@@ -180,7 +180,7 @@ pub(crate) fn uninstall_logged_out_service<Output: Write, ErrorOutput: Write>(
     }
     let has_secrets_in_files = are_secrets_in_files(registration)?;
     if has_secrets_in_files && runs_as_root {
-        return Err(CommandFailure::SecretsKeychainLocked.into());
+        return Err(CommandFailure::SecretsKeychainLocked(None).into());
     }
     // A Ctrl-C reaches the modes and the prompt, which share the terminal, and the command still
     // reads how each ended; only the service's stop watches the listener.
@@ -216,7 +216,7 @@ pub(crate) fn finish_moving_secrets_back(
     is_agent_loaded: bool,
 ) -> anyhow::Result<()> {
     if registration.runs_as_root() {
-        return Err(CommandFailure::SecretsKeychainLocked.into());
+        return Err(CommandFailure::SecretsKeychainLocked(None).into());
     }
     run_listening_for_ctrl_c(async |ctrl_c| {
         check_keychain(registration, program).await?;
@@ -371,7 +371,8 @@ async fn move_secrets_back(
 }
 
 /// `failure` of a secrets mode, a refusal of the login keychain read as
-/// [`CommandFailure::SecretsKeychainLocked`], whose line says what to do in its place.
+/// [`CommandFailure::SecretsKeychainLocked`], whose line says what to do in its place and whose
+/// source is the refusal.
 fn read_keychain_refusal(failure: anyhow::Error) -> anyhow::Error {
     let is_keychain_refusal = matches!(
         failure.downcast_ref::<ClientError>(),
@@ -379,10 +380,13 @@ fn read_keychain_refusal(failure: anyhow::Error) -> anyhow::Error {
             data.refusal == RefusalCode::DaemonDataStoreUnavailable.as_str()
         })
     );
-    if is_keychain_refusal {
-        return CommandFailure::SecretsKeychainLocked.into();
+    if !is_keychain_refusal {
+        return failure;
     }
-    failure
+    let refusal = failure
+        .downcast::<ClientError>()
+        .expect("the failure was read as the client's error");
+    CommandFailure::SecretsKeychainLocked(Some(refusal)).into()
 }
 
 #[cfg(test)]
@@ -567,7 +571,9 @@ mod tests {
 
         assert!(matches!(
             failure.downcast_ref::<CommandFailure>(),
-            Some(CommandFailure::SecretsKeychainLocked)
+            Some(CommandFailure::SecretsKeychainLocked(Some(
+                ClientError::Remote(_)
+            )))
         ));
         assert_eq!(
             failure.to_string(),

@@ -223,7 +223,11 @@ pub(crate) enum CommandFailure {
         "The sign-ins and secrets cannot go back into the login keychain while it is locked. Log \
          in at this Mac, then run sidekicks daemon uninstall again."
     )]
-    SecretsKeychainLocked,
+    SecretsKeychainLocked(
+        /// The keychain's refusal; none where the run's root rights alone refused it.
+        #[source]
+        Option<ClientError>,
+    ),
     /// The system service that runs while the person is logged out was not removed, for the
     /// cause, whose line this is.
     #[error("{0}")]
@@ -238,7 +242,7 @@ impl CommandFailure {
             | Self::DaemonExited { .. }
             | Self::InstalledNotAnswering { .. }
             | Self::RegisteredNotAnswering { .. }
-            | Self::SecretsKeychainLocked
+            | Self::SecretsKeychainLocked(_)
             | Self::AddressHandlerMissing => ExitCode::Unavailable,
             Self::ConfirmationUnavailable => ExitCode::Usage,
             Self::AppOwnsService
@@ -619,7 +623,7 @@ mod tests {
         ProcessEnding::Exit(ExitCode::NoPermission)
     )]
     #[case::secrets_keychain_locked(
-        CommandFailure::SecretsKeychainLocked.into(),
+        CommandFailure::SecretsKeychainLocked(None).into(),
         ProcessEnding::Exit(ExitCode::Unavailable)
     )]
     #[case::system_service_kept_password_not_given(
