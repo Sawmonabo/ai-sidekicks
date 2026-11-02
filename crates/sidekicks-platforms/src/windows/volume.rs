@@ -1,6 +1,8 @@
 //! The volume holding a path on Windows: its root, read by the path's verbatim form, which is its
 //! top, and its volume GUID path, read through a handle open on the path, which is its id.
 
+pub(crate) mod folder;
+
 use std::ffi::OsString;
 use std::fs::{File, OpenOptions};
 use std::io::{self, ErrorKind};

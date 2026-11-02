@@ -38,6 +38,7 @@ pub(crate) mod terminal;
 pub(crate) mod thread_cpu_time;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod uptime;
+pub(crate) mod volume_folder;
 pub(crate) mod xdg_data_folders;
 
 #[cfg(test)]

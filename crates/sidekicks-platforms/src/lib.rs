@@ -435,6 +435,8 @@ pub use posix::thread_cpu_time::thread_cpu_time;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::uptime::uptime_line;
 #[cfg(unix)]
+pub(crate) use posix::volume_folder::{create_user_folder_in, is_owned_by_user};
+#[cfg(unix)]
 pub use posix::xdg_data_folders::XDG_DEFAULT_DATA_FOLDERS;
 pub use powershell_literal::quote_powershell_literal;
 #[cfg(any(test, feature = "test-support"))]
@@ -490,7 +492,7 @@ pub use test_program::{harness_test_name, pass_through_start, terminal_taking_st
 pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;
-pub use volume::{NotAVolumeId, Volume, VolumeId};
+pub use volume::{NotAVolumeId, Volume, VolumeId, create_volume_folder};
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
 pub use watch::{FileAppendWatch, FolderArrivalWait, FolderArrivalWatch};
@@ -657,6 +659,8 @@ pub use windows::terminal::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::thread_cpu_time::thread_cpu_time;
+#[cfg(target_os = "windows")]
+pub(crate) use windows::volume::folder::{create_user_folder_in, is_owned_by_user};
 #[cfg(target_os = "windows")]
 pub use windows::volume::read_volume;
 #[cfg(target_os = "windows")]
