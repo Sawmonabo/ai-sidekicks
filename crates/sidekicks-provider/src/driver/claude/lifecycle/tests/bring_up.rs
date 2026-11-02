@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ProviderDeclarationId, ProviderOptionSetting, ProviderOptionSettings, ProviderValue,
 };
@@ -18,6 +19,8 @@ use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
 use super::resume_params;
 use crate::command::channel::command_channel_root;
 use crate::command::running_set::unbound_running_command_sets;
+use crate::driver::ProviderAccountFolders;
+use crate::driver::claude::account::credentials::SECURE_STORAGE_FOLDER_VARIABLE;
 use crate::driver::claude::session::scripted::channel::{
     ScriptedAnswer, ScriptedChannel, ScriptedWrite,
 };
@@ -437,5 +440,61 @@ async fn a_start_before_the_tool_host_is_registered_is_refused_as_unavailable() 
         };
         assert_eq!(refusal.code, RefusalCode::ProviderUnavailable);
         assert!(refusal.message.contains("not ready"), "{}", refusal.message);
+    }
+}
+
+// Two sessions brought up at once on two accounts of the provider each start on their own
+// account's credential store and neither on the other's. Killed by one account's folders reused
+// for the other session's start.
+#[tokio::test]
+async fn two_sessions_on_two_accounts_brought_up_at_once_each_sign_in_to_their_own() {
+    let fixture = ScriptedDriver::new();
+    let stores: Vec<(ProviderAccountId, String)> = ["first", "second"]
+        .into_iter()
+        .map(|name| {
+            let account = ProviderAccountId::new(name.to_owned()).expect("an account id fits");
+            let root = fixture.folder.path().join(name);
+            let folders = ProviderAccountFolders {
+                configuration_folder: root.join("home"),
+                credential_store_folder: root.join("store"),
+            };
+            let store = folders
+                .credential_store_folder
+                .to_string_lossy()
+                .into_owned();
+            fixture.accounts.register(account.clone(), folders, None);
+            (account, store)
+        })
+        .collect();
+    for _ in &stores {
+        fixture
+            .starts
+            .script_session(Arc::new(ScriptedChannel::default()));
+    }
+
+    let created = futures::future::join_all(stores.iter().map(|(account, _)| {
+        fixture.driver.create_session(CreateSessionParams {
+            provider_account_id: account.clone(),
+            ..create_params(new_session_id())
+        })
+    }))
+    .await;
+
+    assert!(created.iter().all(Result::is_ok), "both sessions open");
+    fixture.starts.wait_for_starts(stores.len()).await;
+    let started = fixture.starts.take_started();
+    assert_eq!(started.len(), stores.len());
+    for start in started {
+        let account = start.account.read().expect("each start names its account");
+        let (_, own_store) = stores
+            .iter()
+            .find(|(id, _)| *id == account)
+            .expect("each start is on a registered account");
+        let store = start
+            .environment
+            .iter()
+            .find(|(name, _)| name == SECURE_STORAGE_FOLDER_VARIABLE)
+            .map(|(_, value)| value);
+        assert_eq!(store, Some(own_store));
     }
 }
