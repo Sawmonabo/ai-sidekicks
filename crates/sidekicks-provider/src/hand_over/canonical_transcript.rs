@@ -819,7 +819,7 @@ pub fn shown_tool_result_body(text: &str, end_cause: Option<ToolCallEndCause>) -
         Some(end_cause) if text.is_empty() => match end_cause {
             ToolCallEndCause::Stopped => "stopped before it answered",
             ToolCallEndCause::ProcessExit => "ended when its process exited",
-            ToolCallEndCause::DaemonRestart => "failed",
+            ToolCallEndCause::DaemonRestart => "stopped when the app restarted",
         },
         Some(_) | None => text,
     }
