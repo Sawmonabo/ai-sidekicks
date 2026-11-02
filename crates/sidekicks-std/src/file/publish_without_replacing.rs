@@ -38,7 +38,7 @@ pub async fn publish_without_replacing(
 }
 
 /// [`publish_without_replacing`] on the calling thread, for code already off the async workers.
-pub(crate) fn blocking_publish_without_replacing(
+pub fn blocking_publish_without_replacing(
     temporary_path: &Path,
     target_path: &Path,
 ) -> Result<PublishOutcome, CleanupFailures<io::Error>> {
