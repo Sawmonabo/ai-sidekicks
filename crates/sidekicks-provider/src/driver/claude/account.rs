@@ -4,6 +4,7 @@
 pub(super) mod credentials;
 mod limits;
 mod read_folder;
+mod sign_in;
 mod sign_in_move;
 mod sign_out;
 mod switch;
@@ -37,8 +38,9 @@ use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::installed_build::resolve_claude_build;
 use crate::driver::contract::account::{
     MemoryImportStore, ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs,
-    ProviderSignInLegs, ProviderSwitchLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs,
-    SessionAccountMove, SessionToMove,
+    ProviderSignInHandle, ProviderSignInLegs, ProviderSignInObservation, ProviderSwitchLegs,
+    ProviderTokenStatusLegs, ProviderWindowTurnLegs, SessionAccountMove, SessionToMove,
+    SignInOrigin,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
@@ -175,7 +177,7 @@ impl ProviderAccountLegs for ClaudeAccountLegs {
     }
 
     fn sign_in_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSignInLegs>> {
-        None
+        Some(self)
     }
 
     fn token_status_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenStatusLegs>> {
@@ -186,6 +188,25 @@ impl ProviderAccountLegs for ClaudeAccountLegs {
 impl ProviderMemoryImportLegs for ClaudeAccountLegs {
     fn memory_import_stores(&self, home: &CredentialHome) -> io::Result<Vec<MemoryImportStore>> {
         memory::claude_memory_import_stores(self, home)
+    }
+}
+
+impl ProviderSignInLegs for ClaudeAccountLegs {
+    fn start_sign_in(
+        &self,
+        _provider_account_id: ProviderAccountId,
+        home: CredentialHome,
+        origin: SignInOrigin,
+    ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>> {
+        sign_in::start_claude_sign_in(self, home, origin).boxed()
+    }
+
+    fn observe_sign_in(
+        &self,
+        _provider_account_id: ProviderAccountId,
+        home: CredentialHome,
+    ) -> BoxFuture<'_, Result<ProviderSignInObservation, DriverError>> {
+        sign_in::observe_claude_sign_in(self, home).boxed()
     }
 }
 

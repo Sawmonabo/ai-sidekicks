@@ -1,0 +1,634 @@
+//! Claude Code's own interactive sign-in on one account's home: `claude auth login --claudeai` run
+//! on that home's folders, its sign-in address and each wait for a pasted code read from its
+//! output, the code the person pastes written to its input and nowhere else, and the status read
+//! that names who signed in once it ended. Every variable that would sign the process in ahead of
+//! the home's own sign-in is removed from both.
+
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::{ExitStatus, Stdio};
+use std::time::Duration;
+
+use futures::FutureExt as _;
+use futures::channel::mpsc as prompt_channel;
+use futures::future::BoxFuture;
+use process_wrap::tokio::ChildWrapper;
+use sidekicks_contracts::provider::account::record::ProviderAuthMode;
+use sidekicks_contracts::provider::account::sign_in::PROVIDER_SIGN_IN_CODE_MAX_LEN;
+use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_platforms::{ask_child_to_stop, wrap_child_command};
+use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
+use tokio::process::{ChildStderr, ChildStdin, ChildStdout, Command};
+use tokio::sync::{mpsc, oneshot};
+use tokio::time::Instant;
+
+use crate::account::credential_home::CredentialHome;
+use crate::account::resolver::credential_home_folders;
+use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::account::ClaudeAccountLegs;
+use crate::driver::claude::account::credentials::{
+    CUSTOM_SIGN_IN_HOST_VARIABLE, ClaudeCustomSignInBase, SIGN_IN_OVERRIDE_VARIABLES,
+    read_custom_sign_in_base,
+};
+use crate::driver::claude::spawn::environment::{
+    ClaudeAccountFolders, ClaudeProcessHome, compose_claude_scratch_folder,
+};
+use crate::driver::claude::spawn::launch::control_only::{
+    ClaudeSignInSources, probe_claude_sign_in,
+};
+use crate::driver::contract::account::{
+    ProviderSignInEnd, ProviderSignInHandle, ProviderSignInInput, ProviderSignInObservation,
+    SignInOrigin, read_sign_in_address,
+};
+use crate::driver::contract::error::DriverError;
+use crate::spawned_version::ResolvedProviderExecutable;
+
+/// The arguments after the Claude Code command that start its claude.ai sign-in.
+const CLAUDE_SIGN_IN_ARGUMENTS: [&str; 3] = ["auth", "login", "--claudeai"];
+
+/// The host Claude Code's claude.ai sign-in page is served from.
+const CLAUDE_SIGN_IN_HOST: &str = "claude.com";
+
+/// The text Claude Code writes before the sign-in address, which runs to the line's end.
+const VISIT_MARKER: &[u8] = b"If the browser didn't open, visit: ";
+
+/// The prompt Claude Code writes, with no line end, once it waits for a pasted code.
+const CODE_PROMPT: &[u8] = b"Paste code here if prompted > ";
+
+/// The start of the line Claude Code writes to its error output for a code it refused, after
+/// which it waits for another without writing its prompt again.
+const REFUSED_CODE_START: &[u8] = b"Invalid code";
+
+/// How long the flow has to write its address before it is stopped.
+const ADDRESS_WAIT: Duration = Duration::from_secs(30);
+
+/// How long a sign-in may run before it is stopped as expired; Claude Code names no bound.
+const SIGN_IN_BOUND: Duration = Duration::from_mins(15);
+
+/// How long a flow asked to stop has before it is killed.
+const STOP_GRACE: Duration = Duration::from_secs(5);
+
+/// The variable naming the program Claude Code opens its sign-in page with.
+const BROWSER_VARIABLE: &str = "BROWSER";
+
+/// A program that opens nothing and succeeds, so a sign-in finished on another device opens no
+/// browser on this machine.
+const NO_BROWSER: &str = "/usr/bin/true";
+
+/// The most output held while the address line is still unread, far above its length.
+const ADDRESS_OUTPUT_CAP: usize = 64 * 1024;
+
+/// The bytes one read of the flow's output takes.
+const OUTPUT_CHUNK: usize = 4096;
+
+/// The code prompts held for the broker, which reads each at once; a fuller queue already says
+/// the flow waits.
+const PROMPT_CAPACITY: usize = 4;
+
+/// The inputs held for the flow, a code or a cancel, each answered before the next.
+const INPUT_CAPACITY: usize = 4;
+
+/// Why Claude Code's sign-in could not start or take its input.
+#[derive(Debug, thiserror::Error)]
+enum ClaudeSignInError {
+    /// The home's scratch folder, where the command runs, could not be made.
+    #[error("the folder Claude Code's sign-in runs in could not be made")]
+    WorkingFolder(#[source] io::Error),
+    /// The command could not start.
+    #[error("Claude Code's sign-in could not start")]
+    Start(#[source] io::Error),
+    /// Its output could not be read.
+    #[error("Claude Code's sign-in output could not be read")]
+    Output(#[source] io::Error),
+    /// It ended, or outlived the wait, before writing its sign-in address.
+    #[error("Claude Code's sign-in wrote no sign-in address in time")]
+    NoAddress,
+    /// It wrote an address that is not on Claude Code's own sign-in host.
+    #[error("Claude Code's sign-in wrote an address on a host it does not sign in at")]
+    AddressRefused,
+    /// The flow has ended and takes no more input.
+    #[error("Claude Code's sign-in has ended")]
+    Ended,
+    /// The code could not be written to the flow's input.
+    #[error("the code could not be written to Claude Code's sign-in")]
+    CodeUnwritten(#[source] io::Error),
+    /// The flow could not be asked to stop.
+    #[error("Claude Code's sign-in could not be stopped")]
+    Unstopped(#[source] io::Error),
+}
+
+impl From<ClaudeSignInError> for DriverError {
+    fn from(error: ClaudeSignInError) -> Self {
+        Self::Internal(Box::new(error))
+    }
+}
+
+// What a sign-in on the person's environment removes, and the hosts its address may name.
+struct SignInScope {
+    removed: Vec<&'static str>,
+    hosts: Vec<String>,
+}
+
+impl SignInScope {
+    // The variables that would sign in ahead of the home, and a custom sign-in host Claude Code
+    // refuses; an accepted one stays, and its host is a sign-in host beside Claude Code's own.
+    fn read(environment: &[(String, String)]) -> Self {
+        let mut removed = SIGN_IN_OVERRIDE_VARIABLES.to_vec();
+        let mut hosts = vec![CLAUDE_SIGN_IN_HOST.to_owned()];
+        match read_custom_sign_in_base(environment) {
+            ClaudeCustomSignInBase::Unset => {}
+            ClaudeCustomSignInBase::Approved(base) => hosts.extend(
+                url::Url::parse(base)
+                    .ok()
+                    .and_then(|base| base.host_str().map(str::to_owned)),
+            ),
+            ClaudeCustomSignInBase::Refused => removed.push(CUSTOM_SIGN_IN_HOST_VARIABLE),
+        }
+        Self { removed, hosts }
+    }
+}
+
+// The folders of the account whose home is `home`.
+fn claude_home_folders(home: &CredentialHome) -> ClaudeAccountFolders {
+    ClaudeAccountFolders::from(&credential_home_folders(&DESCRIPTOR.provider_id(), home))
+}
+
+/// Starts `claude auth login --claudeai` on `home`'s folders and answers once it wrote its sign-in
+/// address; on `AnotherDevice` its browser opener is a program that opens nothing. Fails with the
+/// resolve's error as the environment cannot be composed, and with `DriverError::Internal` where
+/// the command cannot start or writes no address on Claude Code's own host within the wait, the
+/// command then stopped.
+pub(super) async fn start_claude_sign_in(
+    legs: &ClaudeAccountLegs,
+    home: CredentialHome,
+    origin: SignInOrigin,
+) -> Result<ProviderSignInHandle, DriverError> {
+    let folders = claude_home_folders(&home);
+    let scope = SignInScope::read(&legs.base_environment);
+    let executable = legs
+        .resolve_build_on(
+            ClaudeProcessHome::Account { folders: &folders },
+            &scope.removed,
+        )
+        .await?;
+    let working_folder = compose_claude_scratch_folder(
+        &legs.data_folder.to_string_lossy(),
+        Path::new(&folders.config_folder),
+    );
+    Ok(start_flow(legs, executable, working_folder, origin, &scope.hosts).await?)
+}
+
+/// Reads who signed in on `home` after a sign-in there, through a process that keeps nothing run
+/// on the home with the same variables removed, as Claude Code's own `auth status` reads it. Fails
+/// with the driver's error where the process cannot answer or its reply cannot be read.
+pub(super) async fn observe_claude_sign_in(
+    legs: &ClaudeAccountLegs,
+    home: CredentialHome,
+) -> Result<ProviderSignInObservation, DriverError> {
+    let folders = claude_home_folders(&home);
+    let scope = SignInScope::read(&legs.base_environment);
+    let executable = legs
+        .resolve_build_on(
+            ClaudeProcessHome::Account { folders: &folders },
+            &scope.removed,
+        )
+        .await?;
+    // No account: the probe runs no turn, and a new account is not admitted yet.
+    let sources = probe_claude_sign_in(&legs.launcher, &executable, None, None).await?;
+    Ok(ProviderSignInObservation::read_now(
+        read_claude_sign_in_mode(&sources),
+        sources.has_email(),
+    ))
+}
+
+// The kind of sign-in the sources name, as `claude auth status` reads them: a claude.ai token is
+// a subscription, a helper's token or key comes from elsewhere, any other token is a pasted one,
+// any other named key an API key; `None` is signed out.
+fn read_claude_sign_in_mode(sources: &ClaudeSignInSources) -> Option<ProviderAuthMode> {
+    match sources.token_source() {
+        Some("claude.ai") => Some(ProviderAuthMode::OauthSubscription),
+        Some("apiKeyHelper") => Some(ProviderAuthMode::External),
+        Some(_) => Some(ProviderAuthMode::OauthToken),
+        None => match sources.api_key_source() {
+            Some("apiKeyHelper") => Some(ProviderAuthMode::External),
+            Some(_) => Some(ProviderAuthMode::ApiKey),
+            None => None,
+        },
+    }
+}
+
+// Starts the flow on the spawner's thread, reads its address and hands the rest of the flow to a
+// task of its own; a flow that writes no usable address is stopped.
+async fn start_flow(
+    legs: &ClaudeAccountLegs,
+    executable: ResolvedProviderExecutable,
+    working_folder: PathBuf,
+    origin: SignInOrigin,
+    hosts: &[String],
+) -> Result<ProviderSignInHandle, ClaudeSignInError> {
+    tokio::fs::create_dir_all(&working_folder)
+        .await
+        .map_err(ClaudeSignInError::WorkingFolder)?;
+    let mut command = Command::new(executable.start.program);
+    command
+        .args(executable.start.leading_arguments)
+        .args(CLAUDE_SIGN_IN_ARGUMENTS)
+        .env_clear()
+        .envs(executable.environment)
+        .current_dir(working_folder)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    if origin == SignInOrigin::AnotherDevice {
+        command.env(BROWSER_VARIABLE, NO_BROWSER);
+    }
+    let daemon_pid = std::process::id();
+    let mut child = legs
+        .spawner
+        .run(move || wrap_child_command(command, daemon_pid).spawn())
+        .await
+        .and_then(|spawned| spawned)
+        .map_err(ClaudeSignInError::Start)?;
+    let input = child.stdin().take().expect("the sign-in's input is piped");
+    let mut output = child
+        .stdout()
+        .take()
+        .expect("the sign-in's output is piped");
+    let errors = child
+        .stderr()
+        .take()
+        .expect("the sign-in's error output is piped");
+    let mut scan = OutputScan::default();
+    let read = tokio::time::timeout(ADDRESS_WAIT, read_address_line(&mut output, &mut scan)).await;
+    let address = match read {
+        Ok(Ok(Some(line))) => {
+            read_sign_in_address(&strip_terminal_controls(&line), &hosts_of(hosts))
+                .ok_or(ClaudeSignInError::AddressRefused)
+        }
+        Ok(Ok(None)) | Err(_) => Err(ClaudeSignInError::NoAddress),
+        Ok(Err(error)) => Err(ClaudeSignInError::Output(error)),
+    };
+    let verification_uri = match address {
+        Ok(address) => address,
+        Err(error) => {
+            stop_child(&mut *child).await;
+            return Err(error);
+        }
+    };
+    let (prompts, code_prompts) = prompt_channel::channel(PROMPT_CAPACITY);
+    let (inputs, received) = mpsc::channel(INPUT_CAPACITY);
+    let (end, completion) = oneshot::channel();
+    let flow = Flow {
+        child,
+        input,
+        output,
+        errors: BufReader::new(errors),
+        scan,
+        prompts,
+        inputs: received,
+        end,
+    };
+    tokio::spawn(flow.run());
+    Ok(ProviderSignInHandle {
+        verification_uri,
+        user_code: None,
+        expires_at: None,
+        browser_opened_by_provider: origin == SignInOrigin::ThisMachine,
+        code_prompts: Box::pin(code_prompts),
+        input: Box::new(ClaudeSignInInput { inputs }),
+        completion: async move { completion.await.unwrap_or(ProviderSignInEnd::Failed) }.boxed(),
+    })
+}
+
+fn hosts_of(hosts: &[String]) -> Vec<&str> {
+    hosts.iter().map(String::as_str).collect()
+}
+
+// Reads the flow's output until the address line ended, answering its text without the marker,
+// or `None` where the output ended or outgrew its cap first.
+async fn read_address_line(
+    output: &mut ChildStdout,
+    scan: &mut OutputScan,
+) -> io::Result<Option<Vec<u8>>> {
+    let mut chunk = [0_u8; OUTPUT_CHUNK];
+    loop {
+        if let Some(line) = scan.take_address_line() {
+            return Ok(Some(line));
+        }
+        if scan.pending.len() > ADDRESS_OUTPUT_CAP {
+            return Ok(None);
+        }
+        let read = output.read(&mut chunk).await?;
+        if read == 0 {
+            return Ok(None);
+        }
+        scan.pending.extend_from_slice(&chunk[..read]);
+    }
+}
+
+// Asks a flow to stop and waits out the grace, killing it past that.
+async fn stop_child(child: &mut dyn ChildWrapper) {
+    if let Err(error) = ask_child_to_stop(child) {
+        tracing::debug!(
+            error = &error as &(dyn std::error::Error + 'static),
+            "Claude Code's sign-in could not be asked to stop"
+        );
+    }
+    if tokio::time::timeout(STOP_GRACE, child.wait())
+        .await
+        .is_err()
+        && let Err(error) = child.start_kill()
+    {
+        tracing::debug!(
+            error = &error as &(dyn std::error::Error + 'static),
+            "Claude Code's sign-in could not be killed past its stop's grace"
+        );
+    }
+}
+
+/// The flow's output as read so far, scanned as bytes, never as lines, since the code prompt ends
+/// no line.
+#[derive(Default)]
+struct OutputScan {
+    pending: Vec<u8>,
+}
+
+impl OutputScan {
+    // The address line's text once it has ended, the output up to its end taken; else what could
+    // still start the marker is kept.
+    fn take_address_line(&mut self) -> Option<Vec<u8>> {
+        let Some(start) = find(&self.pending, VISIT_MARKER) else {
+            self.keep_tail(VISIT_MARKER.len());
+            return None;
+        };
+        let text_start = start + VISIT_MARKER.len();
+        let end = text_start
+            + self.pending[text_start..]
+                .iter()
+                .position(|byte| *byte == b'\n')?;
+        let line = self.pending[text_start..end].to_vec();
+        self.pending.drain(..=end);
+        Some(line)
+    }
+
+    // How many code prompts the output read so far holds, each taken.
+    fn take_prompts(&mut self) -> usize {
+        let mut count = 0;
+        while let Some(start) = find(&self.pending, CODE_PROMPT) {
+            self.pending.drain(..start + CODE_PROMPT.len());
+            count += 1;
+        }
+        self.keep_tail(CODE_PROMPT.len());
+        count
+    }
+
+    // Keeps only the bytes that could still start a `marker_len`-byte marker.
+    fn keep_tail(&mut self, marker_len: usize) {
+        let keep = marker_len.saturating_sub(1);
+        let excess = self.pending.len().saturating_sub(keep);
+        self.pending.drain(..excess);
+    }
+}
+
+fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+// The text of `line` as a terminal shows it: every operating-system command, the link wrapper
+// among them, taken out, then trimmed. A command runs from `ESC ]` to a bell or `ESC \`.
+fn strip_terminal_controls(line: &[u8]) -> String {
+    let mut shown = Vec::with_capacity(line.len());
+    let mut index = 0;
+    while index < line.len() {
+        if line[index] == 0x1b && line.get(index + 1) == Some(&b']') {
+            index += 2;
+            while index < line.len() {
+                if line[index] == 0x07 {
+                    index += 1;
+                    break;
+                }
+                if line[index] == 0x1b && line.get(index + 1) == Some(&b'\\') {
+                    index += 2;
+                    break;
+                }
+                index += 1;
+            }
+        } else {
+            shown.push(line[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8_lossy(&shown).trim().to_owned()
+}
+
+// One input to a running flow, each answered on its own channel.
+enum FlowInput {
+    Code(
+        FreeFormText<PROVIDER_SIGN_IN_CODE_MAX_LEN>,
+        oneshot::Sender<io::Result<()>>,
+    ),
+    Cancel(oneshot::Sender<io::Result<()>>),
+}
+
+// What one turn of the flow's wait saw.
+enum FlowEvent {
+    Exited(io::Result<ExitStatus>),
+    Output(io::Result<usize>),
+    ErrorLine(io::Result<usize>),
+    Input(Option<FlowInput>),
+    Bound,
+    Abandoned,
+    KillDue,
+}
+
+// A started flow, run to its end on its own task.
+struct Flow {
+    child: Box<dyn ChildWrapper>,
+    input: ChildStdin,
+    output: ChildStdout,
+    errors: BufReader<ChildStderr>,
+    scan: OutputScan,
+    prompts: prompt_channel::Sender<()>,
+    inputs: mpsc::Receiver<FlowInput>,
+    end: oneshot::Sender<ProviderSignInEnd>,
+}
+
+impl Flow {
+    // Reports each wait for a code, writes each code, and stops the flow on a cancel, at its bound
+    // or once its handle is dropped, then answers how it ended.
+    async fn run(mut self) {
+        self.report_prompts();
+        let bound = tokio::time::sleep(SIGN_IN_BOUND);
+        tokio::pin!(bound);
+        let mut chunk = [0_u8; OUTPUT_CHUNK];
+        let mut error_line = Vec::new();
+        let (mut is_output_open, mut is_errors_open, mut is_input_open) = (true, true, true);
+        let mut asked_end: Option<ProviderSignInEnd> = None;
+        let mut kill_at: Option<Instant> = None;
+        let status = loop {
+            let event = tokio::select! {
+                status = self.child.wait() => FlowEvent::Exited(status),
+                read = self.output.read(&mut chunk), if is_output_open => FlowEvent::Output(read),
+                read = self.errors.read_until(b'\n', &mut error_line), if is_errors_open => {
+                    FlowEvent::ErrorLine(read)
+                }
+                input = self.inputs.recv(), if is_input_open => FlowEvent::Input(input),
+                () = &mut bound, if asked_end.is_none() => FlowEvent::Bound,
+                () = self.end.closed(), if asked_end.is_none() => FlowEvent::Abandoned,
+                () = tokio::time::sleep_until(kill_at.unwrap_or_else(Instant::now)),
+                    if kill_at.is_some() => FlowEvent::KillDue,
+            };
+            // The end a stop asks for, and whether the flow was already asked to stop.
+            let stop = match event {
+                FlowEvent::Exited(status) => break status,
+                FlowEvent::Output(Ok(read)) if read > 0 => {
+                    self.scan.pending.extend_from_slice(&chunk[..read]);
+                    self.report_prompts();
+                    None
+                }
+                FlowEvent::Output(_) => {
+                    is_output_open = false;
+                    None
+                }
+                FlowEvent::ErrorLine(Ok(read)) if read > 0 => {
+                    // Its text is never kept or logged: it may echo what the person pasted.
+                    if error_line.starts_with(REFUSED_CODE_START) {
+                        self.report_prompt();
+                    }
+                    error_line.clear();
+                    None
+                }
+                FlowEvent::ErrorLine(_) => {
+                    is_errors_open = false;
+                    None
+                }
+                FlowEvent::Input(Some(FlowInput::Code(code, answer))) => {
+                    let written = write_code(&mut self.input, &code).await;
+                    drop(code);
+                    if answer.send(written).is_err() {
+                        tracing::debug!("a sign-in code's writer stopped waiting for its answer");
+                    }
+                    None
+                }
+                FlowEvent::Input(Some(FlowInput::Cancel(answer))) => {
+                    let asked = ask_child_to_stop(&mut *self.child);
+                    let is_asked = asked.is_ok();
+                    if answer.send(asked).is_err() {
+                        tracing::debug!("a sign-in's cancel stopped waiting for its answer");
+                    }
+                    is_asked.then_some((ProviderSignInEnd::Canceled, true))
+                }
+                FlowEvent::Input(None) => {
+                    is_input_open = false;
+                    None
+                }
+                FlowEvent::Bound => Some((ProviderSignInEnd::Expired, false)),
+                // No one waits for the end: the flow is stopped as a cancel stops it.
+                FlowEvent::Abandoned => Some((ProviderSignInEnd::Canceled, false)),
+                FlowEvent::KillDue => {
+                    kill_at = None;
+                    if let Err(error) = self.child.start_kill() {
+                        tracing::debug!(
+                            error = &error as &(dyn std::error::Error + 'static),
+                            "Claude Code's sign-in could not be killed past its stop's grace"
+                        );
+                    }
+                    None
+                }
+            };
+            if let Some((end, is_asked)) = stop
+                && asked_end.is_none()
+            {
+                if !is_asked && let Err(error) = ask_child_to_stop(&mut *self.child) {
+                    tracing::debug!(
+                        error = &error as &(dyn std::error::Error + 'static),
+                        "Claude Code's sign-in could not be asked to stop"
+                    );
+                }
+                asked_end = Some(end);
+                kill_at = Some(Instant::now() + STOP_GRACE);
+            }
+        };
+        let end = asked_end.unwrap_or(match status {
+            Ok(status) if status.success() => ProviderSignInEnd::Finished,
+            Ok(_) | Err(_) => ProviderSignInEnd::Failed,
+        });
+        if self.end.send(end).is_err() {
+            tracing::debug!("a Claude Code sign-in ended after its handle was dropped");
+        }
+    }
+
+    fn report_prompts(&mut self) {
+        for _ in 0..self.scan.take_prompts() {
+            self.report_prompt();
+        }
+    }
+
+    fn report_prompt(&mut self) {
+        if self.prompts.try_send(()).is_err() {
+            tracing::debug!("a Claude Code sign-in waited for a code while a wait was unread");
+        }
+    }
+}
+
+// Writes `code` and a line end to the flow's input.
+async fn write_code(
+    input: &mut ChildStdin,
+    code: &FreeFormText<PROVIDER_SIGN_IN_CODE_MAX_LEN>,
+) -> io::Result<()> {
+    input.write_all(code.as_str().as_bytes()).await?;
+    input.write_all(b"\n").await?;
+    input.flush().await
+}
+
+// The input of one running flow, handed to its task.
+struct ClaudeSignInInput {
+    inputs: mpsc::Sender<FlowInput>,
+}
+
+impl ClaudeSignInInput {
+    // Hands `input` to the flow and answers what it answered.
+    async fn send(
+        &self,
+        input: impl FnOnce(oneshot::Sender<io::Result<()>>) -> FlowInput,
+    ) -> Result<io::Result<()>, ClaudeSignInError> {
+        let (answer, answered) = oneshot::channel();
+        self.inputs
+            .send(input(answer))
+            .await
+            .map_err(|_unsent| ClaudeSignInError::Ended)?;
+        answered
+            .await
+            .map_err(|_unanswered| ClaudeSignInError::Ended)
+    }
+}
+
+impl ProviderSignInInput for ClaudeSignInInput {
+    fn write_code(
+        &self,
+        code: FreeFormText<PROVIDER_SIGN_IN_CODE_MAX_LEN>,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        async move {
+            self.send(|answer| FlowInput::Code(code, answer))
+                .await?
+                .map_err(ClaudeSignInError::CodeUnwritten)?;
+            Ok(())
+        }
+        .boxed()
+    }
+
+    fn cancel(&self) -> BoxFuture<'_, Result<(), DriverError>> {
+        async move {
+            self.send(FlowInput::Cancel)
+                .await?
+                .map_err(ClaudeSignInError::Unstopped)?;
+            Ok(())
+        }
+        .boxed()
+    }
+}
+
+#[cfg(test)]
+mod tests;

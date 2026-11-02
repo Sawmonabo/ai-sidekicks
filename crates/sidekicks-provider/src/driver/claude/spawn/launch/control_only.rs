@@ -30,6 +30,7 @@ use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEven
 use crate::driver::claude::session::transport::readings::ClaudeModelCatalogReading;
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
 use crate::driver::claude::spawn::system_prompt::claude_appended_system_prompt_arguments;
+use crate::lenient_json::read_is_non_empty_text;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The command line of a process that keeps nothing.
@@ -236,15 +237,8 @@ struct AccountSources {
     token_source: Option<Value>,
     #[serde(rename = "apiKeySource", default)]
     api_key_source: Option<Value>,
-    #[serde(default, deserialize_with = "is_non_empty_string")]
+    #[serde(default, deserialize_with = "read_is_non_empty_text")]
     email: bool,
-}
-
-// Whether the value is a non-empty string; the string itself is dropped here.
-fn is_non_empty_string<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<bool, D::Error> {
-    Ok(matches!(Value::deserialize(deserializer)?, Value::String(text) if !text.is_empty()))
 }
 
 /// How an `initialize` reply's account says a process is signed in: the source Claude Code names
