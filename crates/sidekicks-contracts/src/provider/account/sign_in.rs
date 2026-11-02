@@ -58,8 +58,8 @@ ts_constants! {
 /// The text rules a pasted token is held to: not blank, no NUL, within its cap.
 type NonInteractiveTokenText = FreeFormText<PROVIDER_NON_INTERACTIVE_TOKEN_MAX_LEN>;
 
-/// What a pasted token's `Debug` prints in place of its text.
-const NON_INTERACTIVE_TOKEN_MARKER: &str = "[REDACTED]";
+/// What `Debug` prints in place of a pasted token's or a sign-in code's text.
+const REDACTED_TEXT_MARKER: &str = "[REDACTED]";
 
 /// A pasted token or API key: the one credential-accepting input on this wire, write-only. It is
 /// on no reply and never logged, shown, echoed or put in an argument vector; it is sealed in the
@@ -78,7 +78,7 @@ impl NonInteractiveToken {
 
 impl fmt::Debug for NonInteractiveToken {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(NON_INTERACTIVE_TOKEN_MARKER)
+        formatter.write_str(REDACTED_TEXT_MARKER)
     }
 }
 
@@ -420,8 +420,9 @@ pub struct ProviderAccountSignInAttemptCancelResponse {
 }
 
 /// Sends the code a Claude Code sign-in page shows to the sign-in waiting for it, after
-/// `signInCodeRequested`. The code goes to that sign-in's input and nowhere else.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+/// `signInCodeRequested`. The code goes to that sign-in's input and nowhere else; `Debug` prints
+/// only a marker in its place.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct ProviderAccountSignInCodeSubmitRequest {
@@ -429,6 +430,16 @@ pub struct ProviderAccountSignInCodeSubmitRequest {
     pub attempt_id: FreeFormText<PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN>,
     /// The code, as the person pasted it.
     pub code: FreeFormText<PROVIDER_SIGN_IN_CODE_MAX_LEN>,
+}
+
+impl fmt::Debug for ProviderAccountSignInCodeSubmitRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ProviderAccountSignInCodeSubmitRequest")
+            .field("attempt_id", &self.attempt_id)
+            .field("code", &format_args!("{REDACTED_TEXT_MARKER}"))
+            .finish()
+    }
 }
 
 /// How a code submit ended. `notFound` covers an attempt that is not waiting for a code; it is
@@ -489,8 +500,9 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::{
-        NON_INTERACTIVE_TOKEN_MARKER, PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS,
-        PROVIDER_NON_INTERACTIVE_TOKEN_MAX_LEN, ProviderAccountRegisterRequest, TokenRegistration,
+        PROVIDER_ACCOUNT_REDACTED_WIRE_MEMBERS, PROVIDER_NON_INTERACTIVE_TOKEN_MAX_LEN,
+        ProviderAccountRegisterRequest, ProviderAccountSignInCodeSubmitRequest,
+        REDACTED_TEXT_MARKER, TokenRegistration,
     };
     use crate::jsonrpc::issue::reader_issue_path;
     use crate::schema::closed_schema_for;
@@ -546,11 +558,11 @@ mod tests {
         };
         assert_eq!(
             format!("{:?}", registration.non_interactive_token),
-            NON_INTERACTIVE_TOKEN_MARKER
+            REDACTED_TEXT_MARKER
         );
         for printed in [format!("{request:?}"), format!("{request:#?}")] {
             assert!(!printed.contains(TOKEN), "{printed}");
-            assert!(printed.contains(NON_INTERACTIVE_TOKEN_MARKER), "{printed}");
+            assert!(printed.contains(REDACTED_TEXT_MARKER), "{printed}");
         }
 
         // The send writes the token; the record a request log keeps does not.
@@ -574,6 +586,24 @@ mod tests {
         let printed = printed_chain(&refusal);
         assert!(printed.contains("longer than"), "{printed}");
         assert!(!printed.contains(TOKEN), "{printed}");
+    }
+
+    #[test]
+    fn sign_in_code_prints_only_its_marker() {
+        const CODE: &str = "code-do-not-print-4b1e";
+        let request = parse_received::<ProviderAccountSignInCodeSubmitRequest>(
+            json!({ "attemptId": "attempt-1", "code": CODE })
+                .to_string()
+                .as_bytes(),
+            Vec::new(),
+        )
+        .expect("a code submit reads");
+
+        for printed in [format!("{request:?}"), format!("{request:#?}")] {
+            assert!(!printed.contains(CODE), "{printed}");
+            assert!(printed.contains(REDACTED_TEXT_MARKER), "{printed}");
+            assert!(printed.contains("attempt-1"), "{printed}");
+        }
     }
 
     #[rstest]
