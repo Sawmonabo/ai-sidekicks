@@ -68,8 +68,8 @@ fn command(name: &str, description: Option<&str>) -> ProviderCommandEntry {
     }
 }
 
-// Killed by starting the read for a live session, by dropping the listed description, by keeping
-// an empty hint, and by listing a tool server's prompt as a command.
+// Killed by starting the read for a live session, by dropping the listed description, by reading
+// an empty hint as one, and by listing a tool server's prompt as a command.
 #[rstest]
 #[case::live(true)]
 #[case::at_rest(false)]
@@ -95,7 +95,10 @@ async fn a_live_session_lists_its_declaration_and_one_at_rest_its_read(#[case] i
     } else {
         new_session_id()
     };
-    fixture.starts.script_session_commands(listed_rows());
+    let rows = listed_rows();
+    // Read absent, not as a hint the entry's bounds would refuse and report.
+    assert_eq!(rows[0].argument_hint, None);
+    fixture.starts.script_session_commands(rows);
     let asked = params(session_id);
 
     let listed = fixture
