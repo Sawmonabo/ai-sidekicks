@@ -105,7 +105,7 @@ const PROVIDER_MESSAGE_ID_PAYLOAD_KEY: &str = "providerMessageId";
 const PROVIDER_BLOCK_PAYLOAD_KEY: &str = "providerBlock";
 
 /// The payload member that names the tool call a tool row belongs to.
-pub(crate) const TOOL_CALL_ID_PAYLOAD_KEY: &str = "toolCallId";
+pub const TOOL_CALL_ID_PAYLOAD_KEY: &str = "toolCallId";
 
 // The row a new piece joins, as its first piece's sequence: the run's newest piece of its type
 // under its key, unless an event ending the run's rows came after it, so a row takes pieces until

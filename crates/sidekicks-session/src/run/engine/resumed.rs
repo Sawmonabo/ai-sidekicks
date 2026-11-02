@@ -16,6 +16,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::stored_column::safe_int_column;
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
+use sidekicks_store::events::session::insert::TOOL_CALL_ID_PAYLOAD_KEY;
 
 use crate::console_state::read_session_max_steps_per_turn;
 use crate::run::engine::RunEngine;
@@ -42,7 +43,8 @@ static SELECT_OPEN_TURN_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
     let reached = SessionEventType::AgentRunStepLimitReached;
     format!(
         "SELECT started.turn_number,
-    (SELECT COUNT(DISTINCT COALESCE(json_extract(step.payload, '$.toolCallId'), step.sequence))
+    (SELECT COUNT(DISTINCT COALESCE(
+        json_extract(step.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}'), step.sequence))
       FROM session_events AS step
       WHERE step.run_id = started.run_id
         AND step.sequence > started.sequence

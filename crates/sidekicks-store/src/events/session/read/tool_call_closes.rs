@@ -13,13 +13,11 @@ use crate::events::session::insert::TOOL_CALL_ID_PAYLOAD_KEY;
 use crate::transcript::rejoin::row_condition_sql;
 
 /// One of a run's tool calls whose result folds: where its closes, its `completed` and `failed`
-/// rows, sit in the log, and whether the provider moved it to the background.
+/// rows, sit in the log.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToolCallCloses {
     /// The provider's id of the call.
     pub tool_call_id: String,
-    /// Whether the call has an `agent.toolCall.backgrounded` row.
-    pub is_backgrounded: bool,
     /// The sequence of the call's first close; `None` for a held call no close has answered.
     pub first_close: Option<i64>,
     /// The sequence of the call's last close; `None` as `first_close` is.
@@ -35,7 +33,6 @@ static TOOL_CALL_CLOSES_SQL: LazyLock<String> = LazyLock::new(|| {
     let failed = SessionEventType::AgentToolCallFailed.as_str();
     format!(
         "SELECT json_extract(event.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}'),
-            MAX(event.type = '{backgrounded}'),
             MIN(CASE WHEN event.type <> '{backgrounded}' THEN event.sequence END),
             MAX(CASE WHEN event.type <> '{backgrounded}' THEN event.sequence END)
        FROM session_events AS event
@@ -78,9 +75,8 @@ where
                     |row| {
                         Ok(ToolCallCloses {
                             tool_call_id: row.get(0)?,
-                            is_backgrounded: row.get(1)?,
-                            first_close: row.get(2)?,
-                            last_close: row.get(3)?,
+                            first_close: row.get(1)?,
+                            last_close: row.get(2)?,
                         })
                     },
                 )?

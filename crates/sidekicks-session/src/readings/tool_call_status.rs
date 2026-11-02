@@ -470,4 +470,33 @@ mod tests {
         statuses.publish_tool_call_status(session_id, call("k2"), line("e"));
         assert_eq!(read(&mut feed).await, sent("k2", Some("e")));
     }
+
+    // Catches a send armed before a call's clear that still sends once the call publishes again:
+    // with the clear's abort and the send's stamp check both removed, the send armed for the old
+    // second's end sends `d` then, 700 ms early.
+    #[tokio::test(start_paused = true)]
+    async fn a_send_armed_before_a_clear_never_sends_a_line_published_after_it() {
+        let fixture = fixture().await;
+        let (statuses, session_id) = (&fixture.statuses, fixture.session_id);
+        let mut feed = open_feed(statuses, session_id).await;
+        let start = Instant::now();
+        statuses.publish_tool_call_status(session_id, call("k1"), line("a"));
+        assert_eq!(read(&mut feed).await, sent("k1", Some("a")));
+
+        tokio::time::advance(Duration::from_millis(500)).await;
+        statuses.publish_tool_call_status(session_id, call("k1"), line("b"));
+        tokio::time::advance(Duration::from_millis(100)).await;
+        statuses.clear_tool_call_status(session_id, call("k1"));
+        assert_eq!(read(&mut feed).await, sent("k1", None));
+
+        tokio::time::advance(Duration::from_millis(100)).await;
+        statuses.publish_tool_call_status(session_id, call("k1"), line("c"));
+        assert_eq!(read(&mut feed).await, sent("k1", Some("c")));
+        assert_eq!(Instant::now(), start + Duration::from_millis(700));
+
+        tokio::time::advance(Duration::from_millis(100)).await;
+        statuses.publish_tool_call_status(session_id, call("k1"), line("d"));
+        assert_eq!(read(&mut feed).await, sent("k1", Some("d")));
+        assert_eq!(Instant::now(), start + Duration::from_millis(1_700));
+    }
 }

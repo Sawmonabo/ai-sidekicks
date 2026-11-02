@@ -15,7 +15,6 @@ use sidekicks_contracts::event::declared_variants::{
 use sidekicks_contracts::event::envelope::EventOccurredAt;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::port::held_tool_calls::{
     HELD_TOOL_CALLS_READ_MAX, HeldToolCall, HeldToolCallReads,
@@ -25,6 +24,12 @@ use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLen
 use sidekicks_store::database::stored_column::{
     StoredJsonFault, closed_word, optional_text_column, text_column,
 };
+use sidekicks_store::events::session::insert::TOOL_CALL_ID_PAYLOAD_KEY;
+
+use crate::run::read::{NEAREST_LINEAGE_BINDING_ORDER_SQL, provider_lineage_sql};
+
+// The payload member that names why a call ended with no result.
+const END_CAUSE_PAYLOAD_KEY: &str = "endCause";
 
 // The SQL condition that `close` is a close of the call `held` moved to the background, written
 // after it.
@@ -34,8 +39,8 @@ fn closes_held_call_sql() -> String {
         AND close.type IN ('{completed}', '{failed}')
         AND close.run_id = held.run_id
         AND close.sequence > held.sequence
-        AND json_extract(close.payload, '$.toolCallId')
-          = json_extract(held.payload, '$.toolCallId')",
+        AND json_extract(close.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}')
+          = json_extract(held.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}')",
         completed = SessionEventType::AgentToolCallCompleted.as_str(),
         failed = SessionEventType::AgentToolCallFailed.as_str(),
     )
@@ -62,40 +67,35 @@ static SELECT_HELD_TOOL_CALLS_SQL: LazyLock<String> = LazyLock::new(|| {
   WHERE held.session_id = @session_id
     AND held.type = '{backgrounded}'
 ),
-lineage(origin_run_id, run_id, depth) AS (
-  SELECT DISTINCT background.run_id, background.run_id, 0 FROM background
-  UNION ALL
-  SELECT lineage.origin_run_id, runs.parent_run_id, lineage.depth + 1
-    FROM runs JOIN lineage ON runs.run_id = lineage.run_id
-    WHERE runs.reached_by = '{provider_subagent}'
-)
+{lineage}
 SELECT background.payload,
   (SELECT invoked.occurred_at FROM session_events AS invoked
     WHERE invoked.session_id = @session_id
       AND invoked.type = '{invoked}'
       AND invoked.run_id = background.run_id
       AND invoked.sequence < background.sequence
-      AND json_extract(invoked.payload, '$.toolCallId')
-        = json_extract(background.payload, '$.toolCallId')
+      AND json_extract(invoked.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}')
+        = json_extract(background.payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}')
     ORDER BY invoked.sequence DESC
     LIMIT 1),
-  json_extract(close.payload, '$.endCause'),
+  json_extract(close.payload, '$.{END_CAUSE_PAYLOAD_KEY}'),
   (SELECT binding.id FROM lineage
     JOIN runtime_bindings AS binding ON binding.run_id = lineage.run_id
     WHERE lineage.origin_run_id = background.run_id
-    ORDER BY lineage.depth, binding.created_at DESC, binding.id DESC
-    LIMIT 1)
+    {NEAREST_LINEAGE_BINDING_ORDER_SQL})
 FROM background
 LEFT JOIN session_events AS close
   ON close.session_id = @session_id AND close.sequence = background.close_sequence
 WHERE close.sequence IS NULL
-  OR (close.type = '{failed}' AND json_extract(close.payload, '$.endCause') IS NOT NULL)
+  OR (close.type = '{failed}'
+    AND json_extract(close.payload, '$.{END_CAUSE_PAYLOAD_KEY}') IS NOT NULL)
 ORDER BY background.sequence DESC
 LIMIT {HELD_TOOL_CALLS_READ_MAX}",
         closes_held_call = closes_held_call_sql(),
         backgrounded = SessionEventType::AgentToolCallBackgrounded.as_str(),
         invoked = SessionEventType::AgentToolCallInvoked.as_str(),
-        provider_subagent = <&'static str>::from(ChildRunProvenance::ProviderSubagent),
+        lineage =
+            provider_lineage_sql("SELECT DISTINCT background.run_id AS run_id FROM background"),
     )
 });
 
@@ -114,10 +114,11 @@ static SELECT_SESSIONS_HOLDING_TOOL_CALLS_SQL: LazyLock<String> = LazyLock::new(
 
 /// `session_id`'s held calls read on `reader`, newest first and at most
 /// [`HELD_TOOL_CALLS_READ_MAX`]: each call moved to the background with no close after it, and
-/// each whose last close is a `failed` row naming why it ended with no result, each with the binding
-/// its close is appended on: the newest of the nearest run up its provider subagent lineage that
-/// has one. Fails when SQLite refuses the read, a stored background payload, opening time, end cause
-/// or binding id does not read as its type, or no run up the call's lineage has a binding.
+/// each whose last close is a `failed` row naming why it ended with no result, each with the
+/// binding its close is appended on: the newest of the nearest run up its provider subagent
+/// lineage that has one. Fails when SQLite refuses the read, a stored background payload, opening
+/// time, end cause or binding id does not read as its type, or no run up the call's lineage has a
+/// binding.
 pub fn read_held_tool_calls(
     reader: &Connection,
     session_id: &SessionId,

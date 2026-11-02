@@ -23,6 +23,7 @@ use sidekicks_contracts::transcript::turn_attribution::{
 };
 use sidekicks_contracts::wire::id::IdError;
 use sidekicks_store::database::stored_column::json_object_column;
+use sidekicks_store::events::session::insert::TOOL_CALL_ID_PAYLOAD_KEY;
 use sidekicks_store::events::session::read::{readable_event_sql, session_read_bound};
 
 use crate::run::superseded::{
@@ -106,7 +107,7 @@ static SELECT_TOOL_CALL_OPENING_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT sequence, payload FROM session_events AS event
   WHERE session_id = @session_id AND type = @type AND sequence < @before_sequence
     AND run_id = @run_id AND {}
-    AND json_extract(payload, '$.toolCallId') = @tool_call_id
+    AND json_extract(payload, '$.{TOOL_CALL_ID_PAYLOAD_KEY}') = @tool_call_id
   ORDER BY sequence DESC
   LIMIT 1",
         readable_event_sql("event")
