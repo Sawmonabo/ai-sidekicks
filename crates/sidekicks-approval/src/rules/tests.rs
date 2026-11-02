@@ -194,6 +194,7 @@ async fn a_revoke_answers_not_kept_only_while_the_rule_file_keeps_it(
             ApprovalRequestOrigin {
                 ask_id: Some(from_json(json!(mint_uuid_v7()))),
                 tool_call_id: None,
+                input_digest: None,
             },
         )
         .await

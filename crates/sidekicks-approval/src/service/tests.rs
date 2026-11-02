@@ -552,6 +552,7 @@ fn an_answer_that_does_not_fit_names_the_first_check_it_breaks(
         })),
         ask_id: None,
         tool_call_id: None,
+        input_digest: None,
         state: ApprovalState::Pending,
         created_at: WireInstant::now(),
         updated_at: WireInstant::now(),
