@@ -394,10 +394,7 @@ impl StepActionApproval for RefusingPorts {
 
 #[cfg(test)]
 impl StepProcessLauncher for RefusingPorts {
-    fn command_shell(
-        &self,
-        _provider: &sidekicks_contracts::provider::id::ProviderId,
-    ) -> Option<PathBuf> {
+    fn command_shell(&self, _provider: &ProviderId) -> Option<PathBuf> {
         None
     }
 
