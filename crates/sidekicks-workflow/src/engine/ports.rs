@@ -467,6 +467,109 @@ impl StepPayloadArtifacts for RefusingPorts {
     }
 }
 
+/// A memory gate for a test: it records each work enqueued and wakes the test, and every ticket it
+/// answers reads one outcome the test sets, starting at the outcome it was built with.
+#[cfg(test)]
+pub(crate) struct ScriptedGate {
+    /// The outcome every ticket reads.
+    outcome: watch::Sender<Option<StepAdmissionOutcome>>,
+    /// The work each enqueue was given, in order.
+    enqueued: std::sync::Mutex<Vec<StepAdmissionWork>>,
+    /// Woken at each enqueue; a wake with no waiter is kept for the next.
+    entered: tokio::sync::Notify,
+    /// How many of its tickets were dropped.
+    dropped_tickets: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(test)]
+impl ScriptedGate {
+    /// A gate whose tickets start at `initial`: `None` holds, `Some(Admitted)` admits at once.
+    pub(crate) fn new(initial: Option<StepAdmissionOutcome>) -> Self {
+        Self {
+            outcome: watch::Sender::new(initial),
+            enqueued: std::sync::Mutex::new(Vec::new()),
+            entered: tokio::sync::Notify::new(),
+            dropped_tickets: Arc::default(),
+        }
+    }
+
+    /// Admits every ticket.
+    pub(crate) fn admit(&self) {
+        self.outcome
+            .send_replace(Some(StepAdmissionOutcome::Admitted));
+    }
+
+    /// Returns once a work is enqueued, at once when one was enqueued since the last return.
+    pub(crate) async fn wait_for_entry(&self) {
+        self.entered.notified().await;
+    }
+
+    /// The work enqueued so far, in order.
+    pub(crate) fn enqueued(&self) -> Vec<StepAdmissionWork> {
+        sidekicks_std::mutex_lock::lock(&self.enqueued).clone()
+    }
+
+    /// How many of its tickets were dropped.
+    pub(crate) fn dropped_tickets(&self) -> usize {
+        self.dropped_tickets
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[cfg(test)]
+impl StepAdmission for ScriptedGate {
+    fn enqueue(&self, work: StepAdmissionWork) -> Box<dyn StepAdmissionTicket> {
+        sidekicks_std::mutex_lock::lock(&self.enqueued).push(work);
+        self.entered.notify_one();
+        Box::new(ScriptedTicket {
+            outcome: self.outcome.subscribe(),
+            dropped_tickets: Arc::clone(&self.dropped_tickets),
+        })
+    }
+
+    fn weigh(&self) {}
+}
+
+/// A ticket of a [`ScriptedGate`], which counts its own drop.
+#[cfg(test)]
+struct ScriptedTicket {
+    /// The gate's outcome.
+    outcome: watch::Receiver<Option<StepAdmissionOutcome>>,
+    /// The gate's count of dropped tickets.
+    dropped_tickets: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[cfg(test)]
+impl StepAdmissionTicket for ScriptedTicket {
+    fn admitted(&self) -> watch::Receiver<Option<StepAdmissionOutcome>> {
+        self.outcome.clone()
+    }
+
+    fn park(&self) -> Result<(), PortError> {
+        Err(REFUSED_PORT_CALL.into())
+    }
+
+    fn resume(&self) -> Result<(), PortError> {
+        Err(REFUSED_PORT_CALL.into())
+    }
+
+    fn observe_process_peak(&self, _process_id: u32) -> BoxFuture<'_, Result<(), PortError>> {
+        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+    }
+
+    fn observe_interpreter_peak(&self, _bytes: u64) -> Result<(), PortError> {
+        Err(REFUSED_PORT_CALL.into())
+    }
+}
+
+#[cfg(test)]
+impl Drop for ScriptedTicket {
+    fn drop(&mut self) {
+        self.dropped_tickets
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// An engine's ports for a test, each refusing every call.
 #[cfg(test)]
 pub(crate) fn refusing_engine_ports() -> EnginePorts {

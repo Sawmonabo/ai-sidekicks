@@ -167,7 +167,9 @@ pub(crate) struct StepReport {
 }
 
 /// What a step reports: where it stands at the memory gate, its start, its progress, its wind-down
-/// or its end. The tick writes a step's `Admitted` before any report from its driver.
+/// or its end. A step the dispatch admits has its `Admitted` in the dispatch's own answer, before
+/// any report from its driver; a step the gate weighs reports its hold and its admission from its
+/// driver.
 pub(crate) enum StepReportKind {
     /// The memory gate holds the step; every report of one hold carries the instant of its first,
     /// so the first is the one whose `at` equals `hold_started_at`.

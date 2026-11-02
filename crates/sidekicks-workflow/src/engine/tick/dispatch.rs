@@ -1,5 +1,6 @@
-//! The tick's dispatch: it admits each step the walk readies, and a driver task per step launches
-//! it, runs its executor and settles it, sending every later report to the tick.
+//! The tick's dispatch: it decides in the tick's turn how each step the walk readies is admitted,
+//! and a driver task per step waits at the memory gate where its kind asks, launches it, runs its
+//! executor and settles it, sending every later report to the tick.
 
 mod launch;
 mod run;
@@ -10,6 +11,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
@@ -20,14 +22,16 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use super::admission::send;
+use super::admission::{GateEntryOrder, GateEntryTurn, GateWaitEnd, send, wait_at_gate};
 use super::node_settings::{
     execute_once_inputs, main_input_lengths, main_output_count, pinned_outputs, shape_outputs,
 };
 use super::{ReadyStep, RunScope, RunSnapshot, StepReport, StepReportKind, StepSettlement};
-use crate::engine::ports::EnginePorts;
+use crate::engine::ports::{EnginePorts, StepAdmissionTicket, StepAdmissionWork, WorkflowNodeKey};
 use crate::expressions::evaluator::ExpressionEvaluator;
-use crate::kinds::{NodeKindTable, StepFailure, uncoded_step_error};
+use crate::kinds::{
+    NodeKindTable, StepAdmissionNeed, StepAdmissionShape, StepFailure, uncoded_step_error,
+};
 use crate::secrets::redaction::RunRedaction;
 use crate::secrets::store::WorkflowSecretStore;
 
@@ -49,6 +53,8 @@ pub(crate) struct StepDispatch {
     kinds: Arc<NodeKindTable>,
     /// The tick's report channel, which every driver sends its step's reports on.
     reports: mpsc::Sender<StepReport>,
+    /// The one line in which every run this dispatch serves enters the memory gate.
+    gate_entries: GateEntryOrder,
 }
 
 /// A step the dispatch admitted: its own cancel and the reports the tick writes for it this turn.
@@ -79,32 +85,36 @@ impl StepDispatch {
             http,
             kinds,
             reports,
+            gate_entries: GateEntryOrder::default(),
         }
     }
 
-    /// Dispatches `ready`, a step of the run of `scope`, reading `snapshot`: admits it at once and
-    /// spawns its driver, or fails it at once when the table lists no kind at its node's version.
-    /// Answers the step's cancel and the reports the tick writes this turn. Must be called inside
-    /// tokio.
+    /// Dispatches `ready`, a step of the run of `scope`, reading `snapshot`, deciding in this turn
+    /// how it is admitted. A kind or version the table does not list fails at once, and a node
+    /// pinned in a manual run settles with its pinned items, both with no task. A step the memory
+    /// gate does not weigh is admitted at once and its driver spawned; a step the gate weighs
+    /// takes its turn in the entry line and its driver reports its hold and its admission. Answers
+    /// the step's cancel and the reports the tick writes this turn. Must be called inside tokio.
     pub(crate) fn dispatch(
         &self,
         scope: &Arc<RunScope>,
         snapshot: &RunSnapshot,
-        ready: ReadyStep,
+        mut ready: ReadyStep,
     ) -> DispatchedStep {
         let node = scope
             .nodes
             .get(&ready.step.node_id)
             .expect("the walk readies only the run's own nodes");
         let cancel = scope.cancel.child_token();
-        let mut reports = vec![StepReport {
-            step: ready.step.clone(),
+        let report = |step: WorkflowStepKey, kind: StepReportKind| StepReport {
+            step,
             at: WireInstant::now(),
-            kind: StepReportKind::Admitted {
-                hold_started_at: None,
-            },
-        }];
-        if self.kinds.kind_of(node).is_none() {
+            kind,
+        };
+        let admitted = StepReportKind::Admitted {
+            hold_started_at: None,
+        };
+        let Some(kind) = self.kinds.kind_of(node) else {
             let error = uncoded_step_error(format!(
                 "this service runs no kind {} at version {}",
                 node.kind.0.as_str(),
@@ -115,43 +125,16 @@ impl StepDispatch {
                 &node.id,
                 &scope.redaction,
             );
-            reports.push(StepReport {
-                step: ready.step,
-                at: WireInstant::now(),
-                kind: StepReportKind::Settled(StepSettlement::Failed {
-                    failure,
-                    log_lines: Vec::new(),
-                }),
-            });
+            let failed = StepSettlement::Failed {
+                failure,
+                log_lines: Vec::new(),
+            };
+            let reports = vec![
+                report(ready.step.clone(), admitted),
+                report(ready.step, StepReportKind::Settled(failed)),
+            ];
             return DispatchedStep { cancel, reports };
-        }
-        tokio::spawn(self.clone().drive(
-            Arc::clone(scope),
-            snapshot.clone(),
-            ready,
-            cancel.clone(),
-        ));
-        DispatchedStep { cancel, reports }
-    }
-
-    /// Drives the admitted step `ready` to its settlement: a node pinned in a manual run gives its
-    /// pinned items; any other is cut for execute-once, launched, started and run.
-    async fn drive(
-        self,
-        scope: Arc<RunScope>,
-        snapshot: RunSnapshot,
-        mut ready: ReadyStep,
-        cancel: CancellationToken,
-    ) {
-        let node = scope
-            .nodes
-            .get(&ready.step.node_id)
-            .expect("the dispatch found the step's node in the run's nodes");
-        let kind = self
-            .kinds
-            .kind_of(node)
-            .expect("the dispatch found the node's kind in the table");
-        let step = ready.step.clone();
+        };
         let pinned = pinned_outputs(
             scope.mode,
             scope.pin_data.as_ref(),
@@ -168,31 +151,197 @@ impl StepDispatch {
                 input_ref: ready.input_ref,
                 permission_level: None,
             };
-            if self.report(&step, &cancel, started).await {
-                let completed = StepSettlement::Completed {
-                    outputs,
-                    cost: None,
-                    log_lines: Vec::new(),
-                    run_variables: BTreeMap::new(),
-                };
-                self.report(&step, &cancel, StepReportKind::Settled(completed))
-                    .await;
-            }
-            return;
+            let completed = StepSettlement::Completed {
+                outputs,
+                cost: None,
+                log_lines: Vec::new(),
+                run_variables: BTreeMap::new(),
+            };
+            let reports = vec![
+                report(ready.step.clone(), admitted),
+                report(ready.step.clone(), started),
+                report(ready.step, StepReportKind::Settled(completed)),
+            ];
+            return DispatchedStep { cancel, reports };
         }
         ready.inputs = execute_once_inputs(node, std::mem::take(&mut ready.inputs));
+        match kind.executor.admission_need(node) {
+            StepAdmissionNeed::Unweighed => {
+                let reports = vec![report(ready.step.clone(), admitted)];
+                tokio::spawn(self.clone().drive(
+                    Arc::clone(scope),
+                    snapshot.clone(),
+                    ready,
+                    cancel.clone(),
+                    None,
+                ));
+                DispatchedStep { cancel, reports }
+            }
+            StepAdmissionNeed::Gate(shape) => {
+                // Taken here, not in the driver, so turns follow the order the tick dispatches in.
+                let turn = self.gate_entries.take_turn();
+                tokio::spawn(self.clone().drive_at_gate(
+                    Arc::clone(scope),
+                    snapshot.clone(),
+                    ready,
+                    cancel.clone(),
+                    shape,
+                    turn,
+                ));
+                DispatchedStep {
+                    cancel,
+                    reports: Vec::new(),
+                }
+            }
+        }
+    }
+
+    /// Drives `ready`, a step the memory gate weighs as `shape`, to its admission: measures what
+    /// it runs, waits for its `turn` in the entry line, enters the gate and reports its hold and
+    /// its admission, then runs it as [`Self::drive`] does, holding its ticket. A step canceled in
+    /// the line or at the gate settles canceled; one the gate releases unadmitted fails.
+    async fn drive_at_gate(
+        self,
+        scope: Arc<RunScope>,
+        snapshot: RunSnapshot,
+        ready: ReadyStep,
+        cancel: CancellationToken,
+        shape: StepAdmissionShape,
+        turn: GateEntryTurn,
+    ) {
+        let node = scope
+            .nodes
+            .get(&ready.step.node_id)
+            .expect("the dispatch found the step's node in the run's nodes");
+        let step = ready.step.clone();
+        let node_key = WorkflowNodeKey::new(scope.workflow_id, &node.id);
+        let work = match shape {
+            StepAdmissionShape::Script { runtime } => {
+                StepAdmissionWork::Script { runtime, node_key }
+            }
+            StepAdmissionShape::QuickCode {
+                budget_bytes,
+                output_max_bytes,
+            } => match json_utf8_byte_length(&ready.inputs) {
+                Ok(input_bytes) => StepAdmissionWork::QuickCode {
+                    budget_bytes,
+                    input_bytes: u64::try_from(input_bytes)
+                        .expect("a length held in memory fits in 64 bits"),
+                    output_max_bytes,
+                    node_key,
+                },
+                Err(error) => {
+                    // Every path drops the turn before it reports, so a slow report channel never
+                    // holds up the line.
+                    drop(turn);
+                    let failure = StepFailure::Failed(Box::new(uncoded_step_error(format!(
+                        "the step's input could not be measured: {error}"
+                    ))));
+                    let failed = StepSettlement::Failed {
+                        failure: fill_step_failure(failure, &node.id, &scope.redaction),
+                        log_lines: Vec::new(),
+                    };
+                    self.report(&step, &cancel, StepReportKind::Settled(failed))
+                        .await;
+                    return;
+                }
+            },
+        };
+        let is_canceled_in_line = tokio::select! {
+            biased;
+            () = cancel.cancelled() => true,
+            () = turn.wait() => false,
+        };
+        if is_canceled_in_line {
+            drop(turn);
+            let canceled = StepSettlement::Canceled {
+                hold_started_at: None,
+                is_sibling_failure: false,
+            };
+            self.report(&step, &cancel, StepReportKind::Settled(canceled))
+                .await;
+            return;
+        }
+        let ticket: Arc<dyn StepAdmissionTicket> = Arc::from(self.ports.admission.enqueue(work));
+        drop(turn);
+        let end = wait_at_gate(step.clone(), ticket.admitted(), &cancel, &self.reports).await;
+        let settlement = match end {
+            GateWaitEnd::Admitted => {
+                self.drive(scope, snapshot, ready, cancel, Some(ticket))
+                    .await;
+                return;
+            }
+            GateWaitEnd::Withdrawn { .. } => {
+                let failure = StepFailure::Failed(Box::new(uncoded_step_error(
+                    "the memory gate released the step before admitting it".to_owned(),
+                )));
+                StepSettlement::Failed {
+                    failure: fill_step_failure(failure, &node.id, &scope.redaction),
+                    log_lines: Vec::new(),
+                }
+            }
+            // Dropping the ticket below withdraws the step's place.
+            GateWaitEnd::Canceled { hold_started_at } => StepSettlement::Canceled {
+                hold_started_at,
+                is_sibling_failure: false,
+            },
+            // The tick's loop cancels the run once it stops reading reports, so nothing is left
+            // to tell.
+            GateWaitEnd::ReportsClosed => return,
+        };
+        self.report(&step, &cancel, StepReportKind::Settled(settlement))
+            .await;
+        drop(ticket);
+    }
+
+    /// Drives the admitted step `ready`, its inputs already cut for execute-once, to its
+    /// settlement: launched holding its place at the memory gate, `admission`, then started and
+    /// run. A launch that fails after the step's cancel settles canceled.
+    async fn drive(
+        self,
+        scope: Arc<RunScope>,
+        snapshot: RunSnapshot,
+        ready: ReadyStep,
+        cancel: CancellationToken,
+        admission: Option<Arc<dyn StepAdmissionTicket>>,
+    ) {
+        let node = scope
+            .nodes
+            .get(&ready.step.node_id)
+            .expect("the dispatch found the step's node in the run's nodes");
+        let kind = self
+            .kinds
+            .kind_of(node)
+            .expect("the dispatch found the node's kind in the table");
+        let step = ready.step.clone();
         let launched = self
-            .launch(&scope, &snapshot, &ready, kind, cancel.clone(), None)
+            .launch(
+                &scope,
+                &snapshot,
+                &ready,
+                kind,
+                cancel.clone(),
+                admission.clone(),
+            )
             .await;
         let context = match launched {
             Ok(context) => context,
             Err(failure) => {
-                let failed = StepSettlement::Failed {
-                    failure: fill_step_failure(failure, &node.id, &scope.redaction),
-                    log_lines: Vec::new(),
+                // A cancel during the launch comes back as the launch's own failure.
+                let settlement = if cancel.is_cancelled() {
+                    StepSettlement::Canceled {
+                        hold_started_at: None,
+                        is_sibling_failure: false,
+                    }
+                } else {
+                    StepSettlement::Failed {
+                        failure: fill_step_failure(failure, &node.id, &scope.redaction),
+                        log_lines: Vec::new(),
+                    }
                 };
-                self.report(&step, &cancel, StepReportKind::Settled(failed))
+                self.report(&step, &cancel, StepReportKind::Settled(settlement))
                     .await;
+                drop(admission);
                 return;
             }
         };
@@ -207,9 +356,10 @@ impl StepDispatch {
             self.report(&step, &cancel, StepReportKind::Settled(settlement))
                 .await;
         }
-        // Dropped only after the settlement is sent, so the gate place it holds is released after
-        // the report.
+        // Dropped only after the settlement is sent, so the gate place they hold is released
+        // after the report.
         drop(context);
+        drop(admission);
     }
 
     /// Sends `kind` for `step` to the tick, answering whether the tick took it. When the tick has

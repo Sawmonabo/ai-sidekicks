@@ -157,8 +157,9 @@ struct GateEntryLine {
 }
 
 /// The order ready steps enter the memory gate in: the order the tick takes their turns, which is
-/// the order they became ready, siblings readied together taken in their `order`.
-#[derive(Debug, Default)]
+/// the order they became ready, siblings readied together taken in their `order`. Clones share one
+/// line.
+#[derive(Clone, Debug, Default)]
 pub(crate) struct GateEntryOrder {
     /// The line its turns share.
     line: Arc<GateEntryLine>,
