@@ -347,6 +347,12 @@ impl LastingCodexService {
         request_codex_service_shutdown(connection, self.process.id()).await
     }
 
+    /// Kills the service at once, through its pin, as a stop does once its grace passes; answers
+    /// whether it still ran. Fails with the system's error.
+    pub(crate) fn kill(&self) -> io::Result<bool> {
+        self.process.kill()
+    }
+
     /// Waits with no bound and no thread for the service's end, for one asked to drain. Dropping
     /// the wait calls it off. Fails with the system's error.
     pub(crate) async fn wait_for_end(&self) -> io::Result<()> {

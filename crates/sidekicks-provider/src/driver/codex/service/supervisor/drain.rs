@@ -1,15 +1,18 @@
 //! The drains of the lasting Codex services another holds the home's link in place of, one per
 //! record across every service of a driver: Codex is asked once to drain, its own graceful end,
 //! and the record is marked draining only once the ask was delivered, so no start joins it, points
-//! the link at it or asks it again; one task then waits for its end with no bound and no thread
-//! while it finishes its running replies, tells every start and stop waiting on it, ends what it
-//! left and removes its record. The daemon's stop calls every wait off and leaves the marked
-//! records for its next start, which waits on them again.
+//! the link at it or asks it again; one task then waits for its end with no thread while it
+//! finishes its running replies, tells every start and stop waiting on it, ends what it left and
+//! removes its record. A replaced service's wait has no bound; a short-lived service's, which an
+//! act in an account's home waits on, kills the service once its bound passes. The daemon's stop
+//! calls every wait off and leaves the marked records for its next start, which waits on them
+//! again.
 
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
 
 use sidekicks_platforms::ProcessRecord;
 use sidekicks_std::mutex_lock::lock;
@@ -20,7 +23,7 @@ use crate::driver::codex::service::process::{
     LastingCodexService, codex_lasting_service_environment_entry,
 };
 use crate::driver::codex::service::record::{LastingServiceRecordFile, LockedServiceRecord};
-use crate::driver::codex::service::supervisor::runner::report_stop_failed;
+use crate::driver::codex::service::supervisor::runner::{SERVICE_STOP_GRACE, report_stop_failed};
 use crate::driver::codex::service::supervisor::start::kept_records::on_record;
 
 /// How a drain ended, as its one waiting task tells it.
@@ -28,6 +31,8 @@ use crate::driver::codex::service::supervisor::start::kept_records::on_record;
 pub(crate) enum LastingServiceDrainEnd {
     /// The service ended by itself.
     Ended,
+    /// The service outlasted its drain's bound and was killed.
+    Killed,
     /// The daemon's stop called the wait off; the service drains on by itself.
     CalledOff,
     /// The wait failed, which was reported.
@@ -40,15 +45,26 @@ pub(crate) type LastingServiceDrainWatch = watch::Receiver<Option<LastingService
 // The drains under way, by the file of each drained service's record.
 type DrainsUnderWay = Arc<Mutex<HashMap<LastingServiceRecordFile, LastingServiceDrainWatch>>>;
 
-/// The drains under way of one driver's lasting services, one per record file, and the one call-off
-/// the registry's shutdown makes.
+/// The drains under way of one driver's lasting services, one per record file, the one call-off
+/// the registry's shutdown makes, and the bound each wait has, if any.
 #[derive(Default)]
 pub(crate) struct LastingServiceDrains {
     under_way: DrainsUnderWay,
     call_off: CancellationToken,
+    bound: Option<Duration>,
 }
 
 impl LastingServiceDrains {
+    /// The drains of short-lived services: each wait kills its service once the grace a stop
+    /// gives passes, and the registry's shutdown calls them off with `shared`'s.
+    pub(crate) fn short_lived_beside(shared: &Self) -> Self {
+        Self {
+            under_way: DrainsUnderWay::default(),
+            call_off: shared.call_off.child_token(),
+            bound: Some(SERVICE_STOP_GRACE),
+        }
+    }
+
     /// Calls off the wait of every drain, those begun later included: each service drains on by
     /// itself, and its marked record stays for the next daemon's start.
     pub(crate) fn call_off(&self) {
@@ -86,6 +102,7 @@ impl LastingServiceDrains {
             told,
             Arc::clone(&self.under_way),
             self.call_off.clone(),
+            self.bound,
         ));
         Ok(end)
     }
@@ -113,7 +130,10 @@ pub(super) async fn drain_lasting_service(
             .await
     };
     match begun.await {
-        Ok(end) => read_drain_end(end).await == Some(LastingServiceDrainEnd::Ended),
+        Ok(end) => matches!(
+            read_drain_end(end).await,
+            Some(LastingServiceDrainEnd::Ended | LastingServiceDrainEnd::Killed)
+        ),
         Err(error) => {
             report_stop_failed(error);
             false
@@ -144,29 +164,45 @@ fn mark_draining(locked: &LockedServiceRecord, process: &ProcessRecord) -> io::R
     Ok(())
 }
 
-// The one wait of a drain: until the service ends or the daemon's stop calls it off; tells the
-// end first, since a start waiting on it holds the folder's lock the removal takes, then ends what
-// the ended service left and removes its record from `record_file` while it still names it.
+// The one wait of a drain: until the service ends, the daemon's stop calls it off, or `bound`
+// passes and the service is killed; tells the end first, since a start waiting on it holds the
+// folder's lock the removal takes, then ends what the ended service left and removes its record
+// from `record_file` while it still names it.
 async fn wait_for_drained_end(
     lasting: LastingCodexService,
     record_file: LastingServiceRecordFile,
     told: watch::Sender<Option<LastingServiceDrainEnd>>,
     under_way: DrainsUnderWay,
     call_off: CancellationToken,
+    bound: Option<Duration>,
 ) {
+    let waited = async {
+        let Some(bound) = bound else {
+            return lasting
+                .wait_for_end()
+                .await
+                .map(|()| LastingServiceDrainEnd::Ended);
+        };
+        if let Ok(waited) = tokio::time::timeout(bound, lasting.wait_for_end()).await {
+            return waited.map(|()| LastingServiceDrainEnd::Ended);
+        }
+        lasting.kill()?;
+        lasting.wait_for_end().await?;
+        Ok(LastingServiceDrainEnd::Killed)
+    };
     let end = tokio::select! {
         biased;
         () = call_off.cancelled() => LastingServiceDrainEnd::CalledOff,
-        waited = lasting.wait_for_end() => match waited {
-            Ok(()) => LastingServiceDrainEnd::Ended,
-            Err(error) => {
-                report_stop_failed(error);
-                LastingServiceDrainEnd::Failed
-            }
-        },
+        waited = waited => waited.unwrap_or_else(|error| {
+            report_stop_failed(error);
+            LastingServiceDrainEnd::Failed
+        }),
     };
     told.send_replace(Some(end));
-    if end == LastingServiceDrainEnd::Ended {
+    if matches!(
+        end,
+        LastingServiceDrainEnd::Ended | LastingServiceDrainEnd::Killed
+    ) {
         let ended = lasting.record().clone();
         let retiring = record_file.clone();
         let retired =

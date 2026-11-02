@@ -104,7 +104,8 @@ impl CodexAccountLegs {
 
     // Runs `act` on the service serving in `codex_home`, else on a short-lived service started
     // there for it as `provider_account_id`'s home and ended after, whatever `act` answered, by
-    // Codex's own drain: it finishes what it was writing and exits by itself, and is waited for.
+    // Codex's own drain: it finishes what it was writing and exits by itself, waited for within
+    // the grace a stop gives and killed after it, so the act never holds the home for longer.
     async fn act_on_home_service<Answer>(
         &self,
         provider_account_id: ProviderAccountId,
@@ -134,7 +135,7 @@ impl CodexAccountLegs {
         );
         let answer = act(&service).await;
         // Taken off its home as a replaced service is, so its stop asks Codex to drain rather
-        // than signaling it to end and killing it once the grace runs out.
+        // than signaling it to end at once.
         service.mark_replaced();
         service.stop().await;
         answer
@@ -215,7 +216,8 @@ impl ProviderMemoryImportLegs for CodexAccountLegs {
 
 // What every short-lived service runs on, composed once, since nothing in it names a home: the
 // driver's own services' dependencies with the file credential store added, and drains of their
-// own, shared by every short-lived service.
+// own, shared by every short-lived service, each killing its service once a stop's grace passes
+// and called off with the driver's own drains.
 fn compose_short_lived_dependencies(
     shared: &CodexServiceDependencies,
 ) -> Arc<CodexServiceDependencies> {
@@ -235,7 +237,7 @@ fn compose_short_lived_dependencies(
         session_shell_kind: shared.session_shell_kind,
         events: Arc::clone(&shared.events),
         release: Arc::clone(&shared.release),
-        drains: LastingServiceDrains::default(),
+        drains: LastingServiceDrains::short_lived_beside(&shared.drains),
         tasks: shared.tasks.clone(),
         exec_relay: Arc::clone(&shared.exec_relay),
         switching: Arc::clone(&shared.switching),
