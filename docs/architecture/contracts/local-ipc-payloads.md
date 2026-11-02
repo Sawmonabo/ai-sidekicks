@@ -310,7 +310,9 @@ interface DaemonPackageCacheClearRequest {
 // the same directory entries the agents' session listing names, so Runtime and the agents read one
 // fact. `Stop`'s confirm counts them and the service update's waiting step counts the working ones;
 // read when a confirm opens and while an update waits, never on a timer. Empty while `Reach Codex
-// sessions started in a terminal` is off.
+// sessions started in a terminal` is off; refused `provider.unavailable` when the service is on but
+// cannot be reached, and `provider.timeout` when its read outlasts the bound, never answered empty
+// for a service that is on.
 interface TerminalProviderSession {
   provider: ProviderId;
   name: string;
