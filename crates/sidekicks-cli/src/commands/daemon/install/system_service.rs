@@ -39,7 +39,8 @@ use crate::command_context::CommandContext;
 use crate::commands::daemon::ending::end_running_daemon;
 use crate::commands::daemon::install::wait_for_installed_daemon;
 use crate::commands::daemon::registration::{
-    LoginRegistration, RootStepFailure, read_owner, read_root_step_failure, registration_failure,
+    LoginRegistration, RootStepFailure, read_home_refusal, read_owner, read_root_step_failure,
+    registration_failure,
 };
 use crate::commands::daemon::secrets_place::read_secrets_place;
 use crate::commands::data::offline_mode::run_offline_mode;
@@ -77,8 +78,6 @@ pub(crate) enum LoggedOutServiceRefusal {
     OtherAccount,
     /// The secrets are in the login keychain, which a run under `sudo` cannot reach to move them.
     KeychainHoldsSecrets,
-    /// A run under `sudo` cannot read the account's home folder, as on a network home.
-    HomeUnreadable,
     /// The person canceled the administrator password prompt.
     PasswordNotGiven,
     /// macOS did not install it, with its own message.
@@ -96,8 +95,7 @@ impl LoggedOutServiceRefusal {
             Self::Probe(_)
             | Self::NoScreenSession
             | Self::OtherAccount
-            | Self::KeychainHoldsSecrets
-            | Self::HomeUnreadable => ExitCode::Configuration,
+            | Self::KeychainHoldsSecrets => ExitCode::Configuration,
             Self::PasswordNotGiven => ExitCode::NoPermission,
             Self::NotInstalled { .. } => ExitCode::Software,
         }
@@ -119,10 +117,6 @@ impl fmt::Display for LoggedOutServiceRefusal {
             Self::KeychainHoldsSecrets => formatter.write_str(
                 "the sign-ins and secrets are in the login keychain. Log in at this Mac once, run \
                  the command there, then it runs while you are logged out",
-            ),
-            Self::HomeUnreadable => formatter.write_str(
-                "sudo cannot read your home folder, as on a network home. Run the command again \
-                 without sudo while logged in at this Mac",
             ),
             Self::PasswordNotGiven => {
                 formatter.write_str("the administrator password was not given")
@@ -284,7 +278,7 @@ pub(crate) fn install_while_signed_out<Output: Write, ErrorOutput: Write>(
 /// and the service's program `daemon_path` or the one beside this program, and answers 0 with the
 /// outcome's line on stdout. Writes nothing in the account's data folder and runs no moves mode,
 /// so it refuses with [`LoggedOutServiceRefusal::KeychainHoldsSecrets`] while the record there
-/// names the login keychain, with [`LoggedOutServiceRefusal::HomeUnreadable`] where root cannot
+/// names the login keychain, with [`CommandFailure::HomeUnreadable`] where root cannot
 /// read the account's home, and with [`CommandFailure::DataFolderHeld`] while a service neither
 /// the login agent nor this account's system service runs holds the folder. Otherwise it unloads
 /// the login agent, which ends its service, installs the system service and removes the command
@@ -461,20 +455,6 @@ fn is_system_service_holding(data_folder: &Path) -> anyhow::Result<bool> {
             .iter()
             .any(|argument| argument == SYSTEM_SERVICE_MODE)
     }))
-}
-
-/// `failure` of a read in the account's home under root's rights, a refused permission read as
-/// [`LoggedOutServiceRefusal::HomeUnreadable`], whose line says what to do in its place.
-fn read_home_refusal(failure: anyhow::Error) -> anyhow::Error {
-    let is_permission_refused = failure.chain().any(|cause| {
-        cause
-            .downcast_ref::<io::Error>()
-            .is_some_and(|error| error.kind() == io::ErrorKind::PermissionDenied)
-    });
-    if is_permission_refused {
-        return refused(LoggedOutServiceRefusal::HomeUnreadable, Ok(()));
-    }
-    failure
 }
 
 /// Removes the command line's login agent list the system service replaced, already unloaded, for

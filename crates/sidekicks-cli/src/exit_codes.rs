@@ -275,6 +275,13 @@ pub(crate) enum CommandFailure {
     /// cause, whose line this is.
     #[error("{0}")]
     SystemServiceKept(SystemServiceKeptCause),
+    /// A run under `sudo` cannot read the account's home folder, as on a network home, so the
+    /// command changed nothing.
+    #[error(
+        "sudo cannot read your home folder, as on a network home. Run the command again without \
+         sudo while logged in at this Mac."
+    )]
+    HomeUnreadable,
     /// This account's system service runs the background service while the person is logged
     /// out, and only root's rights can start it, so nothing was started or stopped.
     #[error(
@@ -301,7 +308,8 @@ impl CommandFailure {
             | Self::ServiceRunning { .. }
             | Self::DataFolderHeld
             | Self::NotAccountHome
-            | Self::AgentRunsOtherProgram => ExitCode::Configuration,
+            | Self::AgentRunsOtherProgram
+            | Self::HomeUnreadable => ExitCode::Configuration,
             Self::RegistrationRefused(_) => ExitCode::Software,
             Self::BackupUnreadable { .. } => ExitCode::NoInput,
             Self::LoggedOutServiceRefused { cause, .. } => cause.exit_code(),

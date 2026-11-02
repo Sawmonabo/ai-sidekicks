@@ -37,7 +37,8 @@ use crate::commands::daemon::install::system_service::{
 };
 use crate::commands::daemon::install::wait_for_installed_daemon;
 use crate::commands::daemon::registration::{
-    RootStepFailure, read_root_step_failure, registration_failure, this_program_as_account,
+    RootStepFailure, read_home_refusal, read_root_step_failure, registration_failure,
+    this_program_as_account,
 };
 use crate::commands::daemon::secrets_place::read_secrets_place;
 use crate::commands::data::offline_mode::run_offline_mode;
@@ -242,14 +243,21 @@ pub(crate) fn finish_moving_secrets_back(
 }
 
 /// Whether the record in the account's data folder names the system service's files, so some
-/// sign-ins and secrets may be there. Fails as the home's or the record's read fails.
+/// sign-ins and secrets may be there. Fails with [`CommandFailure::HomeUnreadable`] where root
+/// cannot read the account's home, and as the home's or the record's read fails.
 pub(crate) fn are_secrets_in_files(
     registration: &impl LoggedOutServiceRegistration,
 ) -> anyhow::Result<bool> {
     let home = registration
         .account_home()
         .map_err(|failure| registration_failure(failure, "could not read this account's home"))?;
-    Ok(read_secrets_place(&home)?.is_some_and(PlaceRecord::names_logged_out_service_file))
+    let place = read_secrets_place(&home);
+    let place = if registration.runs_as_root() {
+        place.map_err(read_home_refusal)?
+    } else {
+        place?
+    };
+    Ok(place.is_some_and(PlaceRecord::names_logged_out_service_file))
 }
 
 /// Puts the login agent back through `registration` and starts it: the command line's agent for

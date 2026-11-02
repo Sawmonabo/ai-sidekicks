@@ -5,6 +5,7 @@
 //! account's system service that runs while the person is logged out read before the login agent.
 
 use std::ffi::OsStr;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -91,6 +92,21 @@ pub(crate) fn run_as_account(
         .status()
         .with_context(|| format!("could not run {} as this account", program.display()))?;
     ExitCode::of_program_run(status)
+}
+
+/// `failure` of a read in the account's home under root's rights, a refused permission read as
+/// [`CommandFailure::HomeUnreadable`], whose line says what to do in its place, as on a network
+/// home `sudo` cannot read.
+pub(crate) fn read_home_refusal(failure: anyhow::Error) -> anyhow::Error {
+    let is_permission_refused = failure.chain().any(|cause| {
+        cause
+            .downcast_ref::<io::Error>()
+            .is_some_and(|error| error.kind() == io::ErrorKind::PermissionDenied)
+    });
+    if is_permission_refused {
+        return CommandFailure::HomeUnreadable.into();
+    }
+    failure
 }
 
 /// `failure` as the run's failure: a step the service manager refused as
@@ -258,4 +274,36 @@ pub(crate) fn read_login_start(
         ServiceOwner::CommandLine if registration.is_turned_off()? => LoginStart::TurnedOff,
         ServiceOwner::CommandLine | ServiceOwner::App => LoginStart::Installed,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io;
+
+    use super::read_home_refusal;
+    use crate::exit_codes::CommandFailure;
+
+    // Fails when a refused permission anywhere in the chain is not read as the unreadable home
+    // (the first case keeps the file's error), and when every failure is (the second case's own
+    // error is lost).
+    #[test]
+    fn only_a_refused_permission_reads_as_an_unreadable_home() {
+        let refused = anyhow::Error::new(io::Error::from(io::ErrorKind::PermissionDenied))
+            .context("could not read where the secrets are kept");
+        let missing = anyhow::Error::new(io::Error::from(io::ErrorKind::NotFound))
+            .context("could not read where the secrets are kept");
+
+        let refused = read_home_refusal(refused);
+        let missing = read_home_refusal(missing);
+
+        assert!(matches!(
+            refused.downcast_ref::<CommandFailure>(),
+            Some(CommandFailure::HomeUnreadable)
+        ));
+        assert!(missing.downcast_ref::<CommandFailure>().is_none());
+        assert_eq!(
+            missing.to_string(),
+            "could not read where the secrets are kept"
+        );
+    }
 }
