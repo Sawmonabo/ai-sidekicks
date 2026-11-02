@@ -25,6 +25,7 @@ pub mod mcp;
 pub(crate) mod outbound_text;
 pub(crate) mod output_validation;
 pub mod port;
+pub mod pricing;
 pub mod process_exit;
 pub mod process_identity;
 pub mod process_registry;
