@@ -1,7 +1,10 @@
-//! A lead run whose turn the end of the daemon's own Codex service cut, continued at the next
-//! start: Codex gives a client no continue, so the daemon ends the cut turns in the log and starts
-//! one turn with Codex's own continuation words, which the run holds as its next turn, as Codex's
-//! own recovery does for itself. The run then answers still running.
+//! A lead run whose turn the end of its Codex service cut, continued at the next start. On the
+//! daemon's own service Codex gives a client no continue, so the daemon ends the cut turns in the
+//! log and starts one turn with Codex's own continuation words, which the run holds as its next
+//! turn, as Codex's own recovery does for itself; the run then answers still running. On a service
+//! the daemon only joined, Codex continued the cut turn itself before the daemon came back and
+//! sends it no start of that turn, so the daemon ends the cut turns in the log and holds the turn
+//! the resume's page shows continuing them as the run's next.
 
 use std::error::Error;
 
@@ -10,14 +13,17 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use super::CodexSessionEstablishment;
+use super::adoption::request_bare_thread_resume;
+use super::{CodexResumedThread, CodexSessionEstablishment};
 use crate::driver::codex::run::routes::CodexRunBinding;
 use crate::driver::codex::run::start::record::{
     CodexTurnRequest, apply_run_turn_acceptance, compose_run_turn, route_accepted_turn,
 };
-use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::history::CodexListedTurn;
-use crate::driver::codex::session::owed_turn_ends::read_codex_listed_turn;
+use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
+use crate::driver::codex::session::history::{CodexListedTurn, read_codex_resumed_newest_turn};
+use crate::driver::codex::session::owed_turn_ends::{
+    is_codex_turn_in_progress, read_codex_listed_turn,
+};
 use crate::driver::codex::session::state::{CodexSessionRecord, CodexTurnMessage};
 use crate::driver::codex::thread::view::{CodexThreadStatus, TURN_START_METHOD, read_turn_id};
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
@@ -44,11 +50,13 @@ struct CutTurns {
 }
 
 impl CodexSessionEstablishment {
-    /// Continues each lead run of `live_runs` whose turns the end of the daemon's own service cut,
-    /// on the conversation `record` holds on `connection`, which the resume read at `status` with
-    /// `listed_turns`: its cut turns ended in the log as the daemon's restart interrupted them, and
-    /// one turn started with Codex's own continuation words, held as the run's next turn on
-    /// `binding`. Answers each run it took: `StillRunning`, or `Gone` where Codex refused the turn.
+    /// Continues each lead run of `live_runs` whose turns the end of its service cut, on the
+    /// conversation `record` holds on `connection` as the resume read it, `resumed`, its
+    /// deliveries on `binding`. On the daemon's own service, with the conversation idle, its cut
+    /// turns are ended in the log as the daemon's restart interrupted them, and one turn started
+    /// with Codex's own continuation words is held as the run's next turn: the run answers
+    /// `StillRunning`, or `Gone` where Codex refused the turn. On a service the daemon only joined,
+    /// the turn Codex continued it in is adopted instead, as [`Self::adopt_continued_turns`] says.
     /// A run whose cut turn's end could not be written is not taken, and answers as Codex's
     /// listing has it.
     pub(super) async fn continue_cut_runs(
@@ -56,15 +64,19 @@ impl CodexSessionEstablishment {
         record: &mut CodexSessionRecord,
         connection: &CodexAppServerConnection,
         live_runs: &[LiveRunResume],
-        status: Option<CodexThreadStatus>,
-        listed_turns: &[CodexListedTurn],
+        resumed: &CodexResumedThread,
         binding: &CodexRunBinding,
     ) -> Vec<ResumedRunAnswer> {
-        // On a service the daemon only joined, Codex continues the turn itself; a thread not idle
-        // would fold the turn into the one it runs.
-        if !record.service.kind().is_daemons_own() || status != Some(CodexThreadStatus::Idle) {
+        if !record.service.kind().is_daemons_own() {
+            return self
+                .adopt_continued_turns(record, live_runs, resumed, binding)
+                .await;
+        }
+        // A thread not idle would fold the turn into the one it runs.
+        if resumed.status != Some(CodexThreadStatus::Idle) {
             return Vec::new();
         }
+        let listed_turns = &resumed.listed_turns;
         let mut continued = Vec::new();
         for run in live_runs {
             let Some(cut) = find_cut_turns(run, live_runs, listed_turns) else {
@@ -74,7 +86,14 @@ impl CodexSessionEstablishment {
                 continue;
             }
             let turn = match self
-                .start_continuation(record, connection, run, cut.root_turn_id, binding)
+                .start_continuation(
+                    record,
+                    connection,
+                    run,
+                    cut.root_turn_id,
+                    listed_turns,
+                    binding,
+                )
                 .await
             {
                 Ok(()) => ProviderTurnAnswer::StillRunning,
@@ -87,6 +106,72 @@ impl CodexSessionEstablishment {
                     );
                     ProviderTurnAnswer::Gone
                 }
+            };
+            continued.push(ResumedRunAnswer {
+                run_id: run.run_id,
+                turn,
+            });
+        }
+        continued
+    }
+
+    /// Adopts, on a service the daemon only joined, the turn Codex continued each lead's cut turns
+    /// in before the daemon came back, since Codex sends a client that joins later no start of
+    /// it: a lead with no parent, running or waiting on the person, whose continuation the resume's
+    /// page shows. A continuation still running ends the cut turns in the log, is held as the
+    /// run's turn on `binding` and opened after their end, and answers `StillRunning`; one already
+    /// over, on a lead with no stop pending, is held unopened, so its listed end, routed as the
+    /// session opens, opens it and ends the run, and answers `EndedByProvider`. A stopping lead's
+    /// ended continuation, a run whose cut turn's end could not be written, and a lead with no
+    /// continuation are not taken.
+    async fn adopt_continued_turns(
+        &self,
+        record: &mut CodexSessionRecord,
+        live_runs: &[LiveRunResume],
+        resumed: &CodexResumedThread,
+        binding: &CodexRunBinding,
+    ) -> Vec<ResumedRunAnswer> {
+        if !matches!(
+            resumed.status,
+            Some(CodexThreadStatus::Active | CodexThreadStatus::Idle)
+        ) {
+            return Vec::new();
+        }
+        let run_routes = &self.dependencies.run_routes;
+        let mut continued = Vec::new();
+        for run in live_runs {
+            let is_lead = run.subagent_id.is_none() && run.parent_run_id.is_none();
+            let is_live = matches!(
+                run.run_state,
+                RunState::Running | RunState::WaitingForApproval | RunState::WaitingForInput
+            );
+            if !is_lead || !is_live {
+                continue;
+            }
+            let Some(cut) = read_cut_turns(run, &resumed.listed_turns) else {
+                continue;
+            };
+            let Some(continuation) = find_continuation_turn(run, &cut, resumed) else {
+                continue;
+            };
+            let is_running = is_codex_turn_in_progress(&continuation.turn);
+            // A stop pending on the lead settles it once its continuation is over.
+            if (!is_running && run.is_stopping)
+                || !self.end_cut_turns(record, run, &cut.turn_numbers).await
+            {
+                continue;
+            }
+            record.add_active_turn(continuation.id.clone(), run.run_id);
+            run_routes.bind_run(run.run_id, record.session_id);
+            run_routes.bind_run_delivery(run.run_id, binding.clone());
+            let turn = if is_running {
+                self.dependencies
+                    .delivery
+                    .open_started_turn(record, &continuation.id)
+                    .await;
+                ProviderTurnAnswer::StillRunning
+            } else {
+                ProviderTurnAnswer::EndedByProvider
             };
             continued.push(ResumedRunAnswer {
                 run_id: run.run_id,
@@ -132,13 +217,19 @@ impl CodexSessionEstablishment {
     // is, so it names the session's mode, reviewer, model and environments, and carrying no
     // message id, so it never reads as the person's; then holds the turn as the run's, its
     // deliveries on `binding`. Its `turn/started`, waiting in the session's queue, opens the run's
-    // next turn. Fails as the composition or the request fails.
+    // next turn. A start left unanswered past its deadline may still have started the turn, so the
+    // conversation is resumed again, bare, and a newest turn on its page that none of
+    // `listed_turns`, the turns listed before the start, names is held as the one it started;
+    // `turn/start` is never sent again, since Codex would start a second turn. Fails as the
+    // composition or the request fails, with the deadline's failure where the second resume shows
+    // no new turn, and as the second resume fails.
     async fn start_continuation(
         &self,
         record: &mut CodexSessionRecord,
         connection: &CodexAppServerConnection,
         run: &LiveRunResume,
         root_turn_id: Option<String>,
+        listed_turns: &[CodexListedTurn],
         binding: &CodexRunBinding,
     ) -> Result<(), CodexError> {
         let request = CodexTurnRequest {
@@ -157,8 +248,18 @@ impl CodexSessionEstablishment {
         let (mut params, run_turn) = compose_run_turn(record, connection, request).await?;
         params.turn_trigger = Some(DAEMON_RECOVERY_TURN_TRIGGER.to_owned());
         params.root_turn_id = root_turn_id;
-        let reply = connection.request(TURN_START_METHOD, &params).await?;
-        let turn_id = read_turn_id(&reply, TURN_START_METHOD)?;
+        let turn_id = match connection.request(TURN_START_METHOD, &params).await {
+            Ok(reply) => read_turn_id(&reply, TURN_START_METHOD)?,
+            Err(
+                error @ CodexError::Unanswered {
+                    cause: CodexUnansweredCause::Deadline { .. },
+                    ..
+                },
+            ) => find_started_continuation(record, connection, listed_turns)
+                .await?
+                .ok_or(error)?,
+            Err(error) => return Err(error),
+        };
         // The turn's frames wait unread in the session's queue, so it has settled no speed yet:
         // the acceptance answers a speed only for a turn already over.
         let (_, input) = apply_run_turn_acceptance(record, run.run_id, &turn_id, run_turn);
@@ -186,10 +287,8 @@ pub(super) fn answer_continued_runs(
     }
 }
 
-// `run`'s cut turns, where it is a running lead with no stop pending and no helper of it held on
-// the person, and each of its open turns Codex knows by id the service's end cut: listed
-// interrupted with no end time, which a cold load gives a turn that was running, or not listed.
-// A turn listed running, finished, failed, or stopped with its end time answers as it stands.
+// `run`'s cut turns as `read_cut_turns` reads them, where it is a running lead with no stop
+// pending and no helper of it held on the person.
 fn find_cut_turns(
     run: &LiveRunResume,
     live_runs: &[LiveRunResume],
@@ -211,6 +310,13 @@ fn find_cut_turns(
     if is_helper_held {
         return None;
     }
+    read_cut_turns(run, listed_turns)
+}
+
+// `run`'s cut turns: each of its open turns Codex knows by id the service's end cut, listed
+// interrupted with no end time, which a cold load gives a turn that was running, or not listed.
+// A turn listed running, finished, failed, or stopped with its end time answers none.
+fn read_cut_turns(run: &LiveRunResume, listed_turns: &[CodexListedTurn]) -> Option<CutTurns> {
     let mut cut = CutTurns {
         turn_numbers: Vec::new(),
         root_turn_id: None,
@@ -232,4 +338,41 @@ fn find_cut_turns(
         cut.turn_numbers.push(turn.turn_number);
     }
     (!cut.turn_numbers.is_empty()).then_some(cut)
+}
+
+// The turn Codex continued `run`'s `cut` turns in: the resume's newest turn, where it is none of
+// the run's open turns and leads back to the same first turn as the newest cut one. A cut turn
+// whose root Codex names none of has no continuation, since any turn would then read as one.
+fn find_continuation_turn<'resumed>(
+    run: &LiveRunResume,
+    cut: &CutTurns,
+    resumed: &'resumed CodexResumedThread,
+) -> Option<&'resumed CodexListedTurn> {
+    let root_turn_id = cut.root_turn_id.as_deref()?;
+    let newest_turn_id = resumed.newest_turn_id.as_deref()?;
+    let is_open_turn = run.open_turns.iter().any(|turn| {
+        turn.provider_turn_id.as_ref().map(ProviderTurnId::as_str) == Some(newest_turn_id)
+    });
+    if is_open_turn {
+        return None;
+    }
+    let newest = resumed
+        .listed_turns
+        .iter()
+        .find(|listed| listed.id == newest_turn_id)?;
+    (read_codex_listed_turn(&newest.turn).root_turn_id.as_deref() == Some(root_turn_id))
+        .then_some(newest)
+}
+
+// The turn an unanswered `turn/start` started on the record's conversation, as a bare resume's
+// page shows it: its newest turn, where none of `listed_turns` names it. Fails as the resume does.
+async fn find_started_continuation(
+    record: &CodexSessionRecord,
+    connection: &CodexAppServerConnection,
+    listed_turns: &[CodexListedTurn],
+) -> Result<Option<String>, CodexError> {
+    let reply = request_bare_thread_resume(connection, &record.thread_id).await?;
+    Ok(read_codex_resumed_newest_turn(&reply)
+        .map(|newest| newest.id)
+        .filter(|turn_id| !listed_turns.iter().any(|listed| listed.id == *turn_id)))
 }

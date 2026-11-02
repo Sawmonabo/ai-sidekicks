@@ -106,14 +106,20 @@ impl CodexFrameDelivery {
                 .run_routes
                 .bind_run(starting_run_id, record.session_id);
         }
-        let Some(turn_run) = self.turn_run_for(record, &turn_id) else {
-            report_unattributed("turn/started", Some(&turn_id));
+        self.open_started_turn(record, &turn_id).await;
+    }
+
+    /// Opens the started turn `turn_id` on the run that holds it: its run epoch given, then its
+    /// execution and its numbered turn opened, once. A turn no run holds is reported unattributed.
+    pub(crate) async fn open_started_turn(&self, record: &mut CodexSessionRecord, turn_id: &str) {
+        let Some(turn_run) = self.turn_run_for(record, turn_id) else {
+            report_unattributed("turn/started", Some(turn_id));
             return;
         };
         record
             .delivery
-            .assign_turn_epoch(&turn_id, || self.mint_turn_epoch());
-        self.open_turn(record, &turn_id, &turn_run).await;
+            .assign_turn_epoch(turn_id, || self.mint_turn_epoch());
+        self.open_turn(record, turn_id, &turn_run).await;
     }
 
     // Opens the turn's execution and its numbered turn on the run, once.
