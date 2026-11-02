@@ -66,11 +66,12 @@ struct SystemServiceList {
     exit_time_out: u64,
 }
 
-// The one key an installed list is read for, whoever wrote it.
+// The keys an installed list is read for, whoever wrote it.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 struct InstalledSystemServiceList {
     user_name: Option<String>,
+    program_arguments: Option<Vec<PathBuf>>,
 }
 
 impl ServiceRegistration {
@@ -81,19 +82,32 @@ impl ServiceRegistration {
     }
 
     /// Which account has the system service installed, read from the `UserName` of its list in
-    /// `/Library/LaunchDaemons`; with root's rights, this account is the one that ran `sudo`.
-    /// Fails when the list cannot be read or this run's account cannot be named.
-    pub fn system_service_owner(&self) -> Result<SystemServiceOwner, ServiceRegistrationError> {
+    /// `/Library/LaunchDaemons`, and for this account whether the list starts `daemon_program`;
+    /// with root's rights, this account is the one that ran `sudo`. Fails when the list cannot be
+    /// read or this run's account cannot be named.
+    pub fn system_service_owner(
+        &self,
+        daemon_program: &Path,
+    ) -> Result<SystemServiceOwner, ServiceRegistrationError> {
         let installed: Option<InstalledSystemServiceList> =
             read_launchd_list(&system_service_list_path())?;
         let Some(installed) = installed else {
             return Ok(SystemServiceOwner::NotInstalled);
         };
-        Ok(if installed.user_name == Some(self.account()?.name) {
-            SystemServiceOwner::ThisAccount
-        } else {
-            SystemServiceOwner::OtherAccount
-        })
+        if installed.user_name != Some(self.account()?.name) {
+            return Ok(SystemServiceOwner::OtherAccount);
+        }
+        let installed_program = installed
+            .program_arguments
+            .as_ref()
+            .and_then(|arguments| arguments.first());
+        Ok(
+            if installed_program.is_some_and(|program| program == daemon_program) {
+                SystemServiceOwner::ThisAccount
+            } else {
+                SystemServiceOwner::ThisAccountOtherProgram
+            },
+        )
     }
 
     /// Installs the system service running `daemon_program` as this account while it is logged

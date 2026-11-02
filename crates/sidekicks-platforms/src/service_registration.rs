@@ -35,8 +35,11 @@ pub const SYSTEM_SERVICE_MODE: &str = "system-service";
 pub enum SystemServiceOwner {
     /// No system service is installed.
     NotInstalled,
-    /// The installed system service runs as this account.
+    /// The installed system service runs the given program as this account.
     ThisAccount,
+    /// The installed system service runs as this account but starts another program, so an
+    /// install replaces it.
+    ThisAccountOtherProgram,
     /// The installed system service runs as another account, or names none.
     OtherAccount,
 }
@@ -218,7 +221,10 @@ impl ServiceRegistration {
     }
 
     /// Which account has the system service installed; never called, since no value exists.
-    pub fn system_service_owner(&self) -> Result<SystemServiceOwner, ServiceRegistrationError> {
+    pub fn system_service_owner(
+        &self,
+        _daemon_program: &std::path::Path,
+    ) -> Result<SystemServiceOwner, ServiceRegistrationError> {
         match *self {}
     }
 
