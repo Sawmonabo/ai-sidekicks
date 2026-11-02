@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
 use serde_json::json;
+use serde_json::value::RawValue;
+use sidekicks_contracts::run::subagent::SubagentId;
+use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::sync::CancellationToken;
 
 use super::ChildRunLookup;
@@ -8,11 +11,13 @@ use crate::driver::codex::delivery::rows::test_row_run;
 use crate::driver::codex::hooks::server::{
     CodexHookAnswer, CodexHookAnswerer, CodexHookEvent, CodexHookInput,
 };
+use crate::driver::codex::service::supervisor::routing::CodexHelperNames;
+use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
 use crate::driver::run_control::HelperStopReason;
-use crate::run::delivery::RunSetupRefusal;
+use crate::run::delivery::{ChildRunSubagent, RunSetupRefusal};
 
-/// The refused helper's own conversation, which is its id.
+/// A helper's own conversation, which is its id.
 const HELPER_THREAD: &str = "helper-thread";
 
 /// The turn the helper is running as its run is refused.
@@ -44,6 +49,11 @@ async fn a_refused_helpers_running_turn_is_interrupted() {
             HELPER_THREAD,
             TEST_THREAD,
             HELPER_THREAD,
+            CodexHelperNames {
+                name: None,
+                role: None,
+                provider_path: None,
+            },
         )
         .await;
 
@@ -87,6 +97,76 @@ async fn a_refused_helpers_running_turn_is_interrupted() {
         answer,
         Some(CodexHookAnswer::Deny {
             reason: HelperStopReason::SetupRefused { refusal }.sentence(),
+        })
+    );
+}
+
+// A spawned helper's `thread/started` starts its child run beneath the run whose spawn call
+// started it, with the name, role and path Codex gives it, while a compaction conversation
+// announced first starts none and leaves the spawn call to the helper. Killed by a helper kind
+// read from a member the thread does not carry (no child run), by every `subAgent` arm counted a
+// helper (the compaction's child run takes the spawn call), by names dropped or swapped, and by a
+// path read from any member but the spawn's `agent_path`.
+#[tokio::test]
+async fn a_spawned_helper_starts_its_child_run_as_codex_names_it() {
+    let mut session = TestCodexSession::start().await;
+    let mut lead = test_row_run();
+    lead.session_id = session.task.record.session_id;
+    session
+        .task
+        .record
+        .note_spawn_call(TEST_THREAD, "call-1", &lead);
+    let spawned = json!({"thread": {
+        "id": HELPER_THREAD,
+        "parentThreadId": TEST_THREAD,
+        "source": {"subAgent": {"thread_spawn": {
+            "parent_thread_id": TEST_THREAD,
+            "depth": 1,
+            "agent_path": "/root/scout",
+            "agent_nickname": "Scout",
+            "agent_role": "explorer",
+        }}},
+        "agentNickname": "Scout",
+        "agentRole": "explorer",
+    }});
+    let compaction = json!({"thread": {
+        "id": "compact-thread",
+        "parentThreadId": TEST_THREAD,
+        "source": {"subAgent": "compact"},
+    }});
+
+    for params in [compaction, spawned] {
+        session
+            .task
+            .handle(CodexSessionInbound::Frame {
+                method: "thread/started".to_owned(),
+                params: RawValue::from_string(params.to_string()).expect("the params are JSON"),
+            })
+            .await;
+    }
+
+    let child_runs: Vec<_> = session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter(|delivery| delivery.kind == "childRun")
+        .collect();
+    assert_eq!(
+        child_runs.len(),
+        1,
+        "only the spawned helper starts a child run"
+    );
+    assert_eq!(child_runs[0].parent_run_id, Some(lead.run_id));
+    let handle = |text: &str| Some(FreeFormText::new(text.to_owned()).expect("a test name fits"));
+    assert_eq!(
+        child_runs[0].subagent,
+        Some(ChildRunSubagent {
+            subagent_id: SubagentId::new(HELPER_THREAD.to_owned()).expect("a helper id"),
+            parent_subagent_id: None,
+            name: handle("Scout"),
+            role: handle("explorer"),
+            provider_path: handle("/root/scout"),
+            start_call_id: None,
         })
     );
 }

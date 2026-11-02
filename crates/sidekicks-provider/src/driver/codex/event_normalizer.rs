@@ -581,28 +581,16 @@ pub(crate) fn is_codex_tool_call_approval_elicitation(params_json: &[u8]) -> boo
     })
 }
 
-/// The thread source kinds that mark a provider-attributed subagent child, whose spend attributes
-/// to that subagent. The other kind, `subAgentCompact`, is a compaction thread whose spend
-/// attributes to the parent run.
-const CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS: &[&str] = &[
-    "subAgent",
-    "subAgentReview",
-    "subAgentThreadSpawn",
-    "subAgentOther",
-];
-
 /// The router's announcement of the child thread a `thread/started` notification names, from its
-/// thread id, the parent thread it declares and its thread source kind. The child's thread id
-/// doubles as the subagent identity on a subagent-attributed kind; any other kind, a compaction
-/// child or one a newer service adds, has none, so its spend attributes to the parent run.
+/// thread id, the parent thread it declares and whether its source makes it a helper. A helper's
+/// thread id doubles as its subagent identity; any other child, a compaction one among them, has
+/// none, so its spend attributes to the parent run.
 pub(crate) fn derive_codex_child_thread_announcement(
     thread_id: String,
     parent_thread_id: Option<String>,
-    thread_source_kind: &str,
+    is_subagent: bool,
 ) -> ChildThreadAnnouncement {
-    let subagent_id = CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS
-        .contains(&thread_source_kind)
-        .then(|| thread_id.clone());
+    let subagent_id = is_subagent.then(|| thread_id.clone());
     ChildThreadAnnouncement {
         child_thread_id: thread_id,
         declared_parent_thread_id: parent_thread_id,
