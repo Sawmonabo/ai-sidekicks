@@ -1,6 +1,7 @@
 use rstest::rstest;
 
 use super::read_codex_privacy;
+use crate::driver::codex::config_read::CodexConfigFileError;
 use crate::driver::codex::session::errors::CodexError;
 
 // Killed by the two keys swapped, an unset choice sent as `false` or a table outside the two read,
@@ -33,7 +34,7 @@ async fn the_person_s_choices_compose_as_set(
 }
 
 // Killed by a file that does not parse read as no choices, which drops what the person turned off,
-// or by a failure that shows the file's text or leaves out its path.
+// or by a failure that shows the file's text, leaves out its path or drops the reader's reason.
 #[tokio::test]
 async fn a_file_that_does_not_parse_fails_naming_its_path_and_never_its_text() {
     let personal_home = tempfile::tempdir().expect("a scratch folder is made");
@@ -46,10 +47,16 @@ async fn a_file_that_does_not_parse_fails_naming_its_path_and_never_its_text() {
 
     let reading = read_codex_privacy(personal_home.path()).await;
 
-    let Err(CodexError::Transport { detail, cause }) = reading else {
-        panic!("the read did not fail as a start's failure");
+    let Err(CodexError::ConfigUnreadable(failure)) = reading else {
+        panic!("the read did not fail as an unreadable configuration");
     };
+    let CodexConfigFileError::Unparsable { line, message, .. } = &failure else {
+        panic!("the failure is not a parse failure: {failure:?}");
+    };
+    assert_eq!(*line, Some(2));
+    assert!(!message.is_empty());
+    let detail = failure.to_string();
     assert!(detail.contains(&path.display().to_string()), "{detail}");
+    assert!(detail.contains(message.as_str()), "{detail}");
     assert!(!detail.contains("kept-private"), "{detail}");
-    assert!(cause.is_none());
 }

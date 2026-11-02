@@ -1,14 +1,13 @@
 //! The standing rules Codex holds on this machine, one row per rule call in each rule file Codex
-//! reads, shown as the file writes it, and a rule taken back out of the file that holds it; and the
-//! paths the permission profile each of Codex's config files selects denies. Codex reads its rules
-//! when a conversation starts, so a revoke applies to conversations started after it.
+//! reads, shown as the file writes it, and a rule taken back out of the file that holds it. Codex
+//! reads its rules when a conversation starts, so a revoke applies to conversations started after
+//! it.
 
 #![cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "the provider settings page's standing rules and protected paths, which the Codex \
-                  driver serves"
+        reason = "the provider settings page's standing rules, which the Codex driver serves"
     )
 )]
 
@@ -22,9 +21,8 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::settings::{
-    PROVIDER_RULE_DECISION_MAX_LEN, PROVIDER_RULE_TEXT_MAX_LEN, ProviderProtectedPath,
-    ProviderStandingRule, ProviderStandingRuleId, ProviderStandingRuleRevokeOutcome,
-    ProviderStandingRuleScope,
+    PROVIDER_RULE_DECISION_MAX_LEN, PROVIDER_RULE_TEXT_MAX_LEN, ProviderStandingRule,
+    ProviderStandingRuleId, ProviderStandingRuleRevokeOutcome, ProviderStandingRuleScope,
 };
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
@@ -32,24 +30,11 @@ use sidekicks_platforms::PathRules;
 use sidekicks_std::file::atomic_write::rewrite_file_in_place;
 
 use super::{
-    AfterFailure, CODEX_PROJECT_SETTINGS_FOLDER, CODEX_RULE_FILE_MODE, CodexRuleSources,
-    CodexRulesError, RULE_FILE_LOCK, RuleFileOrigin, evaluate_rule_files, is_codex_home_project,
-    read_if_present, read_rule_file_texts, resolve_lock_key, rule_lines,
+    AfterFailure, CODEX_RULE_FILE_MODE, CodexRuleSources, CodexRulesError, RULE_FILE_LOCK,
+    RuleFileOrigin, evaluate_rule_files, read_if_present, read_rule_file_texts, resolve_lock_key,
+    rule_lines,
 };
-use crate::driver::codex::config_read::CODEX_CONFIG_FILE_NAME;
 use crate::standing_rule_id::mint_standing_rule_id;
-
-// The config keys that select a permission profile, hold the profiles, and hold a profile's
-// filesystem entries; the word a filesystem entry denies with; and the older sandbox key, which
-// Codex follows over any profile where a config file sets it.
-const DEFAULT_PERMISSIONS_KEY: &str = "default_permissions";
-const PERMISSIONS_KEY: &str = "permissions";
-const FILESYSTEM_KEY: &str = "filesystem";
-const DENY_ACCESS: &str = "deny";
-const SANDBOX_MODE_KEY: &str = "sandbox_mode";
-
-// The subpath of a scoped filesystem entry that names its root itself.
-const SCOPED_ROOT_SUBPATH: &str = ".";
 
 /// One account home Codex runs the account's sessions on.
 pub(crate) struct CodexRuleAccountHome {
@@ -74,7 +59,8 @@ pub(crate) struct CodexRuleProject {
 /// Where Codex keeps the standing rules and permission profiles of this machine's sessions, as the
 /// caller lists them.
 pub(crate) struct CodexRuleListingSources<'a> {
-    /// The folder Codex keeps its system settings in, whose `rules/` Codex reads first.
+    /// The folder Codex keeps its system settings in, whose `rules/` Codex reads first and whose
+    /// `config.toml` is the lowest of Codex's config layers.
     pub(crate) system_folder: &'a Path,
     /// Every account home.
     pub(crate) account_homes: &'a [CodexRuleAccountHome],
@@ -178,52 +164,6 @@ pub(crate) async fn revoke_codex_standing_rule(
             .map_err(CodexRulesError::Write)?;
     }
     Ok(ProviderStandingRuleRevokeOutcome::Revoked)
-}
-
-/// The paths the person's own permission profiles deny: in each account home's and the person's
-/// own `config.toml`, and in each trusted project's `.codex/config.toml`, every `deny` entry of the
-/// filesystem table of the profile that file's `default_permissions` names, a scoped entry's
-/// subpath joined to its root. A file naming no profile, or setting `sandbox_mode`, which Codex
-/// then follows instead, lists none. Fails with `UnreadableConfig` where a file is not TOML, `Read`
-/// where one cannot be read and `Unlistable` where an entry or a path does not fit the list.
-pub(crate) async fn read_codex_protected_paths(
-    sources: &CodexRuleListingSources<'_>,
-) -> Result<Vec<ProviderProtectedPath>, CodexRulesError> {
-    let mut entries = Vec::new();
-    let codex_homes = sources
-        .account_homes
-        .iter()
-        .map(|home| home.codex_home.as_path())
-        .chain(std::iter::once(sources.personal_codex_home));
-    for codex_home in codex_homes {
-        let path = codex_home.join(CODEX_CONFIG_FILE_NAME);
-        let source_path = listable_path(&path)?;
-        for pattern in read_profile_denies(&path).await? {
-            entries.push(ProviderProtectedPath::Global {
-                pattern,
-                place: sources.place.cloned(),
-                source_path: source_path.clone(),
-            });
-        }
-    }
-    for project in sources.projects.iter().filter(|project| project.is_trusted) {
-        if is_any_codex_home(sources, &project.project_folder).await {
-            continue;
-        }
-        let path = project
-            .project_folder
-            .join(CODEX_PROJECT_SETTINGS_FOLDER)
-            .join(CODEX_CONFIG_FILE_NAME);
-        let source_path = listable_path(&path)?;
-        for pattern in read_profile_denies(&path).await? {
-            entries.push(ProviderProtectedPath::Project {
-                pattern,
-                source_path: source_path.clone(),
-                repo_mount_id: project.repo_mount_id,
-            });
-        }
-    }
-    Ok(entries)
 }
 
 // Every rule: for each account home its system files under no scope, each system rule once, and
@@ -444,22 +384,6 @@ fn rule_sources<'a>(
     }
 }
 
-// Whether the project's `.codex` folder is one of the Codex homes, whose config is listed as the
-// home's and which Codex never reads as a project's.
-async fn is_any_codex_home(sources: &CodexRuleListingSources<'_>, project_folder: &Path) -> bool {
-    let codex_homes = sources
-        .account_homes
-        .iter()
-        .map(|home| home.codex_home.as_path())
-        .chain(std::iter::once(sources.personal_codex_home));
-    for codex_home in codex_homes {
-        if is_codex_home_project(project_folder, codex_home).await {
-            return true;
-        }
-    }
-    false
-}
-
 // The bytes a call's removal takes out of `text`: its whole lines where nothing else is on them,
 // else the call alone.
 fn call_extent(text: &str, span: Range<usize>) -> Range<usize> {
@@ -476,59 +400,7 @@ fn call_extent(text: &str, span: Range<usize>) -> Range<usize> {
     if is_alone { line_start..line_end } else { span }
 }
 
-// The deny entries of the profile the config file at `path` selects; none where the file is
-// missing, names no profile or sets the older sandbox key.
-async fn read_profile_denies(
-    path: &Path,
-) -> Result<Vec<FreeFormText<PROVIDER_RULE_TEXT_MAX_LEN>>, CodexRulesError> {
-    let Some(text) = read_if_present(path).await? else {
-        return Ok(Vec::new());
-    };
-    let config: toml::Table =
-        toml::from_str(&text).map_err(|failure| CodexRulesError::UnreadableConfig {
-            path: path.to_path_buf(),
-            failure,
-        })?;
-    if config.contains_key(SANDBOX_MODE_KEY) {
-        return Ok(Vec::new());
-    }
-    let filesystem = config
-        .get(DEFAULT_PERMISSIONS_KEY)
-        .and_then(toml::Value::as_str)
-        .and_then(|profile| {
-            config
-                .get(PERMISSIONS_KEY)?
-                .get(profile)?
-                .get(FILESYSTEM_KEY)
-        })
-        .and_then(toml::Value::as_table);
-    let Some(filesystem) = filesystem else {
-        return Ok(Vec::new());
-    };
-    let mut patterns = Vec::new();
-    for (root, access) in filesystem {
-        if access.as_str() == Some(DENY_ACCESS) {
-            patterns.push(root.clone());
-        } else if let Some(subpaths) = access.as_table() {
-            for (subpath, access) in subpaths {
-                if access.as_str() != Some(DENY_ACCESS) {
-                    continue;
-                }
-                patterns.push(if subpath == SCOPED_ROOT_SUBPATH {
-                    root.clone()
-                } else {
-                    format!("{root}/{subpath}")
-                });
-            }
-        }
-    }
-    patterns
-        .into_iter()
-        .map(|pattern| listable_text(path, pattern))
-        .collect()
-}
-
-fn listable_path(path: &Path) -> Result<FilesystemPath, CodexRulesError> {
+pub(super) fn listable_path(path: &Path) -> Result<FilesystemPath, CodexRulesError> {
     FilesystemPath::new(path.to_string_lossy().into_owned()).map_err(|failure| {
         CodexRulesError::Unlistable {
             path: path.to_path_buf(),
@@ -537,7 +409,7 @@ fn listable_path(path: &Path) -> Result<FilesystemPath, CodexRulesError> {
     })
 }
 
-fn listable_text<const MAX: usize>(
+pub(super) fn listable_text<const MAX: usize>(
     path: &Path,
     text: String,
 ) -> Result<FreeFormText<MAX>, CodexRulesError> {
@@ -547,5 +419,7 @@ fn listable_text<const MAX: usize>(
     })
 }
 
+#[cfg(test)]
+pub(super) mod test_machine;
 #[cfg(test)]
 mod tests;

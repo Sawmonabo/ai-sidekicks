@@ -12,6 +12,7 @@
 
 mod evaluator;
 mod listing;
+mod protected_paths;
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -36,6 +37,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_workspace::git::exclude::{ExcludeError, add_repository_exclude};
 
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::config_read::CodexConfigFileError;
 use crate::driver::codex::delivery::asks::CodexProjectRules;
 use crate::driver::codex::rules::evaluator::{EvaluatedRuleFile, RuleFileEvaluator};
 use crate::port::repository_reader::RepositoryReader;
@@ -149,14 +151,18 @@ pub(crate) enum CodexRulesError {
         /// Why, in Codex's own words where Codex would refuse the file.
         reason: String,
     },
-    /// A Codex config file is not TOML, so Codex does not start on it.
-    #[error("Codex does not read the config file {}", path.display())]
-    UnreadableConfig {
-        /// The config file.
-        path: PathBuf,
-        /// The TOML reader's failure.
-        #[source]
-        failure: toml::de::Error,
+    /// A Codex config file cannot be read or is not TOML, so Codex does not start on it.
+    #[error("a Codex config file cannot be read")]
+    UnreadableConfig(#[source] CodexConfigFileError),
+    /// The permission profile Codex's config selects does not resolve, so Codex does not start on
+    /// it: it or a profile it extends is not defined, it extends a built-in profile, or the chain
+    /// runs in a circle.
+    #[error("Codex does not resolve the permission profile {profile}: {reason}")]
+    UnresolvedProfile {
+        /// The profile the config selects.
+        profile: String,
+        /// Why, in Codex's terms.
+        reason: String,
     },
     /// A rule's text, a protected path or a file's path does not fit the settings list's bounds.
     #[error("a rule or path read from {} does not fit the settings list", path.display())]
