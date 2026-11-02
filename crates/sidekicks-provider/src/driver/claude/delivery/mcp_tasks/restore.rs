@@ -272,8 +272,8 @@ pub(crate) async fn read_claude_kept_calls(
         }) else {
             tracing::warn!(
                 path = %path.display(),
-                "a kept file of a Claude Code background call names no call, so its task reads as \
-                 still running"
+                "a kept file of a Claude Code background call could not be read as a call's \
+                 record or ending, so its task reads as still running"
             );
             kept.unreadable_task_ids.insert(task_id.to_owned());
             continue;
