@@ -677,9 +677,9 @@ fn is_terminal_reach_home(home: &CodexServiceHome) -> bool {
 }
 
 /// The `-c` switches every Codex process on a home of `kind` carries of its own: an account home
-/// keeps its sign-in in its own `auth.json`, the API-key home, the switching home and a pasted key's
-/// status read keep the sign-in they are handed in the process's memory alone, and every other
-/// home takes none.
+/// keeps its sign-in in its own `auth.json`, the API-key home, the switching home and a pasted
+/// key's status read keep the sign-in they are handed in the process's memory alone, and every
+/// other home takes none.
 pub(crate) fn home_config_overrides(kind: &CodexHomeKind) -> Vec<String> {
     match kind {
         CodexHomeKind::Account(_) => vec![CODEX_FILE_CREDENTIAL_STORE.to_owned()],

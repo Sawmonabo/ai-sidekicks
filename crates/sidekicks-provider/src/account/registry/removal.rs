@@ -1,7 +1,8 @@
 //! An account's removal: refused while a session runs on the account or a workflow step waits on
-//! it, naming the sessions or the workflow runs, then its intent marked, its sealed token destroyed, its row deleted with its quota readings
-//! and usage turns, and what each driver keeps in memory for it dropped. Its home stays on disk
-//! as it is. A crash between those writes leaves a marked row, which the start's sweep finishes.
+//! it, naming the sessions or the workflow runs, then its intent marked, its sealed token
+//! destroyed, its row deleted with its quota readings and usage turns, and what each driver keeps
+//! in memory for it dropped. Its home stays on disk as it is. A crash between those writes leaves a
+//! marked row, which the start's sweep finishes.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;

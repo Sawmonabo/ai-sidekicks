@@ -1,14 +1,13 @@
-//! Codex's limits read of one account's home: `account/rateLimits/read` on the home's own
-//! service, or on a short-lived one started there for it, never on a service of another home. The
-//! read answers its windows with the plan its reply named, the email and plan the home's account
-//! read names, and the sign-in's last renewal from the home's `auth.json`, and keeps its reset
-//! credits on the account's row. A
-//! read that answers no figures reads as a lost sign-in when the home's own account read finds none
-//! signed in, or when it needed a renewal (an expired access token), the usage server refused the
-//! sign-in, and the home's `auth.json` stayed unchanged, twice in a row; a read the server never
-//! answered, as with no network, says nothing of the sign-in. A read in the home of the account the switching service carries
-//! hands that service the home's tokens again when the read left them renewed, and fails when that
-//! hand fails.
+//! Codex's limits read of one account's home: `account/rateLimits/read` on the home's own service,
+//! or on a short-lived one started there for it, never on a service of another home. The read
+//! answers its windows with the plan its reply named, the email and plan the home's account read
+//! names, and the sign-in's last renewal from the home's `auth.json`, and keeps its reset credits
+//! on the account's row. A read that answers no figures reads as a lost sign-in when the home's own
+//! account read finds none signed in, or when it needed a renewal (an expired access token), the
+//! usage server refused the sign-in, and the home's `auth.json` stayed unchanged, twice in a row; a
+//! read the server never answered, as with no network, says nothing of the sign-in. A read in the
+//! home of the account the switching service carries hands that service the home's tokens again
+//! when the read left them renewed, and fails when that hand fails.
 
 use std::path::Path;
 
@@ -206,8 +205,9 @@ enum LimitsRead {
 const CODEX_SIGN_IN_REFUSED_STATUS: &str = "failed: 401 Unauthorized;";
 
 // Starts `service` where it is not up, reads its account's limits through `rate_limits` and the
-// account that answered them, which names it, and, on Codex's refusal, reads the home's sign-in without a refresh: none signed in is a lost sign-in,
-// one signed in a refused or throttled read, and an unreadable answer neither.
+// account that answered them, which names it, and, on Codex's refusal, reads the home's sign-in
+// without a refresh: none signed in is a lost sign-in, one signed in a refused or throttled read,
+// and an unreadable answer neither.
 async fn read_limits(
     rate_limits: &CodexRateLimitFiling,
     service: &CodexService,
