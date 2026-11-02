@@ -556,7 +556,7 @@ impl Reservation {
             verification_uri,
             user_code,
             expires_at,
-            browser_opened_by_provider,
+            is_browser_opened_by_provider,
             code_prompts,
             input,
             completion,
@@ -577,7 +577,7 @@ impl Reservation {
             verification_uri,
             user_code,
             expires_at,
-            browser_opened_by_provider,
+            is_browser_opened_by_provider,
         }));
         if is_cancel_asked && let Err(error) = input.cancel().await {
             tracing::warn!(

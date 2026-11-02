@@ -383,7 +383,7 @@ pub struct ProviderAccountSignInResponse {
     pub expires_at: Option<WireInstant>,
     /// Whether the provider opened the address in a browser itself: the client then opens
     /// nothing, and still draws `Open the sign-in page` with the address.
-    pub browser_opened_by_provider: bool,
+    pub is_browser_opened_by_provider: bool,
 }
 
 /// Cancels one sign-in attempt by the id its `provider.account.signIn` reply returned.

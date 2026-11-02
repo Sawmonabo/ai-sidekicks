@@ -340,7 +340,7 @@ impl ProviderSignInLegs for EndlessSignIn {
                     .expect("an https address"),
                 user_code: None,
                 expires_at: None,
-                browser_opened_by_provider: false,
+                is_browser_opened_by_provider: false,
                 code_prompts: futures::stream::pending().boxed(),
                 input: Box::new(EndlessSignIn),
                 completion: futures::future::pending().boxed(),

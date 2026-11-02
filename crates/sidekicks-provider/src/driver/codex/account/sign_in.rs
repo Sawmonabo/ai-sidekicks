@@ -201,7 +201,7 @@ pub(super) async fn start_codex_sign_in(
         verification_uri: shown.verification_uri,
         user_code: shown.user_code,
         expires_at: shown.expires_at,
-        browser_opened_by_provider: false,
+        is_browser_opened_by_provider: false,
         code_prompts: Box::pin(futures::stream::empty()),
         input: Box::new(CodexSignInInput { inputs }),
         completion: async move { completion.await.unwrap_or(ProviderSignInEnd::Failed) }.boxed(),

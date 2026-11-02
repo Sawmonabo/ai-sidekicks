@@ -157,7 +157,7 @@ pub struct ProviderSignInHandle {
     /// Where the provider bounds the attempt, in the future and within its ceiling, else `None`.
     pub expires_at: Option<WireInstant>,
     /// Whether the provider opened the address in a browser itself, so the client opens none.
-    pub browser_opened_by_provider: bool,
+    pub is_browser_opened_by_provider: bool,
     /// One item each time the flow waits for a pasted code, read from its prompt and carrying
     /// none of the prompt's text; empty on a flow that never asks.
     pub code_prompts: BoxStream<'static, ()>,

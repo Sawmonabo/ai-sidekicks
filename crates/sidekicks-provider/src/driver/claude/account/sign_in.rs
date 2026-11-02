@@ -301,7 +301,7 @@ async fn start_flow(
         verification_uri,
         user_code: None,
         expires_at: None,
-        browser_opened_by_provider: origin == SignInOrigin::ThisMachine,
+        is_browser_opened_by_provider: origin == SignInOrigin::ThisMachine,
         code_prompts: Box::pin(code_prompts),
         input: Box::new(ClaudeSignInInput { inputs }),
         completion: async move { completion.await.unwrap_or(ProviderSignInEnd::Failed) }.boxed(),

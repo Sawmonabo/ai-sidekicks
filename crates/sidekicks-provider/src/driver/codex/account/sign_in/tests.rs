@@ -117,7 +117,7 @@ async fn a_device_sign_in_shows_its_code_and_ends_only_on_its_own_completion() {
         handle.expires_at.is_some(),
         "the device wait bounds the attempt"
     );
-    assert!(!handle.browser_opened_by_provider);
+    assert!(!handle.is_browser_opened_by_provider);
     let mut completion = handle.completion;
     assert!(
         tokio::time::timeout(Duration::from_millis(300), &mut completion)

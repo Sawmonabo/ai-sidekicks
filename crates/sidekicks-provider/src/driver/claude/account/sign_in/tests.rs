@@ -126,7 +126,7 @@ async fn a_sign_in_shows_its_address_waits_for_a_code_and_finishes_on_it(
         .expect("the sign-in starts");
     assert_eq!(handle.verification_uri.as_str(), SIGN_IN_ADDRESS);
     assert_eq!(
-        handle.browser_opened_by_provider,
+        handle.is_browser_opened_by_provider,
         origin == SignInOrigin::ThisMachine
     );
     tokio::time::timeout(WAIT, handle.code_prompts.next())
