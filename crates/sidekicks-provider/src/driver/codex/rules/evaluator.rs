@@ -417,13 +417,13 @@ fn rule_collector<'a>(evaluator: &Evaluator<'_, 'a, '_>) -> RefMut<'a, RuleColle
         .borrow_mut()
 }
 
-// The bytes of the call the file's own code made that led to this builtin: the bottom of the call
-// stack, which a builtin is only ever under, since a file's evaluation starts no frame of its own.
+// The bytes of the call the file's own top-level code made that led to this builtin: the frame
+// nearest the bottom of the call stack that has a place, since starlark starts a file's evaluation
+// with a frame of no place and a call made from Rust (a `sorted` key) has none either.
 fn file_call_span(evaluator: &Evaluator<'_, '_, '_>) -> Range<usize> {
-    let location = evaluator
-        .call_stack_count()
-        .checked_sub(1)
-        .and_then(|bottom| evaluator.call_stack_nth_location(bottom))
+    let location = (0..evaluator.call_stack_count())
+        .rev()
+        .find_map(|from_top| evaluator.call_stack_nth_location(from_top))
         .expect("a builtin runs under a call the file's own code makes");
     location.span.begin().get() as usize..location.span.end().get() as usize
 }
