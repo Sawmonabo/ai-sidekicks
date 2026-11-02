@@ -63,6 +63,8 @@ enum RuleFileError {
     },
     #[error("expected example to not match rule `{rule}`: {example}")]
     ExampleDidMatch { rule: String, example: String },
+    #[error("a rule call has no place in the file's text")]
+    UnplacedCall,
     #[error("starlark error: {0}")]
     Starlark(starlark::Error),
 }
@@ -247,6 +249,7 @@ impl RuleFileEvaluator {
                 | RuleFileError::InvalidRule(_)
                 | RuleFileError::ExampleDidNotMatch { .. }
                 | RuleFileError::ExampleDidMatch { .. }
+                | RuleFileError::UnplacedCall
                 | RuleFileError::Starlark(_) => error.to_string(),
             })?;
         let collector = self.collector.borrow();
@@ -419,13 +422,15 @@ fn rule_collector<'a>(evaluator: &Evaluator<'_, 'a, '_>) -> RefMut<'a, RuleColle
 
 // The bytes of the call the file's own top-level code made that led to this builtin: the frame
 // nearest the bottom of the call stack that has a place, since starlark starts a file's evaluation
-// with a frame of no place and a call made from Rust (a `sorted` key) has none either.
-fn file_call_span(evaluator: &Evaluator<'_, '_, '_>) -> Range<usize> {
+// with a frame of no place and a call made from Rust (a `sorted` key) has none either. A stack with
+// no placed frame fails the file rather than the service, since only starlark's own stack building
+// keeps one there.
+fn file_call_span(evaluator: &Evaluator<'_, '_, '_>) -> Result<Range<usize>, RuleFileError> {
     let location = (0..evaluator.call_stack_count())
         .rev()
         .find_map(|from_top| evaluator.call_stack_nth_location(from_top))
-        .expect("a builtin runs under a call the file's own code makes");
-    location.span.begin().get() as usize..location.span.end().get() as usize
+        .ok_or(RuleFileError::UnplacedCall)?;
+    Ok(location.span.begin().get() as usize..location.span.end().get() as usize)
 }
 
 fn prefix_rule_match(
@@ -695,7 +700,7 @@ fn rule_builtins(builder: &mut GlobalsBuilder) {
                 justification: justification.clone(),
             })
             .collect();
-        let span = file_call_span(eval);
+        let span = file_call_span(eval)?;
         let mut collector = rule_collector(eval);
         collector.record_call(span, decision_word);
         if let Some(sense) = decision.sense() {
@@ -747,7 +752,7 @@ fn rule_builtins(builder: &mut GlobalsBuilder) {
         };
         read_justification(justification)?;
         let host = normalize_network_rule_host(host).map_err(RuleFileError::InvalidRule)?;
-        let span = file_call_span(eval);
+        let span = file_call_span(eval)?;
         let mut collector = rule_collector(eval);
         collector.record_call(span, decision_word);
         if let Some(sense) = decision.sense() {

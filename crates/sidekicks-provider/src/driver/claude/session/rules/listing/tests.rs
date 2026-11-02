@@ -168,12 +168,12 @@ async fn every_list_of_every_file_reads_as_one_row_each_with_an_id_of_its_scope_
             )
         })
         .collect();
-    let first_account = ProviderStandingRuleScope::AccountHome {
+    let first_account = Some(ProviderStandingRuleScope::AccountHome {
         account_id: account("account-1"),
-    };
-    let project = ProviderStandingRuleScope::Project {
+    });
+    let project = Some(ProviderStandingRuleScope::Project {
         repo_mount_id: project_id(),
-    };
+    });
     assert_eq!(
         read,
         [
@@ -192,9 +192,9 @@ async fn every_list_of_every_file_reads_as_one_row_each_with_an_id_of_its_scope_
             (
                 "ask",
                 "Bash(npm test)",
-                ProviderStandingRuleScope::AccountHome {
+                Some(ProviderStandingRuleScope::AccountHome {
                     account_id: account("account-2"),
-                },
+                }),
                 wire_path(&tree.home_settings("home-2")),
             ),
             (

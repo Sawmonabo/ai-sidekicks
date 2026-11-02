@@ -634,8 +634,15 @@ pub enum ProviderStandingRuleScope {
 pub struct ProviderStandingRule {
     /// The rule's id.
     pub rule_id: ProviderStandingRuleId,
-    /// Where the rule holds.
-    pub scope: ProviderStandingRuleScope,
+    /// Where the rule holds; absent for a rule of the provider's own system settings, which holds
+    /// for every account and project on the machine and which the daemon never revokes.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "ProviderStandingRuleScope")]
+    pub scope: Option<ProviderStandingRuleScope>,
     /// Where the rule's file is, the file's path in that place's form; absent on a computer
     /// without a WSL 2 distribution.
     #[serde(

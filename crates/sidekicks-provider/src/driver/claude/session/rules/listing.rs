@@ -226,7 +226,7 @@ async fn list_rules(
                 listed.push(ListedRule {
                     rule: ProviderStandingRule {
                         rule_id,
-                        scope: rule_file.scope.clone(),
+                        scope: Some(rule_file.scope.clone()),
                         place: sources.place.clone(),
                         source_path: source_path.clone(),
                         decision: FreeFormText::<PROVIDER_RULE_DECISION_MAX_LEN>::new(

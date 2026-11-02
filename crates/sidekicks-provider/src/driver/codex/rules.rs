@@ -1,12 +1,14 @@
-//! A project's standing rules as Codex keeps them, in the `.rules` files of the project's
-//! `.codex/rules/`, which Codex reads in conversations started after a change. The daemon writes
-//! one file of its own there, holding a command's `prefix_rule` and a host's `network_rule`, and
-//! lists it in the repository's own exclude list so it stays on this machine. Codex drops every
-//! rule file's rules when one rule file does not load, so a rule Codex would refuse is refused
-//! before anything is written. A command allow a prefix rule would stretch over a force push or a
-//! branch delete is never written: the daemon answers each ask it covers. The rules in force are
-//! read by evaluating every rule file Codex loads, the system's and the person's own among them, as
-//! Codex's own loader evaluates them.
+//! Codex's standing rules, kept in the `.rules` files of the system folder's, each Codex home's and
+//! each trusted project's `rules/` folders, which Codex reads in conversations started after a
+//! change. The daemon writes one file of its own in a project's `.codex/rules/`, holding a command's
+//! `prefix_rule` and a host's `network_rule`, and lists it in the repository's own exclude list so
+//! it stays on this machine; a revoke from the settings page takes a rule out of the home or
+//! project file that holds it, never out of a system file. Codex drops every rule file's rules when
+//! one rule file does not load, so a rule Codex would refuse is refused before anything is written,
+//! and a revoke that would leave a file Codex refuses is refused with the file untouched. A command
+//! allow a prefix rule would stretch over a force push or a branch delete is never written: the
+//! daemon answers each ask it covers. The rules in force are read by evaluating every rule file
+//! Codex loads, the system's and the person's own among them, as Codex's own loader evaluates them.
 
 mod evaluator;
 mod listing;
@@ -138,6 +140,15 @@ pub(crate) enum CodexRulesError {
         /// The file that keeps it.
         path: PathBuf,
     },
+    /// Taking a rule out of its file would leave a file Codex refuses, which drops every rule
+    /// file's rules, or one that still makes the rule, so the file is left as it was.
+    #[error("taking the rule out of {} is refused: {reason}", path.display())]
+    RevokeRefused {
+        /// The rule file.
+        path: PathBuf,
+        /// Why, in Codex's own words where Codex would refuse the file.
+        reason: String,
+    },
     /// A Codex config file is not TOML, so Codex does not start on it.
     #[error("Codex does not read the config file {}", path.display())]
     UnreadableConfig {
@@ -188,18 +199,27 @@ pub(crate) struct CodexRuleSources<'a> {
 }
 
 // Whether an evaluation goes on past the first file Codex refuses: a read stops there, since the
-// whole read then fails, while a revoke's search reads every file.
+// whole read then fails, while the search for a rule kept elsewhere reads every file.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AfterFailure {
     Stop,
     Continue,
 }
 
-// One rule file's text as read, and whether it is one of the project's.
+// Which of Codex's rule folders a file is in: the system folder's, which Codex reads for every
+// home, a Codex home's, or a project's.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RuleFileOrigin {
+    System,
+    Home,
+    Project,
+}
+
+// One rule file's text as read, and the folder it is in.
 struct RuleFileText {
     path: PathBuf,
     text: String,
-    is_project: bool,
+    origin: RuleFileOrigin,
 }
 
 /// The project rule files the daemon edits: a rule an answer made written into a project, and a
@@ -401,7 +421,7 @@ pub(crate) async fn read_codex_project_rules(
             path: file.path.clone(),
             reason,
         })?;
-        if file.is_project {
+        if file.origin == RuleFileOrigin::Project {
             rules.extend(evaluated.rules.into_iter().map(|rule| CodexProjectRule {
                 file: file.path.clone(),
                 rule,
@@ -444,23 +464,28 @@ async fn read_rule_file_texts(
     sources: &CodexRuleSources<'_>,
 ) -> Result<Vec<RuleFileText>, CodexRulesError> {
     let mut folders = vec![
-        (sources.system_folder.join(CODEX_RULES_FOLDER), false),
-        (sources.codex_home.join(CODEX_RULES_FOLDER), false),
+        (
+            sources.system_folder.join(CODEX_RULES_FOLDER),
+            RuleFileOrigin::System,
+        ),
+        (
+            sources.codex_home.join(CODEX_RULES_FOLDER),
+            RuleFileOrigin::Home,
+        ),
     ];
     if sources.is_project_trusted
         && !is_codex_home_project(sources.project_folder, sources.codex_home).await
     {
-        folders.push((project_rules_folder(sources.project_folder), true));
+        folders.push((
+            project_rules_folder(sources.project_folder),
+            RuleFileOrigin::Project,
+        ));
     }
     let mut files = Vec::new();
-    for (folder, is_project) in folders {
+    for (folder, origin) in folders {
         for path in list_rule_files(&folder).await? {
             let text = read_rule_file(&path).await?;
-            files.push(RuleFileText {
-                path,
-                text,
-                is_project,
-            });
+            files.push(RuleFileText { path, text, origin });
         }
     }
     Ok(files)
