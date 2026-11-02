@@ -38,6 +38,8 @@ use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
 use crate::runtime_binding::resume::ResumeFunctionLegs;
 
+mod helpers;
+
 // What the stand-ins for the reviewer denials and the queue heard, in order, each with the turn
 // ends the run engine took before it, and what held each gone session's slot as the queue heard.
 struct Steps {

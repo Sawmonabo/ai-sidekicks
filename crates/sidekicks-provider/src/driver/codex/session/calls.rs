@@ -20,7 +20,9 @@ use crate::driver::codex::run::steer::{register_codex_steer, withdraw_codex_stee
 use crate::driver::codex::run::turn_end_waiters::{
     CodexTurnEndDeadline, CodexTurnEndWaiters, CodexTurnWait,
 };
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::establishment::helpers::restore_reattached_codex_helper;
 use crate::driver::codex::session::fork::config_change::run_codex_config_fork;
 use crate::driver::codex::session::fork::{CodexForkDependencies, move_codex_session_to_fork};
 use crate::driver::codex::session::inbound::{
@@ -53,9 +55,11 @@ pub(crate) struct CodexSessionCallDependencies {
     pub(crate) runs: CodexRunCallDependencies,
 }
 
-/// What a goal's turn, a rewind and `Allow once` read of a session: the connection its
-/// conversation is on, the conversation, and the state of its turns.
+/// What a goal's turn, a rewind, `Allow once` and a helper's reopen read of a session: the service
+/// and connection its conversation is on, the conversation, and the state of its turns.
 pub(crate) struct CodexSessionReading {
+    /// The service, which a reopened helper is registered on.
+    pub(crate) service: Arc<CodexService>,
     /// The connection, or why the service has none.
     pub(crate) connection: Result<Arc<CodexAppServerConnection>, CodexError>,
     /// The session's conversation.
@@ -139,6 +143,15 @@ pub(crate) async fn run_codex_session_call(
         }
         CodexSessionCall::RunControl(call) => {
             run_codex_run_control_call(call, task.record, &dependencies.runs);
+        }
+        CodexSessionCall::RestoreHelper {
+            helper,
+            prior_emitted,
+            reply,
+        } => {
+            routed =
+                restore_reattached_codex_helper(task, dependencies, *helper, prior_emitted).await;
+            let _unheard = reply.send(());
         }
         CodexSessionCall::StopTurnForRetry {
             run_id,
@@ -266,10 +279,11 @@ pub(crate) async fn wait_for_codex_turns(
     }
 }
 
-// What the session's task reads for a goal's turn, a rewind or an `Allow once`.
+// What the session's task reads for a goal's turn, a rewind, an `Allow once` or a helper's reopen.
 fn read_codex_session(task: &CodexSessionTask<'_>, thread_id: Option<&str>) -> CodexSessionReading {
     let record = &*task.record;
     CodexSessionReading {
+        service: Arc::clone(&record.service),
         connection: record.service.connection(),
         thread_id: record.thread_id.clone(),
         is_turn_in_flight: record.is_turn_in_flight(None),

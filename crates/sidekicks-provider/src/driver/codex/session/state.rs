@@ -196,7 +196,8 @@ pub(crate) struct CodexSessionRecord {
     /// Runs asked to pause whose turn has a step in flight, by that turn's id.
     pub(crate) pause_run_id_by_turn_id: HashMap<String, RunId>,
     /// Turns Codex continued a lead's cut work in while the lead waited on the person: each ends
-    /// as the daemon's, never its run's, until a steer of the person's words reaches it.
+    /// as the daemon's, never its run's, until a steer of the person's words reaches it. A helper
+    /// held on the person at the adoption has its newest turn here where Codex lists it over.
     pub(crate) held_continuation_turn_ids: HashSet<String>,
     /// Runs whose turn was interrupted to pause them, by that turn's id: its interrupted end is
     /// the pause taking effect, never the run's end.

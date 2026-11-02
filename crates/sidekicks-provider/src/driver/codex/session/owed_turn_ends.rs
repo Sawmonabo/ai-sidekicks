@@ -2,8 +2,8 @@
 //! live or ending that the resume lists as over sent its `turn/completed` while the daemon was not
 //! connected, and Codex sends none again, so its listed end is routed as Codex's own, which the
 //! delivery writes as the daemon's for a continuation held while its lead waits on the person; so
-//! is the newest turn's end of each helper an adoption restored. A listed turn is read here for how
-//! it stands.
+//! is the newest turn's end of each helper an adoption restored, the daemon's too for a held one.
+//! A listed turn is read here for how it stands.
 
 use serde::Deserialize;
 use serde::de::IgnoredAny;
@@ -50,7 +50,8 @@ pub(crate) async fn end_owed_codex_turns(
 }
 
 /// Routes the `turn/completed` of a restored helper's newest turn `newest`, listed over, through
-/// `routing` to `delivery`, so the helper's child run, bound in `record`, ends as Codex ended it.
+/// `routing` to `delivery`, so the helper's child run, bound in `record`, ends as Codex ended it,
+/// or, where the turn is marked held, has the turn's end written as the daemon's.
 /// A turn still running or a helper with no bound child run routes nothing. Answers the frames the
 /// end produced.
 pub(crate) async fn end_owed_codex_helper_turn(

@@ -420,8 +420,10 @@ pub struct ReattachHelpersParams {
 /// One helper a driver re-attaches after a restart, as the session's tree holds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReattachedHelper {
-    /// The helper's newest own run.
+    /// The helper's newest own run, which its later turns go on.
     pub run_id: RunId,
+    /// The run that run was started beneath.
+    pub parent_run_id: RunId,
     /// The provider's id of the helper.
     pub subagent_id: SubagentId,
     /// The provider's id of the helper it runs under; `None` under the lead.

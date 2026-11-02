@@ -5,7 +5,7 @@
 
 mod adoption;
 mod continuation;
-mod helpers;
+pub(crate) mod helpers;
 mod settings;
 
 use std::path::PathBuf;

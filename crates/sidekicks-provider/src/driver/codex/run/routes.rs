@@ -139,6 +139,12 @@ impl CodexRunRoutes {
         }
     }
 
+    /// Whether a helper's child run is routed to its conversation, as an adoption that reopened
+    /// the helper routes it.
+    pub(crate) fn has_helper_route(&self, run_id: RunId) -> bool {
+        self.lock().helpers.contains_key(&run_id)
+    }
+
     /// Removes and answers the route of a helper's child run that ended.
     pub(crate) fn retire_helper_run(&self, run_id: RunId) -> Option<CodexHelperRoute> {
         self.lock().helpers.remove(&run_id)
