@@ -1,17 +1,22 @@
 //! An account's credential home: the folder the daemon makes for each account under its own data
 //! folder, readable by its owner alone, where the provider's own tooling keeps that account's
-//! sign-in; whether a registered account's home is there to run in; and its reset, the provider's
-//! own sign-out followed by the home emptied in place.
+//! sign-in; whether a registered account's home is there to run in; its reset, the provider's
+//! own sign-out followed by the home emptied in place; and the sign-out of every home before
+//! `Erase all data` deletes them.
 //!
 //! Where the provider keeps its agents' memory in its home, that folder is a link to the daemon's
 //! own agent-memory folder, made with the home and again after each reset, so every account's
 //! agents share one memory; the folder the provider keeps the sign-in in is made with them,
 //! readable by its owner alone.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::fs;
+use std::hash::BuildHasher;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::Duration;
 
 use sidekicks_contracts::provider::account::record::{
     CredentialGeneration, ProviderAccountHealthState, ProviderAccountId,
@@ -224,6 +229,52 @@ impl From<CredentialHomeResetError> for HandlerError {
             CredentialHomeResetError::Registry(failure) => failure.into(),
         }
     }
+}
+
+/// Why `sign_out_every_home` could not sign an account out.
+#[derive(Debug, thiserror::Error)]
+pub enum HomeSignOutError {
+    /// No registered provider runs the account's sign-out.
+    #[error("no registered provider signs the account out")]
+    NoProvider,
+    /// The provider's own sign-out could not run or was refused.
+    #[error("the provider's own sign-out did not complete")]
+    SignOut(#[source] DriverError),
+    /// The sign-out did not end within its bound.
+    #[error("the provider's own sign-out outlived its bound")]
+    Overran,
+}
+
+/// Signs every registered account out through its provider's own sign-out in its home, all at
+/// once and within `bound`, as `Erase all data` does before the homes go. Answers each account
+/// it could not sign out, with why. Fails when the accounts cannot be read.
+pub async fn sign_out_every_home<S: BuildHasher>(
+    registry: &ProviderAccountRegistry,
+    legs: &HashMap<ProviderId, Arc<dyn ProviderAccountLegs>, S>,
+    bound: Duration,
+) -> Result<Vec<(ProviderAccountId, HomeSignOutError)>, ProviderAccountRegistryError> {
+    let accounts = registry.list(None).await?;
+    let sign_outs = accounts.into_iter().map(|account| async move {
+        let Some(legs) = legs.get(&account.provider) else {
+            return Some((account.account_id, HomeSignOutError::NoProvider));
+        };
+        let folders = credential_home_folders(&account.provider, &account.credential_home);
+        let signed_out = tokio::time::timeout(
+            bound,
+            legs.sign_out_home(account.account_id.clone(), folders),
+        )
+        .await;
+        match signed_out {
+            Ok(Ok(())) => None,
+            Ok(Err(error)) => Some((account.account_id, HomeSignOutError::SignOut(error))),
+            Err(_elapsed) => Some((account.account_id, HomeSignOutError::Overran)),
+        }
+    });
+    Ok(futures::future::join_all(sign_outs)
+        .await
+        .into_iter()
+        .flatten()
+        .collect())
 }
 
 // Runs a file-system step off the runtime's threads, its failure a home that could not be made or

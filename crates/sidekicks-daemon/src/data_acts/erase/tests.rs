@@ -5,7 +5,9 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use secrecy::SecretString;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::CredentialStore;
+use sidekicks_provider::account::credential_home::HomeSignOutError;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
@@ -28,13 +30,16 @@ fn write_file(path: &Path) {
     fs::write(path, "kept").expect("the file is written");
 }
 
-// The erase runs in its order: the work stops while the data folder is whole, each provider's
+// The erase runs in its order: the work stops while the data folder is whole, the provider
+// accounts sign out in their homes while the folder and the keychain are whole, each provider's
 // services end, the keychain's items go before the data folder closes, and the process ends
-// last; the data folder goes but for an earlier backup, and a project folder is untouched. A
-// second erase sent while it stops the work is refused and starts nothing. Killed by a delete
-// before the stop, by items deleted after the folder, by a provider service ended as for a
-// restart, by a project folder or a backup deleted, by a second erase let run beside the first,
-// and by a second erase answered as the first.
+// last; the data folder goes but for an earlier backup, and a project folder is untouched. An
+// account that does not sign out stops nothing. A second erase sent while it stops the work is
+// refused and starts nothing. Killed by a delete before the stop, by the sign-out skipped or run
+// after the services end or the folder goes, by an erase that stops on an account left signed in,
+// by items deleted after the folder, by a provider service ended as for a restart, by a project
+// folder or a backup deleted, by a second erase let run beside the first, and by a second erase
+// answered as the first.
 #[tokio::test]
 async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     let data_folder = tempfile::tempdir().expect("the data folder is made");
@@ -79,9 +84,14 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     });
     let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
     let ended = Arc::new(Notify::new());
-    let (stop_calls, close_calls, end_calls) =
-        (Arc::clone(&calls), Arc::clone(&calls), Arc::clone(&calls));
-    let (stop_data, end_signal) = (data.clone(), Arc::clone(&ended));
+    let (stop_calls, sign_out_calls, close_calls, end_calls) = (
+        Arc::clone(&calls),
+        Arc::clone(&calls),
+        Arc::clone(&calls),
+        Arc::clone(&calls),
+    );
+    let (stop_data, sign_out_data, end_signal) = (data.clone(), data.clone(), Arc::clone(&ended));
+    let sign_out_credentials = credentials.clone();
     // The work stops only once the gate opens, so a second erase arrives while the first runs.
     let (gate, gate_open) = watch::channel(false);
     let erase = Arc::new(DataErase::new(DataEraseDeps {
@@ -99,6 +109,20 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
                     .expect("the gate stays while the test runs");
             }
             .boxed()
+        }),
+        sign_out_accounts: Arc::new(move || {
+            let whole = sign_out_data.join("accounts").exists();
+            let held = sign_out_credentials
+                .read(secret_service, "deploy")
+                .expect("the store reads")
+                .is_some();
+            record(
+                &sign_out_calls,
+                format!("accounts sign out (folder whole: {whole}, item held: {held})"),
+            );
+            let unsigned =
+                ProviderAccountId::new("account-1".to_owned()).expect("a test account id");
+            async move { Ok(vec![(unsigned, HomeSignOutError::Overran)]) }.boxed()
         }),
         close_data_folder: Arc::new(move || {
             let held = credentials
@@ -129,6 +153,7 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
         *lock(&calls),
         [
             "work stops (folder whole: true)".to_owned(),
+            "accounts sign out (folder whole: true, item held: true)".to_owned(),
             format!("provider services end ({:?})", DaemonStopIntent::Stop),
             "folder closes (item held: false)".to_owned(),
             "process ends".to_owned(),

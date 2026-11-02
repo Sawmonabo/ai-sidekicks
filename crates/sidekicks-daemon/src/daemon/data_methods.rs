@@ -256,6 +256,7 @@ mod tests {
                 stopped.store(true, Ordering::SeqCst);
                 async {}.boxed()
             }),
+            sign_out_accounts: Arc::new(|| async { Ok(Vec::new()) }.boxed()),
             close_data_folder: Arc::new(|| async {}.boxed()),
             end_process: Arc::new(|| {}),
         }));
