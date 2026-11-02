@@ -5,6 +5,7 @@
 pub(crate) mod answer_text;
 pub mod projection;
 pub(crate) mod resolve;
+pub(crate) mod restart;
 pub(crate) mod run_end;
 pub mod schema;
 pub mod service;

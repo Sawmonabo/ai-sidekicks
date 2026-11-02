@@ -64,9 +64,9 @@ pub mod test_fixture;
 mod tests;
 
 /// The statements [`QuestionsService`] prepares on a read connection: a record, its pages,
-/// whether its run has an interrupt recorded, which held questions are still open, and the open
-/// question a provider's request came on.
-pub const QUESTION_STATEMENT_CAPACITY: usize = 5;
+/// whether its run has an interrupt recorded, which held questions are still open, the open
+/// question a provider's request came on, and a session's open questions that came on a request.
+pub const QUESTION_STATEMENT_CAPACITY: usize = 6;
 
 // Whether a person's or the daemon's interrupt of the run was asked for or carried out.
 static RUN_INTERRUPTED_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -461,7 +461,19 @@ impl QuestionsService {
         let Some(held) = self.held_request(&question_id) else {
             return Ok(());
         };
-        let run_id = held.run_id;
+        self.cancel_withdrawn_question(question_id, held.session_id, held.run_id)
+            .await
+    }
+
+    /// Cancels `question_id` of `session_id`, which `run_id` holds, as [`Self::withdraw_question`]
+    /// says, and lets its request go; the caller holds the question's lock. Fails as the read or
+    /// the move fails, the question left as it was.
+    pub(super) async fn cancel_withdrawn_question(
+        &self,
+        question_id: QuestionId,
+        session_id: SessionId,
+        run_id: RunId,
+    ) -> Result<(), QuestionError> {
         let (is_interrupted, state) = self
             .reads
             .read(ReadLength::Short, move |reader| {
@@ -478,7 +490,7 @@ impl QuestionsService {
         };
         if state == Some(QuestionState::WaitingForRun) {
             let canceled = self
-                .cancel_waiting_question(question_id, held.session_id, reason)
+                .cancel_waiting_question(question_id, session_id, reason)
                 .await;
             // One its run's end canceled meanwhile stays as that end settled it.
             if let Err(failure) = canceled {
@@ -500,7 +512,7 @@ impl QuestionsService {
             self.engine.wake_running_waiters(&run_id);
             return Ok(());
         }
-        let canceled = canceled_event(held.session_id, question_id, reason)?;
+        let canceled = canceled_event(session_id, question_id, reason)?;
         let moved = self
             .engine
             .transition(
