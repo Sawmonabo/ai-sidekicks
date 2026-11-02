@@ -7,12 +7,14 @@ use futures::future::BoxFuture;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanId};
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::Semaphore;
 
 use super::{PLAN_KEPT_REASON, PLAN_UNSHOWN_REASON};
 use crate::driver::claude::session::scripted::channel::ScriptedWrite;
 use crate::driver::claude::session::scripted::{ScriptedSession, settle};
+use crate::driver::contract::plan_verdict::PlanVerdict;
 use crate::driver::diagnostics::RecordedEvents;
 use crate::port::plan::{PlanPort, ProviderPlan, ProviderPlanHoldEnd};
 
@@ -162,11 +164,13 @@ enum Unrecorded {
     TakeFailed,
 }
 
-// A plan request reaches only the plan record, under the id the driver minted, and a verdict finds
-// it by that id while the record is still being written. Killed by leaving the fall-through to
-// the approval pipeline in.
+// A plan request reaches only the plan record, under the id the driver minted, and a verdict that
+// lands while the record is still being written finds it by that id and answers it once; the
+// take's return then answers nothing more and reports no end of the hold. Killed by leaving the
+// fall-through to the approval pipeline in, by the lookup waiting on the take's end, by a second
+// answer once the take returns, and by the verdict's close read as a withdrawal.
 #[tokio::test(start_paused = true)]
-async fn a_plan_is_held_under_its_minted_id_and_never_asked() {
+async fn a_verdict_while_the_take_runs_answers_the_plan_once() {
     let session = ScriptedSession::new().await;
     session.hold_lead_turn("lead");
     let record = PlanRecord::registered(&session, true);
@@ -179,19 +183,87 @@ async fn a_plan_is_held_under_its_minted_id_and_never_asked() {
     assert_eq!(taken[0].text, "1. Read the code.\n2. Change it.");
     assert!(taken[0].holds_request);
     let plan_id = taken[0].plan_id;
+    let (request_id, admission) = session
+        .requests
+        .held_plan_request(session.session_id, plan_id)
+        .expect("found from admission, while the take runs");
+    assert_eq!(request_id, "plan");
+    assert_eq!(session.ports.calls(), [], "no permission ask");
+    session
+        .requests
+        .answer_held_plan(&session.live, &request_id, admission, PlanVerdict::Keep {})
+        .await
+        .expect("the verdict's answer is written");
+    record.release_takes();
+    settle().await;
+
+    assert_eq!(session.ports.calls(), []);
+    assert_eq!(answers(&session), [denial("plan", PLAN_KEPT_REASON)]);
     assert_eq!(
+        record.hold_ends(),
+        [],
+        "the verdict's close is no withdrawal"
+    );
+    assert!(
         session
             .requests
             .held_plan_request(session.session_id, plan_id)
-            .as_deref(),
-        Some("plan"),
-        "found from admission, while the take runs"
+            .is_none()
     );
-    assert_eq!(session.ports.calls(), [], "no permission ask");
-    record.release_takes();
+}
+
+// Each verdict on a held plan writes exactly its answer, once: keep and hand-off refuse it with the
+// keep sentence, and build allows it with one move of the session to the verdict's level's mode.
+// The session runs at Ask, so a build at Sandboxed tells the verdict's level from the session's.
+// Killed by a wrong destination, the mode taken from the session's level, a changed keep sentence,
+// a second answer and an extra member.
+#[rstest]
+#[case::keep(PlanVerdict::Keep {}, denial("plan", PLAN_KEPT_REASON).1)]
+#[case::build_at_ask(
+    PlanVerdict::Build { level: PermissionLevel::Ask },
+    json!({
+        "behavior": "allow",
+        "updatedPermissions": [{"type": "setMode", "mode": "acceptEdits", "destination": "session"}],
+    }),
+)]
+#[case::build_at_sandboxed(
+    PlanVerdict::Build { level: PermissionLevel::Sandboxed },
+    json!({
+        "behavior": "allow",
+        "updatedPermissions": [{"type": "setMode", "mode": "dontAsk", "destination": "session"}],
+    }),
+)]
+#[case::hand_off(PlanVerdict::HandOff {}, denial("plan", PLAN_KEPT_REASON).1)]
+#[tokio::test(start_paused = true)]
+async fn each_verdict_on_a_held_plan_writes_exactly_its_answer(
+    #[case] verdict: PlanVerdict,
+    #[case] expected: Value,
+) {
+    let session = ScriptedSession::new().await;
+    session.hold_lead_turn("lead");
+    let record = PlanRecord::registered(&session, false);
+    session.request("plan", &plan_exit());
     settle().await;
-    assert_eq!(session.ports.calls(), []);
-    assert!(!has_answer(&session));
+    let plan_id = record.taken()[0].plan_id;
+
+    let (request_id, admission) = session
+        .requests
+        .held_plan_request(session.session_id, plan_id)
+        .expect("the plan is held");
+    session
+        .requests
+        .answer_held_plan(&session.live, &request_id, admission, verdict)
+        .await
+        .expect("the verdict's answer is written");
+    settle().await;
+
+    assert_eq!(answers(&session), [("plan".to_owned(), expected)]);
+    assert!(
+        session
+            .requests
+            .held_plan_request(session.session_id, plan_id)
+            .is_none()
+    );
 }
 
 // A withdrawal while the take runs is reported once the take returns, and only once; one after the
@@ -364,6 +436,7 @@ async fn a_newer_plan_recorded_lets_the_older_go() {
         session
             .requests
             .held_plan_request(session.session_id, newer)
+            .map(|(request_id, _admission)| request_id)
             .as_deref(),
         Some("newer")
     );
@@ -395,6 +468,7 @@ async fn the_plan_recorded_last_stands_whatever_order_they_were_asked() {
         session
             .requests
             .held_plan_request(session.session_id, first)
+            .map(|(request_id, _admission)| request_id)
             .as_deref(),
         Some("first")
     );

@@ -31,6 +31,7 @@ use crate::driver::contract::params_and_results::{
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
+use crate::driver::contract::plan_verdict::{AnswerPlanParams, PlanVerdictAnswer};
 use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -60,6 +61,7 @@ use crate::port::session_inbox_address::SessionInboxAddresser;
 pub mod account;
 pub mod error;
 pub mod params_and_results;
+pub mod plan_verdict;
 pub mod sign_in;
 
 /// The operations every provider driver carries out for the daemon. Each refusal comes back as
@@ -119,6 +121,15 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: RespondToRequestParams,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// Answers the person's verdict on a plan: a request the provider holds open for it is
+    /// answered with the verdict, `NotHeld` once it was answered or withdrawn; a plan holding no
+    /// request moves the session to Build for a build and answers its follow-up message. Fails as
+    /// the answer's write or the mode move fails.
+    fn answer_plan(
+        &self,
+        params: AnswerPlanParams,
+    ) -> BoxFuture<'_, Result<PlanVerdictAnswer, DriverError>>;
 
     /// `Allow once` on a block the provider's own reviewer made, carried by the provider's own
     /// means: it reaches a running turn at once and starts a turn when none runs, and retries

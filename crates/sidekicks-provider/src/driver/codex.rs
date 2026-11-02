@@ -43,6 +43,9 @@ use crate::driver::contract::params_and_results::{
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
+use crate::driver::contract::plan_verdict::{
+    AnswerPlanParams, PlanVerdictAnswer, answer_plan_holding_no_request,
+};
 use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::ProviderAxisInvalid;
@@ -352,6 +355,14 @@ impl ProviderDriver for CodexDriver {
         params: RespondToRequestParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         self.respond_to_request(params).boxed()
+    }
+
+    fn answer_plan(
+        &self,
+        params: AnswerPlanParams,
+    ) -> BoxFuture<'_, Result<PlanVerdictAnswer, DriverError>> {
+        // Codex holds no request for a plan.
+        answer_plan_holding_no_request(self, params).boxed()
     }
 
     fn override_denial(

@@ -16,6 +16,9 @@ use crate::driver::contract::params_and_results::{
     CompactContextParams, ListProviderCommandsParams, RespondToRequestParams, RunOpeningItem,
     StartRunParams,
 };
+use crate::driver::contract::plan_verdict::{
+    AnswerPlanParams, PlanVerdictAnswer, answer_plan_holding_no_request,
+};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
@@ -108,6 +111,33 @@ impl ClaudeDriver {
         params: RespondToRequestParams,
     ) -> Result<(), DriverError> {
         self.parts()?.run_controls.respond_to_request(params).await
+    }
+
+    /// Answers the person's verdict on a plan: the request Claude Code holds open for it with the
+    /// verdict's answer, `NotHeld` once it was answered or withdrawn, and a plan holding no request
+    /// as every provider answers one. Fails `NoLiveSession` for a held request no live process
+    /// serves, and as the answer's write or the mode move fails.
+    pub(crate) async fn answer_plan(
+        &self,
+        params: AnswerPlanParams,
+    ) -> Result<PlanVerdictAnswer, DriverError> {
+        if !params.holds_request {
+            return answer_plan_holding_no_request(self, params).await;
+        }
+        let parts = self.parts()?;
+        let requests = &parts.run_controls.requests;
+        let Some((request_id, admission)) =
+            requests.held_plan_request(params.session_id, params.plan_id)
+        else {
+            return Ok(PlanVerdictAnswer::NotHeld {});
+        };
+        let live = parts.run_start.live_session(params.session_id)?;
+        requests
+            .answer_held_plan(&live, &request_id, admission, params.verdict)
+            .await?;
+        Ok(PlanVerdictAnswer::Answered {
+            follow_up_message: None,
+        })
     }
 
     /// `Allow once` on a block Claude Code's own reviewer made.

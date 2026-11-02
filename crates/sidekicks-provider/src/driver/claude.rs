@@ -43,6 +43,7 @@ use crate::driver::contract::params_and_results::{
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
+use crate::driver::contract::plan_verdict::{AnswerPlanParams, PlanVerdictAnswer};
 use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::ProviderAxisInvalid;
@@ -348,6 +349,13 @@ impl ProviderDriver for ClaudeDriver {
         params: RespondToRequestParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         self.respond_to_request(params).boxed()
+    }
+
+    fn answer_plan(
+        &self,
+        params: AnswerPlanParams,
+    ) -> BoxFuture<'_, Result<PlanVerdictAnswer, DriverError>> {
+        self.answer_plan(params).boxed()
     }
 
     fn override_denial(
