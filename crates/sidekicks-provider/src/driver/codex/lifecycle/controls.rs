@@ -1,7 +1,8 @@
 //! A Codex session's controls and the driver's reads: a level or mode move, a side question, a
 //! compaction, its goal, a revoked rule, its command list and declared speed; the models, modes,
-//! capabilities, sign-in, MCP servers and starting level read on a service; the terminal-reach
-//! row; and the expiry of an account home's log rows.
+//! capabilities, sign-in, MCP servers and starting level read on a service; an MCP server's
+//! sign-in through Codex's own client; the terminal-reach row; and the expiry of an account home's
+//! log rows.
 
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -32,6 +33,7 @@ use crate::driver::codex::capability_probe::probe_codex_service_capabilities;
 use crate::driver::codex::compaction::{CodexCompactionTarget, dispatch_codex_compaction};
 use crate::driver::codex::mcp::read_codex_mcp_servers;
 use crate::driver::codex::mcp::requirements::CodexRequirementsSources;
+use crate::driver::codex::mcp::sign_in::sign_in_with_codex_client;
 use crate::driver::codex::model_windows::join_codex_model_windows;
 use crate::driver::codex::service::registry::CodexHomeResolver;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -44,6 +46,7 @@ use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
     ListProviderCommandsParams, ProviderCommandsSubscription,
 };
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::read_current_account;
 use crate::driver::session_control::{
@@ -255,6 +258,23 @@ impl CodexDriver {
                 Err(error)
             }
         }
+    }
+
+    /// Signs in to `request`'s MCP server through Codex's own client on a throwaway service in a
+    /// folder of the daemon's own, deleted after; the server's entry is read from the person's
+    /// config. Fails as `sign_in_with_codex_client` does.
+    pub(crate) async fn sign_in_with_own_client(
+        &self,
+        request: ProviderSignInTakeoverRequest,
+    ) -> Result<ProviderSignInTakeover, DriverError> {
+        sign_in_with_codex_client(&self.registry, &self.project_rules.home_folder, request).await
+    }
+
+    /// Removes the folders of MCP sign-ins a stopped daemon left. Fails as the removal fails.
+    pub(crate) async fn remove_left_sign_in_folders(&self) -> Result<(), DriverError> {
+        sidekicks_platforms::remove_tree_awaited(&self.registry.mcp_sign_in_folder())
+            .await
+            .map_err(|error| DriverError::Internal(Box::new(error)))
     }
 
     /// How `provider_account_id`'s Codex is signed in, read on the account's own service without

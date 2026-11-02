@@ -11,6 +11,7 @@ use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant, SystemTime};
 
 use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::control::{ProcessExit, ProcessExitAfterSilence};
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -283,7 +284,7 @@ impl ServiceRunner {
             SupervisorAction::ReportDropped => {}
             SupervisorAction::ReportStartFailed(failure) => {
                 CodexTransportDiagnostic::ServiceStartFailed {
-                    codex_home: service.home.codex_home.clone(),
+                    provider_account_id: service.provider_account_id(),
                     error: Box::new(super::SharedCodexError(failure)),
                 }
                 .report();
@@ -604,23 +605,23 @@ fn silent_exit(stopped: Option<ProcessExit>, silent_for: Duration) -> ProcessExi
 fn report_crash_loop(service: &CodexService) {
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: service.home.provider_account_id().cloned(),
+        provider_account_id: service.provider_account_id(),
         kind: DriverDiagnosticKind::ProviderCrashLoop,
         raw_wire_type: None,
         disposition_reason: "the Codex service ended on its own too many times in the crash \
                              window, so it was not restarted"
             .to_owned(),
-        details: serde_json::Map::from_iter([(
-            "codexHome".to_owned(),
-            serde_json::Value::String(service.home.codex_home.display().to_string()),
-        )]),
+        details: serde_json::Map::new(),
     });
 }
 
 // Logs the version a connect read, never branching on it.
 fn log_version(service: &CodexService, version: &SpawnedProviderVersionReading) {
     tracing::info!(
-        codex_home = %service.home.codex_home.display(),
+        provider_account_id = service
+            .provider_account_id()
+            .as_ref()
+            .map(ProviderAccountId::as_str),
         version = version.report.raw_version.as_str(),
         executable = %version.resolved_executable_path.display(),
         "the Codex service reported its version"

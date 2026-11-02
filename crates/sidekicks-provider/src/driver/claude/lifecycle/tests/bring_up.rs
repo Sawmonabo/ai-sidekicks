@@ -412,3 +412,30 @@ async fn a_new_session_at_a_level_its_model_cannot_run_is_refused_as_not_offered
     assert_eq!(refusal.code, RefusalCode::SessionPermissionLevelNotOffered);
     assert!(fixture.driver.starts_process(session_id));
 }
+
+// A resume or a create that reaches the callback tool host before the daemon registered it is
+// refused `provider.unavailable` with the port's words, so the session is not marked as needing
+// recovery. Killed by the resume answering the `Failed` arm, and by either answering an internal
+// failure.
+#[tokio::test(start_paused = true)]
+async fn a_start_before_the_tool_host_is_registered_is_refused_as_unavailable() {
+    let fixture = ScriptedDriver::before_the_callback_tool_host();
+    let session_id = new_session_id();
+
+    let resumed = fixture
+        .driver
+        .resume_session(resume_params(session_id))
+        .await;
+    let created = fixture
+        .driver
+        .create_session(create_params(session_id))
+        .await;
+
+    for refused in [resumed.map(drop), created.map(drop)] {
+        let Err(DriverError::Refused(refusal)) = refused else {
+            panic!("the start is refused, not {refused:?}");
+        };
+        assert_eq!(refusal.code, RefusalCode::ProviderUnavailable);
+        assert!(refusal.message.contains("not ready"), "{}", refusal.message);
+    }
+}

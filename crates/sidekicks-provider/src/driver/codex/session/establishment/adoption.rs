@@ -19,6 +19,7 @@ use super::{
 };
 use crate::driver::codex::delivery::memory::{CodexBoundChildRun, CodexChildRun};
 use crate::driver::codex::run::routes::CodexRunBinding;
+use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::service::supervisor::start::read_codex_loaded_threads;
 use crate::driver::codex::service::supervisor::{CODEX_UNLOAD_TIMEOUT, CodexService};
 use crate::driver::codex::session::context_reading::{
@@ -80,8 +81,13 @@ impl CodexSessionEstablishment {
             .compose_thread_settings(compose_resume_settings_request(params))
             .await?;
         let execution_posture = require_execution_posture(params.execution_posture.as_ref())?;
-        let service =
-            Arc::clone(started.insert(self.start_service(&params.provider_account_id).await?));
+        let home = CodexConversationHome::read(&params.runtime_metadata);
+        let service = Arc::clone(
+            started.insert(
+                self.start_service(&params.provider_account_id, home)
+                    .await?,
+            ),
+        );
         let connection = service.connection()?;
         let loaded = read_codex_loaded_threads(&connection).await?;
         let session_id = params.session_id;

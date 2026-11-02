@@ -1,6 +1,7 @@
-//! Where a provider's metered usage and its account's quota windows go, and the sums the daemon
-//! already reported for a thread a resumed session meters on from. The usage service registers it
-//! once it runs; until then a reading meters against a zero base and its delta goes nowhere.
+//! Where a provider's metered usage and its account's quota windows go, a turn's push and an
+//! account read's whole set alike, and the sums the daemon already reported for a thread a resumed
+//! session meters on from. The usage service registers it once it runs; until then a reading
+//! meters against a zero base and its delta goes nowhere.
 
 use std::error::Error;
 
@@ -69,6 +70,17 @@ pub trait UsageSink: Send + Sync {
     /// is sparse: it names the windows that moved, no others. Fails as the windows cannot be
     /// written.
     fn record_quota_windows(
+        &self,
+        provider: ProviderId,
+        provider_account_id: ProviderAccountId,
+        windows: Vec<ProviderQuotaWindow>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+
+    /// Records the whole set of quota windows the account's own limits read answered for
+    /// `provider_account_id`'s account: each window is marked with the set, so a stored window the
+    /// set does not name is gone. An empty set records nothing. Fails as the windows cannot be
+    /// written.
+    fn record_whole_quota_windows(
         &self,
         provider: ProviderId,
         provider_account_id: ProviderAccountId,

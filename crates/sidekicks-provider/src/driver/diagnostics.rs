@@ -358,6 +358,17 @@ mod recorded_events {
             self.fields_where(|_fields| true, "message")
         }
 
+        /// Every field's value on each event recorded, in order.
+        #[cfg(test)]
+        pub(crate) fn texts(&self) -> Vec<String> {
+            self.0
+                .lock()
+                .expect("no test thread panics holding the lock")
+                .iter()
+                .flat_map(|fields| fields.values().cloned())
+                .collect()
+        }
+
         /// The value of `field` on each diagnostic recorded under `counter`, in order.
         pub fn field_on(&self, counter: &str, field: &str) -> Vec<String> {
             self.fields_where(

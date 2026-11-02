@@ -284,12 +284,14 @@ mod tests {
         readings::{ClaudeModelContextRead, ClaudeSessionFolderReadRequest},
     };
     use crate::driver::claude::spawn::launch::ClaudeLaunchError;
+    use crate::runtime_binding::test_store::test_provider_account_id;
 
     fn place() -> ClaudeSessionFolderReadRequest {
         ClaudeSessionFolderReadRequest {
             spawn_environment: Vec::new(),
             working_directory: PathBuf::from("/work"),
             model: "claude-opus-5".to_owned(),
+            provider_account_id: test_provider_account_id(),
         }
     }
 

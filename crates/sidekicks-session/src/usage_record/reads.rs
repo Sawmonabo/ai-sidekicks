@@ -1,6 +1,7 @@
-//! The usage record's reads of the log and the accounts: where a reading's row goes, a run's tally
-//! seeded once per run, the turn a provider's turn id opened, and a thread's prior counts; and the
-//! one expression of a token count, which the agent tree's heads read too.
+//! The usage record's reads of the log and the accounts: where a reading's row goes, an account's
+//! generation and the quota windows kept for it, a run's tally seeded once per run, the turn a
+//! provider's turn id opened, and a thread's prior counts; and the one expression of a token count,
+//! which the agent tree's heads read too.
 
 use std::sync::LazyLock;
 
@@ -32,6 +33,11 @@ use crate::usage_record::UsageRecordError;
 
 const SELECT_CREDENTIAL_GENERATION_SQL: &str =
     "SELECT credential_generation FROM provider_accounts WHERE account_id = ?1";
+
+const SELECT_STORED_WINDOWS_SQL: &str = "
+  SELECT limit_id, window_mins, used_percent, resets_at, observed_credential_generation
+    FROM provider_account_usage_windows
+   WHERE account_id = ?1";
 
 // A helper's own run, as the newest start of the helper on the session by provider and id names
 // it.
@@ -218,23 +224,66 @@ pub(super) fn read_credential_generation(
     reader: &Connection,
     provider_account_id: ProviderAccountId,
 ) -> Result<CredentialGeneration, UsageRecordError> {
-    let generation = reader
+    reader
         .prepare_cached(SELECT_CREDENTIAL_GENERATION_SQL)?
         .query_row([provider_account_id.as_str()], |row| {
-            safe_int_column::<1>(row, 0)
+            credential_generation_column(row, 0)
         })
         .optional()?
         .ok_or(UsageRecordError::AccountNotRegistered {
             provider_account_id,
-        })?;
-    let generation = serde_json::from_value(Value::from(generation.get())).map_err(|error| {
+        })
+}
+
+/// One quota window of an account as the window projection keeps it.
+#[derive(Debug)]
+pub(super) struct StoredQuotaWindow {
+    /// The provider's name for the limit, the reserved one where the reading named none.
+    pub(super) limit_id: String,
+    /// The window's length in minutes.
+    pub(super) window_mins: i64,
+    /// The share of the window used, in percent.
+    pub(super) used_percent: f64,
+    /// When the window resets, as the reading wrote it.
+    pub(super) resets_at: Option<String>,
+    /// The account's generation when it was read.
+    pub(super) credential_generation: CredentialGeneration,
+}
+
+/// Every quota window the projection keeps for `provider_account_id`, none for an account it
+/// keeps none of. Fails when the stored windows cannot be read.
+pub(super) fn read_stored_windows(
+    reader: &Connection,
+    provider_account_id: &ProviderAccountId,
+) -> Result<Vec<StoredQuotaWindow>, UsageRecordError> {
+    let windows = reader
+        .prepare_cached(SELECT_STORED_WINDOWS_SQL)?
+        .query_map([provider_account_id.as_str()], |row| {
+            Ok(StoredQuotaWindow {
+                limit_id: row.get(0)?,
+                window_mins: row.get(1)?,
+                used_percent: row.get(2)?,
+                resets_at: row.get(3)?,
+                credential_generation: credential_generation_column(row, 4)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(windows)
+}
+
+// The generation stored in the column at `index`, read through its wire form.
+fn credential_generation_column(
+    row: &rusqlite::Row<'_>,
+    index: usize,
+) -> rusqlite::Result<CredentialGeneration> {
+    let generation = safe_int_column::<1>(row, index)?;
+    serde_json::from_value(Value::from(generation.get())).map_err(|error| {
         rusqlite::Error::FromSqlConversionFailure(
-            0,
+            index,
             rusqlite::types::Type::Integer,
             Box::new(error),
         )
-    })?;
-    Ok(generation)
+    })
 }
 
 /// `run_id`'s tally as its log stands, read at its first report: the token limit admitted with it

@@ -19,8 +19,8 @@ use sidekicks_platforms::{
 use tempfile::TempDir;
 
 use super::{
-    TestCodexProgram, UnheardEvents, answer_as_codex_service, codex_folder_environment,
-    test_codex_service_dependencies,
+    StandInReplies, TestCodexProgram, UnheardEvents, answer_as_codex_service,
+    codex_folder_environment, test_codex_service_dependencies,
 };
 use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
@@ -47,6 +47,10 @@ pub(crate) const REQUEST_RECORD_NAME: &str = "SIDEKICKS_TEST_REQUEST_RECORD";
 
 /// The reply a stand-in answers a config read with, as JSON text; only a test's program sets it.
 pub(crate) const CONFIG_READ_REPLY_NAME: &str = "SIDEKICKS_TEST_CONFIG_READ_REPLY";
+
+/// The one turn a stand-in lists on every conversation it resumes, as JSON text; only a test's
+/// program sets it, and a stand-in it is not set for answers a resume with nothing.
+pub const RESUMED_TURN_NAME: &str = "SIDEKICKS_TEST_RESUMED_TURN";
 
 // The address a stand-in listens on, as its `--listen` names it; only its script sets it.
 const LISTEN_ADDRESS_NAME: &str = "SIDEKICKS_TEST_LISTEN_ADDRESS";
@@ -149,7 +153,7 @@ fn own_process_record() -> ProcessRecord {
 /// Serves as a Codex service where a stand-in's script started this program: on a real socket of
 /// its own, with the path its `--listen` names made a link to it, its launch recorded first,
 /// answering each connection as a start needs, a config read with the reply its test program
-/// gives, and recording each request in the script's record, and whole in the test program's own
+/// gives and a resume with the turn it gives, and recording each request in the script's record, and whole in the test program's own
 /// record where one is named, until the test program that wrote the script ends; or, started as
 /// Codex's executor on its standard input and output, as that executor. Returns at once where no
 /// script started it or its test program has already ended. Panics where its launch cannot be
@@ -183,9 +187,14 @@ pub async fn serve_as_codex_service_stand_in() {
         PathBuf::from(std::env::var_os(CONNECTION_RECORD_NAME).expect("the record is named"));
     let daemon_socket = std::env::var_os(DAEMON_SOCKET_NAME).map(PathBuf::from);
     let request_record = std::env::var_os(REQUEST_RECORD_NAME).map(PathBuf::from);
-    let config_read_reply: Option<serde_json::Value> = std::env::var(CONFIG_READ_REPLY_NAME)
-        .ok()
-        .map(|reply| serde_json::from_str(&reply).expect("the config read's reply is JSON"));
+    let replies = StandInReplies {
+        config_read: std::env::var(CONFIG_READ_REPLY_NAME)
+            .ok()
+            .map(|reply| serde_json::from_str(&reply).expect("the config read's reply is JSON")),
+        resumed_turn: std::env::var(RESUMED_TURN_NAME)
+            .ok()
+            .map(|turn| serde_json::from_str(&turn).expect("the resumed turn is JSON")),
+    };
     let connections = Arc::new(AtomicUsize::new(0));
     // A stand-in outlives the daemon that launched it, so it ends with its test program however
     // that program ends, a kill included; a watch that fails ends it too.
@@ -208,7 +217,7 @@ pub async fn serve_as_codex_service_stand_in() {
         let request_record = request_record.clone();
         tokio::spawn(answer_as_codex_service(
             stream,
-            config_read_reply.clone(),
+            replies.clone(),
             move |request| {
                 recording.record(request["method"].as_str().unwrap_or_default());
                 if let Some(request_record) = &request_record {
@@ -424,6 +433,19 @@ impl CodexServiceStandIn {
             .expect("the launches read")
             .into_iter()
             .filter(|launch| launch.codex_home != self.capability_read_home)
+            .map(|launch| launch.process.id())
+            .collect()
+    }
+
+    /// The process of every service start on `codex_home`, in order. Panics where the record
+    /// cannot be read.
+    pub fn launches_on(&self, codex_home: &Path) -> Vec<u32> {
+        self.script
+            .launches
+            .read()
+            .expect("the launches read")
+            .into_iter()
+            .filter(|launch| launch.codex_home == codex_home)
             .map(|launch| launch.process.id())
             .collect()
     }

@@ -9,6 +9,7 @@ use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
 use jiff::Timestamp;
 use serde::Deserialize;
+use sidekicks_contracts::dpop::DPOP_AUTHORIZATION_SCHEME;
 
 use crate::account::AccountRoutes;
 use crate::account::token::dpop_proof::{
@@ -95,7 +96,7 @@ fn read_dpop_token(headers: &HeaderMap) -> Option<&str> {
     };
     let (scheme, token) = value.to_str().ok()?.split_once(' ')?;
     let token = token.trim();
-    (scheme.eq_ignore_ascii_case("DPoP") && !token.is_empty()).then_some(token)
+    (scheme.eq_ignore_ascii_case(DPOP_AUTHORIZATION_SCHEME) && !token.is_empty()).then_some(token)
 }
 
 fn is_revoked<S: AccountStore>(store: &S, jti: &str) -> Result<bool, AccountStoreError> {

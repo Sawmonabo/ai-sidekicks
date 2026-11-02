@@ -112,7 +112,6 @@ impl RunSetupGate for PassingGate {
 struct Fixture {
     database: TestDatabase,
     log: TestLog,
-    epochs: Arc<Mutex<ExecutionEpochs>>,
     folder_watch: Arc<WorkingFolderWatcher>,
     workspaces: Arc<ManagedWorkspaceService>,
     // Stands in for the workspaces' watch as the sender of the chats' writes.
@@ -273,7 +272,6 @@ async fn fixture() -> Fixture {
     Fixture {
         database,
         log,
-        epochs,
         folder_watch,
         workspaces,
         writes: Some(writes),
@@ -314,11 +312,7 @@ impl Fixture {
     }
 
     fn is_open(&self, binding_id: &RuntimeBindingId) -> bool {
-        self.epochs
-            .lock()
-            .expect("no test thread panics holding the cursors")
-            .binding(binding_id)
-            .is_ok()
+        self.session.binding_cursors.is_binding_open(binding_id)
     }
 }
 

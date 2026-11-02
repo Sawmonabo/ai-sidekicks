@@ -71,7 +71,7 @@ pub(crate) fn claude_dialog_session<'a>(
         channel: &*live.channel,
         running_model,
         offered_models: &live.initialize.models,
-        provider_account_id: &live.admitted_provider_account_id,
+        provider_account_id: live.admitted_provider_account_id(),
     }
 }
 
@@ -198,7 +198,7 @@ impl ClaudeRunControls {
                 answer_claude_request(
                     &*live.channel,
                     &session_id,
-                    &live.admitted_provider_account_id,
+                    &live.admitted_provider_account_id(),
                     callback.request_id,
                     &callback.answer,
                 )

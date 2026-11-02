@@ -229,7 +229,8 @@ fn run_daemon(
                 stop_request
             }
         });
-        let started = DaemonProcess::start(DaemonStartOptions {
+        // Boxed: the start's future holds every service it builds.
+        let started = Box::pin(DaemonProcess::start(DaemonStartOptions {
             home_folder,
             data_folder_lock,
             run_folder: run_folder.clone(),
@@ -244,7 +245,7 @@ fn run_daemon(
             }),
             service_log_files,
             provider_registrations: PROVIDER_REGISTRATIONS,
-        })
+        }))
         .await;
         let ran = match started {
             Ok(mut process) => {

@@ -13,14 +13,22 @@ use sidekicks_contracts::agent::definition::binding::{AgentProviderBinding, Prov
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::usage::ModelRerouteScope;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::IdError;
+use sidekicks_provider::runtime_binding::store::RuntimeBinding;
+use sidekicks_provider::runtime_binding::store::read_newest_resumable_binding_of_runs;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::stored_column::{StoredJsonFault, text_column};
-use sidekicks_store::events::session::read::readable_event_sql;
+use sidekicks_store::events::session::read::{
+    DamagedFromSequenceReader, readable_event_sql, session_read_bound,
+};
+
+use crate::run::ids::read_session_run_ids;
 
 use crate::agents::projection::read_agent_row;
 
@@ -63,8 +71,8 @@ static SELECT_LEAD_AGENT_SQL: LazyLock<String> = LazyLock::new(|| {
 
 // The bindings the agent of the CTE `born` (its `sequence`, `agent_id`, `binding` and `model`)
 // took, as the CTE `bindings` of its `sequence`, `binding` and `model`: its birth's, then each of
-// its landed switches in the session's readable log, a switch's account the one it landed on,
-// since its `to` may follow the provider's current account.
+// its landed switches in the session's readable log, each switch's `to` with the account it pins,
+// never the one it landed on, so an agent that follows the current account still follows it.
 fn agent_bindings_cte(born: &str) -> String {
     let binding_changed = SessionEventType::AgentProviderBindingChanged.as_str();
     let readable_changed = readable_event_sql("changed");
@@ -73,8 +81,7 @@ fn agent_bindings_cte(born: &str) -> String {
     SELECT sequence, binding, model FROM {born}
     UNION ALL
     SELECT changed.sequence,
-           json_set(json_extract(changed.payload, '$.to'), '$.providerAccountId',
-                    json_extract(changed.payload, '$.landedProviderAccountId')),
+           json_extract(changed.payload, '$.to'),
            json_extract(changed.payload, '$.to.modelId')
       FROM session_events AS changed JOIN {born}
      WHERE changed.session_id = @session_id AND changed.type = '{binding_changed}'
@@ -117,10 +124,11 @@ SELECT binding FROM bindings ORDER BY sequence DESC LIMIT 1"
 });
 
 // The lead as the session's readable log leaves it: its agent, which `session.created` names; its
-// binding, from the newest of that event and the lead's landed switches; and the model it runs
-// on, from the newest of those and the provider's moves of the rest of the session onto another
-// model, of the lead's turns or of no agent's. A row before the session's creation sorts behind
-// its own, so it moves nothing.
+// binding, from the newest of that event and the lead's landed switches, each switch's `to` with
+// the account it pins, never the one it landed on, so a lead that follows the current account
+// still follows it; and the model it runs on, from the newest of those and the provider's moves
+// of the rest of the session onto another model, of the lead's turns or of no agent's. A row
+// before the session's creation sorts behind its own, so it moves nothing.
 static SELECT_SESSION_LEAD_SQL: LazyLock<String> = LazyLock::new(|| {
     let session_created = SessionEventType::SessionCreated.as_str();
     let turn_rerouted = SessionEventType::AgentTurnRerouted.as_str();
@@ -159,6 +167,13 @@ SELECT lead.agent_id,
     )
 });
 
+static SELECT_ACTIVE_SESSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT id FROM sessions WHERE state = '{}' ORDER BY id",
+        <&'static str>::from(SessionState::Active)
+    )
+});
+
 // Whether the session's readable log names the agent: as its lead, or on a run queued for it.
 static SELECT_AGENT_NAMED_SQL: LazyLock<String> = LazyLock::new(|| {
     let session_created = SessionEventType::SessionCreated.as_str();
@@ -185,8 +200,8 @@ static SELECT_AGENT_NAMED_SQL: LazyLock<String> = LazyLock::new(|| {
 pub struct SessionLead {
     /// The lead's agent.
     pub agent_id: AgentId,
-    /// The binding it runs on now; `provider_account_id` is the account its last switch landed
-    /// on, `None` for the provider's current account, which a run's admission resolves.
+    /// The binding it runs on now; `provider_account_id` is the account it is pinned to, `None`
+    /// for the provider's current account, which a run's admission resolves.
     pub binding: AgentProviderBinding,
     /// The model it runs on now: its binding's, or the one the provider moved the rest of the
     /// session onto since.
@@ -219,6 +234,79 @@ pub fn read_session_lead(
             },
         )
         .optional()
+}
+
+/// An active session whose lead follows a provider's current account: its lead as its log leaves
+/// it, and the binding of its newest conversation, `None` for a session that has not run.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProviderSessionLead {
+    /// The session.
+    pub session_id: SessionId,
+    /// Its lead.
+    pub lead: SessionLead,
+    /// The binding of its newest conversation, whose spawn account is the one it runs on.
+    pub conversation: Option<RuntimeBinding>,
+}
+
+/// A session whose lead or newest conversation could not be read, which a read of every session
+/// skips and names.
+#[derive(Debug, thiserror::Error)]
+#[error("the lead of session \"{session_id}\" could not be read")]
+pub struct UnreadableSessionLead {
+    /// The session.
+    pub session_id: SessionId,
+    /// Why its read failed.
+    #[source]
+    pub source: rusqlite::Error,
+}
+
+/// Every active session whose lead runs on `provider` and follows its current account, pinned to
+/// none, in id order, each lead read from its log outside the skipped ranges
+/// `read_damaged_from_sequence` answers; a session whose stored id, binding or model does not
+/// read stands as an [`UnreadableSessionLead`] in its place, so the rest still read. Fails as
+/// SQLite fails to list the sessions.
+pub fn read_provider_session_leads(
+    reader: &Connection,
+    provider: &ProviderId,
+    read_damaged_from_sequence: &DamagedFromSequenceReader,
+) -> rusqlite::Result<Vec<Result<ProviderSessionLead, UnreadableSessionLead>>> {
+    let session_ids = reader
+        .prepare_cached(&SELECT_ACTIVE_SESSIONS_SQL)?
+        .query_map([], |row| text_column(row, 0, |text| SessionId::new(&text)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let mut leads = Vec::new();
+    for session_id in session_ids {
+        match read_following_lead(reader, session_id, provider, read_damaged_from_sequence) {
+            Ok(Some(lead)) => leads.push(Ok(lead)),
+            Ok(None) => {}
+            Err(source) => leads.push(Err(UnreadableSessionLead { session_id, source })),
+        }
+    }
+    Ok(leads)
+}
+
+// `session_id`'s lead with its newest conversation where it runs on `provider` and follows its
+// current account; `None` where it does not, or its log names no lead.
+fn read_following_lead(
+    reader: &Connection,
+    session_id: SessionId,
+    provider: &ProviderId,
+    read_damaged_from_sequence: &DamagedFromSequenceReader,
+) -> rusqlite::Result<Option<ProviderSessionLead>> {
+    let read_bound = session_read_bound(read_damaged_from_sequence, &session_id, None);
+    let Some(lead) = read_session_lead(reader, &session_id, read_bound)? else {
+        return Ok(None);
+    };
+    if lead.binding.provider_name != *provider || lead.binding.provider_account_id.is_some() {
+        return Ok(None);
+    }
+    let conversation =
+        read_newest_resumable_binding_of_runs(reader, &read_session_run_ids(reader, &session_id)?)?;
+    Ok(Some(ProviderSessionLead {
+        session_id,
+        lead,
+        conversation,
+    }))
 }
 
 /// Whether the session's log names `agent_id`, as its lead or on a run queued for it, in its
@@ -547,12 +635,12 @@ mod tests {
                 .expect("the run's agent reads")
         }
 
-        fn switch(&mut self, agent_id: &str, provider: &str, model: &str, landed: &str) {
+        fn switch(&mut self, agent_id: &str, to: &Value, landed: &str) {
             self.write(
                 SessionEventType::AgentProviderBindingChanged,
                 &json!({
                     "agentId": agent_id,
-                    "to": binding(provider, model),
+                    "to": to,
                     "landedProviderAccountId": landed,
                 }),
             );
@@ -574,6 +662,12 @@ mod tests {
         }
     }
 
+    fn pinned_binding(provider: &str, model: &str, account: &str) -> Value {
+        let mut binding = binding(provider, model);
+        binding["providerAccountId"] = json!(account);
+        binding
+    }
+
     // Read after each row: (provider, account, running model).
     fn standing(lead: &SessionLead) -> (String, Option<String>, String) {
         (
@@ -587,7 +681,7 @@ mod tests {
     }
 
     // Killed by the agent check dropped from the switch or the reroute, by the scope check dropped,
-    // by a switch's own `to` account kept over the one it landed on, and by the running model read
+    // by the account a switch landed on read as the account it pins, and by the running model read
     // from the binding alone.
     #[test]
     fn the_lead_moves_with_its_own_switches_and_session_long_reroutes_only() {
@@ -603,24 +697,16 @@ mod tests {
         let born = (first.to_owned(), None, "model-a".to_owned());
         assert_eq!(standing(&log.lead()), born);
 
-        log.switch(&other, second, "model-x", "account-x");
+        log.switch(&other, &binding(second, "model-x"), "account-x");
         log.reroute(Some(&other), "session", "model-x");
         assert_eq!(standing(&log.lead()), born, "another agent's moves");
 
-        log.switch(&lead, second, "model-b", "account-1");
-        let switched = (
-            second.to_owned(),
-            Some("account-1".to_owned()),
-            "model-b".to_owned(),
-        );
-        assert_eq!(standing(&log.lead()), switched);
+        log.switch(&lead, &binding(second, "model-b"), "account-1");
+        let switched = (second.to_owned(), None, "model-b".to_owned());
+        assert_eq!(standing(&log.lead()), switched, "a follower stays one");
 
         log.reroute(None, "session", "model-c");
-        let rerouted = (
-            second.to_owned(),
-            Some("account-1".to_owned()),
-            "model-c".to_owned(),
-        );
+        let rerouted = (second.to_owned(), None, "model-c".to_owned());
         assert_eq!(standing(&log.lead()), rerouted, "a session-long move");
 
         log.reroute(Some(&lead), "turn", "model-d");
@@ -632,15 +718,19 @@ mod tests {
         );
 
         log.reroute(Some(&lead), "session", "model-e");
-        log.switch(&lead, first, "model-f", "account-2");
+        log.switch(
+            &lead,
+            &pinned_binding(first, "model-f", "account-p"),
+            "account-2",
+        );
         assert_eq!(
             standing(&log.lead()),
             (
                 first.to_owned(),
-                Some("account-2".to_owned()),
+                Some("account-p".to_owned()),
                 "model-f".to_owned()
             ),
-            "the newer switch's model wins"
+            "the newer switch's model and pin win"
         );
     }
 

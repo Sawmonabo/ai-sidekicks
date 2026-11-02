@@ -11,13 +11,16 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use secrecy::SecretString;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::provider::account::record::{
+    CredentialGeneration, ProviderAccountId, ProviderAuthMode,
+};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
@@ -74,8 +77,8 @@ use crate::driver::codex::session::establishment::{
 use crate::driver::codex::session::fork::CodexForkDependencies;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler, CodexSessionInboundSender,
-    codex_session_inbound, drain_codex_session_inbound,
+    CodexAccountMove, CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler,
+    CodexSessionInboundSender, codex_session_inbound, drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::session::slots::CodexSessionSlots;
@@ -89,7 +92,7 @@ use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
 use crate::driver::schema::schema_parts;
-use crate::driver::session_control::CreateSessionParams;
+use crate::driver::session_control::{CreateSessionParams, SessionAccountPin};
 use crate::driver::test_registry::{RecordedQueue, new_session_id};
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, PROVIDERS, ProviderAccountFolders,
@@ -183,6 +186,7 @@ impl TestCodexSession {
             pending_compactions: pending_compactions.clone(),
             stopped_helpers: Arc::new(CodexStoppedHelpers::new(TaskTracker::new())),
             effects: Arc::new(NoEffects),
+            provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
         }));
         let session_id = new_session_id();
         let lead_agent_id =
@@ -422,6 +426,22 @@ impl ProviderAccountReader for OneFolder {
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn std::error::Error + Send + Sync>>> {
         async { Err("the test reads no generation".into()) }.boxed()
     }
+
+    fn read_observed_auth_mode(
+        &self,
+
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn std::error::Error + Send + Sync>>>
+    {
+        async { Ok(None) }.boxed()
+    }
+
+    fn read_sealed_token(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn std::error::Error + Send + Sync>>> {
+        async { Ok(None) }.boxed()
+    }
 }
 
 impl TestCodexTask {
@@ -500,7 +520,8 @@ impl TestCodexTask {
             }
             CodexSessionInbound::Ask { .. }
             | CodexSessionInbound::AsksWithdrawn { .. }
-            | CodexSessionInbound::Lifecycle(_) => {
+            | CodexSessionInbound::Lifecycle(_)
+            | CodexSessionInbound::AccountMoved(_) => {
                 panic!(
                     "the test's service asks nothing and its driver calls nothing else of its own"
                 )
@@ -644,6 +665,7 @@ pub(crate) fn create_session_params(session_id: SessionId) -> CreateSessionParam
         tool_servers: None,
         output_schema: None,
         provider_account_id: test_provider_account_id(),
+        account_pin: SessionAccountPin::Pinned,
         on_mcp_server_status: None,
     }
 }
@@ -814,6 +836,11 @@ impl CodexSessionInboundHandler for ItemsToTest {
 
     fn lifecycle(&mut self, call: CodexLifecycleCall) -> BoxFuture<'_, ()> {
         self.hand(CodexSessionInbound::Lifecycle(call));
+        async {}.boxed()
+    }
+
+    fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()> {
+        self.hand(CodexSessionInbound::AccountMoved(account_move));
         async {}.boxed()
     }
 

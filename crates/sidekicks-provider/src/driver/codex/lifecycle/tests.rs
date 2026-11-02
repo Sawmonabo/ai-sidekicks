@@ -40,7 +40,7 @@ use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::run::routes::CodexRunBinding;
 use crate::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
 use crate::driver::codex::service::supervisor::test_service::{
-    ScriptedCodexService, answer_as_codex_service, start_scripted_codex_service,
+    ScriptedCodexService, StandInReplies, answer_as_codex_service, start_scripted_codex_service,
     write_failing_codex,
 };
 use crate::driver::codex::session::context_reading::CodexFixedStart;
@@ -278,7 +278,11 @@ pub(super) fn listen_on_codex_folder(folder: &Path) {
     let listener = bind_socket_listener(&socket).expect("the test service listens");
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
-            tokio::spawn(answer_as_codex_service(stream, None, |_request| {}));
+            tokio::spawn(answer_as_codex_service(
+                stream,
+                StandInReplies::default(),
+                |_request| {},
+            ));
         }
     });
 }

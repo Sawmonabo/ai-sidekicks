@@ -32,15 +32,18 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::permission_level::list_codex_modes;
+use crate::driver::codex::service::registry::CODEX_SWITCHING_HOME_FOLDER;
 #[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
     ListModelsParams, ListModesParams, ListProviderCommandsParams, ProviderCommandsSubscription,
     ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
+use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -56,12 +59,12 @@ use crate::driver::run_control::{
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
-    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
-    MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
-    ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
-    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartingLevel,
-    StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
-    UpdateSessionModeParams,
+    CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
+    DriverResumeResult, ExportHandoverBriefParams, MoveSessionToForkParams,
+    MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
+    ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
+    SessionCommandAnswer, SetSessionGoalParams, StartingLevel, StartingLevelParams,
+    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
@@ -73,6 +76,7 @@ use crate::port::running_command_publisher::{
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
+mod account;
 mod account_home_logs;
 mod app_server_protocol;
 mod attachments;
@@ -87,6 +91,7 @@ mod delivery;
 mod event_normalizer;
 mod exec_relay;
 mod goals;
+mod hand_over;
 mod hooks;
 mod input_limit;
 mod intervention;
@@ -117,9 +122,9 @@ mod version;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use service::supervisor::test_service::{
-    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, ScriptedCodexService,
-    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
-    write_codex_service_script,
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, RESUMED_TURN_NAME,
+    ScriptedCodexService, serve_as_codex_service_stand_in, stand_in_codex_service,
+    start_scripted_codex_service, write_codex_service_script,
 };
 
 /// Codex's fixed facts.
@@ -238,12 +243,21 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     skill_name_max_length: Some(64),
     background_work: None,
     callback_tools_asked: false,
+    // Its login runs its own loopback listener for the browser's return.
+    can_mcp_sign_in_return_to_daemon_receiver: false,
     // Codex's log folder; the rows its service logs into the home's database the driver's own
     // expiry deletes.
     account_home_diagnostic_folders: &[&["log"]],
     // Each thread's rollout, a spawned child thread's under its own id.
     account_home_conversation_folders: &[&["sessions"]],
+    // Its memories stay each home's own, read in by the memory import.
+    account_home_memory_folder: None,
+    // The home of the one service every session that follows the current account runs in.
+    switching_home_folder: Some(CODEX_SWITCHING_HOME_FOLDER),
+    // `auth.json` sits in the home `CODEX_HOME` names.
+    account_home_credential_store_folder: &[],
     shell_prefix_command: None,
+    token_limits_read_by_turn: false,
 };
 
 /// Builds the Codex driver over the shared services; it stores handles and does no I/O.
@@ -652,6 +666,13 @@ impl ProviderDriver for CodexDriver {
         self.ask_side_question(params).boxed()
     }
 
+    fn export_handover_brief(
+        &self,
+        params: ExportHandoverBriefParams,
+    ) -> BoxFuture<'_, Result<DriverHandoverBriefResult, DriverError>> {
+        self.export_handover_brief(params).boxed()
+    }
+
     fn subscribe_provider_commands(
         &self,
         params: SubscribeProviderCommandsParams,
@@ -670,6 +691,15 @@ impl ProviderDriver for CodexDriver {
         None
     }
 
+    fn account_legs(&self) -> Arc<dyn ProviderAccountLegs> {
+        Arc::clone(&self.account_legs) as _
+    }
+
+    // The account legs' count of dead renewals is all the driver keys by account.
+    fn forget_account(&self, provider_account_id: &ProviderAccountId) {
+        self.account_legs.forget_account(provider_account_id);
+    }
+
     fn expire_account_home_diagnostics(
         &self,
         home: &Path,
@@ -680,5 +710,16 @@ impl ProviderDriver for CodexDriver {
 
     fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
         self.registry.running_service_log_files()
+    }
+
+    fn sign_in_with_own_client(
+        &self,
+        request: ProviderSignInTakeoverRequest,
+    ) -> BoxFuture<'_, Result<ProviderSignInTakeover, DriverError>> {
+        self.sign_in_with_own_client(request).boxed()
+    }
+
+    fn remove_left_sign_in_folders(&self) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.remove_left_sign_in_folders().boxed()
     }
 }

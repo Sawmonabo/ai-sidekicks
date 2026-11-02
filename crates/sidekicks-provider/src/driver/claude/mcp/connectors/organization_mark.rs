@@ -20,7 +20,7 @@ use tokio::sync::OnceCell;
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
-use crate::driver::claude::account_credentials::{
+use crate::driver::claude::account::credentials::{
     CUSTOM_SIGN_IN_HOST_VARIABLE, ClaudeAiSignIn, ClaudeSignInReader, ClaudeSignInReading,
     is_claude_api_key_approved,
 };

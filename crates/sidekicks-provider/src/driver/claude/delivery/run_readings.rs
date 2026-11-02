@@ -11,7 +11,6 @@ use std::collections::{HashMap, HashSet};
 
 use sidekicks_contracts::event::declared_variants::RunAgentOutputPayload;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
@@ -224,8 +223,8 @@ pub(crate) struct ClaudeTurnEndDelivery {
 }
 
 impl ClaudeStreamSession {
-    /// Empty readings for a process running on `provider_account_id`'s home.
-    pub(crate) fn new(provider_account_id: ProviderAccountId) -> Self {
+    /// Empty readings for a process.
+    pub(crate) fn new() -> Self {
         Self {
             open_tool_calls: HashMap::new(),
             buffer: NormalizedEventReorderBuffer::new(
@@ -243,7 +242,7 @@ impl ClaudeStreamSession {
             continuable_run: None,
             event_ids_by_message_key: HashMap::new(),
             counted_step_messages: HashSet::new(),
-            streamed_blocks: ClaudeStreamedBlocks::new(provider_account_id),
+            streamed_blocks: ClaudeStreamedBlocks::new(),
             now_steers: HashSet::new(),
             reader_carried_run: None,
             daemon_ended: HashMap::new(),
