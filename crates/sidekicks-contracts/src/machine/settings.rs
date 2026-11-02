@@ -1,10 +1,11 @@
 //! The machine's settings file and the three service methods that read, write and stream it.
 //!
 //! The file is `<home>/.ai-sidekicks/machine-settings.json`. The background service is its only
-//! writer: every client hands a change to `machine.settings.update` and reads it through
-//! `machine.settings.read` and `machine.settings.subscribe`. The desktop's main process
-//! alone may read the file directly, and only before the service first answers. One schema
-//! describes the file for every reader, so a missing key reads as its default wherever it is read.
+//! writer: every client hands a change to `machine.settings.update`, or to `provider.update` for
+//! the provider members, and reads it through `machine.settings.read` and
+//! `machine.settings.subscribe`. The desktop's main process alone may read the file directly, and
+//! only before the service first answers. One schema describes the file for every reader, so a
+//! missing key reads as its default wherever it is read.
 //!
 //! The environment-name rule lives here too: the service checks a row's name against it before
 //! saving, beside the names each provider's driver declares it sets.
