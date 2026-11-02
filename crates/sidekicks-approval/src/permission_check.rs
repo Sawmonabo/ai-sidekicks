@@ -20,7 +20,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value};
 use sidekicks_contracts::approval::{ApprovalCategory, RememberedRuleSense};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_TOOL_NAME_MAX_LEN;
@@ -575,7 +575,11 @@ pub(crate) fn card_input_digest(ask: &ProviderPermissionAsk) -> Option<Sha256Hex
 // a card keeps it only for a tool action. An input with no canonical form, one nested too deep,
 // gives no digest, so its card is found by its tool call id alone.
 fn digest_call_input(tool_name: &str, input: Value) -> Option<Sha256Hex> {
-    digest_canonical_json(&json!({"input": input, "toolName": tool_name}))
+    let call = Map::from_iter([
+        ("input".to_owned(), input),
+        ("toolName".to_owned(), Value::String(tool_name.to_owned())),
+    ]);
+    digest_canonical_json(&Value::Object(call))
         .inspect_err(|refusal| {
             tracing::warn!(
                 error = refusal as &(dyn Error + 'static),
