@@ -68,7 +68,9 @@ CREATE TABLE repo_mounts (
   metadata            TEXT NOT NULL DEFAULT '{}', -- JSON; commonDir: attach-persisted canonicalized git common directory — the repo-identity anchor bind/run re-derivation must match (Spec-007 §Repo Identity And Common-Directory Keying (V1 Definition)); reads never write it
   fetched_at          TEXT,                   -- the background fetch's last success; ahead and behind read as of it (attached_at before any)
   fetch_failed_at     TEXT,                   -- the background fetch's last failure while none has succeeded since
+  document_count      INTEGER NOT NULL DEFAULT 0,  -- on a chat's managed mount, the files in its folder, .git aside
   CHECK ((origin = 'managed') = (managed_session_id IS NOT NULL)),
+  CHECK (origin = 'managed' OR document_count = 0),
   CHECK (origin = 'attached' OR project_id IS NULL),
   CHECK (origin = 'managed' OR state <> 'attached' OR project_id IS NOT NULL)
 ) STRICT;
