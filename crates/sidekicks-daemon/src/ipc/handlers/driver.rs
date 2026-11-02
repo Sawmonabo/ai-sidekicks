@@ -1,8 +1,8 @@
 //! The driver methods a client calls: each installed provider's models and modes, the compaction
 //! of one run's context, the commands an agent's providers publish, and the provider sessions
-//! typed in a terminal with each one's provider words. A call that names a session is refused by the session first, then the run
-//! or agent it names, then the binding, and only then by a driver; the terminal sessions' list
-//! names none and is refused by none but a driver.
+//! typed in a terminal with each one's provider words. A call that names a session is refused by
+//! the session first, then the run or agent it names, then the binding, and only then by a driver;
+//! the terminal sessions' list names none and is refused by none but a driver.
 
 use std::sync::Arc;
 

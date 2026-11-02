@@ -1,6 +1,7 @@
 //! The service's registration to start at login, as the daemon commands use it: who owns it, its
-//! install and its removal, behind one trait so a test can answer for the system's service manager;
-//! a registration failure turned into the run's failure; and the line `daemon status` prints for it.
+//! install and its removal, behind one trait so a test can answer for the system's service
+//! manager; a registration failure turned into the run's failure; and the line `daemon status`
+//! prints for it.
 
 use std::path::Path;
 
