@@ -271,6 +271,67 @@ async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
     assert_eq!(succeeded["runsFailedDeterministically"], json!(0));
 }
 
+// A session whose one run in progress the person asked to stop is not opened, no process started
+// for it, and the settle ends the run by that stop, as the person's; a session with a stopping run
+// beside a live one is opened, the stopping run named to the provider as stopping and the live one
+// not. Killed by the all-stopping check dropped (the first provider's driver, which expects no
+// resume, is called), by `any` read for `all` (the second session is not opened, its driver's one
+// resume missed), and by the fact not reaching the resume (the names read differently).
+#[tokio::test]
+async fn a_pass_opens_no_session_whose_runs_in_progress_all_stop() {
+    let named: Arc<Mutex<Vec<(RunId, bool)>>> = Arc::default();
+    let unopened = MockProviderDriver::new();
+    let resumed = resuming_driver({
+        let named = Arc::clone(&named);
+        move |params| {
+            lock(&named).extend(
+                params
+                    .live_runs
+                    .iter()
+                    .map(|run| (run.run_id, run.is_stopping)),
+            );
+            resumed_on(params, params.binding_id.clone())
+        }
+    });
+    let fixture = PassFixture::over_drivers(vec![
+        Arc::new(unopened) as Arc<dyn ProviderDriver>,
+        Arc::new(resumed),
+    ])
+    .await;
+    fixture.end_seeded_run();
+    let (stopped_session, stopped_run, _) = fixture.running_session(0).await;
+    let (mixed_session, live_run, _) = fixture.running_session(1).await;
+    let stopping_beside = test_run_id();
+    insert_running_run(&fixture.store.database, mixed_session, stopping_beside);
+    for run_id in [stopped_run, stopping_beside] {
+        fixture.record_intervention(run_id, "interrupt", "accepted", r#"{"pending":"nextTurn"}"#);
+    }
+
+    fixture
+        .pass(Arc::clone(&fixture.status))
+        .run(&CancellationToken::new())
+        .await;
+
+    assert_eq!(
+        stored_run_state(&fixture.store.database, &stopped_run).0,
+        "interrupted"
+    );
+    let interrupted = fixture.payloads(&stopped_session, SessionEventType::AgentRunInterrupted);
+    let [interrupted] = interrupted.as_slice() else {
+        panic!("the stopped run ended once: {interrupted:?}");
+    };
+    // The person's stop carries no trigger of the daemon's.
+    assert!(interrupted["trigger"].is_null(), "{interrupted}");
+    assert_eq!(
+        stored_run_state(&fixture.store.database, &live_run).0,
+        "running"
+    );
+    assert_eq!(
+        *lock(&named),
+        vec![(live_run, false), (stopping_beside, true)]
+    );
+}
+
 // A resume the provider refuses fails the session's running run with the provider's own words, and
 // the status read lists the run under its session with what its recovery needs and a provider
 // failure; once the session's next run starts, the entry is gone. Killed by `mark_run_halted` not

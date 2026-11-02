@@ -1,4 +1,5 @@
 use rstest::rstest;
+use rusqlite::params;
 use sidekicks_contracts::orchestration::InterruptReason;
 use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::events::{DaemonInterventionActor, InterventionActor};
@@ -8,12 +9,15 @@ use sidekicks_contracts::run::intervention::{
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::session_control::ProviderTurnAnswer;
+use sidekicks_store::database::statement::DATABASE_NOW_SQL;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 
 use super::{
     PendingInterrupt, RestartDecision, RestartFacts, RestartSettlement, RestartTurnEnd,
-    decide_restart_settlement, no_waiting_item_statement,
+    ResumedRunMove, decide_restart_settlement, decide_resumed_move, no_waiting_item_statement,
+    read_is_run_stopping,
 };
 use crate::interventions::store::UnresolvedInterventionState;
 use crate::questions::schema::schema_parts;
@@ -295,4 +299,284 @@ async fn the_waiting_item_guard_holds_only_while_a_queued_message_targets_the_ru
         .write(vec![no_waiting_item_statement(&run_id)])
         .await
         .expect("a run with no queued message behind it is settled");
+}
+
+// One case per row of how a stop meets a resume, through each answer the provider gives. Killed by
+// the stopping arms placed after the pause arms (`stopping_paused_still_running` reads `Left`,
+// `stopping_pausing_gone` reads `Paused`), by the exception for a turn still running dropped
+// (`stopping_*_still_running` but `paused` read `TurnGone`), by the stopping waiting run left
+// waiting (`stopping_waiting_*_still_running` read `Left`), by a queued run moved, and by a run no
+// stop waits on moved otherwise than before.
+#[rstest]
+#[case::stopping_starting_still_running(
+    RunState::Starting,
+    false,
+    true,
+    ProviderTurnAnswer::StillRunning,
+    ResumedRunMove::Running
+)]
+#[case::stopping_starting_ended(
+    RunState::Starting,
+    false,
+    true,
+    ProviderTurnAnswer::EndedByProvider,
+    ResumedRunMove::TurnGone
+)]
+#[case::stopping_starting_gone(
+    RunState::Starting,
+    false,
+    true,
+    ProviderTurnAnswer::Gone,
+    ResumedRunMove::TurnGone
+)]
+#[case::stopping_running_still_running(
+    RunState::Running,
+    false,
+    true,
+    ProviderTurnAnswer::StillRunning,
+    ResumedRunMove::Running
+)]
+#[case::stopping_running_ended(
+    RunState::Running,
+    false,
+    true,
+    ProviderTurnAnswer::EndedByProvider,
+    ResumedRunMove::TurnGone
+)]
+#[case::stopping_running_gone(
+    RunState::Running,
+    false,
+    true,
+    ProviderTurnAnswer::Gone,
+    ResumedRunMove::TurnGone
+)]
+#[case::stopping_waiting_for_approval_still_running(
+    RunState::WaitingForApproval,
+    false,
+    true,
+    ProviderTurnAnswer::StillRunning,
+    ResumedRunMove::Running
+)]
+#[case::stopping_waiting_for_approval_ended(
+    RunState::WaitingForApproval,
+    false,
+    true,
+    ProviderTurnAnswer::EndedByProvider,
+    ResumedRunMove::TurnGone
+)]
+#[case::stopping_waiting_for_input_still_running(
+    RunState::WaitingForInput,
+    false,
+    true,
+    ProviderTurnAnswer::StillRunning,
+    ResumedRunMove::Running
+)]
+#[case::stopping_waiting_for_input_gone(
+    RunState::WaitingForInput,
+    false,
+    true,
+    ProviderTurnAnswer::Gone,
+    ResumedRunMove::TurnGone
+)]
+#[case::stopping_helper_still_running(
+    RunState::Running,
+    true,
+    true,
+    ProviderTurnAnswer::StillRunning,
+    ResumedRunMove::Running
+)]
+#[case::stopping_helper_gone(
+    RunState::Running,
+    true,
+    true,
+    ProviderTurnAnswer::Gone,
+    ResumedRunMove::TurnGone
+)]
+#[case::stopping_pausing_still_running(
+    RunState::Pausing,
+    false,
+    true,
+    ProviderTurnAnswer::StillRunning,
+    ResumedRunMove::Running
+)]
+#[case::stopping_pausing_ended(
+    RunState::Pausing,
+    false,
+    true,
+    ProviderTurnAnswer::EndedByProvider,
+    ResumedRunMove::TurnGone
+)]
+#[case::stopping_pausing_gone(
+    RunState::Pausing,
+    false,
+    true,
+    ProviderTurnAnswer::Gone,
+    ResumedRunMove::TurnGone
+)]
+#[case::stopping_paused_still_running(
+    RunState::Paused,
+    false,
+    true,
+    ProviderTurnAnswer::StillRunning,
+    ResumedRunMove::TurnGone
+)]
+#[case::stopping_paused_ended(
+    RunState::Paused,
+    false,
+    true,
+    ProviderTurnAnswer::EndedByProvider,
+    ResumedRunMove::TurnGone
+)]
+#[case::stopping_paused_gone(
+    RunState::Paused,
+    false,
+    true,
+    ProviderTurnAnswer::Gone,
+    ResumedRunMove::TurnGone
+)]
+#[case::queued_still_running(
+    RunState::Queued,
+    false,
+    true,
+    ProviderTurnAnswer::StillRunning,
+    ResumedRunMove::Left
+)]
+#[case::queued_ended(
+    RunState::Queued,
+    false,
+    false,
+    ProviderTurnAnswer::EndedByProvider,
+    ResumedRunMove::Left
+)]
+#[case::queued_gone(
+    RunState::Queued,
+    false,
+    true,
+    ProviderTurnAnswer::Gone,
+    ResumedRunMove::Left
+)]
+#[case::running_still_running(
+    RunState::Running,
+    false,
+    false,
+    ProviderTurnAnswer::StillRunning,
+    ResumedRunMove::Running
+)]
+#[case::running_ended(
+    RunState::Running,
+    false,
+    false,
+    ProviderTurnAnswer::EndedByProvider,
+    ResumedRunMove::Left
+)]
+#[case::running_gone(
+    RunState::Running,
+    false,
+    false,
+    ProviderTurnAnswer::Gone,
+    ResumedRunMove::TurnGone
+)]
+#[case::waiting_for_approval_still_running(
+    RunState::WaitingForApproval,
+    false,
+    false,
+    ProviderTurnAnswer::StillRunning,
+    ResumedRunMove::Left
+)]
+#[case::pausing_gone(
+    RunState::Pausing,
+    false,
+    false,
+    ProviderTurnAnswer::Gone,
+    ResumedRunMove::Paused { is_turn_gone: true }
+)]
+#[case::paused_still_running(
+    RunState::Paused,
+    false,
+    false,
+    ProviderTurnAnswer::StillRunning,
+    ResumedRunMove::Left
+)]
+#[case::paused_gone(
+    RunState::Paused,
+    false,
+    false,
+    ProviderTurnAnswer::Gone,
+    ResumedRunMove::Left
+)]
+fn a_pending_stop_wins_over_the_resume_before_any_pause(
+    #[case] state_before: RunState,
+    #[case] is_child: bool,
+    #[case] is_stopping: bool,
+    #[case] answer: ProviderTurnAnswer,
+    #[case] expected: ResumedRunMove,
+) {
+    assert_eq!(
+        decide_resumed_move(state_before, is_child, is_stopping, answer),
+        expected
+    );
+}
+
+// A lead the person asked to stop: its provider's helper and that helper's own helper read
+// stopping, while a run the lead reached through the bridge, a lead with no stop and its helper do
+// not. Killed by the helper clause dropped (the helpers read not stopping), by the walk stopping
+// at one level (the helper's helper does), by any child counted a helper (the bridged run does),
+// and by the run's own stops dropped (the lead does).
+#[test]
+fn a_helper_of_a_stopping_lead_reads_stopping() {
+    let database = TestDatabase::new(schema_parts());
+    let reader = database.reader();
+    let session_id = test_session_id();
+    let new_run = |parent: Option<RunId>, reached_by: Option<&str>| {
+        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+        reader
+            .execute(
+                "INSERT INTO runs (run_id, session_id, state, run_version, parent_run_id,
+                   reached_by)
+                 VALUES (?1, ?2, 'running', 1, ?3, ?4)",
+                params![
+                    run_id.text().as_str(),
+                    session_id.text().as_str(),
+                    parent.map(|parent| parent.text().as_str().to_owned()),
+                    reached_by,
+                ],
+            )
+            .expect("the test writes the run");
+        run_id
+    };
+    let stopping_lead = new_run(None, None);
+    let helper = new_run(Some(stopping_lead), Some("providerSubagent"));
+    let helpers_helper = new_run(Some(helper), Some("providerSubagent"));
+    let bridged = new_run(Some(stopping_lead), Some("bridgeRun"));
+    let lead = new_run(None, None);
+    let lead_helper = new_run(Some(lead), Some("providerSubagent"));
+    reader
+        .execute(
+            &format!(
+                "INSERT INTO interventions (id, target_run_id, type, state, payload,
+                   expected_run_version, client_idempotency_key, created_at)
+                 VALUES (?1, ?2, 'interrupt', 'accepted', ?3, 1, ?1, {DATABASE_NOW_SQL})"
+            ),
+            params![
+                mint_uuid_v7().to_string(),
+                stopping_lead.text().as_str(),
+                r#"{"pending":"nextTurn"}"#,
+            ],
+        )
+        .expect("the test records the person's interrupt");
+
+    for (run_id, is_stopping) in [
+        (stopping_lead, true),
+        (helper, true),
+        (helpers_helper, true),
+        (bridged, false),
+        (lead, false),
+        (lead_helper, false),
+    ] {
+        assert_eq!(
+            read_is_run_stopping(&reader, &run_id).expect("the stops read"),
+            is_stopping,
+            "{run_id}"
+        );
+    }
 }

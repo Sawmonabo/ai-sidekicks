@@ -450,10 +450,11 @@ impl StartupRecovery {
 
     // Re-arms the session's runs in progress and resumes its conversation through the provider
     // sessions, which settle each run the resume names as the provider answers for it; a session
-    // with no run in progress, its paused runs included, is not opened. Answers the runs the
-    // resume took, a paused one among them staying paused, and the provider's refusal where it
-    // refused; a session with no conversation to resume, or whose resume failed short of the
-    // provider's answer, answers neither, and its runs are settled as before any resume.
+    // with no run in progress, its paused runs included, or whose runs in progress a pending stop
+    // all wait on, is not opened, so no process is started for work the person stopped. Answers the
+    // runs the resume took, a paused one among them staying paused, and the provider's refusal
+    // where it refused; a session with no conversation to resume, or whose resume failed short of
+    // the provider's answer, answers neither, and its runs are settled as before any resume.
     async fn resume_session(
         &self,
         session_id: SessionId,
@@ -465,7 +466,11 @@ impl StartupRecovery {
             .restart_settle
             .rearm_live(session_id, stop)
             .await?;
-        if rearmed.in_progress.is_empty() {
+        if rearmed
+            .in_progress
+            .iter()
+            .all(|live_run| rearmed.stopping.contains(&live_run.run_id))
+        {
             return Ok(SessionResume::default());
         }
         if stop.is_cancelled() {

@@ -27,6 +27,7 @@ use sidekicks_session::run::provider_choice::run_end::{
     read_ended_runs_with_open_choices, settle_open_choices_of_ended_run,
 };
 use sidekicks_session::run::read::{LiveRun, RunStateReader, SessionRun};
+use sidekicks_session::run::restart::read_is_run_stopping;
 use sidekicks_std::settle_all::SettleFailures;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -109,13 +110,17 @@ impl RestartTally {
     }
 }
 
-/// A session's live runs past their queue at a restart: those in progress, each re-armed, and
-/// those the person paused or was pausing, which are no work in progress and are re-armed only
-/// beside a run in progress, whose resume opens the session.
+/// A session's live runs past their queue at a restart: those in progress, each re-armed, the
+/// ones among them a pending stop wins over, and those the person paused or was pausing, which
+/// are no work in progress and are re-armed only beside a run in progress, whose resume opens the
+/// session.
 #[derive(Debug, Default)]
 pub(crate) struct RearmedRuns {
     /// The runs in progress, re-armed from the log.
     pub(crate) in_progress: Vec<LiveRun>,
+    /// The runs in progress a stop waits on, their own or that of the run whose helper they are,
+    /// which no resume continues.
+    pub(crate) stopping: BTreeSet<RunId>,
     /// The runs `paused` or `pausing`.
     pub(crate) paused_run_ids: Vec<RunId>,
 }
@@ -170,9 +175,10 @@ impl RestartSettle {
     /// progress, live past its queue and neither paused nor pausing, from the log, as the engine
     /// held it before the restart, so a resume of the session's conversation finds them armed, and
     /// beside any such run the paused and pausing ones too, whose turn the resumed provider may
-    /// still run to its pause; answers the runs in progress, none where nothing of the session
-    /// was in progress, beside the runs paused or pausing. Reads `stop` before each step. Fails at
-    /// the first read or write that fails, or with `Stopped`.
+    /// still run to its pause; answers the runs in progress, none where nothing of the session was
+    /// in progress, with those a pending stop wins over, which are re-armed too so the settle that
+    /// follows ends them by their stops, beside the runs paused or pausing. Reads `stop` before
+    /// each step. Fails at the first read or write that fails, or with `Stopped`.
     pub(crate) async fn rearm_live(
         &self,
         session_id: SessionId,
@@ -208,6 +214,18 @@ impl RestartSettle {
                 }
             }
         }
+        let in_progress: Vec<RunId> = rearmed.in_progress.iter().map(|run| run.run_id).collect();
+        rearmed.stopping = self
+            .read(move |reader| {
+                let mut stopping = BTreeSet::new();
+                for run_id in in_progress {
+                    if read_is_run_stopping(reader, &run_id)? {
+                        stopping.insert(run_id);
+                    }
+                }
+                Ok(stopping)
+            })
+            .await?;
         // A session resumed for another run may still run a pausing run's turn to its pause.
         if !rearmed.in_progress.is_empty() {
             for live_run in &paused {

@@ -259,11 +259,12 @@ fn runs_as_asked(live: &LiveClaudeSession, params: &ResumeSessionParams) -> bool
 }
 
 // The run in progress among `live_runs` and its newest open turn, which a fresh process continues:
-// a lead run, started on its own and no helper, with a turn started and not ended.
+// a lead run, started on its own and no helper, with a turn started and not ended, and no stop it
+// waits on, which wins over continuing it.
 fn find_run_in_progress(live_runs: &[LiveRunResume]) -> Option<(&LiveRunResume, &OpenTurnResume)> {
     live_runs
         .iter()
-        .filter(|run| run.subagent_id.is_none() && run.parent_run_id.is_none())
+        .filter(|run| run.subagent_id.is_none() && run.parent_run_id.is_none() && !run.is_stopping)
         .find_map(|run| run.open_turns.last().map(|turn| (run, turn)))
 }
 
@@ -367,5 +368,56 @@ fn resume_failure(
             &sidekicks_std::error_description::describe_error(error),
             UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
+
+    use super::*;
+    use crate::driver::test_registry::new_run_id;
+
+    // A lead run with turn 1 open, one a pending stop waits on where `is_stopping`.
+    fn lead_run(is_stopping: bool) -> LiveRunResume {
+        LiveRunResume {
+            run_id: new_run_id(),
+            parent_run_id: None,
+            open_turns: vec![OpenTurnResume {
+                turn_number: SafeInt::<1>::new(1).expect("one is a turn number"),
+                provider_turn_id: None,
+                started_event_id: FreeFormText::new(mint_uuid_v7().to_string())
+                    .expect("an event id fits"),
+            }],
+            subagent_id: None,
+            is_stopping,
+        }
+    }
+
+    // A fresh process continues the lead no stop waits on, and the stopping lead before it in the
+    // resume's order answers gone; a stopping lead alone is continued by none. Killed by the skip
+    // dropped: the stopping lead, listed first, is found and continued.
+    #[test]
+    fn a_fresh_process_continues_no_run_a_stop_waits_on() {
+        let stopping = lead_run(true);
+        let live = lead_run(false);
+        let both = [stopping.clone(), live.clone()];
+
+        let found = find_run_in_progress(&both).map(|(run, _)| run.run_id);
+        assert_eq!(found, Some(live.run_id));
+        assert_eq!(
+            answer_fresh_process(&both, found),
+            vec![
+                ResumedRunAnswer {
+                    run_id: stopping.run_id,
+                    turn: ProviderTurnAnswer::Gone,
+                },
+                ResumedRunAnswer {
+                    run_id: live.run_id,
+                    turn: ProviderTurnAnswer::StillRunning,
+                },
+            ]
+        );
+        assert!(find_run_in_progress(&[stopping]).is_none());
     }
 }

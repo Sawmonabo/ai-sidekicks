@@ -164,7 +164,8 @@ pub struct ResumeSessionParams {
 }
 
 /// A run of a resumed session not yet ended, as its log names it to the provider: the run it was
-/// started beneath, its open turns and, for a provider's helper, the helper's own id.
+/// started beneath, its open turns, for a provider's helper the helper's own id, and whether a
+/// pending stop wins over its resume.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LiveRunResume {
     /// The run.
@@ -176,6 +177,9 @@ pub struct LiveRunResume {
     /// The provider's own id of the helper the run is, as its `agent.subagent.started` recorded
     /// it; `None` for a lead or any run no helper's start names.
     pub subagent_id: Option<SubagentId>,
+    /// Whether a stop the run waits on, its own or that of the run whose helper it is, wins over
+    /// the resume, so no turn of it is continued.
+    pub is_stopping: bool,
 }
 
 /// A turn of a live run started with no end.

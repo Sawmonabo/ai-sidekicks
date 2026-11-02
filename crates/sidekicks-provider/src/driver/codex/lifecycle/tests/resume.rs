@@ -391,12 +391,14 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
                     .expect("a minted UUID is an event id"),
             }],
             subagent_id: None,
+            is_stopping: false,
         },
         LiveRunResume {
             run_id: helper_run,
             parent_run_id: Some(lead_run),
             open_turns: Vec::new(),
             subagent_id: Some(SubagentId::new(HELPER_THREAD.to_owned()).expect("a helper id")),
+            is_stopping: false,
         },
     ];
     let mut resumes = Vec::new();
