@@ -91,7 +91,7 @@ impl CodexServiceRegistry {
             .iter()
             .any(|transient| Arc::ptr_eq(transient, &service));
         let is_terminal = self
-            .terminal_service()
+            .daemon_terminal_service()
             .is_some_and(|terminal| Arc::ptr_eq(&terminal, &service));
         if is_transient || is_terminal {
             return probe(service).await;
@@ -109,7 +109,7 @@ impl CodexServiceRegistry {
         let home = self.homes.terminal_reach_home();
         let fitting = match purpose {
             PersonalFolderRead::Config => self.service_on(&home.codex_home),
-            PersonalFolderRead::Probe => self.terminal_service(),
+            PersonalFolderRead::Probe => self.daemon_terminal_service(),
         };
         if let Some(service) = fitting.filter(|service| service.is_serving()) {
             return Ok(PersonalFolderService {
@@ -138,9 +138,9 @@ impl CodexServiceRegistry {
         })
     }
 
-    // The terminal service on the person's own folder, serving or not; `None` where the folder
-    // holds no service or a joined one.
-    fn terminal_service(&self) -> Option<Arc<CodexService>> {
+    // The daemon's own terminal service on the person's own folder, serving or not; `None` where
+    // the folder holds no service or a joined one, which terminal reach may still name.
+    fn daemon_terminal_service(&self) -> Option<Arc<CodexService>> {
         let home = self.homes.terminal_reach_home();
         self.lock()
             .by_home
