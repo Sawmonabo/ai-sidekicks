@@ -701,8 +701,8 @@ pub enum DriverResumeResult {
         /// [`bound_failure_detail`](super::contract::error::bound_failure_detail).
         provider_failure_detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     },
-    /// No process was started, since every run in progress waits on the person or stops: what
-    /// the provider answered for each run, with no binding, position or build.
+    /// No process was started, since every run in progress waits on the person, is pausing, or
+    /// stops: what the provider answered for each run, with no binding, position or build.
     Deferred {
         /// What the provider holds of each run the resume's `live_runs` named.
         runs: Vec<ResumedRunAnswer>,
