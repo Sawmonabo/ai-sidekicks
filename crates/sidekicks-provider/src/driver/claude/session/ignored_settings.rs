@@ -82,35 +82,68 @@ pub(crate) fn find_claude_setting<'settings>(
         .try_fold(settings.get(*first)?, |value, key| value.get(*key))
 }
 
-/// Reads one key from the managed settings in `managed_settings_folder` as Claude Code merges
-/// them: `managed-settings.json`, then each `managed-settings.d/*.json` in name order, the last
-/// file whose value `select` takes deciding. Name order is JavaScript's, by UTF-16 code units. A
-/// missing file or folder sets nothing; any other read failure is returned beside the answer.
-pub(crate) async fn read_claude_managed_setting<Setting>(
+/// The managed settings files in a managed folder that hold a settings object, each read once, in
+/// the order Claude Code applies them, and every file or folder that could not be read.
+#[derive(Debug, Default)]
+pub(crate) struct ClaudeManagedSettings {
+    /// Each file that holds a settings object, with that object.
+    pub(crate) files: Vec<(PathBuf, Map<String, Value>)>,
+    /// What could not be read.
+    pub(crate) failures: Vec<ClaudeSettingsReadError>,
+}
+
+impl ClaudeManagedSettings {
+    /// The value at `key_path` in force as Claude Code merges the files, key by key: the last
+    /// file whose value `select` takes decides, with that file; `None` where no file sets it.
+    pub(crate) fn find<Setting>(
+        &self,
+        key_path: &[&str],
+        select: impl Fn(&Value) -> Option<Setting>,
+    ) -> Option<ClaudeManagedSetting<Setting>> {
+        self.files.iter().rev().find_map(|(file, settings)| {
+            let value = find_claude_setting(settings, key_path).and_then(&select)?;
+            Some(ClaudeManagedSetting {
+                file: file.clone(),
+                value,
+            })
+        })
+    }
+}
+
+/// Reads the managed settings in `managed_settings_folder` once: `managed-settings.json`, then each
+/// `managed-settings.d/*.json` in name order, JavaScript's, by UTF-16 code units. A missing file or
+/// folder, or one holding no settings object, sets nothing; any other read failure is kept beside
+/// the files read.
+pub(crate) async fn read_claude_managed_settings(
     managed_settings_folder: &Path,
-    key_path: &[&str],
-    select: impl Fn(&Value) -> Option<Setting>,
-) -> ClaudeManagedSettingRead<Setting> {
-    let mut failures = Vec::new();
-    let mut deciding = None;
-    for file in list_managed_settings_files(managed_settings_folder, &mut failures).await {
+) -> ClaudeManagedSettings {
+    let mut managed = ClaudeManagedSettings::default();
+    for file in list_managed_settings_files(managed_settings_folder, &mut managed.failures).await {
         match read_claude_settings_file(&file).await {
-            Ok(settings) => {
-                let value = settings
-                    .as_ref()
-                    .and_then(|settings| find_claude_setting(settings, key_path))
-                    .and_then(&select);
-                if let Some(value) = value {
-                    deciding = Some(ClaudeManagedSetting { file, value });
-                }
-            }
-            Err(failure) => failures.push(ClaudeSettingsReadError {
+            Ok(Some(settings)) => managed.files.push((file, settings)),
+            Ok(None) => {}
+            Err(failure) => managed.failures.push(ClaudeSettingsReadError {
                 path: file,
                 failure,
             }),
         }
     }
-    ClaudeManagedSettingRead { deciding, failures }
+    managed
+}
+
+/// Reads one key from the managed settings in `managed_settings_folder` as Claude Code merges
+/// them, the last file whose value `select` takes deciding, as [`read_claude_managed_settings`]
+/// reads the files. Any read failure is returned beside the answer.
+pub(crate) async fn read_claude_managed_setting<Setting>(
+    managed_settings_folder: &Path,
+    key_path: &[&str],
+    select: impl Fn(&Value) -> Option<Setting>,
+) -> ClaudeManagedSettingRead<Setting> {
+    let managed = read_claude_managed_settings(managed_settings_folder).await;
+    ClaudeManagedSettingRead {
+        deciding: managed.find(key_path, select),
+        failures: managed.failures,
+    }
 }
 
 /// The notice for a session whose process reports `effective_cleanup_period_days` below the

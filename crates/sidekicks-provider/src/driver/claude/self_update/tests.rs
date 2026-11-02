@@ -61,9 +61,10 @@ async fn read_case(folder: &Path, files: &CaseFiles<'_>) -> ClaudeSelfUpdateRead
         .expect("the case's files are readable")
 }
 
-// Killed by dropping any of the four keys, by taking any value but `1` for `DISABLE_UPDATES` or
-// `DISABLE_AUTOUPDATER`, by reading the shell's value over the settings file's, and by skipping
-// the managed `env` block.
+// Killed by dropping any of the four keys, by reading `DISABLE_UPDATES` or `DISABLE_AUTOUPDATER` as
+// on only at `1` (the `true` and upper-case cases) or at any value but an on word (the `0` cases),
+// by dropping a settings value written as a JSON number, by reading the shell's value over the
+// settings file's, and by skipping the managed `env` block.
 #[rstest]
 #[case::user_settings_env(
     CaseFiles {
@@ -94,6 +95,33 @@ async fn read_case(folder: &Path, files: &CaseFiles<'_>) -> ClaudeSelfUpdateRead
         managed_settings: None,
     },
     ExpectedOptOut::Variable(ClaudeUpdateOptOutVariable::AllUpdates, ExpectedSource::Shell),
+)]
+#[case::shell_true(
+    CaseFiles {
+        shell: &[("DISABLE_AUTOUPDATER", "true")],
+        user_settings: None,
+        person_config: None,
+        managed_settings: None,
+    },
+    ExpectedOptOut::Variable(ClaudeUpdateOptOutVariable::BackgroundUpdates, ExpectedSource::Shell),
+)]
+#[case::user_settings_upper_case(
+    CaseFiles {
+        shell: &[],
+        user_settings: Some(r#"{"env": {"DISABLE_UPDATES": " ON "}}"#),
+        person_config: None,
+        managed_settings: None,
+    },
+    ExpectedOptOut::Variable(ClaudeUpdateOptOutVariable::AllUpdates, ExpectedSource::User),
+)]
+#[case::user_settings_number_over_shell(
+    CaseFiles {
+        shell: &[("DISABLE_AUTOUPDATER", "0")],
+        user_settings: Some(r#"{"env": {"DISABLE_AUTOUPDATER": 1}}"#),
+        person_config: None,
+        managed_settings: None,
+    },
+    ExpectedOptOut::Variable(ClaudeUpdateOptOutVariable::BackgroundUpdates, ExpectedSource::User),
 )]
 #[case::managed_env(
     CaseFiles {

@@ -16,9 +16,11 @@ use sidekicks_platforms::PathRules;
 
 use crate::driver::claude::mcp::config::ClaudePersonConfigFiles;
 use crate::driver::claude::session::ignored_settings::{
-    ClaudeSettingsReadError, find_claude_setting, read_claude_managed_setting,
+    ClaudeManagedSettings, ClaudeSettingsReadError, find_claude_setting,
+    read_claude_managed_settings,
 };
 use crate::driver::claude::session::settings_file::read_claude_settings_file;
+use crate::driver::claude::switch_variable::is_switched_on;
 
 // The settings key holding the variables Claude Code writes into its environment.
 const ENV_KEY: &str = "env";
@@ -57,9 +59,9 @@ pub(crate) enum ClaudeUpdateOptOut {
 /// order the read checks them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeUpdateOptOutVariable {
-    /// `DISABLE_UPDATES`, set when `1`: blocks every update, `claude update` included.
+    /// `DISABLE_UPDATES`, set when it reads as on: blocks every update, `claude update` included.
     AllUpdates,
-    /// `DISABLE_AUTOUPDATER`, set when `1`: blocks background updates.
+    /// `DISABLE_AUTOUPDATER`, set when it reads as on: blocks background updates.
     BackgroundUpdates,
     /// `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, set when it holds anything, `0` included.
     NonessentialTraffic,
@@ -85,7 +87,7 @@ impl ClaudeUpdateOptOutVariable {
     // Whether `value` turns the variable on, as Claude Code reads it.
     fn is_set_by(self, value: &str) -> bool {
         match self {
-            Self::AllUpdates | Self::BackgroundUpdates => value == "1",
+            Self::AllUpdates | Self::BackgroundUpdates => is_switched_on(value),
             Self::NonessentialTraffic => !value.is_empty(),
         }
     }
@@ -120,24 +122,30 @@ pub(crate) enum ClaudeUpdateChannel {
 
 /// Reads whether the person keeps Claude Code from updating itself, from `environment` (their
 /// login shell's, as the daemon captured it), their `config_files` and the managed settings in
-/// `managed_settings_folder`, and the channel its updates follow. A file that is absent or not
-/// the daemon's to read sets nothing; any other read failure is returned.
+/// `managed_settings_folder`, each file read once, and the channel its updates follow. A file that
+/// is absent or not the daemon's to read sets nothing; any other read failure is returned.
 pub(crate) async fn read_claude_self_update(
     environment: &[(String, String)],
     config_files: &ClaudePersonConfigFiles,
     managed_settings_folder: Option<&Path>,
 ) -> Result<ClaudeSelfUpdateReading, ClaudeSettingsReadError> {
+    let mut managed = match managed_settings_folder {
+        Some(folder) => read_claude_managed_settings(folder).await,
+        None => ClaudeManagedSettings::default(),
+    };
+    if !managed.failures.is_empty() {
+        return Err(managed.failures.swap_remove(0));
+    }
     let user_settings = read_settings(&config_files.user_settings).await?;
     let mut kept_from_updating = None;
     for variable in ClaudeUpdateOptOutVariable::ALL {
-        let deciding = read_deciding_variable(
+        let deciding = find_deciding_variable(
             variable,
             environment,
             &config_files.user_settings,
             user_settings.as_ref(),
-            managed_settings_folder,
-        )
-        .await?;
+            &managed,
+        );
         if let Some((value, source)) = deciding
             && variable.is_set_by(&value)
         {
@@ -158,19 +166,18 @@ pub(crate) async fn read_claude_self_update(
             });
         }
     }
-    let channel_word = match managed_settings_folder {
-        Some(folder) => read_managed_text(folder, &[AUTO_UPDATES_CHANNEL_KEY])
-            .await?
-            .map(|(word, _file)| word),
-        None => None,
-    }
-    .or_else(|| {
-        user_settings
-            .as_ref()
-            .and_then(|settings| find_claude_setting(settings, &[AUTO_UPDATES_CHANNEL_KEY]))
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-    });
+    let channel_word = managed
+        .find(&[AUTO_UPDATES_CHANNEL_KEY], |value| {
+            value.as_str().map(str::to_owned)
+        })
+        .map(|setting| setting.value)
+        .or_else(|| {
+            user_settings
+                .as_ref()
+                .and_then(|settings| find_claude_setting(settings, &[AUTO_UPDATES_CHANNEL_KEY]))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+        });
     let channel = match channel_word.as_deref() {
         Some("stable") => ClaudeUpdateChannel::Stable,
         Some(_) | None => ClaudeUpdateChannel::Latest,
@@ -183,50 +190,49 @@ pub(crate) async fn read_claude_self_update(
 
 // The value of `variable` Claude Code runs with and where it was found: the managed `env`, else
 // the person's `settings.json` `env`, else the login shell's; `None` where none sets it.
-async fn read_deciding_variable(
+fn find_deciding_variable(
     variable: ClaudeUpdateOptOutVariable,
     environment: &[(String, String)],
     user_settings_file: &Path,
     user_settings: Option<&Map<String, Value>>,
-    managed_settings_folder: Option<&Path>,
-) -> Result<Option<(String, ClaudeVariableSource)>, ClaudeSettingsReadError> {
+    managed: &ClaudeManagedSettings,
+) -> Option<(String, ClaudeVariableSource)> {
     let key_path = [ENV_KEY, variable.name()];
-    if let Some(folder) = managed_settings_folder
-        && let Some((value, file)) = read_managed_text(folder, &key_path).await?
-    {
-        return Ok(Some((
-            value,
-            ClaudeVariableSource::ManagedSettings { file },
-        )));
+    if let Some(setting) = managed.find(&key_path, env_value_text) {
+        return Some((
+            setting.value,
+            ClaudeVariableSource::ManagedSettings { file: setting.file },
+        ));
     }
     let from_user_settings = user_settings
         .and_then(|settings| find_claude_setting(settings, &key_path))
-        .and_then(Value::as_str);
+        .and_then(env_value_text);
     if let Some(value) = from_user_settings {
         let source = ClaudeVariableSource::UserSettings {
             file: user_settings_file.to_path_buf(),
         };
-        return Ok(Some((value.to_owned(), source)));
+        return Some((value, source));
     }
-    Ok(PathRules::NATIVE
+    PathRules::NATIVE
         .environment_value(environment, variable.name())
-        .map(|value| (value.to_owned(), ClaudeVariableSource::LoginShell)))
+        .map(|value| (value.to_owned(), ClaudeVariableSource::LoginShell))
 }
 
-// The text at `key_path` in the managed settings, as Claude Code merges them, and the file that
-// sets it. Fails with the first managed file or folder that could not be read.
-async fn read_managed_text(
-    managed_settings_folder: &Path,
-    key_path: &[&str],
-) -> Result<Option<(String, PathBuf)>, ClaudeSettingsReadError> {
-    let read = read_claude_managed_setting(managed_settings_folder, key_path, |value| {
-        value.as_str().map(str::to_owned)
-    })
-    .await;
-    if let Some(failure) = read.failures.into_iter().next() {
-        return Err(failure);
+// A settings `env` value as the text Claude Code puts in its environment: a string as written, and
+// a number or a boolean as JavaScript writes it into one, a whole number without a fraction; any
+// other value sets nothing.
+fn env_value_text(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Number(number) => Some(
+            number
+                .as_f64()
+                .filter(|whole| whole.fract() == 0.0 && whole.abs() < 1e15)
+                .map_or_else(|| number.to_string(), |whole| format!("{whole:.0}")),
+        ),
+        Value::Bool(is_on) => Some(is_on.to_string()),
+        Value::Null | Value::Array(_) | Value::Object(_) => None,
     }
-    Ok(read.deciding.map(|setting| (setting.value, setting.file)))
 }
 
 // One of the person's settings files, `None` where it sets nothing.
