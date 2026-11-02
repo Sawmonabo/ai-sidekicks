@@ -7,14 +7,13 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::question::{QuestionDefault, QuestionOption, QuestionPrompt};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::number::Number;
-use sidekicks_contracts::wire::text::NonEmptyText;
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::event_normalizer::CLAUDE_QUESTION_TOOL_NAME;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::record_readers::read_non_empty_string;
+use crate::record_readers::{read_non_empty_string, read_non_empty_text};
 
 // How a question is answered, as its `kind` names it; absent, a choice.
 enum QuestionKind {
@@ -136,8 +135,4 @@ fn report_unread_kind(session_id: SessionId, kind: &Value) {
 
 fn read_number(source: &Map<String, Value>, key: &str) -> Option<Number> {
     source.get(key)?.as_f64().and_then(Number::new)
-}
-
-fn read_non_empty_text(source: &Map<String, Value>, key: &str) -> Option<NonEmptyText> {
-    read_non_empty_string(source, key).and_then(|text| NonEmptyText::new(text.to_owned()))
 }

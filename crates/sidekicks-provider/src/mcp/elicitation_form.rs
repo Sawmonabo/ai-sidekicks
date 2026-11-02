@@ -20,7 +20,7 @@ use crate::driver::question_answers::read_question_answer_texts;
 use crate::mcp::elicitation_form::option_sets::{
     ElicitationOption, ElicitationOptionSetReading, read_elicitation_field_option_set,
 };
-use crate::record_readers::read_non_empty_string;
+use crate::record_readers::{read_non_empty_string, read_non_empty_text};
 
 // 2^63, the first whole number past `i64`; `i64::MAX as f64` rounds up to it.
 const PAST_I64_MAX: f64 = 9_223_372_036_854_775_808.0;
@@ -315,10 +315,6 @@ fn write_number(number: f64) -> Value {
 // Text a reader already found non-empty, as the contract's non-empty text.
 fn to_non_empty_text(text: &str) -> NonEmptyText {
     NonEmptyText::new(text.to_owned()).expect("the text holds at least one character")
-}
-
-fn read_non_empty_text(payload: &Map<String, Value>, key: &str) -> Option<NonEmptyText> {
-    read_non_empty_string(payload, key).map(to_non_empty_text)
 }
 
 #[cfg(test)]
