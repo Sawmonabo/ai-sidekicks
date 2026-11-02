@@ -3,9 +3,9 @@
 //! background observer over each provider's own legs, the sign-in broker and the sources the
 //! `provider.account.*` methods act through, the current-account switch, and the machine's wake
 //! helper where the system has one; and, once the recovery pass has run, the observer's schedule,
-//! its follow of each metered turn, the publishing of each quota reading the window projection
-//! keeps, and the move of each session a stop left on another account than its provider's current
-//! one.
+//! its follow of each metered turn and each run's end, the publishing of each quota reading the
+//! window projection keeps, and the move of each session a stop left on another account than its
+//! provider's current one.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -18,6 +18,7 @@ use sidekicks_contracts::event::usage::{
 };
 use sidekicks_contracts::provider::account::record::ProviderAccountNotification;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_platforms::{Spawner, WallClock, wake_helper};
 use sidekicks_provider::account::errors::ProviderAccountRegistryError;
@@ -294,15 +295,16 @@ pub(crate) struct ProviderAccountObservation {
 impl ProviderAccountObservation {
     /// Moves each session a stop left on another account than its provider's current one onto
     /// it, schedules every registered account's reads and window starts, has each turn metered
-    /// on an account end that account's turn, and publishes each quota reading as the window
-    /// projection keeps it. Fails when those sessions or the accounts cannot be read or the
-    /// scheduler has stopped. Runs inside the daemon's runtime, which each turn's end and each
-    /// reading is read on.
+    /// on an account end that account's turn and each run's end ask the turn-end reads a live turn
+    /// turned away, and publishes each quota reading as the window projection keeps it. Fails when
+    /// those sessions or the accounts cannot be read or the scheduler has stopped. Runs inside the
+    /// daemon's runtime, which each turn's end and each reading is read on.
     pub(crate) async fn start(
         &mut self,
         followers: &Arc<SessionEventFollowers>,
     ) -> Result<(), DaemonStartError> {
-        // Before the start admits the runs the stop left waiting, so none begins on the old account.
+        // Before the start admits the runs the stop left waiting, so none begins on the old
+        // account.
         self.account_switch
             .follow_current_accounts(&self.machine_device_id)
             .await
@@ -311,7 +313,9 @@ impl ProviderAccountObservation {
         let observer = Arc::clone(&self.observer);
         let (reads, publisher) = (Arc::clone(&self.reads), Arc::clone(&self.publisher));
         let runtime = Handle::current();
-        // Runs on the writer's pump, so it only reads the event and hands it on.
+        // Runs on the writer's pump, so it only reads the event and hands it on. The binding
+        // cursors' follow, attached before this one, has marked an ended run by the time this hears
+        // it, so the run's turn no longer reads as live.
         self.usage_events = Some(followers.follow_all(move |event| {
             let event_type = event.envelope.event_type();
             if event_type == SessionEventType::UsageTokenCountRecorded {
@@ -319,6 +323,11 @@ impl ProviderAccountObservation {
                     UsageTokenCountRecordedPayload::deserialize(event.envelope.payload())?;
                 let _runtime = runtime.enter();
                 observer.turn_ended(recorded.provider_account_id);
+            } else if RunStateEventType::try_from(event_type)
+                .is_ok_and(|run_state| run_state.state().is_terminal())
+            {
+                let _runtime = runtime.enter();
+                observer.turn_closed();
             } else if event_type == SessionEventType::UsageRateLimitUpdated {
                 let updated = UsageRateLimitUpdatedPayload::deserialize(event.envelope.payload())?;
                 let (reads, publisher) = (Arc::clone(&reads), Arc::clone(&publisher));

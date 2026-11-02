@@ -224,11 +224,11 @@ async fn no_read_runs_while_a_turn_is_live_or_a_sign_in_holds_the_home() {
     assert_eq!(fixture.legs.reads(), 1);
 }
 
-// A turn-end read the live turn turns away leaves the account's interval as it was, so the
-// five-minute read still comes when it was due rather than a whole interval after the turn's end.
-// Killed by the interval restarted before the turn-end read has answered figures.
-#[tokio::test(start_paused = true)]
-async fn a_turn_end_read_turned_away_leaves_the_next_read_when_it_was_due() {
+// A turn-end read asked while the turn still reads as live, as a provider's last usage comes
+// before its run ends, is owed and runs once a turn closes, and only once. Killed by the owed read
+// dropped (no read after the close) and by the owed mark kept (a second close reads again).
+#[tokio::test]
+async fn a_turn_end_read_asked_before_its_turn_closed_runs_once_the_turn_closes() {
     let database = TestDatabase::new(schema_parts());
     let data_folder = tempfile::tempdir().expect("a data folder");
     let fixture = Fixture::open(
@@ -239,11 +239,6 @@ async fn a_turn_end_read_turned_away_leaves_the_next_read_when_it_was_due() {
     )
     .await;
     let account = fixture.register().await;
-    fixture
-        .observer
-        .watch(&account)
-        .expect("the account is scheduled");
-    tokio::time::advance(Duration::from_mins(4)).await;
 
     fixture.live_turns.0.store(true, Ordering::SeqCst);
     fixture
@@ -251,17 +246,14 @@ async fn a_turn_end_read_turned_away_leaves_the_next_read_when_it_was_due() {
         .shared
         .read_at_turn_end(account.account_id.clone())
         .await
-        .expect("the turn-end read answers");
-    fixture.live_turns.0.store(false, Ordering::SeqCst);
+        .expect("the turn-end read is owed");
     assert_eq!(fixture.legs.reads(), 0);
 
-    tokio::time::advance(Duration::from_secs(61)).await;
-    for _ in 0..50 {
-        if fixture.legs.reads() == 1 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    fixture.live_turns.0.store(false, Ordering::SeqCst);
+    fixture.observer.shared.read_owed_turn_end_reads().await;
+    assert_eq!(fixture.legs.reads(), 1);
+
+    fixture.observer.shared.read_owed_turn_end_reads().await;
     assert_eq!(fixture.legs.reads(), 1);
 }
 

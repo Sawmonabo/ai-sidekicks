@@ -17,11 +17,14 @@
 //! - Only `Check now` writes as the probe; every other read writes as the background observer,
 //!   which never moves the generation, and a read that cannot tell never does either.
 //! - Each read that rewrote the account's row publishes the account as it now reads.
-//! - A turn-end read restarts the account's interval only once it answers figures.
+//! - A turn-end read restarts the account's interval only once it answers figures; one asked
+//!   while a turn on the account still reads as live, as a provider's last usage comes before its
+//!   run ends, is owed and runs once a turn closes.
 //! - A pasted token whose own scope cannot read its limits is read by a turn instead, and each
-//!   account's closed usage windows are started by one, each turn written as a usage row of its own.
+//!   account's closed usage windows are started by one, each turn written as a usage row of its
+//!   own.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -125,7 +128,8 @@ pub struct AccountReading {
 /// What asking for an account's read answers.
 #[derive(Clone, Debug, PartialEq)]
 pub enum AccountReadAnswer {
-    /// The read taken, joined in flight, or, for `Check now`, the last one while under a minute old.
+    /// The read taken, joined in flight, or, for `Check now`, the last one while under a minute
+    /// old.
     Read(AccountReading),
     /// The throttle ladder holds the account's reads until this instant.
     Held {
@@ -245,6 +249,8 @@ struct ObserverShared {
     reads: AccountHomeFlights<SharedReading>,
     window_starts: AccountHomeFlights<SharedWindowStart>,
     accounts: Mutex<HashMap<ProviderAccountId, AccountMemory>>,
+    // The accounts whose turn-end read a live turn turned away, read again once a turn closes.
+    turn_end_reads_owed: Mutex<HashSet<ProviderAccountId>>,
     schedule: ObservationSchedule,
     window_timers: WindowStartTimers,
     window_wakes: WindowStartWakes,
@@ -279,6 +285,7 @@ impl ProviderAccountObserver {
                 reads: AccountHomeFlights::new(Arc::clone(&deps.home_lock)),
                 window_starts: AccountHomeFlights::new(deps.home_lock),
                 accounts: Mutex::default(),
+                turn_end_reads_owed: Mutex::default(),
                 schedule: ObservationSchedule::new(
                     Arc::clone(&deps.scheduler),
                     Arc::new(move |account_id| {
@@ -349,6 +356,7 @@ impl ProviderAccountObserver {
         self.shared.schedule.forget(provider_account_id);
         self.shared.window_timers.forget(provider_account_id);
         lock(&self.shared.accounts).remove(provider_account_id);
+        lock(&self.shared.turn_end_reads_owed).remove(provider_account_id);
         Arc::clone(&self.shared).spawn_wake_cancel(provider_account_id.clone());
     }
 
@@ -394,6 +402,7 @@ impl ProviderAccountObserver {
     /// A turn ended on `provider_account_id`'s account: where its provider reads at a turn's end,
     /// the account is read in a task of its own, and its interval starts again from that read once
     /// the read answers figures; a read refused or with no answer leaves the interval as it was.
+    /// While a turn on the account still reads as live the read is owed to [`Self::turn_closed`].
     pub fn turn_ended(&self, provider_account_id: ProviderAccountId) {
         let shared = Arc::clone(&self.shared);
         tokio::spawn(async move {
@@ -401,6 +410,13 @@ impl ProviderAccountObserver {
                 log_read_failure(&error);
             }
         });
+    }
+
+    /// A run ended on some account: each turn-end read a live turn turned away is asked again in a
+    /// task of its own, and is owed again while a turn on its account still reads as live.
+    pub fn turn_closed(&self) {
+        let shared = Arc::clone(&self.shared);
+        tokio::spawn(async move { shared.read_owed_turn_end_reads().await });
     }
 }
 
@@ -419,8 +435,8 @@ impl SignedInAccountWatcher for ProviderAccountObserver {
 
 impl ObserverShared {
     // The turn-end read of an account whose provider reads at a turn's end, and the restart of
-    // its interval from a read that answered figures, so a read the live turn or a held home
-    // turned away never pushes the next one back.
+    // its interval from a read that answered figures, so a read a held home turned away never
+    // pushes the next one back; while a turn reads as live the read is owed, not taken.
     async fn read_at_turn_end(
         self: &Arc<Self>,
         provider_account_id: ProviderAccountId,
@@ -437,6 +453,14 @@ impl ObserverShared {
         {
             return Ok(());
         }
+        if !self
+            .live_turns
+            .sessions_with_live_turns(&provider_account_id)
+            .is_empty()
+        {
+            lock(&self.turn_end_reads_owed).insert(provider_account_id);
+            return Ok(());
+        }
         let answer = self
             .read(provider_account_id.clone(), ReadAsker::TurnEnd)
             .await?;
@@ -448,6 +472,17 @@ impl ObserverShared {
             self.schedule.restart(&provider_account_id)?;
         }
         Ok(())
+    }
+
+    // Asks each owed turn-end read again, one after another, each failure written to the service
+    // log.
+    async fn read_owed_turn_end_reads(self: &Arc<Self>) {
+        let owed = std::mem::take(&mut *lock(&self.turn_end_reads_owed));
+        for provider_account_id in owed {
+            if let Err(error) = self.read_at_turn_end(provider_account_id).await {
+                log_read_failure(&error);
+            }
+        }
     }
 
     // Runs a read no caller waits on, its failure written to the service log.
