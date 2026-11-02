@@ -334,7 +334,7 @@ pub const RUNS_COMMAND_WRAPPER: bool = true;
 #[cfg(target_os = "windows")]
 pub const RUNS_COMMAND_WRAPPER: bool = false;
 #[cfg(unix)]
-pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
+pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c, wait_through_ctrl_c};
 #[cfg(unix)]
 pub use posix::current_user::{current_user_id, current_user_name};
 #[cfg(unix)]
@@ -550,7 +550,7 @@ pub use windows::command_wrapper::{
 #[cfg(target_os = "windows")]
 pub use windows::credential_store::CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER;
 #[cfg(target_os = "windows")]
-pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
+pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c, wait_through_ctrl_c};
 #[cfg(target_os = "windows")]
 pub use windows::current_user::{current_user_id, current_user_name};
 #[cfg(target_os = "windows")]

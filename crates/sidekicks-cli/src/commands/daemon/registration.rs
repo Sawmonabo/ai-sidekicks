@@ -11,7 +11,8 @@ use std::process::{Command, Stdio};
 
 use anyhow::Context as _;
 use sidekicks_platforms::{
-    ServiceInstall, ServiceOwner, ServiceRegistration, ServiceRegistrationError, SystemServiceOwner,
+    ServiceInstall, ServiceOwner, ServiceRegistration, ServiceRegistrationError,
+    SystemServiceOwner, wait_through_ctrl_c,
 };
 
 use crate::daemon_program::this_program;
@@ -76,9 +77,10 @@ pub(crate) fn this_program_as_account(
 }
 
 /// Runs this program with `arguments` as the account through `registration`, on this run's
-/// terminal, its standard output to `output`, and answers the exit code it ended with. Fails when
-/// this program or the account cannot be named or the run cannot start, and with
-/// `ClientError::Canceled` for a run a Ctrl-C ended.
+/// terminal, its standard output to `output`, and answers the exit code it ended with. A Ctrl-C
+/// ends only that run, which this one waits out, so the shell's prompt comes back once it has
+/// finished. Fails when this program or the account cannot be named or the run cannot start or be
+/// waited for, and with `ClientError::Canceled` for a run a Ctrl-C ended.
 pub(crate) fn run_as_account(
     registration: ServiceRegistration,
     arguments: impl IntoIterator<Item = impl AsRef<OsStr>>,
@@ -86,11 +88,17 @@ pub(crate) fn run_as_account(
 ) -> anyhow::Result<ExitCode> {
     let (program, mut command) =
         this_program_as_account(|program| registration.account_command(program))?;
-    let status = command
+    let mut child = command
         .args(arguments)
         .stdout(output)
-        .status()
+        .spawn()
         .with_context(|| format!("could not run {} as this account", program.display()))?;
+    let status = wait_through_ctrl_c(&mut child).with_context(|| {
+        format!(
+            "could not wait for {}, run as this account, to end",
+            program.display()
+        )
+    })?;
     ExitCode::of_program_run(status)
 }
 
