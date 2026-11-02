@@ -57,7 +57,7 @@ use crate::driver::claude::delivery::system::{
 use crate::driver::claude::delivery::turn_end::ClaudeTerminalReason;
 use crate::driver::claude::delivery::turn_readings::is_claude_message_start;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
-use crate::driver::claude::goals::endings::{ClaudeGoalEndings, GoalEndingInput};
+use crate::driver::claude::goals::endings::{ClaudeGoalEndings, GoalEndingInput, is_goal_line};
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::rate_limit_windows::{
     ClaudeUsageProbeModels, read_claude_quota_windows,
@@ -611,13 +611,17 @@ impl ClaudeDeliveryStream {
             if let Some(refusal) = frame.refusal() {
                 readings.refusal = Some(refusal);
             }
-            let rows = read_claude_assistant_rows(
+            let mut rows = read_claude_assistant_rows(
                 frame,
                 session.session_id,
                 lead.run_id,
                 &mut readings.open_tool_calls,
                 Instant::now(),
             );
+            // A goal line draws the goal row alone, never a message in the agent's own words.
+            if frame.text().is_some_and(is_goal_line) {
+                rows.retain(|row| !is_message(row));
+            }
             // A step is one message carrying a tool call, the unit Claude Code's own bound counts.
             let counts_step = rows.iter().any(is_tool_call)
                 && frame.provider_message_id().is_some_and(|message_id| {
@@ -640,13 +644,13 @@ impl ClaudeDeliveryStream {
             self.publish_turn_tasks(session, tasks);
         }
         self.send_pieces(session, &lead.binding_id, pieces).await;
-        self.admit_rows(session, rows, "assistant").await;
-        if counts_step && let Err(error) = self.dependencies.engine.count_step(lead.run_id).await {
-            report_engine_failure(session, "a step", &*error);
-        }
         if let Some(text) = frame.text() {
             self.classify_goal(session, GoalEndingInput::LeadText(text), "assistant")
                 .await;
+        }
+        self.admit_rows(session, rows, "assistant").await;
+        if counts_step && let Err(error) = self.dependencies.engine.count_step(lead.run_id).await {
+            report_engine_failure(session, "a step", &*error);
         }
         if let Some(usage) = usage
             && let Some(row) =
@@ -773,6 +777,16 @@ fn bound(run: &ClaudeBoundRun) -> DeliveryBinding<'static> {
         binding_id: run.binding_id.clone(),
         operation: None,
     }
+}
+
+fn is_message(row: &ClaudeMessageRow) -> bool {
+    matches!(
+        row.row,
+        ClaudeMessageRowKind::Session {
+            row: LateAppendableRow::AgentMessageSent(_),
+            ..
+        }
+    )
 }
 
 fn is_tool_call(row: &ClaudeMessageRow) -> bool {

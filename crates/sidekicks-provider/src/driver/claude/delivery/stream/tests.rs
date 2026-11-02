@@ -820,7 +820,7 @@ async fn a_helper_start_is_checked_against_the_live_posture() {
 
 // Killed by classifying the lead `result` before the conversation file is read to its end: the
 // goal would still read active with no record, so the turn would post `goalCheckUnfinished`, and
-// the completion only at the next turn's end.
+// the completion only at the next turn's end; and by the goal line also delivered as a message.
 #[tokio::test(start_paused = true)]
 async fn a_goal_met_just_before_the_result_reads_complete_and_no_unfinished_check() {
     let session = ScriptedSession::new().await;
@@ -881,5 +881,13 @@ async fn a_goal_met_just_before_the_result_reads_complete_and_no_unfinished_chec
             (json!("ship it"), json!("active")),
             (json!("ship it"), json!("complete")),
         ]
+    );
+    assert!(
+        !session
+            .engine
+            .deliveries()
+            .iter()
+            .any(|delivery| matches!(delivery.row, Some(LateAppendableRow::AgentMessageSent(_)))),
+        "the goal line is no message of the agent's"
     );
 }

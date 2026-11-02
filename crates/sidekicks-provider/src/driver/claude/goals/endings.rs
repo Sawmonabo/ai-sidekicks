@@ -307,8 +307,8 @@ fn classify_turn_end(
     })
 }
 
-// Whether `text` reads as one of Claude Code's goal lines.
-fn is_goal_line(text: &str) -> bool {
+/// Whether `text` reads as one of Claude Code's goal lines.
+pub(crate) fn is_goal_line(text: &str) -> bool {
     [GOAL_SET_PREFIX, GOAL_CLEARED_PREFIX, NO_GOAL_SET_PREFIX]
         .iter()
         .any(|prefix| text.starts_with(prefix))
