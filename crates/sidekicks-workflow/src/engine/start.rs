@@ -792,12 +792,21 @@ fn start_denied(errors: &[String]) -> DomainError {
 }
 
 // Makes `folder` new and empty: its parents as needed, then the folder itself, which must not be
-// there yet, so a removal never takes a folder another start made.
+// there yet, so a removal never takes a folder another start made. A run's delete removes the
+// workflow's runs folder once it empties, so a parent gone between the two steps is made again,
+// once.
 async fn make_own_folder(folder: &Path) -> io::Result<()> {
-    if let Some(parent) = folder.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+    let parent = folder
+        .parent()
+        .expect("a run's folder sits in its workflow's runs folder");
+    tokio::fs::create_dir_all(parent).await?;
+    match tokio::fs::create_dir(folder).await {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            tokio::fs::create_dir_all(parent).await?;
+            tokio::fs::create_dir(folder).await
+        }
+        made => made,
     }
-    tokio::fs::create_dir(folder).await
 }
 
 // Removes the run's own `folder` after a start that ended without a run, and answers how it
