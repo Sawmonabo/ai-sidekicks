@@ -1,15 +1,16 @@
 //! One run state change, written whole: the check against the table, the event, the row's swap
 //! and, for a terminal, the guard that the run version holds no terminal record yet, all in one
-//! write so they commit together or not at all.
+//! write so they commit together or not at all. A rollback of the run's conversation is written
+//! the same way, its row's version advanced with no state swapped.
 
 use std::borrow::Cow;
 use std::sync::{Arc, LazyLock};
 
 use rusqlite::types::Value;
-use sidekicks_contracts::event::envelope::EventCategory;
+use sidekicks_contracts::event::envelope::{EventCategory, SourcePosition};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
-use sidekicks_contracts::run::control::RunFailureCategory;
+use sidekicks_contracts::run::control::{AgentRunRolledBackEvent, RunFailureCategory};
 use sidekicks_contracts::run::events::{
     AgentRunCompletedNewState, AgentRunCompletedPayload, AgentRunFailedNewState,
     AgentRunFailedPayload, AgentRunInterruptedNewState, AgentRunInterruptedPayload,
@@ -33,7 +34,9 @@ use sidekicks_store::events::session::appender::{
     SessionEventLinkage,
 };
 
-use crate::run::projection::{RunStateSwap, swap_run_state_statement};
+use crate::run::projection::{
+    RunStateSwap, rolled_back_run_version_statement, swap_run_state_statement,
+};
 use crate::run::provider_choice::ChoiceDialog;
 use crate::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::run::refusals::RunRefusal;
@@ -42,12 +45,6 @@ use crate::run::transitions::{RUN_TERMINAL_EVENT_TYPES_SQL, is_transition_allowe
 /// The position of a terminal write's guard that its run version holds no terminal record yet:
 /// the first statement of the write.
 pub(crate) const TERMINAL_GUARD_INDEX: usize = 0;
-
-/// The position of a terminal write's swap, after its guard.
-pub(crate) const TERMINAL_SWAP_INDEX: usize = 1;
-
-/// The position of any other change's swap: the first statement of its write.
-pub(crate) const SWAP_INDEX: usize = 0;
 
 // How many times a change is read and written before a run that keeps moving under it is refused.
 const MAX_WRITE_ATTEMPTS: usize = 3;
@@ -314,14 +311,52 @@ impl From<DatabaseReadError> for RunStateChangeError {
     }
 }
 
+/// One write of a run: a state change, or the forward rollback of its conversation to a cut the
+/// provider confirmed, which advances the run's version and moves it through no state.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum RunWrite {
+    /// A state change, checked against the table.
+    Transition(RunStateChange),
+    /// A rollback of the run's conversation, written whatever state the run is in.
+    Rollback {
+        /// The run.
+        run_id: RunId,
+        /// The turn boundary the conversation landed at.
+        target_position: SourcePosition,
+    },
+}
+
+impl RunWrite {
+    fn run_id(&self) -> RunId {
+        match self {
+            Self::Transition(change) => change.run_id,
+            Self::Rollback { run_id, .. } => *run_id,
+        }
+    }
+}
+
+impl From<RunStateChange> for RunWrite {
+    fn from(change: RunStateChange) -> Self {
+        Self::Transition(change)
+    }
+}
+
+// The guard on the run's row a write leads with, which decides how its refusal reads: a swap into
+// `new_state`, behind the terminal guard where that state ends the run, or an advance of the
+// version the attempt read, the state left as it is.
+enum RowGuard {
+    Swap { new_state: RunStateChangeState },
+    Advance { read_version: i64 },
+}
+
 // What one read and write of a change came to: the run as the change left it, or the refusal of a
-// swap the run moved under, to retry from a fresh read.
+// guard the run moved under, to retry from a fresh read.
 enum AttemptOutcome {
     Written(RunRead),
     Moved(RunRefusal),
 }
 
-/// Writes run state changes; the run's row and its event move in the same write.
+/// Writes run state changes and rollbacks; the run's row and its event move in the same write.
 pub(crate) struct RunStateChangeWriter {
     pool: Arc<DatabaseReadPool>,
     appender: Arc<SessionEventAppender>,
@@ -333,81 +368,120 @@ impl RunStateChangeWriter {
         Self { pool, appender }
     }
 
-    /// Writes `change` from the run's current row and returns the run as it left it. A run that
-    /// moved after it was read is read again and the change retried while the table still allows
-    /// it and the run has not ended, up to a few times. Fails with [`RunRefusal::NotFound`] for an
-    /// unknown run, [`RunRefusal::AlreadyEnded`] for a terminal of a run that has ended or whose
-    /// run version already holds one, [`RunRefusal::InvalidTransition`] for a move the table does
-    /// not allow from the state the run is in, and [`RunStateChangeError::CompanionRefused`] when
-    /// a companion statement refuses; each refusal writes nothing. Every write goes under `hold`
-    /// where the caller holds the run's session.
+    /// Writes `write` from the run's current row and returns the run as it left it. A run that
+    /// moved after it was read is read again and the write retried, a change only while the table
+    /// still allows it and the run has not ended, up to a few times. Fails with
+    /// [`RunRefusal::NotFound`] for an unknown run, [`RunRefusal::AlreadyEnded`] for a terminal of
+    /// a run that has ended or whose run version already holds one,
+    /// [`RunRefusal::InvalidTransition`] for a move the table does not allow from the state the run
+    /// is in, [`RunRefusal::VersionStale`] for a rollback whose run kept moving, and
+    /// [`RunStateChangeError::CompanionRefused`] when a companion statement refuses; each refusal
+    /// writes nothing. Every write goes under `hold` where the caller holds the run's session.
     pub(crate) async fn write(
         &self,
-        change: RunStateChange,
+        write: impl Into<RunWrite>,
         companions: RunStateChangeCompanions,
         hold: Option<&SessionAppendHold>,
     ) -> Result<RunRead, RunStateChangeError> {
+        let write = write.into();
         for attempt in 1..MAX_WRITE_ATTEMPTS {
             if let AttemptOutcome::Written(run) = self
-                .attempt(change.clone(), companions.clone(), attempt > 1, hold)
+                .attempt(write.clone(), companions.clone(), attempt > 1, hold)
                 .await?
             {
                 return Ok(run);
             }
         }
-        match self.attempt(change, companions, true, hold).await? {
+        match self.attempt(write, companions, true, hold).await? {
             AttemptOutcome::Written(run) => Ok(run),
             AttemptOutcome::Moved(refusal) => Err(refusal.into()),
         }
     }
 
-    // One read and one write; a swap the run moved under comes back to be retried from a fresh
-    // read. A retry never starts from an ended run: re-opening one is the daemon's own decision,
-    // made on a first read, never a change that lost its race to the run's end.
+    // One read and one write; a guard the run moved under comes back to be retried from a fresh
+    // read. A change's retry never starts from an ended run: re-opening one is the daemon's own
+    // decision, made on a first read, never a change that lost its race to the run's end.
     async fn attempt(
         &self,
-        change: RunStateChange,
+        write: RunWrite,
         companions: RunStateChangeCompanions,
         is_retry: bool,
         hold: Option<&SessionAppendHold>,
     ) -> Result<AttemptOutcome, RunStateChangeError> {
-        let run_id = change.run_id;
-        let new_state = change.entry.state();
+        let run_id = write.run_id();
         let Some(run) = self.read_run(run_id).await? else {
             return Err(RunRefusal::NotFound { run_id }.into());
         };
-        let is_terminal = RunState::from(new_state).is_terminal();
-        if change
-            .expected_state
-            .is_some_and(|expected| expected != run.state)
-            || !is_transition_allowed(run.state, new_state)
-            || (is_retry && run.state.is_terminal())
-        {
-            return Err(if run.state.is_terminal() && is_terminal {
-                RunRefusal::AlreadyEnded {
-                    run_id,
-                    from_state: run.state,
-                    to_state: new_state,
-                    source: None,
+        let (guard, mut transactional_prelude, event, written) = match write {
+            RunWrite::Transition(change) => {
+                let new_state = change.entry.state();
+                let is_terminal = RunState::from(new_state).is_terminal();
+                if change
+                    .expected_state
+                    .is_some_and(|expected| expected != run.state)
+                    || !is_transition_allowed(run.state, new_state)
+                    || (is_retry && run.state.is_terminal())
+                {
+                    return Err(if run.state.is_terminal() && is_terminal {
+                        RunRefusal::AlreadyEnded {
+                            run_id,
+                            from_state: run.state,
+                            to_state: new_state,
+                            source: None,
+                        }
+                    } else {
+                        RunRefusal::InvalidTransition {
+                            run_id,
+                            from_state: run.state,
+                            to_state: new_state,
+                            source: None,
+                        }
+                    }
+                    .into());
                 }
-            } else {
-                RunRefusal::InvalidTransition {
+                let swap = RunStateSwap {
+                    session_id: run.session_id,
                     run_id,
-                    from_state: run.state,
-                    to_state: new_state,
-                    source: None,
-                }
+                    run_version: run.version + 1,
+                    previous_state: run.state,
+                    new_state,
+                };
+                let mut prelude = if is_terminal {
+                    vec![no_terminal_record_statement(&run_id, swap.run_version)]
+                } else {
+                    Vec::new()
+                };
+                prelude.push(swap_run_state_statement(&swap));
+                let written = RunRead {
+                    version: swap.run_version,
+                    session_id: run.session_id,
+                    state: new_state.into(),
+                };
+                let event = change.into_event(&swap);
+                (RowGuard::Swap { new_state }, prelude, event, written)
             }
-            .into());
-        }
-
-        let swap = RunStateSwap {
-            session_id: run.session_id,
-            run_id,
-            run_version: run.version + 1,
-            previous_state: run.state,
-            new_state,
+            RunWrite::Rollback {
+                target_position, ..
+            } => {
+                let written = RunRead {
+                    version: run.version + 1,
+                    ..run.clone()
+                };
+                let rollback = rolled_back_event(run_id, &written, target_position);
+                let prelude = vec![rolled_back_run_version_statement(&rollback)];
+                let guard = RowGuard::Advance {
+                    read_version: run.version,
+                };
+                (
+                    guard,
+                    prelude,
+                    SessionEvent::AgentRunRolledBack(rollback),
+                    written,
+                )
+            }
         };
+        // The row's guard is the last statement before the companions'.
+        let guard_index = transactional_prelude.len() - 1;
         let RunStateChangeCompanions {
             statements,
             mut preceding_events,
@@ -418,19 +492,10 @@ impl RunStateChangeWriter {
         if let Some(draft) = leading_event {
             preceding_events.insert(0, draft(&run)?);
         }
-        let (swap_index, mut transactional_prelude) = if is_terminal {
-            (
-                TERMINAL_SWAP_INDEX,
-                vec![no_terminal_record_statement(&run_id, swap.run_version)],
-            )
-        } else {
-            (SWAP_INDEX, Vec::new())
-        };
-        transactional_prelude.push(swap_run_state_statement(&swap));
         let companions_in_write =
             transactional_prelude.len()..transactional_prelude.len() + statements.len();
         transactional_prelude.extend(statements);
-        let draft = SessionEventDraft::of_session(run.session_id, &change.into_event(&swap))?;
+        let draft = SessionEventDraft::of_session(run.session_id, &event)?;
         let linkage = SessionEventLinkage {
             transactional_prelude,
             preceding_events,
@@ -441,28 +506,37 @@ impl RunStateChangeWriter {
             None => self.appender.append(draft, linkage).await,
         };
         let Err(error) = appended else {
-            return Ok(AttemptOutcome::Written(RunRead {
-                version: swap.run_version,
-                session_id: run.session_id,
-                state: new_state.into(),
-            }));
+            return Ok(AttemptOutcome::Written(written));
         };
         let Some(refused_index) = error.refused_statement_index() else {
             return Err(RunStateChangeError::Append(Box::new(error)));
         };
-        if is_terminal && refused_index == TERMINAL_GUARD_INDEX {
-            return Err(RunRefusal::AlreadyEnded {
-                run_id,
-                from_state: run.state,
-                to_state: new_state,
-                source: Some(Box::new(error)),
+        match guard {
+            RowGuard::Swap { new_state } => {
+                if RunState::from(new_state).is_terminal() && refused_index == TERMINAL_GUARD_INDEX
+                {
+                    return Err(RunRefusal::AlreadyEnded {
+                        run_id,
+                        from_state: run.state,
+                        to_state: new_state,
+                        source: Some(Box::new(error)),
+                    }
+                    .into());
+                }
+                if refused_index == guard_index {
+                    return Ok(AttemptOutcome::Moved(
+                        self.moved_run_refusal(run_id, new_state, error).await?,
+                    ));
+                }
             }
-            .into());
-        }
-        if refused_index == swap_index {
-            return Ok(AttemptOutcome::Moved(
-                self.moved_run_refusal(run_id, new_state, error).await?,
-            ));
+            RowGuard::Advance { read_version } => {
+                if refused_index == guard_index {
+                    return Ok(AttemptOutcome::Moved(
+                        self.moved_version_refusal(run_id, read_version, error)
+                            .await?,
+                    ));
+                }
+            }
         }
         // A statement past the companions is a projection's own, which refuses the write whole.
         if !companions_in_write.contains(&refused_index) {
@@ -504,8 +578,41 @@ impl RunStateChangeWriter {
         )
     }
 
+    // An advance refused because the run's version moved past `read_version` after it was read.
+    async fn moved_version_refusal(
+        &self,
+        run_id: RunId,
+        read_version: i64,
+        refusal: SessionEventAppendError,
+    ) -> Result<RunRefusal, RunStateChangeError> {
+        let Some(now) = self.read_run(run_id).await? else {
+            return Ok(RunRefusal::NotFound { run_id });
+        };
+        Ok(RunRefusal::VersionStale {
+            run_id,
+            expected_run_version: safe_run_version(read_version).get(),
+            run_version: now.version,
+            source: Some(Box::new(refusal)),
+        })
+    }
+
     async fn read_run(&self, run_id: RunId) -> Result<Option<RunRead>, RunStateChangeError> {
         read_run_through(&self.pool, run_id).await
+    }
+}
+
+/// The `agent.run.rolledBack` a rollback of `run_id` landing at `target_position` writes, `written`
+/// being the run as the rollback leaves it.
+pub(crate) fn rolled_back_event(
+    run_id: RunId,
+    written: &RunRead,
+    target_position: SourcePosition,
+) -> AgentRunRolledBackEvent {
+    AgentRunRolledBackEvent {
+        session_id: written.session_id,
+        run_id,
+        run_version: safe_run_version(written.version),
+        target_position,
     }
 }
 

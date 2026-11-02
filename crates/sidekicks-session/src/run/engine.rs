@@ -5,7 +5,8 @@
 //! driver took the resume, numbers and ends each turn, counts a turn's steps against its step
 //! bound, stops a run at a limit, records the markers a provider reports on a live run, tells a
 //! session when a run's provider does not run it at the fast output level it carried, and re-arms
-//! and finalizes the live runs a restart's resume found again.
+//! and finalizes the live runs a restart's resume found again, and records an undo's confirmed
+//! cut as the run's rollback.
 
 mod ending;
 pub mod errors;
@@ -22,6 +23,7 @@ pub mod test_fixture;
 #[cfg(test)]
 pub(crate) mod tests;
 pub(crate) mod turns;
+pub mod undo;
 mod unresolved_interventions;
 pub(crate) mod usage_tallies;
 
