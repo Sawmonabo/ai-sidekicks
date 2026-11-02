@@ -91,16 +91,22 @@ pub(crate) async fn send_claude_interrupt(
             live.channel.terminate().await;
             Ok(ClaudeInterruptOutcome::Stopped)
         }
-        Err(error) if stop_on_cut_write(live, &error).await => Ok(ClaudeInterruptOutcome::Stopped),
+        Err(error) if stop_on_cut_write(&*live.channel, &error).await => {
+            Ok(ClaudeInterruptOutcome::Stopped)
+        }
         Err(error) => Err(error),
     }
 }
 
-// Stops `live`'s process when `error` is a request cut mid-write; answers whether it did.
-async fn stop_on_cut_write(live: &LiveClaudeSession, error: &ClaudeSessionError) -> bool {
+/// Stops the process on `channel` when `error` is a request cut mid-write, which leaves its input
+/// mid-frame; answers whether it did.
+pub(crate) async fn stop_on_cut_write(
+    channel: &dyn ClaudeProcessChannel,
+    error: &ClaudeSessionError,
+) -> bool {
     let is_cut = is_cut_write(error);
     if is_cut {
-        live.channel.terminate().await;
+        channel.terminate().await;
     }
     is_cut
 }
@@ -481,7 +487,7 @@ pub(crate) async fn background_claude_task(
 ) -> Result<bool, ClaudeSessionError> {
     let moved = request_claude_background_task(&*live.channel, tool_use_id).await;
     if let Err(error) = &moved {
-        stop_on_cut_write(live, error).await;
+        stop_on_cut_write(&*live.channel, error).await;
     }
     moved
 }

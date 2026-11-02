@@ -45,9 +45,8 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::RespondToRequestParams;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::run_control::{
-    AnswerProviderChoiceParams, AnswerProviderChoiceResult, HelperStopReason,
-    HelperTokenLimitParams, OverrideDenialParams, PauseRunParams, ResumeRunParams,
-    WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    AnswerProviderChoiceParams, AnswerProviderChoiceResult, OverrideDenialParams, PauseRunParams,
+    ResumeRunParams, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
@@ -500,21 +499,6 @@ impl ClaudeRunControls {
             .await
     }
 
-    /// Stops a helper at its token limit: its next tool use, and each after, is denied with the
-    /// reason it reads, so it reports and finishes while its lead goes on. Fails `NoLiveSession`.
-    pub(crate) fn stop_helper_at_token_limit(
-        &self,
-        params: &HelperTokenLimitParams,
-    ) -> Result<(), DriverError> {
-        self.start.live_session(params.session_id)?;
-        lock(&self.pauses).stop_helper(
-            params.session_id,
-            params.subagent_id.as_str(),
-            HelperStopReason::TokenLimit,
-        );
-        Ok(())
-    }
-
     /// Moves the foreground work one tool call started (a command, a helper) to the background
     /// and answers whether any moved: `false` when the call matched no foreground work. Fails
     /// `NoLiveSession` and as the request fails, refused where background tasks are turned off.
@@ -580,18 +564,12 @@ impl ClaudeDriver {
             .await
     }
 
-    /// Stops a helper at its token limit by denying its tool uses from the next on. Fails
-    /// `NoLiveSession`.
-    pub(crate) fn stop_helper_at_token_limit(
+    /// The run controls of a session that may be live; none are composed before any session is.
+    /// Fails `NoLiveSession` while none are.
+    pub(super) fn live_run_controls(
         &self,
-        params: &HelperTokenLimitParams,
-    ) -> Result<(), DriverError> {
-        self.live_run_controls(params.session_id)?
-            .stop_helper_at_token_limit(params)
-    }
-
-    // The run controls of a session that may be live; none are composed before any session is.
-    fn live_run_controls(&self, session_id: SessionId) -> Result<&ClaudeRunControls, DriverError> {
+        session_id: SessionId,
+    ) -> Result<&ClaudeRunControls, DriverError> {
         self.composed_parts()
             .map(|parts| &parts.run_controls)
             .ok_or_else(|| {
@@ -612,17 +590,14 @@ mod tests {
     use sidekicks_contracts::provider::driver::capabilities::{
         CredentialPolicyRef, ExecutionPosture,
     };
-    use sidekicks_contracts::run::subagent::SubagentId;
 
     use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
-    use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedWrite};
+    use crate::driver::claude::session::scripted::channel::ScriptedAnswer;
     use crate::driver::claude::session::scripted::daemon_services::PortCall;
     use crate::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
-    use crate::driver::run_control::{
-        HelperStopReason, HelperTokenLimitParams, OverrideDenialParams,
-    };
+    use crate::driver::run_control::OverrideDenialParams;
     use crate::port::running_command_publisher::RunningCommandParams;
 
     fn running_command(session: &ScriptedSession, command_id: &str) -> RunningCommandParams {
@@ -735,67 +710,6 @@ mod tests {
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0]["subtype"], "background_tasks");
         assert_eq!(requests[0]["tool_use_id"], "call-b");
-    }
-
-    // Killed by a token limit that leaves the helper's next tool use allowed, by one that stops
-    // the lead too, and by a denial that does not carry the reason the helper reads.
-    #[tokio::test(start_paused = true)]
-    async fn a_helper_at_its_token_limit_is_denied_its_next_tool_use() {
-        let session = ScriptedSession::new().await;
-        let lead = session.hold_lead_turn("lead");
-        let helper = session.bind_helper(lead, "helper");
-        session
-            .parts
-            .run_controls
-            .stop_helper_at_token_limit(&HelperTokenLimitParams {
-                session_id: session.session_id,
-                run_id: helper,
-                subagent_id: SubagentId::new("helper".to_owned()).expect("a subagent id"),
-            })
-            .expect("the session is live");
-        let before_tool = |agent_id: Option<&str>| {
-            let mut input = json!({
-                "hook_event_name": "PreToolUse",
-                "tool_name": "Bash",
-                "tool_use_id": "call-1",
-                "tool_input": {"command": "ls"},
-            });
-            if let (Some(input), Some(agent_id)) = (input.as_object_mut(), agent_id) {
-                input.insert("agent_id".to_owned(), json!(agent_id));
-            }
-            json!({
-                "subtype": "hook_callback",
-                "callback_id": "sidekicks-pause-before-tool",
-                "input": input,
-            })
-        };
-
-        session.request("helper-tool", &before_tool(Some("helper")));
-        session.request("lead-tool", &before_tool(None));
-        settle().await;
-
-        let answers: Vec<_> = session
-            .channel
-            .writes()
-            .into_iter()
-            .filter_map(|write| match write {
-                ScriptedWrite::Answer { request_id, answer } => Some((request_id, answer)),
-                ScriptedWrite::Control(_) | ScriptedWrite::User(_) | ScriptedWrite::Terminate => {
-                    None
-                }
-            })
-            .collect();
-        let answer_to = |request_id: &str| {
-            answers
-                .iter()
-                .find(|(answered, _)| answered == request_id)
-                .map(|(_, answer)| answer.to_string())
-                .expect("the hook is answered")
-        };
-        let helper_answer = answer_to("helper-tool");
-        assert!(helper_answer.contains(r#""permissionDecision":"deny""#));
-        assert!(helper_answer.contains(&HelperStopReason::TokenLimit.sentence()));
-        assert!(!answer_to("lead-tool").contains("deny"));
     }
 
     // Killed by attributing a helper's block to the lead run, and by writing the `Allow once` for
