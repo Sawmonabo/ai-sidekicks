@@ -357,9 +357,12 @@ interface McpLiveApplicationResult {
 // the daemon's own client where no provider's own client signs in, or an owner-issued client whose
 // callback the daemon cannot serve;
 // mcp.server.signInFailed is LAUNCH-phase only — a failure to start the sign-in (discovery,
-// registration, or the provider's own flow in its throwaway home) — and an async completion failure
-// arrives as mcp.server.signIn.completed outcome: 'failure' on the mcp.subscribe stream, never a
-// late JSON-RPC error (Spec-024 §OAuth Orchestration). Its idempotency receipt persists the
+// registration, or a provider's own sign-in that did not finish before it named the address the
+// browser opens; a provider's flow failing first answers the provider's own code, such as
+// provider.unavailable for its process ending, and a fault of the daemon's own
+// system.internalError) — and an async completion failure arrives as
+// mcp.server.signIn.completed outcome: 'failure' on the mcp.subscribe stream, never a late
+// JSON-RPC error (Spec-024 §OAuth Orchestration). Its idempotency receipt persists the
 // acknowledgment with authorizationUrl STRUCTURALLY OMITTED (single-use PKCE-bearing launch
 // material is never durable — Plan-022 I-022-1), so an identical-key retry returns a saved
 // acknowledgment with no URL: the sign-in already started, completion arrives as the event, and a
