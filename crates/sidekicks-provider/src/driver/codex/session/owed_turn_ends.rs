@@ -1,8 +1,9 @@
 //! The ends a resumed conversation still owes its session: each turn the session's record holds
 //! live or ending that the resume lists as over sent its `turn/completed` while the daemon was not
-//! connected, and Codex sends none again, so its listed end is routed as Codex's own; so is the
-//! newest turn's end of each helper an adoption restored. A listed turn is read here for how it
-//! stands.
+//! connected, and Codex sends none again, so its listed end is routed as Codex's own, which the
+//! delivery writes as the daemon's for a continuation held while its lead waits on the person; so
+//! is the newest turn's end of each helper an adoption restored. A listed turn is read here for how
+//! it stands.
 
 use serde::Deserialize;
 use serde::de::IgnoredAny;

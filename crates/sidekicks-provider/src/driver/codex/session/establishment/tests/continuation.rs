@@ -48,7 +48,7 @@ pub(super) const CUT_TURN: &str = "turn-cut";
 pub(super) const ROOT_TURN: &str = "turn-root";
 
 /// The turn Codex starts for the continuation.
-const CONTINUATION_TURN: &str = "turn-continued";
+pub(super) const CONTINUATION_TURN: &str = "turn-continued";
 
 /// The first turn of a chain other than the cut turn's.
 const OTHER_ROOT_TURN: &str = "turn-other-root";
@@ -315,7 +315,7 @@ fn send_refusal(script: &ScriptedService, sent: &Value, refusal: &Value) {
 }
 
 // The turn ends among `calls`: the daemon's own, then those its provider reported.
-fn turn_ends(calls: &[EngineCall]) -> (Vec<EngineCall>, Vec<EngineCall>) {
+pub(super) fn turn_ends(calls: &[EngineCall]) -> (Vec<EngineCall>, Vec<EngineCall>) {
     let daemon_ends = calls
         .iter()
         .filter(|call| matches!(call, EngineCall::RecordDaemonTurnEnd(..)))
@@ -331,7 +331,7 @@ fn turn_ends(calls: &[EngineCall]) -> (Vec<EngineCall>, Vec<EngineCall>) {
 
 // The cut turn as Codex lists it after a cold load: interrupted, with no end time, in the chain
 // `ROOT_TURN` begins.
-fn cut_turn_listed() -> Value {
+pub(super) fn cut_turn_listed() -> Value {
     json!({"id": CUT_TURN, "items": [], "status": "interrupted", "rootTurnId": ROOT_TURN})
 }
 
@@ -346,7 +346,7 @@ pub(super) fn page_turn(turn_id: &str, status: &str, root_turn_id: &str) -> Valu
 }
 
 // The cut turn's end the daemon writes for `run_id`.
-fn cut_turn_end(run_id: RunId) -> EngineCall {
+pub(super) fn cut_turn_end(run_id: RunId) -> EngineCall {
     EngineCall::RecordDaemonTurnEnd(
         run_id,
         SafeInt::<1>::new(CUT_TURN_NUMBER).expect("two is a turn number"),

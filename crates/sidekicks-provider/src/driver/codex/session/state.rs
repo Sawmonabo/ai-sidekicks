@@ -195,6 +195,9 @@ pub(crate) struct CodexSessionRecord {
     pub(crate) last_steer_send: Option<Shared<BoxFuture<'static, ()>>>,
     /// Runs asked to pause whose turn has a step in flight, by that turn's id.
     pub(crate) pause_run_id_by_turn_id: HashMap<String, RunId>,
+    /// Turns Codex continued a lead's cut work in while the lead waited on the person: each ends
+    /// as the daemon's, never its run's, until a steer of the person's words reaches it.
+    pub(crate) held_continuation_turn_ids: HashSet<String>,
     /// Runs whose turn was interrupted to pause them, by that turn's id: its interrupted end is
     /// the pause taking effect, never the run's end.
     pub(crate) paused_run_id_by_interrupted_turn_id: HashMap<String, RunId>,
@@ -289,6 +292,7 @@ impl CodexSessionRecord {
             prompt_hook_runs_by_turn_id: HashMap::new(),
             last_steer_send: None,
             pause_run_id_by_turn_id: HashMap::new(),
+            held_continuation_turn_ids: HashSet::new(),
             paused_run_id_by_interrupted_turn_id: HashMap::new(),
             continues_awaiting_pause: HashMap::new(),
             turn_input_by_turn_id: HashMap::new(),

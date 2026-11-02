@@ -1,13 +1,14 @@
 //! A turn's frames: its start, which opens its execution and its numbered turn on the run; its
-//! end, which ends a live turn's run through the session's terminal gate and empties an interrupted
-//! turn's task list; its errors, which the end's failure reads and whose retries file a retried
-//! request's row; the safety hold Codex keeps on it until its answer starts; the hook runs that
-//! block its prompt; and the asks it held, which its end or Codex's own settle withdraws.
+//! end, which ends a live turn's run through the session's terminal gate, a held continuation's as
+//! the daemon's with its run left live, and empties an interrupted turn's task list; its errors,
+//! which the end's failure reads and whose retries file a retried request's row; the safety hold
+//! Codex keeps on it until its answer starts; the hook runs that block its prompt; and the asks it
+//! held, which its end or Codex's own settle withdraws.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::{ApiRetryErrorKind, UsageApiRequestRetriedPayload};
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
-use sidekicks_contracts::run::events::RunStateChangeState;
+use sidekicks_contracts::run::events::{RunStateChangeState, TurnEndCause};
 use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use sidekicks_contracts::turn::{ProviderTurnId, TurnTasksUpdate};
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -171,8 +172,9 @@ impl CodexFrameDelivery {
     // The turn's end: rows still held for their start go out, a switch still waiting for its
     // sentence goes without one, the reviewer's warning on a turn it stopped is flagged, and a
     // live turn's run ends through the terminal gate, as does a pause's turn that failed by itself.
-    // An interrupted turn's end is written by the run engine, a paused one's by run control, and a
-    // retried one's run goes on in the turn the retry sends.
+    // A held continuation's end is written as the daemon's, its run left live. An interrupted
+    // turn's end is written by the run engine, a paused one's by run control, and a retried one's
+    // run goes on in the turn the retry sends.
     pub(super) async fn deliver_turn_completed(
         &self,
         record: &mut CodexSessionRecord,
@@ -256,7 +258,12 @@ impl CodexFrameDelivery {
                 report_unattributed("turn/completed", Some(&turn_id));
             }
             Some(turn_run) => {
-                if turn_run.ending == CodexTurnEnding::Live {
+                if turn_run.ending == CodexTurnEnding::Live
+                    && record.held_continuation_turn_ids.remove(&turn_id)
+                {
+                    self.end_held_continuation(record, &turn_id, &turn_run)
+                        .await;
+                } else if turn_run.ending == CodexTurnEnding::Live {
                     self.deliver_terminal(record, gate, &frame, &turn_id, &turn_run, dispatch)
                         .await;
                 } else if turn_run.ending == CodexTurnEnding::Interrupted {
@@ -292,6 +299,43 @@ impl CodexFrameDelivery {
         record.delivery.spent_safety_hold_turn_ids.remove(&turn_id);
         record.delivery.forget_turn(&turn_id);
         record.turn_input_by_turn_id.remove(&turn_id);
+    }
+
+    // Ends the held continuation `turn_id` as the daemon's restart cut it, the end the cut turns
+    // before it got, never as Codex's, which would end its run while the person's answer is owed;
+    // the run's deliveries' binding goes, as an interrupted turn's does. A failed write is logged.
+    async fn end_held_continuation(
+        &self,
+        record: &mut CodexSessionRecord,
+        turn_id: &str,
+        turn_run: &CodexTurnRun,
+    ) {
+        self.open_turn(record, turn_id, turn_run).await;
+        let turn_number = record
+            .delivery
+            .started_turn_by_turn_id
+            .get(turn_id)
+            .map(|started| started.turn_number);
+        if let Some(turn_number) = turn_number {
+            let ended = self
+                .dependencies
+                .engine
+                .record_daemon_turn_end(
+                    turn_run.run_id,
+                    turn_number,
+                    TurnOutcome::Interrupted(Some(TurnEndCause::DaemonRestart)),
+                )
+                .await;
+            if let Err(error) = ended {
+                tracing::warn!(
+                    session_id = %record.session_id,
+                    run_id = %turn_run.run_id,
+                    error = &*error as &(dyn std::error::Error + 'static),
+                    "a held codex continuation's end could not be written"
+                );
+            }
+        }
+        self.dependencies.run_routes.forget_run(turn_run.run_id);
     }
 
     async fn deliver_terminal(
