@@ -210,6 +210,13 @@ pub(crate) enum CommandFailure {
     /// leaves it off.
     #[error("{}", TURNED_OFF_IN_LOGIN_ITEMS)]
     TurnedOffInLoginItems,
+    /// The start was given `--daemon-path`, and the login agent that starts the service runs
+    /// another program, so nothing was started.
+    #[error(
+        "The background service starts at login with its own program, so --daemon-path is not \
+         used. Run the command again without --daemon-path."
+    )]
+    AgentRunsOtherProgram,
     /// The person turned the app's login agent off, so the start leaves it off.
     #[error(
         "The app's background service is turned off. Turn it on in the app's Settings › Runtime."
@@ -286,7 +293,8 @@ impl CommandFailure {
             | Self::AppServiceTurnedOff
             | Self::ServiceRunning { .. }
             | Self::DataFolderHeld
-            | Self::NotAccountHome => ExitCode::Configuration,
+            | Self::NotAccountHome
+            | Self::AgentRunsOtherProgram => ExitCode::Configuration,
             Self::RegistrationRefused(_) => ExitCode::Software,
             Self::BackupUnreadable { .. } => ExitCode::NoInput,
             Self::LoggedOutServiceRefused { cause, .. } => cause.exit_code(),

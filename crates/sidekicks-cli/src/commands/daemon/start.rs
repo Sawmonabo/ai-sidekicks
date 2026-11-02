@@ -1,10 +1,10 @@
 //! `sidekicks daemon start`: a daemon that answers the handshake, or answers that it is repairing
 //! its database file, is already running. Otherwise a login agent registered for this account's
-//! home is started through the system's service manager, unless the person turned it off, and the
-//! service manager keeps it; with none, or with no one at the screen, its program starts as a
-//! lasting child. The command then waits for the handshake. A lasting child that never answers is
-//! ended, and one that exits first is named with its exit and why its start failed; an agent's
-//! service that never answers is left running; each exits 69.
+//! home is started through the system's service manager, unless the person turned it off or named
+//! a program it does not start, and the service manager keeps it; with none, or with no one at the
+//! screen, its program starts as a lasting child. The command then waits for the handshake. A
+//! lasting child that never answers is ended, and one that exits first is named with its exit and
+//! why its start failed; an agent's service that never answers is left running; each exits 69.
 
 use std::convert::Infallible;
 use std::fs::OpenOptions;
@@ -29,8 +29,7 @@ use sidekicks_contracts::daemon::recovery::DaemonRepairingDetails;
 use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_platforms::{
     LastingChild, LastingCommand, NULL_DEVICE_PATH, PinnedProcess, ServiceOwner,
-    ServiceRegistrationError, leave_daemon_scope, read_child_exit, service_registration,
-    spawn_lasting_child,
+    leave_daemon_scope, read_child_exit, service_registration, spawn_lasting_child,
 };
 
 use crate::command_context::CommandContext;
@@ -45,7 +44,7 @@ use crate::program::describe_repairing;
 #[derive(Debug, Args)]
 pub(crate) struct StartArgs {
     /// The background service's program to start, in place of the one installed beside this
-    /// program; unused where a login agent starts the service, since the agent runs its own.
+    /// program; refused where a login agent that starts another program starts the service.
     #[arg(long, value_name = "PATH")]
     daemon_path: Option<PathBuf>,
     /// How long to wait for the started background service to answer, in milliseconds [default:
@@ -177,10 +176,11 @@ enum StartRoute {
 
 /// Starts the login agent registered for this account's home where there is one and someone is
 /// at the screen, and answers how the start goes on. Blocks on the service manager. Fails with
-/// [`CommandFailure::TurnedOffInLoginItems`] for the command line's own agent turned off,
-/// [`CommandFailure::AppServiceTurnedOff`] for the app's, and as [`registration_failure`] turns a
-/// failed read or start.
-fn start_registered_agent() -> anyhow::Result<StartRoute> {
+/// [`CommandFailure::AgentRunsOtherProgram`] where `daemon_path` names a program the agent does
+/// not start, [`CommandFailure::TurnedOffInLoginItems`] for the command line's own agent turned
+/// off, [`CommandFailure::AppServiceTurnedOff`] for the app's, and as [`registration_failure`]
+/// turns a failed read or start.
+fn start_registered_agent(daemon_path: Option<&Path>) -> anyhow::Result<StartRoute> {
     let Some(registration) = service_registration() else {
         return refuse_app_turned_off().map(|()| StartRoute::LastingChild);
     };
@@ -204,23 +204,29 @@ fn start_registered_agent() -> anyhow::Result<StartRoute> {
             if !has_screen_session {
                 return refuse_app_turned_off().map(|()| StartRoute::LastingChild);
             }
+            if let Some(daemon_path) = daemon_path {
+                let agent_program = registration.agent_program().map_err(|failure| {
+                    registration_failure(failure, "could not read the login agent's program")
+                })?;
+                if agent_program != Some(daemon_program(Some(daemon_path))?) {
+                    return Err(CommandFailure::AgentRunsOtherProgram.into());
+                }
+            }
             registration.kickstart().map_err(|failure| {
                 registration_failure(failure, "could not start the background service")
             })?;
             Ok(StartRoute::Agent)
         }
         ServiceOwner::App => {
-            refuse_app_turned_off()?;
-            match registration.kickstart() {
-                Ok(()) => Ok(StartRoute::Agent),
-                Err(ServiceRegistrationError::Refused { .. }) => {
-                    Err(CommandFailure::AppServiceTurnedOff.into())
-                }
-                Err(failure) => Err(registration_failure(
-                    failure,
-                    "could not start the background service",
-                )),
+            if daemon_path.is_some() {
+                return Err(CommandFailure::AgentRunsOtherProgram.into());
             }
+            // The app's switch in Login Items reads from its status file, read here first.
+            refuse_app_turned_off()?;
+            registration.kickstart().map_err(|failure| {
+                registration_failure(failure, "could not start the background service")
+            })?;
+            Ok(StartRoute::Agent)
         }
     }
 }
@@ -248,9 +254,11 @@ async fn start_and_wait(
     if is_daemon_answering(&endpoint, &mut on_repairing).await? {
         return Ok(DaemonStart::AlreadyRunning);
     }
-    let route = tokio::task::spawn_blocking(start_registered_agent)
-        .await
-        .context("the background service's start stopped before it answered")??;
+    let registered_path = daemon_path.map(Path::to_owned);
+    let route =
+        tokio::task::spawn_blocking(move || start_registered_agent(registered_path.as_deref()))
+            .await
+            .context("the background service's start stopped before it answered")??;
     if let StartRoute::Agent = route {
         // The service manager owns the started process, so nothing here ends the wait early.
         let waited = wait_for_handshake(

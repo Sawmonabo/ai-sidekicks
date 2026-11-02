@@ -211,6 +211,11 @@ impl ServiceRegistration {
         match *self {}
     }
 
+    /// The program the command line's own login agent starts; never called, since no value exists.
+    pub fn agent_program(&self) -> Result<Option<PathBuf>, ServiceRegistrationError> {
+        match *self {}
+    }
+
     /// Whether this run has root's rights; never called, since no value exists.
     pub fn runs_as_root(&self) -> bool {
         match *self {}

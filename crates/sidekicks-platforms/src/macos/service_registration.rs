@@ -155,6 +155,13 @@ impl ServiceRegistration {
         Ok(ServiceInstall::Loaded)
     }
 
+    /// The program the command line's own login agent starts, read from its list; `None` with no
+    /// list. Fails when the list cannot be read.
+    pub fn agent_program(&self) -> Result<Option<PathBuf>, ServiceRegistrationError> {
+        let written: Option<AgentList> = read_launchd_list(&self.agent_list_path()?)?;
+        Ok(written.and_then(|list| list.program_arguments.into_iter().next()))
+    }
+
     /// Whether the person turned the command line's own login agent off in Login Items, which
     /// launchd does not honor when asked to start it, so a start reads it first. Blocks on the
     /// system's answer. Fails when the list's folder cannot be read, and with
