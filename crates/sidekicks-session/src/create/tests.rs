@@ -60,10 +60,12 @@ use crate::directory::row::{DirectoryEvent, directory_statements_for};
 use crate::questions::schema::schema_parts;
 
 /// The project the fixture stores, its id its attached mount's too.
-const PROJECT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
+pub(super) const PROJECT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
 const OTHER_PROJECT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e91";
-const FIRST_ACCOUNT: &str = "account-a";
-const SECOND_ACCOUNT: &str = "account-b";
+/// The lead's provider's current account as the fixture stores it.
+pub(super) const FIRST_ACCOUNT: &str = "account-a";
+/// The lead's provider's other account.
+pub(super) const SECOND_ACCOUNT: &str = "account-b";
 
 // Long enough for a create that is not held by its key's lock to reach the append.
 const UNHELD_REACH_BOUND: Duration = Duration::from_millis(500);
@@ -95,17 +97,20 @@ impl SessionListRefresh for UnreadList {
 /// `PROJECT_ID` attached at a repository, and the lead's provider with two accounts, the first
 /// current, its driver starting every session read-only in Plan and picking an advisor wherever
 /// the app set one of its rows.
-struct Fixture {
-    database: TestDatabase,
+pub(super) struct Fixture {
+    pub(super) database: TestDatabase,
+    /// Writes rows straight to the database, as a service outside the creation does.
+    pub(super) writer: Arc<DatabaseWriter>,
     _scratch: TempDir,
     _writes: mpsc::Receiver<sidekicks_workspace::managed::write_watcher::ManagedWorkspaceReport>,
     settings: Arc<StoredSettings>,
     managed_workspaces: Arc<ManagedWorkspaceService>,
-    creation: Arc<SessionCreation>,
+    pub(super) creation: Arc<SessionCreation>,
 }
 
 impl Fixture {
-    async fn new() -> Self {
+    /// The fixture as the type's doc says.
+    pub(super) async fn new() -> Self {
         let database = TestDatabase::new(schema_parts());
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -220,6 +225,7 @@ impl Fixture {
         }));
         Self {
             database,
+            writer,
             _scratch: scratch,
             _writes: writes,
             settings,
@@ -245,21 +251,24 @@ impl Fixture {
             .expect("no provider is named __proto__");
     }
 
-    fn count(&self, sql: &str) -> i64 {
+    /// The count `sql` reads.
+    pub(super) fn count(&self, sql: &str) -> i64 {
         self.database
             .reader()
             .query_row(sql, [], |row| row.get(0))
             .expect("the test counts rows")
     }
 
-    fn text(&self, sql: &str) -> Option<String> {
+    /// The one value `sql` reads.
+    pub(super) fn text(&self, sql: &str) -> Option<String> {
         self.database
             .reader()
             .query_row(sql, [], |row| row.get(0))
             .expect("the test reads a value")
     }
 
-    fn execute(&self, sql: &str) {
+    /// Runs `sql` straight on the database.
+    pub(super) fn execute(&self, sql: &str) {
         self.database
             .reader()
             .execute_batch(sql)
@@ -293,11 +302,13 @@ fn lead_provider() -> ProviderId {
     ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id")
 }
 
-fn new_key() -> ClientUuid {
+/// A fresh idempotency key.
+pub(super) fn new_key() -> ClientUuid {
     ClientUuid::new(mint_uuid_v7().to_string()).expect("a minted UUID is a client UUID")
 }
 
-fn lead() -> SessionLead {
+/// The lead every test session is made with.
+pub(super) fn lead() -> SessionLead {
     SessionLead {
         provider_name: lead_provider(),
         model_id: ProviderToken::new("model-a".to_owned()).expect("the model fits"),
@@ -308,7 +319,11 @@ fn lead() -> SessionLead {
     }
 }
 
-fn project_request(key: ClientUuid, group_id: Option<SessionGroupId>) -> SessionCreateRequest {
+/// A project session's create in the fixture's project, under `key`.
+pub(super) fn project_request(
+    key: ClientUuid,
+    group_id: Option<SessionGroupId>,
+) -> SessionCreateRequest {
     SessionCreateRequest::Project(SessionCreateProjectRequest {
         client_idempotency_key: key,
         binding: SessionProjectBinding {
@@ -321,7 +336,8 @@ fn project_request(key: ClientUuid, group_id: Option<SessionGroupId>) -> Session
     })
 }
 
-fn chat_request(key: ClientUuid) -> SessionCreateRequest {
+/// A chat's create under `key`.
+pub(super) fn chat_request(key: ClientUuid) -> SessionCreateRequest {
     SessionCreateRequest::Chat(SessionCreateChatRequest {
         client_idempotency_key: key,
         binding: SessionChatBinding {

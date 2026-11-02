@@ -15,6 +15,7 @@ use rusqlite::{OptionalExtension, named_params};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::AgentProviderBinding;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::project::{ProjectId, ProjectState};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId, RepoMountState};
@@ -128,6 +129,12 @@ pub(crate) struct SessionToFinish {
     pub(crate) lead: AgentProviderBinding,
     /// The account its lead was born on.
     pub(crate) provider_account_id: ProviderAccountId,
+    /// Where in the mount it works, `None` at the mount's root.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the hand-off's finish binds in this folder")
+    )]
+    pub(crate) directory: Option<FilesystemPath>,
 }
 
 /// One session a stopped create's finish, or one chat workspace's removal, could not complete.
