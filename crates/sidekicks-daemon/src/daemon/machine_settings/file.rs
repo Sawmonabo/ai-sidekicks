@@ -122,16 +122,8 @@ impl MachineSettingsFile {
         &self,
         change: MachineSettingsChange,
     ) -> Result<MachineSettings, MachineSettingsFileError> {
-        let mut repair = self.repair.lock().await;
-        let current = self.read_from_disk(&mut repair).await?;
-        let settings = apply_change(current.settings, change)?;
-        self.write(&settings).await?;
-        *repair = None;
-        self.announce(&MachineSettingsReading {
-            settings: settings.clone(),
-            repair: None,
-        });
-        Ok(settings)
+        self.write_change(|settings| apply_change(settings, change))
+            .await
     }
 
     /// Applies `change` to the provider members of the file as it stands, writes it with every
@@ -144,13 +136,26 @@ impl MachineSettingsFile {
         &self,
         change: impl FnOnce(ProviderSettingsMembers<'_>) + Send,
     ) -> Result<MachineSettings, MachineSettingsFileError> {
+        self.write_change(|mut settings| {
+            change(ProviderSettingsMembers {
+                settings: &mut settings.provider_settings,
+                command_paths: &mut settings.provider_command_paths,
+                knobs: &mut settings.provider_knobs,
+            });
+            Ok(settings)
+        })
+        .await
+    }
+
+    // Reads the file as it stands, hands it to `change`, writes what comes back, clears the repair
+    // and tells every listener, all under the one lock.
+    async fn write_change(
+        &self,
+        change: impl FnOnce(MachineSettings) -> Result<MachineSettings, MachineSettingsFileError> + Send,
+    ) -> Result<MachineSettings, MachineSettingsFileError> {
         let mut repair = self.repair.lock().await;
-        let mut settings = self.read_from_disk(&mut repair).await?.settings;
-        change(ProviderSettingsMembers {
-            settings: &mut settings.provider_settings,
-            command_paths: &mut settings.provider_command_paths,
-            knobs: &mut settings.provider_knobs,
-        });
+        let current = self.read_from_disk(&mut repair).await?;
+        let settings = change(current.settings)?;
         self.write(&settings).await?;
         *repair = None;
         self.announce(&MachineSettingsReading {
