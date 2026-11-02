@@ -12,7 +12,8 @@
 //!   on to the end the server gives: `failed` after `cancelled`, `completed` when the result came
 //!   first, and on through a refused or failed cancel.
 //! - A task on a server at an address whose connection closes under its follow is re-bound to the
-//!   connection a Reconnect puts in its place ([`resume`]).
+//!   connection a Reconnect puts in its place, and a receipt the restart left in flight is resumed
+//!   through the same race ([`resume`]).
 //! - An end without the server's answer while the client stops came from the stop, so nothing is
 //!   written and the receipt stays in flight.
 
@@ -201,83 +202,48 @@ impl McpToolDispatch {
         };
         // The connection the task is followed on, which a re-bind moves to the replacement.
         let following = Mutex::new(Arc::clone(&connection));
-        let race = {
-            let mut ending = pin!(async {
-                let end = connection
-                    .call_tool(standing, call.clone(), is_task_tool, &sink, contact)
-                    .await;
-                match sink.held_handle() {
-                    Some(handle) => {
-                        resume::follow_across_reconnects(
-                            standing,
-                            &call,
-                            handle,
-                            end,
-                            &following,
-                            contact,
-                            cancellation,
-                        )
-                        .await
-                    }
-                    None => CallRace::Ended(end),
-                }
-            });
-            // The caller's cancel: false for a call the server has not accepted as a task, which is
-            // then dropped; an accepted task is asked to cancel beside its follow, which goes on.
-            let mut caller_cancel = pin!(async {
-                cancellation.cancelled().await;
-                let Some((generation, mcp_task_id)) = sink.held_handle() else {
-                    return false;
-                };
-                let followed = Arc::clone(&lock(&following));
-                // Boxed, so the request's future is held only once a task is canceled.
-                Box::pin(cancel_followed_task(
-                    &followed,
-                    generation,
-                    &mcp_task_id,
-                    contact,
-                ))
+        let ending = async {
+            let end = connection
+                .call_tool(standing, call.clone(), is_task_tool, &sink, contact)
                 .await;
-                true
-            });
-            let mut is_cancel_sent = false;
-            loop {
-                tokio::select! {
-                    biased;
-                    race = &mut ending => break race,
-                    () = standing.closed() => {
-                        if standing.is_stopping() {
-                            break CallRace::ClientStopping;
-                        }
-                        // A plain call is dropped with `ending` below, which tells the server its
-                        // request is canceled; a task is canceled first, its follow still held.
-                        break match sink.held_handle() {
-                            None => CallRace::Settled(
-                                Ok(McpToolCallEnd::Canceled),
-                                CommandOutcome::Unknown,
-                            ),
-                            Some((generation, mcp_task_id)) => {
-                                let followed = Arc::clone(&lock(&following));
-                                let end = Ok(end_at_session_close(
-                                    &followed,
-                                    generation,
-                                    &mcp_task_id,
-                                )
-                                .await);
-                                let outcome = outcome_of(&end);
-                                CallRace::Settled(end, outcome)
-                            }
-                        };
-                    }
-                    is_task_held = &mut caller_cancel, if !is_cancel_sent => {
-                        if !is_task_held {
-                            break CallRace::Canceled;
-                        }
-                        is_cancel_sent = true;
-                    }
+            match sink.held_handle() {
+                Some(handle) => {
+                    resume::follow_across_reconnects(
+                        standing,
+                        call.run_id,
+                        handle,
+                        end,
+                        &following,
+                        contact,
+                        cancellation,
+                    )
+                    .await
                 }
+                None => CallRace::Ended(end),
             }
         };
+        // Boxed, so the race, which holds the call and its follow, is kept off the caller's future.
+        let race = Box::pin(race_call(
+            standing,
+            &sink,
+            &following,
+            ending,
+            contact,
+            cancellation,
+        ))
+        .await;
+        self.end_dispatch(standing, receipt_id, race).await
+    }
+
+    /// The dispatched call of receipt `receipt_id` from how its race came out: an end the dispatch
+    /// writes is written here. Fails with `ClientStopping`, writing nothing, when the client's stop
+    /// ended the call.
+    async fn end_dispatch(
+        &self,
+        standing: &McpStandingConnection,
+        receipt_id: CommandReceiptId,
+        race: CallRace,
+    ) -> Result<McpDispatchedCall, McpToolDispatchError> {
         let (end, outcome, settled_write) = match race {
             CallRace::Ended(end) => {
                 if standing.is_stopping() && !has_server_answer(&end) {
@@ -304,6 +270,70 @@ impl McpToolDispatch {
             receipts: self.receipts.clone(),
             standing: standing.clone(),
         })
+    }
+}
+
+/// Races `ending`, a sent call's end on `following`'s connection, against the session's close and
+/// the caller's cancel. The close drops a call the server has not accepted as a task, which tells
+/// the server it is canceled, and cancels an accepted one on the connection followed, its end read
+/// once. The cancel drops a call with no task too, and asks the server to cancel an accepted task
+/// beside its follow, which goes on.
+async fn race_call(
+    standing: &McpStandingConnection,
+    sink: &CallHandleSink<'_>,
+    following: &Mutex<Arc<McpServerConnection>>,
+    ending: impl Future<Output = CallRace>,
+    contact: &watch::Sender<McpTaskContact>,
+    cancellation: &CancellationToken,
+) -> CallRace {
+    let mut ending = pin!(ending);
+    // The caller's cancel: false for a call the server has not accepted as a task, which is then
+    // dropped; an accepted task is asked to cancel beside its follow, which goes on.
+    let mut caller_cancel = pin!(async {
+        cancellation.cancelled().await;
+        let Some((generation, mcp_task_id)) = sink.held_handle() else {
+            return false;
+        };
+        let followed = Arc::clone(&lock(following));
+        // Boxed, so the request's future is held only once a task is canceled.
+        Box::pin(cancel_followed_task(
+            &followed,
+            generation,
+            &mcp_task_id,
+            contact,
+        ))
+        .await;
+        true
+    });
+    let mut is_cancel_sent = false;
+    loop {
+        tokio::select! {
+            biased;
+            race = &mut ending => return race,
+            () = standing.closed() => {
+                if standing.is_stopping() {
+                    return CallRace::ClientStopping;
+                }
+                // A plain call is dropped with `ending`, which tells the server its request is
+                // canceled; a task is canceled first, its follow still held.
+                return match sink.held_handle() {
+                    None => CallRace::Settled(Ok(McpToolCallEnd::Canceled), CommandOutcome::Unknown),
+                    Some((generation, mcp_task_id)) => {
+                        let followed = Arc::clone(&lock(following));
+                        let end =
+                            Ok(end_at_session_close(&followed, generation, &mcp_task_id).await);
+                        let outcome = outcome_of(&end);
+                        CallRace::Settled(end, outcome)
+                    }
+                };
+            }
+            is_task_held = &mut caller_cancel, if !is_cancel_sent => {
+                if !is_task_held {
+                    return CallRace::Canceled;
+                }
+                is_cancel_sent = true;
+            }
+        }
     }
 }
 
@@ -390,13 +420,17 @@ fn closed_error(standing: &McpStandingConnection) -> McpToolDispatchError {
 
 /// Asks the server to cancel the followed task `mcp_task_id` at its caller's cancel, its follow
 /// going on to the end the server gives: a refused cancel sets `contact` to `CancelRefused`, and a
-/// failed one is logged.
+/// failed one is logged. A task resumed after a restart then owes its follow no cancel of its own.
 async fn cancel_followed_task(
     connection: &McpServerConnection,
     generation: McpTaskGeneration,
     mcp_task_id: &str,
     contact: &watch::Sender<McpTaskContact>,
 ) {
+    connection
+        .scope
+        .task_watches
+        .settle_restart_cancel(&connection.scope, mcp_task_id);
     match connection.cancel_task(generation, mcp_task_id).await {
         Ok(McpTaskCancelOutcome::Taken) => {}
         Ok(McpTaskCancelOutcome::Refused) => {

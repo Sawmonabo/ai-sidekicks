@@ -25,6 +25,7 @@ use rmcp::model::{
 use rmcp::service::ServiceError;
 use serde_json::{Value, json};
 use sidekicks_contracts::question::QuestionAnswer;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_provider::mcp::elicitation_form::compose_elicitation_content;
 use sidekicks_provider::port::question::{ToolServerAnswerDelivery, ToolServerQuestionAnswer};
 use tokio::sync::watch;
@@ -76,7 +77,9 @@ pub(super) async fn call_tool(
                     &mcp_task_id,
                 )
                 .await;
-                return Ok(follow_task(connection, standing, &call, &mcp_task_id, contact).await);
+                return Ok(
+                    follow_task(connection, standing, call.run_id, &mcp_task_id, contact).await,
+                );
             }
             CallToolResponse::Complete(result) => {
                 let Value::Object(result) = serde_json::to_value(result)
@@ -148,20 +151,20 @@ fn empty_roots() -> Value {
     json!({ "roots": [] })
 }
 
-/// Follows `call`'s task `mcp_task_id` to its end, its questions asked in the call's run and
+/// Follows run `run_id`'s task `mcp_task_id` to its end, its questions asked in that run and
 /// answered over `standing`'s live connection; a follow on a server at an address that its
 /// connection's close cut leaves its watch, with the keys asked, to be re-bound.
 pub(super) async fn follow_task(
     connection: &McpServerConnection,
     standing: &McpStandingConnection,
-    call: &McpToolCall,
+    run_id: RunId,
     mcp_task_id: &str,
     contact: &watch::Sender<McpTaskContact>,
 ) -> McpToolCallEnd {
     let watch = connection
         .scope
         .task_watches
-        .watch(&connection.scope, call, mcp_task_id);
+        .watch(&connection.scope, run_id, mcp_task_id);
     let end = poll_until_end(&watch.wake, contact, |_| {
         poll_once(connection, standing, mcp_task_id, &watch)
     })

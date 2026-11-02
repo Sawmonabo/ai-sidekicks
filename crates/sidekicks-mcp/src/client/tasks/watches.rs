@@ -25,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::client::connection::McpConnectionScope;
 use crate::client::tasks::watches::answers::{V1TaskAnswer, V1TaskAnswerState};
-use crate::client::tasks::{McpServerEndpoint, McpToolCall, McpToolCallEnd};
+use crate::client::tasks::{McpServerEndpoint, McpToolCallEnd};
 
 /// A followed task's key: its session, its server's name and its id.
 type WatchKey = (SessionId, String, String);
@@ -64,6 +64,9 @@ struct WatchedTask {
     awaits_reask: bool,
     /// Whether an ask of another form withdrew the person's kept answer, until the follow reads it.
     has_lost_answer: bool,
+    /// Whether a 2025-11-25 task resumed after a restart is still to be canceled at the first
+    /// answered poll that reads it waiting on input, across a re-bind too.
+    owes_restart_cancel: bool,
 }
 
 /// A 2025-11-25 task's question left open when the connection its request came on closed.
@@ -148,13 +151,13 @@ impl TaskWatches {
         }
     }
 
-    /// Follows `mcp_task_id` on `scope`'s server for `call`'s run, adopting the entry a follow
+    /// Follows `mcp_task_id` on `scope`'s server for run `run_id`, adopting the entry a follow
     /// its connection's close cut left, with its questions and asked keys, which then waits for the
     /// server to ask again.
     pub(in crate::client) fn watch(
         &self,
         scope: &McpConnectionScope,
-        call: &McpToolCall,
+        run_id: RunId,
         mcp_task_id: &str,
     ) -> TaskWatch<'_> {
         let key = watch_key(scope, mcp_task_id);
@@ -167,7 +170,7 @@ impl TaskWatches {
                 let wake = Arc::new(Notify::new());
                 vacant.insert(WatchedTask {
                     wake: Arc::clone(&wake),
-                    run_id: call.run_id,
+                    run_id,
                     ended: CancellationToken::new(),
                     open_questions: Vec::new(),
                     kept_question: None,
@@ -175,6 +178,7 @@ impl TaskWatches {
                     asked: HashSet::new(),
                     awaits_reask: false,
                     has_lost_answer: false,
+                    owes_restart_cancel: false,
                 });
                 wake
             }
@@ -184,6 +188,18 @@ impl TaskWatches {
             key,
             wake,
             is_left: false,
+        }
+    }
+
+    /// Settles the cancel `scope`'s task `mcp_task_id` owed after a restart: its follow sends none
+    /// once a stop's cancel was sent, the cancel was refused, or the task no longer waits on input.
+    pub(in crate::client) fn settle_restart_cancel(
+        &self,
+        scope: &McpConnectionScope,
+        mcp_task_id: &str,
+    ) {
+        if let Some(watched) = lock(&self.watched).get_mut(&watch_key(scope, mcp_task_id)) {
+            watched.owes_restart_cancel = false;
         }
     }
 
@@ -726,6 +742,22 @@ impl TaskWatch<'_> {
             Some(kept) => self.watches.withdraw_kept_question(&self.key, kept).await,
             None => false,
         }
+    }
+
+    /// Records that the task, resumed after a restart, is to be canceled at the first answered poll
+    /// that reads it waiting on input.
+    pub(super) fn owe_restart_cancel(&self) {
+        if let Some(task) = lock(&self.watches.watched).get_mut(&self.key) {
+            task.owes_restart_cancel = true;
+        }
+    }
+
+    /// Whether the task, resumed after a restart, is still to be canceled at the next answered poll
+    /// that reads it waiting on input.
+    pub(super) fn owes_restart_cancel(&self) -> bool {
+        lock(&self.watches.watched)
+            .get(&self.key)
+            .is_some_and(|task| task.owes_restart_cancel)
     }
 
     /// Whether an ask of another form withdrew the person's kept answer since this was last read.

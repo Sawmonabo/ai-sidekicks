@@ -1,4 +1,5 @@
 mod live;
+mod restart;
 
 use std::sync::Arc;
 

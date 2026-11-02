@@ -118,12 +118,12 @@ impl McpStandingConnection {
         Ok(Arc::clone(connection))
     }
 
-    /// Waits for a live connection other than `after` that reaches `endpoint`. Ends early when the
-    /// client stops or is dropped, then when the session closes, the stop read first; never times
-    /// out.
+    /// Waits for a live connection other than `after`, any when `None`, that reaches `endpoint`.
+    /// Ends early when the client stops or is dropped, then when the session closes, the stop read
+    /// first; never times out.
     pub(crate) async fn replacement(
         &self,
-        after: &Arc<McpServerConnection>,
+        after: Option<&Arc<McpServerConnection>>,
         endpoint: &McpServerEndpoint,
     ) -> McpReplacement {
         let mut live = self.live.clone();
@@ -137,7 +137,7 @@ impl McpStandingConnection {
             {
                 let published = live.borrow_and_update();
                 if let Some(connection) = published.as_ref()
-                    && !Arc::ptr_eq(connection, after)
+                    && after.is_none_or(|after| !Arc::ptr_eq(connection, after))
                     && connection.endpoint == *endpoint
                 {
                     return McpReplacement::Replaced(Arc::clone(connection));

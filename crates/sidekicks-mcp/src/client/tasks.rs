@@ -109,6 +109,18 @@ impl McpServerEndpoint {
     }
 }
 
+/// Why a recorded task's follow is resumed, which decides how a 2025-11-25 task waiting on input
+/// goes on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum McpTaskResumption {
+    /// On the connection a Reconnect put in place of the one the follow was on: the task's watch,
+    /// with the question kept for the server's next ask, is adopted.
+    AfterReconnect,
+    /// After the daemon's restart, whose start withdrew the task's questions: a 2025-11-25 task
+    /// its first answered poll reads waiting on input is canceled before anything is held.
+    AfterRestart,
+}
+
 /// A dispatch whose acceptance carried a receiver-generated task id, ready to be recorded.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct McpTaskHandleObservation {
@@ -193,8 +205,8 @@ pub(crate) enum McpToolCallEnd {
     /// The connection closed under the follow, and the task may run on, so the dispatch binds it
     /// to a new connection or reads its end unknown.
     ConnectionClosed,
-    /// The task waited on input its server did not ask for again in the 300 s after a re-bind,
-    /// and was canceled, so its outcome is unknown.
+    /// The task waited on input its server did not ask for again in the 300 s after a re-bind, or
+    /// that the daemon's restart withdrew, and was canceled, so its outcome is unknown.
     InputLost,
 }
 
@@ -251,7 +263,8 @@ pub(crate) enum McpTaskContact {
     /// The server refused to cancel the task, which runs on and is followed to its end; a
     /// standing arm.
     CancelRefused {
-        /// Whether the cancel was the person's or the agent's stop, which the row reads as refused.
+        /// Whether the cancel was the person's or the agent's stop, which the row reads as refused,
+        /// rather than the cancel of a task the restart found waiting on input.
         is_from_stop: bool,
     },
 }
@@ -318,26 +331,34 @@ impl McpServerConnection {
         }
     }
 
-    /// Follows the recorded task `mcp_task_id` of `call`, accepted under `mcp_task_generation`,
-    /// to its end, as after a restart or a Reconnect: polled at once, `contact` saying whether
-    /// its server answers, and a 2026-07-28 task's answers going over `standing`'s live
-    /// connection. The watch a follow cut by an earlier connection's close left is adopted with
-    /// its questions and asked keys; else its questions are asked again in the call's session and
-    /// run. Never fails: a failed poll is polled again or read as the end it says.
+    /// Follows run `run_id`'s recorded task `mcp_task_id`, accepted under `mcp_task_generation`,
+    /// to its end, as `resumption` says: polled at once, `contact` saying whether its server
+    /// answers, and a 2026-07-28 task's answers going over `standing`'s live connection. The watch
+    /// a follow cut by an earlier connection's close left is adopted with its questions and asked
+    /// keys; else its questions are asked anew in the run's session and run. Never fails: a failed
+    /// poll is polled again or read as the end it says.
     pub(crate) async fn resume_task(
         &self,
         standing: &McpStandingConnection,
-        call: McpToolCall,
+        run_id: RunId,
         mcp_task_generation: McpTaskGeneration,
         mcp_task_id: &str,
+        resumption: McpTaskResumption,
         contact: &watch::Sender<McpTaskContact>,
     ) -> McpToolCallEnd {
         match mcp_task_generation {
             McpTaskGeneration::V1 => {
-                revision_2025_11_25::follow_task(self, &call, mcp_task_id, contact).await
+                revision_2025_11_25::follow_task(
+                    self,
+                    run_id,
+                    mcp_task_id,
+                    Some(resumption),
+                    contact,
+                )
+                .await
             }
             McpTaskGeneration::V2 => {
-                revision_2026_07_28::follow_task(self, standing, &call, mcp_task_id, contact).await
+                revision_2026_07_28::follow_task(self, standing, run_id, mcp_task_id, contact).await
             }
         }
     }

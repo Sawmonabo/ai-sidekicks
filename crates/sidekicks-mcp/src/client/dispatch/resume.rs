@@ -1,7 +1,8 @@
-//! A task's follow across its server's Reconnects. A follow on a server at an address that its
-//! connection's close cut waits for the connection a Reconnect publishes in its place, and goes on
-//! there through `resume_task`, adopting the task's watch with its open and kept questions and its
-//! asked keys; a stdio server's task died with its process, so its end stays unknown.
+//! A task's follow across its server's Reconnects and the daemon's restart. A follow on a server
+//! at an address that its connection's close cut waits for the connection a Reconnect publishes in
+//! its place, and goes on there through `resume_task`, adopting the task's watch with its open and
+//! kept questions and its asked keys; a stdio server's task died with its process, so its end
+//! stays unknown.
 //!
 //! - While it waits, the contact reads at once why no connection of the task's endpoint is live:
 //!   none is (`NotConfigured`), or the live one reaches another address (`Reconfigured`). The
@@ -10,9 +11,14 @@
 //!   dispatch writes; the caller's cancel ends it unknown for the caller to write, as a live end,
 //!   so a backgrounded call's hand-off stays owed; the client's stop ends it writing nothing. A
 //!   wait that ends without a re-bind ends the task's watch, which withdraws its questions.
+//! - After a restart, a receipt in flight is resumed through the dispatch's own race. The start
+//!   withdrew every question the client had asked, so nothing is withdrawn here: a plain call's
+//!   end and a stdio server's task read unknown at once, a 2026-07-28 task asks each input anew,
+//!   and a 2025-11-25 task found waiting on input is canceled before anything is held.
 
 use std::sync::{Arc, Mutex};
 
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -21,22 +27,95 @@ use crate::client::connection::McpServerConnection;
 use crate::client::connection::standing::{
     McpConnectionAbsence, McpReplacement, McpStandingConnection,
 };
-use crate::client::dispatch::CallRace;
-use crate::client::tasks::{
-    McpTaskContact, McpTaskGeneration, McpToolCall, McpToolCallEnd, McpToolCallError,
+use crate::client::dispatch::{
+    CallHandleSink, CallRace, McpDispatchedCall, McpToolDispatch, McpToolDispatchError, race_call,
 };
-use crate::command_receipts::CommandOutcome;
+use crate::client::tasks::{
+    McpServerEndpoint, McpTaskContact, McpTaskGeneration, McpTaskResumption, McpToolCallEnd,
+    McpToolCallError,
+};
+use crate::command_receipts::{CommandOutcome, InFlightReceipt};
 
 #[cfg(test)]
 mod tests;
 
-/// Follows `call`'s task, accepted under the handle's generation and id, on from `end`, the end
-/// its follow on `following`'s connection reached: while that end is the close of a connection
-/// to a server at an address, it waits for the connection that replaces it, sets `following` to
-/// it and resumes the follow there. Comes to the race the last follow's end, or the wait's, gives.
+impl McpToolDispatch {
+    /// Resumes `receipt`, which the daemon's restart left in flight, over `standing`, with the
+    /// marks and the race of [`Self::call`]: a plain call's end, or a stdio server's task's, reads
+    /// unknown at once, nothing sent. A task at an address waits for a live connection of its
+    /// endpoint, `contact` reading why none is, and is followed there from a fresh poll; a
+    /// 2025-11-25 task its first answered poll reads waiting on input is canceled first, its end
+    /// then lost, and a refusal reads `CancelRefused` that no stop asked for. A canceled
+    /// `cancellation`, a stop asked for before the restart, cancels the task as the caller's
+    /// cancel does. Fails with `ClientStopping`, writing nothing, while the client stops.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the restart's sweep"))]
+    pub(crate) async fn resume(
+        &self,
+        standing: &McpStandingConnection,
+        receipt: InFlightReceipt,
+        contact: &watch::Sender<McpTaskContact>,
+        cancellation: &CancellationToken,
+    ) -> Result<McpDispatchedCall, McpToolDispatchError> {
+        // Taken before the marks are read, so a close that marks after the read waits for it.
+        let _tracked = standing.track();
+        if standing.is_stopping() {
+            return Err(McpToolDispatchError::ClientStopping);
+        }
+        // A plain call's server keeps nothing to resume, and a stdio server's task died with its
+        // process.
+        let Some(task) = receipt.task.filter(|task| task.endpoint.is_address()) else {
+            let race = CallRace::Ended(Ok(McpToolCallEnd::ConnectionClosed));
+            return self.end_dispatch(standing, receipt.id, race).await;
+        };
+        let connection = if let Ok(live) = standing.live(&task.endpoint) {
+            live
+        } else {
+            match wait_for_connection(standing, None, &task.endpoint, contact, cancellation).await {
+                Ok(joined) => joined,
+                Err(race) => return self.end_dispatch(standing, receipt.id, race).await,
+            }
+        };
+        let (run_id, generation) = (receipt.run_id, task.mcp_task_generation);
+        let sink = CallHandleSink {
+            recorder: &self.recorder,
+            handle: Mutex::new(Some((generation, task.mcp_task_id.clone()))),
+        };
+        let following = Mutex::new(Arc::clone(&connection));
+        let ending = async {
+            // Boxed, so the follow's future is held only once a task is resumed.
+            let end = Box::pin(connection.resume_task(
+                standing,
+                run_id,
+                generation,
+                &task.mcp_task_id,
+                McpTaskResumption::AfterRestart,
+                contact,
+            ))
+            .await;
+            follow_across_reconnects(
+                standing,
+                run_id,
+                (generation, task.mcp_task_id.clone()),
+                Ok(end),
+                &following,
+                contact,
+                cancellation,
+            )
+            .await
+        };
+        let race = race_call(standing, &sink, &following, ending, contact, cancellation).await;
+        self.end_dispatch(standing, receipt.id, race).await
+    }
+}
+
+/// Follows run `run_id`'s task, accepted under the handle's generation and id, on from `end`, the
+/// end its follow on `following`'s connection reached: while that end is the close of a
+/// connection to a server at an address, it waits for the connection that replaces it, sets
+/// `following` to it and resumes the follow there. Comes to the race the last follow's end, or the
+/// wait's, gives.
 pub(super) async fn follow_across_reconnects(
     standing: &McpStandingConnection,
-    call: &McpToolCall,
+    run_id: RunId,
     (generation, mcp_task_id): (McpTaskGeneration, String),
     mut end: Result<McpToolCallEnd, McpToolCallError>,
     following: &Mutex<Arc<McpServerConnection>>,
@@ -51,7 +130,7 @@ pub(super) async fn follow_across_reconnects(
         let replacement = match wait_for_replacement(
             standing,
             &closed,
-            call,
+            run_id,
             &mcp_task_id,
             contact,
             cancellation,
@@ -65,25 +144,24 @@ pub(super) async fn follow_across_reconnects(
         // Boxed, so the resumed follow's future is held only once a task is re-bound.
         end = Ok(Box::pin(replacement.resume_task(
             standing,
-            call.clone(),
+            run_id,
             generation,
             &mcp_task_id,
+            McpTaskResumption::AfterReconnect,
             contact,
         ))
         .await);
     }
 }
 
-/// Waits for the connection that replaces `closed` at its endpoint, `contact` reading meanwhile
-/// why none is live and, once one is, the arm it held before. The task `mcp_task_id`'s watch is
-/// held meanwhile, so a wait dropped with its dispatch withdraws the task's questions; it is left
-/// for the follow on the replacement to adopt, or dropped when the wait ends otherwise: with the
-/// end unknown, which the dispatch writes at the session's close and the caller at its cancel,
-/// and with nothing written at the client's stop.
+/// Waits for the connection that replaces `closed` at its endpoint, as [`wait_for_connection`]
+/// does. The task `mcp_task_id`'s watch is held meanwhile, so a wait dropped with its dispatch
+/// withdraws the task's questions; it is left for the follow on the replacement to adopt, or
+/// dropped when the wait ends otherwise.
 async fn wait_for_replacement(
     standing: &McpStandingConnection,
     closed: &Arc<McpServerConnection>,
-    call: &McpToolCall,
+    run_id: RunId,
     mcp_task_id: &str,
     contact: &watch::Sender<McpTaskContact>,
     cancellation: &CancellationToken,
@@ -91,9 +169,39 @@ async fn wait_for_replacement(
     let task_watch = closed
         .scope
         .task_watches
-        .watch(&closed.scope, call, mcp_task_id);
+        .watch(&closed.scope, run_id, mcp_task_id);
+    let replacement = wait_for_connection(
+        standing,
+        Some(closed),
+        &closed.endpoint,
+        contact,
+        cancellation,
+    )
+    .await;
+    if replacement.is_ok() {
+        task_watch.leave();
+    } else {
+        // Dropped rather than finished, so its questions are withdrawn in a task of their own and
+        // the wait's end reaches the race in the same poll as the mark that ended it, before the
+        // race reads that mark itself.
+        drop(task_watch);
+    }
+    replacement
+}
+
+/// Waits for a live connection other than `after` that reaches `endpoint`, `contact` reading
+/// meanwhile why none is and, once one is, the arm it held before. A wait that ends otherwise
+/// gives the race its end unknown: written by the dispatch at the session's close and by the
+/// caller at its cancel, and nothing written at the client's stop.
+async fn wait_for_connection(
+    standing: &McpStandingConnection,
+    after: Option<&Arc<McpServerConnection>>,
+    endpoint: &McpServerEndpoint,
+    contact: &watch::Sender<McpTaskContact>,
+    cancellation: &CancellationToken,
+) -> Result<Arc<McpServerConnection>, CallRace> {
     let held = *contact.borrow();
-    let absence = match standing.live(&closed.endpoint) {
+    let absence = match standing.live(endpoint) {
         Ok(_live) => None,
         Err(McpConnectionAbsence::NotConfigured) => Some(McpTaskContact::NotConfigured),
         Err(McpConnectionAbsence::Reconfigured) => Some(McpTaskContact::Reconfigured),
@@ -105,27 +213,21 @@ async fn wait_for_replacement(
     // that also cancels writes nothing.
     let replaced = tokio::select! {
         biased;
-        replaced = standing.replacement(closed, &closed.endpoint) => Some(replaced),
+        replaced = standing.replacement(after, endpoint) => Some(replaced),
         () = cancellation.cancelled() => None,
     };
-    let ended = match replaced {
+    match replaced {
         Some(McpReplacement::Replaced(replacement)) => {
-            task_watch.leave();
             if absence.is_some() {
                 contact.send_modify(|state| *state = held);
             }
-            return Ok(replacement);
+            Ok(replacement)
         }
-        Some(McpReplacement::SessionClosed) => CallRace::Settled(
+        Some(McpReplacement::SessionClosed) => Err(CallRace::Settled(
             Ok(McpToolCallEnd::ConnectionClosed),
             CommandOutcome::Unknown,
-        ),
-        None => CallRace::Ended(Ok(McpToolCallEnd::ConnectionClosed)),
-        Some(McpReplacement::ClientStopping) => CallRace::ClientStopping,
-    };
-    // Dropped rather than finished, so its questions are withdrawn in a task of their own and the
-    // wait's end reaches the race in the same poll as the mark that ended it, before the race
-    // reads that mark itself.
-    drop(task_watch);
-    Err(ended)
+        )),
+        None => Err(CallRace::Ended(Ok(McpToolCallEnd::ConnectionClosed))),
+        Some(McpReplacement::ClientStopping) => Err(CallRace::ClientStopping),
+    }
 }

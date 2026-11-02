@@ -12,6 +12,12 @@
 //! has 300 s on the answered clock to ask. Past that, or once a poll reads another status, the
 //! question kept for it is withdrawn and the contact reads that the server did not ask again where
 //! the person's answer was kept; past the bound the task is also canceled, its end then lost.
+//!
+//! A follow resumed after the daemon's restart, whose start withdrew the task's question, cancels
+//! the task at the first answered poll that reads `input_required`, before any `tasks/result` is
+//! held, so no question of a task about to end reaches the card. A failed cancel is sent again at
+//! the next such poll, across a Reconnect too; a refused one, or another status first, leaves the
+//! follow going on as a live one.
 
 use std::error::Error;
 use std::sync::{Arc, Mutex};
@@ -20,6 +26,7 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use rmcp::model::ErrorCode;
 use serde_json::{Value, json};
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Notify, watch};
 use tokio::time::Instant;
@@ -32,8 +39,9 @@ use crate::client::poll::{
 use crate::client::requests::{McpRequestError, RequestWait, ServerRequests};
 use crate::client::tasks::watches::TaskWatch;
 use crate::client::tasks::{
-    McpTaskCancelOutcome, McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpToolCall,
-    McpToolCallEnd, McpToolCallError, extract_mcp_task_id, observe_mcp_task_acceptance,
+    McpTaskCancelOutcome, McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpTaskResumption,
+    McpToolCall, McpToolCallEnd, McpToolCallError, extract_mcp_task_id,
+    observe_mcp_task_acceptance,
 };
 
 /// How long, on the answered clock, a re-bound task's server has to ask its question again once a
@@ -60,6 +68,16 @@ enum ReaskBound {
     /// Done with: the server asked again, read another status or refused the cancel, or the
     /// follow was never re-bound.
     Spent,
+}
+
+/// What the cancel of a task waiting on input no question will answer came to.
+enum WaitingTaskCancel {
+    /// The task's end: lost once the server took the cancel, or read once after a `-32602`.
+    Ended(McpToolCallEnd),
+    /// The server cancels no task; the task runs on.
+    Refused,
+    /// The request failed otherwise, so the cancel is still owed.
+    Failed(McpToolCallError),
 }
 
 /// One `tasks/get` reply as a 2025-11-25 server sends it.
@@ -101,22 +119,27 @@ pub(super) async fn call_task_tool(
         &mcp_task_id,
     )
     .await;
-    Ok(follow_task(connection, &call, &mcp_task_id, contact).await)
+    Ok(follow_task(connection, call.run_id, &mcp_task_id, None, contact).await)
 }
 
-/// Follows `call`'s task `mcp_task_id` to its end, its questions asked in the call's run; a
-/// follow on a server at an address that its connection's close cut leaves its watch to be
-/// re-bound, and a re-bound one bounds the wait for the server's next ask.
+/// Follows run `run_id`'s task `mcp_task_id` to its end, its questions asked in that run, as its
+/// `resumption`, if any, says; a follow on a server at an address that its connection's close cut
+/// leaves its watch to be re-bound, a re-bound one bounds the wait for the server's next ask, and
+/// one resumed after a restart cancels a task it finds waiting on input.
 pub(super) async fn follow_task(
     connection: &McpServerConnection,
-    call: &McpToolCall,
+    run_id: RunId,
     mcp_task_id: &str,
+    resumption: Option<McpTaskResumption>,
     contact: &watch::Sender<McpTaskContact>,
 ) -> McpToolCallEnd {
     let watch = connection
         .scope
         .task_watches
-        .watch(&connection.scope, call, mcp_task_id);
+        .watch(&connection.scope, run_id, mcp_task_id);
+    if resumption == Some(McpTaskResumption::AfterRestart) {
+        watch.owe_restart_cancel();
+    }
     let held = Mutex::new(None);
     let bound = Mutex::new(ReaskBound::Unstarted);
     let end = poll_until_end(&watch.wake, contact, |answered| {
@@ -136,8 +159,8 @@ pub(super) async fn follow_task(
 }
 
 /// One poll, `answered` the answered clock as it starts: a held result that came back ends the
-/// call; else the task's status, which keeps a re-bound follow's bound, holds the result on
-/// `input_required` and reads it at a terminal status.
+/// call; else the task's status, which settles a restarted follow's cancel and keeps a re-bound
+/// follow's bound, holds the result on `input_required` and reads it at a terminal status.
 async fn poll_once(
     connection: &McpServerConnection,
     mcp_task_id: &str,
@@ -158,6 +181,11 @@ async fn poll_once(
         poll_interval_ms = reading.poll_interval_ms,
         "a tool server task was polled"
     );
+    if let Some(step) =
+        cancel_after_restart(connection, mcp_task_id, watch, bound, &reading, contact).await
+    {
+        return Ok(step);
+    }
     let status = reading.status.as_str();
     let bound_end = keep_reask_bound(
         connection,
@@ -241,22 +269,13 @@ async fn keep_reask_bound(
     if next != ReaskBound::RanOut {
         return None;
     }
-    match connection
-        .cancel_task(McpTaskGeneration::V1, mcp_task_id)
-        .await
-    {
-        Ok(McpTaskCancelOutcome::Taken) => Some(McpToolCallEnd::InputLost),
-        Ok(McpTaskCancelOutcome::Refused) => {
+    match cancel_waiting_task(connection, mcp_task_id).await {
+        WaitingTaskCancel::Ended(end) => Some(end),
+        WaitingTaskCancel::Refused => {
             *lock(bound) = ReaskBound::Spent;
             None
         }
-        Err(error) if matches!(error.poll_failure(), PollFailure::TaskIdRejected { .. }) => Some(
-            connection
-                .read_task_end(McpTaskGeneration::V1, mcp_task_id)
-                .await
-                .unwrap_or(McpToolCallEnd::InputLost),
-        ),
-        Err(error) => {
+        WaitingTaskCancel::Failed(error) => {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
                 server = connection.scope.server_name.as_str(),
@@ -264,6 +283,80 @@ async fn keep_reask_bound(
             );
             None
         }
+    }
+}
+
+/// Cancels a task resumed after a restart once a poll reads it `input_required`, since the
+/// question it waits on was withdrawn at the start, and gives the step the poll ends with: the end
+/// the cancel reads, or a wait when the cancel failed, nothing held, so the next poll that reads
+/// `input_required` sends it again. `None` once no cancel is owed: none was, the poll read another
+/// status, or the server refused, which writes the contact `CancelRefused`, no stop having asked
+/// for it, and leaves the follow going on as a live one.
+async fn cancel_after_restart(
+    connection: &McpServerConnection,
+    mcp_task_id: &str,
+    watch: &TaskWatch<'_>,
+    bound: &Mutex<ReaskBound>,
+    reading: &V1TaskReading,
+    contact: &watch::Sender<McpTaskContact>,
+) -> Option<PollStep> {
+    if !watch.owes_restart_cancel() {
+        return None;
+    }
+    let watches = &connection.scope.task_watches;
+    if reading.status != "input_required" {
+        // The task no longer waits on input.
+        watches.settle_restart_cancel(&connection.scope, mcp_task_id);
+        return None;
+    }
+    match cancel_waiting_task(connection, mcp_task_id).await {
+        WaitingTaskCancel::Ended(end) => Some(PollStep::End(end)),
+        WaitingTaskCancel::Refused => {
+            watches.settle_restart_cancel(&connection.scope, mcp_task_id);
+            // A re-bound follow's bound would cancel the task again.
+            *lock(bound) = ReaskBound::Spent;
+            contact.send_modify(|state| {
+                *state = McpTaskContact::CancelRefused {
+                    is_from_stop: false,
+                };
+            });
+            None
+        }
+        WaitingTaskCancel::Failed(error) => {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                server = connection.scope.server_name.as_str(),
+                "a resumed tool server task waiting on input was not canceled; it is sent again"
+            );
+            Some(PollStep::Wait {
+                suggested_interval_ms: reading.poll_interval_ms,
+            })
+        }
+    }
+}
+
+/// Cancels task `mcp_task_id`, which waits on input no question will answer: taken, its end is
+/// lost; a `-32602`, for a task that ended meanwhile or that the server no longer knows, is
+/// followed by one read of the task, its end lost when that gives none.
+async fn cancel_waiting_task(
+    connection: &McpServerConnection,
+    mcp_task_id: &str,
+) -> WaitingTaskCancel {
+    match connection
+        .cancel_task(McpTaskGeneration::V1, mcp_task_id)
+        .await
+    {
+        Ok(McpTaskCancelOutcome::Taken) => WaitingTaskCancel::Ended(McpToolCallEnd::InputLost),
+        Ok(McpTaskCancelOutcome::Refused) => WaitingTaskCancel::Refused,
+        Err(error) if matches!(error.poll_failure(), PollFailure::TaskIdRejected { .. }) => {
+            WaitingTaskCancel::Ended(
+                connection
+                    .read_task_end(McpTaskGeneration::V1, mcp_task_id)
+                    .await
+                    .unwrap_or(McpToolCallEnd::InputLost),
+            )
+        }
+        Err(error) => WaitingTaskCancel::Failed(error),
     }
 }
 

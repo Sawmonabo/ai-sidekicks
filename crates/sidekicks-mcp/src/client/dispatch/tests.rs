@@ -177,7 +177,7 @@ pub(super) fn silent_call_server() -> Responder {
 /// A 2025-11-25 server answering `initialize` with `initialize` and listing the one tool `track`,
 /// with `execution`, at its start; every later request is answered through `reply` with the method
 /// and how many of it came before.
-fn tools_server(
+pub(super) fn tools_server(
     initialize: Value,
     execution: Value,
     mut reply: impl FnMut(&str, usize) -> Reply + Send + 'static,
