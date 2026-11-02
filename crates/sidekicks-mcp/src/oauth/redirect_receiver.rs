@@ -26,7 +26,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::{CancellationToken, DropGuard};
 use url::Host;
 
-use crate::sign_in::oauth_http_client::address_policy::is_loopback_address;
+use crate::oauth::loopback::is_loopback_address;
 
 /// Connections served at once; a browser opens a few, and the rest wait in the listen queue.
 const MAX_CONNECTIONS: usize = 4;

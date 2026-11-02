@@ -47,16 +47,17 @@ use sidekicks_std::mutex_lock::lock;
 use crate::oauth::dpop_proof::{
     AuthorizationServerResponse, DpopKey, DpopKeyError, DpopSendError, read_response, send_signed,
 };
+use crate::oauth::loopback::normalized_host;
 use crate::oauth::pushed_authorization::{
     AuthorizationRequestEndpoints, DpopSigning, PushedAuthorizationError, browser_authorization_url,
 };
 use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::DpopKeyScalar;
 use crate::sign_in::oauth_http_client::address_policy::{
-    AddressClass, AddressPolicy, ServerReach, is_cloud_metadata_name, normalized_host,
+    AddressClass, AddressPolicy, ServerReach, is_cloud_metadata_name,
 };
 
-pub(crate) mod address_policy;
+pub(super) mod address_policy;
 
 /// The bound on one OAuth call when its caller sets none: rmcp's own for its OAuth calls.
 pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(30);
