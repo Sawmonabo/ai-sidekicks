@@ -94,10 +94,10 @@ use crate::daemon::process::method_inputs::{
 };
 use crate::daemon::process::method_tables::gate_chain;
 use crate::daemon::process::provider_accounts::ProviderAccountObservation;
+use crate::daemon::process::providers::stored_rows::apply_stored_rows;
 use crate::daemon::process::providers::{
-    ProviderStart, Providers, ProvidersRegistration, apply_stored_rows, build_providers,
-    hydrate_capabilities, register_providers, sweep_left_sign_in_folders,
-    sweep_left_staged_worktrees,
+    ProviderStart, Providers, ProvidersRegistration, build_providers, hydrate_capabilities,
+    register_providers, sweep_left_sign_in_folders, sweep_left_staged_worktrees,
 };
 use crate::daemon::process::repo_services::{
     RepoAttachments, RepoServiceStart, RepoServices, build_repo_services, make_worktrees_folder,

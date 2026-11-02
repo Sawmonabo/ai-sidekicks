@@ -3,23 +3,18 @@
 //! services behind them exist, and the drivers' first capability reads, which a provider with a
 //! lasting service answers by connecting to it.
 
-use std::collections::BTreeSet;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use futures::FutureExt as _;
-use futures::future::{BoxFuture, join_all};
+use futures::future::BoxFuture;
 use serde_json::{Map, Value};
 use sidekicks_approval::permission_asks::PermissionAsks;
 use sidekicks_approval::reviewer_denials::ReviewerDenials;
 use sidekicks_approval::rules::ApprovalRules;
 use sidekicks_artifact::plans::service::PlansService;
-use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderSettingValues};
-use sidekicks_contracts::place::Place;
-use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValue};
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
@@ -39,7 +34,6 @@ use sidekicks_provider::driver::capabilities::writer::{
 };
 use sidekicks_provider::driver::child_records::DaemonChildRecords;
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::contract::params_and_results::ApplyRowValueParams;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -77,12 +71,14 @@ use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio::task::JoinError;
-use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 
-use crate::daemon::machine_settings::file::MachineSettingsFile;
 use crate::daemon::process::session_services::stored_resumes::StoredSessionResumes;
 use crate::program::dispatches_hook_mode;
+
+pub(crate) mod stored_rows;
+#[cfg(test)]
+mod test_start;
 
 /// What the providers' build takes from the steps before it.
 pub(crate) struct ProviderStart {
@@ -528,33 +524,6 @@ impl ProvidersRegistration {
     }
 }
 
-/// Applies to every driver its Settings rows' values, all drivers at once, each one
-/// `settings_file` stores over the driver's default, before anything provider-facing runs: a
-/// provider with a lasting service joins it here, or starts it on the same socket, before any
-/// session's recovery or capability read reaches for it. Each driver's own start bound is the only
-/// bound, and `stop` ends the wait where it stands. A row that fails to apply, or a settings file
-/// that cannot be read, is logged and the start goes on. A value changed later is applied by the
-/// provider settings' update, through the same driver call.
-pub(crate) async fn apply_stored_rows(
-    registry: &ProviderRegistry,
-    settings_file: &MachineSettingsFile,
-    stop: &CancellationToken,
-) {
-    let applying = async {
-        match settings_file.read().await {
-            Ok(reading) => apply_row_values(registry, &reading.settings.provider_settings).await,
-            Err(error) => tracing::error!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "the providers' stored settings could not be read, so none was applied"
-            ),
-        }
-    };
-    tokio::select! {
-        () = applying => {}
-        () = stop.cancelled() => {}
-    }
-}
-
 /// Starts the providers' first capability reads on their own task, not awaited: once
 /// `index_opened` settles, every driver's capabilities are read, declared and recorded at once. It
 /// ends once every read landed, failed or missed its deadline, or once the refresh stopped before
@@ -571,85 +540,6 @@ pub(crate) fn register_providers(
     ProvidersRegistration {
         task: Some(AbortOnDropHandle::new(task)),
     }
-}
-
-// Applies to every driver its rows' values, all drivers at once: each value `stored` holds for a
-// row over the driver's default for it, place by place.
-async fn apply_row_values(registry: &ProviderRegistry, stored: &ProviderSettingValues) {
-    join_all(registry.drivers().map(|(provider, driver)| async move {
-        let stored_rows = stored
-            .as_map()
-            .get(provider)
-            .map(|rows| rows.as_map().clone())
-            .unwrap_or_default();
-        let mut defaults = driver.row_defaults().into_map();
-        let row_ids: BTreeSet<ProviderDeclarationId> =
-            defaults.keys().chain(stored_rows.keys()).cloned().collect();
-        for row_id in row_ids {
-            let mut values = defaults
-                .remove(&row_id)
-                .map(placed_values)
-                .unwrap_or_default();
-            let stored_row = stored_rows.get(&row_id).cloned();
-            for (place, value) in stored_row.map(placed_values).unwrap_or_default() {
-                match values.iter_mut().find(|(placed, _)| *placed == place) {
-                    Some(placed) => placed.1 = value,
-                    None => values.push((place, value)),
-                }
-            }
-            for (place, value) in values {
-                let applied = driver
-                    .apply_row_value(ApplyRowValueParams {
-                        row_id: row_id.clone(),
-                        place,
-                        value,
-                    })
-                    .await;
-                if let Err(error) = applied {
-                    report_row_apply_failure(provider, &row_id, &error);
-                }
-            }
-        }
-    }))
-    .await;
-}
-
-// A row's value as each place's value: a switch's entry in each place it names, else one value
-// naming no place.
-fn placed_values(value: ProviderRowValue) -> Vec<(Option<Place>, Option<ProviderValue>)> {
-    match value {
-        ProviderRowValue::Places(switches) => switches
-            .as_slice()
-            .iter()
-            .map(|switch| {
-                (
-                    switch.place.clone(),
-                    Some(ProviderValue::Switch(switch.enabled)),
-                )
-            })
-            .collect(),
-        ProviderRowValue::Value(text) => vec![(None, text.map(ProviderValue::Text))],
-    }
-}
-
-fn report_row_apply_failure(
-    provider: &ProviderId,
-    row_id: &ProviderDeclarationId,
-    error: &DriverError,
-) {
-    emit_driver_diagnostic(&DriverDiagnosticRecord {
-        provider: provider.clone(),
-        provider_account_id: None,
-        kind: DriverDiagnosticKind::SettingsRowApplyFailed,
-        raw_wire_type: None,
-        disposition_reason: "settings row value not applied at the start; applied again at the \
-                             next change"
-            .to_owned(),
-        details: Map::from_iter([
-            ("rowId".to_owned(), Value::from(row_id.as_str())),
-            ("message".to_owned(), Value::from(describe_error(error))),
-        ]),
-    });
 }
 
 /// Ends every driver's work for `intent`, all at once, and answers each driver's failure, in the
@@ -671,109 +561,22 @@ pub(crate) async fn shut_down_drivers(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
-    use futures::FutureExt as _;
-    use sidekicks_contracts::machine::settings::{
-        MachineSettings, ProviderRowValue, ProviderRowValues,
-    };
-    use sidekicks_contracts::provider::declaration::{
-        ProviderDeclarationId, ProviderPlaceSwitch, ProviderPlaceSwitches, ProviderValue,
-    };
     use sidekicks_contracts::provider::id::ProviderId;
-    use sidekicks_contracts::wire::record::Record;
     use sidekicks_contracts::wire::text::FreeFormText;
-    use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
-    use sidekicks_platforms::Spawner;
-    use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+    use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
-    use sidekicks_provider::driver::child_records::UnrecordedChildren;
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::contract::params_and_results::{
-        ApplyRowValueParams, DriverCliVersionReport, GetCapabilitiesResult,
+        DriverCliVersionReport, GetCapabilitiesResult,
     };
-    use sidekicks_provider::driver::test_registry::{
-        NothingServed, registrations_of_first_providers,
-    };
-    use sidekicks_provider::driver::{PROVIDERS, ProviderRegistration};
-    use sidekicks_session::attention::changes::attention_changes_after_commits;
-    use sidekicks_std::mutex_lock::lock;
-    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-    use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::events::log_service::test_fixture::open_log;
-    use sidekicks_workspace::git::process::{GitLimits, GitRunner};
-    use sidekicks_workspace::git::worktree::naming::worktrees_folder;
-    use tempfile::TempDir;
-    use tokio::runtime::Handle;
-    use tokio_util::sync::CancellationToken;
+    use sidekicks_provider::driver::test_registry::registrations_of_first_providers;
 
-    use super::{
-        ProviderStart, Providers, apply_stored_rows, build_providers, hydrate_capabilities,
-    };
-    use crate::daemon::machine_settings::file::MachineSettingsFile;
-    use crate::daemon::schema::schema_parts;
-
-    /// The statements the tests' read pool caches.
-    const READ_STATEMENT_CAPACITY: usize = 16;
-
-    /// The most line bytes the tests' bound lets the shell-line reader parse at once.
-    const SHELL_LINE_LIMIT: usize = 1 << 20;
-
-    /// The database and the home folder a test's providers are built on.
-    struct TestStart {
-        database: TestDatabase,
-        home: TempDir,
-    }
-
-    impl TestStart {
-        fn new() -> Self {
-            Self {
-                database: TestDatabase::new(schema_parts()),
-                home: tempfile::tempdir().expect("the test makes a home folder"),
-            }
-        }
-
-        /// The providers of `registrations`, built as the daemon's start builds them, on this
-        /// start's database and home.
-        async fn build(&self, registrations: &[ProviderRegistration]) -> Providers {
-            let log = open_log(&self.database, None).await;
-            let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
-            let base_environment: Arc<[(String, String)]> = Arc::from([]);
-            build_providers(
-                registrations,
-                ProviderStart {
-                    spawner: spawner.clone(),
-                    data_folder: self.home.path().join("data"),
-                    home_folder: self.home.path().to_owned(),
-                    worktrees_folder: worktrees_folder(self.home.path()),
-                    session_token_path: self.home.path().join("daemon.token"),
-                    reads: Arc::new(DatabaseReadPool::new(
-                        self.database.path(),
-                        READ_STATEMENT_CAPACITY,
-                    )),
-                    writer: Arc::clone(&log.writer),
-                    attachments: Arc::new(NothingServed),
-                    git: GitRunner::new(
-                        spawner,
-                        None,
-                        Arc::clone(&base_environment),
-                        GitLimits::DAEMON,
-                    ),
-                    base_environment,
-                    shell_lines: Arc::new(ShellLineReadingBound::new(SHELL_LINE_LIMIT)),
-                    caller_processes: Arc::new(
-                        ProcessTableReader::for_this_program()
-                            .expect("this program's reader builds"),
-                    ),
-                    build_record_readers: Arc::new(attention_changes_after_commits().1),
-                    child_records: Arc::new(UnrecordedChildren),
-                },
-            )
-        }
-    }
+    use super::hydrate_capabilities;
+    use super::test_start::TestStart;
 
     // A gated call the stored reading allows passes at a cold start, before any refresh pass has
     // read the driver. Killed by leaving the gate unseeded, which refuses it until a pass lands.
@@ -822,90 +625,6 @@ mod tests {
                 .registry
                 .check_capability(&provider, DriverCapabilityFlag::Steer)
                 .is_err()
-        );
-    }
-
-    fn row_id(id: &str) -> ProviderDeclarationId {
-        ProviderDeclarationId::new(id.to_owned()).expect("a test row id")
-    }
-
-    fn switch_row(enabled: bool) -> ProviderRowValue {
-        ProviderRowValue::Places(
-            ProviderPlaceSwitches::new(vec![ProviderPlaceSwitch {
-                place: None,
-                enabled,
-            }])
-            .expect("one place is within the bounds"),
-        )
-    }
-
-    fn rows(values: Vec<(&str, ProviderRowValue)>) -> ProviderRowValues {
-        Record::new(
-            values
-                .into_iter()
-                .map(|(id, value)| (row_id(id), value))
-                .collect::<BTreeMap<_, _>>(),
-        )
-        .expect("no test row is the prototype key")
-    }
-
-    // The stored rows' application applies each row's value: the driver's default where the app
-    // stored none, the stored value over it where it did. Killed by leaving the replay out, which
-    // applies nothing, or by applying the defaults alone.
-    #[tokio::test]
-    async fn the_stored_rows_apply_each_rows_stored_value_over_the_drivers_default() {
-        let start = TestStart::new();
-        let applied = Arc::new(Mutex::new(Vec::new()));
-        let mut driver = MockProviderDriver::new();
-        driver.expect_row_defaults().returning(|| {
-            rows(vec![
-                ("reach", switch_row(true)),
-                ("style", switch_row(true)),
-            ])
-        });
-        let applying = Arc::clone(&applied);
-        driver
-            .expect_apply_row_value()
-            .returning(move |params: ApplyRowValueParams| {
-                lock(&applying).push((
-                    params.row_id.as_str().to_owned(),
-                    params.place,
-                    params.value,
-                ));
-                async { Ok(()) }.boxed()
-            });
-        let providers = start
-            .build(&registrations_of_first_providers(vec![Arc::new(driver)]))
-            .await;
-        let provider = ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id");
-        let settings_path = start.home.path().join("machine-settings.json");
-        let settings = MachineSettings {
-            provider_settings: Record::new(BTreeMap::from([(
-                provider,
-                rows(vec![("style", switch_row(false))]),
-            )]))
-            .expect("no provider id is the prototype key"),
-            ..MachineSettings::default()
-        };
-        std::fs::write(
-            &settings_path,
-            serde_json::to_vec(&settings).expect("the settings serialize"),
-        )
-        .expect("the test stores the settings");
-
-        apply_stored_rows(
-            &providers.registry,
-            &MachineSettingsFile::new(settings_path),
-            &CancellationToken::new(),
-        )
-        .await;
-
-        assert_eq!(
-            *lock(&applied),
-            [
-                ("reach".to_owned(), None, Some(ProviderValue::Switch(true))),
-                ("style".to_owned(), None, Some(ProviderValue::Switch(false))),
-            ]
         );
     }
 }
