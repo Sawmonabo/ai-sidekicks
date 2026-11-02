@@ -225,11 +225,11 @@ async fn a_command_or_program_step_asks_at_the_levels_that_ask(
     assert_eq!(verdicts, expected);
 }
 
-// A step's card offers a rule only over the one plain command its line names, in the words that
-// command's rule names: never over a line of several commands, a wrapped command, one after an
-// assignment or a force push, which is destructive git, nor over a program's launch line. Killed
-// by a compound or wrapped subject offered, by the command's subject dropped or replaced by the
-// whole line, by skipping the line's category, and by a subject derived for a program line.
+// A command step's card offers a rule only over the one plain command its line names, in the words
+// that command's rule names: never over a line of several commands, a wrapped command, one after
+// an assignment or a force push, which is destructive git; a program's launch line offering none
+// is proven at each level above. Killed by a compound or wrapped subject offered, by the command's
+// subject dropped or replaced by the whole line, and by skipping the line's category.
 #[rstest]
 #[case::plain(command_step("cargo test"), ("toolExecution", "cargo test", true))]
 #[case::with_options(command_step("cargo test --release"), ("toolExecution", "cargo test", true))]
@@ -240,7 +240,6 @@ async fn a_command_or_program_step_asks_at_the_levels_that_ask(
 #[case::wrapped(command_step("sudo cargo test"), ("toolExecution", "sudo cargo test", false))]
 #[case::assignment(command_step("FOO=1 cargo test"), ("toolExecution", "FOO=1 cargo test", false))]
 #[case::force_push(command_step("git push --force"), ("destructiveGit", "git push --force", false))]
-#[case::program(code_step("cargo test"), ("toolExecution", "cargo test", false))]
 #[tokio::test]
 async fn a_steps_card_offers_a_rule_only_over_one_plain_command(
     #[case] action: StepAction,

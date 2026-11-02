@@ -50,6 +50,10 @@ pub(crate) const DECLINED_REFUSAL: &str = "The person declined this call.";
 pub(crate) const CANCELED_REFUSAL: &str =
     "This call's approval ended unanswered, so it did not run.";
 
+/// What a workflow step reads when its action's card ended unanswered with its run or session.
+pub(crate) const CANCELED_STEP_REFUSAL: &str =
+    "This step's approval ended unanswered, so its action did not run.";
+
 /// How one of the app's own tools is gated.
 #[cfg_attr(
     not(test),
@@ -167,37 +171,20 @@ impl CallbackToolApprovals {
         }
     }
 
-    // A step's action as the check settles it, or as the person answers its card: a decline keeps
-    // their words and its instant, and a card that ended unanswered refuses.
+    // A step's action as the check settles it, or as the person answers its card.
     async fn decide_step_action(
         &self,
         check: StepActionCheck,
     ) -> Result<StepActionVerdict, Box<dyn Error + Send + Sync>> {
-        let card = match self.check.check_step_action(check).await? {
+        match self.check.check_step_action(check).await? {
             ToolCallVerdict::Settled(CallbackToolApprovalOutcome::Allow { .. }) => {
-                return Ok(StepActionVerdict::Allowed);
+                Ok(StepActionVerdict::Allowed)
             }
             ToolCallVerdict::Settled(CallbackToolApprovalOutcome::Deny { reason, .. }) => {
-                return Ok(StepActionVerdict::Refused { reason });
+                Ok(StepActionVerdict::Refused { reason })
             }
-            ToolCallVerdict::CardRaised(card) => card,
-        };
-        Ok(match card.settled.settled().await {
-            RaisedRequestSettlement::Approved => StepActionVerdict::Allowed,
-            RaisedRequestSettlement::Rejected {
-                decline_reason,
-                resolved_at,
-            } => StepActionVerdict::Declined {
-                words: decline_reason,
-                at: resolved_at,
-            },
-            RaisedRequestSettlement::Canceled => StepActionVerdict::Refused {
-                reason: CANCELED_REFUSAL.to_owned(),
-            },
-            RaisedRequestSettlement::Stopped => {
-                return Err(Box::new(CallbackToolApprovalError::Stopped));
-            }
-        })
+            ToolCallVerdict::CardRaised(card) => Ok(answer_of(card).await?),
+        }
     }
 }
 
@@ -223,28 +210,43 @@ impl CallbackToolApprovalSeam for CallbackToolApprovals {
     }
 }
 
-// The person's answer on the daemon's own card: approved runs, declined carries the words they
-// typed, and a card that ended with its run or session refuses.
+// The person's answer on the daemon's own card, as a step reads it: approved runs, declined
+// carries the words they typed and the decline's instant, and a card that ended with its run or
+// session refuses. Fails when the daemon stops before the card settles.
+async fn answer_of(card: RaisedCard) -> Result<StepActionVerdict, CallbackToolApprovalError> {
+    match card.settled.settled().await {
+        RaisedRequestSettlement::Approved => Ok(StepActionVerdict::Allowed),
+        RaisedRequestSettlement::Rejected {
+            decline_reason,
+            resolved_at,
+        } => Ok(StepActionVerdict::Declined {
+            words: decline_reason,
+            at: resolved_at,
+        }),
+        RaisedRequestSettlement::Canceled => Ok(StepActionVerdict::Refused {
+            reason: CANCELED_STEP_REFUSAL.to_owned(),
+        }),
+        RaisedRequestSettlement::Stopped => Err(CallbackToolApprovalError::Stopped),
+    }
+}
+
+// The person's answer on the daemon's own card, as an agent's call reads it: a decline carries
+// the words they typed, and a card that ended unanswered refuses in the agent's words.
 async fn settle_card(
     card: RaisedCard,
 ) -> Result<CallbackToolApprovalOutcome, CallbackToolPortError> {
-    Ok(match card.settled.settled().await {
-        RaisedRequestSettlement::Approved => CallbackToolApprovalOutcome::Allow {
+    Ok(match answer_of(card).await? {
+        StepActionVerdict::Allowed => CallbackToolApprovalOutcome::Allow {
             basis: CallbackToolApprovalBasis::UserGrant,
         },
-        RaisedRequestSettlement::Rejected { decline_reason, .. } => {
-            CallbackToolApprovalOutcome::Deny {
-                basis: CallbackToolApprovalBasis::UserRefusal,
-                reason: decline_reason.map_or_else(
-                    || DECLINED_REFUSAL.to_owned(),
-                    |words| words.as_str().to_owned(),
-                ),
-            }
-        }
-        RaisedRequestSettlement::Canceled => deny_by_policy(CANCELED_REFUSAL),
-        RaisedRequestSettlement::Stopped => {
-            return Err(Box::new(CallbackToolApprovalError::Stopped));
-        }
+        StepActionVerdict::Declined { words, .. } => CallbackToolApprovalOutcome::Deny {
+            basis: CallbackToolApprovalBasis::UserRefusal,
+            reason: words.map_or_else(
+                || DECLINED_REFUSAL.to_owned(),
+                |words| words.as_str().to_owned(),
+            ),
+        },
+        StepActionVerdict::Refused { .. } => deny_by_policy(CANCELED_REFUSAL),
     })
 }
 
