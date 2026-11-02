@@ -427,10 +427,9 @@ mod tests {
     async fn origin_session(usage: &RepoFolderUsage) -> SessionId {
         let repo_mount_id = RepoMountId::new(MOUNT_ID).expect("the id is a UUID");
         match usage
-            .read_usage(&repo_mount_id)
+            .read_origin(&repo_mount_id)
             .await
             .expect("the chat's folder reads")
-            .origin
         {
             RepoMountOrigin::Managed { session_id, .. } => session_id,
             other @ (RepoMountOrigin::Attached { .. } | RepoMountOrigin::Worktree { .. }) => {
