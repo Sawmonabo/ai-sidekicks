@@ -1,7 +1,10 @@
 //! Compiles SQLite's shell, vendored byte for byte, into the static library the `database shell`
 //! mode runs, once the file's hash and its release are checked against the SQLite `libsqlite3-sys`
-//! bundles, so the shell and the library always run the same SQLite.
+//! bundles, so the shell and the library always run the same SQLite. On macOS it also links the
+//! `Info.plist` `sidekicks-platforms` names into the program's `__TEXT,__info_plist` section, so
+//! the Local Network alert reads in the product's words with no app behind the daemon.
 
+use std::env::VarError;
 use std::error::Error;
 use std::path::PathBuf;
 use std::{env, fs};
@@ -26,6 +29,20 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-changed={SHELL_SOURCE}");
     println!("cargo::rerun-if-changed={}", header.display());
+
+    // Set only when building for macOS. Each linker argument is its own `-Xlinker`, never one
+    // `-Wl,` list, which would split a path holding a comma.
+    match env::var("DEP_SIDEKICKS_PLATFORMS_INFO_PLIST") {
+        Ok(info_plist) => {
+            println!("cargo::rerun-if-changed={info_plist}");
+            for argument in ["-sectcreate", "__TEXT", "__info_plist", &info_plist] {
+                println!("cargo::rustc-link-arg-bins=-Xlinker");
+                println!("cargo::rustc-link-arg-bins={argument}");
+            }
+        }
+        Err(VarError::NotPresent) => {}
+        Err(error) => return Err(error.into()),
+    }
 
     let source_hash = base16ct::lower::encode_string(&Sha3_256::digest(fs::read(SHELL_SOURCE)?));
     if source_hash != SHELL_SOURCE_SHA3_256 {
