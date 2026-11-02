@@ -203,13 +203,19 @@ impl ClaudeSessionStream {
         true
     }
 
-    /// How many of the session's tasks other than its commands run in the background: the tool
-    /// servers' calls it holds open and the other tasks its latest background set listed, which a
-    /// stop of the process would kill.
+    /// How many of the session's tasks other than its commands run in the background, which a stop
+    /// of the process would kill: the tool servers' calls it holds open and the other tasks its
+    /// latest background set listed that it holds none for, so a held call's own listed task
+    /// counts once.
     pub(crate) fn background_work(&self) -> usize {
         let readings = self.lock();
-        readings.tool_server_tasks.held_call_ids().len()
-            + readings.command_tasks.listed_other_tasks()
+        let tool_server_tasks = &readings.tool_server_tasks;
+        tool_server_tasks.held_call_ids().len()
+            + readings
+                .command_tasks
+                .listed_other_tasks()
+                .filter(|task_id| !tool_server_tasks.holds_task(task_id))
+                .count()
     }
 
     /// The session's turn now, which the reader stamps on each frame as it reads it.

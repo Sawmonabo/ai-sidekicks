@@ -27,8 +27,8 @@ use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
-/// Why usage Claude Code reported is not recorded: no run holds the session's thread and no
-/// helper's route names a binding.
+/// Why usage Claude Code reported is not recorded: no run holds the session's thread, no helper's
+/// route names a binding and the session runs on no binding now.
 #[derive(Debug, thiserror::Error)]
 #[error("Claude Code reported usage while no run of the session could carry it")]
 struct ClaudeUsageUnheld;
@@ -74,12 +74,11 @@ impl ClaudeDeliveryStream {
         if let Some(held_end) = held_end {
             self.close_held_call(session, held_end).await;
         }
-        let fact = session.lock().command_tasks.read_frame(
-            kind,
-            &task,
-            session.session_id,
-            run.map(|run| run.run_id),
-        );
+        let fact =
+            session
+                .lock()
+                .command_tasks
+                .read_frame(kind, &task, session.session_id, run.as_ref());
         if let (Some(fact), Some(sets)) = (fact, self.dependencies.command_output.port()) {
             fact.publish(&**sets);
         }
@@ -87,8 +86,8 @@ impl ClaudeDeliveryStream {
 
     /// Records each metered reading on the run whose thread spent it: the session's own on
     /// `lead`'s binding, a helper's as the helper's, which the record counts toward the helper's
-    /// own run, on its child route's binding, else the lead's. A reading no binding can carry is
-    /// recorded as a diagnostic.
+    /// own run, on its child route's binding, else the lead's. A reading no route names goes on the
+    /// binding the session runs on now; one no binding can carry is recorded as a diagnostic.
     pub(super) async fn record_metered(
         &self,
         session: &ClaudeSessionStream,
@@ -103,6 +102,12 @@ impl ClaudeDeliveryStream {
             lead.cloned()
                 .or_else(|| routes.lead_run_on(session.session_id))
                 .map(|lead| lead.binding_id)
+                .or_else(|| {
+                    self.dependencies
+                        .command_output
+                        .port()
+                        .and_then(|sets| sets.binding_now(&session.session_id))
+                })
         };
         for reading in metered {
             let (binding_id, owner) = match reading.subagent_id {

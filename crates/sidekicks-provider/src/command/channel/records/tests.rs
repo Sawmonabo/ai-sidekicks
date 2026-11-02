@@ -79,6 +79,7 @@ fn row_start(id: &str) -> CommandStart {
         session_id: session(),
         command_id: CommandId::new(id.to_owned()).expect("a command id"),
         run_id: RunId::new("0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0f").expect("a run id"),
+        binding_id: RuntimeBindingId::new("binding-a".to_owned()).expect("a binding id"),
         name: NonEmptyText::new(id.to_owned()).expect("a name"),
         started_at: WireInstant::now(),
         line: Some(id.to_owned()),

@@ -644,9 +644,10 @@ async fn a_turn_too_long_for_the_window_files_an_exceeded_row_with_no_counts() {
 
 // Fails when a tool server's background call closes on the stand-in result Claude Code sends at
 // once rather than on its task's notification, or when the call, or another task running no
-// command that the background set lists, does not hold the session awake while it runs.
-// Mutations: `user` passing no held calls; `take_task_frame` not releasing the held call;
-// `background_work` leaving out the held calls or the listed tasks.
+// command that the background set lists, does not hold the session awake while it runs, or a held
+// call's own listed task counts twice. Mutations: `user` passing no held calls; `take_task_frame`
+// not releasing the held call; `background_work` leaving out the held calls or the listed tasks,
+// leaving out every listed tool server's task (reads 2), or counting the held call's own (reads 4).
 #[tokio::test(start_paused = true)]
 async fn a_tool_servers_background_call_closes_on_its_task_notification() {
     let session = ScriptedSession::new().await;
@@ -697,6 +698,7 @@ async fn a_tool_servers_background_call_closes_on_its_task_notification() {
         "session_id": SCRIPTED_PROVIDER_SESSION_ID,
         "tasks": [
             {"task_id": "task-1", "task_type": "mcp_task"},
+            {"task_id": "task-2", "task_type": "mcp_task"},
             {"task_id": "workflow-1", "task_type": "local_workflow"},
         ],
     }));

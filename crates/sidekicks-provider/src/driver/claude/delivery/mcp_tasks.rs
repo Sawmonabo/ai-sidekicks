@@ -150,6 +150,11 @@ impl ClaudeToolServerTasks {
         &self.held_call_ids
     }
 
+    /// Whether the call the tool server's task `task_id` runs is held open.
+    pub(crate) fn holds_task(&self, task_id: &str) -> bool {
+        self.held.contains_key(task_id)
+    }
+
     /// The end of the held or settled call whose task the notification `frame` ends: `completed`
     /// with the summary and the files, `stopped` failed with no body, and any other status
     /// failed with the summary and the files. A completed call is released; a failed or stopped

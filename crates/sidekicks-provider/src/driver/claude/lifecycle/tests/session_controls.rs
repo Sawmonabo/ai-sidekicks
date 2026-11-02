@@ -26,6 +26,7 @@ use sidekicks_workspace::git::process::test_repository::make_test_repository;
 use super::{resume_params, start_params};
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::lifecycle::ClaudeDriver;
+use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{
@@ -242,6 +243,14 @@ async fn a_staged_reviews_process_runs_in_its_levels_own_mode() {
     assert_eq!(modes, [None]);
 }
 
+// A staged review's run, on a binding of its own.
+fn review_run() -> ClaudeBoundRun {
+    ClaudeBoundRun {
+        run_id: new_run_id(),
+        binding_id: binding_id("review"),
+    }
+}
+
 // Killed by a staged review whose process starts with no channel of its own, and by one that keeps
 // the session process's channel variables, which admit no party under the review's process.
 #[tokio::test]
@@ -270,7 +279,7 @@ async fn the_staged_reviews_process_starts_on_a_channel_of_its_own() {
 
     let (legs, review_channel) = parts
         .session_controls
-        .compose_review_legs(&live, new_run_id(), fixture.work.clone())
+        .compose_review_legs(&live, review_run(), fixture.work.clone())
         .await
         .expect("the review's legs compose");
 
@@ -321,7 +330,7 @@ async fn a_staged_reviews_command_is_stopped_and_moved_on_the_reviews_own_proces
         .expect("the session is live");
     let (_legs, review_channel) = parts
         .session_controls
-        .compose_review_legs(&live, new_run_id(), fixture.work.clone())
+        .compose_review_legs(&live, review_run(), fixture.work.clone())
         .await
         .expect("the review's legs compose");
     let review_channel = review_channel.expect("the review has a channel of its own");
