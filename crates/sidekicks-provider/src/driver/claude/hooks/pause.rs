@@ -189,6 +189,13 @@ impl ClaudeRunPauses {
         self.helper_pauses.mark_taken_effect(&helper);
     }
 
+    /// Whether a pause holds the helper `agent_id`, the person's pause or an interrupt's hold.
+    pub(crate) fn is_helper_held(&self, session_id: &SessionId, agent_id: &str) -> bool {
+        self.helper_pauses
+            .get(&(*session_id, agent_id.to_owned()))
+            .is_some()
+    }
+
     /// Answers a pre-tool callback: a stopped helper is denied, a paused lead's is denied, a
     /// paused helper's is held, any other passes with no decision. `agent_id` is the helper's,
     /// `None` on the lead.

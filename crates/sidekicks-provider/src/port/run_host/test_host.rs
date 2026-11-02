@@ -146,6 +146,19 @@ impl RecordingRunEngine {
             .collect()
     }
 
+    /// Whether each run lifecycle delivery for `run_id` so far ends the daemon's own interrupt, in
+    /// order.
+    pub(crate) fn daemon_interrupt_ends_of_run(&self, run_id: RunId) -> Vec<bool> {
+        self.deliveries()
+            .into_iter()
+            .filter(|delivery| {
+                delivery.kind == "runLifecycle"
+                    && delivery.change.as_ref().map(|change| change.run_id) == Some(run_id)
+            })
+            .map(|delivery| delivery.is_daemon_interrupt_end)
+            .collect()
+    }
+
     /// The run of the first turn the daemon or the provider started on a session itself, if any.
     pub(crate) fn first_daemon_turn_run(&self) -> Option<RunId> {
         self.calls().into_iter().find_map(|call| match call {

@@ -92,9 +92,9 @@ async fn a_helper_at_its_token_limit_is_denied_its_next_tool_use() {
 }
 
 // A tool use racing the stop is denied while Claude Code has not yet answered it, and the helper's
-// end then reads stopped for good. Killed by marking the helper after the stop is sent, or never
-// (the racing call passes and the end reads interrupted), and by a `stop_task` naming another
-// task.
+// end then reads stopped for good, as the daemon's own. Killed by marking the helper after the
+// stop is sent, or never (the racing call passes and the end reads interrupted), by a `stop_task`
+// naming another task, and by an end not marked as the daemon's.
 #[tokio::test(start_paused = true)]
 async fn a_helper_stopped_from_the_console_is_denied_and_ends_stopped() {
     let session = ScriptedSession::new().await;
@@ -136,6 +136,7 @@ async fn a_helper_stopped_from_the_console_is_denied_and_ends_stopped() {
             trigger: None,
         }]
     );
+    assert_eq!(session.engine.daemon_interrupt_ends_of_run(helper), [true]);
 }
 
 // A stop answers as Claude Code takes it. Killed by reading a refusal as a failure, by a cut write

@@ -172,7 +172,9 @@ impl ClaudeDeliveryStream {
     }
 
     // A helper's child run moves on its own `task_notification`, read with why the daemon stopped
-    // the helper, then its route retires.
+    // the helper, then its route retires. The end is the daemon's own where the person stopped the
+    // helper from the console or a pause or an interrupt holds it, so an end landing on a run
+    // already interrupted is no late event.
     pub(super) async fn end_helper(&self, session: &ClaudeSessionStream, task: &ClaudeTaskFrame) {
         let routes = &self.dependencies.routes;
         let Some(child_run_id) = task
@@ -184,8 +186,14 @@ impl ClaudeDeliveryStream {
         let Some(ClaudeRunRoute::Child(route)) = routes.route_of(child_run_id) else {
             return;
         };
-        let stop = lock(&self.dependencies.pauses)
-            .helper_stop_reason(&session.session_id, &route.agent_id);
+        let (stop, is_held) = {
+            let pauses = lock(&self.dependencies.pauses);
+            (
+                pauses.helper_stop_reason(&session.session_id, &route.agent_id),
+                pauses.is_helper_held(&session.session_id, &route.agent_id),
+            )
+        };
+        let is_daemon_interrupt_end = matches!(stop, Some(HelperStopReason::StopAll)) || is_held;
         let Some(change) = read_claude_helper_end(task, child_run_id, stop.as_ref()) else {
             return;
         };
@@ -196,7 +204,7 @@ impl ClaudeDeliveryStream {
             }),
             change,
             turn_end: None,
-            is_daemon_interrupt_end: false,
+            is_daemon_interrupt_end,
         };
         self.send(session, delivery, Some("system/task_notification"))
             .await;

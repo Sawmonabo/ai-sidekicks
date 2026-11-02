@@ -228,36 +228,62 @@ fn is_denied_with(session: &ScriptedSession, agent_id: &str, words: &str) -> boo
 
 // A helper's end reads by why the daemon stopped it: a stop from the console is final, a token
 // limit stops it with that trigger even when it finished, and Claude Code's own stop reads as an
-// interruption. Killed by reading every `stopped` as final, by reading the console's stop as an
-// interruption, by leaving a token-limited finish completed, by dropping the trigger, and by
-// answering the console's stop with another reason's sentence.
+// interruption. The end is the daemon's own where the console stopped the helper, its pause
+// already dropped, or an interrupt holds it. Killed by reading every `stopped` as final, by
+// reading the console's stop as an interruption, by leaving a token-limited finish completed, by
+// dropping the trigger, by answering the console's stop with another reason's sentence, by
+// marking the end of neither the console's stop nor a held helper as the daemon's, and by marking
+// every end so.
 #[rstest]
 #[case::stop_all(
     Some(HelperStopReason::StopAll),
+    false,
     "stopped",
-    RunStateEntry::Stopped { intended_close: None, trigger: None }
+    RunStateEntry::Stopped { intended_close: None, trigger: None },
+    true
 )]
 #[case::token_limit_stopped(
     Some(HelperStopReason::TokenLimit),
+    false,
     "stopped",
-    RunStateEntry::Stopped { intended_close: None, trigger: Some(StopTrigger::TokenLimit) }
+    RunStateEntry::Stopped { intended_close: None, trigger: Some(StopTrigger::TokenLimit) },
+    false
 )]
 #[case::token_limit_completed(
     Some(HelperStopReason::TokenLimit),
+    false,
     "completed",
-    RunStateEntry::Stopped { intended_close: None, trigger: Some(StopTrigger::TokenLimit) }
+    RunStateEntry::Stopped { intended_close: None, trigger: Some(StopTrigger::TokenLimit) },
+    false
+)]
+#[case::held(
+    None,
+    true,
+    "stopped",
+    RunStateEntry::Interrupted { intended_close: None, trigger: None },
+    true
 )]
 #[case::own_stop(
     None,
+    false,
     "stopped",
-    RunStateEntry::Interrupted { intended_close: None, trigger: None }
+    RunStateEntry::Interrupted { intended_close: None, trigger: None },
+    false
 )]
-#[case::own_finish(None, "completed", RunStateEntry::Completed { intended_close: None })]
+#[case::own_finish(
+    None,
+    false,
+    "completed",
+    RunStateEntry::Completed { intended_close: None },
+    false
+)]
 #[tokio::test(start_paused = true)]
 async fn a_helpers_end_reads_by_why_it_was_stopped(
     #[case] stop: Option<HelperStopReason>,
+    #[case] is_held: bool,
     #[case] status: &str,
     #[case] expected: RunStateEntry,
+    #[case] is_daemon_interrupt_end: bool,
 ) {
     let session = ScriptedSession::new().await;
     session.hold_lead_turn("lead");
@@ -273,11 +299,19 @@ async fn a_helpers_end_reads_by_why_it_was_stopped(
     if let Some(stop) = stop {
         lock(&session.parts.run_controls.pauses).stop_helper(session.session_id, "helper", stop);
     }
+    if is_held {
+        lock(&session.parts.run_controls.pauses)
+            .hold_interrupted_helper(&session.session_id, "helper");
+    }
 
     session.frame(&helper_ended("helper", status, "Reported"));
     settle().await;
 
     assert_eq!(session.engine.moves_of_run(child_run), [expected]);
+    assert_eq!(
+        session.engine.daemon_interrupt_ends_of_run(child_run),
+        [is_daemon_interrupt_end]
+    );
     if is_stop_all {
         assert!(is_denied_with(&session, "helper", "will not be resumed"));
     }
