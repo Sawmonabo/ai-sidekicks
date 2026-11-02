@@ -35,7 +35,8 @@ impl ChildEnding {
 
     /// Asks `child` to end as `end`: a stop arms the kill and a kill ends it at once, while the
     /// same end asked again or a stop after a kill changes nothing. Fails as the platform's ask
-    /// fails, the end still counted as asked, so a stop that failed is still killed past its grace.
+    /// fails, the end still counted as asked, so a stop that failed is still killed past its grace,
+    /// as a canceled sign-in whose stop failed is.
     pub(crate) fn ask(&mut self, child: &mut dyn ChildWrapper, end: ChildEnd) -> io::Result<()> {
         if self.asked == Some(ChildEnd::Kill) || self.asked == Some(end) {
             return Ok(());

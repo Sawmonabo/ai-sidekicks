@@ -18,6 +18,9 @@ use crate::driver::diagnostics::RecordedEvents;
 use crate::driver::test_registry::test_driver_services;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
+#[cfg(unix)]
+mod failed_stop;
+
 /// The address the stand-in's sign-in page sits at.
 const SIGN_IN_ADDRESS: &str = "https://claude.com/cai/oauth/authorize?code=true&state=test";
 
