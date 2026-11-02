@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::daemon::backup::BACKUP_DEFAULT_FOLDER_NAME;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -30,6 +31,10 @@ use sidekicks_store::credential_store::items::SecretItems;
 
 /// One step of the erase that the running daemon carries out.
 pub(crate) type EraseStep = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;
+
+/// The erase's step that ends the daemon's work, running the step it is given once nothing else
+/// calls into the drivers and before their services end.
+pub(crate) type StopWorkStep = Arc<dyn Fn(EraseStep) -> BoxFuture<'static, ()> + Send + Sync>;
 
 /// Signs every provider account out in its home, answering each account that did not sign out
 /// with why; fails when the accounts cannot be read.
@@ -52,8 +57,9 @@ pub(crate) struct DataEraseDeps {
     pub(crate) secret_items: Arc<SecretItems>,
     /// The registered drivers, each of whose services ends.
     pub(crate) providers: Arc<ProviderRegistry>,
-    /// Stops every run and shell as Runtime's `Stop` does, once the erase's reply is written.
-    pub(crate) stop_work: EraseStep,
+    /// Stops every run and shell as Runtime's `Stop` does, once the erase's reply is written,
+    /// signing the accounts out before the drivers' services end.
+    pub(crate) stop_work: StopWorkStep,
     /// Signs every provider account out once the work has stopped, before the services end.
     pub(crate) sign_out_accounts: AccountsSignOut,
     /// Closes everything that holds a file in the data folder: the read pool and the writer, the
@@ -111,25 +117,10 @@ impl DataErase {
     }
 
     // Erases everything and ends the process. Never fails: an account that does not sign out, a
-    // provider service that does not end and a data-folder entry that cannot be deleted are told in the service log, and a store that
-    // refuses an item keeps the data folder whole.
+    // provider service that does not end and a data-folder entry that cannot be deleted are told
+    // in the service log, and a store that refuses an item keeps the data folder whole.
     async fn erase(&self) {
-        (self.deps.stop_work)().await;
-        match (self.deps.sign_out_accounts)().await {
-            Ok(unsigned) => {
-                for (account, failure) in unsigned {
-                    tracing::warn!(
-                        account = account.as_str(),
-                        error = &failure as &(dyn Error + 'static),
-                        "a provider account did not sign out before the erase"
-                    );
-                }
-            }
-            Err(failure) => tracing::warn!(
-                error = &failure as &(dyn Error + 'static),
-                "the provider accounts could not be read to sign them out before the erase"
-            ),
-        }
+        (self.deps.stop_work)(self.sign_out_step()).await;
         for (provider, driver) in self.deps.providers.drivers() {
             if let Err(failure) = driver.shutdown(DaemonStopIntent::Stop).await {
                 tracing::warn!(
@@ -163,6 +154,33 @@ impl DataErase {
             ),
         }
         (self.deps.end_process)();
+    }
+
+    // The step that signs every provider account out, each account that did not sign out and a
+    // failed read of the accounts told in the service log.
+    fn sign_out_step(&self) -> EraseStep {
+        let sign_out_accounts = Arc::clone(&self.deps.sign_out_accounts);
+        Arc::new(move || {
+            let signed_out = sign_out_accounts();
+            async move {
+                match signed_out.await {
+                    Ok(unsigned) => {
+                        for (account, failure) in unsigned {
+                            tracing::warn!(
+                                account = account.as_str(),
+                                error = &failure as &(dyn Error + 'static),
+                                "a provider account did not sign out before the erase"
+                            );
+                        }
+                    }
+                    Err(failure) => tracing::warn!(
+                        error = &failure as &(dyn Error + 'static),
+                        "the provider accounts could not be read to sign them out before the erase"
+                    ),
+                }
+            }
+            .boxed()
+        })
     }
 }
 

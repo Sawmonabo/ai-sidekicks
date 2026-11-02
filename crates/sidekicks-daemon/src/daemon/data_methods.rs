@@ -252,7 +252,7 @@ mod tests {
             providers: Arc::new(registry_of_first_provider(Arc::new(
                 MockProviderDriver::new(),
             ))),
-            stop_work: Arc::new(move || {
+            stop_work: Arc::new(move |_| {
                 stopped.store(true, Ordering::SeqCst);
                 async {}.boxed()
             }),

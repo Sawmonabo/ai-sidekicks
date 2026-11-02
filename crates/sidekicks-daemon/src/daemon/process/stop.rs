@@ -16,14 +16,14 @@ use sidekicks_session::search::index::live::LiveIndexCloseError;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_workspace::clone::askpass::broker::AskpassBrokerError;
 use sidekicks_workspace::git::worktree::setup::WorktreeSetupError;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinError;
 
 use crate::daemon::process::database::{DatabaseFileCloseFailure, close_database_file};
 use crate::daemon::process::providers::{ProvidersRegistrationStopFailure, shut_down_drivers};
 use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess};
 use crate::daemon::stop_drain::describe_drain;
-use crate::data_acts::erase::EraseStep;
+use crate::data_acts::erase::{EraseStep, StopWorkStep};
 
 /// Why a step of the stop failed; every other step still ran.
 #[derive(Debug, thiserror::Error)]
@@ -109,13 +109,14 @@ pub(crate) enum CrashMonitorEndFailure {
 /// broker, the worktrees' setup commands, the repository services' background work, the attention
 /// decisions, the session services' follows with the chats' write watch and file recount, whose
 /// watermark a clean end stores, the renames' name pushes, the highlighter, the terminals, the
-/// scheduler, the working-folder watch, the projects list, the search index, the drivers, the git
-/// trees a failed call left and, last, the kept worktrees' reads. Answers each step's failure,
-/// every step having run.
+/// scheduler, the working-folder watch, the projects list, the search index, `before_drivers_end`
+/// where the erase gives one, the drivers, the git trees a failed call left and, last, the kept
+/// worktrees' reads. Answers each step's failure, every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     intent: DaemonStopIntent,
     bound: Duration,
+    before_drivers_end: Option<EraseStep>,
 ) -> Vec<DaemonStopFailure> {
     let started = *process.stop_started.get_or_insert_with(Instant::now);
     tracing::info!(
@@ -271,6 +272,10 @@ pub(crate) async fn stop_work(
     {
         failures.push(DaemonStopFailure::SearchIndex(failure));
     }
+    // Once nothing else calls into the drivers, while their services can still reach the homes.
+    if let Some(step) = before_drivers_end {
+        step().await;
+    }
     if let Some(drivers) = drivers {
         failures.extend(
             shut_down_drivers(&drivers, intent)
@@ -352,10 +357,29 @@ pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<Daemon
 
 /// A step of the erase the process runs on the task that owns it, answering once the step ran.
 pub(super) enum DaemonCommand {
-    /// Ends the daemon's work as the stop does.
-    StopWork(oneshot::Sender<()>),
+    /// Ends the daemon's work as the stop does, running `before_drivers_end` before the drivers'
+    /// services end.
+    StopWork {
+        before_drivers_end: EraseStep,
+        reply: oneshot::Sender<()>,
+    },
     /// Closes everything that holds a file in the data folder.
     CloseDataFolder(oneshot::Sender<()>),
+}
+
+// Sends the command `command` makes to the task that owns the process and waits until it ran, as
+// an erase step. Once the stop has begun, the stop closes these parts instead, and the erase's
+// later steps race the runtime's end.
+async fn send_command(
+    commands: mpsc::Sender<DaemonCommand>,
+    command: impl FnOnce(oneshot::Sender<()>) -> DaemonCommand,
+) {
+    let (reply, replied) = oneshot::channel();
+    if commands.send(command(reply)).await.is_err() || replied.await.is_err() {
+        tracing::info!(
+            "the daemon's stop had begun before the erase's step, so the stop closes those parts"
+        );
+    }
 }
 
 impl DaemonProcess {
@@ -375,34 +399,23 @@ impl DaemonProcess {
         })
     }
 
-    /// The erase's step that ends the daemon's work as the stop does.
-    pub(crate) fn stop_work_step(&self) -> EraseStep {
-        self.command_step(DaemonCommand::StopWork)
+    /// The erase's step that ends the daemon's work as the stop does, running the step it is given
+    /// before the drivers' services end.
+    pub(crate) fn stop_work_step(&self) -> StopWorkStep {
+        let commands = self.command_sender.clone();
+        Arc::new(move |before_drivers_end| {
+            send_command(commands.clone(), |reply| DaemonCommand::StopWork {
+                before_drivers_end,
+                reply,
+            })
+            .boxed()
+        })
     }
 
     /// The erase's step that closes everything that holds a file in the data folder.
     pub(crate) fn close_data_folder_step(&self) -> EraseStep {
-        self.command_step(DaemonCommand::CloseDataFolder)
-    }
-
-    // An erase step that sends the command `command` makes to the task that owns the process and
-    // waits until it ran. Once the stop has begun, the stop closes these parts instead, and the
-    // erase's later steps race the runtime's end.
-    fn command_step(&self, command: fn(oneshot::Sender<()>) -> DaemonCommand) -> EraseStep {
         let commands = self.command_sender.clone();
-        Arc::new(move || {
-            let commands = commands.clone();
-            async move {
-                let (reply, replied) = oneshot::channel();
-                if commands.send(command(reply)).await.is_err() || replied.await.is_err() {
-                    tracing::info!(
-                        "the daemon's stop had begun before the erase's step, so the stop closes \
-                         those parts"
-                    );
-                }
-            }
-            .boxed()
-        })
+        Arc::new(move || send_command(commands.clone(), DaemonCommand::CloseDataFolder).boxed())
     }
 
     /// Runs the erase's steps as they come, until the first stop asked for: the system's stop
@@ -439,8 +452,17 @@ impl DaemonProcess {
     // Runs one of the erase's steps, logging each failure, and answers that it ran.
     async fn run_command(&mut self, command: DaemonCommand) {
         let (failures, reply) = match command {
-            DaemonCommand::StopWork(reply) => (
-                stop_work(self, DaemonStopIntent::Stop, DAEMON_STOP_DRAIN_BOUND).await,
+            DaemonCommand::StopWork {
+                before_drivers_end,
+                reply,
+            } => (
+                stop_work(
+                    self,
+                    DaemonStopIntent::Stop,
+                    DAEMON_STOP_DRAIN_BOUND,
+                    Some(before_drivers_end),
+                )
+                .await,
                 reply,
             ),
             DaemonCommand::CloseDataFolder(reply) => (close_data_folder(self).await, reply),
@@ -463,7 +485,7 @@ impl DaemonProcess {
         mut self,
         intent: DaemonStopIntent,
     ) -> Result<(), SettleFailures<DaemonStopFailure>> {
-        let mut failures = stop_work(&mut self, intent, DAEMON_STOP_DRAIN_BOUND).await;
+        let mut failures = stop_work(&mut self, intent, DAEMON_STOP_DRAIN_BOUND, None).await;
         failures.extend(close_data_folder(&mut self).await);
         settle_all(
             failures

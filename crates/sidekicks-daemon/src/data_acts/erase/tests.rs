@@ -35,11 +35,11 @@ fn write_file(path: &Path) {
 // services end, the keychain's items go before the data folder closes, and the process ends
 // last; the data folder goes but for an earlier backup, and a project folder is untouched. An
 // account that does not sign out stops nothing. A second erase sent while it stops the work is
-// refused and starts nothing. Killed by a delete before the stop, by the sign-out skipped or run
-// after the services end or the folder goes, by an erase that stops on an account left signed in,
-// by items deleted after the folder, by a provider service ended as for a restart, by a project
-// folder or a backup deleted, by a second erase let run beside the first, and by a second erase
-// answered as the first.
+// refused and starts nothing. Killed by a delete before the stop, by the sign-out not handed to
+// the work stop or run after the services end or the folder goes, by an erase that stops on an
+// account left signed in, by items deleted after the folder, by a provider service ended as for a
+// restart, by a project folder or a backup deleted, by a second erase let run beside the first,
+// and by a second erase answered as the first.
 #[tokio::test]
 async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
     let data_folder = tempfile::tempdir().expect("the data folder is made");
@@ -98,7 +98,8 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
         data_folder: data.clone(),
         secret_items,
         providers,
-        stop_work: Arc::new(move || {
+        // The step given runs where the stop runs it, before the drivers' services end.
+        stop_work: Arc::new(move |before_drivers_end| {
             let whole = stop_data.join("daemon.db").exists();
             record(&stop_calls, format!("work stops (folder whole: {whole})"));
             let mut gate_open = gate_open.clone();
@@ -107,6 +108,7 @@ async fn an_erase_runs_in_order_and_keeps_backups_and_project_folders() {
                     .wait_for(|is_open| *is_open)
                     .await
                     .expect("the gate stays while the test runs");
+                before_drivers_end().await;
             }
             .boxed()
         }),

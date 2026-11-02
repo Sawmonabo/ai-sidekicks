@@ -112,7 +112,9 @@ use crate::daemon::process::workspace_services::{
 use crate::daemon::process::worktree_sources::WorktreeSources;
 use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
 use crate::daemon::status_methods::StatusMethodsDeps;
-use crate::data_acts::erase::{ACCOUNT_SIGN_OUT_BOUND, DataErase, DataEraseDeps, EraseStep};
+use crate::data_acts::erase::{
+    ACCOUNT_SIGN_OUT_BOUND, DataErase, DataEraseDeps, EraseStep, StopWorkStep,
+};
 use crate::data_acts::export::{DataExportDeps, DataExports};
 use crate::ipc::handlers::agent::command::CommandMethodSources;
 use crate::ipc::handlers::approval::ApprovalMethodSources;
@@ -194,7 +196,7 @@ pub(crate) struct MethodInputsStart<'start> {
     /// Starts the daemon's stop for the intent given.
     pub(crate) accept_stop: Arc<dyn Fn(DaemonStopIntent) + Send + Sync>,
     /// The erase's step that ends the daemon's work as the stop does.
-    pub(crate) stop_work: EraseStep,
+    pub(crate) stop_work: StopWorkStep,
     /// The erase's step that closes everything that holds a file in the data folder.
     pub(crate) close_data_folder: EraseStep,
 }
