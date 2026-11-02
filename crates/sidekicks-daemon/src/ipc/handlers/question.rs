@@ -20,7 +20,10 @@ pub(crate) fn register_question_resolve(
         let questions = Arc::clone(&questions);
         async move {
             let device_id = context.calling_device(QuestionResolve::DESCRIPTOR.method)?;
-            Ok(questions.resolve_question(request, device_id).await?)
+            Ok(questions
+                .resolve_question(request, device_id)
+                .await?
+                .response)
         }
         .boxed()
     })

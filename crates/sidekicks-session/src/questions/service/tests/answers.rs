@@ -273,8 +273,9 @@ async fn typed_text_on_an_agents_choice_reaches_the_driver() {
 // A question open from before the daemon's restart, its held request lost with the restart, that
 // its provider asks again under the same request returns to its record: no second record and no
 // second `question.asked`, the run still `waitingForInput`, and the answer goes back under the
-// request sent again. Killed by dropping the match, which records the question again and fails
-// to move a run already waiting, and by leaving the request unheld, which refuses the answer.
+// request sent again. Killed by dropping both the request's match and the pages' match, which
+// records the question again and fails to move a run already waiting, and by leaving the request
+// unheld, which keeps the answer and hands the driver nothing.
 #[tokio::test]
 async fn a_question_asked_again_after_a_restart_returns_to_its_open_record() {
     let fixture = Fixture::new().await;

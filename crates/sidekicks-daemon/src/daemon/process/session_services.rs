@@ -529,7 +529,7 @@ pub(crate) fn build_session_services(
         )),
         links: Arc::new(SessionLinkService::new(
             Arc::clone(&reads),
-            writer,
+            Arc::clone(&writer),
             Arc::clone(&related_ranking),
         )),
         related_ranking,
@@ -542,6 +542,7 @@ pub(crate) fn build_session_services(
         questions: Arc::new(QuestionsService::new(
             Arc::clone(&appender),
             Arc::clone(&reads),
+            writer,
             Arc::clone(&engine),
             providers,
         )),
