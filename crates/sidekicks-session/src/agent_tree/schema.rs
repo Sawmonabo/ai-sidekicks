@@ -24,7 +24,7 @@ CREATE TABLE agent_tree_nodes (
   -- The Claude call that started the newest own run, which an automatic resume names again; NULL
   -- on Codex.
   start_call_id        TEXT,
-  own_run_id           TEXT NOT NULL REFERENCES runs(run_id), -- the newest own run; its state
+  own_run_id           TEXT NOT NULL,                        -- the newest own run; its state
   started_at           TEXT NOT NULL,           -- the first own run's start
   updated_at           TEXT NOT NULL,           -- when its newest own run was bound
   UNIQUE (session_id, provider_name, subagent_id)
