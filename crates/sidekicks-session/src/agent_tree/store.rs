@@ -1,5 +1,5 @@
 //! The agent tree's writes, each the statement a helper's run write and a rebuild's fold share,
-//! and the two reads that tell a helper the tree already holds from a new one.
+//! the two reads that tell a helper the tree already holds from a new one, and a session's nodes.
 
 use std::borrow::Cow;
 
@@ -44,6 +44,9 @@ const FIND_NODE_SQL: &str = select_nodes!(
 );
 
 const READ_NODE_SQL: &str = select_nodes!("WHERE child_handle = @childHandle");
+
+const READ_SESSION_NODES_SQL: &str =
+    select_nodes!("WHERE session_id = @sessionId ORDER BY started_at, child_handle");
 
 /// A helper's node as its row holds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -190,6 +193,21 @@ pub fn read_node(
             node_of_row,
         )
         .optional()
+}
+
+/// Every node of `session_id`, oldest first and by handle where two started together. Fails as
+/// SQLite does, or when a stored column does not read as its type.
+pub fn read_session_nodes(
+    connection: &Connection,
+    session_id: SessionId,
+) -> rusqlite::Result<Vec<AgentTreeNode>> {
+    connection
+        .prepare_cached(READ_SESSION_NODES_SQL)?
+        .query_map(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            node_of_row,
+        )?
+        .collect()
 }
 
 fn node_of_row(row: &Row<'_>) -> rusqlite::Result<AgentTreeNode> {
