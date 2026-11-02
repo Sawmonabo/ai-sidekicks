@@ -24,7 +24,6 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_platforms::CredentialStore as PlatformCredentialStore;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::test_registry::registry_of_first_providers;
-use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::credential_store::SecretKeychain;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -146,7 +145,6 @@ impl Harness {
             &self.service.pools,
             &address,
             metadata,
-            Arc::new(KeyedLock::default()),
         )
         .await
         .expect("the authorizer is made")

@@ -1,5 +1,6 @@
-//! The sign-out of an MCP server: under one hold of the server's custody its held sign-in is read,
-//! its keychain item removed, the sign-out counted and its address marked signed out; then its
+//! The sign-out of an MCP server: once a renewal under way has landed, under one hold of the
+//! server's custody its held sign-in is read, its keychain item removed, the sign-out counted and
+//! its address marked signed out, so the refresh token revoked is the newest; then its
 //! waiting attempt or provider's flow is ended, and after the reply its refresh token is revoked
 //! where the authorization server publishes a revocation endpoint (RFC 7009), a confidential
 //! client authenticating by the method the revocation endpoint's metadata names.
@@ -62,9 +63,10 @@ enum RevocationError {
     expect(dead_code, reason = "the mcp.server.signOut handler calls it")
 )]
 impl SignInService {
-    /// Signs out of `target`'s server: forgets its sign-in, ends its waiting attempt or provider's
-    /// flow and marks it signed out, then revokes its refresh token after the reply. A server with
-    /// no sign-in held signs out at once. Refuses with `mcp.server.signOutFailed`, carrying the
+    /// Signs out of `target`'s server: once a renewal under way has landed, which may take up to
+    /// the OAuth call bound, forgets its sign-in, ends its waiting attempt or provider's flow and
+    /// marks it signed out, then revokes its refresh token after the reply. A server with no
+    /// sign-in held signs out at once. Refuses with `mcp.server.signOutFailed`, carrying the
     /// keychain's cause, when the keychain refuses to read or delete the sign-in, which then stays
     /// held and in use.
     pub(crate) async fn sign_out(&self, target: &SignInTarget) -> Result<(), McpRefusal> {

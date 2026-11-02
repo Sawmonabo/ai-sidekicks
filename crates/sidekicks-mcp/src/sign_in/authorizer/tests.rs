@@ -1,9 +1,12 @@
 //! The authorizer against an axum token endpoint on a loopback port: one renewal however many
 //! requests find the token run out, no renewal for a token another request already replaced, a
-//! `DPoP` sign-in's renewal signed with its key, which refused renewals forget the sign-in, and
-//! which issuers keep it.
+//! renewal as the client a sign-in kept since names, a sign-out that lands after a renewal under
+//! way, a `DPoP` sign-in's renewal signed with its key, which refused renewals forget the sign-in,
+//! and which issuers keep it.
 
+use std::pin::pin;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::Body;
@@ -21,8 +24,8 @@ use secrecy::SecretBox;
 use serde_json::{Value, json};
 use sidekicks_contracts::dpop::DPOP_PROOF_HEADER_NAME;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
-use sidekicks_std::keyed_lock::KeyedLock;
 use tempfile::TempDir;
+use tokio::sync::Notify;
 
 use super::{SignInAuthorizationError, SignInAuthorizer};
 use crate::client::http::McpRequestAuthorizer as _;
@@ -41,12 +44,16 @@ enum TokenAnswer {
     Refuse(&'static str),
 }
 
-/// What the fake token endpoint received: each renewal's refresh token and the `DPoP` proof it
-/// carried.
+/// What the fake token endpoint received: each renewal's refresh token, the client id its form
+/// named and the `DPoP` proof it carried; it tells `arrived` of each renewal, and answers only
+/// while `answers` is free.
 #[derive(Clone, Default)]
 struct Renewals {
     refresh_tokens: Arc<Mutex<Vec<String>>>,
+    client_ids: Arc<Mutex<Vec<Option<String>>>>,
     proofs: Arc<Mutex<Vec<Option<String>>>>,
+    arrived: Arc<Notify>,
+    answers: Arc<tokio::sync::Mutex<()>>,
 }
 
 /// A token endpoint on a loopback port answering every renewal with `answer`; it keeps what each
@@ -54,10 +61,20 @@ struct Renewals {
 async fn serve_token_endpoint(answer: TokenAnswer) -> (String, Renewals) {
     let renewals = Renewals::default();
     let received = renewals.refresh_tokens.clone();
+    let client_ids = renewals.client_ids.clone();
     let proofs = renewals.proofs.clone();
+    let arrived = renewals.arrived.clone();
+    let answers = renewals.answers.clone();
     let router = Router::new().route(
         "/token",
         post(move |headers: HeaderMap, body: String| async move {
+            arrived.notify_one();
+            let _answer = answers.lock().await;
+            client_ids.lock().expect("never poisoned").push(
+                url::form_urlencoded::parse(body.as_bytes())
+                    .find(|(name, _)| name == "client_id")
+                    .map(|(_, value)| value.into_owned()),
+            );
             proofs.lock().expect("never poisoned").push(
                 headers
                     .get(DPOP_PROOF_HEADER_NAME)
@@ -161,7 +178,6 @@ async fn expired_sign_in_issued_by(
         &OAuthHttpPools::new().expect("the pools build"),
         &address,
         metadata,
-        Arc::new(KeyedLock::default()),
     )
     .await;
     (data_folder, custody, authorizer)
@@ -340,4 +356,87 @@ async fn a_sign_in_is_kept_only_for_the_issuer_that_issued_it(
         .await
         .expect("the keychain answers");
     assert_eq!(held.is_some(), is_kept);
+}
+
+/// A sign-in kept since the authorizer was made, under another client, renews as that client.
+/// Killed by an authorizer that keeps the client it was made with, whose renewal rmcp refuses as
+/// another client's sign-in.
+#[tokio::test]
+async fn a_sign_in_kept_since_renews_as_its_own_client() {
+    let (base, renewals) = serve_token_endpoint(TokenAnswer::Rotate).await;
+    let (_data_folder, custody, authorizer) = expired_sign_in(&base).await;
+    let address = McpServerAddress::new(&format!("{base}/mcp")).expect("a server address");
+    let token_response = serde_json::from_value(json!({
+        "access_token": "test-access-token-1",
+        "token_type": "Bearer",
+        "refresh_token": "test-refresh-token-1",
+        "expires_in": 3600,
+    }))
+    .expect("a token response reads");
+    custody
+        .attempt_credential_store(&address, custody.sign_out_generation(&address), None, None)
+        .save(StoredCredentials::new(
+            "test-other-client".to_owned(),
+            Some(token_response),
+            vec![],
+            Some(1),
+        ))
+        .await
+        .expect("the new sign-in is kept");
+
+    assert_eq!(
+        presented_authorization(&authorizer, &base).await,
+        "Bearer test-access-token-2"
+    );
+    assert_eq!(
+        *renewals.client_ids.lock().expect("never poisoned"),
+        [Some("test-other-client".to_owned())]
+    );
+}
+
+/// A sign-out asked while a renewal waits on the token endpoint lands after it: it removes the
+/// rotated sign-in, so the refresh token revoked is the newest, and nothing is held after. Killed
+/// by a sign-out that skips the renewal hold, which removes the token the renewal replaces.
+#[tokio::test]
+async fn a_sign_out_during_a_renewal_removes_the_rotated_sign_in() {
+    let (base, renewals) = serve_token_endpoint(TokenAnswer::Rotate).await;
+    let (_data_folder, custody, authorizer) = expired_sign_in(&base).await;
+    let address = McpServerAddress::new(&format!("{base}/mcp")).expect("a server address");
+    let held_answers = Arc::clone(&renewals.answers).lock_owned().await;
+    let renewing = tokio::spawn({
+        let base = base.clone();
+        async move {
+            authorizer
+                .authorization(&Method::POST, &format!("{base}/mcp"), None)
+                .await
+                .is_ok()
+        }
+    });
+    renewals.arrived.notified().await;
+    let store = custody.credential_store(&address);
+    let mut signing_out = pin!(store.sign_out());
+
+    let early = tokio::time::timeout(Duration::from_millis(500), &mut signing_out).await;
+    assert!(early.is_err(), "the sign-out waits for the renewal");
+    drop(held_answers);
+    let removed = signing_out
+        .await
+        .expect("the keychain answers")
+        .expect("a sign-in was held");
+
+    assert!(renewing.await.expect("the renewal's task ends"));
+    let rotated = removed
+        .credentials
+        .token_response
+        .as_ref()
+        .and_then(|token_response| token_response.refresh_token())
+        .expect("the removed sign-in holds a refresh token");
+    assert_eq!(rotated.secret(), "test-refresh-token-2");
+    assert!(store.held().await.expect("the keychain answers").is_none());
+    assert!(
+        !custody
+            .signed_in_addresses()
+            .borrow()
+            .contains(&canonical_server_address(&address))
+    );
 }
