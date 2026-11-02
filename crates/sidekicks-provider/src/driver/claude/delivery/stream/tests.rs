@@ -127,6 +127,39 @@ async fn a_turn_opened_by_a_written_message_names_that_messages_item(#[case] is_
     );
 }
 
+// A resume writes every waiting message into one turn, which the oldest opens, as the first of a
+// start's messages opens a Codex turn, so both providers key the turn's checkpoint on one message.
+// Killed by taking the newest message written as the opening.
+#[tokio::test(start_paused = true)]
+async fn a_turn_taking_two_written_messages_is_opened_by_the_older() {
+    let session = ScriptedSession::new().await;
+    let run_id = session.hold_lead_turn("lead");
+    let older = QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id");
+    let newer = QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is a queue item id");
+    {
+        let mut prompts = session
+            .start
+            .prompts
+            .lock()
+            .expect("the prompts' lock holds");
+        prompts.record_written(session.session_id, run_id, &older.to_string(), false);
+        prompts.record_written(session.session_id, run_id, &newer.to_string(), false);
+    }
+
+    session.frame(&init());
+    session.frame(&result(&json!({})));
+    settle().await;
+
+    assert!(
+        session
+            .engine
+            .calls()
+            .contains(&EngineCall::StartTurn(run_id, Some(older))),
+        "the turn's start names the older message: {:?}",
+        session.engine.calls()
+    );
+}
+
 // Killed by a carried turn that writes no turn end, and by ending the run at that turn's end
 // rather than at the end of the turn Claude Code starts with the waiting steer.
 #[tokio::test(start_paused = true)]
