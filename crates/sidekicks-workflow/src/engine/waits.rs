@@ -437,9 +437,9 @@ pub(crate) fn read_waiting_person_step(
         .optional()
 }
 
-// The step key in the first four columns of `row`: the run, the node, the attempt and the
-// execution index.
-fn step_key(row: &Row<'_>) -> rusqlite::Result<WorkflowStepKey> {
+/// The step key in the first four columns of `row`: the run, the node, the attempt and the
+/// execution index. Fails when a column does not read as its type.
+pub(crate) fn step_key(row: &Row<'_>) -> rusqlite::Result<WorkflowStepKey> {
     Ok(WorkflowStepKey {
         workflow_run_id: text_column(row, 0, |text| WorkflowRunId::new(&text))?,
         node_id: text_column(row, 1, closed_word)?,

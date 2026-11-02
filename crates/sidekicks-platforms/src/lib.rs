@@ -380,6 +380,7 @@ pub use posix::terminal::pty::run_terminal_taking_stand_in;
 #[cfg(unix)]
 pub use posix::terminal::pty::{Pty, start_terminal};
 // The daemon's own socket on macOS and Linux is AF_UNIX too, so one dial serves both.
+pub use icu_locale_core::preferences::extensions::unicode::keywords::HourCycle;
 #[cfg(unix)]
 pub use posix::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};
 #[cfg(unix)]

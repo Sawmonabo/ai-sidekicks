@@ -16,8 +16,10 @@ use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use jiff::Timestamp;
+use jiff::Zoned;
 use jiff::tz::TimeZone;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
+use sidekicks_contracts::approval::ApprovalDecision;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::UuidTextForm;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -25,13 +27,16 @@ use sidekicks_contracts::wire::text::ComposedText;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowName, WorkflowVersionId,
 };
+use sidekicks_contracts::workflow::run::gate_resolution::WorkflowGateKind;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+use sidekicks_platforms::HourCycle;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::database::stored_column::{closed_word, safe_int_column, text_column};
+use sidekicks_store::database::stored_column::{safe_int_column, text_column};
 
 use crate::engine::ports::WorkflowApprovalCardRequest;
+use crate::engine::waits::step_key;
 use crate::runs::gate_resolution::{RunEventKeys, WorkflowGateAnswer, gate_resolution_statement};
 
 /// What a chain's question names, read from the chain's first run.
@@ -58,6 +63,45 @@ pub(crate) struct ChainHeldStep {
     pub(crate) step: WorkflowStepKey,
 }
 
+/// An answer that keeps its chain going: an approval of the chain's question on the chain's first
+/// run, the only answer [`keep_going_statements`] takes.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct KeepGoingAnswer(WorkflowGateAnswer);
+
+/// Why an answer cannot keep its chain going.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub(crate) enum KeepGoingRefusal {
+    /// The answer stops the chain rather than keeping it going.
+    #[error("the answer does not approve the chain's question")]
+    Rejected,
+    /// The answer is on a run other than the chain's first.
+    #[error("the answer is not on the chain's first run")]
+    AnotherRun,
+    /// The answer is to an approval step, not to the chain's question.
+    #[error("the answer is not to the chain's question")]
+    ApprovalStep,
+}
+
+impl KeepGoingAnswer {
+    /// `answer` as the `Keep going` of the chain whose first run is `root`. Refused unless it is
+    /// on `root`, answers the chain's question and approves it.
+    pub(crate) fn new(
+        root: &WorkflowRunId,
+        answer: WorkflowGateAnswer,
+    ) -> Result<Self, KeepGoingRefusal> {
+        if answer.workflow_run_id != *root {
+            return Err(KeepGoingRefusal::AnotherRun);
+        }
+        if answer.gate != WorkflowGateKind::Chain {
+            return Err(KeepGoingRefusal::ApprovalStep);
+        }
+        if answer.outcome != ApprovalDecision::Approved {
+            return Err(KeepGoingRefusal::Rejected);
+        }
+        Ok(Self(answer))
+    }
+}
+
 /// Where the kept-going update sits among [`keep_going_statements`]; a refusal there means the
 /// chain has no question left to answer, which answers `workflow.step.notWaiting`.
 pub(crate) const KEEP_GOING_STATEMENT_INDEX: usize = 0;
@@ -79,8 +123,8 @@ static CHAIN_HELD_STEPS_SQL: LazyLock<String> = LazyLock::new(|| {
     let waiting = <&'static str>::from(WorkflowStepStatus::Waiting);
     let chain = <&'static str>::from(WorkflowWaitCause::Chain);
     format!(
-        "SELECT run.session_id, step.workflow_run_id, step.node_id, step.attempt,
-    step.execution_index
+        "SELECT step.workflow_run_id, step.node_id, step.attempt, step.execution_index,
+    run.session_id
   FROM workflow_runs AS run
   JOIN workflow_steps AS step ON step.workflow_run_id = run.id
   WHERE run.chain_root_run_id = @root
@@ -127,22 +171,38 @@ pub(crate) fn read_chain_question(
 struct StoredNameOutOfBounds;
 
 /// The question's words: the workflow's name, the runs counted with thousands separators and the
-/// first run's start on the 12-hour clock in `time_zone`, the machine's.
+/// first run's start in `time_zone`, written in `hour_cycle`, both the machine's.
 pub(crate) fn chain_question_prompt(
     question: &ChainQuestion,
     time_zone: &TimeZone,
+    hour_cycle: HourCycle,
 ) -> ComposedText {
-    let start = question
-        .started_at
-        .to_zoned(time_zone.clone())
-        .strftime("%-I:%M %p")
-        .to_string();
+    let start = clock_time(&question.started_at.to_zoned(time_zone.clone()), hour_cycle);
     ComposedText::new(format!(
         "{name} has started {count} runs from its {start} start. Keep going?",
         name = question.workflow_name.as_str(),
         count = grouped_thousands(question.run_count.get()),
     ))
     .expect("the question holds its fixed words")
+}
+
+// `time`'s hour and minute as `hour_cycle` writes them: `3:00 AM` on the 12-hour clock, `0:00 AM`
+// for the hour after midnight on its 0–11 form, and `03:00` on the 24-hour clock.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "the hour cycle is an open union, and a cycle added to it reads as the 12-hour clock"
+)]
+fn clock_time(time: &Zoned, hour_cycle: HourCycle) -> String {
+    match hour_cycle {
+        HourCycle::H23 | HourCycle::Clock24 => time.strftime("%H:%M").to_string(),
+        HourCycle::H11 => format!(
+            "{hour}:{minute:02} {period}",
+            hour = time.hour() % 12,
+            minute = time.minute(),
+            period = if time.hour() < 12 { "AM" } else { "PM" },
+        ),
+        _ => time.strftime("%-I:%M %p").to_string(),
+    }
 }
 
 // `count` with a comma between each group of three digits: 2,000.
@@ -173,18 +233,18 @@ pub(crate) fn chain_card_request(
     }
 }
 
-/// The statements of `Keep going` on the chain whose first run is `root`: the first run reads kept
-/// going, and `answer`'s row is appended. `answer` is the chain's: on `root`, of gate `chain` with
-/// no node, category `gate` and outcome `approved`. The write is refused at
-/// [`KEEP_GOING_STATEMENT_INDEX`] when `root` is no first run or its chain was already answered.
-pub(crate) fn keep_going_statements(
-    root: &WorkflowRunId,
-    answer: &WorkflowGateAnswer,
-) -> Vec<WriteStatement> {
+/// The statements of `Keep going`: the chain's first run, the run `answer` is on, reads kept going,
+/// and `answer`'s row is appended. The write is refused at [`KEEP_GOING_STATEMENT_INDEX`] when that
+/// run is no first run or its chain was already answered.
+pub(crate) fn keep_going_statements(answer: &KeepGoingAnswer) -> Vec<WriteStatement> {
+    let KeepGoingAnswer(answer) = answer;
     vec![
         WriteStatement {
             sql: Cow::Borrowed(KEEP_GOING_SQL),
-            bindings: StatementBindings::Named(vec![text_binding("@root", root.text().as_str())]),
+            bindings: StatementBindings::Named(vec![text_binding(
+                "@root",
+                answer.workflow_run_id.text().as_str(),
+            )]),
             expected_row_count: Some(1),
         },
         gate_resolution_statement(answer),
@@ -203,13 +263,8 @@ pub(crate) fn read_chain_held_steps(
         .prepare_cached(&CHAIN_HELD_STEPS_SQL)?
         .query_map(named_params! { "@root": root.text().as_str() }, |row| {
             Ok(ChainHeldStep {
-                session_id: text_column(row, 0, |text| SessionId::new(&text))?,
-                step: WorkflowStepKey {
-                    workflow_run_id: text_column(row, 1, |text| WorkflowRunId::new(&text))?,
-                    node_id: text_column(row, 2, closed_word)?,
-                    attempt: safe_int_column(row, 3)?,
-                    execution_index: safe_int_column(row, 4)?,
-                },
+                session_id: text_column(row, 4, |text| SessionId::new(&text))?,
+                step: step_key(row)?,
             })
         })?
         .collect()
@@ -218,6 +273,7 @@ pub(crate) fn read_chain_held_steps(
 #[cfg(test)]
 mod tests {
     use jiff::tz::TimeZone;
+    use rstest::rstest;
     use rusqlite::{Connection, params};
     use sidekicks_contracts::approval::ApprovalDecision;
     use sidekicks_contracts::session::id::SessionId;
@@ -230,12 +286,14 @@ mod tests {
         WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
     };
     use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
+    use sidekicks_platforms::HourCycle;
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 
     use super::{
-        ChainHeldStep, KEEP_GOING_STATEMENT_INDEX, chain_card_request, chain_question_prompt,
-        keep_going_statements, read_chain_held_steps, read_chain_question,
+        ChainHeldStep, KEEP_GOING_STATEMENT_INDEX, KeepGoingAnswer, KeepGoingRefusal,
+        chain_card_request, chain_question_prompt, keep_going_statements, read_chain_held_steps,
+        read_chain_question,
     };
     use crate::runs::gate_resolution::tests::gate_answer;
     use crate::schema::schema_parts;
@@ -329,6 +387,56 @@ mod tests {
         .expect("the answers read")
     }
 
+    // The `Keep going` of the test chain's first run, its answer id ending in `id_suffix`.
+    fn keep_going(id_suffix: u8) -> KeepGoingAnswer {
+        KeepGoingAnswer::new(
+            &run_id(ROOT_RUN_ID),
+            gate_answer(
+                ROOT_RUN_ID,
+                id_suffix,
+                WorkflowGateKind::Chain,
+                ApprovalDecision::Approved,
+            ),
+        )
+        .expect("the first run's approval keeps its chain going")
+    }
+
+    /// Mutation: drop the outcome check, so `Stop them all` marks the chain kept going; or drop
+    /// either of the other two checks, so another run's or an approval step's answer does.
+    #[rstest]
+    #[case::a_rejection(
+        ROOT_RUN_ID,
+        WorkflowGateKind::Chain,
+        ApprovalDecision::Rejected,
+        KeepGoingRefusal::Rejected
+    )]
+    #[case::another_run(
+        FIRST_JOINED_RUN_ID,
+        WorkflowGateKind::Chain,
+        ApprovalDecision::Approved,
+        KeepGoingRefusal::AnotherRun
+    )]
+    #[case::an_approval_step(
+        ROOT_RUN_ID,
+        WorkflowGateKind::HumanApproval,
+        ApprovalDecision::Approved,
+        KeepGoingRefusal::ApprovalStep
+    )]
+    fn only_the_first_runs_approval_of_its_question_keeps_a_chain_going(
+        #[case] answer_run_id: &str,
+        #[case] gate: WorkflowGateKind,
+        #[case] outcome: ApprovalDecision,
+        #[case] expected: KeepGoingRefusal,
+    ) {
+        assert_eq!(
+            KeepGoingAnswer::new(
+                &run_id(ROOT_RUN_ID),
+                gate_answer(answer_run_id, 1, gate, outcome)
+            ),
+            Err(expected)
+        );
+    }
+
     /// Mutations: drop the update's `chain_kept_going = 0`, so a second answer is taken and
     /// appends a second row; drop the held read's chain filter, so another chain's step is read;
     /// write the chain's row with a node, which the row's check refuses.
@@ -366,28 +474,10 @@ mod tests {
         let root = run_id(ROOT_RUN_ID);
 
         writer
-            .write(keep_going_statements(
-                &root,
-                &gate_answer(
-                    ROOT_RUN_ID,
-                    1,
-                    WorkflowGateKind::Chain,
-                    ApprovalDecision::Approved,
-                ),
-            ))
+            .write(keep_going_statements(&keep_going(1)))
             .await
             .expect("the chain's first answer commits");
-        let second = writer
-            .write(keep_going_statements(
-                &root,
-                &gate_answer(
-                    ROOT_RUN_ID,
-                    2,
-                    WorkflowGateKind::Chain,
-                    ApprovalDecision::Approved,
-                ),
-            ))
-            .await;
+        let second = writer.write(keep_going_statements(&keep_going(2))).await;
 
         let kept_going: i64 = rows
             .query_row(
@@ -423,10 +513,21 @@ mod tests {
         );
     }
 
-    /// Mutations: write the start in UTC or on the 24-hour clock, drop the thousands separator,
-    /// or ask under a wait id other than the first run's own.
-    #[test]
-    fn the_chain_question_names_the_first_run_and_its_start_in_the_machines_clock() {
+    /// Mutations: write the start in UTC, on one clock whatever the hour cycle, drop the thousands
+    /// separator, or ask under a wait id other than the first run's own.
+    #[rstest]
+    #[case::twelve_hour(
+        HourCycle::H12,
+        "Nightly sync has started 2,000 runs from its 3:00 AM start. Keep going?"
+    )]
+    #[case::twenty_four_hour(
+        HourCycle::H23,
+        "Nightly sync has started 2,000 runs from its 03:00 start. Keep going?"
+    )]
+    fn the_chain_question_names_the_first_run_and_its_start_in_the_machines_clock(
+        #[case] hour_cycle: HourCycle,
+        #[case] expected_prompt: &str,
+    ) {
         let rows = workflow_tables();
         insert_workflow_version(&rows, DEFINITION_ID, VERSION_ID, "Nightly sync");
         insert_chain_run(&rows, ROOT_RUN_ID, "2026-10-02T10:00:00Z", None);
@@ -441,12 +542,12 @@ mod tests {
         let question = read_chain_question(&rows, &root)
             .expect("the question reads")
             .expect("the first run asks");
-        let request = chain_card_request(&question, chain_question_prompt(&question, &time_zone));
-
-        assert_eq!(
-            request.prompt.as_str(),
-            "Nightly sync has started 2,000 runs from its 3:00 AM start. Keep going?"
+        let request = chain_card_request(
+            &question,
+            chain_question_prompt(&question, &time_zone, hour_cycle),
         );
+
+        assert_eq!(request.prompt.as_str(), expected_prompt);
         assert_eq!(
             request.wait_id,
             UuidTextForm::new(ROOT_RUN_ID).expect("the root's id")
