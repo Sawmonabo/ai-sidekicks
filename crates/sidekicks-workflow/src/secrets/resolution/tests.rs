@@ -94,7 +94,7 @@ async fn resolve_one(
     project: Option<&ProjectId>,
     value: &str,
 ) -> Result<String, StepSecretRefusal> {
-    let found = find_step_secrets(connection, project, [("token", value, true)])?;
+    let found = find_step_secrets(connection, project, [("token", value)])?;
     let mut resolved = resolve_step_secrets(store, found).await?;
     let only = resolved
         .pop()
@@ -111,33 +111,6 @@ fn assert_not_found(result: Result<String, StepSecretRefusal>, reference: &str) 
         }
         other => panic!("expected {reference} not found, got {other:?}"),
     }
-}
-
-/// A reference in a parameter its kind does not mark sensitive resolves to nothing and the
-/// keychain is never asked, while a sensitive one holding plain text stays a plain value.
-/// Mutation: drop the sensitive filter, so the unmarked parameter resolves the shared record.
-#[tokio::test]
-async fn an_unmarked_parameters_reference_never_resolves() {
-    let database = TestDatabase::new(schema_parts());
-    let connection = database_with_secrets(&database);
-    let keychain = scripted_keychain(false);
-    let store = WorkflowSecretStore::new(Arc::clone(&keychain) as Arc<dyn SecretKeychain>);
-
-    let found = find_step_secrets(
-        &connection,
-        Some(&project(FIRST_PROJECT)),
-        [
-            ("url", "secret://shared/deploy-key", false),
-            ("note", "plain text", true),
-        ],
-    )
-    .expect("the read succeeds");
-    let resolved = resolve_step_secrets(&store, found)
-        .await
-        .expect("nothing is resolved");
-
-    assert!(resolved.is_empty(), "{resolved:?}");
-    assert!(keychain.reads().is_empty(), "{:?}", keychain.reads());
 }
 
 /// A kind holding a repeating collection `headers`, whose field `value` is sensitive and whose
@@ -162,9 +135,10 @@ fn headers_kind() -> WorkflowNodeKindSpec {
 }
 
 /// A reference in a nested sensitive leaf resolves under its path, while the same reference in a
-/// plain leaf and in the collection's plain field resolves to nothing; a node with no sensitive
-/// string resolves to nothing and asks the keychain nothing. Mutations: walk only the top level,
-/// so the nested secret never resolves; resolve a reference whose leaf is not sensitive.
+/// plain leaf and in the collection's plain field resolves to nothing and a sensitive leaf holding
+/// plain text stays a plain value; a node with no sensitive string resolves to nothing and asks the
+/// keychain nothing. Mutations: walk only the top level, so the nested secret never resolves;
+/// resolve a reference whose leaf is not sensitive; refuse a sensitive leaf's plain text.
 #[tokio::test]
 async fn a_nested_sensitive_leaf_resolves_under_its_path() {
     let database = TestDatabase::new(schema_parts());
@@ -182,10 +156,13 @@ async fn a_nested_sensitive_leaf_resolves_under_its_path() {
     let keychain = scripted_keychain(false);
     let resolved = resolve(
         json!({
-            "headers": [{
-                "name": "secret://shared/deploy-key",
-                "value": "secret://shared/deploy-key",
-            }],
+            "headers": [
+                {
+                    "name": "secret://shared/deploy-key",
+                    "value": "secret://shared/deploy-key",
+                },
+                { "name": "note", "value": "plain text" },
+            ],
             "url": "secret://shared/deploy-key",
         }),
         Arc::clone(&keychain),

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use sidekicks_contracts::workflow::definition::document::WorkflowNode;
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 
-use super::{StepDispatch, error_members, fill_step_failure};
+use super::{StepDispatch, error_members, fill_step_failure, scrub_outputs};
 use crate::engine::tick::node_settings::{
     index, join_per_item_outputs, main_input_lengths, main_inputs, per_item_calls, shape_outputs,
 };
@@ -63,6 +63,7 @@ impl StepDispatch {
         Some(match answer {
             Ok(StepOutcome::Outputs(mut outputs)) => {
                 shape_outputs(node, &main_input_lengths, &mut outputs);
+                scrub_outputs(&mut outputs, &context.redaction);
                 StepSettlement::Completed {
                     outputs,
                     cost: None,

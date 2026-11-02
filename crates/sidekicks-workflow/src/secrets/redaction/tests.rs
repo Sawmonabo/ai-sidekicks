@@ -138,3 +138,41 @@ fn a_secret_added_mid_stream_is_masked_from_the_next_push_and_the_carry_still_is
         format!("x {CREDENTIAL_REDACTION} then {CREDENTIAL_REDACTION} end").into_bytes()
     );
 }
+
+/// A long run of one short secret is written as it arrives, as one mask, the carry never holding
+/// more than the longest form less one byte. Mutation: hold a range reaching the cut whole in the
+/// carry, which grows it with the run.
+#[test]
+fn a_run_of_matches_is_written_as_it_arrives_as_one_mask() {
+    let redaction = redaction_of(&["aaaa"]);
+    let mut stream = redaction.stream();
+    let mut written = Vec::new();
+    for _ in 0..100 {
+        written.extend(stream.push(&[b'a'; 1000]));
+        assert!(
+            stream.carry.len() <= 3,
+            "the carry grew to {}",
+            stream.carry.len()
+        );
+    }
+    written.extend(stream.push(b"!"));
+    written.extend(stream.finish());
+
+    assert_eq!(written, format!("{CREDENTIAL_REDACTION}!").into_bytes());
+}
+
+/// A secret's tail held in the carry after its mask was written is never written plain, whether
+/// the next push carries the secret again or other text. Mutation: drop the carry's masked start,
+/// so its leading bytes match no form and are written.
+#[test]
+fn a_masked_tail_in_the_carry_is_never_written_plain() {
+    let redaction = redaction_of(&["abcd"]);
+    for (next, expected) in [
+        ("abcd", CREDENTIAL_REDACTION.to_owned()),
+        ("x", format!("{CREDENTIAL_REDACTION}x")),
+    ] {
+        let pieces = streamed(&redaction, &[b"abcd", next.as_bytes()]);
+
+        assert_eq!(pieces.concat(), expected.into_bytes(), "then {next:?}");
+    }
+}

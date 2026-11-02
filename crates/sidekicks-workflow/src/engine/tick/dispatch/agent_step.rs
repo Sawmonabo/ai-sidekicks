@@ -1,6 +1,7 @@
 //! An agent step's driver: the step's params are evaluated into its agent run's request, the run is
-//! created in the step's turn in the entry line, which is the step's one entry to the memory gate,
-//! and the run is followed through its admission, its start and its progress to its outcome.
+//! created in the step's turn in the entry line, taken once the evaluation has finished, which is
+//! the step's one entry to the memory gate, and the run is followed through its admission, its
+//! start and its progress to its outcome.
 
 use std::sync::Arc;
 
@@ -8,9 +9,12 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use super::run::execute;
-use super::{StepDispatch, fill_step_failure, is_canceled_in_line, settle_launch_failure};
+use super::{
+    StepDispatch, fill_step_failure, is_canceled_in_line, scrub_outputs, settle_launch_failure,
+};
+use crate::engine::event_record::EngineFault;
 use crate::engine::ports::AgentStepOutcome;
-use crate::engine::tick::admission::{GateEntryTurn, GateWaitEnd, wait_at_gate};
+use crate::engine::tick::admission::{GateWaitEnd, wait_at_gate};
 use crate::engine::tick::node_settings::{
     main_input_lengths, main_output_count, place_on_first_output, shape_outputs,
 };
@@ -19,17 +23,17 @@ use crate::kinds::{StepFailure, StepOutcome, uncoded_step_error};
 
 impl StepDispatch {
     /// Drives `ready`, an agent step of the run of `scope`, reading `snapshot`, to its settlement:
-    /// launches it and evaluates its params into its run's request, creates the run in its `turn`
-    /// in the entry line, then reports the run's hold, admission, start and progress and settles
-    /// with its outcome. A step canceled before its run is created creates none; one canceled
-    /// after settles canceled once its stopped run has ended.
+    /// launches it and evaluates its params into its run's request, then takes its turn in the
+    /// entry line and creates the run in it, then reports the run's hold, admission, start and
+    /// progress and settles with its outcome. A step canceled before its run is created creates
+    /// none; one canceled after settles canceled once its stopped run has ended, and a stop that
+    /// cannot be sent goes to the engine's record.
     pub(super) async fn drive_agent_step(
         self,
         scope: Arc<RunScope>,
         snapshot: RunSnapshot,
         ready: ReadyStep,
         cancel: CancellationToken,
-        turn: GateEntryTurn,
     ) {
         let (node, kind) = self.look_up_step(&scope, &ready.step);
         let step = ready.step.clone();
@@ -40,9 +44,6 @@ impl StepDispatch {
         let context = match launched {
             Ok(context) => context,
             Err(failure) => {
-                // Every path drops the turn before it reports, so a slow report channel never
-                // holds up the line.
-                drop(turn);
                 let settlement =
                     settle_launch_failure(failure, &cancel, &node.id, &scope.redaction);
                 self.report(&step, &cancel, StepReportKind::Settled(settlement))
@@ -76,7 +77,6 @@ impl StepDispatch {
         let request = match evaluated {
             Ok(request) => request,
             Err(failure) => {
-                drop(turn);
                 let settlement = match failure {
                     None => StepSettlement::Canceled {
                         hold_started_at: None,
@@ -92,7 +92,10 @@ impl StepDispatch {
                 return;
             }
         };
+        let turn = self.gate_entries.take_turn();
         if is_canceled_in_line(&turn, &cancel).await {
+            // Every path drops the turn before it reports, so a slow report channel never holds
+            // up the line.
             drop(turn);
             let canceled = StepSettlement::Canceled {
                 hold_started_at: None,
@@ -148,9 +151,16 @@ impl StepDispatch {
                         is_stopped = true;
                         started = None;
                         progressed = None;
-                        // A stop that cannot be sent has no sink yet; the outcome, awaited either
-                        // way, still ends the step.
-                        run.cancel().await.unwrap_or_else(drop);
+                        // The outcome, awaited either way, still ends the step.
+                        if let Err(error) = run.cancel().await {
+                            self.record_fault(
+                                &scope,
+                                &step,
+                                EngineFault::AgentRunStopFailed,
+                                error.as_ref(),
+                            )
+                            .await;
+                        }
                     }
                     start = async {
                         started.as_mut().expect("the branch runs only while the start is watched").await
@@ -201,6 +211,7 @@ impl StepDispatch {
                 Ok(AgentStepOutcome::Completed { items, cost }) => {
                     let mut outputs = place_on_first_output(items, main_output_count(&kind.spec));
                     shape_outputs(node, &main_input_lengths, &mut outputs);
+                    scrub_outputs(&mut outputs, &scope.redaction);
                     StepSettlement::Completed {
                         outputs,
                         cost,
@@ -240,6 +251,7 @@ mod tests {
     use std::time::Duration;
 
     use rstest::rstest;
+    use secrecy::SecretString;
     use serde_json::{Map, Value, json};
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
     use sidekicks_contracts::workflow::definition::document::WorkflowNode;
@@ -250,16 +262,19 @@ mod tests {
     use tokio::time::timeout;
 
     use super::super::tests::{
-        ExecutorProbe, Script, WAIT, next_report, report_json, scripted_kind, test_node,
+        ExecutorProbe, SECRET, Script, WAIT, assert_masked, next_report, report_json,
+        scripted_kind, secret_item, test_node,
     };
     use super::super::{StepDispatch, test_dispatch, test_ready_step, test_run_snapshot};
+    use crate::engine::event_record::EngineRecorder;
     use crate::engine::ports::{
-        AgentStepOutcome, AgentStepRequest, AgentStepRunner, ScriptedAgentRunner, ScriptedGate,
-        StepAdmission, StepAdmissionOutcome, WorkflowNodeKey,
+        AgentStepOutcome, AgentStepRequest, AgentStepRunner, EngineRecordSink, KeptEngineRecords,
+        ScriptedAgentRunner, ScriptedGate, StepAdmission, StepAdmissionOutcome, WorkflowNodeKey,
     };
     use crate::engine::tick::{StepReport, test_run_scope};
     use crate::kinds::{NodeKind, StepAdmissionNeed, StepAdmissionShape, uncoded_step_error};
     use crate::schema::schema_parts;
+    use crate::secrets::redaction::RunRedaction;
 
     /// How long a test waits to see that nothing happens.
     const QUIET: Duration = Duration::from_millis(50);
@@ -428,6 +443,46 @@ mod tests {
         assert_eq!(next_report(&mut received, &step).await, None);
     }
 
+    /// An agent run's items reach the tick with the run's secret masked wherever they carry it.
+    /// Mutation: settle the run's items unscrubbed.
+    #[tokio::test]
+    async fn an_agent_runs_items_reach_the_tick_masked() {
+        let database = TestDatabase::new(schema_parts());
+        let runner = Arc::new(ScriptedAgentRunner::new(
+            Some(StepAdmissionOutcome::Admitted),
+            false,
+        ));
+        let (dispatch, mut received) = agent_dispatch(&database, &runner, Vec::new());
+        let node = agent_node();
+        let mut scope = test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]);
+        scope.redaction = Arc::new(RunRedaction::new(&[SecretString::from(SECRET)]));
+        let scope = Arc::new(scope);
+        let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
+        let step = ready.step.clone();
+        dispatch.dispatch(&scope, &test_run_snapshot(&node), ready);
+        drop(dispatch);
+        assert_eq!(
+            next_report(&mut received, &step).await,
+            Some(json!({ "admitted": null }))
+        );
+
+        runner.start(PermissionLevel::Ask);
+        runner.end(AgentStepOutcome::Completed {
+            items: vec![secret_item()],
+            cost: None,
+        });
+
+        assert_eq!(
+            next_report(&mut received, &step).await,
+            Some(started_at(&Value::Null))
+        );
+        let settlement = next_report(&mut received, &step)
+            .await
+            .expect("the step settles");
+        assert!(settlement.get("completed").is_some(), "{settlement}");
+        assert_masked(&settlement);
+    }
+
     /// Where an agent step is when its cancel comes.
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum CancelPoint {
@@ -526,9 +581,22 @@ mod tests {
         drop(earlier_turn);
     }
 
-    /// An agent step and a gate step share one entry line: the gate step readied after the agent
-    /// step enters the gate only once the agent step's run is created. Mutations: create the run
-    /// without the turn; drop the turn before the creation returns.
+    /// A quick Code kind, `test.quick`, whose steps the memory gate weighs.
+    fn quick_kind(probe: &Arc<ExecutorProbe>) -> NodeKind {
+        let need = StepAdmissionNeed::Gate(StepAdmissionShape::QuickCode {
+            budget_bytes: 1024,
+            output_max_bytes: 2048,
+        });
+        let mut quick_kind = scripted_kind(Script::Progress, need, probe, false);
+        let mut spec = serde_json::to_value(&quick_kind.spec).expect("a kind's spec writes");
+        spec["kind"] = json!("test.quick");
+        quick_kind.spec = serde_json::from_value(spec).expect("the renamed spec reads");
+        quick_kind
+    }
+
+    /// An agent step and a gate step share one entry line: the gate step dispatched once the agent
+    /// step's run is being created enters the gate only once the creation returns. Mutations:
+    /// create the run without the turn; drop the turn before the creation returns.
     #[tokio::test]
     async fn an_agent_steps_creation_holds_the_entry_line_across_kinds() {
         let database = TestDatabase::new(schema_parts());
@@ -537,15 +605,8 @@ mod tests {
             true,
         ));
         let probe = Arc::new(ExecutorProbe::default());
-        let need = StepAdmissionNeed::Gate(StepAdmissionShape::QuickCode {
-            budget_bytes: 1024,
-            output_max_bytes: 2048,
-        });
-        let mut quick_kind = scripted_kind(Script::Progress, need, &probe, false);
-        let mut spec = serde_json::to_value(&quick_kind.spec).expect("a kind's spec writes");
-        spec["kind"] = json!("test.quick");
-        quick_kind.spec = serde_json::from_value(spec).expect("the renamed spec reads");
-        let (mut dispatch, _received) = agent_dispatch(&database, &runner, vec![quick_kind]);
+        let (mut dispatch, _received) =
+            agent_dispatch(&database, &runner, vec![quick_kind(&probe)]);
         let gate = Arc::new(ScriptedGate::new(None));
         dispatch.ports.admission = Arc::clone(&gate) as Arc<dyn StepAdmission>;
         let agent_node = agent_node();
@@ -554,11 +615,16 @@ mod tests {
             WorkflowRunMode::Manual,
             vec![agent_node.clone(), quick_node.clone()],
         ));
-
-        for node in [&agent_node, &quick_node] {
+        let dispatch_step = |node: &WorkflowNode| {
             let ready = test_ready_step(&scope, node, vec![vec![json!({ "name": "Ada" })]]);
             dispatch.dispatch(&scope, &test_run_snapshot(node), ready);
-        }
+        };
+
+        dispatch_step(&agent_node);
+        timeout(WAIT, runner.wait_for_request())
+            .await
+            .expect("the agent step's run is asked for");
+        dispatch_step(&quick_node);
         tokio::time::sleep(QUIET).await;
         assert_eq!(
             gate.enqueued(),
@@ -572,5 +638,99 @@ mod tests {
             .expect("the gate step enters once the agent step's run is created");
         assert_eq!(gate.enqueued().len(), 1);
         assert_eq!(runner.requests().len(), 1);
+    }
+
+    /// An agent step whose params are still evaluating holds no turn, so a gate step dispatched
+    /// after it enters the gate first, and the agent step's run is asked for once its evaluation
+    /// ends. Mutation: take the agent step's turn when it is dispatched.
+    #[tokio::test]
+    async fn an_agent_step_evaluating_its_params_holds_up_no_gate_entry() {
+        let database = TestDatabase::new(schema_parts());
+        let runner = Arc::new(ScriptedAgentRunner::new(
+            Some(StepAdmissionOutcome::Admitted),
+            false,
+        ));
+        let agent_probe = Arc::new(ExecutorProbe::default());
+        let held_agent_kind = scripted_kind(
+            Script::AwaitReleaseThenAskAgentRun,
+            StepAdmissionNeed::OwnRun,
+            &agent_probe,
+            false,
+        );
+        let quick_probe = Arc::new(ExecutorProbe::default());
+        let (mut dispatch, _received) =
+            test_dispatch(&database, vec![held_agent_kind, quick_kind(&quick_probe)]);
+        dispatch.ports.agent_steps = Arc::clone(&runner) as Arc<dyn AgentStepRunner>;
+        let gate = Arc::new(ScriptedGate::new(None));
+        dispatch.ports.admission = Arc::clone(&gate) as Arc<dyn StepAdmission>;
+        let agent_node = agent_node();
+        let quick_node = test_node(&json!({ "id": "quick", "kind": "test.quick" }));
+        let scope = Arc::new(test_run_scope(
+            WorkflowRunMode::Manual,
+            vec![agent_node.clone(), quick_node.clone()],
+        ));
+
+        for node in [&agent_node, &quick_node] {
+            let ready = test_ready_step(&scope, node, vec![vec![json!({ "name": "Ada" })]]);
+            dispatch.dispatch(&scope, &test_run_snapshot(node), ready);
+        }
+        timeout(WAIT, gate.wait_for_entry())
+            .await
+            .expect("the gate step enters while the agent step evaluates");
+        assert_eq!(runner.requests().len(), 0);
+
+        agent_probe.release();
+        timeout(WAIT, runner.wait_for_request())
+            .await
+            .expect("the agent step's run is asked for once its params evaluated");
+    }
+
+    /// A stop of an agent step's run that cannot be sent goes to the engine's record with its
+    /// error, and the step still settles canceled once its run ends. Mutation: drop the stop's
+    /// error unrecorded.
+    #[tokio::test]
+    async fn a_failed_stop_of_an_agent_steps_run_goes_to_the_record() {
+        let database = TestDatabase::new(schema_parts());
+        let runner = Arc::new(ScriptedAgentRunner::new(
+            Some(StepAdmissionOutcome::Admitted),
+            false,
+        ));
+        runner.fail_stops();
+        let (mut dispatch, mut received) = agent_dispatch(&database, &runner, Vec::new());
+        let sink = Arc::new(KeptEngineRecords::default());
+        dispatch.recorder = Arc::new(EngineRecorder::new(
+            Arc::clone(&sink) as Arc<dyn EngineRecordSink>
+        ));
+        let node = agent_node();
+        let scope = Arc::new(test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]));
+        let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
+        let step = ready.step.clone();
+        let dispatched = dispatch.dispatch(&scope, &test_run_snapshot(&node), ready);
+        drop(dispatch);
+        assert_eq!(
+            next_report(&mut received, &step).await,
+            Some(json!({ "admitted": null }))
+        );
+
+        dispatched.cancel.cancel();
+        timeout(WAIT, runner.wait_for_cancel())
+            .await
+            .expect("the step's cancel stops its run");
+        runner.end(completed_run());
+
+        assert_eq!(
+            next_report(&mut received, &step).await,
+            Some(json!({ "canceled": { "holdStartedAt": null, "isSiblingFailure": false } }))
+        );
+        let lines = sink.lines();
+        let [fault] = lines.as_slice() else {
+            panic!("one fault is recorded: {lines:?}");
+        };
+        assert_eq!(fault["record"], json!("agentRunStopFailed"));
+        assert_eq!(
+            fault["error"],
+            json!("the run's process did not take the stop")
+        );
+        assert_eq!(fault["nodeId"], json!(node.id));
     }
 }

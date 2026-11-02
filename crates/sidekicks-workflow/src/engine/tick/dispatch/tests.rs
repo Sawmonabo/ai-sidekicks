@@ -35,8 +35,8 @@ use crate::secrets::redaction::RunRedaction;
 /// The longest a test waits on a report or a signal.
 pub(super) const WAIT: Duration = Duration::from_secs(10);
 
-/// The run's secret, which a failure's message must never carry.
-const SECRET: &str = "hunter2secretXYZ";
+/// The run's secret, which a failure and an output must never carry.
+pub(super) const SECRET: &str = "hunter2secretXYZ";
 
 /// What a test executor does.
 #[derive(Clone, Copy)]
@@ -51,10 +51,14 @@ pub(super) enum Script {
     },
     /// Waits for the test's release, marks progress, then waits for its cancel and flags it.
     AwaitCancel,
-    /// Fails with a coded failure whose message holds the run's secret.
+    /// Fails with a coded failure whose message and details hold the run's secret.
     FailWithSecret,
+    /// Gives one item holding the run's secret in its data, a member name and its failure.
+    OutputSecret,
     /// Asks for an agent run carrying the params of its item 0.
     AskAgentRun,
+    /// Waits for the test's release, then asks as [`Script::AskAgentRun`] does.
+    AwaitReleaseThenAskAgentRun,
 }
 
 /// What a test executor saw, and the signals between it and the test.
@@ -70,6 +74,13 @@ pub(super) struct ExecutorProbe {
     canceled: Notify,
     /// Whether the executor's step held its place at the memory gate.
     is_admitted: AtomicBool,
+}
+
+impl ExecutorProbe {
+    /// Lets one waiting executor go on; a release with no waiter is kept for the next.
+    pub(super) fn release(&self) {
+        self.release.notify_one();
+    }
 }
 
 /// A test executor following its script.
@@ -135,10 +146,15 @@ impl NodeExecutor for ScriptedExecutor {
                     serde_json::from_value(json!({
                         "message": format!("token {SECRET} refused"),
                         "code": "workflow.test.refused",
+                        "details": { "token": SECRET, "tried": [format!("Bearer {SECRET}")] },
                     }))
                     .expect("the test's failure reads"),
                 ))),
-                Script::AskAgentRun => {
+                Script::OutputSecret => Ok(StepOutcome::Outputs(vec![vec![secret_item()]])),
+                Script::AskAgentRun | Script::AwaitReleaseThenAskAgentRun => {
+                    if matches!(self.script, Script::AwaitReleaseThenAskAgentRun) {
+                        probe.release.notified().await;
+                    }
                     let params = context
                         .item_params(0)
                         .await
@@ -158,6 +174,33 @@ impl NodeExecutor for ScriptedExecutor {
     fn admission_need(&self, _node: &WorkflowNode) -> StepAdmissionNeed {
         self.need
     }
+}
+
+/// An item holding the run's secret in its data, nested and as a member name, and in its coded
+/// failure's message and details.
+pub(super) fn secret_item() -> WorkflowItem {
+    serde_json::from_value(json!({
+        "json": { "token": SECRET, "headers": [{ "auth": format!("Bearer {SECRET}") }], SECRET: 1 },
+        "error": {
+            "message": format!("{SECRET} expired"),
+            "code": "workflow.test.refused",
+            "details": { "token": SECRET },
+        },
+    }))
+    .expect("the test's item reads")
+}
+
+/// Asserts that `settlement`, as JSON, carries the mask and nowhere the run's secret.
+pub(super) fn assert_masked(settlement: &Value) {
+    let text = settlement.to_string();
+    assert!(
+        !text.contains(SECRET),
+        "the secret reached the tick: {text}"
+    );
+    assert!(
+        text.contains(CREDENTIAL_REDACTION),
+        "nothing was masked: {text}"
+    );
 }
 
 /// The kind `test.step` at version 1, one main input and output and a sensitive `token` param,
@@ -546,11 +589,11 @@ async fn a_canceled_step_settles_once_its_executor_returns(#[case] is_receiver_d
     assert_eq!(next_report(&mut received, &step).await, None);
 }
 
-/// A step that cannot run fails with its node's id and its message scrubbed of the run's secrets:
-/// an unclosed template before any `Started`, an unlisted kind version in the dispatch's own
-/// answer with no driver, an executor's coded failure after `Started`, and an executor asking for
-/// an agent run. Mutations: send `Started` before a launch failure; leave the secret in the
-/// message; accept the agent run.
+/// A step that cannot run fails with its node's id and its message and details scrubbed of the
+/// run's secrets: an unclosed template before any `Started`, an unlisted kind version in the
+/// dispatch's own answer with no driver, an executor's coded failure after `Started`, and an
+/// executor asking for an agent run. Mutations: send `Started` before a launch failure; leave the
+/// secret in the message; leave it in a coded failure's details; accept the agent run.
 #[rstest]
 #[case::unclosed_template(
     json!({ "params": { "bad": "={{ a" } }),
@@ -578,6 +621,10 @@ async fn a_canceled_step_settles_once_its_executor_returns(#[case] is_receiver_d
         failed(&json!({
             "message": format!("token {CREDENTIAL_REDACTION} refused"),
             "code": "workflow.test.refused",
+            "details": {
+                "token": CREDENTIAL_REDACTION,
+                "tried": [format!("Bearer {CREDENTIAL_REDACTION}")],
+            },
             "nodeId": "step",
         })),
     ]
@@ -618,6 +665,36 @@ async fn a_step_that_cannot_run_fails_with_its_node(
 
     assert_eq!(answered, expected_answered);
     assert_eq!(sent, expected_sent);
+}
+
+/// A step's output items reach the tick with the run's secret masked wherever they carry it: in
+/// their data at any depth, in a member name and in an item's failure. Mutation: settle the
+/// executor's outputs unscrubbed.
+#[tokio::test]
+async fn a_steps_outputs_reach_the_tick_masked() {
+    let probe = Arc::new(ExecutorProbe::default());
+    let node = test_node(&json!({}));
+    let mut scope = test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]);
+    scope.redaction = Arc::new(RunRedaction::new(&[SecretString::from(SECRET)]));
+
+    let (_answered, sent) = run_step(
+        scope,
+        &node,
+        scripted_kind(
+            Script::OutputSecret,
+            StepAdmissionNeed::Unweighed,
+            &probe,
+            false,
+        ),
+        vec![json!({})],
+        &probe,
+        None,
+    )
+    .await;
+
+    let settlement = sent.last().expect("the step settled");
+    assert!(settlement.get("completed").is_some(), "{settlement}");
+    assert_masked(settlement);
 }
 
 /// A step the memory gate weighs gets nothing in the dispatch's answer: it enters the gate with

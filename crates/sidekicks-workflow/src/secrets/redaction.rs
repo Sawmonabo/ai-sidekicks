@@ -7,6 +7,10 @@
 //! aligned base64 cores, its `encodeURIComponent` and form encodings, its JSON string body and each
 //! line of a multi-line value. Matches are found overlapping and merged, so two secrets that
 //! overlap in the text leave no piece of either showing.
+//!
+//! A stream holds back at most the longest form's length less one byte, plus up to three bytes of
+//! a split character: a merged range reaching the cut is masked up to it at once and goes on into
+//! the next push as the same mask, so a run of matches never grows the carry.
 
 use std::borrow::Cow;
 use std::ops::Range;
@@ -81,14 +85,49 @@ impl RunRedaction {
     /// `text`, a record written at once, with each secret form in it masked; borrowed when nothing
     /// matched.
     pub fn scrub<'text>(&self, text: &'text str) -> Cow<'text, str> {
-        let ranges = current_needle_set(&self.needle_set).merged_ranges(text.as_bytes());
+        let ranges = current_needle_set(&self.needle_set).merged_ranges(text.as_bytes(), None);
         if ranges.is_empty() {
             return Cow::Borrowed(text);
         }
         Cow::Owned(
-            String::from_utf8(masked(text.as_bytes(), &ranges))
+            String::from_utf8(masked(text.as_bytes(), &ranges, false))
                 .expect("every needle is whole UTF-8 text, so a mask replaces whole characters"),
         )
+    }
+
+    /// Scrubs every string `value` holds in place, at any depth, member names included.
+    pub fn scrub_json(&self, value: &mut serde_json::Value) {
+        match value {
+            serde_json::Value::String(text) => {
+                if let Cow::Owned(scrubbed) = self.scrub(text) {
+                    *text = scrubbed;
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for value in values {
+                    self.scrub_json(value);
+                }
+            }
+            serde_json::Value::Object(members) => {
+                let renamed: Vec<(String, String)> = members
+                    .keys()
+                    .filter_map(|name| match self.scrub(name) {
+                        Cow::Owned(scrubbed) => Some((name.clone(), scrubbed)),
+                        Cow::Borrowed(_) => None,
+                    })
+                    .collect();
+                for (name, scrubbed) in renamed {
+                    if let Some(member) = members.remove(&name) {
+                        members.insert(scrubbed, member);
+                    }
+                }
+                for member in members.values_mut() {
+                    self.scrub_json(member);
+                }
+            }
+            serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            }
+        }
     }
 
     /// A scrubber for one stream the run writes, such as a step's stdout, stderr, log or progress.
@@ -96,6 +135,7 @@ impl RunRedaction {
         StreamScrubber {
             needle_set: Arc::clone(&self.needle_set),
             carry: Vec::new(),
+            masked_start: None,
         }
     }
 }
@@ -107,34 +147,45 @@ pub struct StreamScrubber {
     needle_set: Arc<RwLock<Arc<NeedleSet>>>,
     /// The bytes held back from the last push, not yet written.
     carry: Vec<u8>,
+    /// How many bytes at the carry's start lie inside a mask already written, `Some(0)` when the
+    /// last byte written was masked; `None` when it was not.
+    masked_start: Option<usize>,
 }
 
 impl StreamScrubber {
     /// The scrubbed bytes of `chunk` and the carry before it, up to a cut held back by the longest
-    /// needle less one byte; the cut never splits a masked range or a UTF-8 character.
+    /// needle less one byte and moved back to a UTF-8 character's start. A merged range reaching
+    /// the cut is masked up to it and goes on as the same mask, so the carry stays within that
+    /// bound.
     pub fn push(&mut self, chunk: &[u8]) -> Vec<u8> {
         let needle_set = current_needle_set(&self.needle_set);
         self.carry.extend_from_slice(chunk);
-        let ranges = needle_set.merged_ranges(&self.carry);
+        let is_continuing = self.masked_start.is_some();
+        let ranges = needle_set.merged_ranges(&self.carry, self.masked_start);
         let hold = needle_set.automaton.max_pattern_len().saturating_sub(1);
-        let mut cut = character_start(&self.carry, self.carry.len().saturating_sub(hold));
-        // A range touching the cut goes whole into the carry, so it is written as one mask.
-        if let Some(range) = ranges
-            .iter()
-            .find(|range| range.start < cut && range.end >= cut)
-        {
-            cut = range.start;
-        }
+        let cut = character_start(&self.carry, self.carry.len().saturating_sub(hold));
         let held = self.carry.split_off(cut);
         let written = std::mem::replace(&mut self.carry, held);
-        let before_cut = ranges.iter().take_while(|range| range.end <= cut).count();
-        masked(&written, &ranges[..before_cut])
+        let is_reaching_cut = |range: &Range<usize>| {
+            (range.start < cut || (is_continuing && range.start == 0)) && range.end >= cut
+        };
+        self.masked_start = ranges
+            .iter()
+            .find(|range| is_reaching_cut(range))
+            .map(|range| range.end - cut);
+        let written_ranges: Vec<Range<usize>> = ranges
+            .iter()
+            .filter(|range| range.start < cut)
+            .map(|range| range.start..range.end.min(cut))
+            .collect();
+        masked(&written, &written_ranges, is_continuing)
     }
 
     /// The carry, scrubbed, at the end of the stream.
     pub fn finish(self) -> Vec<u8> {
-        let ranges = current_needle_set(&self.needle_set).merged_ranges(&self.carry);
-        masked(&self.carry, &ranges)
+        let ranges =
+            current_needle_set(&self.needle_set).merged_ranges(&self.carry, self.masked_start);
+        masked(&self.carry, &ranges, self.masked_start.is_some())
     }
 }
 
@@ -152,13 +203,15 @@ impl NeedleSet {
         Self { needles, automaton }
     }
 
-    /// Every match in `haystack`, overlapping ones included, sorted and merged where they overlap
-    /// or touch, so each merged range takes one mask.
-    fn merged_ranges(&self, haystack: &[u8]) -> Vec<Range<usize>> {
+    /// Every match in `haystack`, overlapping ones included, and the first `masked_start` bytes
+    /// where a mask already covers them, sorted and merged where they overlap or touch, so each
+    /// merged range takes one mask.
+    fn merged_ranges(&self, haystack: &[u8], masked_start: Option<usize>) -> Vec<Range<usize>> {
         let mut matches: Vec<Range<usize>> = self
             .automaton
             .find_overlapping_iter(haystack)
             .map(|found| found.range())
+            .chain(masked_start.map(|end| 0..end))
             .collect();
         matches.sort_unstable_by_key(|range| (range.start, range.end));
         let mut merged: Vec<Range<usize>> = Vec::with_capacity(matches.len());
@@ -178,13 +231,16 @@ fn current_needle_set(shared: &RwLock<Arc<NeedleSet>>) -> Arc<NeedleSet> {
     Arc::clone(&shared.read().unwrap_or_else(PoisonError::into_inner))
 }
 
-/// `bytes` with each of `ranges`, sorted and apart, replaced by one mask.
-fn masked(bytes: &[u8], ranges: &[Range<usize>]) -> Vec<u8> {
+/// `bytes` with each of `ranges`, sorted and apart, replaced by one mask; a first range at the
+/// start goes on a mask already written when `is_continuing`, so it writes nothing.
+fn masked(bytes: &[u8], ranges: &[Range<usize>], is_continuing: bool) -> Vec<u8> {
     let mut scrubbed = Vec::with_capacity(bytes.len());
     let mut position = 0;
     for range in ranges {
         scrubbed.extend_from_slice(&bytes[position..range.start]);
-        scrubbed.extend_from_slice(CREDENTIAL_REDACTION.as_bytes());
+        if !(is_continuing && range.start == 0) {
+            scrubbed.extend_from_slice(CREDENTIAL_REDACTION.as_bytes());
+        }
         position = range.end;
     }
     scrubbed.extend_from_slice(&bytes[position..]);

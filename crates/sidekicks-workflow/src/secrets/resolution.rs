@@ -48,7 +48,7 @@ const LIVE_SECRET_RECORD_SQL: &str = "SELECT id FROM workflow_secrets
 /// A sensitive parameter's reference and the record that holds it, which
 /// [`resolve_step_secrets`] reads the value of.
 #[derive(Debug)]
-pub struct FoundStepSecret {
+struct FoundStepSecret {
     /// The parameter's name.
     parameter: String,
     /// The reference the parameter stores.
@@ -59,11 +59,18 @@ pub struct FoundStepSecret {
 
 /// A sensitive parameter's secret value, for the launcher to hand the step.
 #[derive(Debug)]
-pub struct ResolvedStepSecret {
+pub(crate) struct ResolvedStepSecret {
     /// The parameter's name.
-    pub parameter: String,
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the kinds' executors, which hand each secret to the param it resolved"
+        )
+    )]
+    pub(crate) parameter: String,
     /// The secret's value.
-    pub value: SecretString,
+    pub(crate) value: SecretString,
 }
 
 /// Why a step's secrets did not resolve; the step fails without starting. Each refusal answers
@@ -87,6 +94,14 @@ pub enum StepSecretRefusal {
     /// finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
+}
+
+impl StepSecretRefusal {
+    /// Whether a failure lies under the refusal: the keychain's, or a failed read's; a reference
+    /// that did not resolve has none.
+    pub(crate) fn has_failure_underneath(&self) -> bool {
+        !matches!(self, Self::NotFound { .. })
+    }
 }
 
 /// The code a refusal answers, its details and the keychain's failure underneath, where there is
@@ -155,7 +170,8 @@ impl From<StepSecretRefusal> for HandlerError {
 
 impl From<StepSecretRefusal> for WorkflowStepError {
     /// A reference that did not resolve and a keychain that could not be used fail the step with
-    /// their own codes, and a failed read fails it with no code; the step's driver sets the node.
+    /// their own codes, and a failed read fails it with no code; the step's driver sets the node
+    /// and, before this, records the failure underneath with its causes in the engine's record.
     fn from(refusal: StepSecretRefusal) -> Self {
         let message = refusal.to_string();
         match coded_refusal(refusal) {
@@ -203,7 +219,7 @@ pub(crate) async fn resolve_node_secrets(
                 project.as_ref(),
                 sensitive
                     .iter()
-                    .map(|(parameter, value)| (parameter.as_str(), value.as_str(), true)),
+                    .map(|(parameter, value)| (parameter.as_str(), value.as_str())),
             )
         })
         .await?;
@@ -259,22 +275,18 @@ fn find_param<'spec>(
     })
 }
 
-/// Finds the record of each sensitive parameter's reference, given each parameter as its name, its
-/// value's text and whether its kind marks it sensitive, in a run working in `project` or in none.
-/// A parameter not marked sensitive and a sensitive one holding a plain value are left out. Fails
-/// with [`StepSecretRefusal::NotFound`] for the first reference no live record holds, or with
-/// [`StepSecretRefusal::Database`] when the read does.
-pub fn find_step_secrets<'parameter>(
+/// Finds the record of each sensitive parameter's reference, given each parameter as its name and
+/// its value's text, in a run working in `project` or in none. A parameter holding a plain value
+/// is left out. Fails with [`StepSecretRefusal::NotFound`] for the first reference no live record
+/// holds, or with [`StepSecretRefusal::Database`] when the read does.
+fn find_step_secrets<'parameter>(
     connection: &Connection,
     project: Option<&ProjectId>,
-    parameters: impl IntoIterator<Item = (&'parameter str, &'parameter str, bool)>,
+    parameters: impl IntoIterator<Item = (&'parameter str, &'parameter str)>,
 ) -> Result<Vec<FoundStepSecret>, StepSecretRefusal> {
     let project_text = project.map(ProjectId::text);
     let mut found = Vec::new();
-    for (parameter, value, is_sensitive) in parameters {
-        if !is_sensitive {
-            continue;
-        }
+    for (parameter, value) in parameters {
         let Ok(reference) = value.parse::<WorkflowSecretReference>() else {
             continue;
         };
@@ -313,7 +325,7 @@ pub fn find_step_secrets<'parameter>(
 /// Reads each found secret's value from `store`, in the order found. Fails with
 /// [`StepSecretRefusal::NotFound`] for the first record whose keychain holds no value, or with
 /// [`StepSecretRefusal::StoreUnavailable`] when the keychain cannot be used.
-pub async fn resolve_step_secrets(
+async fn resolve_step_secrets(
     store: &WorkflowSecretStore,
     found: Vec<FoundStepSecret>,
 ) -> Result<Vec<ResolvedStepSecret>, StepSecretRefusal> {
