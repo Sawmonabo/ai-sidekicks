@@ -10,6 +10,7 @@
 //! folder with no fitting service there runs one on a socket of its own beside it.
 
 pub(crate) mod personal_folder_read;
+pub(crate) mod terminal_sessions;
 
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -244,10 +245,17 @@ impl CodexServiceRegistry {
     /// the one terminal reach names, and it is up or on its way back up. One that failed to start,
     /// ended in a crash loop or was stopped reads as off.
     pub(crate) fn is_terminal_service_on(&self) -> bool {
+        self.terminal_reach_service().is_some()
+    }
+
+    /// The service on the person's own folder while terminal reach is on, read as
+    /// [`Self::is_terminal_service_on`] reads it; `None` while it is off.
+    pub(crate) fn terminal_reach_service(&self) -> Option<Arc<CodexService>> {
         self.lock()
             .by_home
             .values()
-            .any(|service| is_terminal_reach_home(service.home()) && service.is_serving())
+            .find(|service| is_terminal_reach_home(service.home()) && service.is_serving())
+            .cloned()
     }
 
     /// Starts the terminal service on the person's own Codex folder as the switch turns terminal

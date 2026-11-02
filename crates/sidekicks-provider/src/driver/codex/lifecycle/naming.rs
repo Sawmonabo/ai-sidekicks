@@ -21,8 +21,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{CodexDriver, internal};
 use crate::driver::codex::app_server_protocol::{
-    AskForApproval, SandboxMode, ThreadReadParams, ThreadSetNameParams, ThreadSource,
-    ThreadStartParams,
+    AskForApproval, SandboxMode, ThreadSetNameParams, ThreadSource, ThreadStartParams,
 };
 use crate::driver::codex::attachments::compose_codex_text_input;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
@@ -41,15 +40,15 @@ use crate::driver::codex::session::detached_conversation::{
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::CodexTurnStartParams;
 use crate::driver::codex::thread::view::{
-    THREAD_START_METHOD, TURN_START_METHOD, read_thread, read_turn_id,
+    THREAD_START_METHOD, TURN_START_METHOD, read_thread, read_turn_id, request_thread_reading,
 };
-use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::driver::codex::transport::connection::{
+    CODEX_REQUEST_TIMEOUT, CodexAppServerConnection, read_codex_object,
+};
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{NameSessionParams, run_naming_pass_until};
 use crate::runtime_binding::store::RuntimeBinding;
 use crate::spawned_version::ResolvedProviderExecutable;
-
-const THREAD_READ_METHOD: &str = "thread/read";
 
 const THREAD_NAME_SET_METHOD: &str = "thread/name/set";
 
@@ -404,18 +403,9 @@ async fn start_title_thread(
     request: &TitleRequest<'_>,
 ) -> Result<TitleThread, CodexError> {
     if request.is_joined {
-        let reply = connection
-            .request(
-                THREAD_READ_METHOD,
-                &ThreadReadParams {
-                    thread_id: request.thread_id.to_owned(),
-                    include_turns: Some(false),
-                },
-            )
-            .await?;
-        let given = read_codex_object::<ThreadReadReply>(reply.get())
-            .and_then(|reply| reply.thread?.name)
-            .filter(|name| !name.trim().is_empty());
+        let given = request_thread_reading(connection, request.thread_id, CODEX_REQUEST_TIMEOUT)
+            .await?
+            .and_then(|reading| reading.name);
         if let Some(given) = given {
             return Ok(TitleThread::Named(given));
         }
@@ -686,14 +676,4 @@ struct StartedSandbox {
 struct SandboxReading {
     #[serde(rename = "type")]
     sandbox_type: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ThreadReadReply {
-    thread: Option<ReadThread>,
-}
-
-#[derive(Deserialize)]
-struct ReadThread {
-    name: Option<String>,
 }

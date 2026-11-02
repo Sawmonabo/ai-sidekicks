@@ -1,13 +1,17 @@
 //! Readers of a Codex thread's replies: the thread and where it stands, the reasoning effort and
-//! the permission profile a start, resume or fork runs under, and the turn a turn request names.
+//! the permission profile a start, resume or fork runs under, the turn a turn request names, and
+//! the `thread/read` of a thread's name, preview, source and status.
+
+use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
+use crate::driver::codex::app_server_protocol::ThreadReadParams;
 use crate::driver::codex::permission_level::compose_codex_profile_name;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::CodexThreadSettings;
-use crate::driver::codex::transport::connection::read_codex_object;
+use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 
 /// A thread as a thread reply names it.
 #[derive(Debug)]
@@ -71,6 +75,81 @@ struct ThreadMembers {
     id: Option<String>,
     session_id: Option<String>,
     status: Option<Box<RawValue>>,
+}
+
+// The members a `thread/read` reply's thread is read for, each on its own: `source` is a string or
+// an object, so no one type reads it.
+#[derive(Deserialize)]
+struct ThreadReadingMembers {
+    name: Option<Box<RawValue>>,
+    preview: Option<Box<RawValue>>,
+    source: Option<Box<RawValue>>,
+    ephemeral: Option<Box<RawValue>>,
+    status: Option<Box<RawValue>>,
+}
+
+/// A thread as `thread/read` names it, without its turns.
+#[derive(Debug)]
+pub(crate) struct CodexThreadReading {
+    /// The name the thread was given, `None` where it has none or a blank one.
+    pub(crate) name: Option<String>,
+    /// The thread's preview, `None` where it has none or a blank one.
+    pub(crate) preview: Option<String>,
+    /// Whether a person typed the thread in a terminal: its source is `cli` and it is kept, unlike
+    /// a helper's or a one-off run's.
+    pub(crate) is_typed_in_terminal: bool,
+    /// Where the thread stands on the service, `None` where the reply names no status it reads.
+    pub(crate) status: Option<CodexThreadStatus>,
+}
+
+/// The thread the `thread/read` reply `reply` names, or `None` when it carries no readable thread.
+/// A member that does not read as its type reads as absent, never making the thread unreadable.
+pub(crate) fn read_thread_reading(reply: &RawValue) -> Option<CodexThreadReading> {
+    let thread = read_codex_object::<ThreadReply>(reply.get())
+        .and_then(|reply| reply.thread)
+        .and_then(|thread| read_codex_object::<ThreadReadingMembers>(thread.get()))?;
+    let source = thread
+        .source
+        .and_then(|source| serde_json::from_str::<String>(source.get()).ok());
+    let ephemeral = thread
+        .ephemeral
+        .and_then(|ephemeral| serde_json::from_str::<bool>(ephemeral.get()).ok());
+    Some(CodexThreadReading {
+        name: thread.name.and_then(|name| read_given_text(&name)),
+        preview: thread.preview.and_then(|preview| read_given_text(&preview)),
+        is_typed_in_terminal: source.as_deref() == Some(THREAD_TERMINAL_SOURCE)
+            && ephemeral == Some(false),
+        status: thread
+            .status
+            .and_then(|status| read_codex_object::<CodexThreadStatus>(status.get())),
+    })
+}
+
+/// Reads `thread_id` through `thread/read` without its turns, waiting at most `timeout`. Answers
+/// `None` when the reply carries no readable thread; fails as the request does.
+pub(crate) async fn request_thread_reading(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+    timeout: Duration,
+) -> Result<Option<CodexThreadReading>, CodexError> {
+    let reply = connection
+        .request_within(
+            THREAD_READ_METHOD,
+            &ThreadReadParams {
+                thread_id: thread_id.to_owned(),
+                include_turns: Some(false),
+            },
+            timeout,
+        )
+        .await?;
+    Ok(read_thread_reading(&reply))
+}
+
+// A text member, `None` where it is not a string or is blank.
+fn read_given_text(member: &RawValue) -> Option<String> {
+    serde_json::from_str::<String>(member.get())
+        .ok()
+        .filter(|text| !text.trim().is_empty())
 }
 
 // A turn, read by its id.
@@ -185,6 +264,12 @@ pub(crate) const THREAD_RESUME_METHOD: &str = "thread/resume";
 
 /// The request that starts a turn on a thread.
 pub(crate) const TURN_START_METHOD: &str = "turn/start";
+
+// The request that reads a thread.
+const THREAD_READ_METHOD: &str = "thread/read";
+
+// The source of a thread a person started with the `codex` command in a terminal.
+const THREAD_TERMINAL_SOURCE: &str = "cli";
 
 /// Reads the id of the turn the `method` reply `reply` names. Fails with `CodexError::Transport`
 /// naming `method` when it carries none.

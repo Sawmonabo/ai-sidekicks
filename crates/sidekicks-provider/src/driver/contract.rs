@@ -22,6 +22,7 @@ use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
+use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::driver::contract::account::ProviderAccountLegs;
@@ -556,6 +557,15 @@ pub trait ProviderDriver: Send + Sync {
     /// service writing one. Fails when a log of a service that may run cannot be named.
     fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
         Ok(Vec::new())
+    }
+
+    /// The sessions a person typed in a terminal that run inside the provider's shared service;
+    /// empty for a provider that keeps none, or while its switch is off. Fails when the service is
+    /// on but the list cannot be read.
+    fn list_terminal_sessions(
+        &self,
+    ) -> BoxFuture<'_, Result<Vec<TerminalProviderSession>, DriverError>> {
+        Box::pin(async { Ok(Vec::new()) })
     }
 
     /// Signs in to an MCP server through the provider's own client, in a folder of the daemon's

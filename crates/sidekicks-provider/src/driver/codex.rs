@@ -21,6 +21,7 @@ use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
+use sidekicks_contracts::session::controls::methods::TerminalProviderSession;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_platforms::{
@@ -732,6 +733,12 @@ impl ProviderDriver for CodexDriver {
 
     fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
         self.registry.running_service_log_files()
+    }
+
+    fn list_terminal_sessions(
+        &self,
+    ) -> BoxFuture<'_, Result<Vec<TerminalProviderSession>, DriverError>> {
+        async move { Ok(self.registry.list_terminal_sessions().await?) }.boxed()
     }
 
     fn sign_in_with_own_client(
