@@ -173,8 +173,9 @@ pub struct AgentQueueItemCreateRequest {
     /// Edits this waiting message in place: it keeps its place and the old item reads
     /// `superseded`. Naming a message not delivered, with its own words, is a retry that queues
     /// its words and files again as a new message at the queue's end. Naming a review not
-    /// delivered queues the same review, the words unread; carrying `attachments`, `skills`,
-    /// `answersQuestionId` or `outputSpeedForTurn` beside it is refused
+    /// delivered queues the same review, the words unread, and naming a plan message not delivered,
+    /// with its own words, queues the same plan message; carrying `attachments`, `skills`,
+    /// `answersQuestionId` or `outputSpeedForTurn` beside either is refused
     /// `agent.queueItem.changeRefused`, `reviewExtras`.
     #[serde(
         default,
@@ -689,9 +690,9 @@ ts_constants! {
     /// an item of another session, or one of another queue than the change names.
     AGENT_QUEUE_ITEM_NOT_FOUND_CODE = RefusalCode::AgentQueueItemNotFound;
     /// The refusal of a change to a waiting message the agent has already taken or the provider
-    /// did not give back, a retry in other words than its own, an edit of a queued review, a
-    /// review's retry carrying a message's extras, or a reorder whose list is not exactly the
-    /// waiting items.
+    /// did not give back, a retry in other words than its own, an edit of a queued review or of a
+    /// plan message, the cancel of a hand-off's seed, a review's or a plan message's retry
+    /// carrying a message's extras, or a reorder whose list is not exactly the waiting items.
     AGENT_QUEUE_ITEM_CHANGE_REFUSED_CODE = RefusalCode::AgentQueueItemChangeRefused;
 }
 
@@ -712,8 +713,8 @@ pub enum AgentQueueItemChangeRefusedReason {
     /// The cancel names the first message of a hand-off's fresh session, which only ending the
     /// hand-off cancels.
     HandOffSeed,
-    /// A review sent again carried files, skills, an answered question or a speed, which a review
-    /// cannot take.
+    /// A review or a plan message sent again carried files, skills, an answered question or a
+    /// speed, which neither can take.
     ReviewExtras,
 }
 

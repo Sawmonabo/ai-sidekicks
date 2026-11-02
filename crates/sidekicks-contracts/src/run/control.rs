@@ -543,6 +543,8 @@ methods! {
                 SessionChangeRefused,
                 ProviderUnavailable,
                 ProviderTimeout,
+                ProviderAccountNotRegistered,
+                ProviderAccountCurrentNotSet,
                 AgentQueueItemPersistenceUnavailable,
                 AgentQueueItemNotFound,
                 AgentQueueItemChangeRefused,
