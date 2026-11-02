@@ -41,7 +41,6 @@ use crate::driver::contract::sign_in::{
     ProviderSignInTakeoverRequest,
 };
 use crate::driver::mcp_server::address::read_server_address;
-use crate::driver::mcp_server::read::binding_server_name;
 use crate::driver::mcp_server::sign_in_folder::SignInFolder;
 
 /// The request that starts a login to one of the home's MCP servers.
@@ -140,7 +139,7 @@ pub(crate) async fn sign_in_with_codex_client(
     home_folder: &Path,
     request: ProviderSignInTakeoverRequest,
 ) -> Result<ProviderSignInTakeover, DriverError> {
-    let name = binding_server_name(&request.binding).clone();
+    let name = request.binding.server_name().clone();
     let entry = read_sign_in_entry(
         registry,
         home_folder,
@@ -201,7 +200,7 @@ async fn read_sign_in_entry(
     binding: &McpServerBindingRef,
     root_folder: Option<&Path>,
 ) -> Result<Map<String, Value>, DriverError> {
-    let name = binding_server_name(binding);
+    let name = binding.server_name();
     let entry = match binding {
         McpServerBindingRef::Connector { .. } => {
             return Err(NoPersonServerEntry {

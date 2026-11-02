@@ -46,7 +46,6 @@ use crate::driver::contract::sign_in::{
     ProviderSignInTakeoverRequest,
 };
 use crate::driver::mcp_server::address::read_server_address;
-use crate::driver::mcp_server::read::binding_server_name;
 use crate::driver::mcp_server::sign_in_folder::{SignInFolder, remove_left_sign_in_folders};
 
 /// The data folder's folder each sign-in makes its own folder in.
@@ -168,7 +167,7 @@ pub(crate) async fn sign_in_with_claude_client(
     environment_on: impl FnOnce(&Path) -> Result<Vec<(String, String)>, DriverError>,
     request: ProviderSignInTakeoverRequest,
 ) -> Result<ProviderSignInTakeover, DriverError> {
-    let name = binding_server_name(&request.binding).clone();
+    let name = request.binding.server_name().clone();
     let has_managed_mcp_file = has_readable_managed_mcp_file(sources.managed_settings_folder).await;
     let entry = read_sign_in_entry(
         &sources,
@@ -352,7 +351,7 @@ async fn read_sign_in_entry(
             Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_),
         )
         | None => Err(ClaudeSignInError::ServerEntryGone {
-            name: binding_server_name(binding).as_str().to_owned(),
+            name: binding.server_name().as_str().to_owned(),
         }
         .into()),
     }
