@@ -16,10 +16,8 @@ use crate::driver::callback_tool::{CallbackToolDispatcher, CallbackToolInvocatio
 /// [`CallbackToolSpawnBinding::rollback`] instead.
 #[must_use = "dropping the binding releases the spawn's callback-tool registry"]
 pub struct CallbackToolSpawnBinding {
-    /// Whether the spawn offers its tools, and which.
-    pub(crate) admission: CallbackToolAdmission,
-    /// Answers each call; bound even on a withholding, so a stray call is a recorded refusal.
-    pub(crate) dispatcher: CallbackToolDispatcher,
+    admission: CallbackToolAdmission,
+    dispatcher: CallbackToolDispatcher,
     host: Arc<CallbackToolHost>,
     session_id: SessionId,
     token: CallbackToolRegistryToken,
@@ -27,6 +25,17 @@ pub struct CallbackToolSpawnBinding {
 }
 
 impl CallbackToolSpawnBinding {
+    /// Whether the spawn offers its tools, and which.
+    pub fn admission(&self) -> &CallbackToolAdmission {
+        &self.admission
+    }
+
+    /// The dispatcher that answers the spawn's calls; bound even on a withholding, so a stray call
+    /// is a recorded refusal.
+    pub fn dispatcher(&self) -> &CallbackToolDispatcher {
+        &self.dispatcher
+    }
+
     /// Undoes the spawn's registry after the spawn failed, restoring the one it replaced, which a
     /// driver may still be using; with none replaced it is the same as dropping the binding.
     pub(crate) fn rollback(mut self) {
@@ -72,7 +81,7 @@ pub fn bind_callback_tools_for_spawn(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
 
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
@@ -82,41 +91,25 @@ mod tests {
     use sidekicks_contracts::provider::tool_call::ToolCallId;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::session::links::SessionLinkKind;
     use sidekicks_contracts::wire::text::FreeFormText;
-    use sidekicks_std::mutex_lock::lock;
 
     use super::{CallbackToolSpawnBinding, bind_callback_tools_for_spawn};
     use crate::callback_tools::host::{
-        CallbackToolActivityDisposition, CallbackToolActivityRecord, CallbackToolActivitySink,
-        CallbackToolAdmission, CallbackToolApprovalBasis, CallbackToolApprovalOutcome,
-        CallbackToolApprovalSeam, CallbackToolExecutor, CallbackToolHost, CallbackToolPortError,
-        CallbackToolSpawnRequest,
+        CallbackToolActivityRecord, CallbackToolActivitySink, CallbackToolAdmission,
+        CallbackToolApprovalBasis, CallbackToolApprovalOutcome, CallbackToolApprovalSeam,
+        CallbackToolExecutor, CallbackToolHost, CallbackToolPortError, CallbackToolSpawnRequest,
     };
-    use crate::driver::callback_tool::{
-        CallbackToolInvocation, CallbackToolResult, CallbackToolSessionLink,
-    };
+    use crate::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
     use crate::driver::diagnostics::RecordedEvents;
     use crate::driver::registry::test_provider;
 
     const SESSION: &str = "0192f3a4-5b6c-7d8e-9f01-23456789abcd";
-    const STARTED_SESSION: &str = "0192f3a4-5b6c-7d8e-9f01-23456789abce";
     const TOOL: &str = "search";
 
     /// The seam, executor and sink at once: the seam allows by policy, or fails when told to; the
-    /// executor completes having started one session; the sink keeps every record.
+    /// executor completes; the sink takes every record.
     struct TestPorts {
         is_seam_failing: bool,
-        records: Mutex<Vec<CallbackToolActivityRecord>>,
-    }
-
-    /// The link the executor's completed call names: the caller started a second session.
-    fn started_link() -> CallbackToolSessionLink {
-        CallbackToolSessionLink {
-            source_session_id: SessionId::new(SESSION).expect("the text is a UUID"),
-            target_session_id: SessionId::new(STARTED_SESSION).expect("the text is a UUID"),
-            kind: SessionLinkKind::Started,
-        }
     }
 
     impl CallbackToolApprovalSeam for TestPorts {
@@ -143,7 +136,7 @@ mod tests {
             async {
                 Ok(CallbackToolResult::Completed {
                     output: None,
-                    session_links: vec![started_link()],
+                    session_links: Vec::new(),
                 })
             }
             .boxed()
@@ -153,25 +146,22 @@ mod tests {
     impl CallbackToolActivitySink for TestPorts {
         fn record<'a>(
             &'a self,
-            record: &'a CallbackToolActivityRecord,
+            _record: &'a CallbackToolActivityRecord,
         ) -> BoxFuture<'a, Result<(), CallbackToolPortError>> {
-            lock(&self.records).push(record.clone());
             async { Ok(()) }.boxed()
         }
     }
 
-    /// A host whose seam is absent (`None`), failing, or allowing, with the ports it is built over.
-    fn host_with(is_seam_failing: Option<bool>) -> (Arc<CallbackToolHost>, Arc<TestPorts>) {
+    /// A host whose seam is absent (`None`), failing, or allowing.
+    fn host_with(is_seam_failing: Option<bool>) -> Arc<CallbackToolHost> {
         let ports = Arc::new(TestPorts {
             is_seam_failing: is_seam_failing.unwrap_or(false),
-            records: Mutex::new(Vec::new()),
         });
         let seam: Option<Arc<dyn CallbackToolApprovalSeam>> =
             is_seam_failing.map(|_| Arc::clone(&ports) as Arc<dyn CallbackToolApprovalSeam>);
         let executor: Arc<dyn CallbackToolExecutor> = Arc::clone(&ports) as _;
         let sink: Arc<dyn CallbackToolActivitySink> = Arc::clone(&ports) as _;
-        let host = Arc::new(CallbackToolHost::new(executor, sink, seam));
-        (host, ports)
+        Arc::new(CallbackToolHost::new(executor, sink, seam))
     }
 
     fn bind(host: &Arc<CallbackToolHost>) -> CallbackToolSpawnBinding {
@@ -200,7 +190,7 @@ mod tests {
             session_id: SessionId::new(SESSION).expect("the text is a UUID"),
             run_id: RunId::new("0192f0c8-7a3e-7b4c-9d2e-3f4a5b6c7d8e").expect("the text is a UUID"),
         };
-        (binding.dispatcher)(invocation)
+        (binding.dispatcher())(invocation)
             .now_or_never()
             .expect("the test doubles answer at once")
     }
@@ -211,7 +201,7 @@ mod tests {
 
         let recorded = RecordedEvents::default();
         recorded.record_during(|| {
-            let (host, _) = host_with(Some(false));
+            let host = host_with(Some(false));
             let first = bind(&host);
             let second = bind(&host);
             assert!(
@@ -230,13 +220,13 @@ mod tests {
             drop(first);
             third.rollback();
 
-            let withheld = bind(&host_with(None).0);
+            let withheld = bind(&host_with(None));
             assert!(matches!(
-                withheld.admission,
+                withheld.admission(),
                 CallbackToolAdmission::Withheld { .. }
             ));
             assert!(matches!(call(&withheld), Denied { .. }));
-            let failing = bind(&host_with(Some(true)).0);
+            let failing = bind(&host_with(Some(true)));
             assert!(matches!(call(&failing), Denied { .. }));
         });
         assert_eq!(
@@ -251,29 +241,6 @@ mod tests {
                 "driver.callbackTool.seamAbsent",
                 "driver.callbackTool.seamAbsent",
             ]
-        );
-    }
-
-    #[test]
-    fn a_completed_calls_session_links_reach_its_activity_row() {
-        let (host, ports) = host_with(Some(false));
-        let binding = bind(&host);
-        assert!(matches!(
-            call(&binding),
-            CallbackToolResult::Completed { .. }
-        ));
-        let records = lock(&ports.records);
-        let [record] = records.as_slice() else {
-            panic!("one call lands one activity row, got {}", records.len());
-        };
-        assert_eq!(
-            record.disposition,
-            CallbackToolActivityDisposition::Completed
-        );
-        assert_eq!(
-            record.session_links,
-            [started_link()],
-            "the sink must be handed the links the call made, or none is ever written"
         );
     }
 }

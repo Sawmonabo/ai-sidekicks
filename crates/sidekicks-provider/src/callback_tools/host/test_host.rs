@@ -64,7 +64,7 @@ impl TestCallbackToolHost {
 
     /// Answers `invocation` through the host's dispatch, as the spawn's provider's call is.
     pub async fn call(&self, invocation: CallbackToolInvocation) -> CallbackToolResult {
-        (self.binding.dispatcher)(invocation).await
+        (self.binding.dispatcher())(invocation).await
     }
 
     /// How many calls the executor has run.

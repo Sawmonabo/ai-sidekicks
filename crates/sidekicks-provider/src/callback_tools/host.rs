@@ -141,7 +141,7 @@ pub trait CallbackToolActivitySink: Send + Sync {
 /// Why a spawn withheld the callback-tool registry from the provider.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
-pub(crate) enum CallbackToolRegistryWithholdingReason {
+pub enum CallbackToolRegistryWithholdingReason {
     /// No approval seam is registered, so nothing could be adjudicated.
     NoApprovalSeam,
     /// The provider cannot register the tools in this spawn.
@@ -184,7 +184,7 @@ pub struct CallbackToolSpawnRequest {
 
 /// Whether a spawn may offer its tools to the provider.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum CallbackToolAdmission {
+pub enum CallbackToolAdmission {
     /// Offer these tools; empty when none was asked for.
     Admitted {
         /// The tools to offer.
