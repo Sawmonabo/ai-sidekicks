@@ -794,7 +794,7 @@ mod tests {
             .iter()
             .map(|row| row.agent_id.text().as_str().to_owned())
             .collect();
-        assert_eq!(kept, [lead.clone()]);
+        assert_eq!(kept, std::slice::from_ref(&lead));
         assert_eq!(agents.row(&lead).pending_switch, Some(record));
     }
 }
