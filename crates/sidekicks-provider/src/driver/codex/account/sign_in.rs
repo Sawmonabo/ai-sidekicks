@@ -11,6 +11,7 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde::Deserialize;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, PROVIDER_SIGN_IN_USER_CODE_MAX_LEN,
@@ -19,6 +20,7 @@ use sidekicks_contracts::provider::account::sign_in::{
 use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::domain_error::DomainError;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
@@ -41,6 +43,10 @@ use crate::driver::contract::error::DriverError;
 
 /// The request that cancels a sign-in by its id.
 const LOGIN_CANCEL_METHOD: &str = "account/login/cancel";
+
+/// What Codex writes into a browser start's refusal when its callback port, and the fallback port
+/// beside it, are both held, as by the person's own `codex login` in a terminal.
+const CALLBACK_PORT_IN_USE: &str = "is already in use";
 
 /// The cancel's status for a login Codex no longer runs, as one that already ended.
 const LOGIN_NOT_FOUND_STATUS: &str = "notFound";
@@ -270,7 +276,8 @@ async fn start_login(
     };
     let reply = connection
         .request(CODEX_LOGIN_START_METHOD, &params)
-        .await?;
+        .await
+        .map_err(read_start_refusal)?;
     let reply = read_codex_object::<LoginStartReply>(reply.get())
         .ok_or(CodexAccountSignInError::ReplyUnreadable)?;
     let (login_id, address, user_code) = match reply {
@@ -293,6 +300,21 @@ async fn start_login(
             Err(error.into())
         }
     }
+}
+
+// Codex's refusal of a start: its callback port held, the machine's one sign-in in use, answers
+// as such; any other as Codex's error.
+fn read_start_refusal(error: CodexError) -> DriverError {
+    if let CodexError::ProviderRequest { message, .. } = &error
+        && message.contains(CALLBACK_PORT_IN_USE)
+    {
+        return DomainError::new(
+            "Another sign-in holds this machine's sign-in port",
+            RefusalCode::ProviderAccountSignInInFlight,
+        )
+        .into();
+    }
+    error.into()
 }
 
 // What the start answered, checked: the address on Codex's own host and the code as text.

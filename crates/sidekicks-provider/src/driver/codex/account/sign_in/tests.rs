@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::{Value, json};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{
     ProviderAccountHealthState, ProviderAuthMode,
 };
@@ -21,6 +22,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 };
 use crate::driver::codex::session::side_questions::test_copies::{CopySocket, accept_copy};
 use crate::driver::contract::account::{ProviderSignInEnd, ProviderSignInLegs, SignInOrigin};
+use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::NothingServed;
 use crate::runtime_binding::test_store::test_provider_account_id;
@@ -133,6 +135,44 @@ async fn a_device_sign_in_shows_its_code_and_ends_only_on_its_own_completion() {
         .expect("the stand-in served the login")
         .expect("the stand-in ran");
     assert_eq!(params, json!({"type": "chatgptDeviceCode"}));
+}
+
+// Killed by Codex's refusal for its held callback port answered as an untyped failure, which the
+// person reads as the sign-in breaking rather than another sign-in holding the port.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_browser_start_meeting_a_held_callback_port_is_refused_as_in_use() {
+    let scripted = start_scripted_codex_service();
+    let Some(listener) = bind_test_listener(scripted.service.socket_path()) else {
+        return;
+    };
+    let (legs, _registry) = legs_holding(&scripted).await;
+    let served = tokio::spawn(async move {
+        let mut socket = accept_copy(&listener).await;
+        let start = next_socket_request(&mut socket).await;
+        send_on_socket(
+            &mut socket,
+            json!({"id": start["id"], "error": {"code": -32603, "message":
+                "failed to start login server: Port 127.0.0.1:1457 is already in use"}}),
+        )
+        .await;
+    });
+
+    let started = legs
+        .start_sign_in(
+            test_provider_account_id(),
+            home(&scripted),
+            SignInOrigin::ThisMachine,
+        )
+        .await;
+
+    let Err(DriverError::Refused(refusal)) = started else {
+        panic!("a held port is a refusal");
+    };
+    assert_eq!(refusal.code, RefusalCode::ProviderAccountSignInInFlight);
+    tokio::time::timeout(WAIT, served)
+        .await
+        .expect("the stand-in served the start")
+        .expect("the stand-in ran");
 }
 
 // Killed by Codex declaring no machine slot, which lets two browser sign-ins collide on Codex's one

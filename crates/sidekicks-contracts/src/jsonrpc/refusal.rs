@@ -455,7 +455,9 @@ refusal_codes! {
     /// account is named by the identity its provider reports.
     ProviderAccountRenameRefused = "provider.account.renameRefused" (FailedPrecondition, 409);
     /// A brokered sign-in, an account switch or a credential-home reset is already in flight for
-    /// this account, so another of the three is refused until it ends.
+    /// this account, so another of the three is refused until it ends; or a sign-in at this machine
+    /// meets the machine's one sign-in in use, by another account's sign-in or another program on
+    /// the provider's callback port.
     ProviderAccountSignInInFlight = "provider.account.signInInFlight" (FailedPrecondition, 409);
     /// Brokered sign-in was requested for a provider whose pinned flow emits neither an
     /// authorization URL nor a device code, so there is nothing the person could act on.
