@@ -183,8 +183,8 @@ pub(crate) enum CommandFailure {
         #[source]
         last_failure: ClientError,
     },
-    /// A service the command did not start, and no login agent runs, holds the data folder, so the
-    /// command changed nothing.
+    /// A service that neither the login agent nor this account's system service runs holds the
+    /// data folder, so the command changed nothing.
     #[error("{}", fmt::from_fn(|formatter| write_data_folder_held(formatter, None)))]
     DataFolderHeld,
     /// The service that runs while the person is logged out was not installed, for `cause`; what

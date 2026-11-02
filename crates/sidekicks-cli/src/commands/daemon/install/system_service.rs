@@ -9,9 +9,9 @@
 //!
 //! Run under `sudo`, as over SSH with no one at the screen, it acts for the account that ran
 //! `sudo` and writes nothing in that account's data folder: it refuses while the record there
-//! names the login keychain, which root cannot reach, or while a service the login agent does not
-//! run holds the folder; otherwise it unloads the login agent, which ends its service, and
-//! installs the system service directly.
+//! names the login keychain, which root cannot reach, or while a service neither the login agent
+//! nor this account's system service runs holds the folder; otherwise it unloads the login agent,
+//! which ends its service, and installs the system service directly.
 
 use std::ffi::OsString;
 use std::fmt;
@@ -222,6 +222,7 @@ pub(crate) fn install_while_signed_out<Output: Write, ErrorOutput: Write>(
     let Goal::Takeover {
         owner,
         was_agent_loaded,
+        ..
     } = read_goal(&registration, &program)?
     else {
         return write_line(context, ALREADY_INSTALLED_LINE);
@@ -244,12 +245,12 @@ pub(crate) fn install_while_signed_out<Output: Write, ErrorOutput: Write>(
 /// and the service's program `daemon_path` or the one beside this program, and answers 0 with the
 /// outcome's line on stdout. Writes nothing in the account's data folder and runs no moves mode,
 /// so it refuses with [`LoggedOutServiceRefusal::KeychainHoldsSecrets`] while the record there
-/// names the login keychain, and with [`CommandFailure::DataFolderHeld`] while a service the login
-/// agent does not run holds the folder. Otherwise it unloads the login agent, which ends its
-/// service, installs the system service and removes the command line's agent list; root cannot
-/// pass the service's own-account check, so it does not wait for the service to answer. Fails as
-/// the reads, the record, the lock's probe, the unload or the install fails, with the login agent
-/// put back first after the unload.
+/// names the login keychain, and with [`CommandFailure::DataFolderHeld`] while a service neither
+/// the login agent nor this account's system service runs holds the folder. Otherwise it unloads
+/// the login agent, which ends its service, installs the system service and removes the command
+/// line's agent list; root cannot pass the service's own-account check, so it does not wait for
+/// the service to answer. Fails as the reads, the record, the lock's probe, the unload or the
+/// install fails, with the login agent put back first after the unload.
 fn install_as_root<Output: Write, ErrorOutput: Write>(
     registration: &impl LoggedOutServiceRegistration,
     daemon_path: Option<&Path>,
@@ -257,6 +258,7 @@ fn install_as_root<Output: Write, ErrorOutput: Write>(
 ) -> anyhow::Result<ExitCode> {
     let program = daemon_program(daemon_path)?;
     let Goal::Takeover {
+        system_service_owner,
         owner,
         was_agent_loaded,
     } = read_goal(registration, &program)?
@@ -272,8 +274,12 @@ fn install_as_root<Output: Write, ErrorOutput: Write>(
             Ok(()),
         ));
     }
-    // A loaded agent's own service holds the lock, and the unload's wait frees it.
-    if !was_agent_loaded && is_data_folder_held(&home.join(DAEMON_DATA_FOLDER_NAME))? {
+    // A loaded agent's service, or this account's system service, holds the lock, and the agent's
+    // unload or the install's own unload of the system service frees it.
+    if system_service_owner == SystemServiceOwner::NotInstalled
+        && !was_agent_loaded
+        && is_data_folder_held(&home.join(DAEMON_DATA_FOLDER_NAME))?
+    {
         return Err(CommandFailure::DataFolderHeld.into());
     }
     context.stdout.write_all(FILES_LINE.as_bytes())?;
@@ -305,6 +311,8 @@ enum Goal {
     Holds,
     /// The system service is to take the place of what runs the service now.
     Takeover {
+        /// Which account's system service is installed, and at which program.
+        system_service_owner: SystemServiceOwner,
         /// Which registration starts the service at login.
         owner: ServiceOwner,
         /// Whether the login agent was loaded.
@@ -340,6 +348,7 @@ fn read_goal(
         return Ok(Goal::Holds);
     }
     Ok(Goal::Takeover {
+        system_service_owner,
         owner,
         was_agent_loaded,
     })
