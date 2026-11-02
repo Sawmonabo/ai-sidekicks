@@ -155,6 +155,9 @@ pub enum SessionRestoreSkipReason {
     DirectoryMoved,
     /// A file over 10 MiB a command changed, on a disk that cannot clone it, so no copy was kept.
     TooLarge,
+    /// A file over 10 MiB a command changed, whose checkout is its volume's top, so no place on
+    /// that volume could hold its clone.
+    NoPlaceOnVolume,
     /// A command that moved the branch changed it; putting it back would turn the branch's commits
     /// into uncommitted reversals.
     BranchMovedByCommand,
