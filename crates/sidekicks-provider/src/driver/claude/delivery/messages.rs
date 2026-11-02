@@ -461,7 +461,7 @@ pub(crate) fn close_claude_tool_call(
         pairing_role: ReorderPairingRole::Completion,
         row: ClaudeMessageRowKind::Session {
             row: if closed.is_error {
-                LateAppendableRow::AgentToolCallFailed(activity)
+                LateAppendableRow::AgentToolCallFailed(activity.into_failed(None))
             } else {
                 LateAppendableRow::AgentToolCallCompleted(activity)
             },

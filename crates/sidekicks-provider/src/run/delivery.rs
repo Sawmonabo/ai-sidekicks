@@ -7,7 +7,8 @@
 
 use sidekicks_contracts::command::AgentCommandEndedPayload;
 use sidekicks_contracts::event::declared_variants::{
-    AgentOutputPayload, RunAgentOutputPayload, ToolActivityPayload,
+    AgentOutputPayload, RunAgentOutputPayload, ToolActivityPayload, ToolCallBackgroundedPayload,
+    ToolCallFailedPayload,
 };
 use sidekicks_contracts::event::envelope::{
     DAEMON_SCOPE_SENTINEL_SESSION_ID, SourceEpoch, SourcePosition,
@@ -345,10 +346,13 @@ late_appendable_rows! {
         |payload| SessionEvent::AgentMessageSent(AgentOutputPayload::Run(payload)),
     /// `agent.toolCall.invoked`.
     AgentToolCallInvoked(ToolActivityPayload) => SessionEvent::AgentToolCallInvoked,
+    /// `agent.toolCall.backgrounded`.
+    AgentToolCallBackgrounded(ToolCallBackgroundedPayload) =>
+        SessionEvent::AgentToolCallBackgrounded,
     /// `agent.toolCall.completed`.
     AgentToolCallCompleted(ToolActivityPayload) => SessionEvent::AgentToolCallCompleted,
     /// `agent.toolCall.failed`.
-    AgentToolCallFailed(ToolActivityPayload) => SessionEvent::AgentToolCallFailed,
+    AgentToolCallFailed(ToolCallFailedPayload) => SessionEvent::AgentToolCallFailed,
     /// `agent.subagent.started`.
     AgentSubagentStarted(SubagentLifecyclePayload) => SessionEvent::AgentSubagentStarted,
     /// `agent.subagent.completed`.
