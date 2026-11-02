@@ -7,7 +7,6 @@ use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::release_manifest::Sha256Hex;
 use sidekicks_platforms::{
     RegularFileOpen, create_missing_private_folders, create_new_file, flush_folder,
@@ -15,6 +14,7 @@ use sidekicks_platforms::{
 };
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::file::clone_open_file::{CloneOpenFileError, clone_open_file};
+use sidekicks_std::file::hashing_copy::copy_with_sha256;
 use sidekicks_std::file::publish_without_replacing::{
     PublishOutcome, blocking_publish_without_replacing,
 };
@@ -30,9 +30,6 @@ const BYTE_COPY_MODE: u32 = 0o600;
 
 /// The random bytes in a copy's temporary name, so two copies being written never meet.
 const TEMPORARY_NAME_RANDOM_BYTES: usize = 8;
-
-/// The bytes read at a time while a copy is hashed.
-const HASH_CHUNK_BYTES: usize = 64 * 1024;
 
 /// What keeping a copy names as its operation when cleaning up after it fails too.
 const KEEPING: &str = "keeping a checkpoint copy";
@@ -212,23 +209,9 @@ impl CopyStore {
 
 // Writes every byte of `reader` to `writer` and answers their SHA-256 in lowercase hex.
 fn copy_hashing(reader: &mut impl Read, writer: &mut impl Write) -> io::Result<Sha256Hex> {
-    let mut hasher = Sha256::new();
-    let mut chunk = vec![0; HASH_CHUNK_BYTES];
-    loop {
-        let read = match reader.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(read) => read,
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error),
-        };
-        let chunk = &chunk[..read];
-        hasher.update(chunk);
-        writer.write_all(chunk)?;
-    }
-    Ok(
-        Sha256Hex::new(base16ct::lower::encode_string(&hasher.finalize()))
-            .expect("a SHA-256 in lowercase hex matches its pattern"),
-    )
+    let digest = copy_with_sha256(reader, writer, |_| {})?;
+    Ok(Sha256Hex::new(base16ct::lower::encode_string(&digest))
+        .expect("a SHA-256 in lowercase hex matches its pattern"))
 }
 
 #[cfg(test)]

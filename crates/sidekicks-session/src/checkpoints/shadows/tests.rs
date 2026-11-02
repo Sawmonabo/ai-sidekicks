@@ -12,7 +12,7 @@ use sidekicks_platforms::{
     harness_test_name, read_volume, real_path, scratch_volume,
 };
 use sidekicks_std::file::clone_open_file::{CloneOpenFileError, clone_open_file};
-use sidekicks_store::backup_mirror::{COARSEST_TIME_PRECISION, probe_time_precision};
+use sidekicks_std::file::time_precision::{COARSEST_TIME_PRECISION, probe_time_precision};
 
 use super::{
     PlacedShadow, Placement, ShadowComparison, ShadowFiles, ShadowPlaces, ShadowTaken,

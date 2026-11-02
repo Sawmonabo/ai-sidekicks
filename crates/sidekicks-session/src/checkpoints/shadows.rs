@@ -19,8 +19,8 @@ use sidekicks_platforms::{
     read_volume, real_path,
 };
 use sidekicks_std::file::clone_open_file::{CloneOpenFileError, clone_open_file};
+use sidekicks_std::file::time_precision::{COARSEST_TIME_PRECISION, probe_time_precision};
 use sidekicks_std::missing_entry::is_gone;
-use sidekicks_store::backup_mirror::{COARSEST_TIME_PRECISION, probe_time_precision};
 use sidekicks_workspace::git::turn_snapshot::capture_folder::CAPTURES_SEGMENT;
 
 use crate::checkpoints::schema::NotKeptReason;

@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use sidekicks_platforms::{FileFacts, file_facts};
-use sidekicks_store::backup_mirror::COARSEST_TIME_PRECISION;
+use sidekicks_std::file::time_precision::COARSEST_TIME_PRECISION;
 
 /// The facts of every ref file and ref folder of one repository that exists, by path.
 #[derive(Clone, Debug, PartialEq, Eq)]

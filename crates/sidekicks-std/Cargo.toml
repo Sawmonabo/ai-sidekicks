@@ -26,6 +26,7 @@ reflink-copy.workspace = true
 # The outbound HTTP client's shared settings.
 reqwest = { workspace = true, optional = true }
 serde-saphyr.workspace = true
+sha2.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-platforms.workspace = true
 thiserror.workspace = true

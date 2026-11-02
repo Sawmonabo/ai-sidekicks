@@ -27,7 +27,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fs::File;
-use std::io::{self, Read, Write as _};
+use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::SystemTime;
@@ -36,7 +36,6 @@ use bytes::Buf as _;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::{OptionalExtension as _, named_params};
-use sha2::{Digest as _, Sha256};
 use sidekicks_contracts::artifacts::manifest::ArtifactType;
 use sidekicks_contracts::repo::folders::RepoMountOrigin;
 use sidekicks_contracts::repo::mount::RepoMountId;
@@ -48,6 +47,7 @@ use sidekicks_provider::port::file_tool_write::{
     FileToolWriteClaim, FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort,
     FileToolWriteSettled,
 };
+use sidekicks_std::file::hashing_copy::copy_with_sha256;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::missing_entry::is_missing_entry;
 use sidekicks_std::mutex_lock::lock;
@@ -77,9 +77,6 @@ use self::tool_claims::{ClaimedVersion, claimed_version};
 
 /// The media type a folder's manifest records.
 const FOLDER_MEDIA_TYPE: &str = "inode/directory";
-
-// How much of a file one read copies into its spool.
-const COPY_CHUNK_BYTES: usize = 64 * 1024;
 
 // The newest version's digest of a chat folder's path, or none for a path with no version yet.
 const NEWEST_CONTENT_HASH_SQL: &str = "SELECT content_hash FROM artifact_manifests
@@ -764,28 +761,17 @@ fn copy_into_spool(mut source: impl Read, spool_path: &Path) -> io::Result<Spool
             .expect("a spool file sits in the spool folder"),
     )?;
     let mut spool = sidekicks_platforms::create_new_file(spool_path, SPOOL_FILE_MODE)?;
-    let mut hasher = Sha256::new();
     let mut utf8 = Utf8Check::default();
     let mut leading_bytes = Vec::new();
     let mut size_bytes: u64 = 0;
-    let mut chunk = vec![0; COPY_CHUNK_BYTES];
-    loop {
-        let read = match source.read(&mut chunk) {
-            Ok(0) => break,
-            Ok(read) => read,
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => return Err(error),
-        };
-        let chunk = &chunk[..read];
-        hasher.update(chunk);
+    let digest = copy_with_sha256(&mut source, &mut spool, |chunk| {
         utf8.feed(chunk);
         keep_leading_bytes(&mut leading_bytes, chunk);
-        spool.write_all(chunk)?;
-        size_bytes += u64::try_from(read).expect("a chunk's length fits a u64");
-    }
+        size_bytes += u64::try_from(chunk.len()).expect("a chunk's length fits a u64");
+    })?;
     spool.sync_all()?;
     Ok(SpoolCopy {
-        content_hash: ContentHash::of_sha256(&hasher.finalize()),
+        content_hash: ContentHash::of_sha256(&digest),
         leading_bytes,
         is_utf8: utf8.is_utf8(),
         size_bytes: SafeInt::new(size_bytes)
