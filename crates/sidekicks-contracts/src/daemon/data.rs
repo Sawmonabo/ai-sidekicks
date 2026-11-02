@@ -2,6 +2,8 @@
 //! it, export and erase, which Settings › Runtime sends as these verbs. The command line sends the
 //! same export, and erases through a mode of the daemon's own program while the service is stopped.
 
+use std::fmt;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +27,21 @@ ts_constants! {
 /// The lock file in the data folder, which the service, or a mode of its program, holds for as long
 /// as it uses the folder.
 pub const DAEMON_LOCK_FILE_NAME: &str = "daemon.lock";
+
+/// Writes the refusal a person reads when another daemon holds the data folder, naming the
+/// holder's `process_id` when it is known.
+pub fn write_data_folder_held(
+    formatter: &mut fmt::Formatter<'_>,
+    process_id: Option<u32>,
+) -> fmt::Result {
+    match process_id {
+        Some(process_id) => write!(
+            formatter,
+            "The background service is already running (process {process_id})."
+        ),
+        None => write!(formatter, "The background service is already running."),
+    }
+}
 
 /// The arguments the daemon's own program is started with to erase everything with the service
 /// stopped.

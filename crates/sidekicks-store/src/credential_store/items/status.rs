@@ -2,6 +2,7 @@
 //! Linux plain file is plain and, while the sealed file cannot be opened, why. The read waits for
 //! no call: it takes the run's view of the place and reads the file without its lock.
 
+use sidekicks_contracts::daemon::secrets_place::SecretsPlace;
 use sidekicks_contracts::daemon::status::{DaemonSecretsFile, DaemonSecretsFileUnopened};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::wire::text::TextError;
@@ -11,7 +12,7 @@ use super::SecretItems;
 use super::state::PlaceView;
 use crate::credential_store::KeychainRefusal;
 use crate::credential_store::file::{ItemsForm, ItemsSnapshot};
-use crate::credential_store::place::{self, SecretsPlace};
+use crate::credential_store::place;
 use crate::credential_store::service::KeychainService;
 
 impl SecretItems {
@@ -33,7 +34,7 @@ impl SecretItems {
         let place = match picked {
             Some(place) => Some(place),
             None => match place::read_record(&self.record_path).await {
-                Ok(Some(record)) => Some(record.place),
+                Ok(Some(record)) => Some(record.place()),
                 Ok(None) => None,
                 Err(_unreadable) => None,
             },

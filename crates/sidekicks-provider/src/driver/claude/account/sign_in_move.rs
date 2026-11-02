@@ -23,15 +23,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
+use sidekicks_contracts::daemon::secrets_place::{PlaceRecord, SecretsPlace};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::{
     CredentialStore, KeychainSignIn, SIGN_IN_MOVE_STEPS, SignInMoveError,
     create_missing_private_folders, sign_in_move,
 };
 use sidekicks_store::credential_store::KeychainRefusal;
-use sidekicks_store::credential_store::place::{
-    PlaceRecord, SecretsPlace, read_record, record_path,
-};
+use sidekicks_store::credential_store::place::{read_record, record_path};
 
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::AccountHomeLock;

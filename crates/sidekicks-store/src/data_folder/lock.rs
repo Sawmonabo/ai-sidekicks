@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use sidekicks_contracts::daemon::data::DAEMON_LOCK_FILE_NAME;
+use sidekicks_contracts::daemon::data::{DAEMON_LOCK_FILE_NAME, write_data_folder_held};
 use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::wire::AnyValue;
@@ -54,21 +54,6 @@ impl HeldDataFolder {
 impl Display for HeldDataFolder {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write_data_folder_held(formatter, self.process_id)
-    }
-}
-
-/// Writes the refusal a person reads when another daemon holds the data folder, naming the
-/// holder's `process_id` when it is known.
-pub fn write_data_folder_held(
-    formatter: &mut fmt::Formatter<'_>,
-    process_id: Option<u32>,
-) -> fmt::Result {
-    match process_id {
-        Some(process_id) => write!(
-            formatter,
-            "The background service is already running (process {process_id})."
-        ),
-        None => write!(formatter, "The background service is already running."),
     }
 }
 

@@ -5,13 +5,14 @@
 use std::error::Error;
 use std::sync::Arc;
 
+use sidekicks_contracts::daemon::secrets_place::SecretsPlace;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 
 use crate::credential_store::KeychainRefusal;
 use crate::credential_store::items::SecretItems;
 use crate::credential_store::items::state::RecordState;
 use crate::credential_store::os::OsCredentialStore;
-use crate::credential_store::place::{self, SecretsPlace};
+use crate::credential_store::place;
 use crate::credential_store::service::KeychainService;
 
 // How an erase treats the operating system's store: one it must empty refuses the erase when it

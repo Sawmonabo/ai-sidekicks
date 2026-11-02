@@ -5,13 +5,14 @@
 //! stopped partway finishes in the same direction at the next start. A move begins only here; a
 //! start finishes one the record names and never begins one.
 
-use sidekicks_contracts::daemon::secrets_place::SecretsMoveDestination;
+use sidekicks_contracts::daemon::secrets_place::{
+    PlaceRecord, SecretsMoveDestination, SecretsPlace,
+};
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 
 use crate::credential_store::KeychainRefusal;
 use crate::credential_store::items::state::RecordState;
 use crate::credential_store::items::{Check, SecretItems, mismatch, unreadable_record};
-use crate::credential_store::place::{PlaceRecord, SecretsPlace};
 
 impl SecretItems {
     /// Moves every item into `destination` under the place lock: a move the record names is
@@ -30,13 +31,13 @@ impl SecretItems {
             RecordState::Unreadable(reason) => return Err(unreadable_record(reason)),
             RecordState::Unread | RecordState::Absent => return Ok(()),
         };
-        if let Some(moving_to) = record.moving_to {
+        if let Some(moving_to) = record.moving_to() {
             self.finish_move(&mut state, record, moving_to).await?;
             record = PlaceRecord::settled(moving_to);
         }
         // The pair is the login keychain and the logged-out service's items file; any other place
         // refuses with nothing moved.
-        let source = match record.place {
+        let source = match record.place() {
             place @ (SecretsPlace::OperatingSystem | SecretsPlace::LoggedOutServiceFile) => place,
             SecretsPlace::SealedFile => return Err(outside_the_pair("the sealed items file")),
             SecretsPlace::PlainFile { .. } => return Err(outside_the_pair("the plain items file")),

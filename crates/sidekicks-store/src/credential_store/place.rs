@@ -18,8 +18,9 @@
 
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-use sidekicks_contracts::daemon::status::DaemonSecretsPlainReason;
+use sidekicks_contracts::daemon::secrets_place::{
+    PlaceRecord, SECRETS_PLACE_RECORD_FILE_NAME, SecretsPlace,
+};
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_std::file::atomic_write::write_file_atomically;
 use sidekicks_std::missing_entry::MissingEntry;
@@ -27,69 +28,11 @@ use sidekicks_std::missing_entry::MissingEntry;
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
 
-const RECORD_FILE_NAME: &str = "secrets-place.json";
-
 const RECORD_FILE_MODE: u32 = 0o600;
-
-/// Where the daemon's secrets are kept.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    tag = "kind",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
-)]
-pub enum SecretsPlace {
-    /// The operating system's credential store.
-    OperatingSystem,
-    /// The items file on Linux, each item sealed by systemd's credential service.
-    SealedFile,
-    /// The items file on Linux, each item plain, and why.
-    PlainFile {
-        /// Why the file is plain.
-        reason: DaemonSecretsPlainReason,
-    },
-    /// The plain items file of a Mac's service running while the person is logged out, where the
-    /// login keychain cannot be reached; the items move back only when that service is
-    /// uninstalled.
-    LoggedOutServiceFile,
-}
-
-/// The record in the data folder: the place, and during a move its destination.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct PlaceRecord {
-    /// Where the secrets are, or during a move where they come from.
-    pub(crate) place: SecretsPlace,
-    /// Where a move under way takes them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) moving_to: Option<SecretsPlace>,
-}
-
-impl PlaceRecord {
-    /// The record of secrets kept in `place`, with no move under way.
-    pub fn settled(place: SecretsPlace) -> Self {
-        Self {
-            place,
-            moving_to: None,
-        }
-    }
-
-    /// Where the secrets end up: a move's destination while one is under way, else the place.
-    pub fn destination(self) -> SecretsPlace {
-        self.moving_to.unwrap_or(self.place)
-    }
-
-    /// Whether the record names the operating system's store, as the place or a move's end.
-    pub(crate) fn names_operating_system(self) -> bool {
-        self.place == SecretsPlace::OperatingSystem
-            || self.moving_to == Some(SecretsPlace::OperatingSystem)
-    }
-}
 
 /// The record's path in `data_folder`.
 pub fn record_path(data_folder: &Path) -> PathBuf {
-    data_folder.join(RECORD_FILE_NAME)
+    data_folder.join(SECRETS_PLACE_RECORD_FILE_NAME)
 }
 
 /// The record at `path`, or `None` when there is none. Fails with [`KeychainRefusal`] when it
@@ -139,9 +82,9 @@ pub(crate) type PlaceKeychain<'place> =
     dyn Fn(KeychainService) -> Result<Box<dyn SecretKeychain>, KeychainRefusal> + Sync + 'place;
 
 /// Moves every item from the keychains `from` gives to those `to` gives, as the module doc says,
-/// recording at `path` the move from `record.place` to `destination`. Fails with [`MoveStopped`] at
-/// the first call refused: before any item is deleted the record is left as it was, and after, it
-/// names the move, which the next try finishes.
+/// recording at `path` the move from `record`'s place to `destination`. Fails with
+/// [`MoveStopped`] at the first call refused: before any item is deleted the record is left as it
+/// was, and after, it names the move, which the next try finishes.
 pub(crate) async fn move_items(
     path: &Path,
     record: PlaceRecord,
@@ -168,11 +111,8 @@ pub(crate) async fn move_items(
             copied.push((service, account));
         }
     }
-    let moving = PlaceRecord {
-        place: record.place,
-        moving_to: Some(destination),
-    };
-    if record.moving_to.is_none() {
+    let moving = PlaceRecord::moving(record.place(), destination);
+    if record.moving_to().is_none() {
         write_record(path, &moving)
             .await
             .map_err(stopped_at(record))?;

@@ -10,6 +10,7 @@ use futures::future::BoxFuture;
 use futures::stream::StreamExt as _;
 use rstest::rstest;
 use secrecy::{ExposeSecret as _, SecretString};
+use sidekicks_contracts::daemon::secrets_place::{PlaceRecord, SecretsPlace};
 use sidekicks_contracts::provider::account::record::{
     BillingMode, ProviderAccountHealthState, ProviderAccountId,
 };
@@ -22,9 +23,7 @@ use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{BlockingCredentialStore, CredentialStore, sign_in_move};
-use sidekicks_store::credential_store::place::{
-    PlaceRecord, SecretsPlace, record_path, write_record,
-};
+use sidekicks_store::credential_store::place::{record_path, write_record};
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tempfile::TempDir;
 use tracing_subscriber::layer::SubscriberExt as _;

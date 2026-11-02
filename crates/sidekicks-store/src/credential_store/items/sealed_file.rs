@@ -7,6 +7,7 @@ use std::error::Error;
 use std::sync::Arc;
 
 use secrecy::ExposeSecret as _;
+use sidekicks_contracts::daemon::secrets_place::SecretsPlace;
 use sidekicks_contracts::daemon::status::DaemonSecretsFileUnopened;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::{SealFailure, SealHeader};
@@ -15,7 +16,6 @@ use super::{PlaceState, SecretItems, log_mismatch, random_value};
 use crate::credential_store::file::{
     ItemsReadFailure, PassAbandoned, SealPass, SealedItem, credential_name,
 };
-use crate::credential_store::place::SecretsPlace;
 use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, holds_value};

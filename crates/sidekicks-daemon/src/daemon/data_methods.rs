@@ -176,6 +176,7 @@ mod tests {
         DaemonDataErase, DaemonDataExportCancel, DaemonDataExportStart, DaemonDataExportSubscribe,
         DataExportProgress,
     };
+    use sidekicks_contracts::daemon::secrets_place::{PlaceRecord, SecretsPlace};
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::method::Method as _;
     use sidekicks_contracts::session::id::SessionId;
@@ -190,9 +191,7 @@ mod tests {
     use sidekicks_provider::driver::test_registry::registry_of_first_provider;
     use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
     use sidekicks_store::credential_store::os::TestStoreAccess;
-    use sidekicks_store::credential_store::place::{
-        PlaceRecord, SecretsPlace, record_path, write_record,
-    };
+    use sidekicks_store::credential_store::place::{record_path, write_record};
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use tempfile::TempDir;

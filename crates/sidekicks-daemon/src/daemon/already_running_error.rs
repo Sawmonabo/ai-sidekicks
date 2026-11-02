@@ -5,7 +5,8 @@ use std::error::Error;
 use std::fmt::{self, Display};
 use std::path::PathBuf;
 
-use sidekicks_store::data_folder::lock::{HeldDataFolder, write_data_folder_held};
+use sidekicks_contracts::daemon::data::write_data_folder_held;
+use sidekicks_store::data_folder::lock::HeldDataFolder;
 
 /// What the other daemon holds that this start needs.
 #[derive(Debug)]
