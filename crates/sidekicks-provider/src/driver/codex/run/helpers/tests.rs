@@ -330,11 +330,12 @@ async fn reattached_helpers_reopen_in_order_past_a_refusal() {
             }),
         );
     };
+    let usage = no_usage_record();
     let (reattached, ()) = tokio::time::timeout(
         DEADLOCK_BOUND,
         Box::pin(async {
             tokio::join!(
-                task.drive(control.reattach_helpers(&params, &no_usage_record())),
+                task.drive(control.reattach_helpers(&params, &usage)),
                 service_side
             )
         }),
@@ -401,11 +402,12 @@ async fn a_reattached_helpers_later_turn_reaches_its_run() {
             }),
         );
     };
+    let usage = no_usage_record();
     let (reattached, ()) = tokio::time::timeout(
         DEADLOCK_BOUND,
         Box::pin(async {
             tokio::join!(
-                task.drive(control.reattach_helpers(&params, &no_usage_record())),
+                task.drive(control.reattach_helpers(&params, &usage)),
                 service_side
             )
         }),
