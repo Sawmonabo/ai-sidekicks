@@ -439,7 +439,7 @@ mod tests {
     impl LoggedOutServiceRegistration for LockedKeychainRegistration {
         fn system_service_owner(
             &self,
-            _daemon_program: &Path,
+            _daemon_program: Option<&Path>,
         ) -> Result<SystemServiceOwner, ServiceRegistrationError> {
             unreachable!("the uninstall is reached once the owner is read")
         }

@@ -11,7 +11,7 @@ use std::io::Write;
 
 use anyhow::Context as _;
 use sidekicks_client::daemon_ending::DaemonEndingVerb;
-use sidekicks_platforms::{ServiceOwner, ServiceRegistration, SystemServiceOwner};
+use sidekicks_platforms::{ServiceOwner, SystemServiceOwner};
 
 use crate::command_context::CommandContext;
 use crate::commands::daemon::ending::end_running_daemon;
@@ -26,38 +26,29 @@ use crate::daemon_program::daemon_program;
 use crate::exit_codes::{CommandFailure, ExitCode};
 
 /// Removes the background service's registration on this computer through `registration`, and
-/// answers 0 with the outcome's line on stdout. Fails as [`uninstall_with`] does.
-pub(crate) fn uninstall<Output: Write, ErrorOutput: Write>(
-    registration: ServiceRegistration,
-    context: &mut CommandContext<Output, ErrorOutput>,
-) -> anyhow::Result<ExitCode> {
-    uninstall_with(&registration, context)
-}
-
-/// Removes the registration through `registration`, the system service's owner and the login
-/// agent's read first: this account's system service as [`uninstall_logged_out_service`] removes
-/// it, else the login agent, the secrets moved back first where the record still names the system
-/// service's files. Fails with [`CommandFailure::AppOwnsService`] where the app's registration runs
-/// the service, as [`finish_moving_secrets_back`] fails, `ClientError::Canceled` after a Ctrl-C
-/// while the service stops, and as the program's resolution, the reads, the service's stop, the
-/// removal or the agent's put-back fails, a step the service manager refused as
+/// answers 0 with the outcome's line on stdout. The system service's owner and the login agent's
+/// are read first: this account's system service is removed as [`uninstall_logged_out_service`]
+/// removes it, else the login agent, the secrets moved back first where the record still names the
+/// system service's files; the daemon's program is resolved only on the paths that start it.
+/// Fails with [`CommandFailure::AppOwnsService`] where the app's registration runs the service, as
+/// [`finish_moving_secrets_back`] fails, `ClientError::Canceled` after a Ctrl-C while the service
+/// stops, and as the program's resolution, the reads, the service's stop, the removal or the
+/// agent's put-back fails, a step the service manager refused as
 /// [`CommandFailure::RegistrationRefused`].
-fn uninstall_with<Output: Write, ErrorOutput: Write>(
+pub(crate) fn uninstall<Output: Write, ErrorOutput: Write>(
     registration: &impl LoggedOutServiceUninstall,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
-    let program = daemon_program(None)?;
-    let system_service_owner = registration
-        .system_service_owner(&program)
-        .map_err(|failure| {
-            registration_failure(
-                failure,
-                "could not read which account runs the background service while logged out",
-            )
-        })?;
+    let system_service_owner = registration.system_service_owner(None).map_err(|failure| {
+        registration_failure(
+            failure,
+            "could not read which account runs the background service while logged out",
+        )
+    })?;
     let owner = read_owner(registration)?;
     match system_service_owner {
         SystemServiceOwner::ThisAccount | SystemServiceOwner::ThisAccountOtherProgram => {
+            let program = daemon_program(None)?;
             return uninstall_logged_out_service(registration, owner, &program, context);
         }
         SystemServiceOwner::NotInstalled | SystemServiceOwner::OtherAccount => {}
@@ -74,6 +65,7 @@ fn uninstall_with<Output: Write, ErrorOutput: Write>(
             && registration.is_agent_loaded().map_err(|failure| {
                 registration_failure(failure, "could not read whether the login agent is loaded")
             })?;
+        let program = daemon_program(None)?;
         finish_moving_secrets_back(registration, &program, is_agent_loaded)?;
         if !is_agent_loaded {
             let line = put_agent_back(registration, owner, &program, &mut context.stderr).context(

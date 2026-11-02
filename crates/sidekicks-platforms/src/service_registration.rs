@@ -219,7 +219,7 @@ impl ServiceRegistration {
     /// Which account has the system service installed; never called, since no value exists.
     pub fn system_service_owner(
         &self,
-        _daemon_program: &std::path::Path,
+        _daemon_program: Option<&std::path::Path>,
     ) -> Result<SystemServiceOwner, ServiceRegistrationError> {
         match *self {}
     }

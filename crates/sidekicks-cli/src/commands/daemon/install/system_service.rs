@@ -121,11 +121,11 @@ impl fmt::Display for LoggedOutServiceRefusal {
 /// The steps of the service's registration the logged-out install takes, beside the login
 /// agent's, behind one trait so a test can answer for the system's service manager.
 pub(crate) trait LoggedOutServiceRegistration: LoginRegistration {
-    /// Which account has the system service installed, and whether it starts `daemon_program`;
-    /// fails when it cannot be read.
+    /// Which account has the system service installed, and whether it starts `daemon_program`
+    /// where one is given; fails when it cannot be read.
     fn system_service_owner(
         &self,
-        daemon_program: &Path,
+        daemon_program: Option<&Path>,
     ) -> Result<SystemServiceOwner, ServiceRegistrationError>;
 
     /// Whether the login agent is loaded; fails when it cannot be read.
@@ -157,7 +157,7 @@ pub(crate) trait LoggedOutServiceRegistration: LoginRegistration {
 impl LoggedOutServiceRegistration for ServiceRegistration {
     fn system_service_owner(
         &self,
-        daemon_program: &Path,
+        daemon_program: Option<&Path>,
     ) -> Result<SystemServiceOwner, ServiceRegistrationError> {
         ServiceRegistration::system_service_owner(self, daemon_program)
     }
@@ -327,14 +327,15 @@ fn read_goal(
     registration: &impl LoggedOutServiceRegistration,
     program: &Path,
 ) -> anyhow::Result<Goal> {
-    let system_service_owner = registration
-        .system_service_owner(program)
-        .map_err(|failure| {
-            registration_failure(
-                failure,
-                "could not read which account runs the background service while logged out",
-            )
-        })?;
+    let system_service_owner =
+        registration
+            .system_service_owner(Some(program))
+            .map_err(|failure| {
+                registration_failure(
+                    failure,
+                    "could not read which account runs the background service while logged out",
+                )
+            })?;
     if system_service_owner == SystemServiceOwner::OtherAccount {
         return Err(refused(LoggedOutServiceRefusal::OtherAccount, Ok(())));
     }
@@ -633,7 +634,7 @@ mod tests {
     impl LoggedOutServiceRegistration for SudoRegistration {
         fn system_service_owner(
             &self,
-            _daemon_program: &Path,
+            _daemon_program: Option<&Path>,
         ) -> Result<SystemServiceOwner, ServiceRegistrationError> {
             Ok(SystemServiceOwner::NotInstalled)
         }

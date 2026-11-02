@@ -81,12 +81,13 @@ impl ServiceRegistration {
     }
 
     /// Which account has the system service installed, read from the `UserName` of its list in
-    /// `/Library/LaunchDaemons`, and for this account whether the list starts `daemon_program`;
+    /// `/Library/LaunchDaemons`, and for this account whether the list starts `daemon_program`,
+    /// this account's service reading as [`SystemServiceOwner::ThisAccount`] when none is given;
     /// with root's rights, this account is the one that ran `sudo`. Fails when the list cannot be
     /// read or this run's account cannot be named.
     pub fn system_service_owner(
         &self,
-        daemon_program: &Path,
+        daemon_program: Option<&Path>,
     ) -> Result<SystemServiceOwner, ServiceRegistrationError> {
         let installed: Option<InstalledSystemServiceList> =
             read_launchd_list(&system_service_list_path())?;
@@ -96,6 +97,9 @@ impl ServiceRegistration {
         if installed.user_name != Some(self.account()?.name) {
             return Ok(SystemServiceOwner::OtherAccount);
         }
+        let Some(daemon_program) = daemon_program else {
+            return Ok(SystemServiceOwner::ThisAccount);
+        };
         let installed_program = installed
             .program_arguments
             .as_ref()

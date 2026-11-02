@@ -65,7 +65,7 @@ pub(crate) fn run_daemon_command<Output: Write, ErrorOutput: Write>(
             install(args, *registration, context)
         }
         DaemonCommand::Registration(registration, ServiceRegistrationCommand::Uninstall) => {
-            uninstall(*registration, context)
+            uninstall(registration, context)
         }
     }
 }
