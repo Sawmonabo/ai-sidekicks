@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
+use jiff::Timestamp;
 use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tokio::time::Instant;
 
 use super::ClaudeToolServerTasks;
 use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
@@ -34,7 +34,7 @@ fn openings(run: &ClaudeBoundRun, call_ids: &[&str]) -> HashMap<String, ClaudeOp
         .iter()
         .map(|call_id| {
             let tool_name = FreeFormText::new("mcp__files__export".to_owned()).expect("a name");
-            let opened = ClaudeOpenToolCall::new(tool_name, run.clone(), Instant::now());
+            let opened = ClaudeOpenToolCall::new(tool_name, run.clone(), Timestamp::now());
             ((*call_id).to_owned(), opened)
         })
         .collect()

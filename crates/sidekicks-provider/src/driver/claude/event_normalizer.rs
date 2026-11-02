@@ -66,7 +66,8 @@ pub(crate) enum ClaudeWireFrameKind {
     /// `system/local_command_output`: output the tool rows already carry; no event.
     #[strum(serialize = "system/local_command_output")]
     SystemLocalCommandOutput,
-    /// `system/task_progress`: a helper's progress; its start, moves and end carry its state.
+    /// `system/task_progress`: a task's progress; a held tool-server call's summary is its status
+    /// line, and a helper's start, moves and end carry its state.
     #[strum(serialize = "system/task_progress")]
     SystemTaskProgress,
     /// `system/task_started`: a helper began in the lead's stream.
@@ -225,12 +226,14 @@ impl ClaudeWireFrameKind {
         )
     }
 
-    /// Whether the kind reports a task: its start, a move, its end or the whole background set.
+    /// Whether the kind reports a task: its start, a move, its progress, its end or the whole
+    /// background set.
     pub(crate) const fn is_task(&self) -> bool {
         matches!(
             self,
             Self::SystemTaskStarted
                 | Self::SystemTaskUpdated
+                | Self::SystemTaskProgress
                 | Self::SystemTaskNotification
                 | Self::SystemBackgroundTasksChanged
         )

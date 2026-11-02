@@ -370,6 +370,7 @@ impl ClaudeDriver {
             command_output: Arc::clone(&ports.command_output),
             turn_readings: Arc::clone(&ports.turn_readings),
             context: Arc::clone(&context_readings),
+            tool_call_statuses: Arc::clone(&ports.tool_call_statuses),
         }));
         let goals = Arc::new(ClaudeGoalCommands::default());
         let cuts = Arc::new(ClaudeConversationCuts {

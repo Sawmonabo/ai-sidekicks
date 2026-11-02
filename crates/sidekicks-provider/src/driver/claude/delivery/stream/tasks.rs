@@ -1,16 +1,20 @@
 //! The task frames Claude Code reports beside a turn, which may come after the turn that started
 //! them ended: a helper's end moves its child run, a shell or Monitor task becomes a row of the
 //! session's running commands on the run that started it, and a tool server's background call
-//! stays open until its own notification closes it. Also the usage routing metered off a frame,
+//! stays open until its own notification closes it, its progress the status line under it. Also the usage routing metered off a frame,
 //! recorded on the run whose thread spent it, and the move of the session's bindings onto another
 //! account, made in its place among those frames.
 
 use std::collections::HashSet;
 
+use jiff::Timestamp;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::subagent::SubagentId;
-use tokio::time::Instant;
+use sidekicks_contracts::tool_call_status::TOOL_CALL_STATUS_MAX_LEN;
+use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, report_engine_failure};
 use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
@@ -34,17 +38,19 @@ use crate::runtime_binding::writer::RuntimeBindingWriter;
 struct ClaudeUsageUnheld;
 
 impl ClaudeDeliveryStream {
-    /// Takes one task frame of `kind`, read once off `text`: a helper's end moves its child run,
-    /// and the frame's command or tool-server task is read on the run that started it, the
-    /// helper's child run where a helper started it and `lead` otherwise.
+    /// Takes one task frame of `kind`, `frame_kind` on the wire, read once off `text`: a helper's
+    /// end moves its child run, the frame's command or tool-server task is read on the run that
+    /// started it, the helper's child run where a helper started it and `lead` otherwise, a held
+    /// call's end closes it and its progress becomes its status line.
     #[expect(
         clippy::wildcard_enum_match_arm,
-        reason = "only the task frames reach this read, and only a start or an end moves a hold"
+        reason = "only the task frames reach this read, and a move changes no held call"
     )]
     pub(super) async fn take_task_frame(
         &self,
         session: &ClaudeSessionStream,
         kind: &ClaudeWireFrameKind,
+        frame_kind: &str,
         text: &str,
         lead: Option<ClaudeBoundRun>,
     ) {
@@ -55,24 +61,36 @@ impl ClaudeDeliveryStream {
             self.end_helper(session, &task).await;
         }
         let run = self.task_run(session, &task, lead);
-        let held_end = {
+        let (ends, progress) = {
             let mut guard = session.lock();
             let readings = &mut *guard;
+            let held = &mut readings.tool_server_tasks;
             match kind {
                 ClaudeWireFrameKind::SystemTaskStarted => {
-                    readings
-                        .tool_server_tasks
-                        .observe_start(&task, &mut readings.open_tool_calls);
-                    None
+                    held.observe_start(&task, &mut readings.open_tool_calls);
+                    (Vec::new(), None)
                 }
                 ClaudeWireFrameKind::SystemTaskNotification => {
-                    readings.tool_server_tasks.release(&task)
+                    (held.release(&task).into_iter().collect(), None)
                 }
-                _ => None,
+                ClaudeWireFrameKind::SystemBackgroundTasksChanged => {
+                    (held.settle_unlisted(&task), None)
+                }
+                ClaudeWireFrameKind::SystemTaskProgress => (Vec::new(), held.progress_call(&task)),
+                _ => (Vec::new(), None),
             }
         };
-        if let Some(held_end) = held_end {
-            self.close_held_call(session, held_end).await;
+        self.close_held_calls(session, ends, frame_kind).await;
+        if let (Some((tool_use_id, summary)), Some(statuses)) =
+            (progress, self.dependencies.tool_call_statuses.port())
+            && let (Ok(tool_call_id), Ok(status)) = (
+                ToolCallId::new(tool_use_id),
+                FreeFormText::<TOOL_CALL_STATUS_MAX_LEN>::new(
+                    cut_to_code_points(&summary, TOOL_CALL_STATUS_MAX_LEN).to_owned(),
+                ),
+            )
+        {
+            statuses.publish_tool_call_status(session.session_id, tool_call_id, status);
         }
         let fact =
             session
@@ -225,39 +243,53 @@ impl ClaudeDeliveryStream {
             .or_else(|| routes.lead_run_on(session.session_id))
     }
 
-    // Closes a tool server's background call on the run its opening recorded, on that run's
-    // binding, with its task's body; unpaired, since its stand-in result already answered the
-    // call's opening.
-    async fn close_held_call(&self, session: &ClaudeSessionStream, held_end: ClaudeHeldCallEnd) {
-        let ClaudeHeldCallEnd {
-            tool_use_id,
-            opened,
-            outcome,
-            text,
-        } = held_end;
-        let ClaudeBoundRun { run_id, binding_id } = opened.run().clone();
-        let Some(row) = close_opened_call(
-            opened,
-            &tool_use_id,
-            session.session_id,
-            run_id,
-            outcome,
-            Instant::now(),
-        ) else {
-            return;
-        };
-        let rows = vec![ReorderBufferedEvent {
-            tool_call_id: None,
-            pairing_role: ReorderPairingRole::Unpaired,
-            event: ClaudeRowDelivery {
-                binding_id,
-                operation: None,
-                row: ClaudeRow::Late(row),
-                body: text,
-                message_key: None,
-            },
-        }];
-        self.admit_rows(session, rows, "system/task_notification")
-            .await;
+    /// Closes each held call in `ends`, read off a frame of `wire`, on the run its opening recorded
+    /// and that run's binding, with its task's body, and clears its status line. Each close is
+    /// appended after its run and unpaired, since its stand-in result already answered the call's
+    /// opening.
+    pub(super) async fn close_held_calls(
+        &self,
+        session: &ClaudeSessionStream,
+        ends: Vec<ClaudeHeldCallEnd>,
+        wire: &str,
+    ) {
+        let statuses = self.dependencies.tool_call_statuses.port();
+        let mut rows = Vec::with_capacity(ends.len());
+        for end in ends {
+            let ClaudeHeldCallEnd {
+                tool_use_id,
+                opened,
+                outcome,
+                text,
+            } = end;
+            if let (Some(statuses), Ok(tool_call_id)) =
+                (&statuses, ToolCallId::new(tool_use_id.clone()))
+            {
+                statuses.clear_tool_call_status(session.session_id, tool_call_id);
+            }
+            let ClaudeBoundRun { run_id, binding_id } = opened.run().clone();
+            let Some(row) = close_opened_call(
+                opened,
+                &tool_use_id,
+                session.session_id,
+                run_id,
+                outcome,
+                Timestamp::now(),
+            ) else {
+                continue;
+            };
+            rows.push(ReorderBufferedEvent {
+                tool_call_id: None,
+                pairing_role: ReorderPairingRole::Unpaired,
+                event: ClaudeRowDelivery {
+                    binding_id,
+                    operation: None,
+                    row: ClaudeRow::AfterRun(row),
+                    body: text,
+                    message_key: None,
+                },
+            });
+        }
+        self.admit_rows(session, rows, wire).await;
     }
 }

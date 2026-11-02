@@ -5,6 +5,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use jiff::Timestamp;
 use serde::Deserialize;
 use serde::de::IgnoredAny;
 use serde_json::value::RawValue;
@@ -20,7 +21,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::transcript::whole_patch::WholePatchFile;
-use tokio::time::Instant;
 
 use crate::driver::claude::delivery::patches::{
     is_claude_file_changing_tool, read_claude_patch_file,
@@ -115,17 +115,19 @@ lenient_object!(
 );
 
 /// A tool call the session's lead started and has not yet answered, by its `tool_use_id`, with
-/// the run that started it, whose route may be forgotten before a held call ends.
+/// the run that started it, whose route may be forgotten before a held call ends. Its start is on
+/// the wall clock, so an opening rebuilt from the log is timed from its stored time; a clock set
+/// back reads as no time taken.
 #[derive(Clone)]
 pub(crate) struct ClaudeOpenToolCall {
     tool_name: EventText,
     run: ClaudeBoundRun,
-    started_at: Instant,
+    started_at: Timestamp,
 }
 
 impl ClaudeOpenToolCall {
-    /// A call of `tool_name` that `run` started at `started_at`.
-    pub(crate) fn new(tool_name: EventText, run: ClaudeBoundRun, started_at: Instant) -> Self {
+    /// A call of `tool_name` that `run` started at `started_at`, on the wall clock.
+    pub(crate) fn new(tool_name: EventText, run: ClaudeBoundRun, started_at: Timestamp) -> Self {
         Self {
             tool_name,
             run,
@@ -316,7 +318,7 @@ pub(crate) fn read_claude_assistant_rows(
     session_id: SessionId,
     run: &ClaudeBoundRun,
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
-    now: Instant,
+    now: Timestamp,
 ) -> Vec<ClaudeMessageRow> {
     let run_id = run.run_id;
     let mut rows = Vec::new();
@@ -407,7 +409,7 @@ pub(crate) fn read_claude_user_rows(
     run_id: RunId,
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
     held_calls: &HashSet<String>,
-    now: Instant,
+    now: Timestamp,
 ) -> ClaudeUserFrameReading {
     let mut reading = ClaudeUserFrameReading {
         rows: Vec::new(),
@@ -474,7 +476,7 @@ pub(crate) fn close_claude_tool_call(
     open_tool_calls: &mut HashMap<String, ClaudeOpenToolCall>,
     call_id: &str,
     closed: ClaudeToolCallClose,
-    now: Instant,
+    now: Timestamp,
 ) -> Option<ClaudeMessageRow> {
     let opened = open_tool_calls.remove(call_id)?;
     let outcome = if closed.is_error {
@@ -508,10 +510,10 @@ pub(crate) fn close_opened_call(
     session_id: SessionId,
     run_id: RunId,
     outcome: ClaudeToolCallOutcome,
-    now: Instant,
+    now: Timestamp,
 ) -> Option<LateAppendableRow> {
     let tool_call_id = ToolCallId::new(call_id.to_owned()).ok()?;
-    let duration_ms = u64::try_from(now.duration_since(opened.started_at).as_millis())
+    let duration_ms = u64::try_from(now.duration_since(opened.started_at).as_millis().max(0))
         .ok()
         .and_then(SafeInt::new);
     let activity = tool_activity(

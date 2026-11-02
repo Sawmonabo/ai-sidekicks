@@ -42,6 +42,7 @@ use self::spawn_sources::ClaudeSpawnSources;
 use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeSessionChannel};
+use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeKeptCallsSource;
 use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
 use crate::driver::claude::frame_routing::ClaudeFrameRouting;
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
@@ -74,7 +75,9 @@ use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::driver::claude::spawn::environment::without_interrupted_turn_resume;
+use crate::driver::claude::spawn::environment::{
+    claude_config_folder, without_interrupted_turn_resume,
+};
 use crate::driver::claude::spawn::launch::bring_up::{
     ClaudeBringUpRequest, ClaudeSessionSpawn, claude_spawn_permission_mode,
 };
@@ -480,6 +483,8 @@ impl ClaudeSessionEstablishment {
         // Subscribed before any frame is read, so a report at start-up is followed once adopted.
         let level_reports = permission_mode.report_changes();
         let (arrivals, receiver) = claude_session_arrivals(session_id);
+        let config_folder = claude_config_folder(&legs.spawn_environment, PathRules::NATIVE);
+        let kept_calls = ClaudeKeptCallsSource::new(config_folder, provider_session_id.clone());
         let stream = Arc::new(ClaudeSessionStream::new(
             provider_account_id,
             step_bound,
@@ -487,6 +492,7 @@ impl ClaudeSessionEstablishment {
             Arc::clone(&self.routes),
             Arc::clone(&self.prompts),
             Arc::clone(&permission_mode),
+            kept_calls,
         ));
         let is_continuing_turn = continued_turn.is_some();
         if let Some(turn) = continued_turn {

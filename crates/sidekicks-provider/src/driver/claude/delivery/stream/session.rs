@@ -15,6 +15,7 @@ use tokio::sync::oneshot;
 use tokio::time::Instant;
 
 use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
+use crate::driver::claude::delivery::mcp_tasks::restore::ClaudeKeptCallsSource;
 use crate::driver::claude::delivery::run_readings::{ClaudeOpenTurn, ClaudeStreamSession};
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
@@ -58,12 +59,15 @@ pub(crate) struct ClaudeSessionStream {
     unnumbered_turns: AtomicU64,
     // Where the next request's answer goes, once an account move asked to hear it.
     first_request: Mutex<Option<oneshot::Sender<ClaudeFirstRequest>>>,
+    // Where the process keeps its tool servers' background calls.
+    kept_calls: ClaudeKeptCallsSource,
 }
 
 impl ClaudeSessionStream {
     /// A stream for the process running on `provider_account_id`'s home, counting each turn's
-    /// steps against `step_bound`, queuing onto `arrivals` and taking the mode reports into
-    /// `permission_mode`, the process's record the live session shares.
+    /// steps against `step_bound`, queuing onto `arrivals`, taking the mode reports into
+    /// `permission_mode`, the process's record the live session shares, and reading its
+    /// background calls' kept files from `kept_calls`.
     pub(crate) fn new(
         provider_account_id: ProviderAccountId,
         step_bound: Option<SafeInt<1>>,
@@ -71,6 +75,7 @@ impl ClaudeSessionStream {
         routes: Arc<ClaudeRunRoutes>,
         prompts: Arc<Mutex<ClaudeSentPrompts>>,
         permission_mode: Arc<ClaudePermissionModeRecord>,
+        kept_calls: ClaudeKeptCallsSource,
     ) -> Self {
         Self {
             session_id: arrivals.session_id(),
@@ -85,7 +90,17 @@ impl ClaudeSessionStream {
             unlisted_result_reports: Mutex::default(),
             unnumbered_turns: AtomicU64::new(0),
             first_request: Mutex::new(None),
+            kept_calls,
         }
+    }
+
+    /// Where the process keeps its tool servers' background calls.
+    #[expect(
+        dead_code,
+        reason = "a stand-in and the exit read the call's kept files"
+    )]
+    pub(super) fn kept_calls(&self) -> &ClaudeKeptCallsSource {
+        &self.kept_calls
     }
 
     /// Opens the stream on `run`'s turn `turn_number` as it was before the process came up, which a

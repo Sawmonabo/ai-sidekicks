@@ -11,7 +11,7 @@
         reason = "an exit, a close, a resume and the start read a held call's kept files"
     )
 )]
-mod restore;
+pub(crate) mod restore;
 
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -201,13 +201,6 @@ impl ClaudeToolServerTasks {
 
     /// The ends of the held calls a background list `frame` leaves out, each failed as stopped
     /// with no body and settled; none for a frame that carries no list.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the stream hands each background list to the store"
-        )
-    )]
     pub(crate) fn settle_unlisted(&mut self, frame: &ClaudeTaskFrame) -> Vec<ClaudeHeldCallEnd> {
         let Some(listed) = frame.listed_task_ids() else {
             return Vec::new();
@@ -230,6 +223,17 @@ impl ClaudeToolServerTasks {
                 Some(self.settle(task_id, call, outcome, None))
             })
             .collect()
+    }
+
+    /// The held call a progress `frame` of its task reports on, by its `tool_use_id`, with the
+    /// frame's summary; `None` for a frame of an earlier task run, of a task not held, or with no
+    /// summary.
+    pub(crate) fn progress_call(&mut self, frame: &ClaudeTaskFrame) -> Option<(String, String)> {
+        let held = self.held.get_mut(frame.task_id()?)?;
+        if !held.take_run(frame.run_id()) {
+            return None;
+        }
+        Some((held.tool_use_id.clone(), frame.summary()?.to_owned()))
     }
 
     /// Forgets every held and settled call: the session's process is gone.

@@ -24,6 +24,8 @@ use crate::run::state_entry::RunStateEntry;
 use crate::run::turn_end::TurnOutcome;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
+mod held_calls;
+
 fn init() -> Value {
     json!({
         "type": "system",
@@ -640,90 +642,6 @@ async fn a_turn_too_long_for_the_window_files_an_exceeded_row_with_no_counts() {
         (window.window_used_tokens, window.window_max_tokens),
         (None, None)
     );
-}
-
-// Fails when a tool server's background call closes on the stand-in result Claude Code sends at
-// once rather than on its task's notification, or when the call, or another task running no
-// command that the background set lists, does not hold the session awake while it runs, or a held
-// call's own listed task counts twice. Mutations: `user` passing no held calls; `take_task_frame`
-// not releasing the held call; `background_work` leaving out the held calls or the listed tasks,
-// leaving out every listed tool server's task (reads 2), or counting the held call's own (reads 4).
-#[tokio::test(start_paused = true)]
-async fn a_tool_servers_background_call_closes_on_its_task_notification() {
-    let session = ScriptedSession::new().await;
-    session.hold_lead_turn("lead");
-    let closed_calls = |session: &ScriptedSession| {
-        session
-            .engine
-            .deliveries()
-            .into_iter()
-            .filter(|delivery| {
-                matches!(
-                    delivery.row,
-                    Some(
-                        LateAppendableRow::AgentToolCallCompleted(_)
-                            | LateAppendableRow::AgentToolCallFailed(_)
-                    )
-                )
-            })
-            .count()
-    };
-
-    session.frame(&init());
-    session.frame(&json!({
-        "type": "assistant",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "message": {
-            "id": "message-1",
-            "role": "assistant",
-            "content": [
-                {"type": "tool_use", "id": "call-1", "name": "mcp__files__export", "input": {}},
-            ],
-        },
-    }));
-    session.frame(&helper_started("task-1", "mcp_task", "call-1"));
-    session.frame(&json!({
-        "type": "user",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "message": {
-            "role": "user",
-            "content": [
-                {"type": "tool_result", "tool_use_id": "call-1", "content": "Running in the background"},
-            ],
-        },
-    }));
-    session.frame(&json!({
-        "type": "system",
-        "subtype": "background_tasks_changed",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "tasks": [
-            {"task_id": "task-1", "task_type": "mcp_task"},
-            {"task_id": "task-2", "task_type": "mcp_task"},
-            {"task_id": "workflow-1", "task_type": "local_workflow"},
-        ],
-    }));
-    settle().await;
-    assert_eq!(closed_calls(&session), 0);
-    assert_eq!(session.stream.background_work(), 3);
-
-    session.frame(&json!({
-        "type": "system",
-        "subtype": "task_notification",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "task_id": "task-1",
-        "tool_use_id": "call-1",
-        "status": "completed",
-        "summary": "Exported",
-    }));
-    session.frame(&json!({
-        "type": "system",
-        "subtype": "background_tasks_changed",
-        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
-        "tasks": [],
-    }));
-    settle().await;
-    assert_eq!(closed_calls(&session), 1);
-    assert_eq!(session.stream.background_work(), 0);
 }
 
 // A `tool_name` call's pre-tool hook, the helper `agent_id`'s or, with none, the lead's.

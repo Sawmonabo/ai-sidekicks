@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
@@ -114,6 +114,33 @@ impl ClaudeKeptCalls {
     }
 }
 
+/// Where a session's process keeps its background calls: its config folder, where one is known,
+/// and its conversation.
+#[derive(Clone)]
+pub(crate) struct ClaudeKeptCallsSource {
+    config_folder: Option<PathBuf>,
+    provider_session_id: String,
+}
+
+impl ClaudeKeptCallsSource {
+    /// The calls the conversation `provider_session_id` keeps under `config_folder`.
+    pub(crate) fn new(config_folder: Option<PathBuf>, provider_session_id: String) -> Self {
+        Self {
+            config_folder,
+            provider_session_id,
+        }
+    }
+
+    /// Reads what is kept now; nothing where no config folder is known. Fails as
+    /// [`read_claude_kept_calls`] does.
+    pub(crate) async fn read(&self) -> io::Result<ClaudeKeptCalls> {
+        let Some(config_folder) = &self.config_folder else {
+            return Ok(ClaudeKeptCalls::default());
+        };
+        read_claude_kept_calls(config_folder, &self.provider_session_id).await
+    }
+}
+
 /// Reads what Claude Code keeps of the conversation `provider_session_id`'s background calls
 /// under `config_folder`; nothing for a conversation or folder that is missing. A file gone
 /// before its read, or that is no JSON object, is passed over. Fails with `InvalidData` for a file
@@ -193,7 +220,7 @@ mod tests {
     use serde_json::json;
     use sidekicks_contracts::event::declared_variants::ToolCallEndCause;
 
-    use super::{ClaudeKeptCall, read_claude_kept_calls};
+    use super::{ClaudeKeptCall, ClaudeKeptCallsSource};
     use crate::driver::claude::delivery::messages::ClaudeToolCallOutcome;
 
     // Fails when the record is read before the saved ending, when a cancelled call reads as
@@ -242,9 +269,11 @@ mod tests {
             std::fs::write(kept.join(name), contents.to_string()).expect("a kept file is written");
         }
 
-        let calls = read_claude_kept_calls(config_folder.path(), session_id)
-            .await
-            .expect("the kept files are read");
+        let source = ClaudeKeptCallsSource::new(
+            Some(config_folder.path().to_owned()),
+            session_id.to_owned(),
+        );
+        let calls = source.read().await.expect("the kept files are read");
 
         assert_eq!(
             calls.call("call-1"),

@@ -1,5 +1,5 @@
-//! The daemon services a scripted session reaches: approval ports and a queue intake that record
-//! what reaches them, files whose read takes a set time, the bindings of daemon turns, a binding
+//! The daemon services a scripted session reaches: approval ports, a queue intake and a status
+//! line intake that record what reaches them, files whose read takes a set time, the bindings of daemon turns, a binding
 //! store that takes every write and a machine with no repositories.
 
 use std::collections::HashMap;
@@ -18,9 +18,12 @@ use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::tool_call_status::TOOL_CALL_STATUS_MAX_LEN;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
 use super::binding_id;
@@ -46,12 +49,13 @@ use crate::port::permission_ask::{
 };
 use crate::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
+use crate::port::tool_call_status_publisher::ToolCallStatusPublisher;
 use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
 use crate::runtime_binding::store::RuntimeBindingRebind;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
-/// What reached the approval ports, in order.
+/// What reached the approval ports and the status line intake, in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PortCall {
     /// An ask, by its request id.
@@ -64,9 +68,17 @@ pub(crate) enum PortCall {
     PressesReleased(RuntimeBindingId),
     /// A session's process told gone, once a test registers the recorder for it.
     ProcessGone(SessionId),
+    /// A tool call's status line, by the call's id; `None` for a clear.
+    ToolCallStatus {
+        /// The call.
+        tool_call_id: String,
+        /// Its new line, or `None` where it was cleared.
+        status: Option<String>,
+    },
 }
 
-/// Approval ports and the queue's intake of taken messages, each recording what reaches it.
+/// Approval ports, the queue's intake of taken messages and the status line intake, each
+/// recording what reaches it.
 #[derive(Default)]
 pub(crate) struct RecordingPorts {
     calls: Mutex<Vec<PortCall>>,
@@ -125,14 +137,36 @@ impl ProcessGoneListener for RecordingPorts {
     }
 }
 
+impl ToolCallStatusPublisher for RecordingPorts {
+    fn publish_tool_call_status(
+        &self,
+        _session_id: SessionId,
+        tool_call_id: ToolCallId,
+        status: FreeFormText<TOOL_CALL_STATUS_MAX_LEN>,
+    ) {
+        lock(&self.calls).push(PortCall::ToolCallStatus {
+            tool_call_id: tool_call_id.as_str().to_owned(),
+            status: Some(status.as_str().to_owned()),
+        });
+    }
+
+    fn clear_tool_call_status(&self, _session_id: SessionId, tool_call_id: ToolCallId) {
+        lock(&self.calls).push(PortCall::ToolCallStatus {
+            tool_call_id: tool_call_id.as_str().to_owned(),
+            status: None,
+        });
+    }
+}
+
 impl MessageTakenListener for RecordingPorts {
     fn message_taken(&self, _session_id: SessionId, message_id: &str, run_id: RunId) {
         lock(&self.taken).push((message_id.to_owned(), run_id));
     }
 }
 
-/// Registers what a scripted driver composes over: `recording` as the approval ports and the
-/// queue's intake, every daemon turn on one binding, and a machine with no repositories.
+/// Registers what a scripted driver composes over: `recording` as the approval ports, the queue's
+/// intake and the status line intake, every daemon turn on one binding, and a machine with no
+/// repositories.
 pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<RecordingPorts>) {
     ports
         .daemon_turn_bindings
@@ -154,6 +188,10 @@ pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<Recor
         .message_taken
         .register(recording.clone())
         .expect("the intake registers once");
+    ports
+        .tool_call_statuses
+        .register(recording.clone())
+        .expect("the status lines register once");
 }
 
 /// A usage record that keeps each metered delta and each set of quota windows, and answers one set

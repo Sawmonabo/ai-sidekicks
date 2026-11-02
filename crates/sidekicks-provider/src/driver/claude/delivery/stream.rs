@@ -19,6 +19,7 @@ use std::error::Error;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
+use jiff::Timestamp;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::ModelRerouteScope;
 use sidekicks_contracts::run::id::RunId;
@@ -72,6 +73,7 @@ use crate::driver::diagnostics::{
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::port::running_command_publisher::RunningCommandPublisher as _;
+use crate::port::tool_call_status_publisher::ToolCallStatusPublisher;
 use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
 use crate::record_readers::read_non_empty_string;
@@ -109,6 +111,8 @@ pub(crate) struct ClaudeStreamDependencies {
     pub(crate) turn_readings: Arc<PortRegistration<Arc<dyn TurnReadingPublisher>>>,
     /// Each session's context reads, which a lead message's usage reads mid-turn on.
     pub(crate) context: Arc<ClaudeContextReadings>,
+    /// Where a held tool-server call's status line goes once registered.
+    pub(crate) tool_call_statuses: Arc<PortRegistration<Arc<dyn ToolCallStatusPublisher>>>,
 }
 
 /// What a frame left for the session's task to do beyond its deliveries.
@@ -192,7 +196,7 @@ impl ClaudeDeliveryStream {
         }
         // A command or tool-server task, the lead's or a helper's, may end after its turn did.
         if kind.is_task() {
-            self.take_task_frame(session, &kind, &frame.text, turn_at_read.lead)
+            self.take_task_frame(session, &kind, frame_kind, &frame.text, turn_at_read.lead)
                 .await;
             return after;
         }
@@ -438,6 +442,7 @@ impl ClaudeDeliveryStream {
             // Read above: the tasks, a sent message's fate, the quota and the turn's end.
             ClaudeWireFrameKind::SystemTaskStarted
             | ClaudeWireFrameKind::SystemTaskUpdated
+            | ClaudeWireFrameKind::SystemTaskProgress
             | ClaudeWireFrameKind::SystemTaskNotification
             | ClaudeWireFrameKind::SystemBackgroundTasksChanged
             | ClaudeWireFrameKind::CommandLifecycle
@@ -459,7 +464,6 @@ impl ClaudeDeliveryStream {
             | ClaudeWireFrameKind::SystemToolUseSummary
             | ClaudeWireFrameKind::SystemMemoryRecall
             | ClaudeWireFrameKind::SystemLocalCommandOutput
-            | ClaudeWireFrameKind::SystemTaskProgress
             // Control traffic takes the request path or settles a call, never this reader.
             | ClaudeWireFrameKind::ControlRequestCanUseTool
             | ClaudeWireFrameKind::ControlRequestElicitation
@@ -597,7 +601,7 @@ impl ClaudeDeliveryStream {
                 session.session_id,
                 lead,
                 &mut readings.open_tool_calls,
-                Instant::now(),
+                Timestamp::now(),
             );
             // A step is one message carrying a tool call, the unit Claude Code's own bound counts.
             let counts_step = rows.iter().any(is_tool_call)
@@ -650,7 +654,7 @@ impl ClaudeDeliveryStream {
                 lead.run_id,
                 &mut readings.open_tool_calls,
                 readings.tool_server_tasks.held_call_ids(),
-                Instant::now(),
+                Timestamp::now(),
             );
             readings.failed_call_words.extend(reading.failed_results);
             let tasks = readings.turn_readings.observe_results(frame);

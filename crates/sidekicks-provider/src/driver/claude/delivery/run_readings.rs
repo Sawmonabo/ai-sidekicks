@@ -63,11 +63,14 @@ pub(crate) struct ClaudeOpenTurn {
     pub(crate) turn_number: Option<SafeInt<1>>,
 }
 
-/// What a row is written as: a row that takes the stamp when late, or a reasoning update.
+/// What a row is written as: a row that takes the stamp when late, a row appended after its run,
+/// or a reasoning update.
 #[derive(Debug)]
 pub(crate) enum ClaudeRow {
     /// A row the run engine stamps when it is late.
     Late(LateAppendableRow),
+    /// A row appended after its run, never attributed: a held call's close.
+    AfterRun(LateAppendableRow),
     /// An assistant's reasoning, whose text is the row's body.
     Thinking(RunAgentOutputPayload),
 }
@@ -139,7 +142,7 @@ impl ClaudeRow {
         operation: Option<&(String, bool)>,
         body: Option<String>,
     ) -> InboundDelivery<'_> {
-        let binding = DeliveryBinding {
+        let bound = |binding_id| DeliveryBinding {
             binding_id,
             operation: operation.map(|(correlation_key, is_opening)| DeliveryOperation {
                 correlation_key,
@@ -148,12 +151,17 @@ impl ClaudeRow {
         };
         match self {
             Self::Thinking(payload) => InboundDelivery::ThinkingUpdate {
-                binding,
+                binding: bound(binding_id),
                 payload,
                 content: body.unwrap_or_default(),
             },
             Self::Late(row) => InboundDelivery::SessionRow {
-                binding,
+                binding: bound(binding_id),
+                row,
+                content: body,
+            },
+            Self::AfterRun(row) => InboundDelivery::AfterRunRow {
+                binding_id,
                 row,
                 content: body,
             },

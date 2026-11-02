@@ -156,13 +156,6 @@ impl ClaudeTaskFrame {
     }
 
     /// The tasks a background list names, by id; `None` for a frame that carries no list.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the stream hands each background list to the store"
-        )
-    )]
     pub(crate) fn listed_task_ids(&self) -> Option<impl Iterator<Item = &str>> {
         self.tasks
             .is_some()
@@ -187,7 +180,7 @@ impl ClaudeTaskFrame {
         self.status.as_deref()
     }
 
-    /// Claude Code's summary of a finished task.
+    /// Claude Code's summary of a task: a finished one's, or a running one's progress.
     pub(crate) fn summary(&self) -> Option<&str> {
         non_empty(self.summary.as_deref())
     }
@@ -303,9 +296,10 @@ impl ClaudeCommandTasks {
     }
 
     /// What `frame`, of `kind`, changes in `session_id`'s running commands; `run` is the run a
-    /// task it starts belongs to, and the binding its ending is appended on. A task of a helper, a workflow or a tool server, or one of no
-    /// kind, is no command; a later start of a task the background set already listed gives that
-    /// task the line of the call that started it, and its start again.
+    /// task it starts belongs to, and the binding its ending is appended on. A task of a helper, a
+    /// workflow or a tool server, or one of no kind, is no command; a later start of a task the
+    /// background set already listed gives that task the line of the call that started it, and its
+    /// start again.
     #[expect(
         clippy::wildcard_enum_match_arm,
         reason = "only the task frames reach this read, and any other kind changes no command"
