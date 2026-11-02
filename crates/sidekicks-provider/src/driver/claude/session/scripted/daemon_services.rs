@@ -338,7 +338,13 @@ impl CallbackToolExecutor for NoCallbackTools {
         &self,
         _invocation: CallbackToolInvocation,
     ) -> BoxFuture<'_, Result<CallbackToolResult, CallbackToolPortError>> {
-        async { Ok(CallbackToolResult::Completed { output: None }) }.boxed()
+        async {
+            Ok(CallbackToolResult::Completed {
+                output: None,
+                session_links: Vec::new(),
+            })
+        }
+        .boxed()
     }
 }
 
