@@ -775,6 +775,8 @@ const fn has_declarable_words(table: &[&ProviderDescriptor]) -> bool {
 }
 
 // Whether `text` holds as declaration text, by the sufficient bounds `has_declarable_words` names.
+// It must stay at least as strict as `FreeFormText::new`, since the daemon's `expect` on the
+// declaration's text trusts this check.
 const fn is_declarable(text: &str) -> bool {
     let bytes = text.as_bytes();
     if bytes.len() > PROVIDER_DECLARATION_TEXT_MAX_LEN {
