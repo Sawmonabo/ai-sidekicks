@@ -38,7 +38,8 @@ fn step_key(id: &str) -> StepKey {
 
 /// An item whose `json` is `json`.
 fn item(json: Value) -> WorkflowItem {
-    serde_json::from_value(json!({ "json": json })).expect("an item")
+    serde_json::from_value(Value::Object(Map::from_iter([("json".to_owned(), json)])))
+        .expect("an item")
 }
 
 fn named_items(names: &[&str]) -> Vec<WorkflowItem> {
