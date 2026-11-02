@@ -70,12 +70,13 @@ pub(crate) fn cancel_branches(
 ) -> (Vec<StepReport>, Option<BranchWave>) {
     let mut reports = Vec::new();
     let mut members = Vec::new();
+    let canceled_at = WireInstant::now();
     for loser in losers {
         loser.cancel.cancel();
         if loser.is_running {
             reports.push(StepReport {
                 step: loser.step.clone(),
-                at: WireInstant::now(),
+                at: canceled_at.clone(),
                 kind: StepReportKind::Canceling,
             });
             members.push(loser.step);
@@ -113,21 +114,24 @@ impl BranchWave {
             return WaveSettle::Pending { run_to_stop };
         }
         let is_sibling_failure = self.reason == BranchCancelReason::SiblingFailure;
+        let members = std::mem::take(&mut self.members);
         let branches_canceled = StepReport {
             step: self.deciding.clone(),
-            at: WireInstant::now(),
-            kind: StepReportKind::BranchesCanceled,
+            at: report.at.clone(),
+            kind: StepReportKind::BranchesCanceled {
+                reason: self.reason,
+                count: members.len(),
+            },
         };
-        let canceled = std::mem::take(&mut self.members)
-            .into_iter()
-            .map(|step| StepReport {
-                step,
-                at: WireInstant::now(),
-                kind: StepReportKind::Settled(StepSettlement::Canceled {
-                    hold_started_at: None,
-                    is_sibling_failure,
-                }),
-            });
+        let closed_at = report.at;
+        let canceled = members.into_iter().map(|step| StepReport {
+            step,
+            at: closed_at.clone(),
+            kind: StepReportKind::Settled(StepSettlement::Canceled {
+                hold_started_at: None,
+                is_sibling_failure,
+            }),
+        });
         WaveSettle::Closed {
             reports: std::iter::once(branches_canceled).chain(canceled).collect(),
             run_to_stop,
@@ -165,7 +169,9 @@ mod tests {
         let kind = match &report.kind {
             StepReportKind::Progressed => json!("progressed"),
             StepReportKind::Canceling => json!("canceling"),
-            StepReportKind::BranchesCanceled => json!("branchesCanceled"),
+            StepReportKind::BranchesCanceled { reason, count } => {
+                json!({ "branchesCanceled": { "reason": format!("{reason:?}"), "count": count } })
+            }
             StepReportKind::Settled(StepSettlement::Canceled {
                 hold_started_at,
                 is_sibling_failure,
@@ -197,8 +203,10 @@ mod tests {
     /// Two running losers and one held between them wind down as one wave of the two running ones:
     /// each running one gets a `Canceling` at once, every token is canceled, the held one's own
     /// settlement and a member's progress pass through, the first settlement leaves the wave open,
-    /// and the last closes it with one `BranchesCanceled` and each member canceled in loser order,
-    /// the raced `Completed` included. Mutations: write `BranchesCanceled` per member; close the
+    /// and the last closes it with one `BranchesCanceled` carrying the wave's reason and size and
+    /// each member canceled in loser order, the raced `Completed` included, all at the closing
+    /// settlement's instant. Mutations: write `BranchesCanceled` per member, or with another reason
+    /// or count; stamp the closing reports with fresh clock reads; close the
     /// wave at its first settlement; write a raced `Completed` as completed; put the held loser in
     /// the wave or give it a `Canceling`; answer `Pending` for a report that is no member's
     /// settlement; set `siblingFailure` on a `firstToArrive` wave; order the members by settlement.
@@ -270,20 +278,25 @@ mod tests {
             hold_started_at: None,
             is_sibling_failure: false,
         });
+        let last = report("a", a_canceled);
+        let closed_at = last.at.clone();
         let WaveSettle::Closed {
             reports: closing,
             run_to_stop: None,
-        } = wave.settle(report("a", a_canceled))
+        } = wave.settle(last)
         else {
             panic!("the last member's settlement closes the wave");
         };
+        assert!(closing.iter().all(|closed| closed.at == closed_at));
         let canceled = json!({ "canceled": {
             "holdStartedAt": null, "isSiblingFailure": is_sibling_failure,
         } });
         assert_eq!(
             closing.iter().map(report_json).collect::<Vec<_>>(),
             vec![
-                json!(["merge", "branchesCanceled"]),
+                json!(["merge", { "branchesCanceled": {
+                    "reason": format!("{reason:?}"), "count": 2,
+                } }]),
                 json!(["a", canceled]),
                 json!(["b", canceled]),
             ]

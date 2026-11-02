@@ -21,6 +21,9 @@ use crate::engine::tick::node_settings::{
 use crate::engine::tick::{ReadyStep, RunScope, RunSnapshot, StepReportKind, StepSettlement};
 use crate::kinds::{StepFailure, StepOutcome, uncoded_step_error};
 
+/// What a step reads whose agent run left the memory gate's line unadmitted yet read as completed.
+const WITHDRAWN_RUN_COMPLETED: &str = "the step's agent run left the memory gate's line before it was admitted, yet read as completed";
+
 impl StepDispatch {
     /// Drives `ready`, an agent step of the run of `scope`, reading `snapshot`, to its settlement:
     /// launches it and evaluates its params into its run's request, then takes its turn in the
@@ -124,6 +127,7 @@ impl StepDispatch {
             }
         };
         let end = wait_at_gate(step.clone(), run.admission(), &cancel, &self.reports).await;
+        let is_withdrawn = matches!(end, GateWaitEnd::Withdrawn { .. });
         let (is_start_watched, hold_started_at) = match end {
             GateWaitEnd::Admitted => (true, None),
             // The run's place closed before it was admitted; its outcome says how it ended.
@@ -208,6 +212,13 @@ impl StepDispatch {
             }
         } else {
             match ended {
+                // A run that left the gate's line unadmitted never ran, whatever its end reads.
+                Ok(AgentStepOutcome::Completed { .. }) if is_withdrawn => StepSettlement::Failed {
+                    failure: fill(StepFailure::Failed(Box::new(uncoded_step_error(
+                        WITHDRAWN_RUN_COMPLETED.to_owned(),
+                    )))),
+                    log_lines: records.log_lines,
+                },
                 Ok(AgentStepOutcome::Completed { items, cost }) => {
                     let mut outputs = place_on_first_output(items, main_output_count(&kind.spec));
                     shape_outputs(node, &main_input_lengths, &mut outputs);
@@ -266,6 +277,7 @@ mod tests {
         scripted_kind, secret_item, test_node,
     };
     use super::super::{StepDispatch, test_dispatch, test_ready_step, test_run_snapshot};
+    use super::WITHDRAWN_RUN_COMPLETED;
     use crate::engine::event_record::EngineRecorder;
     use crate::engine::ports::{
         AgentStepOutcome, AgentStepRequest, AgentStepRunner, EngineRecordSink, KeptEngineRecords,
@@ -440,6 +452,49 @@ mod tests {
         }
         runner.end(outcome);
         assert_eq!(next_report(&mut received, &step).await, Some(settlement));
+        assert_eq!(next_report(&mut received, &step).await, None);
+    }
+
+    /// An agent step whose run left the gate's line unadmitted reports no admission and fails
+    /// when the run's end reads completed, since the run never ran; a spent account still waits.
+    /// Mutations: settle the withdrawn run's items as completed; fail a withdrawn spent account.
+    #[rstest]
+    #[case::completed(completed_run(), true)]
+    #[case::spent(spent_run(), false)]
+    #[tokio::test]
+    async fn a_withdrawn_agent_run_never_settles_completed(
+        #[case] outcome: AgentStepOutcome,
+        #[case] is_failed: bool,
+    ) {
+        let database = TestDatabase::new(schema_parts());
+        let runner = Arc::new(ScriptedAgentRunner::new(
+            Some(StepAdmissionOutcome::Withdrawn),
+            false,
+        ));
+        let (dispatch, mut received) = agent_dispatch(&database, &runner, Vec::new());
+        let node = agent_node();
+        let scope = Arc::new(test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]));
+        let ready = test_ready_step(&scope, &node, vec![vec![json!({ "name": "Ada" })]]);
+        let step = ready.step.clone();
+        dispatch.dispatch(&scope, &test_run_snapshot(&node), ready);
+        drop(dispatch);
+        timeout(WAIT, runner.wait_for_request())
+            .await
+            .expect("the step asks for its run");
+
+        runner.end(outcome);
+        let settled = next_report(&mut received, &step)
+            .await
+            .expect("the step settles");
+        let expected = if is_failed {
+            json!({ "failed": {
+                "failure": { "message": WITHDRAWN_RUN_COMPLETED, "nodeId": "step" },
+                "logLines": [],
+            } })
+        } else {
+            json!({ "accountSpent": { "providerAccountId": ACCOUNT } })
+        };
+        assert_eq!(settled, expected);
         assert_eq!(next_report(&mut received, &step).await, None);
     }
 

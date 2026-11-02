@@ -36,7 +36,7 @@ use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::engine::ports::EngineRecordSink;
-use crate::engine::tick::StepSettlement;
+use crate::engine::tick::{BranchCancelReason, StepSettlement};
 use crate::kinds::StepFailure;
 use crate::secrets::redaction::RunRedaction;
 
@@ -147,8 +147,8 @@ pub(crate) enum StepTransition<'report> {
     Canceling,
     /// The step's turn canceled a wave of its run's other branches.
     BranchesCanceled {
-        /// Whether a sibling's failure canceled them, rather than a first-to-arrive merge.
-        is_sibling_failure: bool,
+        /// Why they were canceled.
+        reason: BranchCancelReason,
         /// How many running branches the wave canceled.
         count: usize,
     },
@@ -462,15 +462,11 @@ fn step_reported(line: &mut Map<String, Value>, transition: &StepTransition<'_>)
         StepTransition::Canceling => {
             line.insert("report".to_owned(), json!("canceling"));
         }
-        StepTransition::BranchesCanceled {
-            is_sibling_failure,
-            count,
-        } => {
+        StepTransition::BranchesCanceled { reason, count } => {
             line.insert("report".to_owned(), json!("branchesCanceled"));
-            let reason = if *is_sibling_failure {
-                "siblingFailure"
-            } else {
-                "firstToArrive"
+            let reason = match reason {
+                BranchCancelReason::FirstToArrive => "firstToArrive",
+                BranchCancelReason::SiblingFailure => "siblingFailure",
             };
             line.insert("reason".to_owned(), json!(reason));
             line.insert("count".to_owned(), json!(count));

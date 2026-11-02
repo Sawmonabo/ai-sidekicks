@@ -16,6 +16,8 @@ pub(crate) mod node_settings;
 mod step_failure;
 mod walk;
 
+pub(crate) use self::branch_cancellation::BranchCancelReason;
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -169,8 +171,9 @@ pub(crate) struct StepReport {
 
 /// What a step reports: where it stands at the memory gate, its start, its progress, its wind-down
 /// or its end. A step the dispatch admits has its `Admitted` in the dispatch's own answer, before
-/// any report from its driver; a step the gate weighs reports its hold and its admission from its
-/// driver.
+/// any report from its driver; a step the gate weighs, and an agent step, whose run joins the gate
+/// when it is made, reports its hold and its admission from its driver. An agent step whose run
+/// leaves the gate's line unadmitted reports no `Admitted` before it settles.
 pub(crate) enum StepReportKind {
     /// The memory gate holds the step; every report of one hold carries the instant of its first,
     /// so the first is the one whose `at` equals `hold_started_at`.
@@ -194,8 +197,14 @@ pub(crate) enum StepReportKind {
     Progressed,
     /// The step was asked to stop and is winding down.
     Canceling,
-    /// The wave the step belongs to had its other branches canceled.
-    BranchesCanceled,
+    /// The step's turn canceled a wave of its run's other branches, and the last running one has
+    /// settled; the report sits on the deciding step.
+    BranchesCanceled {
+        /// Why the branches were canceled.
+        reason: BranchCancelReason,
+        /// How many running branches the wave canceled.
+        count: usize,
+    },
     /// The step ended.
     Settled(StepSettlement),
 }

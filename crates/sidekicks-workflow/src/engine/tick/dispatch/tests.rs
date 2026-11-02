@@ -258,7 +258,7 @@ pub(super) fn report_json(report: &StepReport, step: &WorkflowStepKey) -> Value 
             permission_level,
         } => json!({ "started": { "inputRef": input_ref, "permissionLevel": permission_level } }),
         StepReportKind::Progressed => json!("progressed"),
-        StepReportKind::Canceling | StepReportKind::BranchesCanceled => {
+        StepReportKind::Canceling | StepReportKind::BranchesCanceled { .. } => {
             panic!("no dispatched step winds a branch down")
         }
         StepReportKind::Settled(settlement) => settlement_json(settlement),
