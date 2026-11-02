@@ -18,7 +18,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::machine::settings::{
     BranchNamePattern, MACHINE_SETTINGS_FILE_PATH_SEGMENTS, MachineSettings, MachineSettingsChange,
-    MachineSettingsReading, ProjectBranchPatternRefusedDetails, ProviderCommandValues,
+    MachineSettingsReading, ProjectBranchPatternRefusedDetails, ProviderCommandPathValues,
     ProviderKnobValues, ProviderSettingValues, SettingsFileRepair, SettingsFileRepairCause,
     parse_machine_settings_file,
 };
@@ -81,7 +81,7 @@ pub(crate) struct ProviderSettingsMembers<'settings> {
     /// The values set on each provider's declared Settings rows.
     pub(crate) settings: &'settings mut ProviderSettingValues,
     /// Each provider's command path per place.
-    pub(crate) commands: &'settings mut ProviderCommandValues,
+    pub(crate) command_paths: &'settings mut ProviderCommandPathValues,
     /// Each provider's knobs.
     pub(crate) knobs: &'settings mut ProviderKnobValues,
 }
@@ -148,7 +148,7 @@ impl MachineSettingsFile {
         let mut settings = self.read_from_disk(&mut repair).await?.settings;
         change(ProviderSettingsMembers {
             settings: &mut settings.provider_settings,
-            commands: &mut settings.provider_commands,
+            command_paths: &mut settings.provider_command_paths,
             knobs: &mut settings.provider_knobs,
         });
         self.write(&settings).await?;
@@ -455,7 +455,7 @@ mod tests {
             "updatesAutomatic": false,
             "editorId": "zed",
             "providerSettings": { "claude": { "advisor": "opus" } },
-            "providerCommands": { "codex": [{ "path": "/opt/codex/bin/codex" }] },
+            "providerCommandPaths": { "codex": [{ "path": "/opt/codex/bin/codex" }] },
             "providerKnobs": { "claude": { "availableForNewSessions": false } },
             "voice": { "mode": "tap", "callVoice": null, "dictationLanguage": null },
         });

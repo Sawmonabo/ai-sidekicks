@@ -53,7 +53,7 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
-        "providerCommands": {},
+        "providerCommandPaths": {},
         "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
@@ -122,7 +122,7 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
-        "providerCommands": {},
+        "providerCommandPaths": {},
         "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
@@ -196,7 +196,7 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
-        "providerCommands": {},
+        "providerCommandPaths": {},
         "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
@@ -270,7 +270,7 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
-        "providerCommands": {},
+        "providerCommandPaths": {},
         "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
@@ -336,7 +336,7 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
-        "providerCommands": {},
+        "providerCommandPaths": {},
         "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
@@ -405,7 +405,7 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
-        "providerCommands": {},
+        "providerCommandPaths": {},
         "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
@@ -485,7 +485,7 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
-        "providerCommands": {},
+        "providerCommandPaths": {},
         "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
@@ -595,7 +595,7 @@
             ]
           }
         },
-        "providerCommands": {},
+        "providerCommandPaths": {},
         "providerKnobs": {},
         "commitTextModel": null,
         "defaultCheckout": "provisionedWorktree",
@@ -660,7 +660,7 @@
     },
     {
       "file": {
-        "providerCommands": {
+        "providerCommandPaths": {
           "codex": [
             {
               "place": "windows",
@@ -696,7 +696,7 @@
         "keepCrashReports": true,
         "editorId": null,
         "providerSettings": {},
-        "providerCommands": {
+        "providerCommandPaths": {
           "claude": [
             {
               "path": "/usr/local/bin/claude"
@@ -779,7 +779,7 @@
     },
     {
       "file": {
-        "providerCommands": {
+        "providerCommandPaths": {
           "codex": []
         }
       },
@@ -787,7 +787,31 @@
     },
     {
       "file": {
-        "providerCommands": {
+        "providerCommandPaths": {
+          "codex": [
+            { "place": "windows", "path": "C:\\Tools\\codex.exe" },
+            { "place": "windows", "path": "D:\\codex.exe" }
+          ]
+        }
+      },
+      "settings": null
+    },
+    {
+      "file": {
+        "providerSettings": {
+          "codex": {
+            "reachable": [
+              { "place": "windows", "enabled": true },
+              { "place": "windows", "enabled": false }
+            ]
+          }
+        }
+      },
+      "settings": null
+    },
+    {
+      "file": {
+        "providerCommandPaths": {
           "codex": [
             {
               "place": "windows"

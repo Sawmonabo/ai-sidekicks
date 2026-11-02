@@ -17,13 +17,15 @@ use crate::wire::integer::SafeInt;
 use crate::wire::list::{ListKey, UniqueList};
 use crate::wire::record::Record;
 
-/// One declared Settings row's value set in the app, split by the row's shape.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// One declared Settings row's value set in the app, split by the row's shape; its check refuses
+/// two entries for one place.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
+#[garde(allow_unvalidated)]
 pub enum ProviderRowValue {
     /// A switch's entry for each place it was set in, keyed by place; a place left out follows the
     /// provider's own value there.
-    Places(ProviderPlaceSwitches),
+    Places(#[garde(dive)] ProviderPlaceSwitches),
     /// A choice's option or `null` for its none, or a text setting's text or `null` for none.
     Value(#[schemars(with = "NullableSchema<ProviderValueText>")] Option<ProviderValueText>),
 }
@@ -73,7 +75,7 @@ pub type ProviderCommandPaths = UniqueList<ProviderCommandPath, 1, { usize::MAX 
 /// Each provider's command paths, by provider; a provider left out auto-detects in every place.
 /// A provider id never reads `__proto__`, which its pattern excludes, and the schema refuses it
 /// too.
-pub type ProviderCommandValues = Record<ProviderId, ProviderCommandPaths>;
+pub type ProviderCommandPathValues = Record<ProviderId, ProviderCommandPaths>;
 
 /// The knobs every provider offers, each absent until set: availability absent reads on, the
 /// helper limit absent or `null` reads no limit and `0` none, and the compaction threshold absent
@@ -129,29 +131,7 @@ mod tests {
     use serde_json::json;
 
     use super::ProviderKnobs;
-    use crate::machine::settings::MachineSettings;
     use crate::wire::integer::SafeInt;
-
-    // Killed by dropping `#[serde(default)]` from either member: the file is read without the
-    // laying over the defaults that would hide it.
-    #[test]
-    fn a_file_without_the_provider_members_reads_them_empty_and_unlimited() {
-        let mut file =
-            serde_json::to_value(MachineSettings::default()).expect("settings serialize");
-        let members = file
-            .as_object_mut()
-            .expect("settings serialize as an object");
-        members.remove("providerCommands");
-        members.remove("providerKnobs");
-
-        let settings: MachineSettings = serde_json::from_value(file).expect("the file reads");
-
-        assert!(settings.provider_commands.as_map().is_empty());
-        assert!(settings.provider_knobs.as_map().is_empty());
-        let unset = ProviderKnobs::default();
-        assert_eq!(unset.helpers_at_once_limit(), None);
-        assert!(unset.is_available_for_new_sessions());
-    }
 
     // Killed by reading `null` as `0`, or absent as `null`: each keeps its own value and is
     // written back as it was read.

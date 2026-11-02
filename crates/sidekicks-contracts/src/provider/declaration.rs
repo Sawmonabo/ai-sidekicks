@@ -35,6 +35,13 @@ impl RecordKey for ProviderDeclarationId {
     }
 }
 
+/// A record keyed by row reports a failed value under its id.
+impl garde::error::PathComponentKind for ProviderDeclarationId {
+    fn component_kind() -> garde::error::Kind {
+        garde::error::Kind::Key
+    }
+}
+
 /// A label, a line or a reason in the words a person reads.
 pub type ProviderDeclarationText = FreeFormText<PROVIDER_DECLARATION_TEXT_MAX_LEN>;
 /// The value a choice or a text setting holds.

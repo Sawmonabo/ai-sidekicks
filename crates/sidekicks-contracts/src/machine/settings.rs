@@ -41,7 +41,7 @@ use crate::wire::{NullableSchema, nullable};
 mod provider;
 
 pub use provider::{
-    ProviderCommandPath, ProviderCommandPaths, ProviderCommandValues, ProviderKnobValues,
+    ProviderCommandPath, ProviderCommandPathValues, ProviderCommandPaths, ProviderKnobValues,
     ProviderKnobs, ProviderRowValue, ProviderRowValues, ProviderSettingValues,
 };
 
@@ -435,9 +435,11 @@ pub struct CommitTextModel {
     pub model_id: ProviderToken,
 }
 
-/// Every value the machine's settings file holds.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// Every value the machine's settings file holds; its check refuses two entries for one place in
+/// a provider's command paths or a declared switch row.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 #[expect(
     clippy::struct_excessive_bools,
     reason = "the wire carries each switch as its own boolean member"
@@ -454,15 +456,14 @@ pub struct MachineSettings {
     /// The values set in the app on the Settings rows each provider's driver declares, written by
     /// `provider.update` and passed to the app's own sessions; empty until one is set, while each
     /// provider's own values are followed.
+    #[garde(dive)]
     pub provider_settings: ProviderSettingValues,
     /// Each provider's `Command` path per place, written by `provider.update`; a place without one
-    /// auto-detects, and a file without the member reads none.
-    #[serde(default)]
-    pub provider_commands: ProviderCommandValues,
+    /// auto-detects.
+    #[garde(dive)]
+    pub provider_command_paths: ProviderCommandPathValues,
     /// Each provider's availability, helper limit and compaction threshold, written by
-    /// `provider.update`; a knob unset reads as its default, and a file without the member reads
-    /// none set.
-    #[serde(default)]
+    /// `provider.update`; a knob unset reads as its default.
     pub provider_knobs: ProviderKnobValues,
     /// `Commit and pull request text`; `null` is `Automatic`, the session's provider and its
     /// lowest-priced model.
@@ -519,7 +520,7 @@ impl Default for MachineSettings {
             keep_crash_reports: true,
             editor_id: None,
             provider_settings: Record::default(),
-            provider_commands: Record::default(),
+            provider_command_paths: Record::default(),
             provider_knobs: Record::default(),
             commit_text_model: None,
             default_checkout: ExecutionMode::ProvisionedWorktree,
@@ -580,18 +581,34 @@ fn over_defaults(defaults: &mut Map<String, Value>, stored: Map<String, Value>) 
     }
 }
 
-/// Reads the file's parsed JSON as settings: a missing key takes its default, and an unknown key
-/// or a value out of shape refuses the whole file, which the service then reads as the defaults
-/// and repairs.
-pub fn parse_machine_settings_file(file: Value) -> Result<MachineSettings, serde_json::Error> {
-    let Value::Object(stored) = file else {
-        return serde_json::from_value(file);
+/// Why the machine's settings file was refused whole.
+#[derive(Debug, thiserror::Error)]
+pub enum MachineSettingsFileFault {
+    /// Its JSON does not match the file's shape: an unknown key or a value out of shape.
+    #[error("the machine settings file does not match its shape")]
+    Shape(#[from] serde_json::Error),
+    /// A value breaks a rule its shape cannot hold, such as two entries for one place.
+    #[error("the machine settings file breaks a rule its shape cannot hold")]
+    Rules(#[from] garde::Report),
+}
+
+/// Reads the file's parsed JSON as settings: a missing key takes its default, and an unknown key,
+/// a value out of shape or a broken rule refuses the whole file with [`MachineSettingsFileFault`],
+/// which the service then reads as the defaults and repairs.
+pub fn parse_machine_settings_file(
+    file: Value,
+) -> Result<MachineSettings, MachineSettingsFileFault> {
+    let settings: MachineSettings = if let Value::Object(stored) = file {
+        let mut merged = serde_json::to_value(MachineSettings::default())?;
+        if let Value::Object(defaults) = &mut merged {
+            over_defaults(defaults, stored);
+        }
+        serde_json::from_value(merged)?
+    } else {
+        serde_json::from_value(file)?
     };
-    let mut merged = serde_json::to_value(MachineSettings::default())?;
-    if let Value::Object(defaults) = &mut merged {
-        over_defaults(defaults, stored);
-    }
-    serde_json::from_value(merged)
+    garde::Validate::validate(&settings)?;
+    Ok(settings)
 }
 
 /// One change to the file: exactly one top-level member, with its whole value. A group such as

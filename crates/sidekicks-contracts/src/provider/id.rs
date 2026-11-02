@@ -38,6 +38,13 @@ impl RecordKey for ProviderId {
     }
 }
 
+/// A record keyed by provider reports a failed value under its id.
+impl garde::error::PathComponentKind for ProviderId {
+    fn component_kind() -> garde::error::Kind {
+        garde::error::Kind::Key
+    }
+}
+
 /// The TypeScript module of the provider id.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "provider/id",
