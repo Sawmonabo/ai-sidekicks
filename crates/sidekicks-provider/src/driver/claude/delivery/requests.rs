@@ -219,7 +219,7 @@ impl ClaudeInboundRequests {
                 session.tool_server_calls.start(
                     ClaudeToolServerCallContext {
                         session_id: session.stream.session_id(),
-                        provider_account_id: session.stream.provider_account_id().clone(),
+                        provider_account_id: session.stream.provider_account_id(),
                         channel: Arc::clone(&session.channel),
                         servers: session.tool_servers.clone(),
                     },
@@ -651,10 +651,7 @@ impl ClaudeInboundRequests {
                 }),
             },
         };
-        let origin = claude_delivery_origin(
-            Some(session.stream.provider_account_id().clone()),
-            Some(wire),
-        );
+        let origin = claude_delivery_origin(Some(session.stream.provider_account_id()), Some(wire));
         let outcome = dispatch_delivery(&*self.dependencies.dispatch, origin, delivery).await;
         let is_admitted = outcome == Some(InboundOutcome::AskAdmitted);
         let mut tables = self.lock();
@@ -674,7 +671,7 @@ impl ClaudeInboundRequests {
         answer_claude_request(
             &*session.channel,
             &session.stream.session_id(),
-            session.stream.provider_account_id(),
+            &session.stream.provider_account_id(),
             request_id,
             answer,
         )
@@ -838,7 +835,7 @@ fn record_hand_off_failure(session_id: SessionId, kind: &str, error: &(dyn Error
 fn record_unattributed(session: &ClaudeRequestSession<'_>, subtype: &str, request_id: &str) {
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: Some(session.stream.provider_account_id().clone()),
+        provider_account_id: Some(session.stream.provider_account_id()),
         kind: DriverDiagnosticKind::UnmappedWireKind,
         raw_wire_type: Some(format!("control_request/{subtype}")),
         disposition_reason: "a request Claude Code holds no daemon run on, or of a kind the \

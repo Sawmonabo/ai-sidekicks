@@ -140,16 +140,17 @@ impl ClaudeDeliveryStream {
         }
     }
 
-    /// Moves every lead run's binding on the session and every live helper's onto
-    /// `provider_account_id`'s account through `bindings`, each binding once, in the place the
-    /// process acknowledged the switch, so each reading metered after it is the new account's. A
-    /// move not written is logged and the others are still made.
+    /// Moves the session's stream, every lead run's binding on the session and every live
+    /// helper's onto `provider_account_id`'s account through `bindings`, each binding once, in the
+    /// place the process acknowledged the switch, so each reading metered and each report read
+    /// after it is the new account's. A move not written is logged and the others are still made.
     pub(super) async fn move_account(
         &self,
         session: &ClaudeSessionStream,
         provider_account_id: &ProviderAccountId,
         bindings: &dyn RuntimeBindingWriter,
     ) {
+        session.move_account(provider_account_id.clone());
         let routes = &self.dependencies.routes;
         let mut moved = HashSet::new();
         let runs = routes

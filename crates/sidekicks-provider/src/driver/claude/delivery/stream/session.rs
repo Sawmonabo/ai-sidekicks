@@ -39,7 +39,8 @@ pub(crate) enum ClaudeFirstRequest {
 /// an await, and its queue.
 pub(crate) struct ClaudeSessionStream {
     pub(super) session_id: SessionId,
-    pub(super) provider_account_id: ProviderAccountId,
+    // The account the process runs on, moved where it acknowledged a switch among its frames.
+    provider_account_id: Mutex<ProviderAccountId>,
     pub(super) step_bound: Option<SafeInt<1>>,
     readings: Mutex<ClaudeStreamSession>,
     arrivals: ClaudeArrivalSender,
@@ -71,8 +72,8 @@ impl ClaudeSessionStream {
     ) -> Self {
         Self {
             session_id: arrivals.session_id(),
-            readings: Mutex::new(ClaudeStreamSession::new(provider_account_id.clone())),
-            provider_account_id,
+            readings: Mutex::new(ClaudeStreamSession::new()),
+            provider_account_id: Mutex::new(provider_account_id),
             step_bound,
             arrivals,
             routes,
@@ -124,9 +125,16 @@ impl ClaudeSessionStream {
         &self.arrivals
     }
 
-    /// The account the process runs on.
-    pub(crate) fn provider_account_id(&self) -> &ProviderAccountId {
-        &self.provider_account_id
+    /// The account the process runs on now: the one it started on, or the one a switch it
+    /// acknowledged moved it onto.
+    pub(crate) fn provider_account_id(&self) -> ProviderAccountId {
+        lock(&self.provider_account_id).clone()
+    }
+
+    // Moves the stream onto `provider_account_id`'s account, where the process acknowledged the
+    // switch, so every frame read after it is that account's.
+    pub(super) fn move_account(&self, provider_account_id: ProviderAccountId) {
+        *lock(&self.provider_account_id) = provider_account_id;
     }
 
     /// Answers `watch` how the process's next request goes; a watch held before is dropped, which

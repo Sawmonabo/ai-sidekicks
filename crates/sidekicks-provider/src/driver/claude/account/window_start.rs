@@ -17,6 +17,7 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::ClaudeAccountLegs;
 use crate::driver::claude::account::read_folder::run_in_read_folder;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
 use crate::driver::claude::rate_limit_windows::{
     ClaudeUsageProbeModels, read_claude_quota_windows,
 };
@@ -34,9 +35,9 @@ use crate::driver::contract::error::DriverError;
 use crate::lenient_json::read_lenient;
 use crate::usage_delta_accountant::{UsageAxisCounts, compose_one_turn_spend};
 
-/// The smallest turn's command line: the one line on the command line, the stream written as
-/// frames so its `rate_limit_event` and `result` can be read, and no conversation kept.
-pub(super) const CLAUDE_WINDOW_TURN_ARGUMENTS: [&str; 13] = [
+/// The smallest turn's command line before its MCP flag and its line: the stream written as frames
+/// so its `rate_limit_event` and `result` can be read, and no conversation kept.
+pub(super) const CLAUDE_WINDOW_TURN_ARGUMENTS: [&str; 12] = [
     "-p",
     "--output-format",
     "stream-json",
@@ -49,8 +50,14 @@ pub(super) const CLAUDE_WINDOW_TURN_ARGUMENTS: [&str; 13] = [
     "Reply with ok.",
     "--disable-slash-commands",
     "--no-session-persistence",
-    "ok",
 ];
+
+/// The flag that loads no MCP server but those the command line names, which is none, so no MCP
+/// tool comes on beside `--tools ""`.
+pub(super) const CLAUDE_NO_MCP_SERVERS: &str = "--strict-mcp-config";
+
+/// The one line the smallest turn sends, given on the command line.
+pub(super) const CLAUDE_WINDOW_TURN_LINE: &str = "ok";
 
 /// The variable that turns the turn's thinking off, and its value.
 pub(super) const CLAUDE_THINKING_OFF: (&str, &str) = ("MAX_THINKING_TOKENS", "0");
@@ -190,13 +197,21 @@ async fn run_claude_smallest_turn(
                 CLAUDE_THINKING_OFF.1.to_owned(),
             ));
             let working_folder = legs.launcher.control_only_folder().await?;
+            let mut arguments: Vec<String> = CLAUDE_WINDOW_TURN_ARGUMENTS
+                .into_iter()
+                .map(str::to_owned)
+                .collect();
+            // An administrator's MCP file makes Claude Code exit at start under the flag; it then
+            // loads only the organization's servers.
+            if !has_readable_managed_mcp_file(DESCRIPTOR.managed_settings_folder().as_deref()).await
+            {
+                arguments.push(CLAUDE_NO_MCP_SERVERS.to_owned());
+            }
+            arguments.push(CLAUDE_WINDOW_TURN_LINE.to_owned());
             let ClaudeShortProcess { process, arrivals } = ClaudeShortProcess::start(
                 &legs.launcher,
                 &executable,
-                CLAUDE_WINDOW_TURN_ARGUMENTS
-                    .into_iter()
-                    .map(str::to_owned)
-                    .collect(),
+                arguments,
                 working_folder,
                 Some(provider_account_id.clone()),
                 token,

@@ -305,7 +305,7 @@ impl ClaudeSessionTask {
             is_daemon_interrupt_end: false,
         };
         let origin = claude_delivery_origin(
-            Some(self.stream.provider_account_id().clone()),
+            Some(self.stream.provider_account_id()),
             Some("control_request/hook_callback"),
         );
         dispatch_delivery(&*start.dispatch, origin, delivery).await;

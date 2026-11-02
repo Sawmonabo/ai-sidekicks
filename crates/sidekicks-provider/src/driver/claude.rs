@@ -24,7 +24,9 @@ use sidekicks_platforms::{
 };
 
 use crate::command::running_set::takes_no_input;
-use crate::driver::claude::account_credentials::OAUTH_TOKEN_VARIABLE;
+use crate::driver::claude::account::credentials::{
+    OAUTH_TOKEN_VARIABLE, SECURE_STORAGE_FOLDER_VARIABLE,
+};
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
 use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
@@ -72,7 +74,6 @@ use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandI
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
 mod account;
-mod account_credentials;
 mod attachments;
 mod capabilities;
 mod capability_probe;
@@ -189,7 +190,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // keeps per account home, so a session's temporary files sit where its purge finds them.
     credential_home_environment_names: &[
         "CLAUDE_CONFIG_DIR",
-        "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+        SECURE_STORAGE_FOLDER_VARIABLE,
         "CLAUDE_CODE_TMPDIR",
     ],
     withheld_environment_names: &[

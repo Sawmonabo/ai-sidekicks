@@ -8,8 +8,13 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::real_path;
 use sidekicks_std::file::atomic_write::write_file_atomically;
 
-use super::{CLAUDE_THINKING_OFF, CLAUDE_WINDOW_TURN_ARGUMENTS, CLAUDE_WINDOW_TURN_FOLDER};
+use super::{
+    CLAUDE_NO_MCP_SERVERS, CLAUDE_THINKING_OFF, CLAUDE_WINDOW_TURN_ARGUMENTS,
+    CLAUDE_WINDOW_TURN_FOLDER, CLAUDE_WINDOW_TURN_LINE,
+};
+use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::test_account_legs;
+use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
 use crate::driver::contract::account::{
     ProviderObservation, ProviderWindowTurnLegs, WindowTurnAnswer,
 };
@@ -60,8 +65,8 @@ printf '%s\n' '{{"type":"result","subtype":"success","is_error":{is_error},"resu
 // recorded line differs, and the stand-in keeps a session file in the account's store), by the
 // turn run in the account's own configuration home, on another store or in a project folder, by
 // the thinking switch left off, by its input left open (the stand-in never ends), by the token
-// left off the pipe, by the event's windows dropped, by the counts dropped, and by an error turn
-// read as a spend.
+// left off the pipe, by the event's windows dropped, by the counts dropped, by an error turn read
+// as a spend, and by the flag that loads no MCP server dropped.
 #[rstest]
 #[case::a_window_start(false, false)]
 #[case::a_refused_window_start(false, true)]
@@ -156,10 +161,23 @@ async fn the_smallest_turn_runs_its_one_command_line_on_the_account_s_store_and_
     let arguments = tokio::fs::read_to_string(record.with_extension("arguments"))
         .await
         .expect("the stand-in recorded its command line");
+    let no_mcp_servers =
+        (!has_readable_managed_mcp_file(DESCRIPTOR.managed_settings_folder().as_deref()).await)
+            .then_some(CLAUDE_NO_MCP_SERVERS);
     let expected: String = CLAUDE_WINDOW_TURN_ARGUMENTS
         .iter()
-        .flat_map(|argument| [*argument, "\n"])
+        .copied()
+        .chain(no_mcp_servers)
+        .chain([CLAUDE_WINDOW_TURN_LINE])
+        .flat_map(|argument| [argument, "\n"])
         .collect();
+    assert_eq!(
+        arguments
+            .lines()
+            .any(|argument| argument == "--strict-mcp-config"),
+        no_mcp_servers.is_some(),
+        "the turn loads no MCP server unless an administrator's file does"
+    );
     assert_eq!(arguments, expected);
     let homes = tokio::fs::read_to_string(record.with_extension("homes"))
         .await

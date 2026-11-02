@@ -12,6 +12,7 @@ use sidekicks_platforms::PathRules;
 
 use crate::driver::ProviderAccountFolders;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::account::credentials::SECURE_STORAGE_FOLDER_VARIABLE;
 use crate::spawn_environment::{
     ProviderEnvironmentRequest, SessionEnvironment, SpawnEnvironmentError,
     build_provider_process_environment,
@@ -181,7 +182,7 @@ pub(crate) fn compose_claude_process_environment(
     let credential_homes = [
         ("CLAUDE_CONFIG_DIR".to_owned(), config_folder),
         (
-            "CLAUDE_SECURESTORAGE_CONFIG_DIR".to_owned(),
+            SECURE_STORAGE_FOLDER_VARIABLE.to_owned(),
             credential_store_folder,
         ),
         ("CLAUDE_CODE_TMPDIR".to_owned(), scratch_folder),
@@ -218,7 +219,9 @@ mod tests {
         CLAUDE_OAUTH_TOKEN_DESCRIPTOR_VARIABLE, ClaudeAccountFolders,
         ClaudeProcessEnvironmentRequest, ClaudeProcessHome, compose_claude_process_environment,
     };
-    use crate::driver::claude::account_credentials::OAUTH_TOKEN_VARIABLE;
+    use crate::driver::claude::account::credentials::{
+        OAUTH_TOKEN_VARIABLE, SECURE_STORAGE_FOLDER_VARIABLE,
+    };
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::spawn_environment::{
         ReservedEnvironmentNames, SessionEnvironment, SpawnEnvironmentError,
@@ -308,7 +311,7 @@ mod tests {
             assert_eq!(value(OAUTH_TOKEN_VARIABLE), None);
             assert_eq!(value("CLAUDE_CONFIG_DIR"), Some("/data/read"));
             assert_eq!(
-                value("CLAUDE_SECURESTORAGE_CONFIG_DIR"),
+                value(SECURE_STORAGE_FOLDER_VARIABLE),
                 Some("/accounts/one/store")
             );
             assert_eq!(value("CLAUDE_CODE_TMPDIR"), Some("/data/read"));

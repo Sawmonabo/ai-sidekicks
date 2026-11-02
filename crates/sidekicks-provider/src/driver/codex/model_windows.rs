@@ -18,7 +18,6 @@ use sidekicks_std::mutex_lock::lock;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::calibration::CodexCompactionLimits;
 use crate::driver::codex::service::command::read_codex_model_catalog_dump;
-use crate::driver::codex::service::home::CodexServiceHome;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::contract::error::bound_failure_detail;
 use crate::driver::diagnostics::{
@@ -149,7 +148,7 @@ impl CodexModelWindowCache {
         let windows = Arc::new(read_codex_service_model_windows(
             dump.as_deref()
                 .map_err(|error| error as &(dyn Error + 'static)),
-            service.home(),
+            service,
         ));
         let (Ok(dump), Some(version)) = (dump, service.version_reading()) else {
             return windows;
@@ -194,7 +193,7 @@ struct ModelWindowReading {
 /// `modelWindowReadFailed` and leaves those models without a window.
 pub(crate) fn read_codex_service_model_windows(
     dump: Result<&str, &(dyn Error + 'static)>,
-    home: &CodexServiceHome,
+    service: &CodexService,
 ) -> CodexModelWindows {
     let reading = match dump {
         Ok(dump) => read_model_windows(dump).map_err(|error| describe_error(&error)),
@@ -203,12 +202,12 @@ pub(crate) fn read_codex_service_model_windows(
     let reading = match reading {
         Ok(reading) => reading,
         Err(detail) => {
-            report_window_read_failed(home, &detail, None);
+            report_window_read_failed(service, &detail, None);
             return HashMap::new();
         }
     };
     for rejected in &reading.rejected_rows {
-        report_window_read_failed(home, &rejected.detail, rejected.slug.as_deref());
+        report_window_read_failed(service, &rejected.detail, rejected.slug.as_deref());
     }
     reading.windows
 }
@@ -368,17 +367,17 @@ fn catalog_unreadable(detail: &str) -> ModelCatalogUnreadable {
     }
 }
 
-fn report_window_read_failed(home: &CodexServiceHome, detail: &str, slug: Option<&str>) {
+fn report_window_read_failed(service: &CodexService, detail: &str, slug: Option<&str>) {
     let mut details = Map::from_iter([(
         "codexHome".to_owned(),
-        json!(home.codex_home.to_string_lossy()),
+        json!(service.home().codex_home.to_string_lossy()),
     )]);
     if let Some(slug) = slug {
         details.insert("slug".to_owned(), json!(slug));
     }
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: home.provider_account_id().cloned(),
+        provider_account_id: service.provider_account_id(),
         kind: DriverDiagnosticKind::ModelWindowReadFailed,
         raw_wire_type: None,
         disposition_reason: detail.to_owned(),

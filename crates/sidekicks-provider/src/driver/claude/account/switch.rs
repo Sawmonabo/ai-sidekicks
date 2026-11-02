@@ -15,7 +15,7 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 
 use super::ClaudeAccountLegs;
-use crate::driver::claude::account_credentials::SECURE_STORAGE_FOLDER_VARIABLE;
+use crate::driver::claude::account::credentials::SECURE_STORAGE_FOLDER_VARIABLE;
 use crate::driver::claude::delivery::stream::ClaudeFirstRequest;
 use crate::driver::claude::session::control_requests::ClaudeAccountMoveMarker;
 use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
@@ -189,10 +189,10 @@ impl ClaudeHandBack {
     }
 }
 
-// Points `live`'s process at `store` in place, through its stream's queue, its bindings moving onto `provider_account_id`'s
-// account where Claude Code acknowledged it among the frames, and the session's account with them
-// once the answer is read; `first_request` hears how the next request goes. Fails as the request
-// does, nothing moved.
+// Points `live`'s process at `store` in place, through its stream's queue: its stream and its
+// bindings move onto `provider_account_id`'s account where Claude Code acknowledged it among the
+// frames, and the session's account with them once the answer is read; `first_request` hears how
+// the next request goes. Fails as the request does, nothing moved.
 async fn point_at_store(
     establishment: &ClaudeSessionEstablishment,
     live: &LiveClaudeSession,

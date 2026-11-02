@@ -29,7 +29,7 @@ use crate::account::resolver::credential_home_folders;
 use crate::account::sign_in::ProviderSignInBroker;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::account::ClaudeAccountLegs;
-use crate::driver::claude::account_credentials::{
+use crate::driver::claude::account::credentials::{
     CLAUDE_CREDENTIALS_FILE, claude_credential_folder, claude_keychain_account,
     claude_keychain_service,
 };
