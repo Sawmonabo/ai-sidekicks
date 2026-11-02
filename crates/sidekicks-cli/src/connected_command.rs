@@ -8,6 +8,8 @@ use sidekicks_client::error::ClientError;
 use sidekicks_platforms::{CtrlCListener, ctrl_c};
 use tokio_util::sync::CancellationToken;
 
+use crate::exit_codes::{ProcessEnding, exit_code_for_failure};
+
 /// Runs `body` connected to this machine's daemon, with a token the person's first Ctrl-C
 /// cancels, so each call the body makes through `call_until` settles as canceled. A Ctrl-C while
 /// the connection opens, or a second one while the body waits on its cancel's answer, ends the
@@ -34,8 +36,10 @@ pub(crate) fn run_connected<T>(
 }
 
 /// Runs `body` on the command's own runtime with the person's Ctrl-C taken first, so a Ctrl-C
-/// from then on reaches `body` through the listener instead of ending the process. Fails as the
-/// runtime's start, the listener or `body` does.
+/// from then on reaches `body` through the listener instead of ending the process. Where `body`
+/// ends as canceled by a Ctrl-C, the runtime is left without waiting on its blocking work, since
+/// the person asked the command to stop now. Fails as the runtime's start, the listener or `body`
+/// does.
 pub(crate) fn run_listening_for_ctrl_c<T>(
     body: impl AsyncFnOnce(&mut CtrlCListener) -> anyhow::Result<T>,
 ) -> anyhow::Result<T> {
@@ -43,10 +47,16 @@ pub(crate) fn run_listening_for_ctrl_c<T>(
         .enable_all()
         .build()
         .context("could not start the command's runtime")?;
-    runtime.block_on(async {
+    let outcome = runtime.block_on(async {
         let mut ctrl_c = ctrl_c().context("could not listen for Ctrl-C")?;
         body(&mut ctrl_c).await
-    })
+    });
+    if let Err(failure) = &outcome
+        && matches!(exit_code_for_failure(failure), Ok(ProcessEnding::CtrlC))
+    {
+        runtime.shutdown_background();
+    }
+    outcome
 }
 
 /// Cancels `cancel` at the first Ctrl-C and answers at the second, so a command whose daemon is
@@ -57,4 +67,39 @@ pub(crate) async fn cancel_on_ctrl_c(ctrl_c: &mut CtrlCListener, cancel: &Cancel
     ctrl_c.recv().await;
     cancel.cancel();
     ctrl_c.recv().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use std::thread::sleep;
+    use std::time::{Duration, Instant};
+
+    use sidekicks_client::error::ClientError;
+
+    use super::run_listening_for_ctrl_c;
+
+    // Fails when a canceled command's runtime is dropped plainly: the drop then waits for the
+    // blocking read still under way, so the command outlives the person's Ctrl-C by the read.
+    #[test]
+    fn a_canceled_run_does_not_wait_for_its_blocking_work() {
+        let started = Instant::now();
+        let ended = run_listening_for_ctrl_c(async |_ctrl_c| -> anyhow::Result<()> {
+            let (has_started, started_reading) = tokio::sync::oneshot::channel();
+            drop(tokio::task::spawn_blocking(move || {
+                has_started
+                    .send(())
+                    .expect("the run waits for the read's start");
+                sleep(Duration::from_secs(10));
+            }));
+            // The blocking work is under way before the cancel, as a stalled read would be.
+            started_reading.await.expect("the read starts");
+            Err(ClientError::Canceled.into())
+        });
+        assert!(ended.is_err());
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the canceled run waited {:?}",
+            started.elapsed()
+        );
+    }
 }
