@@ -22,6 +22,7 @@ use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMo
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
@@ -189,6 +190,8 @@ pub(crate) struct ScriptedSession {
     pub(crate) interventions: Arc<ClaudeInterventions>,
     /// The words waiting for each helper.
     pub(crate) helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
+    /// The wall clock the driver's scheduler runs on, which a test moves.
+    pub(crate) wall_clock: Arc<TestWallClock>,
     listener: Arc<dyn ClaudeProcessListener>,
     control_frames: Mutex<ClaudeControlFrameReader>,
     // The home, working folder and database the session's start read from.
@@ -215,6 +218,7 @@ impl ScriptedSession {
             ports,
             usage,
             attachments,
+            wall_clock,
             folder,
             database,
             ..
@@ -265,6 +269,7 @@ impl ScriptedSession {
             requests: Arc::clone(&services.requests),
             interventions: Arc::clone(&parts.interventions),
             helper_steers: Arc::clone(&services.helper_steers),
+            wall_clock,
             parts,
             listener: started.listener,
             control_frames: Mutex::new(control_frames),

@@ -14,6 +14,7 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_std::scheduler::Scheduler;
 use tokio::time::Instant;
 
 use super::{ClaudeRoutedFrame, ClaudeSessionArrival, ClaudeSessionArrivalHandler};
@@ -34,6 +35,7 @@ use crate::driver::claude::hooks::callbacks::{
 };
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
+use crate::driver::claude::hooks::hold_renewal::arm_hold_renewal;
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudeRunPauses};
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::intervention::ClaudeInterventions;
@@ -92,6 +94,8 @@ pub(crate) struct ClaudeSessionTaskServices {
     pub(crate) cuts: Arc<ClaudeConversationCuts>,
     /// The bound on reading shell lines, which the background-work hook reads through.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// The program's scheduler, which renews a held helper's call before Claude Code's bound.
+    pub(crate) scheduler: Arc<Scheduler>,
     /// Every provider's background work, which the background-work hook refuses.
     pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// The in-process tool servers, once registered.
@@ -255,9 +259,18 @@ impl ClaudeSessionTask {
                 answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
                     .await;
             }
-            ClaudeRequestRoute::Held { helper_held } => {
-                if let Some(agent_id) = helper_held {
-                    self.report_helper_paused(&agent_id).await;
+            ClaudeRequestRoute::Held { helper } => {
+                if let Some(helper) = helper {
+                    if helper.has_taken_effect {
+                        self.report_helper_paused(&helper.agent_id).await;
+                    }
+                    arm_hold_renewal(
+                        &services.scheduler,
+                        &services.pauses,
+                        &services.self_started.start.slots,
+                        session_id,
+                        helper.agent_id,
+                    );
                 }
             }
             ClaudeRequestRoute::CheckBackgroundWork { request_id, call } => {

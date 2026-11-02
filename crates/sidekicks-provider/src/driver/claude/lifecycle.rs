@@ -18,6 +18,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::data_folder::program_link_folder;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
@@ -98,6 +99,7 @@ pub(crate) struct ClaudeDriver {
     staged_changes: StagedChangesWorktrees,
     pending_compactions: PendingCompactionRegistry,
     shell_lines: Arc<ShellLineReadingBound>,
+    scheduler: Arc<Scheduler>,
     /// The model each account's latest limits read named for its weekly window over one model.
     pub(crate) usage_probe_models: Arc<ClaudeUsageProbeModels>,
     inbox_addresser: Arc<ClaudeRegisteredPlacesAddresser>,
@@ -242,6 +244,7 @@ impl ClaudeDriver {
             staged_changes: services.staged_changes.clone(),
             pending_compactions: services.pending_compactions.clone(),
             shell_lines: Arc::clone(&services.shell_lines),
+            scheduler: Arc::clone(&services.scheduler),
             usage_probe_models: Arc::clone(&usage_probe_models),
             inbox_addresser: Arc::new(ClaudeRegisteredPlacesAddresser::new(Arc::clone(
                 &services.ports.session_places,
@@ -467,6 +470,7 @@ impl ClaudeDriver {
                 },
                 cuts: Arc::clone(&cuts),
                 shell_lines: Arc::clone(&self.shell_lines),
+                scheduler: Arc::clone(&self.scheduler),
                 background_work: Arc::clone(&self.sources.background_work),
                 tool_servers: Arc::clone(&ports.in_process_tool_servers),
                 processes: Arc::clone(&self.sources.processes),
