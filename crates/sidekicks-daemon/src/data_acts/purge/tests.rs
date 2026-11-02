@@ -186,6 +186,7 @@ pub(crate) async fn test_purge(
         Arc::clone(&reads),
         Arc::new(ProjectSessionActivityReader::new(&StoredPlanHolds)),
     );
+    let git = test_git_runner();
     let purge = SessionPurge::new(SessionPurgeDeps {
         writer: Arc::clone(&log.writer),
         reads: Arc::clone(&reads),
@@ -197,10 +198,10 @@ pub(crate) async fn test_purge(
         managed_workspaces,
         data_folder: home.path().to_path_buf(),
         snapshots: Arc::new(TurnSnapshotService::new(
-            test_git_runner(),
+            git.clone(),
             Arc::clone(&reads),
             Arc::new(KeyedLock::new()),
-            Arc::new(CapturePacking::new(test_git_runner())),
+            Arc::new(CapturePacking::new(git)),
         )),
         project_rules,
         list_feed,
