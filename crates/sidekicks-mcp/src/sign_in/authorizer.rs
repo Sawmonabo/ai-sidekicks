@@ -8,6 +8,10 @@
 //!   first one renewed and renews nothing.
 //! - A 401 `invalid_token` renews only while the held token is still the refused one; when another
 //!   request has replaced it, the request is sent again with the held token.
+//! - The authorizer renews as the client the sign-in holds, its secret included, against the
+//!   server's metadata. A sign-in another authorization server issued is forgotten when the
+//!   authorizer is made, its issuer compared as rmcp compares two: equal, or equal but for a slash
+//!   ending an empty path.
 //! - A renewal refused with `invalid_grant` forgets the sign-in, through the credential store's
 //!   rejection hook, and the server needs a sign-in. One refused with `invalid_dpop_proof` is
 //!   tried once more with a fresh proof, then fails the request with the sign-in kept, as a
@@ -28,7 +32,9 @@ use futures::future::BoxFuture;
 use oauth2::TokenResponse as _;
 use reqwest::header::{AUTHORIZATION, HeaderName, HeaderValue};
 use reqwest::{Method, Url};
-use rmcp::transport::auth::{AuthError, AuthorizationManager};
+use rmcp::transport::auth::{
+    AuthError, AuthorizationManager, AuthorizationMetadata, OAuthClientConfig,
+};
 use secrecy::ExposeSecret as _;
 use sidekicks_contracts::dpop::{DPOP_AUTHORIZATION_SCHEME, DPOP_PROOF_HEADER_NAME};
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
@@ -87,6 +93,9 @@ pub(crate) enum SignInAuthorizationError {
     /// The access token holds bytes a header cannot carry.
     #[error("the MCP server's access token cannot be sent in a header")]
     HeaderValue(#[source] reqwest::header::InvalidHeaderValue),
+    /// The server's metadata names an authorization or token endpoint that is not a web address.
+    #[error("the MCP server's authorization metadata names an endpoint that is not a web address")]
+    Metadata(#[source] AuthError),
 }
 
 /// The authorizer of one server's requests under the sign-in the daemon holds for it.
@@ -104,23 +113,56 @@ pub(crate) struct SignInAuthorizer {
 }
 
 impl SignInAuthorizer {
-    /// The authorizer of the server at `address` through `manager`, which holds the server's
-    /// metadata and client and is given the server's store in `custody` here; `renewals` is the
-    /// daemon's one renewal lock, shared by every authorizer.
-    pub(crate) fn new(
+    /// The authorizer of the server at `address` under the sign-in `custody` holds for it,
+    /// renewing through `manager` against the server's `metadata` as the held client, its secret
+    /// included; `renewals` is the daemon's one renewal lock, shared by every authorizer. Fails
+    /// with [`SignInAuthorizationError::SignInRequired`] when no sign-in is held, or the held one
+    /// was issued by another authorization server than `metadata` names and is forgotten.
+    pub(crate) async fn new(
         custody: &SignInCustody,
         address: &McpServerAddress,
         mut manager: AuthorizationManager,
+        metadata: AuthorizationMetadata,
         renewals: Arc<KeyedLock<String>>,
-    ) -> Self {
-        manager.set_credential_store(custody.credential_store(address));
-        Self {
-            manager,
-            store: custody.credential_store(address),
-            renewals,
-            account: canonical_server_address(address),
-            dpop_key: Mutex::new(None),
+    ) -> Result<Self, SignInAuthorizationError> {
+        let store = custody.credential_store(address);
+        let account = canonical_server_address(address);
+        let held = {
+            let _hold = renewals.acquire(account.clone()).await;
+            let held = store
+                .held()
+                .await?
+                .ok_or(SignInAuthorizationError::SignInRequired)?;
+            if let (Some(held_issuer), Some(issuer)) = (
+                held.credentials.issuer.as_deref(),
+                metadata.issuer.as_deref(),
+            ) && !is_same_issuer(held_issuer, issuer)
+            {
+                tracing::warn!(
+                    "an MCP server's authorization server changed, so its sign-in is forgotten"
+                );
+                store.remove().await.map_err(SignInCustodyError::from)?;
+                return Err(SignInAuthorizationError::SignInRequired);
+            }
+            held
+        };
+        manager.set_metadata(metadata);
+        let mut client =
+            OAuthClientConfig::new(held.credentials.client_id.clone(), address.as_str());
+        if let Some(client_secret) = &held.client_secret {
+            client = client.with_client_secret(client_secret.expose_secret());
         }
+        manager
+            .configure_client(client)
+            .map_err(SignInAuthorizationError::Metadata)?;
+        manager.set_credential_store(custody.credential_store(address));
+        Ok(Self {
+            manager,
+            store,
+            renewals,
+            account,
+            dpop_key: Mutex::new(None),
+        })
     }
 }
 
@@ -302,6 +344,20 @@ fn is_refused_proof(error: &AuthError) -> bool {
     text.strip_prefix(SERVER_ERROR_ANSWER_PREFIX)
         .and_then(|answer| answer.split([':', ' ']).next())
         == Some(INVALID_DPOP_PROOF)
+}
+
+// Whether `left` and `right` name one authorization server as rmcp compares two issuers: equal,
+// or equal once a slash ending an otherwise empty path is dropped from each.
+fn is_same_issuer(left: &str, right: &str) -> bool {
+    left == right || without_root_slash(left) == without_root_slash(right)
+}
+
+// `issuer` without the slash that ends it when its path is otherwise empty.
+fn without_root_slash(issuer: &str) -> &str {
+    issuer
+        .strip_suffix('/')
+        .filter(|stripped| Url::parse(stripped).is_ok_and(|url| matches!(url.path(), "" | "/")))
+        .unwrap_or(issuer)
 }
 
 // The `Authorization` value presenting `access_token` under `scheme`, kept out of any print.

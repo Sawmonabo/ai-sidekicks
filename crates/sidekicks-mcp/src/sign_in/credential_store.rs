@@ -1,7 +1,7 @@
 //! The keychain custody of each MCP server's sign-in: one item per server, under its canonical
-//! address, holding rmcp's stored credentials, access token included, and for a `DPoP` sign-in the
-//! proof key's scalar, written whole by one verified write, so a token is never kept beside
-//! another sign-in's key.
+//! address, holding rmcp's stored credentials, access token included, for a `DPoP` sign-in the
+//! proof key's scalar, and for a confidential client its secret, written whole by one verified
+//! write, so a token is never kept beside another sign-in's key or secret.
 //!
 //! A server's item is read from the keychain at most once per daemon life: every later read, from
 //! any store over the same custody, is served from memory, so a request to the server costs no
@@ -39,6 +39,14 @@ pub(crate) struct HeldSignIn {
         with = "dpop_key_text"
     )]
     pub(crate) dpop_key: Option<Arc<DpopKeyScalar>>,
+    /// The secret of the confidential client the tokens were issued to, which every renewal
+    /// sends; `None` for a public client.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "client_secret_text"
+    )]
+    pub(crate) client_secret: Option<SecretString>,
 }
 
 /// Why a server's sign-in could not be read or kept.
@@ -89,12 +97,17 @@ enum HeldState {
     Read(Option<Arc<HeldSignIn>>),
 }
 
-// The proof key a store's save keeps beside the credentials it is given.
-enum KeyOnSave {
-    // The key the held sign-in has, which a renewal keeps.
+// The proof key and client secret a store's save keeps beside the credentials it is given.
+enum SecretsOnSave {
+    // The held sign-in's, which a renewal keeps.
     Held,
-    // A sign-in attempt's own key, or none for a bearer sign-in, which replaces the held one.
-    Attempt(Option<Arc<DpopKeyScalar>>),
+    // A sign-in attempt's own, which replace the held ones.
+    Attempt {
+        // Its proof key, or none for a bearer sign-in.
+        dpop_key: Option<Arc<DpopKeyScalar>>,
+        // The secret the server issued its client, or none for a public client.
+        client_secret: Option<SecretString>,
+    },
 }
 
 #[cfg_attr(
@@ -114,23 +127,35 @@ impl SignInCustody {
     }
 
     /// The credential store of the server at `address` for its held sign-in: a save keeps the
-    /// held proof key, as a renewal must.
+    /// held proof key and client secret, as a renewal must.
     pub(crate) fn credential_store(&self, address: &McpServerAddress) -> McpCredentialStore {
-        self.store(address, KeyOnSave::Held)
+        self.store(address, SecretsOnSave::Held)
     }
 
     /// The credential store of one sign-in attempt at `address`: its save replaces the held
     /// sign-in whole, keeping `dpop_key`, the attempt's own key (the one the attempt's OAuth client
-    /// signs with), or none for a bearer sign-in.
+    /// signs with), or none for a bearer sign-in, and `client_secret`, the secret the server
+    /// issued the attempt's client, or none for a public client.
     pub(crate) fn attempt_credential_store(
         &self,
         address: &McpServerAddress,
         dpop_key: Option<Arc<DpopKeyScalar>>,
+        client_secret: Option<SecretString>,
     ) -> McpCredentialStore {
-        self.store(address, KeyOnSave::Attempt(dpop_key))
+        self.store(
+            address,
+            SecretsOnSave::Attempt {
+                dpop_key,
+                client_secret,
+            },
+        )
     }
 
-    fn store(&self, address: &McpServerAddress, key_on_save: KeyOnSave) -> McpCredentialStore {
+    fn store(
+        &self,
+        address: &McpServerAddress,
+        secrets_on_save: SecretsOnSave,
+    ) -> McpCredentialStore {
         let account = canonical_server_address(address);
         let server = Arc::clone(
             lock(&self.servers)
@@ -145,7 +170,7 @@ impl SignInCustody {
         McpCredentialStore {
             keychain: Arc::clone(&self.keychain),
             server,
-            key_on_save,
+            secrets_on_save,
         }
     }
 }
@@ -154,7 +179,7 @@ impl SignInCustody {
 pub(crate) struct McpCredentialStore {
     keychain: Arc<dyn SecretKeychain>,
     server: Arc<ServerCustody>,
-    key_on_save: KeyOnSave,
+    secrets_on_save: SecretsOnSave,
 }
 
 impl McpCredentialStore {
@@ -209,17 +234,26 @@ impl CredentialStore for McpCredentialStore {
 
     async fn save(&self, credentials: StoredCredentials) -> Result<(), AuthError> {
         let mut state = self.server.held.lock().await;
-        let dpop_key = match &self.key_on_save {
-            KeyOnSave::Held => self
-                .read_through(&mut state)
-                .await
-                .map_err(|error| store_error(&error))?
-                .and_then(|held| held.dpop_key.clone()),
-            KeyOnSave::Attempt(dpop_key) => dpop_key.clone(),
+        let (dpop_key, client_secret) = match &self.secrets_on_save {
+            SecretsOnSave::Held => {
+                let held = self
+                    .read_through(&mut state)
+                    .await
+                    .map_err(|error| store_error(&error))?;
+                (
+                    held.as_ref().and_then(|held| held.dpop_key.clone()),
+                    held.and_then(|held| held.client_secret.clone()),
+                )
+            }
+            SecretsOnSave::Attempt {
+                dpop_key,
+                client_secret,
+            } => (dpop_key.clone(), client_secret.clone()),
         };
         let sign_in = HeldSignIn {
             credentials,
             dpop_key,
+            client_secret,
         };
         let item =
             SecretString::from(serde_json::to_string(&sign_in).expect("a sign-in writes as JSON"));
@@ -329,6 +363,32 @@ mod dpop_key_text {
             return Err(D::Error::custom("a proof key shorter than 32 bytes"));
         }
         Ok(Some(Arc::new(dpop_key)))
+    }
+}
+
+// The client secret in the item, as its own text.
+mod client_secret_text {
+    use secrecy::{ExposeSecret as _, SecretString};
+    use serde::{Deserialize as _, Deserializer, Serializer};
+
+    #[expect(
+        clippy::ref_option,
+        reason = "serde's `serialize_with` hands the field by reference"
+    )]
+    pub(super) fn serialize<S: Serializer>(
+        client_secret: &Option<SecretString>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match client_secret {
+            Some(client_secret) => serializer.serialize_some(client_secret.expose_secret()),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<SecretString>, D::Error> {
+        Ok(Option::<String>::deserialize(deserializer)?.map(SecretString::from))
     }
 }
 

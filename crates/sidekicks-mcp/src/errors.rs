@@ -33,7 +33,8 @@ pub enum McpConfigWriteConflict {
     ProjectFileChanged,
 }
 
-/// A refusal of an `mcp.*` call, converted into the reply's error by its code.
+/// A refusal of an `mcp.*` call, converted into the reply's error by its code. Each arm boxes the
+/// binding it names, so every `Result` carrying the refusal stays small.
 #[derive(Debug, thiserror::Error)]
 pub enum McpRefusal {
     /// The binding store cannot be reached, so every MCP change fails closed, changing nothing.
@@ -56,7 +57,7 @@ pub enum McpRefusal {
     )]
     ServerConfigWriteConflict {
         /// The binding the write was for.
-        binding: McpServerBindingRef,
+        binding: Box<McpServerBindingRef>,
         /// How the write lost.
         conflict: McpConfigWriteConflict,
     },
@@ -64,19 +65,19 @@ pub enum McpRefusal {
     #[error("{} was not found", binding_words(.binding))]
     ServerNotFound {
         /// The binding asked for.
-        binding: McpServerBindingRef,
+        binding: Box<McpServerBindingRef>,
     },
     /// The server is off or not working in the session, so it cannot answer a read.
     #[error("{} is off or not working in this session", binding_words(.binding))]
     ServerNotRunning {
         /// The binding asked for.
-        binding: McpServerBindingRef,
+        binding: Box<McpServerBindingRef>,
     },
     /// The sign-in could not be started for a passing reason; it can be tried again.
     #[error("the sign-in to {} could not be started", binding_words(.binding))]
     ServerSignInFailed {
         /// The binding being signed in to.
-        binding: McpServerBindingRef,
+        binding: Box<McpServerBindingRef>,
         /// Why it could not be started.
         #[source]
         source: Box<dyn Error + Send + Sync>,
@@ -85,18 +86,20 @@ pub enum McpRefusal {
     #[error("{} offers no sign-in the daemon can use", binding_words(.binding))]
     ServerSignInUnsupported {
         /// The binding being signed in to.
-        binding: McpServerBindingRef,
+        binding: Box<McpServerBindingRef>,
     },
     /// The keychain refused to delete the sign-in, so the server stays signed in.
     #[error("the sign-out of {} did not finish: {source}", binding_words(.binding))]
     ServerSignOutFailed {
         /// The binding being signed out of.
-        binding: McpServerBindingRef,
+        binding: Box<McpServerBindingRef>,
         /// The keychain's refusal, whose cause goes on the wire.
         #[source]
         source: Box<KeychainRefusal>,
     },
 }
+
+const _: () = assert!(size_of::<McpRefusal>() <= 64);
 
 impl From<McpRefusal> for DomainError {
     fn from(refusal: McpRefusal) -> Self {

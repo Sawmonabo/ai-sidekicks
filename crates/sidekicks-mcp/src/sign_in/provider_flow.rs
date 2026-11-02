@@ -2,9 +2,9 @@
 //!
 //! - **Which provider.** The provider the server admitted before goes first, then the binding's,
 //!   then every other registered provider in the registry's order; one with no account handed in
-//!   is passed over, and one whose driver refuses with `mcp.server.signInUnsupported` (it has no
-//!   flow for the server) hands on to the next. Any other failure before the browser opens refuses
-//!   the launch with its cause, and no provider left refuses it as unsupported.
+//!   is passed over, and one whose driver finds no entry of the person's for the binding (it has
+//!   no flow for the server) hands on to the next. Any other failure before the browser opens
+//!   refuses the launch with its cause, and no provider left refuses it as unsupported.
 //! - **The browser.** The driver names the address the browser opens, which the launch answers.
 //!   The flow goes on in a task the daemon's stop, a sign-out or a new launch for the server ends.
 //!   The browser comes back to a loopback receiver bound for this flow, whose return is handed to
@@ -31,7 +31,7 @@ use reqwest::Url;
 use rmcp::transport::auth::{
     CredentialStore as _, OAuthTokenResponse, StoredCredentials, VendorExtraTokenFields,
 };
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use secrecy::SecretString;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -89,11 +89,6 @@ impl SignInService {
     /// address the browser opens once a driver names one. Refuses with
     /// `mcp.server.signInUnsupported` when no provider offers a flow for the server, and with
     /// `mcp.server.signInFailed`, carrying the cause, when a flow could not be started.
-    #[expect(
-        clippy::result_large_err,
-        reason = "the refusal names the binding the reply carries; the handler turns it into the \
-                  reply's error at once"
-    )]
     pub(super) async fn run_provider_flow(
         self: &Arc<Self>,
         target: &SignInTarget,
@@ -103,7 +98,7 @@ impl SignInService {
     ) -> Result<Url, McpRefusal> {
         let failed =
             |source: Box<dyn std::error::Error + Send + Sync>| McpRefusal::ServerSignInFailed {
-                binding: target.binding.clone(),
+                binding: Box::new(target.binding.clone()),
                 source,
             };
         let listener =
@@ -170,9 +165,7 @@ impl SignInService {
                 return Ok(browser_url);
             }
             let failure: Box<dyn std::error::Error + Send + Sync> = match (&mut flow).await {
-                Ok(Some(Err(DriverError::Refused(refusal))))
-                    if refusal.code == RefusalCode::McpServerSignInUnsupported =>
-                {
+                Ok(Some(Err(DriverError::NoPersonServerEntry(_)))) => {
                     tracing::debug!(
                         provider = provider.as_str(),
                         "a provider offers no MCP sign-in for the server; the next one is tried"
@@ -189,7 +182,7 @@ impl SignInService {
         }
         self.end_provider_flow(&server.canonical_address, Some(flow_id));
         Err(McpRefusal::ServerSignInUnsupported {
-            binding: target.binding.clone(),
+            binding: Box::new(target.binding.clone()),
         })
     }
 
@@ -279,7 +272,8 @@ impl SignInService {
         outcome.send_replace(Some(failure.is_none()));
     }
 
-    // Keeps `takeover` as the server's sign-in under its custody lock, marks the server signed in
+    // Keeps `takeover` as the server's sign-in under its custody lock, its client's secret beside
+    // the credentials, marks the server signed in
     // and records the provider as the client the server admits, which also clears the mark that
     // the daemon's own client did not finish. Answers why the sign-in was not kept.
     async fn keep_takeover(
@@ -287,9 +281,10 @@ impl SignInService {
         running: &RunningFlow,
         takeover: ProviderSignInTakeover,
     ) -> Option<SignInFailureReason> {
+        let client_secret = takeover.client_secret.clone().map(SecretString::from);
         let saved = self
             .custody
-            .attempt_credential_store(&running.address, None)
+            .attempt_credential_store(&running.address, None, client_secret)
             .save(stored_credentials(takeover, SystemTime::now()))
             .await;
         if let Err(error) = saved {
@@ -402,37 +397,38 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use futures::FutureExt as _;
-    use reqwest::Url;
-    use rmcp::transport::auth::AuthorizationManager;
+    use reqwest::header::{AUTHORIZATION, HeaderValue};
+    use reqwest::{Method, Url};
+    use secrecy::ExposeSecret;
     use serde_json::Value;
-    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::mcp::server::McpServerBindingRef;
     use sidekicks_contracts::mcp::server::config::McpServerAddress;
     use sidekicks_contracts::provider::id::ProviderId;
-    use sidekicks_ipc::domain_error::DomainError;
     use sidekicks_provider::driver::contract::error::DriverError;
     use sidekicks_provider::driver::contract::sign_in::{
-        BEARER_TOKEN_TYPE, ProviderSignInTakeover,
+        BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInTakeover,
     };
     use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
     use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
     use sidekicks_std::mutex_lock::lock;
 
+    use crate::client::http::McpRequestAuthorizer as _;
     use crate::sign_in::canonical_server_address;
     use crate::sign_in::service::{ProviderAccounts, SignInTarget};
     use crate::sign_in::test_service::{
-        FakeAuthorizationServer, Harness, addressed_target, harness_with,
+        FakeAuthorizationServer, FakeServerAnswers, Harness, addressed_target, harness_with,
         serve_authorization_server, server_name,
     };
 
     const PROVIDER_ACCESS_TOKEN: &str = "test-provider-access-token";
     const PROVIDER_REFRESH_TOKEN: &str = "test-provider-refresh-token";
     const PROVIDER_CLIENT_ID: &str = "test-provider-client";
+    const PROVIDER_CLIENT_SECRET: &str = "test-provider-client-secret";
 
     /// What a scripted driver's flow does once asked.
     #[derive(Clone)]
     enum ScriptedFlow {
-        /// Refuses at once: the provider has no flow for the server.
+        /// Fails at once: the provider has no entry of the person's for the binding.
         NoFlow,
         /// Opens the browser at its address, then completes with credentials the server at the
         /// address issued.
@@ -462,10 +458,9 @@ mod tests {
                 async move {
                     let issuer = match flow {
                         ScriptedFlow::NoFlow => {
-                            return Err(DomainError::new(
-                                "no entry for the server",
-                                RefusalCode::McpServerSignInUnsupported,
-                            )
+                            return Err(NoPersonServerEntry {
+                                binding: request.binding,
+                            }
                             .into());
                         }
                         ScriptedFlow::Completes { issuer } => issuer,
@@ -491,7 +486,7 @@ mod tests {
                         scopes: vec!["docs.read".to_owned()],
                         token_type: BEARER_TOKEN_TYPE.to_owned(),
                         client_id: PROVIDER_CLIENT_ID.to_owned(),
-                        client_secret: None,
+                        client_secret: Some(PROVIDER_CLIENT_SECRET.to_owned()),
                         issuer: Some(issuer),
                     })
                 }
@@ -547,7 +542,11 @@ mod tests {
     /// admitted row when the registration is refused, and by writing it on a failed flow.
     #[tokio::test]
     async fn a_refused_registration_whose_provider_flow_fails_writes_no_admitted_row() {
-        let server = serve_authorization_server(false, true, false).await;
+        let server = serve_authorization_server(FakeServerAnswers {
+            is_registration_refused: true,
+            ..FakeServerAnswers::default()
+        })
+        .await;
         let calls = Arc::new(Mutex::new(Vec::new()));
         let harness =
             harness_with(vec![scripted_driver(ScriptedFlow::Fails, "only", &calls)]).await;
@@ -577,11 +576,16 @@ mod tests {
     }
 
     /// The binding's provider's flow is asked first, and the registry's other provider only once
-    /// it says it has no flow for the server. Killed by asking the providers in the registry's
-    /// order, the binding's provider being second there.
+    /// it finds no entry of the person's for the binding. Killed by asking the providers in the
+    /// registry's order, the binding's provider being second there, and by a missing entry that
+    /// refuses the launch rather than handing on.
     #[tokio::test]
     async fn the_bindings_provider_is_tried_before_another() {
-        let server = serve_authorization_server(false, true, false).await;
+        let server = serve_authorization_server(FakeServerAnswers {
+            is_registration_refused: true,
+            ..FakeServerAnswers::default()
+        })
+        .await;
         let calls = Arc::new(Mutex::new(Vec::new()));
         let harness = harness_with(vec![
             scripted_driver(
@@ -612,7 +616,7 @@ mod tests {
     /// mark, and by recording the provider without clearing the mark.
     #[tokio::test]
     async fn a_completed_flow_keeps_the_sign_in_with_its_issuer_and_marks_it_signed_in() {
-        let server = serve_authorization_server(false, false, false).await;
+        let server = serve_authorization_server(FakeServerAnswers::default()).await;
         let calls = Arc::new(Mutex::new(Vec::new()));
         let harness = harness_with(vec![scripted_driver(
             ScriptedFlow::Completes {
@@ -675,10 +679,12 @@ mod tests {
         assert!(!admitted.is_own_client_unfinished);
     }
 
-    /// A kept provider sign-in whose token ran out renews through the daemon's own store with its
-    /// refresh token, and the person's own saved sign-ins stay byte for byte as they were. Killed
-    /// by a renewal that reads or writes the person's folder, and by a kept sign-in that drops
-    /// the refresh token or the issuer the renewal checks.
+    /// A kept provider sign-in whose token ran out, its issuer written with a slash the server's
+    /// metadata leaves off, renews through the daemon's own store with its refresh token and its
+    /// client's secret, keeps that secret for the next renewal, and leaves the person's own saved
+    /// sign-ins byte for byte as they were. Killed by a renewal that reads or writes the person's
+    /// folder, by a kept sign-in that drops the refresh token or the secret, by a renewal save
+    /// that drops the secret, and by an issuer compared as exact text, which forgets the sign-in.
     #[tokio::test]
     async fn a_kept_provider_sign_in_renews_through_the_daemons_store_alone() {
         let person_home = tempfile::tempdir().expect("a person's home folder");
@@ -696,11 +702,11 @@ mod tests {
             std::fs::create_dir_all(path.parent().expect("a folder")).expect("the folder is made");
             std::fs::write(path, bytes).expect("the person's file is planted");
         }
-        let server = serve_authorization_server(false, false, false).await;
+        let server = serve_authorization_server(FakeServerAnswers::default()).await;
         let calls = Arc::new(Mutex::new(Vec::new()));
         let harness = harness_with(vec![scripted_driver(
             ScriptedFlow::Completes {
-                issuer: server.base.clone(),
+                issuer: format!("{}/", server.base),
             },
             "only",
             &calls,
@@ -721,26 +727,30 @@ mod tests {
             .expect("the provider's flow opens the browser");
         settled_completions(&harness).await;
 
-        let mut manager = AuthorizationManager::new(server.base.as_str())
+        let authorizer = harness.authorizer(&server.base).await;
+        let headers = authorizer
+            .authorize(&Method::POST, &server.base, None)
             .await
-            .expect("a manager for a loopback server");
-        manager.set_credential_store(harness.service.custody.credential_store(&address));
-        assert!(
-            manager
-                .initialize_from_store()
-                .await
-                .expect("the kept sign-in reads")
-        );
-        let renewed = manager.get_access_token().await.expect("the token renews");
+            .expect("the token renews");
 
-        assert_eq!(renewed, "test-access-token");
+        assert!(headers.contains(&(
+            AUTHORIZATION,
+            HeaderValue::from_static("Bearer test-access-token")
+        )));
         let forms = lock(&server.token_forms).clone();
         let renewal = forms.last().expect("a token request was sent");
-        assert!(renewal.contains(&("grant_type".to_owned(), "refresh_token".to_owned())));
-        assert!(renewal.contains(&(
-            "refresh_token".to_owned(),
-            PROVIDER_REFRESH_TOKEN.to_owned()
-        )));
+        for field in [
+            ("grant_type", "refresh_token"),
+            ("refresh_token", PROVIDER_REFRESH_TOKEN),
+            ("client_id", PROVIDER_CLIENT_ID),
+            ("client_secret", PROVIDER_CLIENT_SECRET),
+        ] {
+            assert!(
+                renewal.contains(&(field.0.to_owned(), field.1.to_owned())),
+                "{}",
+                field.0
+            );
+        }
         let held = harness
             .service
             .custody
@@ -754,6 +764,10 @@ mod tests {
         assert_eq!(
             held_tokens["token_response"]["access_token"],
             "test-access-token"
+        );
+        assert_eq!(
+            held.client_secret.as_ref().map(ExposeSecret::expose_secret),
+            Some(PROVIDER_CLIENT_SECRET)
         );
         for (path, bytes) in &planted {
             assert_eq!(

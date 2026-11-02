@@ -1,6 +1,6 @@
 //! The authorizer against an axum token endpoint on a loopback port: one renewal however many
-//! requests find the token run out, no renewal for a token another request already replaced, and
-//! which refused renewals forget the sign-in.
+//! requests find the token run out, no renewal for a token another request already replaced,
+//! which refused renewals forget the sign-in, and which issuers keep it.
 
 use std::sync::{Arc, Mutex};
 
@@ -81,9 +81,28 @@ async fn serve_token_endpoint(answer: TokenAnswer) -> (String, Arc<Mutex<Vec<Str
 }
 
 /// A bearer sign-in to the server at `base`'s `/mcp`, held as `test-access-token-1` with
-/// `test-refresh-token-1` and already run out, renewed at `base`'s `/token`; every token is made
-/// up for the test.
+/// `test-refresh-token-1` and already run out, renewed at `base`'s `/token`, and the authorizer
+/// made for it; every token is made up for the test.
 async fn expired_sign_in(base: &str) -> (TempDir, Arc<SignInCustody>, SignInAuthorizer) {
+    let (data_folder, custody, authorizer) = expired_sign_in_issued_by(base, None, None).await;
+    (
+        data_folder,
+        custody,
+        authorizer.expect("the authorizer is made"),
+    )
+}
+
+/// The sign-in [`expired_sign_in`] holds, issued by `held_issuer`, and the authorizer made for it
+/// against metadata naming `issuer`.
+async fn expired_sign_in_issued_by(
+    base: &str,
+    held_issuer: Option<&str>,
+    issuer: Option<&str>,
+) -> (
+    TempDir,
+    Arc<SignInCustody>,
+    Result<SignInAuthorizer, SignInAuthorizationError>,
+) {
     let (data_folder, _platform_store, keychain) = test_keychain();
     let custody = SignInCustody::new(keychain);
     let address = McpServerAddress::new(&format!("{base}/mcp")).expect("a server address");
@@ -100,24 +119,28 @@ async fn expired_sign_in(base: &str) -> (TempDir, Arc<SignInCustody>, SignInAuth
         Some(token_response),
         vec![],
         Some(1),
-    );
+    )
+    .with_issuer(held_issuer.map(str::to_owned));
     custody
         .credential_store(&address)
         .save(credentials)
         .await
         .expect("the sign-in is kept");
-    let mut manager = AuthorizationManager::new(address.as_str())
+    let manager = AuthorizationManager::new(address.as_str())
         .await
         .expect("a manager for a loopback server");
     let mut metadata = AuthorizationMetadata::default();
+    metadata.issuer = issuer.map(str::to_owned);
     metadata.authorization_endpoint = format!("{base}/authorize");
     metadata.token_endpoint = format!("{base}/token");
-    manager.set_metadata(metadata);
-    manager
-        .configure_client_id("test-client")
-        .expect("the client is configured");
-    let authorizer =
-        SignInAuthorizer::new(&custody, &address, manager, Arc::new(KeyedLock::default()));
+    let authorizer = SignInAuthorizer::new(
+        &custody,
+        &address,
+        manager,
+        metadata,
+        Arc::new(KeyedLock::default()),
+    )
+    .await;
     (data_folder, custody, authorizer)
 }
 
@@ -208,6 +231,47 @@ async fn only_a_refused_grant_forgets_the_sign_in(
     } else {
         assert!(matches!(
             refused,
+            Err(SignInAuthorizationError::SignInRequired)
+        ));
+    }
+    let address = McpServerAddress::new(&format!("{base}/mcp")).expect("a server address");
+    let held = custody
+        .credential_store(&address)
+        .held()
+        .await
+        .expect("the keychain answers");
+    assert_eq!(held.is_some(), is_kept);
+}
+
+// Mutations: compare the issuers as exact text in `is_same_issuer`, drop a slash ending any path,
+// or keep a sign-in another authorization server issued.
+#[rstest]
+#[case::a_slash_ending_an_empty_path("https://auth.example.com/", "https://auth.example.com", true)]
+#[case::a_slash_ending_a_path(
+    "https://auth.example.com/tenant/",
+    "https://auth.example.com/tenant",
+    false
+)]
+#[case::another_issuer("https://other.example.com", "https://auth.example.com", false)]
+#[tokio::test]
+async fn a_sign_in_is_kept_only_for_the_issuer_that_issued_it(
+    #[case] held_issuer: &str,
+    #[case] issuer: &str,
+    #[case] is_kept: bool,
+) {
+    let (base, _refresh_tokens) = serve_token_endpoint(TokenAnswer::Rotate).await;
+
+    let (_data_folder, custody, authorizer) =
+        expired_sign_in_issued_by(&base, Some(held_issuer), Some(issuer)).await;
+
+    if is_kept {
+        assert_eq!(
+            presented_authorization(&authorizer.expect("the authorizer is made"), &base).await,
+            "Bearer test-access-token-2"
+        );
+    } else {
+        assert!(matches!(
+            authorizer,
             Err(SignInAuthorizationError::SignInRequired)
         ));
     }

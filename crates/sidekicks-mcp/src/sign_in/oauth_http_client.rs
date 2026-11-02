@@ -2,9 +2,10 @@
 //! server's authorization manager sends with.
 //!
 //! - **The filter.** A host a call names may resolve to a public address; to a loopback address
-//!   only for a server whose own address is loopback (`localhost` or a loopback literal); to a
-//!   private address only for a server whose own address is a private literal; and never to a
-//!   link-local (cloud metadata included), unspecified, broadcast, multicast or reserved address.
+//!   only for a server whose own address is loopback (`localhost`, a name under it, or a loopback
+//!   literal); to a private address only for a server whose own address is a private literal;
+//!   and never to a link-local (cloud metadata included), unspecified, broadcast, multicast or
+//!   reserved address.
 //!   An IPv4 address carried inside an IPv6 one is judged as that IPv4 address. A literal host,
 //!   which reqwest connects to without resolving, and every redirect target are judged the same
 //!   way, the server's own literal always allowed, and the cloud metadata names are refused
@@ -25,7 +26,7 @@
 //!   revocation requests through the signed send, applies each call's timeout, and keeps the
 //!   outcome of the last registration request it sent.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -42,7 +43,6 @@ use secrecy::ExposeSecret as _;
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_std::mutex_lock::lock;
-use url::Host;
 
 use crate::oauth::dpop_proof::{
     AuthorizationServerResponse, DpopKey, DpopKeyError, DpopSendError, read_response, send_signed,
@@ -52,6 +52,11 @@ use crate::oauth::pushed_authorization::{
 };
 use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::DpopKeyScalar;
+use crate::sign_in::oauth_http_client::address_policy::{
+    AddressClass, AddressPolicy, ServerReach, is_cloud_metadata_name, normalized_host,
+};
+
+pub(super) mod address_policy;
 
 /// The bound on one OAuth call when its caller sets none: rmcp's own for its OAuth calls.
 pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -61,13 +66,6 @@ const IDLE_CONNECTIONS_PER_HOST: usize = 1;
 
 /// The most redirects one call follows, rmcp's own bound.
 const MAX_REDIRECTS: usize = 10;
-
-/// The names cloud providers serve instance metadata under, refused whatever they resolve to.
-const CLOUD_METADATA_HOSTS: [&str; 3] = [
-    "metadata",
-    "metadata.google.internal",
-    "metadata.azure.internal",
-];
 
 /// The variables a proxy is named in, whose hosts the filter leaves alone.
 const PROXY_VARIABLES: [&str; 6] = [
@@ -468,163 +466,6 @@ fn proxy_host(proxy: &str) -> Option<String> {
         format!("http://{proxy}")
     };
     Url::parse(&proxy).ok()?.host_str().map(normalized_host)
-}
-
-// `host` as names are compared: lowercase, without a trailing dot.
-fn normalized_host(host: &str) -> String {
-    host.trim_end_matches('.').to_ascii_lowercase()
-}
-
-// Whether `host` is a name loopback is reached under.
-fn is_loopback_name(host: &str) -> bool {
-    host == "localhost" || host.ends_with(".localhost")
-}
-
-/// What a server's own address lets its OAuth calls reach besides public addresses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ServerReach {
-    /// Public addresses only.
-    Public,
-    /// Loopback addresses too: the server is `localhost` or a loopback literal.
-    Loopback,
-    /// Private addresses too: the server is a private literal.
-    Private,
-}
-
-impl ServerReach {
-    fn allows(self, class: AddressClass) -> bool {
-        match class {
-            AddressClass::Public => true,
-            AddressClass::Loopback => self == Self::Loopback,
-            AddressClass::Private => self == Self::Private,
-            AddressClass::Blocked => false,
-        }
-    }
-}
-
-/// The filter's judgment for one server: its reach and its own literal address, if it has one.
-#[derive(Debug, Clone, Copy)]
-struct AddressPolicy {
-    reach: ServerReach,
-    server_ip: Option<IpAddr>,
-}
-
-impl AddressPolicy {
-    fn of_server(server: &Url) -> Self {
-        let server_ip = literal_ip(server);
-        let reach = match server_ip.map(AddressClass::of) {
-            Some(AddressClass::Loopback) => ServerReach::Loopback,
-            Some(AddressClass::Private) => ServerReach::Private,
-            Some(AddressClass::Public | AddressClass::Blocked) => ServerReach::Public,
-            None => {
-                if server
-                    .host_str()
-                    .is_some_and(|host| is_loopback_name(&normalized_host(host)))
-                {
-                    ServerReach::Loopback
-                } else {
-                    ServerReach::Public
-                }
-            }
-        };
-        Self { reach, server_ip }
-    }
-
-    // Whether a call may go to `url`: a literal host by its class or as the server's own literal;
-    // a name unless it is a cloud metadata name, its addresses judged as it resolves.
-    fn allows_url(&self, url: &Url) -> bool {
-        match url.host() {
-            Some(Host::Domain(domain)) => !is_cloud_metadata_name(&normalized_host(domain)),
-            Some(_) => literal_ip(url).is_some_and(|ip| {
-                self.server_ip == Some(ip) || self.reach.allows(AddressClass::of(ip))
-            }),
-            None => false,
-        }
-    }
-}
-
-// Whether `host` is a name cloud providers serve instance metadata under.
-fn is_cloud_metadata_name(host: &str) -> bool {
-    CLOUD_METADATA_HOSTS.contains(&host)
-}
-
-// The address `url` names as a literal host.
-fn literal_ip(url: &Url) -> Option<IpAddr> {
-    match url.host()? {
-        Host::Ipv4(v4) => Some(IpAddr::V4(v4)),
-        Host::Ipv6(v6) => Some(IpAddr::V6(v6)),
-        Host::Domain(_) => None,
-    }
-}
-
-/// The class of an address the filter judges.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AddressClass {
-    Public,
-    Loopback,
-    Private,
-    /// Link-local, unspecified, broadcast, multicast or reserved: never reached.
-    Blocked,
-}
-
-impl AddressClass {
-    fn of(address: IpAddr) -> Self {
-        match address {
-            IpAddr::V4(v4) => Self::of_ipv4(v4),
-            IpAddr::V6(v6) => embedded_ipv4(v6).map_or_else(|| Self::of_ipv6(v6), Self::of_ipv4),
-        }
-    }
-
-    fn of_ipv4(address: Ipv4Addr) -> Self {
-        let [first, second, ..] = address.octets();
-        if address.is_loopback() {
-            Self::Loopback
-        } else if address.is_private() || (first == 100 && (64..=127).contains(&second)) {
-            Self::Private
-        } else if address.is_link_local()
-            || address.is_multicast()
-            || first == 0
-            || first >= 240
-            || (first == 198 && matches!(second, 18 | 19))
-        {
-            Self::Blocked
-        } else {
-            Self::Public
-        }
-    }
-
-    fn of_ipv6(address: Ipv6Addr) -> Self {
-        let segments = address.segments();
-        if address.is_loopback() {
-            Self::Loopback
-        } else if (segments[0] & 0xfe00) == 0xfc00 {
-            Self::Private
-        } else if address.is_unspecified()
-            || address.is_multicast()
-            || (segments[0] & 0xffc0) == 0xfe80
-            || segments[..2] == [0x2001, 0]
-            || segments[..3] == [0x64, 0xff9b, 1]
-        {
-            Self::Blocked
-        } else {
-            Self::Public
-        }
-    }
-}
-
-// The IPv4 address an IPv6 address carries: mapped, compatible, NAT64 (`64:ff9b::/96`) or 6to4
-// (`2002::/16`). Teredo and local NAT64 are blocked by their own prefixes instead.
-fn embedded_ipv4(address: Ipv6Addr) -> Option<Ipv4Addr> {
-    let segments = address.segments();
-    let last_two = Ipv4Addr::from((u32::from(segments[6]) << 16) | u32::from(segments[7]));
-    match segments {
-        [0, 0, 0, 0, 0, 0xffff, ..] | [0x64, 0xff9b, 0, 0, 0, 0, ..] => Some(last_two),
-        [0, 0, 0, 0, 0, 0, ..] if !address.is_loopback() && !address.is_unspecified() => {
-            Some(last_two)
-        }
-        [0x2002, high, low, ..] => Some(Ipv4Addr::from((u32::from(high) << 16) | u32::from(low))),
-        _ => None,
-    }
 }
 
 // Resolves names, keeping only the addresses a pool's reach allows; a name with none left is
