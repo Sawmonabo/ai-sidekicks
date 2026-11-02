@@ -11,3 +11,24 @@ pub mod service;
 pub(crate) mod store;
 pub(crate) mod waiting_for_run;
 pub(crate) mod waits;
+
+use sidekicks_contracts::question::QuestionResolveState;
+
+/// A settled question's state as the store writes it: answered, or canceled with the turn that
+/// held it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum QuestionSettledState {
+    /// Answered.
+    Answered,
+    /// Canceled with the turn that held it.
+    Canceled,
+}
+
+impl From<QuestionSettledState> for QuestionResolveState {
+    fn from(state: QuestionSettledState) -> Self {
+        match state {
+            QuestionSettledState::Answered => Self::Answered,
+            QuestionSettledState::Canceled => Self::Canceled,
+        }
+    }
+}

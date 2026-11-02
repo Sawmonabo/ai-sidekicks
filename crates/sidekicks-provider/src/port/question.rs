@@ -1,7 +1,7 @@
 //! Where a driver hands the structured questions a provider asks the person, so the questions card
 //! asks them and the answer goes back through the driver's `respond_to_request`; and where the
 //! daemon's tool-server client hands the questions a tool server's task asks, whose answer goes
-//! back through the client.
+//! back through the client, each under a request id minted here in one shape both sides check.
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_card;
@@ -15,12 +15,36 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::question::{QuestionAnswer, QuestionAskedState, QuestionPrompt};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::{UuidTextForm, mint_uuid_v7};
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::keyed_lock::{KeyHold, KeyWait, KeyedLock};
 
 // Each run's line of questions taken in its turn, which every driver's question and each tool
 // server's question taken in its run's turn joins, so they open in the order they came.
 static RUN_QUESTION_LINE: LazyLock<KeyedLock<RunId>> = LazyLock::new(KeyedLock::new);
+
+// What begins every request id the tool-server client asks a question under.
+const TOOL_SERVER_REQUEST_ID_PREFIX: &str = "mcp:";
+
+/// A new request id for a question the tool-server client asks: `mcp:` and a version 7 UUID in
+/// its lowercase text form.
+pub fn mint_tool_server_request_id() -> String {
+    format!(
+        "{TOOL_SERVER_REQUEST_ID_PREFIX}{}",
+        UuidTextForm::from(mint_uuid_v7()).text().as_str()
+    )
+}
+
+/// Whether `request_id` has exactly the shape [`mint_tool_server_request_id`] writes. A driver's
+/// own request id is never one, even one that begins `mcp:`.
+pub fn is_tool_server_request_id(request_id: &str) -> bool {
+    request_id
+        .strip_prefix(TOOL_SERVER_REQUEST_ID_PREFIX)
+        .is_some_and(|rest| {
+            UuidTextForm::new(rest)
+                .is_ok_and(|form| form.version() == 7 && rest == form.text().as_str())
+        })
+}
 
 /// The questions one provider request asks, in its order, with the provider's own request id the
 /// answer goes back under, and whether the agent waits for the answer.

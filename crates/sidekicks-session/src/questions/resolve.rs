@@ -16,7 +16,7 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::question::{
     QuestionAnswer, QuestionAnswerInvalidReason, QuestionAskedPayload, QuestionId, QuestionPrompt,
-    QuestionResolveRequest, QuestionResolveResponse, QuestionSettledState,
+    QuestionResolveRequest, QuestionResolveResponse, QuestionResolveState,
 };
 use sidekicks_contracts::run::queue::{MessageContent, UserMessageSentPayload};
 use sidekicks_contracts::run::state::RunState;
@@ -32,6 +32,7 @@ use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::events::session::appender::SessionEventDraft;
 
 use crate::driver_resolution::read_run_driver;
+use crate::questions::QuestionSettledState;
 use crate::questions::answer_text::compose_answer_text;
 use crate::questions::schema::QuestionState;
 use crate::questions::service::{
@@ -72,7 +73,7 @@ impl QuestionsService {
         if let Some(settled) = settled_state(stored.state) {
             return Ok(QuestionResolveResponse {
                 question_id,
-                state: settled,
+                state: settled.into(),
             });
         }
         if !stored.is_agent_waiting {
@@ -83,7 +84,7 @@ impl QuestionsService {
         }
         let asked = asked.ok_or(QuestionError::AskedMissing { question_id })?;
         check_answers(question_id, asked_pages(&asked), &answers)?;
-        let state = match stored.holder {
+        let state: QuestionResolveState = match stored.holder {
             QuestionHolder::Wait(wait_id) => self
                 .waits
                 .require_port()?
@@ -95,8 +96,12 @@ impl QuestionsService {
                     device_id,
                 })
                 .await
-                .map_err(QuestionError::Wait)?,
-            QuestionHolder::Run(_) => self.answer_held(question_id, answers, device_id).await?,
+                .map_err(QuestionError::Wait)?
+                .into(),
+            QuestionHolder::Run(_) => self
+                .answer_held(question_id, answers, device_id)
+                .await?
+                .into(),
         };
         Ok(QuestionResolveResponse { question_id, state })
     }

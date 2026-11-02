@@ -16,7 +16,7 @@ use rusqlite::{Connection, named_params};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::question::{
     QuestionAskedPayload, QuestionAskedState, QuestionCanceledPayload, QuestionCanceledReason,
-    QuestionId, QuestionSettledState, RunQuestionAskedPayload,
+    QuestionId, RunQuestionAskedPayload,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{InterventionState, InterventionType};
@@ -45,6 +45,7 @@ use sidekicks_store::events::session::appender::{
 };
 
 use crate::driver_resolution::LiveRunDriverError;
+use crate::questions::QuestionSettledState;
 use crate::questions::schema::QuestionState;
 use crate::questions::store::{
     insert_question_statement, read_open_question_of_request, read_question, read_unsettled_among,

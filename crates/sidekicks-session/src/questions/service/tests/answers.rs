@@ -5,7 +5,7 @@ use std::sync::Arc;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::question::{QuestionAnswer, QuestionId, QuestionSettledState};
+use sidekicks_contracts::question::{QuestionAnswer, QuestionId, QuestionResolveState};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 
@@ -56,11 +56,11 @@ async fn a_held_questions_answer_goes_to_its_asker_then_settles_it_in_one_write(
 
     assert_eq!(
         first.expect("the answer lands"),
-        QuestionSettledState::Answered
+        QuestionResolveState::Answered
     );
     assert_eq!(
         second.expect("a second answer reads the state"),
-        QuestionSettledState::Answered
+        QuestionResolveState::Answered
     );
     let sent_to_task = sent_to_task.lock().expect("never poisoned").clone();
     let handed = if is_asked_by_a_task {
@@ -263,7 +263,7 @@ async fn typed_text_on_an_agents_choice_reaches_the_driver() {
 
     assert_eq!(
         settled.expect("the text is taken"),
-        QuestionSettledState::Answered
+        QuestionResolveState::Answered
     );
     assert_eq!(fixture.handed_count(), 1);
     let handed = fixture.handed.lock().expect("never poisoned")[0].clone();

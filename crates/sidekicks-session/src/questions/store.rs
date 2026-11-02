@@ -10,9 +10,7 @@ use rusqlite::types::{Type, Value as SqlValue};
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::question::{
-    QuestionAskedPayload, QuestionAskedState, QuestionId, QuestionSettledState,
-};
+use sidekicks_contracts::question::{QuestionAskedPayload, QuestionAskedState, QuestionId};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::{UuidText, UuidTextForm};
@@ -22,6 +20,7 @@ use sidekicks_store::database::statement::{
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
+use crate::questions::QuestionSettledState;
 use crate::questions::schema::QuestionState;
 
 const INSERT_QUESTION_SQL: &str = "INSERT INTO questions
