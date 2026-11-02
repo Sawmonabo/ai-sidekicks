@@ -1,6 +1,6 @@
 //! The daemon services a scripted session reaches: approval ports, a queue intake and a status
-//! line intake that record what reaches them, files whose read takes a set time, the bindings of daemon turns, a binding
-//! store that takes every write and a machine with no repositories.
+//! line intake that record what reaches them, files whose read takes a set time, the bindings of
+//! daemon turns, a binding store that takes every write and a machine with no repositories.
 
 use std::collections::HashMap;
 use std::error::Error;

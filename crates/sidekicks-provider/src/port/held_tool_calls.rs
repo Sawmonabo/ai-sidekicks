@@ -1,5 +1,5 @@
 //! How a driver reads the tool calls a session still holds in the background from its log, so a
-//! resumed or closed session and the start after a restart know which calls to follow or settle.
+//! resumed session knows which calls to follow or settle.
 
 use std::error::Error;
 
@@ -21,7 +21,8 @@ pub const HELD_TOOL_CALLS_READ_MAX: usize = 1024;
 pub struct HeldToolCall {
     /// The run the call belongs to.
     pub run_id: RunId,
-    /// The newest binding of the call's run, which its close is appended on.
+    /// The newest binding of the nearest run up the call's provider subagent lineage that has
+    /// one, which its close is appended on.
     pub binding_id: RuntimeBindingId,
     /// The provider's id of the call.
     pub tool_call_id: ToolCallId,
@@ -41,8 +42,8 @@ pub struct HeldToolCall {
 pub trait HeldToolCallReads: Send + Sync {
     /// `session_id`'s held calls, newest first and at most [`HELD_TOOL_CALLS_READ_MAX`]: each
     /// call moved to the background with no close after it, and each whose last close ended it
-    /// with no result and names why, each with its run's newest binding. Fails when the log cannot
-    /// be read.
+    /// with no result and names why, each with the newest binding of the nearest run up its
+    /// provider subagent lineage that has one. Fails when the log cannot be read.
     fn read_held_tool_calls(
         &self,
         session_id: SessionId,
