@@ -156,15 +156,15 @@ enum SubAgentSource {
     Other(IgnoredAny),
 }
 
-// A helper thread's source: the path in Codex's tree of helpers a spawned one has.
+// A helper thread's source: the path in Codex's tree of helpers, which only a spawned one has.
 struct HelperSource {
     agent_path: Option<String>,
 }
 
-// Whether a thread's `source` makes it a helper, whose spend is its own: a review, a spawned
-// helper, or another Codex names. A compaction or a memory consolidation is Codex's housekeeping
-// for the parent, whose spend stays the parent run's, as is an arm a newer Codex adds or a thread
-// with no source.
+// The helper a thread's `source` makes it, whose spend is its own: a review, a spawned helper,
+// with its path, or another Codex names. A compaction or a memory consolidation is Codex's
+// housekeeping for the parent, whose spend stays the parent run's, as is an arm a newer Codex adds
+// or a thread with no source.
 fn read_helper_source(source: Option<&RawValue>) -> Option<HelperSource> {
     let sub_agent = crate::driver::codex::transport::connection::read_codex_object::<ThreadSource>(
         source?.get(),
