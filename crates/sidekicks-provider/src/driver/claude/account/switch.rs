@@ -189,10 +189,10 @@ impl ClaudeHandBack {
     }
 }
 
-// Points `live`'s process at `store` in place, through its stream's queue: its stream and its
-// bindings move onto `provider_account_id`'s account where Claude Code acknowledged it among the
-// frames, and the session's account with them once the answer is read; `first_request` hears how
-// the next request goes. Fails as the request does, nothing moved.
+// Points `live`'s process at `store` in place, through its stream's queue: the session's account,
+// which its stream shares, and its bindings move onto `provider_account_id`'s account where Claude
+// Code acknowledged it among the frames; `first_request` hears how the next request goes. Fails as
+// the request does, nothing moved.
 async fn point_at_store(
     establishment: &ClaudeSessionEstablishment,
     live: &LiveClaudeSession,
@@ -224,7 +224,6 @@ async fn point_at_store(
         .send_account_move(request, account_move)
         .await
         .map_err(DriverError::from)?;
-    live.move_admitted_account(provider_account_id.clone());
     Ok(())
 }
 
