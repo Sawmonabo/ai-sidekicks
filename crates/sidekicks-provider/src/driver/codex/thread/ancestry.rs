@@ -171,15 +171,25 @@ pub(crate) async fn place_codex_thread(
             }
             let page = read_thread_list_page(connection, cursor.take()).await?;
             pages_read += 1;
+            let mut unread_threads = 0_usize;
             for entry in page.data {
                 let Some(ListedThread {
                     id: Some(id),
                     parent_thread_id,
                 }) = read_codex_object::<ListedThread>(entry.get())
                 else {
+                    unread_threads += 1;
                     continue;
                 };
                 parent_by_thread.insert(id, parent_thread_id.filter(|parent| !parent.is_empty()));
+            }
+            // A thread on the way up may be among them, so the walk may end not listed.
+            if unread_threads > 0 {
+                tracing::warn!(
+                    unread_threads,
+                    page = pages_read,
+                    "a Codex thread listing page held threads that did not read"
+                );
             }
             cursor = page.next_cursor.filter(|next| !next.is_empty());
             is_listing_ended = cursor.is_none();
