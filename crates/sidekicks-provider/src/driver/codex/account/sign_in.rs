@@ -194,7 +194,7 @@ pub(super) async fn start_codex_sign_in(
 
 /// Reads who signed in on `provider_account_id`'s `home` after a sign-in there, through
 /// `account/read` on the home's service: a `ChatGPT` sign-in is a subscription, named where Codex
-/// names its email, an API key is one, a Bedrock sign-in comes from elsewhere, and none is signed
+/// names its email or, with none, its plan, an API key is one, a Bedrock sign-in comes from elsewhere, and none is signed
 /// out. Fails as the service or the request does, and where the reply cannot be read.
 pub(super) async fn observe_codex_sign_in(
     legs: &CodexAccountLegs,
@@ -225,19 +225,16 @@ async fn read_signed_in_account(
 }
 
 /// How the service on `connection` signs in, through `account/read`: its mode, with whether Codex
-/// names a subscription's email, or `None` signed out. Fails as the request does, and where the
-/// reply cannot be read, which says nothing of the sign-in.
+/// names who signed in, by its email or, with none, its plan, or `None` signed out. Fails as the
+/// request does, and where the reply cannot be read, which says nothing of the sign-in.
 pub(super) async fn read_signed_in_mode(
     connection: &CodexAppServerConnection,
 ) -> Result<Option<(ProviderAuthMode, bool)>, DriverError> {
     match read_codex_account(connection, CODEX_AUTH_PROBE_TIMEOUT).await? {
-        CodexAccountReading::SignedIn { kind, has_email } => {
-            let mode = read_codex_auth_mode(&kind);
-            Ok(Some((
-                mode,
-                mode == ProviderAuthMode::OauthSubscription && has_email,
-            )))
-        }
+        CodexAccountReading::SignedIn { kind, email, plan } => Ok(Some((
+            read_codex_auth_mode(&kind),
+            email.is_some() || plan.is_some(),
+        ))),
         CodexAccountReading::SignedOut => Ok(None),
         CodexAccountReading::Unreadable => Err(CodexAccountSignInError::StatusUnreadable.into()),
     }

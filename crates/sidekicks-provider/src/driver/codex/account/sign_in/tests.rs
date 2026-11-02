@@ -189,15 +189,21 @@ async fn a_cancel_sends_codex_s_own_cancel_for_this_login() {
     assert_eq!(cancel["params"], json!({"loginId": DEVICE_LOGIN}));
 }
 
-// Killed by an account named without its email, and by a sign-in kind read as another.
+// Killed by an account named with neither its email nor its plan, by a null email not falling back
+// to the plan, and by a sign-in kind read as another.
 #[rstest]
 #[case::chatgpt_with_email(
     json!({"type": "chatgpt", "email": "person@example.test", "planType": "plus"}),
     Some(ProviderAuthMode::OauthSubscription),
     true
 )]
-#[case::chatgpt_without_email(
+#[case::chatgpt_named_by_its_plan(
     json!({"type": "chatgpt", "email": null, "planType": "plus"}),
+    Some(ProviderAuthMode::OauthSubscription),
+    true
+)]
+#[case::chatgpt_unnamed(
+    json!({"type": "chatgpt", "email": null, "planType": null}),
     Some(ProviderAuthMode::OauthSubscription),
     false
 )]

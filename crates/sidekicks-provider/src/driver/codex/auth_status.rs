@@ -18,7 +18,7 @@ use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::session_control::{
     DriverAuthProbeResult, DriverAuthProbeStatus, build_auth_probe_result,
 };
-use crate::lenient_json::read_is_non_empty_text;
+use crate::lenient_json::read_lenient;
 
 /// The account read, which answers the sign-in Codex holds without touching a conversation.
 const CODEX_ACCOUNT_READ_METHOD: &str = "account/read";
@@ -29,9 +29,8 @@ pub(crate) const CODEX_AUTH_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a failed resume's sign-in read waits; short, so it never delays the failure.
 const CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// The members of an `account/read` reply the readers take; the account's plan is never read, and
-/// its email only as whether it is there, never kept or logged, since only the sign-in kind is safe
-/// to show.
+/// The members of an `account/read` reply the readers take; the account's email and plan are kept
+/// only to name the account on its row, never logged.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AccountReadReply {
@@ -44,24 +43,30 @@ struct AccountReadReply {
     requires_openai_auth: Option<bool>,
 }
 
-/// The members of an account the readers take: its sign-in kind, a closed tag, and whether it names
-/// an email, the email itself dropped as it is read.
+/// The members of an account the readers take: its sign-in kind, a closed tag, its email and its
+/// plan, each read as text and dropped where it is anything else.
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct AccountKind {
     #[serde(rename = "type")]
     kind: Option<Value>,
-    #[serde(default, deserialize_with = "read_is_non_empty_text")]
-    email: bool,
+    #[serde(default, deserialize_with = "read_lenient")]
+    email: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    plan_type: Option<String>,
 }
 
 /// The account an `account/read` reply names.
 pub(crate) enum CodexAccountReading {
-    /// An account is signed in: its sign-in kind as Codex names it, and whether it names an email.
+    /// An account is signed in: its sign-in kind as Codex names it, and the email and plan it
+    /// names.
     SignedIn {
         /// The sign-in kind, `chatgpt`, `apiKey` or `amazonBedrock` at the pinned release.
         kind: String,
-        /// Whether the account names a non-empty email; the email is never kept.
-        has_email: bool,
+        /// The account's email, where it names a non-empty one.
+        email: Option<String>,
+        /// The account's plan in Codex's word, where it names a non-empty one.
+        plan: Option<String>,
     },
     /// No account is signed in.
     SignedOut,
@@ -96,9 +101,11 @@ pub(crate) async fn read_codex_account(
             Some(AccountKind {
                 kind: Some(Value::String(kind)),
                 email,
+                plan_type,
             }) if !kind.is_empty() => CodexAccountReading::SignedIn {
                 kind,
-                has_email: email,
+                email: email.filter(|email| !email.is_empty()),
+                plan: plan_type.filter(|plan| !plan.is_empty()),
             },
             Some(_) | None => CodexAccountReading::Unreadable,
         },

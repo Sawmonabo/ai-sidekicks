@@ -1,7 +1,8 @@
 //! Codex's limits read of one account's home: `account/rateLimits/read` on the home's own
 //! service, or on a short-lived one started there for it, never on a service of another home. The
-//! read answers its windows with the plan its reply named and the sign-in's last renewal from the
-//! home's `auth.json`, and keeps its reset credits on the account's row. A
+//! read answers its windows with the plan its reply named, the email and plan the home's account
+//! read names, and the sign-in's last renewal from the home's `auth.json`, and keeps its reset
+//! credits on the account's row. A
 //! read that answers no figures reads as a lost sign-in when the home's own account read finds none
 //! signed in, or when it needed a renewal (an expired access token), the usage server refused the
 //! sign-in, and the home's `auth.json` stayed unchanged, twice in a row; a read the server never
@@ -20,7 +21,9 @@ use sidekicks_std::mutex_lock::lock;
 use crate::driver::ProviderAccountFolders;
 use crate::driver::codex::account::auth_file::{CodexAuthFile, read_codex_auth_file};
 use crate::driver::codex::account::{CodexAccountLegs, switch};
-use crate::driver::codex::auth_status::{CODEX_AUTH_PROBE_TIMEOUT, read_codex_auth_status};
+use crate::driver::codex::auth_status::{
+    CODEX_AUTH_PROBE_TIMEOUT, CodexAccountReading, read_codex_account, read_codex_auth_status,
+};
 use crate::driver::codex::rate_limits::{CodexRateLimitFiling, CodexRateLimitRead};
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
@@ -66,19 +69,16 @@ pub(super) async fn observe_codex_limits(
         )
         .await?;
     let (observation, reset_credits, is_sign_in_refused) = match read {
-        LimitsRead::Read(read) if !read.windows.is_empty() => (
+        LimitsRead::Read { read, account } if !read.windows.is_empty() => (
             ProviderObservation::Figures(ProviderAccountFigures {
-                identity: ObservedAccountIdentity {
-                    plan: read.plan.and_then(|plan| FreeFormText::new(plan).ok()),
-                    ..ObservedAccountIdentity::default()
-                },
+                identity: name_account(read.plan, account),
                 refreshed_at: read_refreshed_at(&codex_home).await?,
                 windows: read.windows,
             }),
             Some(read.reset_credits_available),
             false,
         ),
-        LimitsRead::Read(read) => (
+        LimitsRead::Read { read, .. } => (
             ProviderObservation::Unanswered,
             Some(read.reset_credits_available),
             false,
@@ -114,6 +114,22 @@ pub(super) async fn observe_codex_limits(
         ProviderObservation::SignInRefusedBeforeAnswer
         | ProviderObservation::SignInGone
         | ProviderObservation::OutOfScope => Ok(observation),
+    }
+}
+
+// The identity a read answers: the plan the limits reply named, else the one the account read
+// named, and the account read's email.
+fn name_account(plan: Option<String>, account: CodexAccountReading) -> ObservedAccountIdentity {
+    let (email, account_plan) = match account {
+        CodexAccountReading::SignedIn { email, plan, .. } => (email, plan),
+        CodexAccountReading::SignedOut | CodexAccountReading::Unreadable => (None, None),
+    };
+    ObservedAccountIdentity {
+        email: email.and_then(|email| FreeFormText::new(email).ok()),
+        plan: plan
+            .or(account_plan)
+            .and_then(|plan| FreeFormText::new(plan).ok()),
+        ..ObservedAccountIdentity::default()
     }
 }
 
@@ -170,10 +186,14 @@ async fn judge_renewal(
     })
 }
 
-// What the read on the home's service answered: its reply, or Codex's refusal as judged by the
-// home's own account read, and whether the usage server answered it by refusing the sign-in.
+// What the read on the home's service answered: its reply with the home's account read, or Codex's
+// refusal as judged by that read, and whether the usage server answered it by refusing the
+// sign-in.
 enum LimitsRead {
-    Read(CodexRateLimitRead),
+    Read {
+        read: CodexRateLimitRead,
+        account: CodexAccountReading,
+    },
     Refused {
         observation: ProviderObservation,
         is_sign_in_refused: bool,
@@ -185,8 +205,8 @@ enum LimitsRead {
 // server carrying no status at all.
 const CODEX_SIGN_IN_REFUSED_STATUS: &str = "failed: 401 Unauthorized;";
 
-// Starts `service` where it is not up, reads its account's limits through `rate_limits` and, on
-// Codex's refusal, reads the home's sign-in without a refresh: none signed in is a lost sign-in,
+// Starts `service` where it is not up, reads its account's limits through `rate_limits` and the
+// account that answered them, which names it, and, on Codex's refusal, reads the home's sign-in without a refresh: none signed in is a lost sign-in,
 // one signed in a refused or throttled read, and an unreadable answer neither.
 async fn read_limits(
     rate_limits: &CodexRateLimitFiling,
@@ -196,7 +216,10 @@ async fn read_limits(
         .ensure_started(service.dependencies().startup_timeout)
         .await?;
     match rate_limits.read(service).await {
-        Ok(read) => Ok(LimitsRead::Read(read)),
+        Ok(read) => Ok(LimitsRead::Read {
+            read,
+            account: read_codex_account(&*service.connection()?, CODEX_AUTH_PROBE_TIMEOUT).await?,
+        }),
         Err(CodexError::ProviderRequest { message, .. }) => {
             let status = read_codex_auth_status(&*service.connection()?, CODEX_AUTH_PROBE_TIMEOUT)
                 .await?
