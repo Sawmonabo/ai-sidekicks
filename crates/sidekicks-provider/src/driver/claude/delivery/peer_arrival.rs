@@ -6,14 +6,14 @@
 
 use std::sync::Arc;
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
-use crate::lenient_json::{LenientList, lenient_object, read_lenient};
+use crate::lenient_json::{Lenient as _, LenientList, lenient_object, read_lenient};
 use crate::port::session_message_reading_publisher::{
     SessionMessageArrival, SessionMessageReading, SessionMessageReadingPublisher,
 };
@@ -53,6 +53,13 @@ struct ClaudeOriginMember {
 }
 
 lenient_object!(ClaudeMessageOrigin, ClaudeOriginMember);
+
+/// A frame's `origin` member, read leniently and boxed; `None` for a value of another shape.
+pub(crate) fn read_boxed_origin<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Box<ClaudeMessageOrigin>>, D::Error> {
+    Ok(ClaudeMessageOrigin::read(deserializer)?.map(Box::new))
+}
 
 /// The arrival `frame` tells on `session_id` under `run_id`, the run holding the turn: only a
 /// peer message with a sender and the frame's `uuid`, `None` for any other frame. Its body is the
