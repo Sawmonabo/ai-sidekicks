@@ -1,8 +1,9 @@
-//! The daemon-wide bound on shell-line bytes being read: an ask's reads wait, in arrival order,
-//! until the lines in flight leave room for its line, so the lines in flight together come to at
-//! most one limit's worth of bytes, however many agents ask at once. Each ask's reader parses its
-//! line, at most one reading of it with its here-document starts requoted, and the strings its
-//! commands hand a shell, at most twice the limit in all.
+//! The daemon-wide bound on shell-line bytes being read: an ask's reads, and a workflow save's and
+//! a command step's launch's, wait in arrival order until the lines in flight leave room for their
+//! line, so the lines in flight together come to at most one limit's worth of bytes, however many
+//! agents ask and workflows save at once. Each reader parses its line, at most one reading of it
+//! with its here-document starts requoted, and the strings its commands hand a shell, at most
+//! twice the limit in all.
 
 use std::sync::Arc;
 
@@ -12,7 +13,8 @@ use tokio::task::JoinError;
 use super::ShellLineReader;
 
 /// The one daemon-wide bound on the line bytes the shell-line reader parses at once, with the
-/// reader's byte limit. Every ask reads its shell lines through `read`.
+/// reader's byte limit. Every ask, workflow save and command step's launch reads its shell lines
+/// through `read`.
 pub struct ShellLineReadingBound {
     // One permit per line byte, `limit` in all.
     permits: Arc<Semaphore>,
@@ -28,7 +30,7 @@ impl ShellLineReadingBound {
         }
     }
 
-    /// Runs `work` with an ask's own reader on a blocking thread, once `line_length` bytes are free
+    /// Runs `work` with its own reader on a blocking thread, once `line_length` bytes are free
     /// within the bound; a line past the limit, which the reader does not parse, waits for none.
     /// The bytes stay taken until `work` ends, rereads of the line's `-c` and `eval` strings
     /// included. Fails when `work` panics.

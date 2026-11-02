@@ -244,9 +244,10 @@ pub(super) enum ShellLineProgram {
     Source,
 }
 
-/// How a listed shell's words name the line it runs.
-#[derive(Clone, Copy)]
-pub(super) enum ShellGrammar {
+/// A listed shell's grammar: how its words name the line it runs, and the shell a workflow's command
+/// step runs under, whose grammar decides how a value filled into the step's line is referenced.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShellGrammar {
     /// `-c` among its short options runs the first word after them; each `o` or `O` of a short
     /// cluster takes the next word, and so does each of these options.
     Posix(&'static [&'static str]),

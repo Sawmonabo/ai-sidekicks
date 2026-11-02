@@ -196,30 +196,16 @@ impl ReadingForms {
     // otherwise is noted to be requoted for a second read.
     fn note_here_document(&mut self, redirect: Node<'_>, builder: &mut WordBuilder<'_>) -> bool {
         let line = builder.line();
-        let (mut start, mut body, mut end) = (None, None, None);
-        let mut strips_tabs = false;
-        let mut cursor = redirect.walk();
-        for child in redirect.children(&mut cursor) {
-            match child.kind() {
-                "<<-" => strips_tabs = true,
-                "heredoc_start" => start = Some(child),
-                "heredoc_body" => body = Some(child),
-                "heredoc_end" => end = Some(child),
-                _ => {}
-            }
-        }
-        let (Some(start), Some(body), Some(end)) = (start, body, end) else {
+        let Some(parts) = HereDocumentParts::of(redirect) else {
             return false;
         };
+        let HereDocumentParts { start, body, .. } = parts;
         let shares_a_line = start.start_byte() < self.here_document_bodies_start;
         self.here_document_bodies_start = self.here_document_bodies_start.max(body.start_byte());
         if shares_a_line {
             return false;
         }
-        let mark = builder.piece_count();
-        let (word, word_end) = builder.push_unexpanded_word(start.start_byte());
-        let delimiter = builder.view(word).to_string();
-        builder.truncate(mark);
+        let (delimiter, word_end) = parts.read_delimiter(builder);
         let word_text = &line[start.start_byte()..word_end];
         // The parser compares a delimiter's characters with the line's as single bytes, so one past
         // ASCII never ends its body; the shells take apart every other `$` form and backquotes in a
@@ -232,10 +218,8 @@ impl ReadingForms {
         }
         // The parser ends a body at a line that only starts with the delimiter after blanks, and
         // reads a quote or a substitution in an expanded body across the line the shell ends at.
-        let ends_as_the_shell_ends = || {
-            shell_here_document_span(line, word_end, end.start_byte(), &delimiter, strips_tabs)
-                .is_some_and(|shell| occupies_the_shells_span(line, body, end, &shell))
-        };
+        let ends_as_the_shell_ends =
+            || parts.lies_where_the_shell_reads_it(line, word_end, &delimiter);
         if !word_text.contains(['\'', '"', '\\']) {
             // The parser ends the delimiter at a blank only, the shell at `;`, `|` or `)` too.
             return word_end == start.end_byte()
@@ -259,6 +243,79 @@ impl ReadingForms {
         }
         self.literal_bodies.insert(body.id());
         ends_as_the_shell_ends()
+    }
+}
+
+/// A here-document redirect's start, body and end as the parser read them, and whether its `<<-`
+/// strips the tabs before each body line.
+#[derive(Clone, Copy)]
+pub(super) struct HereDocumentParts<'t> {
+    start: Node<'t>,
+    body: Node<'t>,
+    end: Node<'t>,
+    strips_tabs: bool,
+}
+
+impl<'t> HereDocumentParts<'t> {
+    /// The parts of `redirect`, a `heredoc_redirect`; `None` when the parser read no start, body or
+    /// end.
+    pub(super) fn of(redirect: Node<'t>) -> Option<Self> {
+        let (mut start, mut body, mut end) = (None, None, None);
+        let mut strips_tabs = false;
+        let mut cursor = redirect.walk();
+        for child in redirect.children(&mut cursor) {
+            match child.kind() {
+                "<<-" => strips_tabs = true,
+                "heredoc_start" => start = Some(child),
+                "heredoc_body" => body = Some(child),
+                "heredoc_end" => end = Some(child),
+                _ => {}
+            }
+        }
+        Some(Self {
+            start: start?,
+            body: body?,
+            end: end?,
+            strips_tabs,
+        })
+    }
+
+    /// The start.
+    pub(super) fn start(&self) -> Node<'t> {
+        self.start
+    }
+
+    /// The body.
+    pub(super) fn body(&self) -> Node<'t> {
+        self.body
+    }
+
+    /// The delimiter as the shell reads the start, a word it expands nothing in, and the byte the
+    /// start's word ends at. The word is built to be read and dropped.
+    pub(super) fn read_delimiter(&self, builder: &mut WordBuilder<'_>) -> (String, usize) {
+        let mark = builder.piece_count();
+        let (word, word_end) = builder.push_unexpanded_word(self.start.start_byte());
+        let delimiter = builder.view(word).to_string();
+        builder.truncate(mark);
+        (delimiter, word_end)
+    }
+
+    /// Whether the body and end lie where the shell reads them for `delimiter`, whose start word
+    /// ends at `word_end` of `line`.
+    pub(super) fn lies_where_the_shell_reads_it(
+        &self,
+        line: &str,
+        word_end: usize,
+        delimiter: &str,
+    ) -> bool {
+        shell_here_document_span(
+            line,
+            word_end,
+            self.end.start_byte(),
+            delimiter,
+            self.strips_tabs,
+        )
+        .is_some_and(|shell| occupies_the_shells_span(line, self.body, self.end, &shell))
     }
 }
 
@@ -335,9 +392,9 @@ fn occupies_the_shells_span(
         && is_blank(body.end_byte()..shell.end.start)
 }
 
-// Whether an expanded here-document body holds only what the parser reads in one: no backquote,
-// backslash or arithmetic, and no zsh subscript after a parameter the parser leaves as text.
-fn is_reading_expanded_body(text: &str) -> bool {
+/// Whether an expanded here-document body holds only what the parser reads in one: no backquote,
+/// backslash or arithmetic, and no zsh subscript after a parameter the parser leaves as text.
+pub(super) fn is_reading_expanded_body(text: &str) -> bool {
     !(text.contains(['`', '\\'])
         || text.contains("$((")
         || text.contains("$[")
@@ -462,8 +519,10 @@ fn is_zsh_subscript(previous: Node<'_>, next: Node<'_>, line: &str) -> bool {
     }
 }
 
-// The `[[ … ]]` operators whose operands bash evaluates as arithmetic.
-const ARITHMETIC_TEST_OPERATORS: &[&str] = &["-eq", "-ne", "-lt", "-le", "-gt", "-ge", "-v"];
+/// The `[[ … ]]` operators whose operands bash evaluates as arithmetic, `-v`'s as a name whose
+/// subscript is arithmetic.
+pub(super) const ARITHMETIC_TEST_OPERATORS: &[&str] =
+    &["-eq", "-ne", "-lt", "-le", "-gt", "-ge", "-v"];
 
 // Whether a `[[ … ]]` test holds an operator whose operands bash evaluates as arithmetic. The walk
 // stays inside the test's own expressions.
