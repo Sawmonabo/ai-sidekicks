@@ -44,10 +44,10 @@ use serde_json::Value;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_std::mutex_lock::lock;
 
+use crate::oauth::address::normalized_host;
 use crate::oauth::dpop_proof::{
     AuthorizationServerResponse, DpopKey, DpopKeyError, DpopSendError, read_response, send_signed,
 };
-use crate::oauth::loopback::normalized_host;
 use crate::oauth::pushed_authorization::{
     AuthorizationRequestEndpoints, DpopSigning, PushedAuthorizationError, browser_authorization_url,
 };

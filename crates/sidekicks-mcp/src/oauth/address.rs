@@ -1,6 +1,7 @@
-//! Whether an address is loopback, judged one way for the redirect receiver's owner-issued
-//! callback and for the reach of a server's OAuth calls, with the host readings that judgment
-//! rests on.
+//! The readings of an address's host the daemon's OAuth calls share: a name as names are compared,
+//! the literal address a host names and the IPv4 address an IPv6 one carries, and whether an
+//! address is loopback, judged one way for the redirect receiver's owner-issued callback and for
+//! the reach of a server's OAuth calls.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 

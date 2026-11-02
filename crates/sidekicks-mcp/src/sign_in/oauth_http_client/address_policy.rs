@@ -6,7 +6,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use reqwest::Url;
 use url::Host;
 
-use crate::oauth::loopback::{
+use crate::oauth::address::{
     embedded_ipv4, is_loopback_address, is_loopback_ip, literal_ip, normalized_host,
 };
 

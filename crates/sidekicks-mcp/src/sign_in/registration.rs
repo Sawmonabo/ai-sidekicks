@@ -27,8 +27,8 @@ use sidekicks_std::port_registration::PortRegistration;
 use url::{Host, Url};
 
 use crate::errors::SignInUnsupportedReason;
+use crate::oauth::address::is_loopback_address;
 use crate::oauth::client_authentication::TOKEN_ENDPOINT_AUTH_METHODS;
-use crate::oauth::loopback::is_loopback_address;
 use crate::oauth::pushed_authorization::PushedAuthorizationRefusal;
 use crate::sign_in::admitted_client::{AdmittedClient, AdmittedClientStore};
 use crate::sign_in::oauth_http_client::{RegistrationOutcome, ServerOAuthHttpClient};
