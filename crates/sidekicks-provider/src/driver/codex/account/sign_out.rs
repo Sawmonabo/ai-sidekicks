@@ -58,6 +58,7 @@ mod tests {
     use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
     use crate::driver::contract::account::ProviderAccountLegs;
     use crate::driver::schema::schema_parts;
+    use crate::driver::test_registry::NothingServed;
     use crate::runtime_binding::test_store::test_provider_account_id;
 
     // Killed by a sign-out sent on a service other than the named home's, the person's own folder
@@ -75,6 +76,7 @@ mod tests {
             Arc::clone(&scripted.dependencies),
             CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
             accounts,
+            Arc::new(NothingServed),
         );
         let codex_home = scripted.service.home().codex_home.clone();
         let named = ProviderAccountFolders {

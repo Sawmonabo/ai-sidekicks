@@ -11,6 +11,7 @@ use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
 use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome, switching_home};
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
 use crate::driver::contract::account::ProviderMemoryImportLegs;
+use crate::driver::test_registry::NothingServed;
 
 // Codex's own memories land in the account's home and in the switching home, each file counted
 // once, a file the switching home already holds kept, and the person's own folder left as it was.
@@ -38,6 +39,7 @@ async fn codex_memories_land_in_the_account_and_switching_homes_and_count_once()
         Arc::clone(&scripted.dependencies),
         CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
         accounts,
+        Arc::new(NothingServed),
     ));
     let switching = switching_home(&scripted.dependencies.data_folder).join("memories");
     write(&switching.join("two.md"), b"another account's");

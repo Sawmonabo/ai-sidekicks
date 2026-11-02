@@ -32,6 +32,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 };
 use crate::driver::contract::account::{ProviderObservation, ProviderObserveLegs};
 use crate::driver::schema::schema_parts;
+use crate::driver::test_registry::NothingServed;
 use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::usage_delta_accountant::UsageAxisCounts;
@@ -154,6 +155,7 @@ impl Fixture {
             Arc::clone(&scripted.dependencies),
             CodexRateLimitFiling::new(usage),
             accounts,
+            Arc::new(NothingServed),
         );
         Self {
             legs,

@@ -2,7 +2,7 @@
 //! service that home's own Codex runs, or on a short-lived one started there for the act, and
 //! where its memory import reads and lands.
 
-mod auth_file;
+pub(crate) mod auth_file;
 mod limits;
 mod sign_out;
 #[cfg_attr(
@@ -16,6 +16,9 @@ mod window_start;
 
 mod memory;
 
+pub(crate) mod login;
+mod switch;
+
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
@@ -24,6 +27,7 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 
@@ -39,9 +43,10 @@ use crate::driver::codex::service::supervisor::{
 };
 use crate::driver::contract::account::{
     MemoryImportStore, ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObservation,
-    ProviderObserveLegs,
+    ProviderObserveLegs, ProviderSwitchLegs, SessionAccountMove, SessionToMove,
 };
 use crate::driver::contract::error::DriverError;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// The switch that keeps a short-lived service's sign-in in the home's own `auth.json`, as on
 /// every Codex process of an account home.
@@ -54,12 +59,15 @@ pub(crate) const CODEX_EPHEMERAL_CREDENTIAL_STORE: &str =
 
 /// What Codex's account legs reach a home's Codex through: the driver's services, one per home,
 /// what a short-lived service started for one act runs on, the driver's filing of rate limits, the
-/// account registry, and each account's dead renewals in a row.
+/// account registry, the binding store a switch moves bindings in, and each account's dead
+/// renewals in a row.
 pub(crate) struct CodexAccountLegs {
     registry: Arc<CodexServiceRegistry>,
     dependencies: Arc<CodexServiceDependencies>,
     rate_limits: CodexRateLimitFiling,
     accounts: Arc<PortRegistration<Arc<ProviderAccountRegistry>>>,
+    // The binding store, which a switch moves each session's binding in.
+    bindings: Arc<dyn RuntimeBindingWriter>,
     // Each account's limits reads in a row whose needed renewal left its `auth.json` unchanged,
     // kept in memory as the observer's own misses are.
     dead_renewals: Mutex<HashMap<ProviderAccountId, u8>>,
@@ -68,19 +76,21 @@ pub(crate) struct CodexAccountLegs {
 impl CodexAccountLegs {
     /// The legs over `registry`, whose short-lived services run on `dependencies`, the ones
     /// `registry`'s own services share; limits read are filed through `rate_limits`, the driver's
-    /// own filing, and each account's mode and reset credits read and kept in the registry
-    /// `accounts` registers.
+    /// own filing, each account's mode and reset credits read and kept in the registry `accounts`
+    /// registers, and a switch's bindings moved in `bindings`.
     pub(crate) fn new(
         registry: Arc<CodexServiceRegistry>,
         dependencies: Arc<CodexServiceDependencies>,
         rate_limits: CodexRateLimitFiling,
         accounts: Arc<PortRegistration<Arc<ProviderAccountRegistry>>>,
+        bindings: Arc<dyn RuntimeBindingWriter>,
     ) -> Self {
         Self {
             registry,
             dependencies,
             rate_limits,
             accounts,
+            bindings,
             dead_renewals: Mutex::default(),
         }
     }
@@ -171,6 +181,17 @@ impl ProviderObserveLegs for CodexAccountLegs {
     }
 }
 
+impl ProviderSwitchLegs for CodexAccountLegs {
+    fn move_sessions(
+        &self,
+        _from: ProviderAccountId,
+        to: ProviderAccountId,
+        sessions: Vec<SessionToMove>,
+    ) -> BoxFuture<'_, Vec<Result<SessionAccountMove, (SessionId, DriverError)>>> {
+        switch::move_codex_sessions(self, to, sessions).boxed()
+    }
+}
+
 impl ProviderMemoryImportLegs for CodexAccountLegs {
     fn memory_import_stores(&self, home: &CredentialHome) -> io::Result<Vec<MemoryImportStore>> {
         memory::codex_memory_import_stores(self, home)
@@ -201,5 +222,6 @@ fn compose_short_lived_dependencies(
         drains: LastingServiceDrains::default(),
         tasks: shared.tasks.clone(),
         exec_relay: Arc::clone(&shared.exec_relay),
+        switching: Arc::clone(&shared.switching),
     })
 }

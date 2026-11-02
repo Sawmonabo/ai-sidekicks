@@ -27,6 +27,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::contract::account::{ProviderWindowTurnLegs, WindowTurnAnswer};
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
+use crate::driver::test_registry::NothingServed;
 use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
 
@@ -110,6 +111,7 @@ async fn one_exec_runs_in_the_account_s_home_and_its_counts_are_the_spend() {
         dependencies,
         CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
         accounts,
+        Arc::new(NothingServed),
     );
     let account_home = root.join("account");
     let folders = ProviderAccountFolders {
