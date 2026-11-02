@@ -718,9 +718,7 @@ impl Attempt {
                 ProviderSignInOutcome::Failed,
                 Some("The sign-in did not finish"),
             ),
-            ProviderSignInEnd::Expired => {
-                (ProviderSignInOutcome::Failed, Some("The sign-in expired"))
-            }
+            ProviderSignInEnd::Expired => (ProviderSignInOutcome::Expired, None),
             ProviderSignInEnd::Canceled => (ProviderSignInOutcome::Canceled, None),
         };
         if let Some(minted) = self.reservation.minted.take() {

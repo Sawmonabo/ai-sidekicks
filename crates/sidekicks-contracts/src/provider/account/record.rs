@@ -628,6 +628,9 @@ pub enum ProviderSignInOutcome {
     Succeeded,
     /// The flow failed.
     Failed,
+    /// The provider's code or the attempt's own bound ran out before the person finished; the
+    /// next act is a new sign-in.
+    Expired,
     /// The flow was canceled.
     Canceled,
 }

@@ -643,7 +643,9 @@ type ProviderAccountNotification =
   // health observation next and publishes the result as `accountChanged`; a client that treats
   // this notification as the authentication verdict will render an account as ready that a spawn
   // would refuse. `failureReason` is message text shown to the person and carries NO credential
-  // material, no provider error body verbatim, and no home path.
+  // material, no provider error body verbatim, and no home path. `expired` carries none: the
+  // provider's code or the attempt's own bound ran out, and the sign-in card reads
+  // `Code expired · Sign in again`.
   // The fifth field the broker may emit (Spec-025 §Brokered interactive sign-in): the provider is
   // waiting for the code its sign-in page shows. A typed state the broker reads from Claude Code's
   // paste prompt, never the prompt's text; the sign-in card then shows
@@ -653,7 +655,7 @@ type ProviderAccountNotification =
       kind: "signInCompleted";
       attemptId: string;
       accountId: ProviderAccountId;
-      outcome: "succeeded" | "failed" | "canceled";
+      outcome: "succeeded" | "failed" | "expired" | "canceled";
       failureReason?: string;
     }
   // The outer `accountId` is the ROUTING key and `window.accountId` is part of the reading itself.

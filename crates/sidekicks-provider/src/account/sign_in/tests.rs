@@ -322,7 +322,7 @@ fn refusal_of(error: ProviderSignInError) -> (RefusalCode, Option<serde_json::Va
 #[case::new_failed(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Failed,
     Some(ProviderSignInOutcome::Failed))]
 #[case::new_expired(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Expired,
-    Some(ProviderSignInOutcome::Failed))]
+    Some(ProviderSignInOutcome::Expired))]
 #[case::new_canceled(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Canceled,
     Some(ProviderSignInOutcome::Canceled))]
 #[case::new_unsupported(false, Status::Unsupported, ProviderSignInEnd::Failed, None)]
@@ -546,7 +546,12 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
             assert_eq!(accounts[0].observed_auth_mode, Some(OBSERVED_AUTH_MODE));
             assert!(flow.home.is_dir(), "an admitted account keeps its home");
         }
-        (None, ProviderSignInOutcome::Failed | ProviderSignInOutcome::Canceled) => {
+        (
+            None,
+            ProviderSignInOutcome::Failed
+            | ProviderSignInOutcome::Expired
+            | ProviderSignInOutcome::Canceled,
+        ) => {
             assert!(accounts.is_empty(), "{accounts:?}");
             assert!(
                 !flow.home.exists(),
