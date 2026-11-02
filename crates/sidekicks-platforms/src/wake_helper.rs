@@ -83,6 +83,10 @@ pub enum WakeHelperError {
         #[source]
         source: io::Error,
     },
+    /// This program's signature names no team, as a bare development build's does not, so no
+    /// helper is installed: only a build signed by the app's team installs one.
+    #[error("the wake helper installs only from a build signed by the app's team")]
+    Unsigned,
     /// This program's own signature, whose team the helper's install checks the helper against,
     /// could not be read.
     #[error("this program's signature, which the wake helper's is checked against, did not read")]

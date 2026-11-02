@@ -51,7 +51,8 @@ pub enum SignInMoveError {
     /// The copy read back from the destination differs from the source, so the source is kept.
     #[error("the sign-in copied to {destination} read back differently")]
     CopyDiffers {
-        /// The destination, a keychain item's service and account or a file's path.
+        /// The destination in words: a keychain item's service and account, or the sign-in file,
+        /// never its path.
         destination: String,
     },
     /// A step of the move outlasted the caller's bound, so the move stopped before its next step.

@@ -6,11 +6,11 @@
 //!
 //! Root installs only what it staged in a folder of its own, so no file the user can still change
 //! is what root installs: the program copied there and checked against the hash the service took
-//! of it, and the list written there from its text. A service signed by a team also has root check
-//! the staged program's signature against that team, read from the service's own signature once
-//! its running code is checked to match it, so a program a same-user process put beside the
-//! service before the service read it is refused too; a development build signed ad hoc has no
-//! team to check, and only the hash.
+//! of it, and the list written there from its text. Root also checks the staged program's
+//! signature against the service's team, read from the service's own signature once its running
+//! code is checked to match it, so a program a same-user process put beside the service before the
+//! service read it is refused too. A service whose signature names no team, as a bare development
+//! build's does not, installs no helper: nothing is installed on the hash alone.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};
@@ -50,9 +50,8 @@ const SHELL_PROGRAM: &str = "/bin/sh";
 // The install's staging, its first part: a folder only its owner (root) can reach made in the
 // system's temporary folder and removed when the step ends, the program (`$2`) copied into it, its
 // SHA-256 checked against `$8`, the hash the service took, and its signature against `$9`, the
-// requirement text the service's team makes, where it is not empty, and the list's text (`$4`)
-// written into it. Any failed check, `codesign`'s unsigned answer as much as its unmet
-// requirement, ends the step.
+// requirement text the service's team makes, and the list's text (`$4`) written into it. Any
+// failed check, `codesign`'s unsigned answer as much as its unmet requirement, ends the step.
 macro_rules! stage_step {
     () => {
         concat!(
@@ -60,8 +59,7 @@ macro_rules! stage_step {
             r#"trap '/bin/rm -rf "$staging"' EXIT && /bin/cp "$2" "$staging/program" && "#,
             r#"/usr/bin/printf '%s  %s\n' "$8" "$staging/program" | "#,
             r#"/usr/bin/shasum -a 256 -c -s && "#,
-            r#"{ test -z "$9" || "#,
-            r#"/usr/bin/codesign --verify --strict -R "=$9" "$staging/program"; } && "#,
+            r#"/usr/bin/codesign --verify --strict -R "=$9" "$staging/program" && "#,
             r#"/usr/bin/printf '%s' "$4" > "$staging/list" && "#,
         )
     };
@@ -124,21 +122,17 @@ fn wake_helper_label() -> String {
 
 /// Installs `helper_program`, as it reads now, at the helper's path with its property list and
 /// loads it, as root behind the administrator prompt; a program changed after that read, or one
-/// not signed by this service's own team where the service has one, is refused by the prompt's
-/// step. Fails as the prompt fails, with [`WakeHelperError::Signature`] when this service's own
-/// signature cannot be read, and with [`WakeHelperError::File`] when the program cannot be read or
-/// the list cannot be written.
+/// not signed by this service's own team, is refused by the prompt's step. Fails as the prompt
+/// fails, with [`WakeHelperError::Signature`] when this service's own signature cannot be read,
+/// with [`WakeHelperError::Unsigned`] before any prompt when it names no team, and with
+/// [`WakeHelperError::File`] when the program cannot be read or the list cannot be written.
 pub(crate) async fn install(
     spawner: &Spawner,
     helper_program: &Path,
 ) -> Result<(), WakeHelperError> {
     let list_contents = list_text(&wake_helper_list())?;
-    let signature_requirement = OsString::from(
-        read_own_quotable_team()
-            .map_err(WakeHelperError::Signature)?
-            .map(|team| team_requirement(&team))
-            .unwrap_or_default(),
-    );
+    let signature_requirement =
+        signature_requirement(read_own_quotable_team().map_err(WakeHelperError::Signature)?)?;
     let program =
         tokio::fs::read(helper_program)
             .await
@@ -196,6 +190,14 @@ pub(crate) async fn uninstall(spawner: &Spawner) -> Result<(), WakeHelperError> 
         .map(drop)
 }
 
+// The requirement root checks the staged program's signature against: signed by `team`, the
+// service's own. Fails with `WakeHelperError::Unsigned` where the service names no team, so no
+// helper is installed on its hash alone.
+fn signature_requirement(team: Option<String>) -> Result<OsString, WakeHelperError> {
+    let team = team.ok_or(WakeHelperError::Unsigned)?;
+    Ok(OsString::from(team_requirement(&team)))
+}
+
 // The helper's property list: its label, program and app, and the socket it is started on.
 fn wake_helper_list() -> WakeHelperList {
     WakeHelperList {
@@ -248,12 +250,13 @@ mod tests {
     use std::path::Path;
     use std::process::{Command, Output};
 
-    use super::{list_text, sha256_hex, wake_helper_list};
+    use super::{list_text, sha256_hex, signature_requirement, wake_helper_list};
+    use crate::WakeHelperError;
     use crate::macos::code_signature::team_requirement;
 
     // Runs the install's staging over `program` with `hash` as the hash the service took and
-    // `requirement` as the signature's requirement text, empty for none, then prints what it
-    // staged: the program, then the list.
+    // `requirement` as the signature's requirement text, then prints what it staged: the program,
+    // then the list.
     fn stage(program: &Path, hash: &str, requirement: &str) -> Output {
         Command::new("/bin/sh")
             .arg("-c")
@@ -272,24 +275,39 @@ mod tests {
     }
 
     /// Root goes on only with the staged copy whose hash is the one the service took, so a program
-    /// changed after the service read it stops the install before anything is placed. Mutation:
-    /// drop the hash check from the staging.
+    /// changed after the service read it stops the install before anything is placed, even one
+    /// that meets the signature's requirement. A system program meets `anchor apple` and stands
+    /// in for the team's own. Mutation: drop the hash check from the staging.
     #[test]
     fn the_staging_refuses_a_program_changed_after_its_hash_was_taken() {
         let folder = tempfile::tempdir().expect("the test's temporary folder is made");
         let program = folder.path().join("sidekicks-wake-helper");
-        let read = b"the helper the service read";
-        std::fs::write(&program, read).expect("the test writes the program");
-        let hash = sha256_hex(read);
+        let read = std::fs::read("/usr/bin/true").expect("the system program reads");
+        std::fs::write(&program, &read).expect("the test writes the program");
+        let hash = sha256_hex(&read);
 
-        let staged = stage(&program, &hash, "");
+        let staged = stage(&program, &hash, "anchor apple");
         assert!(staged.status.success(), "{staged:?}");
-        assert_eq!(staged.stdout, b"the helper the service read<plist/>");
+        assert_eq!(staged.stdout, [read.as_slice(), b"<plist/>"].concat());
 
-        std::fs::write(&program, b"a program put in its place").expect("the test swaps it");
-        let refused = stage(&program, &hash, "");
+        let other = std::fs::read("/usr/bin/false").expect("the system program reads");
+        std::fs::write(&program, other).expect("the test swaps it");
+        let refused = stage(&program, &hash, "anchor apple");
         assert!(!refused.status.success(), "the changed program was staged");
         assert!(refused.stdout.is_empty(), "the step went on: {refused:?}");
+    }
+
+    /// A service whose signature names no team, as a bare development build's, installs no helper:
+    /// the install is refused, naming the signed build, before any prompt, and nothing is
+    /// installed on the hash alone. Mutation: let a missing team through as no requirement.
+    #[test]
+    fn a_service_with_no_team_installs_no_helper() {
+        let refused = signature_requirement(None);
+
+        assert!(
+            matches!(refused, Err(WakeHelperError::Unsigned)),
+            "{refused:?}"
+        );
     }
 
     /// With a requirement, root goes on only with a staged program whose signature meets it, even

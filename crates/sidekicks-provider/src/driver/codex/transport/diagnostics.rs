@@ -182,14 +182,16 @@ pub(crate) enum CodexTransportDiagnostic {
     },
     /// The connection to a service closed while its process still ran, or on the person's own.
     ServiceConnectionDropped {
-        /// The account the service runs on; `None` for the person's own folder's.
+        /// The account the service runs on; `None` for the person's own folder's, the capability
+        /// read's, and the switching service's while it carries no account.
         provider_account_id: Option<ProviderAccountId>,
         /// How the connection closed, in words.
         reason: String,
     },
     /// A restart or reconnect of a service failed.
     ServiceStartFailed {
-        /// The account the service runs on; `None` for the person's own folder's.
+        /// The account the service runs on; `None` for the person's own folder's, the capability
+        /// read's, and the switching service's while it carries no account.
         provider_account_id: Option<ProviderAccountId>,
         /// The start's failure.
         error: DiagnosticCause,
@@ -197,7 +199,8 @@ pub(crate) enum CodexTransportDiagnostic {
     /// The home's link could not be pointed back at the restarted service that holds it, so a
     /// plain `codex` does not reach it.
     HomeLinkRestoreFailed {
-        /// The account the service runs on; `None` for the person's own folder's.
+        /// The account the service runs on; `None` for the person's own folder's, the capability
+        /// read's, and the switching service's while it carries no account.
         provider_account_id: Option<ProviderAccountId>,
         /// The move's failure.
         error: DiagnosticCause,
@@ -218,7 +221,8 @@ pub(crate) enum CodexTransportDiagnostic {
     },
     /// The connection to a service that kept running came back, and its conversations resumed.
     ServiceReconnected {
-        /// The account the service runs on; `None` for the person's own folder's.
+        /// The account the service runs on; `None` for the person's own folder's, the capability
+        /// read's, and the switching service's while it carries no account.
         provider_account_id: Option<ProviderAccountId>,
         /// Each conversation resumed.
         conversations: Vec<String>,

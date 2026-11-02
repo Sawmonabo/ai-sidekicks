@@ -55,8 +55,9 @@ impl WakeHelper {
     }
 
     /// Installs `helper_program` as the helper and starts it, behind one administrator prompt, in
-    /// place of any helper installed before. Fails with [`WakeHelperError::Canceled`] when the
-    /// person cancels the prompt, and otherwise with the step's cause and macOS's own message.
+    /// place of any helper installed before. Fails with [`WakeHelperError::Unsigned`] before any
+    /// prompt where this build's signature names no team, with [`WakeHelperError::Canceled`] when
+    /// the person cancels the prompt, and otherwise with the step's cause and macOS's own message.
     pub async fn install(
         &self,
         spawner: &Spawner,
