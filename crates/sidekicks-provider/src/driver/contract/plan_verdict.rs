@@ -57,7 +57,8 @@ pub enum PlanVerdictAnswer {
 /// Answers a verdict on a plan that holds no request open, on any provider: keep and hand-off
 /// send nothing; build moves a live or restarting process to Build through the driver's own
 /// `update_session_mode`, nothing for a process that is down, and answers the follow-up
-/// `Implement the plan.`. Fails as the mode's move fails.
+/// `Implement the plan.`. Fails as the mode's move fails while the process still reads up; a move
+/// that failed because the process went down meanwhile needs nothing.
 pub(crate) async fn answer_plan_holding_no_request<D: ProviderDriver + ?Sized>(
     driver: &D,
     params: AnswerPlanParams,
@@ -68,13 +69,21 @@ pub(crate) async fn answer_plan_holding_no_request<D: ProviderDriver + ?Sized>(
             match driver.session_process_state(&params.session_id) {
                 // A move while the process comes back reaches the process the driver brings back.
                 SessionProcessState::Live | SessionProcessState::Restarting => {
-                    driver
+                    let moved = driver
                         .update_session_mode(UpdateSessionModeParams {
                             session_id: params.session_id,
                             mode: SessionMode::Build,
                             is_provider_reported: false,
                         })
-                        .await?;
+                        .await;
+                    // The state was read outside the driver's lock, so a process that went down
+                    // since opens in the mode the daemon stores, as one down at the read does.
+                    if let Err(error) = moved
+                        && driver.session_process_state(&params.session_id)
+                            != SessionProcessState::Down
+                    {
+                        return Err(error);
+                    }
                 }
                 // A process that is down opens in the mode the daemon stores.
                 SessionProcessState::Down => {}
@@ -87,6 +96,8 @@ pub(crate) async fn answer_plan_holding_no_request<D: ProviderDriver + ?Sized>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use futures::FutureExt as _;
     use rstest::rstest;
     use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
@@ -96,6 +107,7 @@ mod tests {
         answer_plan_holding_no_request,
     };
     use crate::driver::contract::MockProviderDriver;
+    use crate::driver::contract::error::DriverError;
     use crate::driver::contract::params_and_results::SessionProcessState;
     use crate::driver::test_registry::new_session_id;
     use crate::port::plan::mint_plan_id;
@@ -155,6 +167,59 @@ mod tests {
             PlanVerdictAnswer::Answered {
                 follow_up_message: is_build.then(|| IMPLEMENT_THE_PLAN.to_owned()),
             }
+        );
+    }
+
+    // A build whose move fails answers as a process down once the process reads down after the
+    // failure, and fails while it still reads up. Killed by the state not read again after a
+    // failed move (the first case fails) and by every failed move taken as down (the second case
+    // answers).
+    #[rstest]
+    #[case::went_down(SessionProcessState::Down, true)]
+    #[case::still_live(SessionProcessState::Live, false)]
+    #[tokio::test]
+    async fn a_build_whose_move_fails_answers_only_once_the_process_reads_down(
+        #[case] state_after: SessionProcessState,
+        #[case] is_answered: bool,
+    ) {
+        let session_id = new_session_id();
+        let reads = AtomicUsize::new(0);
+        let mut driver = MockProviderDriver::new();
+        driver
+            .expect_session_process_state()
+            .times(2)
+            .returning(move |_session_id| {
+                if reads.fetch_add(1, Ordering::Relaxed) == 0 {
+                    SessionProcessState::Live
+                } else {
+                    state_after
+                }
+            });
+        driver
+            .expect_update_session_mode()
+            .times(1)
+            .returning(|_params| {
+                async { Err(DriverError::Internal("the process went away".into())) }.boxed()
+            });
+
+        let answer = answer_plan_holding_no_request(
+            &driver,
+            AnswerPlanParams {
+                session_id,
+                plan_id: mint_plan_id(),
+                holds_request: false,
+                verdict: PlanVerdict::Build {
+                    level: PermissionLevel::Ask,
+                },
+            },
+        )
+        .await;
+
+        assert_eq!(
+            answer.ok(),
+            is_answered.then(|| PlanVerdictAnswer::Answered {
+                follow_up_message: Some(IMPLEMENT_THE_PLAN.to_owned()),
+            })
         );
     }
 }
