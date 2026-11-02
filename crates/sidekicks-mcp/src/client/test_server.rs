@@ -23,6 +23,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 
 use crate::client::McpClient;
+use crate::client::connection::standing::McpStandingConnection;
 use crate::client::connection::{McpConnectionScope, McpServerConnection};
 use crate::client::raw_copy::{RawLineTee, RawReplyCopy};
 use crate::client::stdio::StdioProcess;
@@ -105,9 +106,10 @@ pub(super) fn method_not_found() -> Reply {
 }
 
 /// Calls `call`'s tool as the tool call's dispatch does: whether the tool takes a task is read
-/// first, then the call made with that answer.
+/// first, then the call made with that answer, `connection` published as its session's live
+/// connection for the call's life.
 pub(super) async fn call_tool_as_dispatched(
-    connection: &McpServerConnection,
+    connection: &Arc<McpServerConnection>,
     call: McpToolCall,
     sink: &dyn McpTaskHandleSink,
     contact: &watch::Sender<McpTaskContact>,
@@ -116,8 +118,10 @@ pub(super) async fn call_tool_as_dispatched(
         .is_task_tool(&call.dispatch.tool_name)
         .await
         .expect("the server's tools read");
+    let (standing, feed) = McpStandingConnection::new();
+    feed.publish(Some(Arc::clone(connection)));
     connection
-        .call_tool(call, is_task_tool, sink, contact)
+        .call_tool(&standing, call, is_task_tool, sink, contact)
         .await
 }
 
@@ -125,9 +129,12 @@ pub(super) async fn call_tool_as_dispatched(
 pub(super) async fn open_test_server(
     client: &McpClient,
     responder: Responder,
-) -> (McpServerConnection, TestServer) {
+) -> (Arc<McpServerConnection>, TestServer) {
     let (opened, server) = start_test_server(test_scope(client), responder, None).await;
-    (opened.expect("the test server completes its start"), server)
+    (
+        Arc::new(opened.expect("the test server completes its start")),
+        server,
+    )
 }
 
 /// The scope of `client`'s server `tracker` in a new session.

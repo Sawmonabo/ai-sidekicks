@@ -32,22 +32,23 @@ use tokio::sync::watch;
 
 use crate::client::calls::TrackedCall;
 use crate::client::connection::McpServerConnection;
+use crate::client::connection::standing::McpStandingConnection;
 use crate::client::poll::{PollStep, follow_task as poll_until_end};
-use crate::client::requests::ServerRequests;
 use crate::client::tasks::watches::{QuestionOutcome, QuestionTake};
 use crate::client::tasks::{
-    McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpToolCall, McpToolCallEnd,
-    McpToolCallError, observe_mcp_task_acceptance,
+    McpServerEndpoint, McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpToolCall,
+    McpToolCallEnd, McpToolCallError, observe_mcp_task_acceptance,
 };
 
 /// The most input requests of one task the client answers; the rest are ignored.
 const MAX_TASK_INPUT_REQUESTS: usize = 16;
 
-/// Calls `call`'s tool, answering its rounds of input and following a task to its end. Fails as
-/// a round fails, when the server asks for sampling or more rounds than a call drives, or answers
-/// another request's result.
+/// Calls `call`'s tool, answering its rounds of input and following a task to its end, whose
+/// answers go over `standing`'s live connection. Fails as a round fails, when the server asks for
+/// sampling or more rounds than a call drives, or answers another request's result.
 pub(super) async fn call_tool(
     connection: &McpServerConnection,
+    standing: &McpStandingConnection,
     in_flight: &TrackedCall<'_>,
     call: McpToolCall,
     sink: &dyn McpTaskHandleSink,
@@ -76,7 +77,7 @@ pub(super) async fn call_tool(
                     &mcp_task_id,
                 )
                 .await;
-                return Ok(follow_task(connection, &call, &mcp_task_id, contact).await);
+                return Ok(follow_task(connection, standing, &call, &mcp_task_id, contact).await);
             }
             CallToolResponse::Complete(result) => {
                 let Value::Object(result) = serde_json::to_value(result)
@@ -148,9 +149,11 @@ fn empty_roots() -> Value {
     json!({ "roots": [] })
 }
 
-/// Follows `call`'s task `mcp_task_id` to its end, its questions asked in the call's run.
+/// Follows `call`'s task `mcp_task_id` to its end, its questions asked in the call's run and
+/// answered over `standing`'s live connection.
 pub(super) async fn follow_task(
     connection: &McpServerConnection,
+    standing: &McpStandingConnection,
     call: &McpToolCall,
     mcp_task_id: &str,
     contact: &watch::Sender<McpTaskContact>,
@@ -161,7 +164,7 @@ pub(super) async fn follow_task(
         .watch(&connection.scope, call, mcp_task_id);
     let asked = Mutex::new(HashSet::new());
     let end = poll_until_end(&watch.wake, contact, || {
-        poll_once(connection, mcp_task_id, &asked)
+        poll_once(connection, standing, mcp_task_id, &asked)
     })
     .await;
     watch.finish().await;
@@ -177,6 +180,7 @@ pub(super) async fn follow_task(
 )]
 async fn poll_once(
     connection: &McpServerConnection,
+    standing: &McpStandingConnection,
     mcp_task_id: &str,
     asked: &Mutex<HashSet<String>>,
 ) -> Result<PollStep<McpToolCallEnd>, ServiceError> {
@@ -226,7 +230,7 @@ async fn poll_once(
         let is_asked = lock(asked).contains(&key);
         // A request the card refused, as a run already waiting on a question refuses one, is
         // asked again on a later poll.
-        if !is_asked && answer_input_request(connection, mcp_task_id, &key, input).await {
+        if !is_asked && answer_input_request(connection, standing, mcp_task_id, &key, input).await {
             lock(asked).insert(key);
         }
     }
@@ -258,10 +262,12 @@ async fn cancel_for_unsupported_input(connection: &McpServerConnection, mcp_task
     }
 }
 
-/// Answers one input request of the task: an elicitation's form asked on the questions card, a
-/// roots request answered with an empty list; true once it needs no answer again.
+/// Answers one input request of the task: an elicitation's form asked on the questions card and
+/// answered over `standing`'s live connection, a roots request answered with an empty list over
+/// the polling connection; true once it needs no answer again.
 async fn answer_input_request(
     connection: &McpServerConnection,
+    standing: &McpStandingConnection,
     mcp_task_id: &str,
     key: &str,
     input: TaskInput,
@@ -293,7 +299,8 @@ async fn answer_input_request(
         }
     };
     let answer = Arc::new(V2TaskAnswer {
-        requests: connection.requests.clone(),
+        standing: standing.clone(),
+        endpoint: connection.endpoint.clone(),
         mcp_task_id: mcp_task_id.to_owned(),
         key: key.to_owned(),
         params: params.clone(),
@@ -317,9 +324,11 @@ fn input_response(mcp_task_id: &str, key: &str, response: Value) -> UpdateTaskPa
     UpdateTaskParams::new(mcp_task_id, BTreeMap::from([(key.to_owned(), response)]))
 }
 
-/// The answer to one input request of a 2026-07-28 task, sent as `tasks/update`.
+/// The answer to one input request of a 2026-07-28 task, sent as `tasks/update` over the live
+/// connection of the endpoint that accepted the task.
 struct V2TaskAnswer {
-    requests: ServerRequests,
+    standing: McpStandingConnection,
+    endpoint: McpServerEndpoint,
     mcp_task_id: String,
     key: String,
     params: Value,
@@ -333,13 +342,25 @@ impl ToolServerQuestionAnswer for V2TaskAnswer {
         let content = compose_elicitation_content(&self.params, &answers);
         let response = json!({ "action": "accept", "content": Value::Object(content) });
         let params = input_response(&self.mcp_task_id, &self.key, response);
-        async move {
-            self.requests
-                .update_task(params)
-                .await
-                .map_err(|error| Box::new(error) as Box<dyn Error + Send + Sync>)
+        self.send(params).boxed()
+    }
+}
+
+impl V2TaskAnswer {
+    /// Sends `params` over the live connection of the task's endpoint, and once more over a
+    /// connection a Reconnect put in place of one that closed under it. Fails at once, sending
+    /// nothing, when no connection of the endpoint is live, and as the request fails otherwise.
+    async fn send(&self, params: UpdateTaskParams) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let connection = self.standing.live(&self.endpoint)?;
+        let sent = connection.requests.update_task(params.clone()).await;
+        if !matches!(sent, Err(ServiceError::TransportClosed)) {
+            return Ok(sent?);
         }
-        .boxed()
+        let replacement = self.standing.live(&self.endpoint)?;
+        if Arc::ptr_eq(&replacement, &connection) {
+            return Ok(sent?);
+        }
+        Ok(replacement.requests.update_task(params).await?)
     }
 }
 

@@ -33,6 +33,7 @@ use strum::{EnumString, IntoStaticStr, VariantArray};
 use tokio::sync::watch;
 
 use crate::client::connection::McpServerConnection;
+use crate::client::connection::standing::McpStandingConnection;
 use crate::client::requests::{McpRequestError, RequestWait};
 use crate::sign_in::canonical_server_address;
 
@@ -231,9 +232,10 @@ pub(crate) enum McpToolCallError {
 impl McpServerConnection {
     /// Calls a tool and follows it to its end: a task's handle reaches `sink` before the first
     /// poll, `contact` says whether its server still answers, and its questions, like any the
-    /// call asks outside a task, are asked in the call's session and run. The caller reads
-    /// `is_task_tool` first, before anything is recorded, and passes its answer. Fails as the call
-    /// or the acceptance fails.
+    /// call asks outside a task, are asked in the call's session and run. A 2026-07-28 task's
+    /// answers go over `standing`'s live connection, so one given after a Reconnect reaches the
+    /// new connection. The caller reads `is_task_tool` first, before anything is recorded, and
+    /// passes its answer. Fails as the call or the acceptance fails.
     #[cfg_attr(
         not(test),
         expect(
@@ -244,6 +246,7 @@ impl McpServerConnection {
     )]
     pub(crate) async fn call_tool(
         &self,
+        standing: &McpStandingConnection,
         call: McpToolCall,
         is_task_tool: bool,
         sink: &dyn McpTaskHandleSink,
@@ -253,7 +256,7 @@ impl McpServerConnection {
         let ended = if is_task_tool {
             revision_2025_11_25::call_task_tool(self, call, sink, contact).await
         } else {
-            revision_2026_07_28::call_tool(self, &in_flight, call, sink, contact).await
+            revision_2026_07_28::call_tool(self, standing, &in_flight, call, sink, contact).await
         };
         in_flight.finish().await;
         ended
@@ -261,8 +264,9 @@ impl McpServerConnection {
 
     /// Follows the recorded task `mcp_task_id` of `call`, accepted under `mcp_task_generation`,
     /// to its end, as after a restart: polled at once, its questions asked again in the call's
-    /// session and run, `contact` saying whether its server answers. Never fails: a poll that
-    /// fails is polled again.
+    /// session and run, `contact` saying whether its server answers, and a 2026-07-28 task's
+    /// answers going over `standing`'s live connection. Never fails: a poll that fails is polled
+    /// again.
     #[expect(
         dead_code,
         reason = "the session's tool-server connections, which the tool-server units open, \
@@ -270,6 +274,7 @@ impl McpServerConnection {
     )]
     pub(crate) async fn resume_task(
         &self,
+        standing: &McpStandingConnection,
         call: McpToolCall,
         mcp_task_generation: McpTaskGeneration,
         mcp_task_id: &str,
@@ -280,7 +285,7 @@ impl McpServerConnection {
                 revision_2025_11_25::follow_task(self, &call, mcp_task_id, contact).await
             }
             McpTaskGeneration::V2 => {
-                revision_2026_07_28::follow_task(self, &call, mcp_task_id, contact).await
+                revision_2026_07_28::follow_task(self, standing, &call, mcp_task_id, contact).await
             }
         }
     }

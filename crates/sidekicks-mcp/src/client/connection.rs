@@ -12,6 +12,8 @@
 //!   and with none in flight it is answered `cancel`, since nobody saw it. While it is open, the
 //!   connection's tool calls' idle window stands still.
 
+pub(super) mod standing;
+
 use std::collections::HashSet;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
