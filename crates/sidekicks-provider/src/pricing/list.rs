@@ -71,7 +71,8 @@ pub struct DecodedPriceTable {
     /// The selected rows' exact rates.
     pub table: PriceTable,
     /// The fields whose values were refused, each absent from its row unless a later repeat of
-    /// the field in that row was kept.
+    /// the field in that row was kept. A field stays listed too when a later repeat of its model id
+    /// replaced the whole row.
     pub refused_fields: Vec<RefusedPriceField>,
 }
 
