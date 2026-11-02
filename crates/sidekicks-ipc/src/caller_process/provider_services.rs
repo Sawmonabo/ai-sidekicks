@@ -50,12 +50,17 @@ impl ProviderServiceProcesses {
             .map_err(HoldServingError::Read)?
             .ok_or(HoldServingError::PeerClosed)?
             .id();
+        Ok((stream, self.hold(process_id)))
+    }
+
+    /// Counts the process with `process_id` as serving a held connection until the returned hold
+    /// drops.
+    pub(crate) fn hold(&self, process_id: u32) -> ProviderServiceHold {
         *lock(&self.holds).entry(process_id).or_default() += 1;
-        let hold = ProviderServiceHold {
+        ProviderServiceHold {
             holds: Arc::clone(&self.holds),
             process_id,
-        };
-        Ok((stream, hold))
+        }
     }
 
     /// Whether the process with `process_id` serves a provider service connection the daemon
