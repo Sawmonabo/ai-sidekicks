@@ -469,7 +469,7 @@ pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program
 pub use scratch_volume::{ScratchVolume, scratch_volume};
 pub use service_registration::{
     ServiceInstall, ServiceOwner, ServiceRegistrationError, SystemServiceKickstart,
-    SystemServiceOwner,
+    SystemServiceOwner, SystemServiceState,
 };
 #[cfg(not(target_os = "macos"))]
 pub use service_registration::{ServiceRegistration, service_registration};

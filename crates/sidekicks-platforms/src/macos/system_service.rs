@@ -18,7 +18,7 @@ use super::service_registration::{
     launchd_list_text, not_loaded_status, read_launchd_list, run_launchctl,
 };
 use crate::service_registration::{
-    ServiceRegistrationError, SystemServiceKickstart, SystemServiceOwner,
+    ServiceRegistrationError, SystemServiceKickstart, SystemServiceOwner, SystemServiceState,
 };
 use crate::spawner::Spawner;
 
@@ -130,6 +130,22 @@ impl ServiceRegistration {
     /// Fails as [`Self::is_turned_off`] fails.
     pub fn is_system_service_turned_off(&self) -> Result<bool, ServiceRegistrationError> {
         is_list_turned_off(system_service_list_path())
+    }
+
+    /// Whether launchd runs the system service, read from `launchctl print system/<label>`: running
+    /// where the job's own `pid` line names its process, and not running where it names none or
+    /// the job is not loaded. The printed text is no interface Apple keeps, so this is the one
+    /// read of it, for a run under `sudo` that cannot reach the service itself. Fails when
+    /// `launchctl` cannot be started.
+    pub fn read_system_service_state(
+        &self,
+    ) -> Result<SystemServiceState, ServiceRegistrationError> {
+        let service_target = system_service_target();
+        let answer = run_launchctl("print", [OsStr::new("print"), service_target.as_os_str()])?;
+        if !answer.status.success() {
+            return Ok(SystemServiceState::NotRunning);
+        }
+        Ok(printed_state(&String::from_utf8_lossy(&answer.stdout)))
     }
 
     /// Starts the system service in launchd's system domain, which needs root's rights; a running
@@ -248,6 +264,17 @@ fn kickstart_arguments(kickstart: SystemServiceKickstart, service_target: &OsStr
     }
 }
 
+// The job's state from `launchctl print`'s text: its process from the job's own `pid` line, one
+// tab in, where a nested section's lines sit deeper.
+fn printed_state(printed: &str) -> SystemServiceState {
+    printed
+        .lines()
+        .find_map(|line| line.strip_prefix("\tpid = ")?.trim().parse::<u32>().ok())
+        .map_or(SystemServiceState::NotRunning, |process_id| {
+            SystemServiceState::Running { process_id }
+        })
+}
+
 // The system service in launchd's system domain, as `launchctl` names it.
 fn system_service_target() -> OsString {
     OsString::from(format!("system/{DAEMON_LAUNCHD_LABEL}"))
@@ -260,8 +287,27 @@ mod tests {
 
     use rstest::rstest;
 
-    use super::kickstart_arguments;
-    use crate::service_registration::SystemServiceKickstart;
+    use super::{kickstart_arguments, printed_state};
+    use crate::service_registration::{SystemServiceKickstart, SystemServiceState};
+
+    // Fails when a job with a process reads as not running (the start would then report a failed
+    // start of a running service), or when a pid line inside a nested section, such as an
+    // endpoint's, reads as the job's own process (a stopped job would read as started).
+    #[rstest]
+    #[case::running(
+        "system/label = {\n\tactive count = 1\n\tstate = running\n\tpid = 4321\n}\n",
+        SystemServiceState::Running { process_id: 4321 }
+    )]
+    #[case::stopped(
+        "system/label = {\n\tstate = not running\n\tendpoints = {\n\t\tpid = 77\n\t}\n}\n",
+        SystemServiceState::NotRunning
+    )]
+    fn only_the_job_s_own_pid_line_reads_as_running(
+        #[case] printed: &str,
+        #[case] expected: SystemServiceState,
+    ) {
+        assert_eq!(printed_state(printed), expected);
+    }
 
     // Fails when a restart's kickstart leaves a service launchd still counts as running alone (no
     // `-k`), which the restart's stop half may leave it as, or when a start ends a running one.

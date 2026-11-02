@@ -1,9 +1,9 @@
 //! The service's login agent on macOS: a property list in `~/Library/LaunchAgents` named for the
 //! service's launchd label, loaded into the person's login session through `/bin/launchctl`, and
-//! whether the person turned it off in the login items. Only `launchctl`'s exit status is read,
-//! never its printed text, which Apple says is no interface. Under `sudo` every step acts for the
-//! account that ran `sudo`: its user id from `SUDO_UID` and its home from the user database, since
-//! `sudo` may keep or replace `HOME`.
+//! whether the person turned it off in the login items. Only `launchctl`'s exit status is read for
+//! the agent, never its printed text, which Apple says is no interface. Under `sudo` every step
+//! acts for the account that ran `sudo`: its user id from `SUDO_UID` and its home from the user
+//! database, since `sudo` may keep or replace `HOME`.
 
 use std::ffi::{OsStr, OsString};
 use std::fs;
@@ -396,8 +396,12 @@ pub(crate) fn is_list_turned_off(path: PathBuf) -> Result<bool, ServiceRegistrat
 
 /// What one `launchctl` run answered.
 pub(crate) struct LaunchctlAnswer {
-    status: std::process::ExitStatus,
-    stderr: Vec<u8>,
+    /// How it exited.
+    pub(crate) status: std::process::ExitStatus,
+    /// What it printed.
+    pub(crate) stdout: Vec<u8>,
+    /// What it wrote on its error stream.
+    pub(crate) stderr: Vec<u8>,
 }
 
 impl LaunchctlAnswer {
@@ -414,20 +418,28 @@ impl LaunchctlAnswer {
     }
 }
 
-/// Runs `launchctl` with `arguments` for `step` and waits for it, its output dropped and its error
-/// stream kept for a refusal. Fails when it cannot be started.
+/// Runs `launchctl` with `arguments` for `step` and waits for it, its output and its error stream
+/// kept. Fails when it cannot be started.
 pub(crate) fn run_launchctl(
     step: &'static str,
     arguments: impl IntoIterator<Item = impl AsRef<OsStr>>,
 ) -> Result<LaunchctlAnswer, ServiceRegistrationError> {
-    let Output { status, stderr, .. } = Command::new(LAUNCHCTL_PROGRAM)
+    let Output {
+        status,
+        stdout,
+        stderr,
+    } = Command::new(LAUNCHCTL_PROGRAM)
         .args(arguments)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
         .map_err(|source| ServiceRegistrationError::Start { step, source })?;
-    Ok(LaunchctlAnswer { status, stderr })
+    Ok(LaunchctlAnswer {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 /// The launchd property list at `path`, or `None` when no file is there. Fails when the file

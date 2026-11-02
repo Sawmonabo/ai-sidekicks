@@ -24,6 +24,7 @@ use crate::commands::daemon::registration::run_as_account;
 use crate::commands::daemon::start::{
     STARTED_LINE, StartArgs, has_system_service_to_start, is_daemon_answering,
     kickstart_system_service, refuse_other_system_program, start_and_report,
+    wait_for_system_service,
 };
 use crate::confirmation::{ConfirmationArgs, confirm};
 use crate::connected_command::{cancel_on_ctrl_c, run_listening_for_ctrl_c};
@@ -104,9 +105,10 @@ pub(crate) fn restart<Output: Write, ErrorOutput: Write>(
 /// person confirms, and answers 0 with the restarted line on stdout, nothing for a no. Root cannot
 /// reach the service, so the question is asked whether or not it runs, its stop runs this
 /// program's `daemon stop --yes` as the account, whose failure lines show and whose exit code this
-/// run then answers, and the start is not waited for. Fails as [`refuse_other_system_program`]
-/// does with nothing asked, with `CommandFailure::ConfirmationUnavailable` with no terminal and no
-/// `--yes`, `ClientError::Canceled` after a Ctrl-C, and as the stop's run, the start or a write
+/// run then answers, and the start is waited for as [`wait_for_system_service`] waits. Fails as
+/// [`refuse_other_system_program`] does with nothing asked, with
+/// `CommandFailure::ConfirmationUnavailable` with no terminal and no `--yes`,
+/// `ClientError::Canceled` after a Ctrl-C, and as the stop's run, the start, its wait or a write
 /// fails.
 pub(crate) fn restart_system_service<Output: Write, ErrorOutput: Write>(
     args: &RestartArgs,
@@ -133,6 +135,7 @@ pub(crate) fn restart_system_service<Output: Write, ErrorOutput: Write>(
     // The stop half returns once the process ended, which launchd may not have read yet, so the
     // start ends whatever it still counts as running.
     kickstart_system_service(registration, SystemServiceKickstart::Restart)?;
+    wait_for_system_service(registration, &args.start)?;
     write_line(context, RESTARTED_LINE)
 }
 

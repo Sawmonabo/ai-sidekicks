@@ -291,6 +291,16 @@ pub(crate) enum CommandFailure {
          command again without --daemon-path."
     )]
     SystemServiceRunsOtherProgram,
+    /// A start under `sudo` started this account's system service, and launchd did not run it
+    /// within the wait; root cannot reach the service, so nothing was stopped.
+    #[error(
+        "The background service did not start running within {} ms of its start",
+        waited.as_millis()
+    )]
+    SystemServiceNotRunning {
+        /// How long the start waited.
+        waited: Duration,
+    },
 }
 
 impl CommandFailure {
@@ -301,6 +311,7 @@ impl CommandFailure {
             | Self::DaemonExited { .. }
             | Self::InstalledNotAnswering { .. }
             | Self::RegisteredNotAnswering { .. }
+            | Self::SystemServiceNotRunning { .. }
             | Self::SecretsKeychainLocked(_)
             | Self::AddressHandlerMissing => ExitCode::Unavailable,
             Self::ConfirmationUnavailable => ExitCode::Usage,
@@ -712,6 +723,10 @@ mod tests {
     #[case::system_service_runs_other_program(
         CommandFailure::SystemServiceRunsOtherProgram.into(),
         ProcessEnding::Exit(ExitCode::Configuration)
+    )]
+    #[case::system_service_not_running(
+        CommandFailure::SystemServiceNotRunning { waited: Duration::from_millis(200) }.into(),
+        ProcessEnding::Exit(ExitCode::Unavailable)
     )]
     #[case::anything_else(anyhow!("failed"), ProcessEnding::Exit(ExitCode::Software))]
     fn a_failure_ends_the_run_as_its_cause_names(

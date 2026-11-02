@@ -1,13 +1,13 @@
 //! `sidekicks daemon start`: a daemon that answers the handshake, or answers that it is repairing
 //! its database file, is already running. Otherwise this account's system service, which runs the
 //! service while the person is logged out, refuses the start: only root can start it, which a run
-//! under `sudo` does with no wait, since root cannot reach the service. Else a login agent
-//! registered for this account's home is started through the system's service manager, and the
-//! service manager keeps it; with none, or with no one at the screen, its program starts as a
-//! lasting child. Either registration the person turned off in Login Items, or a `--daemon-path`
-//! it does not start, refuses the start. The command then waits for the handshake. A lasting child
-//! that never answers is ended, and one that exits first is named with its exit and why its start
-//! failed; an agent's service that never answers is left running; each exits 69.
+//! under `sudo` does, waiting until launchd runs it, since root cannot reach the service. Else a
+//! login agent registered for this account's home is started through the system's service
+//! manager, and the service manager keeps it; with none, or with no one at the screen, its program
+//! starts as a lasting child. Either registration the person turned off in Login Items, or a
+//! `--daemon-path` it does not start, refuses the start. The command then waits for the handshake.
+//! A lasting child that never answers is ended, and one that exits first is named with its exit and
+//! why its start failed; an agent's service that never answers is left running; each exits 69.
 
 use std::convert::Infallible;
 use std::fs::OpenOptions;
@@ -16,7 +16,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::process::ExitStatus;
-use std::time::Duration;
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
 use clap::Args;
@@ -32,8 +33,8 @@ use sidekicks_contracts::daemon::recovery::DaemonRepairingDetails;
 use sidekicks_contracts::daemon::service_status::DaemonCannotStart;
 use sidekicks_platforms::{
     LastingChild, LastingCommand, NULL_DEVICE_PATH, PinnedProcess, ServiceOwner,
-    ServiceRegistration, SystemServiceKickstart, SystemServiceOwner, leave_daemon_scope,
-    read_child_exit, service_registration, spawn_lasting_child,
+    ServiceRegistration, SystemServiceKickstart, SystemServiceOwner, SystemServiceState,
+    leave_daemon_scope, read_child_exit, service_registration, spawn_lasting_child,
 };
 
 use crate::command_context::CommandContext;
@@ -59,6 +60,14 @@ pub(crate) struct StartArgs {
     timeout: Option<u64>,
 }
 
+impl StartArgs {
+    /// How long the start waits for the started service.
+    fn deadline(&self) -> Duration {
+        self.timeout
+            .map_or(HANDSHAKE_DEADLINE, Duration::from_millis)
+    }
+}
+
 /// How a start ended without failing.
 #[derive(Debug)]
 pub(crate) enum DaemonStart {
@@ -78,6 +87,12 @@ type DaemonExit = Pin<Box<dyn Future<Output = io::Result<ExitStatus>> + Send>>;
 /// The line a command prints once it started the background service.
 pub(crate) const STARTED_LINE: &str = "Started the background service.\n";
 
+/// The line a start prints where the background service already runs.
+const ALREADY_RUNNING_LINE: &str = "The background service is already running.\n";
+
+/// How long a start under `sudo` waits between reads of whether launchd runs the system service.
+const SYSTEM_SERVICE_READ_INTERVAL: Duration = Duration::from_millis(100);
+
 /// Starts the background service unless it is running, and answers 0 once it answers: the repair's
 /// line on stderr while it repairs its database file, then on stdout `started_line` where this
 /// command started it, else the line saying it was already running. Fails as [`start_daemon`]
@@ -87,16 +102,14 @@ pub(crate) fn start_and_report<Output: Write, ErrorOutput: Write>(
     started_line: &'static str,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
-    let deadline = args
-        .timeout
-        .map_or(HANDSHAKE_DEADLINE, Duration::from_millis);
+    let deadline = args.deadline();
     let mut repair_line = RepairLine::new(&mut context.stderr);
     let started = start_daemon(args.daemon_path.as_deref(), deadline, |details| {
         repair_line.show(details);
     });
     repair_line.finish()?;
     let line = match started? {
-        DaemonStart::AlreadyRunning => "The background service is already running.\n",
+        DaemonStart::AlreadyRunning => ALREADY_RUNNING_LINE,
         DaemonStart::Started { scope_refused } => {
             if let Some(refusal) = scope_refused {
                 writeln!(
@@ -272,17 +285,56 @@ pub(crate) fn has_system_service_to_start(
 }
 
 /// Starts this account's system service with root's rights through `registration`, and answers 0
-/// with the started line on stdout; a running one is left running. Root cannot pass the service's
-/// own-account check, so the start is not waited for. Fails as [`refuse_other_system_program`]
-/// and [`kickstart_system_service`] do, or as a write does.
+/// with the started line on stdout once launchd runs it, or with the already-running line where it
+/// ran before. Root cannot pass the service's own-account check, so launchd's word that it runs
+/// stands in for the handshake. Fails as [`refuse_other_system_program`],
+/// [`kickstart_system_service`] and [`wait_for_system_service`] do, or as a write does.
 pub(crate) fn start_system_service<Output: Write, ErrorOutput: Write>(
     args: &StartArgs,
     registration: ServiceRegistration,
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
     refuse_other_system_program(args.daemon_path.as_deref(), registration)?;
+    if let SystemServiceState::Running { .. } = read_system_service_state(registration)? {
+        return write_line(context, ALREADY_RUNNING_LINE);
+    }
     kickstart_system_service(registration, SystemServiceKickstart::Start)?;
+    wait_for_system_service(registration, args)?;
     write_line(context, STARTED_LINE)
+}
+
+/// Reads whether launchd runs this account's system service, every
+/// [`SYSTEM_SERVICE_READ_INTERVAL`] until it does or `args`' wait ends. Fails with
+/// [`CommandFailure::SystemServiceNotRunning`] where the wait ends first, and as a read fails.
+pub(crate) fn wait_for_system_service(
+    registration: ServiceRegistration,
+    args: &StartArgs,
+) -> anyhow::Result<()> {
+    let waited = args.deadline();
+    let deadline = Instant::now() + waited;
+    loop {
+        if let SystemServiceState::Running { .. } = read_system_service_state(registration)? {
+            return Ok(());
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(CommandFailure::SystemServiceNotRunning { waited }.into());
+        }
+        sleep(SYSTEM_SERVICE_READ_INTERVAL.min(deadline - now));
+    }
+}
+
+/// Whether launchd runs this account's system service. Fails as [`registration_failure`] turns a
+/// failed read.
+fn read_system_service_state(
+    registration: ServiceRegistration,
+) -> anyhow::Result<SystemServiceState> {
+    registration.read_system_service_state().map_err(|failure| {
+        registration_failure(
+            failure,
+            "could not read whether the background service runs",
+        )
+    })
 }
 
 /// Fails with [`CommandFailure::SystemServiceRunsOtherProgram`] where `daemon_path` names a

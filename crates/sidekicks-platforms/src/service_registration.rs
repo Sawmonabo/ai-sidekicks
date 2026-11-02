@@ -50,6 +50,18 @@ pub enum SystemServiceKickstart {
     Restart,
 }
 
+/// Whether the service manager runs the system service.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemServiceState {
+    /// It runs, as the process `process_id`.
+    Running {
+        /// The service's process.
+        process_id: u32,
+    },
+    /// It has no process: loaded and stopped, or not loaded.
+    NotRunning,
+}
+
 /// What an install did, which decides what the person is told.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ServiceInstall {
@@ -218,6 +230,13 @@ impl ServiceRegistration {
 
     /// Whether the person turned the system service off; never called, since no value exists.
     pub fn is_system_service_turned_off(&self) -> Result<bool, ServiceRegistrationError> {
+        match *self {}
+    }
+
+    /// Whether the system service runs; never called, since no value exists.
+    pub fn read_system_service_state(
+        &self,
+    ) -> Result<SystemServiceState, ServiceRegistrationError> {
         match *self {}
     }
 
