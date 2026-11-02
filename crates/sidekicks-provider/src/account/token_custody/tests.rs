@@ -190,9 +190,10 @@ impl Fixture {
     async fn mark_removal_intent(&self, account_id: &ProviderAccountId) {
         self.writer
             .write(vec![WriteStatement {
-                sql: Cow::Borrowed(
-                    "UPDATE provider_accounts SET removal_intent = 1 WHERE account_id = @account_id",
-                ),
+                sql: Cow::Borrowed(concat!(
+                    "UPDATE provider_accounts SET removal_intent = 1 ",
+                    "WHERE account_id = @account_id",
+                )),
                 bindings: StatementBindings::Named(vec![text_binding(
                     "@account_id",
                     account_id.as_str(),
