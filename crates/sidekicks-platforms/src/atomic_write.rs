@@ -19,7 +19,8 @@ use crate::{
 #[derive(Debug, thiserror::Error)]
 #[error("{failure}{}", removal_note(.removal_failure.as_ref()))]
 pub struct AtomicWriteError {
-    /// Making, locking, writing, flushing, renaming or linking the temporary file failed.
+    /// Making, locking, writing, flushing, renaming or linking the temporary file failed, or, for a
+    /// write its check refused, removing it.
     #[source]
     pub failure: io::Error,
     /// Removing the temporary file after that failure failed too.
@@ -80,11 +81,14 @@ pub fn replace_file_atomically_while(
         Ok(true) => rename_over_target(held, temporary_path, target).map(|()| true),
         Ok(false) => {
             drop(held);
-            temporary_path.close().map_err(|failure| AtomicWriteError {
-                failure,
-                removal_failure: None,
-            })?;
-            Ok(false)
+            match remove_temporary(temporary_path) {
+                None => Ok(false),
+                // The removal is the one step that failed.
+                Some(failure) => Err(AtomicWriteError {
+                    failure,
+                    removal_failure: None,
+                }),
+            }
         }
         Err(failure) => {
             drop(held);
@@ -254,17 +258,20 @@ fn write_temporary(
     }
 }
 
-// Removes the temporary file after `failure`, keeping the removal's own failure beside it; a file
-// already gone is no failure.
+// Removes the temporary file after `failure`, keeping the removal's own failure beside it.
 fn remove_temporary_after(failure: io::Error, temporary_path: TempPath) -> AtomicWriteError {
-    let removal_failure = match temporary_path.close() {
+    AtomicWriteError {
+        failure,
+        removal_failure: remove_temporary(temporary_path),
+    }
+}
+
+// Removes the temporary file, answering the removal's failure; a file already gone is no failure.
+fn remove_temporary(temporary_path: TempPath) -> Option<io::Error> {
+    match temporary_path.close() {
         Ok(()) => None,
         Err(removal_failure) if removal_failure.kind() == io::ErrorKind::NotFound => None,
         Err(removal_failure) => Some(removal_failure),
-    };
-    AtomicWriteError {
-        failure,
-        removal_failure,
     }
 }
 
@@ -311,8 +318,7 @@ mod tests {
     }
 
     // A write whose check says the target changed since it was read leaves the target as it stands
-    // and no temporary file beside it. Killed by a rename that ignores the check, and by a refused
-    // write that leaves its temporary file.
+    // and no temporary file beside it. Killed by a rename that ignores the check.
     #[test]
     fn a_write_the_check_refuses_leaves_the_target_and_no_temporary_file() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
