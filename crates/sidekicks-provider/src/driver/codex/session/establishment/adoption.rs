@@ -425,17 +425,17 @@ struct AdoptedHelper {
 }
 
 impl AdoptedHelper {
-    // What Codex holds of the helper's turn, read from its newest turn: one running on a loaded
-    // conversation still runs, one over ended, and one running on an unloaded conversation is
-    // gone, since Codex unloads only an idle helper, so its turn died with a service.
+    // What Codex holds of the helper's turn, read from its newest turn: one over ended, one running
+    // on a loaded conversation still runs, and one running on an unloaded conversation is gone,
+    // since Codex unloads only an idle helper, so its turn died with a service; with no turn read,
+    // the helper is gone.
     fn answer(&self) -> ProviderTurnAnswer {
         match &self.newest_turn {
-            None => ProviderTurnAnswer::Gone,
             Some(newest) if !is_codex_turn_in_progress(&newest.turn) => {
                 ProviderTurnAnswer::EndedByProvider
             }
             Some(_) if self.is_loaded => ProviderTurnAnswer::StillRunning,
-            Some(_) => ProviderTurnAnswer::Gone,
+            Some(_) | None => ProviderTurnAnswer::Gone,
         }
     }
 }
