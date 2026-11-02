@@ -456,17 +456,14 @@ impl SessionScopedRow {
                 SessionEvent::UsageTokenCountRecorded(*payload),
             ),
             Self::UsageCostUpdated(costs) => {
+                let session_id = costs.as_slice()[0].session_id;
                 let mut costs = costs.into_vec();
                 let last = costs.pop().expect("a request's costs hold at least one");
                 let preceding = costs
                     .into_iter()
                     .map(SessionEvent::UsageCostUpdated)
                     .collect();
-                (
-                    last.session_id,
-                    preceding,
-                    SessionEvent::UsageCostUpdated(last),
-                )
+                (session_id, preceding, SessionEvent::UsageCostUpdated(last))
             }
             Self::AdvisorChanged(payload) => (
                 payload.session_id,
