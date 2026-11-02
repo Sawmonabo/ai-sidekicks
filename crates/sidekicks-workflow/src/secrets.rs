@@ -3,4 +3,5 @@
 //! table records a secret's place and name; a value leaves the daemon only into the step that
 //! resolves it.
 
+pub mod resolution;
 pub mod store;
