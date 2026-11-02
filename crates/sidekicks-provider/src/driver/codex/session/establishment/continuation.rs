@@ -4,7 +4,9 @@
 //! turn, as Codex's own recovery does for itself; the run then answers still running. On a service
 //! the daemon only joined, Codex continued the cut turn itself before the daemon came back and
 //! sends it no start of that turn, so the daemon ends the cut turns in the log and holds the turn
-//! the resume's page shows continuing them as the run's next.
+//! the resume's page shows continuing them as the run's next, marked to pause at its next step
+//! end where the lead was pausing. A lead held on the person is not continued at the start, nor a
+//! pausing lead on its own service; neither is a pausing lead whose continuation is already over.
 
 use std::error::Error;
 
@@ -42,7 +44,7 @@ const CODEX_CONTINUATION_TEXT: &str = "The server restarted and interrupted the 
 const DAEMON_RECOVERY_TURN_TRIGGER: &str = "daemon_recovery";
 
 /// The turns of a lead run the service's end cut, and the first turn of the newest one's chain.
-struct CutTurns {
+pub(super) struct CutTurns {
     // The number of each open turn Codex knows by id, oldest first.
     turn_numbers: Vec<SafeInt<1>>,
     // The newest cut turn's root as Codex lists it; `None` where it is not listed or names none.
@@ -117,13 +119,14 @@ impl CodexSessionEstablishment {
 
     // Adopts, on a service the daemon only joined, the turn Codex continued each lead's cut turns
     // in before the daemon came back, since Codex sends a client that joins later no start of
-    // it: a lead with no parent, running or waiting on the person, whose continuation the resume's
-    // page shows. A continuation still running ends the cut turns in the log, is held as the
-    // run's turn on `binding` and opened after their end, and answers `StillRunning`; one already
-    // over, on a lead with no stop pending, is held unopened, so its listed end, routed as the
-    // session opens, opens it and ends the run, and answers `EndedByProvider`. A stopping lead's
-    // ended continuation, a run whose cut turn's end could not be written, and a lead with no
-    // continuation are not taken.
+    // it: a lead with no parent, running, pausing or waiting on the person, whose continuation the
+    // resume's page shows. A continuation still running ends the cut turns in the log, is held as
+    // the run's turn on `binding` and opened after their end, and answers `StillRunning`; a
+    // pausing lead's is marked to pause at its next step end, as the pause asked of it would. One
+    // already over, on a running or waiting lead with no stop pending, is held unopened, so its
+    // listed end, routed as the session opens, opens it and ends the run, and answers
+    // `EndedByProvider`. A stopping or pausing lead's ended continuation, a run whose cut turn's
+    // end could not be written, and a lead with no continuation are not taken.
     async fn adopt_continued_turns(
         &self,
         record: &mut CodexSessionRecord,
@@ -143,7 +146,10 @@ impl CodexSessionEstablishment {
             let is_lead = run.subagent_id.is_none() && run.parent_run_id.is_none();
             let is_live = matches!(
                 run.run_state,
-                RunState::Running | RunState::WaitingForApproval | RunState::WaitingForInput
+                RunState::Running
+                    | RunState::Pausing
+                    | RunState::WaitingForApproval
+                    | RunState::WaitingForInput
             );
             if !is_lead || !is_live {
                 continue;
@@ -155,8 +161,9 @@ impl CodexSessionEstablishment {
                 continue;
             };
             let is_running = is_codex_turn_in_progress(&continuation.turn);
-            // A stop pending on the lead settles it once its continuation is over.
-            if (!is_running && run.is_stopping)
+            // A stop pending on the lead settles it once its continuation is over, and a pause
+            // pending on it is owed its continuation's end in the log.
+            if (!is_running && (run.is_stopping || run.run_state == RunState::Pausing))
                 || !self.end_cut_turns(record, run, &cut.turn_numbers).await
             {
                 continue;
@@ -165,6 +172,11 @@ impl CodexSessionEstablishment {
             run_routes.bind_run(run.run_id, record.session_id);
             run_routes.bind_run_delivery(run.run_id, binding.clone());
             let turn = if is_running {
+                if run.run_state == RunState::Pausing {
+                    record
+                        .pause_run_id_by_turn_id
+                        .insert(continuation.id.clone(), run.run_id);
+                }
                 self.dependencies
                     .delivery
                     .open_started_turn(record, &continuation.id)
@@ -288,7 +300,7 @@ pub(super) fn answer_continued_runs(
 }
 
 // `run`'s cut turns as `read_cut_turns` reads them, where it is a running lead with no stop
-// pending and no helper of it held on the person.
+// pending and not held on the person through a helper at any depth beneath it.
 fn find_cut_turns(
     run: &LiveRunResume,
     live_runs: &[LiveRunResume],
@@ -297,26 +309,19 @@ fn find_cut_turns(
     if run.subagent_id.is_some() || run.is_stopping || run.run_state != RunState::Running {
         return None;
     }
-    let is_helper_held = live_runs.iter().any(|helper| {
-        helper.parent_run_id == Some(run.run_id)
-            && matches!(
-                helper.run_state,
-                RunState::WaitingForApproval
-                    | RunState::WaitingForInput
-                    | RunState::Pausing
-                    | RunState::Paused
-            )
-    });
-    if is_helper_held {
+    if run.is_held(live_runs) {
         return None;
     }
     read_cut_turns(run, listed_turns)
 }
 
-// `run`'s cut turns: each of its open turns Codex knows by id the service's end cut, listed
-// interrupted with no end time, which a cold load gives a turn that was running, or not listed.
-// A turn listed running, finished, failed, or stopped with its end time answers none.
-fn read_cut_turns(run: &LiveRunResume, listed_turns: &[CodexListedTurn]) -> Option<CutTurns> {
+/// `run`'s cut turns: each of its open turns Codex knows by id the service's end cut, listed
+/// interrupted with no end time, which a cold load gives a turn that was running, or not listed.
+/// A turn listed running, finished, failed, or stopped with its end time answers none.
+pub(super) fn read_cut_turns(
+    run: &LiveRunResume,
+    listed_turns: &[CodexListedTurn],
+) -> Option<CutTurns> {
     let mut cut = CutTurns {
         turn_numbers: Vec::new(),
         root_turn_id: None,

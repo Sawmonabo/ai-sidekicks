@@ -1,6 +1,7 @@
 //! Lead runs whose turn their service's end cut, continued as the conversation is adopted by its
 //! handle: in a turn the daemon starts on its own service, in the turn Codex continued itself on a
-//! service the daemon only joined, and in the turn a start left unanswered may have started.
+//! service the daemon only joined, and in the turn a start left unanswered may have started; and
+//! the leads left as they stand, held on the person or pausing, with what each answers and binds.
 
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -357,53 +358,97 @@ async fn a_lead_run_its_services_end_cut_continues_in_one_turn_of_codexs_words(
 }
 
 // No turn continues a run the rows leave as it stands: a cut turn listed over, one stopped with its
-// end time, a run pausing or waiting on the person, a lead held for its paused helper, and the
-// same listing on a service the daemon only joined, where Codex continues its own. Each answers as
-// Codex's listing has it, with no end written. Killed by the continuation on a finished turn, on a
-// stopped turn, on a run not running, on a lead held for its helper, and on a joined service.
+// end time, a lead pausing, a lead waiting on the person, a lead held for a helper at any depth
+// beneath it, a paused lead with no open turn, and the same listing on a service the daemon only
+// joined, where Codex continues its own. No end is written; a lead held on the person answers
+// `Waiting` and a cut pausing lead `Gone`, both with the cut turn unbound, as is every held helper
+// `Waiting`; the rest answer as Codex's listing has it. Every lead keeps its deliveries' binding.
+// Killed by the held arm dropped (`Waiting` reads `EndedByProvider`), by the pausing arm dropped
+// (`Gone` reads `EndedByProvider`), by the cut turn bound for a held or pausing lead, by the
+// binding kept only with a bound turn (the turnless cases), by the direct-child helper read kept
+// (the grandchild case sends a `turn/start`), and by a held helper answered `Gone`.
 #[rstest]
 #[case::listed_completed(
     json!([{"id": CUT_TURN, "items": [], "status": "completed", "completedAt": 1_767_000_000}]),
     RunState::Running,
-    None,
-    false
+    true,
+    vec![],
+    false,
+    ProviderTurnAnswer::EndedByProvider,
+    true
 )]
 #[case::interrupted_with_its_end_time(
     json!([{"id": CUT_TURN, "items": [], "status": "interrupted", "completedAt": 1_767_000_000}]),
     RunState::Running,
-    None,
-    false
+    true,
+    vec![],
+    false,
+    ProviderTurnAnswer::EndedByProvider,
+    true
 )]
 #[case::pausing(
     json!([{"id": CUT_TURN, "items": [], "status": "interrupted"}]),
     RunState::Pausing,
-    None,
+    true,
+    vec![],
+    false,
+    ProviderTurnAnswer::Gone,
     false
 )]
 #[case::waiting_for_approval(
     json!([{"id": CUT_TURN, "items": [], "status": "interrupted"}]),
     RunState::WaitingForApproval,
-    None,
+    true,
+    vec![],
+    false,
+    ProviderTurnAnswer::Waiting,
     false
 )]
 #[case::helper_paused(
     json!([{"id": CUT_TURN, "items": [], "status": "interrupted"}]),
     RunState::Running,
-    Some(RunState::Paused),
+    true,
+    vec![RunState::Paused],
+    false,
+    ProviderTurnAnswer::Waiting,
+    false
+)]
+#[case::helper_waiting_beneath_a_running_helper(
+    json!([{"id": CUT_TURN, "items": [], "status": "interrupted"}]),
+    RunState::Running,
+    true,
+    vec![RunState::Running, RunState::WaitingForInput],
+    false,
+    ProviderTurnAnswer::Waiting,
+    false
+)]
+#[case::paused_with_no_open_turn(
+    json!([]),
+    RunState::Paused,
+    false,
+    vec![],
+    false,
+    ProviderTurnAnswer::Gone,
     false
 )]
 #[case::joined_service(
     json!([{"id": CUT_TURN, "items": [], "status": "interrupted"}]),
     RunState::Running,
-    None,
+    true,
+    vec![],
+    true,
+    ProviderTurnAnswer::EndedByProvider,
     true
 )]
 #[tokio::test(start_paused = true)]
 async fn no_turn_continues_a_run_the_rows_leave_as_it_stands(
     #[case] listed_turns: Value,
     #[case] lead_state: RunState,
-    #[case] helper_state: Option<RunState>,
+    #[case] is_turn_open: bool,
+    #[case] helper_states: Vec<RunState>,
     #[case] is_joined: bool,
+    #[case] lead_answer: ProviderTurnAnswer,
+    #[case] is_cut_turn_bound: bool,
 ) {
     let scripted = if is_joined {
         start_scripted_joined_service()
@@ -412,16 +457,26 @@ async fn no_turn_continues_a_run_the_rows_leave_as_it_stands(
     };
     let mut session = TestCodexSession::start_on(scripted).await;
     let run_id = new_run_id();
-    let mut live_runs = vec![lead_run(run_id, lead_state)];
-    if let Some(helper_state) = helper_state {
+    let mut lead = lead_run(run_id, lead_state);
+    if !is_turn_open {
+        lead.open_turns.clear();
+    }
+    let mut live_runs = vec![lead];
+    // Each helper beneath the one before, the first beneath the lead.
+    let mut helper_run_ids = Vec::new();
+    for (depth, helper_state) in helper_states.into_iter().enumerate() {
+        let helper_run_id = new_run_id();
         live_runs.push(LiveRunResume {
-            run_id: new_run_id(),
-            parent_run_id: Some(run_id),
+            run_id: helper_run_id,
+            parent_run_id: Some(helper_run_ids.last().copied().unwrap_or(run_id)),
             open_turns: Vec::new(),
-            subagent_id: Some(SubagentId::new("thread-helper".to_owned()).expect("a helper id")),
+            subagent_id: Some(
+                SubagentId::new(format!("thread-helper-{depth}")).expect("a helper id"),
+            ),
             is_stopping: false,
             run_state: helper_state,
         });
+        helper_run_ids.push(helper_run_id);
     }
 
     let adoption = adopt(
@@ -435,11 +490,53 @@ async fn no_turn_continues_a_run_the_rows_leave_as_it_stands(
     .await;
 
     assert_eq!(adoption.turn_starts, Vec::<Value>::new());
-    assert_eq!(
-        adoption.answer_of(run_id),
-        ProviderTurnAnswer::EndedByProvider
-    );
+    assert_eq!(adoption.answer_of(run_id), lead_answer);
+    for helper_run_id in &helper_run_ids {
+        assert_eq!(
+            adoption.answer_of(*helper_run_id),
+            ProviderTurnAnswer::Waiting
+        );
+    }
     assert_eq!(turn_ends(&session.engine.calls()), (Vec::new(), Vec::new()));
+    let established = adoption.established.expect("the session is established");
+    assert_eq!(
+        established.record.active_turn_run(CUT_TURN),
+        is_cut_turn_bound.then_some(run_id)
+    );
+    assert!(session.task.run_routes.binding_for(run_id).is_some());
+}
+
+// A pausing lead whose turn still runs on the daemon's own service has that turn bound and marked
+// to pause at its next step end, since a restart loses the mark its pause set; a running lead's
+// turn is bound unmarked. Killed by the mark not set, and by every bound turn marked.
+#[rstest]
+#[case::pausing(RunState::Pausing)]
+#[case::running(RunState::Running)]
+#[tokio::test(start_paused = true)]
+async fn a_pausing_leads_running_turn_is_marked_to_pause_at_its_next_step_end(
+    #[case] run_state: RunState,
+) {
+    let mut session = TestCodexSession::start().await;
+    let run_id = new_run_id();
+
+    let adoption = adopt(
+        &mut session,
+        vec![lead_run(run_id, run_state)],
+        AdoptionScript::loaded_active(
+            json!([page_turn(CUT_TURN, "inProgress", ROOT_TURN)]),
+            page_turn(CUT_TURN, "inProgress", ROOT_TURN),
+        ),
+    )
+    .await;
+
+    assert_eq!(adoption.answer_of(run_id), ProviderTurnAnswer::StillRunning);
+    let established = adoption.established.expect("the session is established");
+    let record = &established.record;
+    assert_eq!(record.active_turn_run(CUT_TURN), Some(run_id));
+    assert_eq!(
+        record.pause_run_id_by_turn_id.get(CUT_TURN),
+        (run_state == RunState::Pausing).then_some(&run_id)
+    );
 }
 
 // A continuation Codex refuses answers the run gone, its cut turn already ended in the log, and
@@ -474,12 +571,14 @@ async fn a_refused_continuation_answers_the_run_gone() {
 // back, and sends it no start of that turn: the resume asks for the newest turn, which shows the
 // continuation running in the cut turn's chain, so the cut turn ends in the log, the continuation
 // is held as the run's turn and opened after that end, no turn is sent, and the run answers still
-// running, whether it runs, waits on the person, or stops. Killed by the page not asked (no
-// continuation found; the run answers ended), by the continuation not opened (no turn opens), by
-// the cut turn left bound, by the cut turn not ended, and by the continuation opened before the
-// cut turn's end.
+// running, whether it runs, pauses, waits on the person, or stops; a pausing lead's continuation is
+// marked to pause at its next step end. Killed by the page not asked (no continuation found; the
+// run answers ended), by the continuation not opened (no turn opens), by the cut turn left bound,
+// by the cut turn not ended, by the continuation opened before the cut turn's end, by a pausing
+// lead left out (no continuation opens), and by the pausing lead's continuation left unmarked.
 #[rstest]
 #[case::running(RunState::Running, false)]
+#[case::pausing(RunState::Pausing, false)]
 #[case::waiting_for_approval(RunState::WaitingForApproval, false)]
 #[case::stopping(RunState::Running, true)]
 #[tokio::test(start_paused = true)]
@@ -532,23 +631,37 @@ async fn a_joined_services_running_continuation_is_held_and_opened_as_the_runs_t
         Some(run_id)
     );
     assert_eq!(established.record.active_turn_run(CUT_TURN), None);
+    assert_eq!(
+        established
+            .record
+            .pause_run_id_by_turn_id
+            .get(CONTINUATION_TURN),
+        (run_state == RunState::Pausing).then_some(&run_id)
+    );
 }
 
-// A continuation Codex already ended on a joined service is held for a lead with no stop pending,
-// unopened, so its listed end, routed as the session opens, opens it and ends the run: the cut
-// turn ends in the log and the run answers ended. A stopping lead's is left to its stop: nothing
-// is ended or held, and the cut turn stays bound as before. Killed by the continuation not held
-// (the run never ends), and by the cut turn left bound (its listed end is routed).
+// A continuation Codex already ended on a joined service is held for a running lead with no stop
+// pending, unopened, so its listed end, routed as the session opens, opens it and ends the run:
+// the cut turn ends in the log and the run answers ended. A stopping lead's is left to its stop:
+// nothing is ended or held, and the cut turn stays bound as before. A pausing lead's is not taken
+// either: the lead answers gone, so the daemon ends its cut turn as the pause owes, with that turn
+// unbound and the lead's deliveries' binding kept for the person's continue. Every lead keeps
+// that binding. Killed by the continuation not held (the run never ends), by the cut turn left
+// bound (its listed end is routed), and by a pausing lead's ended continuation taken (the lead
+// answers ended, its continuation held).
 #[rstest]
-#[case::running(false)]
-#[case::stopping(true)]
+#[case::running(RunState::Running, false, ProviderTurnAnswer::EndedByProvider)]
+#[case::stopping(RunState::Running, true, ProviderTurnAnswer::EndedByProvider)]
+#[case::pausing(RunState::Pausing, false, ProviderTurnAnswer::Gone)]
 #[tokio::test(start_paused = true)]
 async fn a_joined_services_ended_continuation_is_held_unless_a_stop_settles_its_run(
+    #[case] run_state: RunState,
     #[case] is_stopping: bool,
+    #[case] lead_answer: ProviderTurnAnswer,
 ) {
     let mut session = TestCodexSession::start_on(start_scripted_joined_service()).await;
     let run_id = new_run_id();
-    let mut lead = lead_run(run_id, RunState::Running);
+    let mut lead = lead_run(run_id, run_state);
     lead.is_stopping = is_stopping;
 
     let adoption = adopt(
@@ -561,18 +674,19 @@ async fn a_joined_services_ended_continuation_is_held_unless_a_stop_settles_its_
     )
     .await;
 
-    assert_eq!(
-        adoption.answer_of(run_id),
-        ProviderTurnAnswer::EndedByProvider
-    );
+    assert_eq!(adoption.answer_of(run_id), lead_answer);
     let calls = session.engine.calls();
     assert!(!calls.contains(&EngineCall::StartTurn(run_id)));
+    assert!(session.task.run_routes.binding_for(run_id).is_some());
     let established = adoption.established.expect("the session is established");
     let record = &established.record;
-    if is_stopping {
+    if is_stopping || run_state == RunState::Pausing {
         assert_eq!(turn_ends(&calls), (Vec::new(), Vec::new()));
         assert_eq!(record.active_turn_run(CONTINUATION_TURN), None);
-        assert_eq!(record.active_turn_run(CUT_TURN), Some(run_id));
+        assert_eq!(
+            record.active_turn_run(CUT_TURN),
+            is_stopping.then_some(run_id)
+        );
     } else {
         assert_eq!(turn_ends(&calls), (vec![cut_turn_end(run_id)], Vec::new()));
         assert_eq!(record.active_turn_run(CONTINUATION_TURN), Some(run_id));

@@ -237,6 +237,7 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
                     attachments: Vec::new(),
                     skills: Vec::new(),
                 }],
+                is_continuation_owed: false,
             };
             let place = call_codex_session(&inbound, |reply| {
                 CodexSessionCall::RunControl(CodexRunControlCall::PlaceContinue { params, reply })
