@@ -79,7 +79,7 @@ pub(crate) enum ClaudeSignInMoveError {
     Accounts(#[from] ProviderAccountRegistryError),
     /// A sign-in, a switch, a reset, an earlier move whose call still runs or a turn holds the
     /// account's home, so its sign-in is left where it is.
-    #[error("another act or a turn holds the Claude Code account's home")]
+    #[error("a sign-in, switch, reset, earlier move or turn holds the Claude Code account's home")]
     HomeInUse {
         /// The account.
         provider_account_id: ProviderAccountId,

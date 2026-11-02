@@ -131,8 +131,8 @@ trait SignInPlace {
 }
 
 // Moves the sign-in at `source` to `destination`: written, read back and compared, and only then
-// deleted from `source`, each step one of `steps`, so a stop at any step leaves it whole in one
-// place or both.
+// deleted from `source`, each step one of `steps` and `SIGN_IN_MOVE_STEPS` counting them, so a stop
+// at any step leaves it whole in one place or both.
 fn move_sign_in(
     source: &dyn SignInPlace,
     destination: &dyn SignInPlace,

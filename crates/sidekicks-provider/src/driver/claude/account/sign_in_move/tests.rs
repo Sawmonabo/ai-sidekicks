@@ -561,9 +561,10 @@ async fn while_moving<Answer>(
 // A move under the home's hold whose keychain call never answers within its bound stops naming
 // the account and lets the home go, so a prompt left open keeps no observation out of it; the
 // account stays in flight until that call ends, so a sign-in on it is refused meanwhile and starts
-// once the call has ended, the stopped move having written nothing. Killed by the whole move
-// awaited with no bound (the move waits for the release), by the account not held in flight by
-// the move's task (the sign-in starts while the call runs), and by it held past the call's end.
+// once the call has ended, the stopped move having written nothing and the next call finishing it.
+// Killed by the whole move awaited with no bound (the move waits for the release), by the account
+// not held in flight by the move's task (the sign-in starts while the call runs), by it held past
+// the call's end, and by a stopped move that writes on or leaves the next one stuck.
 #[tokio::test]
 async fn a_move_past_its_bound_lets_the_home_go_and_holds_the_account_until_its_call_ends() {
     if sign_in_move().is_none() {
@@ -613,6 +614,14 @@ async fn a_move_past_its_bound_lets_the_home_go_and_holds_the_account_until_its_
     })
     .await
     .expect("the account leaves flight once the call ends");
+    let file_once_ended = planted.file();
+    let after = fixture
+        .legs
+        .move_sign_ins(ClaudeSignInMoveBounds {
+            keychain_wait: Duration::from_millis(50),
+            ..fixture.bounds()
+        })
+        .await;
     let once_ended = sign_in().await;
 
     assert!(
@@ -629,7 +638,9 @@ async fn a_move_past_its_bound_lets_the_home_go_and_holds_the_account_until_its_
         "{while_running:?}"
     );
     assert!(once_ended.is_ok(), "{once_ended:?}");
-    assert_eq!(planted.file(), None);
+    assert_eq!(file_once_ended, None);
+    assert!(after.is_ok(), "{after:?}");
+    assert_eq!(planted.file(), Some(planted.text()));
 }
 
 // The start's sweep removes the leftover a move stopped mid-write left beside a Claude Code
