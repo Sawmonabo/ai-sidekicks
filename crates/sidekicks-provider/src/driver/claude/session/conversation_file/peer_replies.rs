@@ -52,10 +52,10 @@ struct TranscriptKey {
     session_id: String,
 }
 
-// The messages awaited in one transcript by id, and the way to ask its watch to drain, dropped
-// with the last message, which ends the watch.
+// The messages awaited in one transcript with their ids, in the order they were awaited, and the
+// way to ask its watch to drain, dropped with the last message, which ends the watch.
 struct AwaitedTranscript {
-    messages: HashMap<String, AwaitedMessage>,
+    messages: Vec<(String, AwaitedMessage)>,
     drains: Option<mpsc::Sender<oneshot::Sender<()>>>,
 }
 
@@ -157,12 +157,12 @@ impl ClaudePeerReplies {
                 .transcripts
                 .entry(key.clone())
                 .or_insert_with(|| AwaitedTranscript {
-                    messages: HashMap::new(),
+                    messages: Vec::new(),
                     drains: None,
                 });
         transcript
             .messages
-            .insert(message_id.clone(), AwaitedMessage::new(start_offset));
+            .push((message_id.clone(), AwaitedMessage::new(start_offset)));
         if transcript
             .drains
             .as_ref()
@@ -170,7 +170,7 @@ impl ClaudePeerReplies {
             && let Some(source) = source
         {
             // The new watch reads every message's lines again from the lowest start.
-            for message in transcript.messages.values_mut() {
+            for (_, message) in &mut transcript.messages {
                 message.reread();
             }
             let (drains, drain_requests) = mpsc::channel(1);
@@ -277,8 +277,13 @@ impl ClaudePeerReplies {
         lock(&self.awaited)
             .transcripts
             .get_mut(key)
-            .and_then(|transcript| transcript.messages.get_mut(message_id))
-            .map(visit)
+            .and_then(|transcript| {
+                transcript
+                    .messages
+                    .iter_mut()
+                    .find(|(awaited_id, _)| awaited_id == message_id)
+            })
+            .map(|(_, message)| visit(message))
     }
 
     // The lowest start offset of the messages awaited in the transcript, past every byte where
@@ -290,8 +295,8 @@ impl ClaudePeerReplies {
             .and_then(|transcript| {
                 transcript
                     .messages
-                    .values()
-                    .map(|message| message.start_offset)
+                    .iter()
+                    .map(|(_, message)| message.start_offset)
                     .min()
             })
             .unwrap_or(u64::MAX)
@@ -331,7 +336,11 @@ fn remove_message(
     message_id: &str,
 ) -> Option<AwaitedMessage> {
     let transcript = awaited.transcripts.get_mut(key)?;
-    let message = transcript.messages.remove(message_id);
+    let position = transcript
+        .messages
+        .iter()
+        .position(|(awaited_id, _)| awaited_id == message_id);
+    let message = position.map(|position| transcript.messages.remove(position).1);
     if transcript.messages.is_empty() {
         awaited.transcripts.remove(key);
     }
