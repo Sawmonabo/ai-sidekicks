@@ -3,6 +3,7 @@
 //! file and the person's own hooks are untouched.
 
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use sidekicks_contracts::wire::integer::SafeInt;
 
@@ -14,9 +15,15 @@ use crate::driver::session_control::{SubagentDefinition, SubagentPolicy};
 use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
 use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
-/// How long Claude Code waits on a held callback, in seconds: one day. Without it a callback left
+/// How long Claude Code waits on a held callback, in seconds: the largest whole second under
+/// Claude Code's own cap of 2,147,483,647 ms, about 24.8 days. Without it a callback left
 /// unanswered is canceled after Claude Code's own ten minutes.
-const CLAUDE_HOOK_HOLD_TIMEOUT_SECONDS: u64 = 86_400;
+const CLAUDE_HOOK_HOLD_TIMEOUT_SECONDS: u64 = 2_147_483;
+
+/// How long a paused helper's call is held before the daemon answers it to be made again: one day
+/// short of the timeout, so a clock set back or a late wake still answers it in time.
+pub(crate) const CLAUDE_HOOK_HOLD_RENEWAL_AFTER: Duration =
+    Duration::from_secs(CLAUDE_HOOK_HOLD_TIMEOUT_SECONDS - 24 * 60 * 60);
 
 /// The helper tool's name on the wire. The process's `system/init` advertises it as `Task`, but a
 /// matcher written against that name never fires.

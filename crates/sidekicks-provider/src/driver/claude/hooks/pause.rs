@@ -2,14 +2,22 @@
 //! hook ends its turn after the step in flight and its tool hook denies; a paused helper's next
 //! tool hook is held unanswered until it continues. Each pause reports when it took effect.
 
+use std::collections::HashMap;
+
 use serde::Serialize;
 use serde::ser::{SerializeMap, Serializer};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::scheduler::ScheduledJobHandle;
 
 use crate::driver::claude::hooks::stopped_helpers::ClaudeStoppedHelpers;
 use crate::driver::hook_pauses::{HookPauses, PAUSED_REASON, PausedRole};
 use crate::driver::run_control::HelperStopReason;
+
+/// The reason a held helper's call is denied with before Claude Code's own bound would end the
+/// hold, which the helper reads; the call it makes again is held anew.
+pub(crate) const HELD_HELPER_RENEWAL_REASON: &str =
+    "Still paused by the person. Make this same tool call again to keep waiting for them.";
 
 /// A hook answer, written as the JSON Claude Code reads from the hook's output.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,7 +133,8 @@ pub(crate) struct ClaudeReleasedCallback {
     pub(crate) answer: ClaudeHookAnswer,
 }
 
-/// Every session's pauses, the lead's and each helper's, and the callbacks the pauses hold.
+/// Every session's pauses, the lead's and each helper's, the callbacks the pauses hold, and the
+/// renewal standing for each held helper.
 #[derive(Default)]
 pub(crate) struct ClaudeRunPauses {
     /// Each session's lead pause and the run it stops; a lead holds no callback.
@@ -134,6 +143,8 @@ pub(crate) struct ClaudeRunPauses {
     helper_pauses: HookPauses<(SessionId, String), (), String>,
     /// The stopped helpers, whose tool uses are denied.
     stopped_helpers: ClaudeStoppedHelpers,
+    /// The one renewal job standing for each held helper, by session and agent id.
+    renewals: HashMap<(SessionId, String), ScheduledJobHandle>,
 }
 
 impl ClaudeRunPauses {
@@ -261,6 +272,9 @@ impl ClaudeRunPauses {
         agent_id: &str,
         steer: Option<&str>,
     ) -> Vec<ClaudeReleasedCallback> {
+        if let Some(renewal) = self.renewals.remove(&(*session_id, agent_id.to_owned())) {
+            renewal.cancel();
+        }
         let Some(ended) = self
             .helper_pauses
             .resume(&(*session_id, agent_id.to_owned()))
@@ -283,6 +297,43 @@ impl ClaudeRunPauses {
             .collect()
     }
 
+    /// Whether a renewal stands for the helper `agent_id`'s held calls.
+    pub(crate) fn has_renewal(&self, session_id: &SessionId, agent_id: &str) -> bool {
+        self.renewals
+            .contains_key(&(*session_id, agent_id.to_owned()))
+    }
+
+    /// Keeps `renewal` as the one job standing for the helper `agent_id`'s held calls.
+    pub(crate) fn keep_renewal(
+        &mut self,
+        session_id: SessionId,
+        agent_id: String,
+        renewal: ScheduledJobHandle,
+    ) {
+        self.renewals.insert((session_id, agent_id), renewal);
+    }
+
+    /// Takes the calls the helper `agent_id`'s pause holds as its renewal falls due, each denied
+    /// so the helper makes it again; the pause stays in force and holds the call it makes.
+    pub(crate) fn take_renewed_calls(
+        &mut self,
+        session_id: &SessionId,
+        agent_id: &str,
+    ) -> Vec<ClaudeReleasedCallback> {
+        let helper = (*session_id, agent_id.to_owned());
+        self.renewals.remove(&helper);
+        self.helper_pauses
+            .take_held(&helper)
+            .into_iter()
+            .map(|request_id| ClaudeReleasedCallback {
+                request_id,
+                answer: ClaudeHookAnswer::Deny {
+                    reason: HELD_HELPER_RENEWAL_REASON.to_owned(),
+                },
+            })
+            .collect()
+    }
+
     /// Drops a callback Claude Code withdrew; it will not be answered.
     pub(crate) fn withdraw_callback(&mut self, session_id: &SessionId, request_id: &str) {
         self.helper_pauses
@@ -294,6 +345,13 @@ impl ClaudeRunPauses {
         self.lead_pauses.forget_session(session_id);
         self.helper_pauses.forget_session(session_id);
         self.stopped_helpers.forget_session(session_id);
+        self.renewals.retain(|(renewed_session_id, _), renewal| {
+            let is_kept = renewed_session_id != session_id;
+            if !is_kept {
+                renewal.cancel();
+            }
+            is_kept
+        });
     }
 }
 

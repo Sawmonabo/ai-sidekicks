@@ -35,6 +35,7 @@ use crate::driver::claude::hooks::callbacks::{
 };
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
+use crate::driver::claude::hooks::hold_renewal::arm_hold_renewal;
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudeRunPauses};
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::intervention::ClaudeInterventions;
@@ -258,9 +259,18 @@ impl ClaudeSessionTask {
                 answer_claude_request(&*live.channel, &session_id, account, request_id, &answer)
                     .await;
             }
-            ClaudeRequestRoute::Held { helper_held } => {
-                if let Some(agent_id) = helper_held {
-                    self.report_helper_paused(&agent_id).await;
+            ClaudeRequestRoute::Held { helper } => {
+                if let Some(helper) = helper {
+                    if helper.has_taken_effect {
+                        self.report_helper_paused(&helper.agent_id).await;
+                    }
+                    arm_hold_renewal(
+                        &services.scheduler,
+                        &services.pauses,
+                        &services.self_started.start.slots,
+                        session_id,
+                        helper.agent_id,
+                    );
                 }
             }
             ClaudeRequestRoute::CheckBackgroundWork { request_id, call } => {

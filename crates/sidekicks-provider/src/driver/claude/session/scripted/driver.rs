@@ -7,7 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -28,10 +28,12 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_std::scheduler::test_wall_clock::TestWallClock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tempfile::TempDir;
-use tokio::sync::Notify;
+use tokio::sync::{Notify, watch};
 
 use super::channel::ScriptedChannel;
 use super::daemon_services::{
@@ -334,6 +336,9 @@ pub(crate) struct ScriptedDriver {
     pub(crate) step_bound: Arc<Mutex<Option<SafeInt<1>>>>,
     /// The shared services it was built over.
     pub(crate) services: DriverServices,
+    /// The wall clock its scheduler runs on, set to the present at the build; a job set for an
+    /// instant falls due only once a test moves it there.
+    pub(crate) wall_clock: Arc<TestWallClock>,
     /// The person's home.
     pub(crate) home: PathBuf,
     /// The folder every session runs in.
@@ -410,6 +415,8 @@ impl ScriptedDriver {
         let attachments = Arc::new(ScriptedAttachments::default());
         let bindings = Arc::new(TakenBindingWrites::default());
         let accounts = Arc::new(ScriptedAccounts::default());
+        let wall_clock = Arc::new(TestWallClock::default());
+        wall_clock.set_now(SystemTime::now());
         let base = DriverServices {
             attachments: attachments.clone(),
             staged_changes: scripted_staged_changes(),
@@ -426,6 +433,11 @@ impl ScriptedDriver {
                 folder.path().join("session-token"),
             )),
             runtime_bindings: Arc::clone(&bindings) as _,
+            scheduler: Arc::new(Scheduler::start(
+                Arc::clone(&wall_clock) as _,
+                None,
+                watch::channel(0).1,
+            )),
             ..test_driver_services()
         };
         let ports = &base.ports;
@@ -505,6 +517,7 @@ impl ScriptedDriver {
             advisors,
             step_bound,
             services: base,
+            wall_clock,
             home,
             work,
             folder,
