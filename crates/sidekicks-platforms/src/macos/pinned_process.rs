@@ -480,7 +480,9 @@ fn read_start_time(id: u32, unique_id: u64) -> io::Result<Option<u64>> {
 
 // Whether `process` ends with the daemon that started it: anything but a session leader with no
 // controlling terminal, the mark of a lasting child, which outlives the daemon with all it runs.
-// A process that has ended is no lasting session.
+// A process that has ended is no lasting session. The login shell the start runs to capture its
+// environment is such a session too, and is spared; it outlives no stop for long, since it exits
+// once it prints, and a capture that stalls past its deadline or is stopped ends its whole group.
 fn is_ended_with_daemon(process: &PinnedProcess) -> io::Result<bool> {
     Ok(
         read_bsd_info(process.id, process.unique_id)?.is_none_or(|record| {
