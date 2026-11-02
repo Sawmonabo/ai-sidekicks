@@ -17,7 +17,8 @@ ts_constants! {
 }
 
 /// `workspace.bind`: the session, the attached mount and the mode to bind in. `directory` is
-/// relative to the mount root, and the daemon keeps it inside the mount once symlinks resolve.
+/// relative to the mount root, or an absolute folder naming one of the mount's listed working
+/// trees or a folder inside one, and the daemon keeps it inside those trees once symlinks resolve.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
