@@ -1,24 +1,21 @@
 //! The tasks a client follows and their questions on the questions card: each task's watch, the
 //! takes that hand a question to the card, and the answers a server's request waits on.
 
+pub(in crate::client) mod answers;
+
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex, Weak};
 
-use futures::FutureExt as _;
-use futures::future::BoxFuture;
 use serde_json::{Map, Value};
-use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_provider::mcp::elicitation_form::{
-    compose_elicitation_content, read_elicitation_questions,
-};
+use sidekicks_provider::mcp::elicitation_form::read_elicitation_questions;
 use sidekicks_provider::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort, QuestionTurnEnd,
-    QuestionTurnError, ToolServerAnswerDelivery, ToolServerQuestionAnswer,
-    mint_tool_server_request_id, take_question_in_turn,
+    QuestionTurnError, ToolServerQuestionAnswer, mint_tool_server_request_id,
+    take_question_in_turn,
 };
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -27,6 +24,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::client::connection::McpConnectionScope;
 use crate::client::tasks::McpToolCall;
+use crate::client::tasks::watches::answers::{V1TaskAnswer, V1TaskAnswerState};
 
 /// A followed task's key: its session, its server's name and its id.
 type WatchKey = (SessionId, String, String);
@@ -662,139 +660,13 @@ impl Drop for TaskWatch<'_> {
     }
 }
 
-/// The answer to an elicitation a plain call's request waits on: the form's content, sent to the
-/// waiting request once.
-pub(in crate::client) struct ElicitationAnswer {
-    params: Value,
-    sender: Mutex<Option<oneshot::Sender<Map<String, Value>>>>,
-}
-
-impl ElicitationAnswer {
-    /// An answer to the elicitation `params`, and what it comes to: the content once answered, or
-    /// withdrawn when the answer is dropped unsent.
-    pub(in crate::client) fn open(
-        params: Value,
-    ) -> (
-        Arc<dyn ToolServerQuestionAnswer>,
-        impl Future<Output = QuestionOutcome>,
-    ) {
-        let (sender, answered) = oneshot::channel();
-        let answer = Arc::new(Self {
-            params,
-            sender: Mutex::new(Some(sender)),
-        });
-        (answer, question_outcome(answered))
-    }
-}
-
-/// What a question comes to: the content `answered` receives, or withdrawn when its sender is
-/// dropped unsent.
-async fn question_outcome(answered: oneshot::Receiver<Map<String, Value>>) -> QuestionOutcome {
-    match answered.await {
-        Ok(content) => QuestionOutcome::Answered(content),
-        Err(_withdrawn) => QuestionOutcome::Withdrawn,
-    }
-}
-
-impl ToolServerQuestionAnswer for ElicitationAnswer {
-    fn answer(
-        &self,
-        answers: Vec<QuestionAnswer>,
-    ) -> BoxFuture<'_, Result<ToolServerAnswerDelivery, Box<dyn Error + Send + Sync>>> {
-        let content = compose_elicitation_content(&self.params, &answers);
-        let sender = lock(&self.sender).take();
-        let sent = match sender {
-            Some(sender) => sender
-                .send(content)
-                .map(|()| ToolServerAnswerDelivery::Delivered)
-                .map_err(|_unsent| "the tool server's request no longer waits".into()),
-            None => Err("the question was answered already".into()),
-        };
-        async move { sent }.boxed()
-    }
-}
-
-/// The answer to a 2025-11-25 task's question: the form's content, sent to the server's request
-/// waiting on it, or kept for the task's next ask of the same form when none waits.
-struct V1TaskAnswer {
-    /// The question's form, without its `_meta`.
-    params: Value,
-    state: Mutex<V1TaskAnswerState>,
-}
-
-#[derive(Default)]
-struct V1TaskAnswerState {
-    /// The request waiting on the answer, while one does.
-    waiting: Option<oneshot::Sender<Map<String, Value>>>,
-    /// The content no request waited on, kept for the next ask.
-    kept: Option<Map<String, Value>>,
-    /// Whether the content went to a request, after which no answer is taken.
-    is_sent: bool,
-}
-
-impl V1TaskAnswerState {
-    /// What the answer still to come comes to, a request now waiting on it.
-    fn wait(&mut self) -> impl Future<Output = QuestionOutcome> + use<> {
-        let (sender, answered) = oneshot::channel();
-        self.waiting = Some(sender);
-        question_outcome(answered)
-    }
-}
-
-impl V1TaskAnswer {
-    /// The kept content, now taken as sent; else what the answer still to come comes to, a
-    /// request now waiting on it.
-    fn take_kept_or_wait(
-        &self,
-    ) -> Result<Map<String, Value>, impl Future<Output = QuestionOutcome> + use<>> {
-        let mut state = lock(&self.state);
-        match state.kept.take() {
-            Some(content) => {
-                state.is_sent = true;
-                Ok(content)
-            }
-            None => Err(state.wait()),
-        }
-    }
-}
-
-impl ToolServerQuestionAnswer for V1TaskAnswer {
-    fn answer(
-        &self,
-        answers: Vec<QuestionAnswer>,
-    ) -> BoxFuture<'_, Result<ToolServerAnswerDelivery, Box<dyn Error + Send + Sync>>> {
-        let content = compose_elicitation_content(&self.params, &answers);
-        let mut state = lock(&self.state);
-        let delivery = if state.is_sent {
-            Err("the question was answered already".into())
-        } else {
-            let unsent = match state.waiting.take() {
-                Some(waiting) => waiting.send(content).err(),
-                None => Some(content),
-            };
-            match unsent {
-                None => {
-                    state.is_sent = true;
-                    Ok(ToolServerAnswerDelivery::Delivered)
-                }
-                // No request waits; a newer answer replaces a kept one.
-                Some(content) => {
-                    state.kept = Some(content);
-                    Ok(ToolServerAnswerDelivery::Kept)
-                }
-            }
-        };
-        drop(state);
-        async move { delivery }.boxed()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use sidekicks_provider::port::question::{QuestionPort as _, mint_tool_server_request_id};
     use tokio::sync::oneshot;
 
-    use super::{ElicitationAnswer, PendingTake, compose_question};
+    use super::answers::ElicitationAnswer;
+    use super::{PendingTake, compose_question};
     use crate::client::test_server::{board_form, test_client, test_scope, track_call};
 
     // Mutation: in `PendingTake::drop`, leave out the withdrawal of an outcome sent but not read.

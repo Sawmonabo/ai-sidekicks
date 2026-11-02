@@ -14,9 +14,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::client::connection::McpConnectionScope;
 use crate::client::tasks::McpToolCall;
+use crate::client::tasks::watches::answers::ElicitationAnswer;
 use crate::client::tasks::watches::{
-    AwaitedQuestion, ElicitationAnswer, QuestionOutcome, QuestionTake, TaskWatches,
-    compose_question,
+    AwaitedQuestion, QuestionOutcome, QuestionTake, TaskWatches, compose_question,
 };
 
 /// The calls in flight on one connection: one entry per call until it ends or is dropped, each

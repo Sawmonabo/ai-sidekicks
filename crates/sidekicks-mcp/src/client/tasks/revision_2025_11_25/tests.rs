@@ -5,7 +5,8 @@ use sidekicks_provider::port::question::{
 use tokio::time::{Duration, Instant, timeout};
 
 use super::read_task;
-use crate::client::tasks::watches::{ElicitationAnswer, compose_question};
+use crate::client::tasks::watches::answers::ElicitationAnswer;
+use crate::client::tasks::watches::compose_question;
 use crate::client::tasks::{
     McpTaskCancelOutcome, McpTaskContact, McpTaskGeneration, McpToolCallEnd,
 };
