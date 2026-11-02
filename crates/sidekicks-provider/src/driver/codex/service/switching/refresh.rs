@@ -2,7 +2,8 @@
 //! service carries when the request arrives; the renewer judges it in the account's own home, and
 //! under the hand the answer is the renewed tokens, or the tokens a switch that landed meanwhile
 //! carries, never undoing it. A refresh that finds none carried, as while a rejoin hands them, is
-//! answered with the tokens that hand gave. A token the renewal left dead is refused at once on every later
+//! answered with the tokens that hand gave. A token the renewal left dead hands the previous
+//! account back where a switch just moved onto it; otherwise it is refused, at once on every later
 //! refresh, since Codex retries a refused one with fresh requests. The whole answer is bounded
 //! inside Codex's own wait; past the bound it is refused and nothing is remembered.
 
@@ -72,6 +73,10 @@ impl CodexSwitchingAccount {
                 Some(tokens)
             }
             Ok(CodexRenewal::Dead) => {
+                // Refused right after a switch moved onto it: the previous account goes back.
+                if let Some(previous_tokens) = self.hand_back(&provider_account_id).await {
+                    return Some(previous_tokens);
+                }
                 if let Some(carried) = lock(&self.carried).as_mut() {
                     carried.dead_token = Some(refused);
                 }

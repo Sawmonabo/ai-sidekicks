@@ -40,6 +40,7 @@ use crate::driver::codex::session::recovery::CodexDroppedTurns;
 use crate::driver::codex::session::recovery::in_place_resume::CodexInPlaceResumeCall;
 use crate::driver::codex::session::rewind::CodexMessageTurn;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
+use crate::driver::contract::account::FirstRequestAfterMove;
 use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
 
@@ -100,6 +101,9 @@ pub(crate) struct CodexAccountMove {
     pub(crate) moved: Option<oneshot::Sender<Result<(), DriverError>>>,
     /// The person whose switch moved the session without naming it; `None` where no switch did.
     pub(crate) actor: Option<DeviceId>,
+    /// Where the first request of a session a switch moved without naming it settles, where the
+    /// switch watches it; the move recorded for the session carries it.
+    pub(crate) first_request: Option<oneshot::Receiver<Result<FirstRequestAfterMove, DriverError>>>,
 }
 
 /// A call on a session's record, each answering on its own `reply`; a dropped `reply` means the

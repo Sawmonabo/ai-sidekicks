@@ -21,6 +21,7 @@ use crate::driver::codex::account::auth_file::{
 use crate::driver::codex::auth_status::renew_codex_sign_in;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::DriverError;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// How long the renewing read waits, Codex's own bound on an `account/read`: its refresh and the
 /// retry after it run inside the read.
@@ -66,6 +67,12 @@ impl CodexTokenRenewer {
     /// The renewer over the legs `legs` points at.
     pub(super) fn new(legs: Weak<CodexAccountLegs>) -> Self {
         Self { legs }
+    }
+
+    /// The binding store a hand-back moves a session's lead binding in where its queue took no
+    /// move; `None` once the legs are gone.
+    pub(crate) fn bindings(&self) -> Option<Arc<dyn RuntimeBindingWriter>> {
+        self.legs.upgrade().map(|legs| Arc::clone(&legs.bindings))
     }
 
     /// Judges `refused`, the access token Codex refused for `provider_account_id`, against that

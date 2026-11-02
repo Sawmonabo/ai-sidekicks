@@ -561,11 +561,15 @@ impl CodexServiceRegistry {
         homes: Arc<dyn CodexHomeResolver>,
     ) -> Arc<Self> {
         let registry = Arc::new(Self::new(homes, dependencies));
+        registry.hold(service);
         registry
-            .lock()
+    }
+
+    /// Holds `service` as its home's, beside the services the registry holds.
+    pub(crate) fn hold(&self, service: &Arc<CodexService>) {
+        self.lock()
             .by_home
             .insert(service.home().codex_home.clone(), Arc::clone(service));
-        registry
     }
 }
 

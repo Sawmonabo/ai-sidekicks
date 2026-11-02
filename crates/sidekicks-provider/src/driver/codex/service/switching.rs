@@ -10,9 +10,19 @@
 //! renewal never hands an account back over a switch that landed meanwhile. A login written and
 //! never answered leaves the service's account unknown, carried as none until the next hand.
 //! When Codex refuses the login it runs on, it asks for fresh tokens, which the renewer attached
-//! here answers.
+//! here answers. A switch off another account opens a hand-back window over the sessions it moved,
+//! checked by one `account/read` once the hand is let go: a login refused there hands the previous
+//! account back.
 
+pub(crate) mod hand_back;
 mod refresh;
+/// What a test of the switching service's moves runs its sessions and binding store on.
+#[cfg(test)]
+pub(crate) mod test_moves;
+/// What a test signs its accounts in with: each account's home holding a `ChatGPT` sign-in Codex
+/// wrote, and an accounts reader resolving each account to its home.
+#[cfg(test)]
+pub(crate) mod test_sign_in;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -37,11 +47,15 @@ use crate::driver::codex::account::auth_file::{
 use crate::driver::codex::account::login::CodexLoginAccountParams;
 use crate::driver::codex::account::token_refresh::CodexTokenRenewer;
 use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::switching::hand_back::{
+    FirstRequestWatch, HandBackWindows, WatchedSession,
+};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::{
     CodexAccountMove, CodexSessionInbound, CodexSessionInboundSender,
 };
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
+use crate::driver::contract::account::FirstRequestAfterMove;
 use crate::driver::contract::error::DriverError;
 use crate::driver::{ProviderAccountReader, read_current_account};
 
@@ -57,10 +71,12 @@ pub(crate) struct CodexNamedMove {
     pub(crate) binding_id: RuntimeBindingId,
     /// Where the bindings' move, or its failure, goes once the spend before it is recorded.
     pub(crate) moved: oneshot::Sender<Result<(), DriverError>>,
+    /// Where its first request on the account moved to settles, kept by the hand-back window.
+    pub(crate) first_request: FirstRequestWatch,
 }
 
-/// The account the switching service carries, the tokens it was last handed for it, and the
-/// renewer its token refreshes are answered through.
+/// The account the switching service carries, the tokens it was last handed for it, the renewer
+/// its token refreshes are answered through, and the hand-back window of its last switch.
 pub(crate) struct CodexSwitchingAccount {
     provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     // Shared with the hook a switch's answer runs on the connection's reader.
@@ -69,6 +85,8 @@ pub(crate) struct CodexSwitchingAccount {
     hands: tokio::sync::Mutex<()>,
     // Attached once the account legs are built; a refresh before then is refused.
     renewer: OnceLock<CodexTokenRenewer>,
+    // Shared with the hook a switch's answer runs, which opens it, and with its check's task.
+    windows: Arc<HandBackWindows>,
 }
 
 // The account the service carries, the access token last handed for it, and the token its home
@@ -90,6 +108,7 @@ impl CodexSwitchingAccount {
             carried: Arc::default(),
             hands: tokio::sync::Mutex::default(),
             renewer: OnceLock::new(),
+            windows: Arc::default(),
         }
     }
 
@@ -122,12 +141,15 @@ impl CodexSwitchingAccount {
             let current = read_current_account(&self.provider_accounts, DESCRIPTOR.provider_id())
                 .await
                 .map_err(CodexError::Driver)?;
+            // Carrying none, the service has no account to hand back to, so no window opens.
             return self
                 .hand_switch_holding(&hand, service, connection, current, Vec::new(), None)
-                .await;
+                .await
+                .map(drop);
         };
         let tokens = self.read_tokens(&provider_account_id).await?;
         let access_token = tokens.access_token.clone();
+        self.windows.close();
         self.settle_login(
             connection
                 .request(CODEX_LOGIN_START_METHOD, &compose_login(tokens))
@@ -141,9 +163,10 @@ impl CodexSwitchingAccount {
     /// `actor`: at its answer's place among the service's frames its readings start afresh, it
     /// carries `to`, and every session attached to it is queued its move onto `to`, each of
     /// `named` with its lead's binding and its switch's wait, every other one reported as moved by
-    /// `actor`; a refused login leaves it carrying what it did and moves nothing. Fails as
-    /// [`Self::hand_at_start`] does, before anything is sent where `to`'s home holds no sign-in,
-    /// and while the service has no connection.
+    /// `actor`; a refused login leaves it carrying what it did and moves nothing. A switch off
+    /// another account then checks its hand-back window. Fails as [`Self::hand_at_start`] does,
+    /// before anything is sent where `to`'s home holds no sign-in, and while the service has no
+    /// connection.
     pub(crate) async fn hand_switch(
         &self,
         service: &Arc<CodexService>,
@@ -152,8 +175,7 @@ impl CodexSwitchingAccount {
         actor: DeviceId,
     ) -> Result<(), CodexError> {
         let hand = self.hands.lock().await;
-        let connection = service.connection()?;
-        self.hand_switch_holding(&hand, service, &connection, to, named, Some(actor))
+        self.hand_switch_then_check(hand, service, to, named, Some(actor))
             .await
     }
 
@@ -170,14 +192,36 @@ impl CodexSwitchingAccount {
         if self.carried_account().as_ref() == Some(to) {
             return Ok(());
         }
-        let connection = service.connection()?;
-        self.hand_switch_holding(&hand, service, &connection, to.clone(), Vec::new(), None)
+        self.hand_switch_then_check(hand, service, to.clone(), Vec::new(), None)
             .await
+    }
+
+    // The switch's login under `hand`, as `hand_switch_holding` sends it, then, with the hand let
+    // go, the check of the hand-back window it opened: the check's refresh is answered under the
+    // hand.
+    async fn hand_switch_then_check(
+        &self,
+        hand: tokio::sync::MutexGuard<'_, ()>,
+        service: &Arc<CodexService>,
+        to: ProviderAccountId,
+        named: Vec<CodexNamedMove>,
+        actor: Option<DeviceId>,
+    ) -> Result<(), CodexError> {
+        let connection = service.connection()?;
+        let opened = self
+            .hand_switch_holding(&hand, service, &connection, to, named, actor)
+            .await?;
+        drop(hand);
+        if let Some(window) = opened {
+            self.check_window(service, connection, window);
+        }
+        Ok(())
     }
 
     // The switch's login, sent on `connection` under `_hand`, its answer the acknowledgment that
     // moves the service and every session attached to it onto `to`, those `named` not reported as
-    // moved by `actor`, the person whose switch it is, or else by no one.
+    // moved by `actor`, the person whose switch it is, or else by no one. A switch off another
+    // account opens the hand-back window over every session it moved, whose serial it answers.
     async fn hand_switch_holding(
         &self,
         _hand: &tokio::sync::MutexGuard<'_, ()>,
@@ -186,11 +230,13 @@ impl CodexSwitchingAccount {
         to: ProviderAccountId,
         named: Vec<CodexNamedMove>,
         actor: Option<DeviceId>,
-    ) -> Result<(), CodexError> {
+    ) -> Result<Option<u64>, CodexError> {
         let tokens = self.read_tokens(&to).await?;
         let access_token = tokens.access_token.clone();
         let carried = Arc::clone(&self.carried);
+        let windows = Arc::clone(&self.windows);
         let acknowledged = Arc::downgrade(service);
+        self.windows.close();
         let answer = connection
             .request_ordered(
                 CODEX_LOGIN_START_METHOD,
@@ -199,15 +245,20 @@ impl CodexSwitchingAccount {
                     let Some(service) = answer.and(acknowledged.upgrade()) else {
                         return;
                     };
+                    let mut previous = None;
                     service.restart_rate_limits(|| {
-                        carry(&carried, to.clone(), access_token);
+                        previous = carry(&carried, to.clone(), access_token);
                     });
-                    move_attached_sessions(&service, &to, named, actor.as_ref());
+                    let watched = move_attached_sessions(&service, &to, named, actor.as_ref());
+                    if let Some(previous) = previous.filter(|previous| *previous != to) {
+                        windows.open(previous, to, &service, watched);
+                    }
                 }),
             )
             .await;
         self.settle_login(answer)?;
-        Ok(())
+        // The hook ran before the answer came back, so the window it opened is the one open.
+        Ok(self.windows.open_serial())
     }
 
     /// Hands the switching service on `connection` the tokens in `codex_home` again where that
@@ -235,6 +286,7 @@ impl CodexSwitchingAccount {
             return Ok(false);
         }
         let access_token = tokens.access_token.clone();
+        self.windows.close();
         self.settle_login(
             connection
                 .request(CODEX_LOGIN_START_METHOD, &compose_login(tokens))
@@ -303,15 +355,19 @@ impl CodexSwitchingAccount {
 }
 
 // Carries `provider_account_id` on `access_token` in `carried`, keeping the token its home could
-// not renew while the account stays the same and forgetting it when the account changes.
+// not renew while the account stays the same and forgetting it when the account changes. Answers
+// the account carried before, `None` where none was.
 fn carry(
     carried: &Mutex<Option<CarriedAccount>>,
     provider_account_id: ProviderAccountId,
     access_token: SecretString,
-) {
+) -> Option<ProviderAccountId> {
     let mut carried = lock(carried);
-    let dead_token = carried
-        .take()
+    let before = carried.take();
+    let previous = before
+        .as_ref()
+        .map(|before| before.provider_account_id.clone());
+    let dead_token = before
         .filter(|before| before.provider_account_id == provider_account_id)
         .and_then(|before| before.dead_token);
     *carried = Some(CarriedAccount {
@@ -319,23 +375,21 @@ fn carry(
         access_token,
         dead_token,
     });
+    previous
 }
 
 // Queues each session attached to `service` its move onto `to` at this place among its frames:
 // each of `named` with its lead's binding and its switch's wait, every other one with its own
 // binding alone, reported as moved by `actor`. A named session no longer attached drops its wait,
-// which moves it at once.
+// which moves it at once. Answers every moved session with the watch of its first request.
 fn move_attached_sessions(
     service: &CodexService,
     to: &ProviderAccountId,
     named: Vec<CodexNamedMove>,
     actor: Option<&DeviceId>,
-) {
-    let mut unnamed: HashMap<SessionId, CodexSessionInboundSender> = service
-        .attached_sessions()
-        .into_iter()
-        .map(|session| (session.session_id(), session))
-        .collect();
+) -> Vec<WatchedSession> {
+    let mut unnamed = attached_by_session(service);
+    let mut watched = Vec::new();
     for session in named {
         unnamed.remove(&session.session_id);
         // A queue that takes nothing drops the wait, which moves the session at once.
@@ -343,21 +397,55 @@ fn move_attached_sessions(
             &session.session_id,
             CodexSessionInbound::AccountMoved(CodexAccountMove {
                 provider_account_id: to.clone(),
-                binding_id: Some(session.binding_id),
+                binding_id: Some(session.binding_id.clone()),
                 moved: Some(session.moved),
                 actor: None,
+                first_request: None,
             }),
         );
+        watched.push(WatchedSession {
+            session_id: session.session_id,
+            binding_id: Some(session.binding_id),
+            watch: session.first_request,
+        });
     }
     for session in unnamed.into_values() {
-        // A queue whose task ended takes nothing more; its session is closing.
-        let _taken = session.push(CodexSessionInbound::AccountMoved(CodexAccountMove {
-            provider_account_id: to.clone(),
+        let (watch, first_request) = oneshot::channel();
+        queue_reported_move(&session, to, actor, Some(first_request));
+        watched.push(WatchedSession {
+            session_id: session.session_id(),
             binding_id: None,
-            moved: None,
-            actor: actor.cloned(),
-        }));
+            watch,
+        });
     }
+    watched
+}
+
+// Every session attached to `service`, by its id.
+fn attached_by_session(service: &CodexService) -> HashMap<SessionId, CodexSessionInboundSender> {
+    service
+        .attached_sessions()
+        .into_iter()
+        .map(|session| (session.session_id(), session))
+        .collect()
+}
+
+// Queues `session` its move onto `to` with its own binding alone, reported as moved by `actor`,
+// its first request settling on `first_request` where it is watched.
+fn queue_reported_move(
+    session: &CodexSessionInboundSender,
+    to: &ProviderAccountId,
+    actor: Option<&DeviceId>,
+    first_request: Option<oneshot::Receiver<Result<FirstRequestAfterMove, DriverError>>>,
+) {
+    // A queue whose task ended takes nothing more; its session is closing.
+    let _taken = session.push(CodexSessionInbound::AccountMoved(CodexAccountMove {
+        provider_account_id: to.clone(),
+        binding_id: None,
+        moved: None,
+        actor: actor.cloned(),
+        first_request,
+    }));
 }
 
 // The tokens of `codex_home`'s `auth.json`, `None` where it holds none. Fails as it cannot be read.
@@ -372,137 +460,5 @@ fn compose_login(tokens: CodexAuthTokens) -> CodexLoginAccountParams {
         access_token: tokens.access_token,
         chatgpt_account_id: tokens.chatgpt_account_id,
         chatgpt_plan_type: tokens.chatgpt_plan_type,
-    }
-}
-
-/// What a test signs its accounts in with: each account's home holding a `ChatGPT` sign-in Codex
-/// wrote, and an accounts reader resolving each account to its home.
-#[cfg(test)]
-pub(crate) mod test_sign_in {
-    use std::collections::HashMap;
-    use std::error::Error;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
-
-    use base64::Engine as _;
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use futures::FutureExt as _;
-    use futures::future::BoxFuture;
-    use secrecy::SecretString;
-    use serde_json::{Value, json};
-    use sidekicks_contracts::provider::account::record::{
-        CredentialGeneration, ProviderAccountId, ProviderAuthMode,
-    };
-    use sidekicks_contracts::provider::id::ProviderId;
-    use sidekicks_std::port_registration::PortRegistration;
-
-    use crate::driver::{
-        AccountFoldersError, CurrentProviderAccount, ProviderAccountFolders, ProviderAccountReader,
-    };
-
-    /// The plan every test sign-in's identity token names.
-    pub(crate) const TEST_PLAN: &str = "pro";
-
-    /// Writes into `codex_home` the `auth.json` Codex's `file` store keeps for a `ChatGPT` sign-in
-    /// to `workspace` with `access_token`, its identity token naming [`TEST_PLAN`].
-    pub(crate) fn write_sign_in(codex_home: &Path, workspace: &str, access_token: &str) {
-        std::fs::create_dir_all(codex_home).expect("the home is made");
-        let auth = json!({
-            "OPENAI_API_KEY": null,
-            "tokens": {
-                "id_token": compose_jwt(&json!({
-                    "https://api.openai.com/auth": {"chatgpt_plan_type": TEST_PLAN},
-                })),
-                "access_token": access_token,
-                "refresh_token": "refresh-token-the-daemon-never-hands",
-                "account_id": workspace,
-            },
-            "last_refresh": "2026-10-31T18:00:00Z",
-        });
-        std::fs::write(codex_home.join("auth.json"), auth.to_string()).expect("auth.json is kept");
-    }
-
-    /// An access token that reads as a JWT, `marker` its payload's subject, so no two differ only
-    /// in their signature.
-    pub(crate) fn compose_access_token(marker: &str) -> String {
-        compose_jwt(&json!({"sub": marker, "exp": 4_102_444_800_i64}))
-    }
-
-    fn compose_jwt(claims: &Value) -> String {
-        format!(
-            "{}.{}.signature",
-            URL_SAFE_NO_PAD.encode(br#"{"alg":"RS256"}"#),
-            URL_SAFE_NO_PAD.encode(claims.to_string())
-        )
-    }
-
-    /// An accounts reader resolving each account it holds to its Codex home, with `current` the
-    /// provider's current account.
-    pub(crate) struct AccountHomes {
-        /// Each account's Codex home.
-        pub(crate) homes: HashMap<ProviderAccountId, PathBuf>,
-        /// The current account.
-        pub(crate) current: ProviderAccountId,
-    }
-
-    impl AccountHomes {
-        /// The reader registered on `provider_accounts`.
-        pub(crate) fn register_on(
-            self,
-            provider_accounts: &PortRegistration<Arc<dyn ProviderAccountReader>>,
-        ) {
-            assert!(
-                provider_accounts
-                    .register(Arc::new(self) as Arc<dyn ProviderAccountReader>)
-                    .is_ok(),
-                "the accounts reader registers once"
-            );
-        }
-    }
-
-    impl ProviderAccountReader for AccountHomes {
-        fn resolve_account_folders(
-            &self,
-            provider_account_id: ProviderAccountId,
-        ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
-            let folders = self
-                .homes
-                .get(&provider_account_id)
-                .map(|home| ProviderAccountFolders {
-                    configuration_folder: home.clone(),
-                    credential_store_folder: home.clone(),
-                })
-                .ok_or(AccountFoldersError::NotFound);
-            async move { folders }.boxed()
-        }
-
-        fn current_account(
-            &self,
-            _provider_id: ProviderId,
-        ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn Error + Send + Sync>>> {
-            let current = CurrentProviderAccount::Current(self.current.clone());
-            async move { Ok(current) }.boxed()
-        }
-
-        fn read_credential_generation(
-            &self,
-            _provider_account_id: ProviderAccountId,
-        ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
-            async { Err("the test reads no credential generation".into()) }.boxed()
-        }
-
-        fn read_observed_auth_mode(
-            &self,
-            _provider_account_id: ProviderAccountId,
-        ) -> BoxFuture<'_, Result<Option<ProviderAuthMode>, Box<dyn Error + Send + Sync>>> {
-            async { Ok(Some(ProviderAuthMode::OauthSubscription)) }.boxed()
-        }
-
-        fn read_sealed_token(
-            &self,
-            _provider_account_id: ProviderAccountId,
-        ) -> BoxFuture<'_, Result<Option<SecretString>, Box<dyn Error + Send + Sync>>> {
-            async { Ok(None) }.boxed()
-        }
     }
 }

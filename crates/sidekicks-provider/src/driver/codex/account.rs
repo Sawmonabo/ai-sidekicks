@@ -8,7 +8,7 @@ pub(crate) mod login;
 mod memory;
 mod sign_in;
 mod sign_out;
-mod switch;
+pub(crate) mod switch;
 pub(crate) mod token_refresh;
 mod window_start;
 

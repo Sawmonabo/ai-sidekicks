@@ -27,6 +27,7 @@ use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use tokio::sync::oneshot;
 
 use crate::account::credential_home::CredentialHome;
 use crate::account::registry::{HealthObservation, ProviderAccountRegistry};
@@ -441,6 +442,20 @@ impl SessionAccountMove {
         Self {
             session_id,
             first_request: futures::future::ready(Ok(FirstRequestAfterMove::Unobserved)).boxed(),
+        }
+    }
+
+    /// `session_id`'s move whose first request settles as `first_request` answers, a dropped
+    /// sender settling it as [`FirstRequestAfterMove::Unobserved`].
+    pub fn watched(
+        session_id: SessionId,
+        first_request: oneshot::Receiver<Result<FirstRequestAfterMove, DriverError>>,
+    ) -> Self {
+        Self {
+            session_id,
+            first_request: first_request
+                .map(|answer| answer.unwrap_or(Ok(FirstRequestAfterMove::Unobserved)))
+                .boxed(),
         }
     }
 }
