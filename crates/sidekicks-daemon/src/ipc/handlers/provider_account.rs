@@ -28,6 +28,7 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 mod credential_home;
 mod list;
+pub(crate) mod notifications;
 mod probe;
 mod registration;
 mod sign_in;

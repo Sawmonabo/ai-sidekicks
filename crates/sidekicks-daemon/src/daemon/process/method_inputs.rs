@@ -88,8 +88,13 @@ use crate::daemon::machine_settings::methods::{
 use crate::daemon::process::database::DatabaseFile;
 use crate::daemon::process::method_tables::{MethodTableServices, register_method_tables};
 use crate::daemon::process::projections::rebuild_projections;
+use crate::daemon::process::provider_accounts::{
+    ProviderAccountObservation, ProviderAccountPlaneStart, build_provider_account_plane,
+};
 use crate::daemon::process::provider_port::{ProviderPortStart, build_provider_port};
-use crate::daemon::process::providers::Providers;
+use crate::daemon::process::providers::{
+    DriverPortOwners, Providers, native_session_places, register_driver_ports,
+};
 use crate::daemon::process::repo_services::{
     ManagedWritesWatermarkFile, RepoServices, managed_writes_watermark_path,
 };
@@ -223,12 +228,14 @@ pub(crate) struct MethodInputs {
     pub(crate) workspace_work: WorkspaceWork,
     /// The MCP server inventory, whose fills of the attribution table the start begins.
     pub(crate) mcp_inventory: Arc<McpInventoryService>,
+    /// The provider accounts' background observer, started once the recovery pass has run.
+    pub(crate) provider_accounts: ProviderAccountObservation,
 }
 
 /// Why the method tables' services could not be built.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum MethodInputsError {
-    /// A driver port the session directory answers was registered already.
+    /// A driver port was registered already.
     #[error(transparent)]
     PortRegistration(#[from] PortRegistrationError),
     /// The session services could not be built.
@@ -336,7 +343,6 @@ pub(crate) async fn register_method_inputs(
     ));
     let port = build_provider_port(ProviderPortStart {
         reads: Arc::clone(&reads),
-        provider_tokens: Arc::new(secret_items.keychain(KeychainService::ProviderTokens)),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
         binding_cursors: Arc::clone(&binding_cursors),
         git: git.clone(),
@@ -466,7 +472,7 @@ pub(crate) async fn register_method_inputs(
         managed_writes_watermark: Arc::new(ManagedWritesWatermarkFile {
             path: managed_writes_watermark_path(home_folder),
         }),
-        clock,
+        clock: Arc::clone(&clock),
         spawner,
         daemon_program: daemon_program.to_path_buf(),
         provider_accounts: Arc::clone(&providers.ports.provider_accounts),
@@ -475,6 +481,46 @@ pub(crate) async fn register_method_inputs(
         mcp_status,
         mcp_first_observations: mcp_first_observations.boxed(),
     })?;
+    let accounts = build_provider_account_plane(ProviderAccountPlaneStart {
+        reads: Arc::clone(&reads),
+        writer: Arc::clone(&writer),
+        data_folder,
+        provider_tokens: Arc::new(secret_items.keychain(KeychainService::ProviderTokens)),
+        providers: Arc::clone(&registry),
+        usage: Arc::clone(&session.usage),
+        binding_cursors: Arc::clone(&session.binding_cursors),
+        scheduler: Arc::clone(&scheduler),
+        clock,
+        machine_device_id: machine_device_id.clone(),
+    })
+    .await;
+    register_driver_ports(
+        &providers.ports,
+        DriverPortOwners {
+            provider_accounts: accounts.reader,
+            provider_account_registry: accounts.registry,
+            run_engine: Arc::clone(&session.engine),
+            inbound_dispatch: Arc::clone(&session.inbound_dispatch),
+            queue_admission: session.queue.admission(),
+            queue_delivery: session.queue.delivery(),
+            process_gone: session.queue.process_gone_listener(),
+            permission_asks: Arc::clone(&session.approvals.asks),
+            questions: Arc::clone(&session.questions),
+            plans: Arc::clone(&session.plans),
+            reviewer_denials: Arc::clone(&session.approvals.denials),
+            writer: Arc::clone(&writer),
+            approval_rules: Arc::clone(&session.approvals.rules),
+            session_places: native_session_places(&base_environment),
+            run_pauses: Arc::clone(&session.pauses),
+            usage: Arc::clone(&session.usage),
+            running_commands: Arc::clone(&session.running_commands),
+            turn_readings: Arc::clone(&session.turn_readings),
+            context_readings: Arc::clone(&session.context_readings),
+            idle_sleep: Arc::clone(&session.idle_sleep),
+            session_resumes: Arc::clone(&session.stored_resumes),
+            provider_sessions: Arc::clone(&session.provider_sessions),
+        },
+    )?;
     let shells = Arc::new(
         build_shell_table(ShellTableStart {
             terminals: Arc::clone(&session.terminals),
@@ -752,6 +798,7 @@ pub(crate) async fn register_method_inputs(
             session_conversion: workspace.conversion,
             session_working_folders: roots.session_working_folders,
             machine_settings_file: settings,
+            provider_accounts: accounts.methods,
         },
     )?;
     Ok(MethodInputs {
@@ -767,6 +814,7 @@ pub(crate) async fn register_method_inputs(
         web_address_sender,
         workspace_work: workspace.work,
         mcp_inventory,
+        provider_accounts: accounts.observation,
     })
 }
 

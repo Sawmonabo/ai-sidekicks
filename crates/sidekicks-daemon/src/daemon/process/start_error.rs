@@ -7,6 +7,7 @@ use std::time::Instant;
 use sidekicks_ipc::registry::RegistrationError;
 use sidekicks_platforms::SocketPathRefused;
 use sidekicks_policy::authorizer::RulesLoadError;
+use sidekicks_provider::account::observer::ProviderAccountObserverError;
 use sidekicks_queue::error::QueueError;
 use sidekicks_session::attention::service::AttentionServiceError;
 use sidekicks_session::idle_sleep::IdleSleepError;
@@ -130,6 +131,9 @@ pub(crate) enum DaemonStartError {
     /// The repository services' background work could not begin.
     #[error(transparent)]
     RepoAttachments(#[from] RepoAttachmentStartError),
+    /// The provider accounts' background observer could not start.
+    #[error(transparent)]
+    ProviderAccountObserver(#[from] ProviderAccountObserverError),
     /// The services the method tables take could not be built.
     #[error(transparent)]
     MethodInputs(#[from] MethodInputsError),

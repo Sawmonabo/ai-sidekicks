@@ -12,7 +12,6 @@ pub(crate) mod machine;
 pub(crate) mod mcp;
 pub(crate) mod presence;
 pub(crate) mod project;
-#[expect(dead_code, reason = "bound by the provider account table block")]
 pub(crate) mod provider_account;
 pub(crate) mod question;
 pub(crate) mod repo;
