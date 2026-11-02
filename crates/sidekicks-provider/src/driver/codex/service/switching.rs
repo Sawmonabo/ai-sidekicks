@@ -20,6 +20,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
@@ -104,7 +105,7 @@ impl CodexSwitchingAccount {
                 .await
                 .map_err(CodexError::Driver)?;
             return self
-                .hand_switch_holding(&hand, service, connection, current, Vec::new())
+                .hand_switch_holding(&hand, service, connection, current, Vec::new(), None)
                 .await;
         };
         let tokens = self.read_tokens(&provider_account_id).await?;
@@ -121,21 +122,23 @@ impl CodexSwitchingAccount {
         Ok(())
     }
 
-    /// Hands the switching `service` the tokens of `to`'s account, the switch's one call: at its
-    /// answer's place among the service's frames its readings start afresh, it carries `to`, and
-    /// every session attached to it is queued its move onto `to`, each of `named` with its lead's
-    /// binding and its switch's wait; a refused login leaves it carrying what it did and moves
-    /// nothing. Fails as [`Self::hand_at_start`] does, before anything is sent where `to`'s home
-    /// holds no sign-in, and while the service has no connection.
+    /// Hands the switching `service` the tokens of `to`'s account, the switch's one call for
+    /// `actor`: at its answer's place among the service's frames its readings start afresh, it
+    /// carries `to`, and every session attached to it is queued its move onto `to`, each of
+    /// `named` with its lead's binding and its switch's wait, every other one reported as moved by
+    /// `actor`; a refused login leaves it carrying what it did and moves nothing. Fails as
+    /// [`Self::hand_at_start`] does, before anything is sent where `to`'s home holds no sign-in,
+    /// and while the service has no connection.
     pub(crate) async fn hand_switch(
         &self,
         service: &Arc<CodexService>,
         to: ProviderAccountId,
         named: Vec<CodexNamedMove>,
+        actor: DeviceId,
     ) -> Result<(), CodexError> {
         let hand = self.hands.lock().await;
         let connection = service.connection()?;
-        self.hand_switch_holding(&hand, service, &connection, to, named)
+        self.hand_switch_holding(&hand, service, &connection, to, named, Some(actor))
             .await
     }
 
@@ -153,12 +156,13 @@ impl CodexSwitchingAccount {
             return Ok(());
         }
         let connection = service.connection()?;
-        self.hand_switch_holding(&hand, service, &connection, to.clone(), Vec::new())
+        self.hand_switch_holding(&hand, service, &connection, to.clone(), Vec::new(), None)
             .await
     }
 
     // The switch's login, sent on `connection` under `_hand`, its answer the acknowledgment that
-    // moves the service and every session attached to it onto `to`.
+    // moves the service and every session attached to it onto `to`, those `named` not reported as
+    // moved by `actor`, the person whose switch it is, or else by no one.
     async fn hand_switch_holding(
         &self,
         _hand: &tokio::sync::MutexGuard<'_, ()>,
@@ -166,6 +170,7 @@ impl CodexSwitchingAccount {
         connection: &CodexAppServerConnection,
         to: ProviderAccountId,
         named: Vec<CodexNamedMove>,
+        actor: Option<DeviceId>,
     ) -> Result<(), CodexError> {
         let tokens = self.read_tokens(&to).await?;
         let access_token = tokens.access_token.clone();
@@ -185,7 +190,7 @@ impl CodexSwitchingAccount {
                             access_token,
                         });
                     });
-                    move_attached_sessions(&service, &to, named);
+                    move_attached_sessions(&service, &to, named, actor.as_ref());
                 }),
             )
             .await;
@@ -279,11 +284,13 @@ impl CodexSwitchingAccount {
 
 // Queues each session attached to `service` its move onto `to` at this place among its frames:
 // each of `named` with its lead's binding and its switch's wait, every other one with its own
-// binding alone. A named session no longer attached drops its wait, which moves it at once.
+// binding alone, reported as moved by `actor`. A named session no longer attached drops its wait,
+// which moves it at once.
 fn move_attached_sessions(
     service: &CodexService,
     to: &ProviderAccountId,
     named: Vec<CodexNamedMove>,
+    actor: Option<&DeviceId>,
 ) {
     let mut unnamed: HashMap<SessionId, CodexSessionInboundSender> = service
         .attached_sessions()
@@ -299,6 +306,7 @@ fn move_attached_sessions(
                 provider_account_id: to.clone(),
                 binding_id: Some(session.binding_id),
                 moved: Some(session.moved),
+                actor: None,
             }),
         );
     }
@@ -308,6 +316,7 @@ fn move_attached_sessions(
             provider_account_id: to.clone(),
             binding_id: None,
             moved: None,
+            actor: actor.cloned(),
         }));
     }
 }

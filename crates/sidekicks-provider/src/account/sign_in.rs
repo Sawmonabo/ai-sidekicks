@@ -75,25 +75,42 @@ pub trait SignedInAccountWatcher: Send + Sync {
     fn watch_signed_in(&self, account: &RegisteredAccount);
 }
 
-/// The accounts with a sign-in in flight, each from its start until it settles. The broker marks
-/// them, and the observer, a switch and a home's reset read them, so none of those acts in a home
-/// a sign-in is using.
+/// The accounts with a sign-in, a switch onto them or a home's reset in flight, each marked from
+/// its start until it settles, one mark per account at a time: the broker, a switch and a reset
+/// each take the mark in the same step that finds it free, so none of them starts in a home
+/// another is using, and the observer reads none of them.
 #[derive(Default)]
 pub struct AccountsSigningIn(Mutex<HashSet<ProviderAccountId>>);
 
 impl AccountsSigningIn {
-    /// Whether `account_id` has a sign-in in flight.
+    /// Whether `account_id` has a sign-in, a switch onto it or its home's reset in flight.
     pub fn is_signing_in(&self, account_id: &ProviderAccountId) -> bool {
         lock(&self.0).contains(account_id)
     }
 
-    // Marks `account_id` signing in; `false` where it already was.
-    fn mark(&self, account_id: ProviderAccountId) -> bool {
-        lock(&self.0).insert(account_id)
+    /// Marks `account_id` until the answered mark is dropped; `None` where it is marked already, by
+    /// a sign-in, a switch onto it or its home's reset.
+    pub fn mark(self: &Arc<Self>, account_id: ProviderAccountId) -> Option<AccountMark> {
+        if !lock(&self.0).insert(account_id.clone()) {
+            return None;
+        }
+        Some(AccountMark {
+            accounts: Arc::clone(self),
+            account_id,
+        })
     }
+}
 
-    fn unmark(&self, account_id: &ProviderAccountId) {
-        lock(&self.0).remove(account_id);
+/// One account's mark in [`AccountsSigningIn`], held by the act that took it and let go when
+/// dropped.
+pub struct AccountMark {
+    accounts: Arc<AccountsSigningIn>,
+    account_id: ProviderAccountId,
+}
+
+impl Drop for AccountMark {
+    fn drop(&mut self) {
+        lock(&self.accounts.0).remove(&self.account_id);
     }
 }
 
@@ -101,8 +118,8 @@ impl AccountsSigningIn {
 /// row and no minted home behind.
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderSignInError {
-    /// The account already has a sign-in in flight.
-    #[error("a sign-in is already in flight for the provider account")]
+    /// The account already has a sign-in, a switch onto it or its home's reset in flight.
+    #[error("a sign-in, a switch or a reset is already in flight for the provider account")]
     InFlight,
     /// No sign-in legs are registered for the provider.
     #[error("the provider's sign-in cannot be brokered")]
@@ -122,13 +139,14 @@ pub enum ProviderSignInError {
 }
 
 impl From<ProviderSignInError> for HandlerError {
-    /// An account with a sign-in in flight refuses `provider.account.signInInFlight` and a
-    /// provider with no legs `provider.account.signInUnsupported`; the registry's and the
-    /// driver's failures answer as their own conversions say, and a failed mint is the daemon's.
+    /// An account with a sign-in, a switch or a reset in flight refuses
+    /// `provider.account.signInInFlight` and a provider with no legs
+    /// `provider.account.signInUnsupported`; the registry's and the driver's failures answer as
+    /// their own conversions say, and a failed mint is the daemon's.
     fn from(error: ProviderSignInError) -> Self {
         match error {
             ProviderSignInError::InFlight => Self::Refused(DomainError::new(
-                "A sign-in is already in flight for the provider account",
+                "A sign-in, a switch or a reset is already in flight for the provider account",
                 RefusalCode::ProviderAccountSignInInFlight,
             )),
             ProviderSignInError::Unsupported => Self::Refused(DomainError::new(
@@ -180,7 +198,8 @@ impl ProviderSignInBroker {
     /// Starts the provider's own sign-in for `request`'s account, or for a new account whose id
     /// and home it mints, on the arm `origin` calls for, once the account's home is free, and
     /// answers what the person needs. Fails with
-    /// [`ProviderSignInError::InFlight`] while the account has an attempt,
+    /// [`ProviderSignInError::InFlight`] while the account has an attempt, a switch onto it or its
+    /// home's reset in flight,
     /// [`ProviderSignInError::Unsupported`] for a provider with no legs, the registry's error for
     /// an account not registered or a home that cannot be made, the driver's where the flow does
     /// not start, and [`ProviderSignInError::StartEnded`] where the attempt's task ended first; a
@@ -280,17 +299,19 @@ struct AttemptServices {
 }
 
 impl AttemptServices {
-    // Holds `account_id`'s one sign-in slot until the attempt settles or its start fails.
+    // Holds `account_id`'s one mark until the attempt settles or its start fails.
     fn reserve(
         &self,
         account_id: ProviderAccountId,
         home: CredentialHome,
         minted: Option<MintedAccount>,
     ) -> Result<Reservation, ProviderSignInError> {
-        if !self.signing_in.mark(account_id.clone()) {
-            return Err(ProviderSignInError::InFlight);
-        }
+        let mark = self
+            .signing_in
+            .mark(account_id.clone())
+            .ok_or(ProviderSignInError::InFlight)?;
         Ok(Reservation {
+            _mark: mark,
             services: self.clone(),
             account_id,
             home,
@@ -315,6 +336,7 @@ struct LiveAttempt {
 /// An account's sign-in slot, held from the start until the attempt settles. Dropped, it frees
 /// the slot and removes a minted home no row took, so a failed or abandoned start leaves neither.
 struct Reservation {
+    _mark: AccountMark,
     services: AttemptServices,
     account_id: ProviderAccountId,
     home: CredentialHome,
@@ -403,7 +425,6 @@ impl Reservation {
 
 impl Drop for Reservation {
     fn drop(&mut self) {
-        self.services.signing_in.unmark(&self.account_id);
         if let Some(minted) = self.minted.take() {
             abandon(&self.services.registry, minted);
         }

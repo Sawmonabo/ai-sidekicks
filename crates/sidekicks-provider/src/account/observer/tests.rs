@@ -23,7 +23,7 @@ use tokio::sync::{Notify, Semaphore};
 
 use super::test_fixture::{Fixture, ScriptedLegs, claude, figures, new_clock, read_reading};
 use super::window_store::read_usage_windows;
-use super::{AccountReadAnswer, ProviderAccountObserver, ReadAsker};
+use super::{AccountReadAnswer, AccountTurnObserver as _, ProviderAccountObserver, ReadAsker};
 use crate::account::registry::{HealthObservation, HealthObserver};
 use crate::account::sign_in::ProviderSignInBroker;
 use crate::account::sign_in::tests::{

@@ -1,7 +1,7 @@
 //! The current-account switch over a test database, the real account registry and folder reader,
 //! a driver whose level list the test names, and switch legs and a level control that record what
 //! they were asked and answer as the test scripts; beside it, the record of a move no switch waits
-//! on, over the same log.
+//! on, landing through the same switch.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -34,6 +34,7 @@ use sidekicks_provider::account::registry::{
     AccountAdmission, HealthObservation, HealthObserver, ProviderAccountRegistry,
 };
 use sidekicks_provider::account::resolver::ProviderAccounts;
+use sidekicks_provider::account::sign_in::AccountsSigningIn;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::contract::account::{
@@ -41,7 +42,6 @@ use sidekicks_provider::driver::contract::account::{
 };
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
-use sidekicks_provider::port::session_account_move::SessionAccountMoveRecorder;
 use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, RuntimeBindingStore};
 use sidekicks_provider::runtime_binding::test_store::{
     binding_input, spawn_config_on, spawned_build,
@@ -121,12 +121,15 @@ fn refused_login() -> DriverError {
     ))
 }
 
-// Switch legs recording each call and answering each session as scripted; a session not scripted
-// lands with its first request run.
+// Switch legs recording each call, and whether its target was marked against a sign-in while it
+// ran, and answering each session as scripted; a session not scripted lands with its first request
+// run.
 #[derive(Default)]
 struct RecordedSwitchLegs {
     script: Mutex<HashMap<SessionId, ScriptedMove>>,
     calls: Mutex<Vec<(ProviderAccountId, ProviderAccountId, Vec<SessionToMove>)>>,
+    signing_in: Arc<AccountsSigningIn>,
+    is_target_marked: Mutex<Vec<bool>>,
 }
 
 impl ProviderSwitchLegs for RecordedSwitchLegs {
@@ -135,7 +138,9 @@ impl ProviderSwitchLegs for RecordedSwitchLegs {
         from: ProviderAccountId,
         to: ProviderAccountId,
         sessions: Vec<SessionToMove>,
+        _actor: DeviceId,
     ) -> BoxFuture<'_, Vec<Result<SessionAccountMove, (SessionId, DriverError)>>> {
+        lock(&self.is_target_marked).push(self.signing_in.is_signing_in(&to));
         lock(&self.calls).push((from, to, sessions.clone()));
         let script = lock(&self.script).clone();
         async move {
@@ -190,6 +195,7 @@ struct Fixture {
     bindings: RuntimeBindingStore,
     legs: Arc<RecordedSwitchLegs>,
     level_moves: Arc<RecordedLevelMoves>,
+    signing_in: Arc<AccountsSigningIn>,
     switch: Arc<AccountSwitch>,
     move_record: SessionAccountMoveRecord,
     machine_device_id: DeviceId,
@@ -218,22 +224,20 @@ async fn fixture() -> Fixture {
         }]))
         .boxed()
     });
-    let legs = Arc::new(RecordedSwitchLegs::default());
+    let signing_in = Arc::new(AccountsSigningIn::default());
+    let legs = Arc::new(RecordedSwitchLegs {
+        signing_in: Arc::clone(&signing_in),
+        ..RecordedSwitchLegs::default()
+    });
     let level_moves = Arc::new(RecordedLevelMoves::default());
     let appender = Arc::new(SessionEventAppender::new(
         Arc::clone(&log.service),
         SESSION_EVENT_VERSION.clone(),
     ));
     let machine_device_id = actor();
-    let move_record = SessionAccountMoveRecord::new(
-        Arc::clone(&appender),
-        Arc::clone(&reads),
-        Arc::new(|_: &SessionId| None::<i64>),
-        machine_device_id.clone(),
-    );
     let switch = Arc::new(AccountSwitch::new(AccountSwitchDeps {
         accounts: Arc::clone(&accounts),
-        signing_in: Arc::default(),
+        signing_in: Arc::clone(&signing_in),
         account_reader: Arc::new(ProviderAccounts::new(
             Arc::clone(&reads),
             Arc::new(NoTokens),
@@ -248,6 +252,7 @@ async fn fixture() -> Fixture {
         reads: Arc::clone(&reads),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None::<i64>),
     }));
+    let move_record = SessionAccountMoveRecord::new(Arc::clone(&switch), machine_device_id.clone());
     let bindings = RuntimeBindingStore::new(reads, Arc::clone(&log.writer));
     Fixture {
         database,
@@ -257,6 +262,7 @@ async fn fixture() -> Fixture {
         bindings,
         legs,
         level_moves,
+        signing_in,
         switch,
         move_record,
         machine_device_id,
@@ -727,11 +733,53 @@ async fn a_session_a_stop_left_on_the_old_account_moves_at_the_start() {
     assert_eq!(events[0].1["landedProviderAccountId"], current.as_str());
 }
 
-// Fails when a session a driver moved onto another account with no switch waiting on the move is
-// not recorded as its lead landed there in place, by this machine's own device, or when a session
-// whose log names no lead records anything.
+// A switch holds its account's mark from its refusals until every move has landed, so no sign-in
+// or reset starts in the home meanwhile, and lets it go after; a mark a sign-in took first refuses
+// the switch. Killed by the mark only checked, not taken (the move finds no mark), and by the mark
+// kept past the moves.
 #[tokio::test]
-async fn a_move_no_switch_waits_on_is_recorded_for_the_session_lead() {
+async fn a_switch_marks_its_account_until_every_move_has_landed() {
+    let fixture = fixture().await;
+    let old = fixture
+        .register(ProviderAccountHealthState::Authenticated)
+        .await;
+    let to = fixture
+        .register(ProviderAccountHealthState::Authenticated)
+        .await;
+    fixture
+        .session(PROVIDERS[0].id, &old, None, PermissionLevel::Ask, true)
+        .await;
+
+    let made = fixture
+        .switch
+        .make_current(to.clone(), actor())
+        .await
+        .expect("the switch is made");
+    made.settled.await.expect("the moves settle");
+    let _signing_in = fixture
+        .signing_in
+        .mark(old.clone())
+        .expect("no act holds the account left");
+    let refused = fixture.switch.make_current(old, actor()).await;
+
+    assert_eq!(*lock(&fixture.legs.is_target_marked), [true]);
+    assert!(!fixture.signing_in.is_signing_in(&to));
+    let Err(error) = refused else {
+        panic!("an account signing in was made current");
+    };
+    assert_eq!(
+        refusal_code(error),
+        RefusalCode::ProviderAccountSignInInFlight
+    );
+}
+
+// Fails when a session a driver moved with no switch waiting on the move does not land as a
+// switch's lead lands: `changed` in place by the person whose switch moved it, else by this
+// machine's own device, its level the new account cannot run moved to `ask` with one notice, and
+// its first request's hand-back recorded; or when a session whose log names no lead records
+// anything.
+#[tokio::test]
+async fn a_move_no_switch_waits_on_lands_as_a_switch_lead_does() {
     let fixture = fixture().await;
     let left = fixture
         .register(ProviderAccountHealthState::Authenticated)
@@ -739,7 +787,16 @@ async fn a_move_no_switch_waits_on_is_recorded_for_the_session_lead() {
     let to = fixture
         .register(ProviderAccountHealthState::Authenticated)
         .await;
-    let session_id = fixture
+    let reviewed = fixture
+        .session(
+            PROVIDERS[0].id,
+            &left,
+            None,
+            PermissionLevel::Reviewed,
+            true,
+        )
+        .await;
+    let by_machine = fixture
         .session(PROVIDERS[0].id, &left, None, PermissionLevel::Ask, true)
         .await;
     let no_lead = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
@@ -749,21 +806,55 @@ async fn a_move_no_switch_waits_on_is_recorded_for_the_session_lead() {
         None,
         None,
     );
+    let person = actor();
+    let handed_back = SessionAccountMove {
+        session_id: reviewed,
+        first_request: futures::future::ready(Ok(FirstRequestAfterMove::HandedBack)).boxed(),
+    };
 
-    fixture
+    for (moved, moved_by) in [
+        (handed_back, Some(person.clone())),
+        (SessionAccountMove::unobserved(by_machine), None),
+    ] {
+        fixture
+            .move_record
+            .land(moved, to.clone(), moved_by)
+            .await
+            .expect("the lead reads")
+            .await
+            .expect("the landing ends");
+    }
+    let unled = fixture
         .move_record
-        .record_account_moved(session_id, to.clone())
-        .await;
-    fixture
-        .move_record
-        .record_account_moved(no_lead, to.clone())
+        .land(SessionAccountMove::unobserved(no_lead), to.clone(), None)
         .await;
 
-    let events = fixture.appended(session_id);
-    assert_eq!(events.len(), 1);
-    assert_eq!(events[0].0, "agent.providerBinding.changed");
+    let events = fixture.appended(reviewed);
+    let kinds: Vec<&str> = events.iter().map(|(kind, _)| kind.as_str()).collect();
+    assert_eq!(
+        kinds,
+        [
+            "agent.providerBinding.changed",
+            "session.notice.posted",
+            "agent.providerBinding.changeFailed"
+        ]
+    );
     assert_eq!(events[0].1["landedProviderAccountId"], to.as_str());
     assert_eq!(events[0].1["continuity"], "inPlace");
-    assert_eq!(events[0].1["actor"], fixture.machine_device_id.as_str());
+    assert_eq!(events[0].1["actor"], person.as_str());
+    assert_eq!(events[1].1["kind"], "levelUnavailable");
+    assert_eq!(events[2].1["accountState"], "reauthRequired");
+    assert_eq!(events[2].1["actor"], person.as_str());
+    assert_eq!(
+        *lock(&fixture.level_moves.0),
+        [(reviewed, PermissionLevel::Ask)]
+    );
+    let by_machine_events = fixture.appended(by_machine);
+    assert_eq!(by_machine_events.len(), 1);
+    assert_eq!(
+        by_machine_events[0].1["actor"],
+        fixture.machine_device_id.as_str()
+    );
+    assert!(unled.is_none(), "a session with no lead lands nothing");
     assert_eq!(fixture.appended(no_lead), []);
 }

@@ -407,12 +407,23 @@ impl ProviderAccountObserver {
             .read(provider_account_id, ReadAsker::Dictation)
             .await
     }
+}
 
-    /// A turn ended on `provider_account_id`'s account: where its provider reads at a turn's end,
-    /// the account is read in a task of its own, and its interval starts again from that read once
-    /// the read answers figures; a read refused or with no answer leaves the interval as it was.
-    /// While a turn on the account still reads as live the read is owed to [`Self::turn_closed`].
-    pub fn turn_ended(&self, provider_account_id: ProviderAccountId) {
+/// What a metered turn's end and a run's end are handed to; the background observer takes them,
+/// each inside a tokio runtime.
+pub trait AccountTurnObserver {
+    /// A turn metered on `provider_account_id`'s account ended.
+    fn turn_ended(&self, provider_account_id: ProviderAccountId);
+    /// A run ended on some account.
+    fn turn_closed(&self);
+}
+
+impl AccountTurnObserver for ProviderAccountObserver {
+    /// Where the account's provider reads at a turn's end, the account is read in a task of its
+    /// own, and its interval starts again from that read once the read answers figures; a read
+    /// refused or with no answer leaves the interval as it was. While a turn on the account still
+    /// reads as live the read is owed to the next run's end.
+    fn turn_ended(&self, provider_account_id: ProviderAccountId) {
         let shared = Arc::clone(&self.shared);
         tokio::spawn(async move {
             if let Err(error) = shared.read_at_turn_end(provider_account_id).await {
@@ -421,9 +432,9 @@ impl ProviderAccountObserver {
         });
     }
 
-    /// A run ended on some account: each turn-end read a live turn turned away is asked again in a
-    /// task of its own, and is owed again while a turn on its account still reads as live.
-    pub fn turn_closed(&self) {
+    /// Each turn-end read a live turn turned away is asked again in a task of its own, and is owed
+    /// again while a turn on its account still reads as live.
+    fn turn_closed(&self) {
         if lock(&self.shared.turn_end_reads_owed).is_empty() {
             return;
         }

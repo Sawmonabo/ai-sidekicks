@@ -16,9 +16,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::usage::{
     DEFAULT_RATE_LIMIT_ID, UsageRateLimitUpdatedPayload, UsageTokenCountRecordedPayload,
 };
-use sidekicks_contracts::provider::account::record::{
-    ProviderAccountId, ProviderAccountNotification,
-};
+use sidekicks_contracts::provider::account::record::ProviderAccountNotification;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::transcript::run_facts::RunStateEventType;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -27,7 +25,7 @@ use sidekicks_provider::account::errors::ProviderAccountRegistryError;
 use sidekicks_provider::account::home_lock::AccountHomeLock;
 use sidekicks_provider::account::observer::window_store::read_usage_windows;
 use sidekicks_provider::account::observer::{
-    AccountLiveTurns, ProviderAccountObserver, ProviderAccountObserverDeps,
+    AccountLiveTurns, AccountTurnObserver, ProviderAccountObserver, ProviderAccountObserverDeps,
 };
 use sidekicks_provider::account::registry::ProviderAccountRegistry;
 use sidekicks_provider::account::resolver::ProviderAccounts;
@@ -205,12 +203,6 @@ pub(crate) async fn build_provider_account_plane(
         Arc::clone(&home_lock),
         Arc::clone(&signing_in),
     ));
-    let account_move_record = Arc::new(SessionAccountMoveRecord::new(
-        Arc::clone(&appender),
-        Arc::clone(&reads),
-        Arc::clone(&read_damaged_from_sequence),
-        machine_device_id.clone(),
-    ));
     let account_switch = Arc::new(AccountSwitch::new(AccountSwitchDeps {
         accounts: Arc::clone(&registry),
         signing_in: Arc::clone(&signing_in),
@@ -222,6 +214,10 @@ pub(crate) async fn build_provider_account_plane(
         reads: Arc::clone(&reads),
         read_damaged_from_sequence,
     }));
+    let account_move_record = Arc::new(SessionAccountMoveRecord::new(
+        Arc::clone(&account_switch),
+        machine_device_id.clone(),
+    ));
     ProviderAccountPlane {
         methods: ProviderAccountMethodSources {
             accounts: Arc::clone(&registry),
@@ -362,33 +358,16 @@ impl ProviderAccountObservation {
             .map_err(DaemonStartError::AccountFollow)?;
         self.observer.start().await?;
         let observer = Arc::clone(&self.observer);
-        let (reads, publisher) = (Arc::clone(&self.reads), Arc::clone(&self.publisher));
+        let reads = Arc::clone(&self.reads);
+        let publisher: Arc<dyn ProviderAccountNotificationPublisher> =
+            Arc::clone(&self.publisher) as _;
         let runtime = Handle::current();
-        // Runs on the writer's pump, so it only reads the event and hands it on. The binding
-        // cursors' follow, attached before this one, has marked an ended run by the time this hears
-        // it, so the run's turn no longer reads as live.
+        // The binding cursors' follow, attached before this one, has marked an ended run by the
+        // time this hears it, so the run's turn no longer reads as live.
         self.usage_events = Some(followers.follow_all(move |event| {
-            if hand_turn_end(&*observer, event, &runtime)? {
-                return Ok(());
-            }
-            if event.envelope.event_type() == SessionEventType::UsageRateLimitUpdated {
-                let updated = UsageRateLimitUpdatedPayload::deserialize(event.envelope.payload())?;
-                // A limits read's whole set goes out from the observer once the read's time is on
-                // the account's row; only what a turn pushed goes out from here.
-                if updated.whole_set.is_some() {
-                    return Ok(());
-                }
-                let (reads, publisher) = (Arc::clone(&reads), Arc::clone(&publisher));
-                runtime.spawn(async move {
-                    if let Err(error) = publish_usage_window(&reads, &*publisher, &updated).await {
-                        tracing::warn!(
-                            error = &error as &(dyn std::error::Error + 'static),
-                            "a quota reading was not published; the next list reads it"
-                        );
-                    }
-                });
-            }
-            Ok(())
+            Ok(follow_usage_event(
+                &*observer, &reads, &publisher, event, &runtime,
+            )?)
         }));
         Ok(())
     }
@@ -401,28 +380,44 @@ impl ProviderAccountObservation {
     }
 }
 
-/// What a metered turn's end and a run's end are handed to: the background observer.
-pub(super) trait AccountTurnObserver {
-    /// A turn metered on `provider_account_id`'s account ended.
-    fn turn_ended(&self, provider_account_id: ProviderAccountId);
-    /// A run ended on some account.
-    fn turn_closed(&self);
+/// The follow of each committed `event` once the observer has started, run on the writer's pump,
+/// so it only reads the event and hands it on inside `runtime`: a metered turn's end or a run's
+/// end to `observer`, and a quota reading a turn pushed to `publisher` as the window projection
+/// over `reads` keeps it. Fails as the event's payload does not read.
+pub(super) fn follow_usage_event(
+    observer: &dyn AccountTurnObserver,
+    reads: &Arc<DatabaseReadPool>,
+    publisher: &Arc<dyn ProviderAccountNotificationPublisher>,
+    event: &CommittedEvent,
+    runtime: &Handle,
+) -> Result<(), serde_json::Error> {
+    if hand_turn_end(observer, event, runtime)? {
+        return Ok(());
+    }
+    if event.envelope.event_type() == SessionEventType::UsageRateLimitUpdated {
+        let updated = UsageRateLimitUpdatedPayload::deserialize(event.envelope.payload())?;
+        // A limits read's whole set goes out from the observer once the read's time is on the
+        // account's row; only what a turn pushed goes out from here.
+        if updated.whole_set.is_some() {
+            return Ok(());
+        }
+        let (reads, publisher) = (Arc::clone(reads), Arc::clone(publisher));
+        runtime.spawn(async move {
+            if let Err(error) = publish_usage_window(&reads, &*publisher, &updated).await {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a quota reading was not published; the next list reads it"
+                );
+            }
+        });
+    }
+    Ok(())
 }
 
-impl AccountTurnObserver for ProviderAccountObserver {
-    fn turn_ended(&self, provider_account_id: ProviderAccountId) {
-        Self::turn_ended(self, provider_account_id);
-    }
-
-    fn turn_closed(&self) {
-        Self::turn_closed(self);
-    }
-}
-
-/// Hands `observer`, inside `runtime`, the turn `event` metered as ended on its account, or the
-/// run whose terminal state it records as closed; answers whether `event` was either. Fails as a
-/// metered turn's payload does not read.
-pub(super) fn hand_turn_end(
+// Hands `observer`, inside `runtime`, the turn `event` metered as ended on its account, or the
+// run whose terminal state it records as closed; answers whether `event` was either. Fails as a
+// metered turn's payload does not read.
+fn hand_turn_end(
     observer: &dyn AccountTurnObserver,
     event: &CommittedEvent,
     runtime: &Handle,

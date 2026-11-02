@@ -8,7 +8,9 @@
 //!   has landed, so a second switch on that provider waits for the first.
 //! - A dead target refuses before the mark moves or any session is sent anything: an account not
 //!   registered or being removed, a home that is gone, or a sign-in its stored reading says is
-//!   gone; so does an account with a sign-in in flight, whose home the sign-in is using.
+//!   gone; so does an account with a sign-in or a reset in flight, whose home it is using. The
+//!   switch takes the account's mark in the same step that finds it free and holds it until every
+//!   move has landed, so no sign-in or reset starts in the home meanwhile.
 //! - A lead lands at the provider's acknowledgment of its move with `agent.providerBinding.changed`
 //!   in place, or `agent.providerBinding.changeFailed` where the move failed; a first request the
 //!   provider then refuses for the new account's login hands the previous account back, recorded
@@ -22,9 +24,11 @@
 //!   account than its provider's current one, before the runs the stop left waiting are admitted;
 //!   the start waits for the moves, never for a moved lead's first request.
 //! - A session a driver moves with no switch waiting on the move, as one attached to a service
-//!   that changes account outside a switch, is recorded through [`SessionAccountMoveRecord`] with
-//!   the same `agent.providerBinding.changed`, by this machine's own device; the record only reads
-//!   the session's lead and appends, so a driver may report from inside its service's start.
+//!   that changes account outside a switch or one a switch did not name, lands through
+//!   [`SessionAccountMoveRecord`] as a switch's lead lands: the same `changed`, by the person whose
+//!   switch moved it or else this machine's own device, the level move and the first request's
+//!   hand-back. The record only reads the session's lead and level and lands it on a task of its
+//!   own, so a driver may report from inside its own session's task or its service's start.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -53,7 +57,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::account::readiness::derive_account_readiness;
 use sidekicks_provider::account::registry::{ProviderAccountRegistry, RegisteredAccount};
-use sidekicks_provider::account::sign_in::{AccountsSigningIn, ProviderSignInError};
+use sidekicks_provider::account::sign_in::{AccountMark, AccountsSigningIn, ProviderSignInError};
 use sidekicks_provider::driver::contract::account::{
     FirstRequestAfterMove, ProviderSwitchLegs, SessionAccountMove, SessionToMove,
 };
@@ -107,7 +111,8 @@ impl SessionLevelMoves for ProviderSessions {
 pub(crate) struct AccountSwitchDeps {
     /// The accounts, whose current mark the switch moves.
     pub(crate) accounts: Arc<ProviderAccountRegistry>,
-    /// The accounts with a sign-in in flight, which no switch moves onto.
+    /// The accounts with a sign-in or a reset in flight, which no switch moves onto, and where a
+    /// switch marks its account until its moves land.
     pub(crate) signing_in: Arc<AccountsSigningIn>,
     /// Resolves an account's folders, refusing one whose home is gone, and each provider's current
     /// account.
@@ -150,14 +155,19 @@ pub(crate) struct CurrentAccountMade {
     pub(crate) settled: JoinHandle<()>,
 }
 
-// One lead the switch moves: its session, the conversation that moves with it and the account that
-// conversation runs on, and the level the session stands at.
-struct LeadToMove {
+// One lead whose move lands: its session, the lead, and the level the session stands at.
+struct LandingLead {
     session_id: SessionId,
     lead: SessionLead,
+    level: PermissionLevel,
+}
+
+// One lead the switch moves: the lead as it lands, the conversation that moves with it and the
+// account that conversation runs on.
+struct LeadToMove {
+    landing: LandingLead,
     binding_id: RuntimeBindingId,
     from: ProviderAccountId,
-    level: PermissionLevel,
 }
 
 // What a switch moves once the mark stands on `to`.
@@ -193,7 +203,7 @@ impl AccountSwitch {
     /// registered or being removed, `provider.account.credentialHome.unavailable` for a home that
     /// is gone, `provider.account.notAuthenticated` with the account's remedy for a sign-in its
     /// stored reading says is gone and `provider.account.signInInFlight` for an account with a
-    /// sign-in in flight, each with the mark unmoved and no session sent anything.
+    /// sign-in or a reset in flight, each with the mark unmoved and no session sent anything.
     pub(crate) async fn make_current(
         self: &Arc<Self>,
         account_id: ProviderAccountId,
@@ -209,10 +219,17 @@ impl AccountSwitch {
                 Err(refusal) => {
                     let _unheard = answer.send(Err(refusal));
                 }
-                Ok((plan, mark)) => {
-                    let moving = plan.leads.iter().map(|lead| lead.session_id).collect();
+                Ok((plan, mark, home_mark)) => {
+                    let moving = plan
+                        .leads
+                        .iter()
+                        .map(|lead| lead.landing.session_id)
+                        .collect();
                     let _unheard = answer.send(Ok((mark, moving)));
-                    switch.carry_out(plan, actor, hold).await.await;
+                    let first_requests = switch.carry_out(plan, actor, hold).await;
+                    // Every move has landed, so the home is free for a sign-in or a reset.
+                    drop(home_mark);
+                    first_requests.await;
                 }
             }
         });
@@ -251,12 +268,13 @@ impl AccountSwitch {
         followed.into_iter().collect()
     }
 
-    // The refusals, then the mark moved and the leads to move read, all under the provider's lock.
+    // The refusals, then the mark moved and the leads to move read, all under the provider's lock;
+    // answers the account's own mark too, which keeps a sign-in or a reset out of its home.
     async fn begin(
         &self,
         provider: ProviderId,
         account_id: ProviderAccountId,
-    ) -> Result<(SwitchPlan, MarkPlaced), HandlerError> {
+    ) -> Result<(SwitchPlan, MarkPlaced, AccountMark), HandlerError> {
         let account = self.deps.accounts.read(account_id.clone()).await?;
         self.deps
             .account_reader
@@ -272,9 +290,11 @@ impl AccountSwitch {
             .with_detail(ProviderAccountNotAuthenticatedDetails { remedy })
             .into());
         }
-        if self.deps.signing_in.is_signing_in(&account_id) {
-            return Err(ProviderSignInError::InFlight.into());
-        }
+        let home_mark = self
+            .deps
+            .signing_in
+            .mark(account_id.clone())
+            .ok_or(ProviderSignInError::InFlight)?;
         // An account already current keeps the mark, and its sessions still on another move.
         let is_moved = !account.is_default;
         let (account, left) = if account.is_default {
@@ -308,7 +328,7 @@ impl AccountSwitch {
             is_moved,
             left,
         };
-        Ok((plan, mark))
+        Ok((plan, mark, home_mark))
     }
 
     // The leads to move onto `provider`'s current account at the start, `None` where it has none.
@@ -373,11 +393,13 @@ impl AccountSwitch {
                                 }
                             };
                         leads.push(LeadToMove {
-                            session_id: standing.session_id,
-                            lead: standing.lead,
+                            landing: LandingLead {
+                                session_id: standing.session_id,
+                                lead: standing.lead,
+                                level,
+                            },
                             binding_id: conversation.id,
                             from,
-                            level,
                         });
                     }
                     Ok(leads)
@@ -416,18 +438,21 @@ impl AccountSwitch {
             by_account
                 .entry(lead.from.clone())
                 .or_default()
-                .insert(lead.session_id, lead);
+                .insert(lead.landing.session_id, lead);
         }
         let mut first_requests = Vec::new();
         for (from, mut leads) in by_account {
             let sessions = leads
                 .values()
                 .map(|lead| SessionToMove {
-                    session_id: lead.session_id,
+                    session_id: lead.landing.session_id,
                     binding_id: lead.binding_id.clone(),
                 })
                 .collect();
-            for moved in legs.move_sessions(from, to.clone(), sessions).await {
+            for moved in legs
+                .move_sessions(from, to.clone(), sessions, actor.clone())
+                .await
+            {
                 let (session_id, landing) = match moved {
                     Ok(SessionAccountMove {
                         session_id,
@@ -440,15 +465,14 @@ impl AccountSwitch {
                 };
                 match landing {
                     Ok(first_request) => {
-                        self.land(&lead, &to, &actor).await;
-                        first_requests.push(Arc::clone(self).watch_first_request(
-                            lead,
-                            to.clone(),
-                            actor.clone(),
-                            first_request,
-                        ));
+                        let watch = self
+                            .land(lead.landing, to.clone(), actor.clone(), first_request)
+                            .await;
+                        first_requests.push(watch);
                     }
-                    Err(error) => self.record_failed(&lead, &to, &actor, &error).await,
+                    Err(error) => {
+                        self.record_failed(&lead.landing, &to, &actor, &error).await;
+                    }
                 }
             }
         }
@@ -456,11 +480,19 @@ impl AccountSwitch {
         join_all(first_requests).map(drop).boxed()
     }
 
-    // A lead whose move the provider acknowledged: its settlement, then its level moved where the
-    // new account cannot run it.
-    async fn land(&self, lead: &LeadToMove, to: &ProviderAccountId, actor: &DeviceId) {
-        self.record_changed(lead, to, actor).await;
-        self.move_level_where_unavailable(lead, to).await;
+    // A lead whose move landed on `to`, a switch's or one a driver reported: its settlement by
+    // `actor`, then its level moved where `to` cannot run it; answers the watch of its first
+    // request there, which records a hand-back.
+    async fn land(
+        self: &Arc<Self>,
+        lead: LandingLead,
+        to: ProviderAccountId,
+        actor: DeviceId,
+        first_request: BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>>,
+    ) -> BoxFuture<'static, ()> {
+        self.record_changed(&lead, &to, &actor).await;
+        self.move_level_where_unavailable(&lead, &to).await;
+        Arc::clone(self).watch_first_request(lead, to, actor, first_request)
     }
 
     // Waits for a moved lead's first request on `to`: one the provider refused for the new
@@ -469,7 +501,7 @@ impl AccountSwitch {
     // the same failure to the person, and its cause is logged.
     fn watch_first_request(
         self: Arc<Self>,
-        lead: LeadToMove,
+        lead: LandingLead,
         to: ProviderAccountId,
         actor: DeviceId,
         first_request: BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>>,
@@ -497,7 +529,7 @@ impl AccountSwitch {
 
     // Moves a lead at `reviewed` to `ask` where its model lists no `reviewed` on `to`, then posts
     // the notice naming the level it left.
-    async fn move_level_where_unavailable(&self, lead: &LeadToMove, to: &ProviderAccountId) {
+    async fn move_level_where_unavailable(&self, lead: &LandingLead, to: &ProviderAccountId) {
         if lead.level != PermissionLevel::Reviewed {
             return;
         }
@@ -555,7 +587,7 @@ impl AccountSwitch {
         .await;
     }
 
-    async fn record_changed(&self, lead: &LeadToMove, to: &ProviderAccountId, actor: &DeviceId) {
+    async fn record_changed(&self, lead: &LandingLead, to: &ProviderAccountId, actor: &DeviceId) {
         append_settlement(
             &self.deps.appender,
             lead.session_id,
@@ -566,7 +598,7 @@ impl AccountSwitch {
 
     async fn record_failed(
         &self,
-        lead: &LeadToMove,
+        lead: &LandingLead,
         to: &ProviderAccountId,
         actor: &DeviceId,
         error: &DriverError,
@@ -582,7 +614,7 @@ impl AccountSwitch {
 
     async fn record_failed_with(
         &self,
-        lead: &LeadToMove,
+        lead: &LandingLead,
         to: &ProviderAccountId,
         actor: &DeviceId,
         account_state: AgentBindingSwitchAccountState,
@@ -618,74 +650,86 @@ impl AccountSwitch {
 }
 
 /// The record of each session a driver moved onto another account with no switch waiting on the
-/// move: `agent.providerBinding.changed` for the session's lead, landed on that account, by this
-/// machine's own device.
+/// move: it lands as a switch's lead lands, through the switch's own landing.
 pub(crate) struct SessionAccountMoveRecord {
-    appender: Arc<SessionEventAppender>,
-    reads: Arc<DatabaseReadPool>,
-    read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+    switch: Arc<AccountSwitch>,
     machine_device_id: DeviceId,
 }
 
 impl SessionAccountMoveRecord {
-    /// The record appending through `appender`, reading each lead through `reads` outside the
-    /// skipped ranges `read_damaged_from_sequence` answers, by `machine_device_id`.
-    pub(crate) fn new(
-        appender: Arc<SessionEventAppender>,
-        reads: Arc<DatabaseReadPool>,
-        read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
-        machine_device_id: DeviceId,
-    ) -> Self {
+    /// The record landing each move through `switch`, by `machine_device_id` where no person's
+    /// switch moved the session.
+    pub(crate) fn new(switch: Arc<AccountSwitch>, machine_device_id: DeviceId) -> Self {
         Self {
-            appender,
-            reads,
-            read_damaged_from_sequence,
+            switch,
             machine_device_id,
         }
+    }
+
+    /// Reads `moved`'s session's lead and level, then lands it on `to` on a task of its own, by
+    /// `actor` or else this machine's own device, answering that task; `None`, logged, where the
+    /// lead or level cannot be read or the log names no lead.
+    pub(crate) async fn land(
+        &self,
+        moved: SessionAccountMove,
+        to: ProviderAccountId,
+        actor: Option<DeviceId>,
+    ) -> Option<JoinHandle<()>> {
+        let session_id = moved.session_id;
+        let damaged_from = Arc::clone(&self.switch.deps.read_damaged_from_sequence);
+        let read = self
+            .switch
+            .deps
+            .reads
+            .read(
+                ReadLength::Short,
+                move |reader| -> Result<_, SessionLeadsReadError> {
+                    let read_bound = session_read_bound(&*damaged_from, &session_id, None);
+                    let Some(lead) = read_session_lead(reader, &session_id, read_bound)? else {
+                        return Ok(None);
+                    };
+                    let level = read_session_permission_level(reader, &session_id)?;
+                    Ok(Some(LandingLead {
+                        session_id,
+                        lead,
+                        level,
+                    }))
+                },
+            )
+            .await;
+        let lead = match read {
+            Ok(Some(lead)) => lead,
+            Ok(None) => {
+                tracing::warn!(
+                    %session_id,
+                    "a session moved onto another account names no lead, so nothing records it"
+                );
+                return None;
+            }
+            Err(error) => {
+                skip_unreadable(session_id, &error);
+                return None;
+            }
+        };
+        let switch = Arc::clone(&self.switch);
+        let actor = actor.unwrap_or_else(|| self.machine_device_id.clone());
+        Some(tokio::spawn(async move {
+            let watch = switch.land(lead, to, actor, moved.first_request).await;
+            watch.await;
+        }))
     }
 }
 
 impl SessionAccountMoveRecorder for SessionAccountMoveRecord {
-    /// Reads the session's lead and appends its move; a session whose lead cannot be read, or whose
-    /// log names none, is logged and records nothing.
+    /// Lands the move as [`SessionAccountMoveRecord::land`] does, its task left to run.
     fn record_account_moved(
         &self,
-        session_id: SessionId,
+        moved: SessionAccountMove,
         provider_account_id: ProviderAccountId,
+        actor: Option<DeviceId>,
     ) -> BoxFuture<'_, ()> {
         async move {
-            let damaged_from = Arc::clone(&self.read_damaged_from_sequence);
-            let lead = self
-                .reads
-                .read(
-                    ReadLength::Short,
-                    move |reader| -> Result<_, SessionLeadsReadError> {
-                        let read_bound = session_read_bound(&*damaged_from, &session_id, None);
-                        Ok(read_session_lead(reader, &session_id, read_bound)?)
-                    },
-                )
-                .await;
-            let lead = match lead {
-                Ok(Some(lead)) => lead,
-                Ok(None) => {
-                    tracing::warn!(
-                        %session_id,
-                        "a session moved onto another account names no lead, so nothing records it"
-                    );
-                    return;
-                }
-                Err(error) => {
-                    skip_unreadable(session_id, &error);
-                    return;
-                }
-            };
-            let event = binding_changed(
-                session_id,
-                &lead,
-                &provider_account_id,
-                &self.machine_device_id,
-            );
-            append_settlement(&self.appender, session_id, &event).await;
+            drop(self.land(moved, provider_account_id, actor).await);
         }
         .boxed()
     }

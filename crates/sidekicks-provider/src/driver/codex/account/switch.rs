@@ -8,10 +8,10 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use futures::FutureExt as _;
-use futures::future::{BoxFuture, join_all};
+use futures::future::join_all;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::domain_error::DomainError;
 use tokio::sync::oneshot;
 
@@ -19,17 +19,18 @@ use super::CodexAccountLegs;
 use crate::driver::codex::service::registry::switching_home;
 use crate::driver::codex::service::switching::CodexNamedMove;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::account::{FirstRequestAfterMove, SessionAccountMove, SessionToMove};
+use crate::driver::contract::account::{SessionAccountMove, SessionToMove};
 use crate::driver::contract::error::DriverError;
 
-/// Moves each of `sessions` onto `to` through `legs` with one login on the switching service, as
-/// [`crate::driver::contract::account::ProviderSwitchLegs::move_sessions`] says. The account it
-/// leaves is the one the service carries. A refused login, or a service that cannot start, fails
-/// every move with that error.
+/// Moves each of `sessions` onto `to` through `legs` with one login on the switching service for
+/// `actor`, as [`crate::driver::contract::account::ProviderSwitchLegs::move_sessions`] says. The
+/// account it leaves is the one the service carries. A refused login, or a service that cannot
+/// start, fails every move with that error.
 pub(super) async fn move_codex_sessions(
     legs: &CodexAccountLegs,
     to: ProviderAccountId,
     sessions: Vec<SessionToMove>,
+    actor: DeviceId,
 ) -> Vec<Result<SessionAccountMove, (SessionId, DriverError)>> {
     let (queued, landings): (Vec<_>, Vec<_>) = sessions
         .into_iter()
@@ -38,7 +39,7 @@ pub(super) async fn move_codex_sessions(
             ((session.clone(), moved), (session, landed))
         })
         .unzip();
-    if let Err(error) = switch_service(legs, to.clone(), queued).await {
+    if let Err(error) = switch_service(legs, to.clone(), queued, actor).await {
         let error = Arc::new(DriverError::from(error));
         return landings
             .into_iter()
@@ -59,22 +60,22 @@ pub(super) async fn move_codex_sessions(
                     .map_err(DriverError::Internal),
             };
             moved.map_err(|error| (session_id, error))?;
-            Ok(SessionAccountMove {
-                session_id,
-                first_request: unobserved(),
-            })
+            // Codex reports a login it then refuses through its own refresh request, which the
+            // hand-back answers, so no first request is watched here.
+            Ok(SessionAccountMove::unobserved(session_id))
         }
     }))
     .await
 }
 
-// Starts the switching service where it is not up and hands it `to`'s tokens; at the answer the
-// service's readings start afresh and each session on it, each of `queued` among them, takes its
-// move in its queue.
+// Starts the switching service where it is not up and hands it `to`'s tokens for `actor`; at the
+// answer the service's readings start afresh and each session on it, each of `queued` among them,
+// takes its move in its queue.
 async fn switch_service(
     legs: &CodexAccountLegs,
     to: ProviderAccountId,
     queued: Vec<(SessionToMove, oneshot::Sender<Result<(), DriverError>>)>,
+    actor: DeviceId,
 ) -> Result<(), CodexError> {
     let service = legs
         .registry
@@ -95,7 +96,7 @@ async fn switch_service(
     service
         .dependencies()
         .switching
-        .hand_switch(&service, to, named)
+        .hand_switch(&service, to, named, actor)
         .await
 }
 
@@ -142,12 +143,6 @@ fn share_failure(error: &Arc<DriverError>) -> DriverError {
         );
     }
     DriverError::Internal(shared)
-}
-
-// The switch's answer settles no first request: Codex reports a login it then refuses through its
-// own refresh request, which the hand-back answers.
-fn unobserved() -> BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>> {
-    futures::future::ready(Ok(FirstRequestAfterMove::Unobserved)).boxed()
 }
 
 #[cfg(test)]

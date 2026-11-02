@@ -49,13 +49,9 @@ pub(super) async fn move_claude_sessions(
         let session_id = session.session_id;
         let (from, to) = (from.clone(), to.clone());
         async move {
-            let first_request = move_claude_session(legs, from, to, session)
+            move_claude_session(legs, from, to, session)
                 .await
-                .map_err(|error| (session_id, error))?;
-            Ok(SessionAccountMove {
-                session_id,
-                first_request,
-            })
+                .map_err(|error| (session_id, error))
         }
     }))
     .await
@@ -86,10 +82,7 @@ async fn move_claude_session(
     from: ProviderAccountId,
     to: ProviderAccountId,
     session: SessionToMove,
-) -> Result<
-    futures::future::BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>>,
-    DriverError,
-> {
+) -> Result<SessionAccountMove, DriverError> {
     let establishment = legs
         .sessions
         .get()
@@ -103,12 +96,15 @@ async fn move_claude_session(
             ClaudeSessionStanding::Live(live) => break live,
             // Its restart composes its start from the moved account, as does its next open. The
             // binding names the home and moves first, so a failure leaves the restart on `from`
-            // with it; a restart that began meanwhile is followed as it stands now.
+            // with it.
             ClaudeSessionStanding::Held { ended, .. } => {
                 keep_process_home(legs, &session, &ended).await?;
-                move_binding(&*legs.bindings, &session, &to).await?;
-                if restarts.move_held_account(&ended, to.clone()) {
-                    return Ok(unobserved());
+                let is_moved = move_held_binding(&*legs.bindings, &session, &from, &to, || {
+                    restarts.move_held_account(&ended, to.clone())
+                })
+                .await?;
+                if is_moved {
+                    return Ok(SessionAccountMove::unobserved(session.session_id));
                 }
             }
             ClaudeSessionStanding::Settling(settled) => {
@@ -117,7 +113,7 @@ async fn move_claude_session(
             ClaudeSessionStanding::Down => {
                 keep_stored_home(legs, &session).await?;
                 move_binding(&*legs.bindings, &session, &to).await?;
-                return Ok(unobserved());
+                return Ok(SessionAccountMove::unobserved(session.session_id));
             }
         }
     };
@@ -175,12 +171,15 @@ async fn move_claude_session(
             Err(_unheard) => Ok(FirstRequestAfterMove::Unobserved),
         }
     });
-    Ok(async move {
-        watching
-            .await
-            .unwrap_or_else(|error| Err(DriverError::Internal(Box::new(error))))
-    }
-    .boxed())
+    Ok(SessionAccountMove {
+        session_id: session.session_id,
+        first_request: async move {
+            watching
+                .await
+                .unwrap_or_else(|error| Err(DriverError::Internal(Box::new(error))))
+        }
+        .boxed(),
+    })
 }
 
 impl ClaudeHandBack {
@@ -378,6 +377,58 @@ async fn move_binding(
         .map_err(DriverError::Internal)
 }
 
-fn unobserved() -> futures::future::BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>> {
-    futures::future::ready(Ok(FirstRequestAfterMove::Unobserved)).boxed()
+// Moves the held session's lead binding onto `to`, then its held restart through
+// `move_held_account`; where that restart began meanwhile, the binding goes back to `from`, the
+// account the restart still runs on, so spend metered before the move is charged where it ran and
+// the live process's move takes the binding over among its frames. Answers whether the held
+// restart moved. Fails as the binding cannot move.
+async fn move_held_binding(
+    bindings: &dyn RuntimeBindingWriter,
+    session: &SessionToMove,
+    from: &ProviderAccountId,
+    to: &ProviderAccountId,
+    move_held_account: impl FnOnce() -> bool,
+) -> Result<bool, DriverError> {
+    move_binding(bindings, session, to).await?;
+    if move_held_account() {
+        return Ok(true);
+    }
+    move_binding(bindings, session, from).await?;
+    Ok(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use sidekicks_contracts::provider::account::record::ProviderAccountId;
+
+    use super::move_held_binding;
+    use crate::driver::claude::session::scripted::binding_id;
+    use crate::driver::claude::session::scripted::daemon_services::TakenBindingWrites;
+    use crate::driver::contract::account::SessionToMove;
+    use crate::driver::test_registry::new_session_id;
+
+    // A held restart that began meanwhile still runs on the account left, so the lead's binding
+    // goes back there: spend metered before the live process's in-place move stays on the account
+    // that served it. Killed by the binding left on the new account when the held restart did not
+    // move.
+    #[tokio::test]
+    async fn a_held_restart_that_began_meanwhile_takes_the_binding_back() {
+        let bindings = TakenBindingWrites::default();
+        let session = SessionToMove {
+            session_id: new_session_id(),
+            binding_id: binding_id("resting"),
+        };
+        let from = ProviderAccountId::new("account-from".to_owned()).expect("an account id");
+        let to = ProviderAccountId::new("account-to".to_owned()).expect("an account id");
+
+        let is_moved = move_held_binding(&bindings, &session, &from, &to, || false)
+            .await
+            .expect("the binding moves");
+
+        assert!(!is_moved);
+        assert_eq!(
+            bindings.moves(),
+            [(binding_id("resting"), to), (binding_id("resting"), from)]
+        );
+    }
 }

@@ -17,6 +17,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
@@ -97,6 +98,8 @@ pub(crate) struct CodexAccountMove {
     /// Where the bindings' move, or its failure, goes once the spend before it is recorded, where
     /// a switch waits on it.
     pub(crate) moved: Option<oneshot::Sender<Result<(), DriverError>>>,
+    /// The person whose switch moved the session without naming it; `None` where no switch did.
+    pub(crate) actor: Option<DeviceId>,
 }
 
 /// A call on a session's record, each answering on its own `reply`; a dropped `reply` means the

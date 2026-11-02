@@ -6,6 +6,7 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use secrecy::SecretString;
@@ -21,6 +22,7 @@ use sidekicks_contracts::provider::account::sign_in::{
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -392,17 +394,30 @@ pub struct SessionAccountMove {
     pub first_request: BoxFuture<'static, Result<FirstRequestAfterMove, DriverError>>,
 }
 
+impl SessionAccountMove {
+    /// `session_id`'s move whose first request the driver does not watch, which settles at once as
+    /// [`FirstRequestAfterMove::Unobserved`].
+    pub fn unobserved(session_id: SessionId) -> Self {
+        Self {
+            session_id,
+            first_request: futures::future::ready(Ok(FirstRequestAfterMove::Unobserved)).boxed(),
+        }
+    }
+}
+
 /// A provider's move of its running sessions from one account to another, each in place where
 /// the provider can and else between turns, its bindings moving with it.
 pub trait ProviderSwitchLegs: Send + Sync {
-    /// Moves each of `sessions` from account `from` onto `to`, answering once every move landed:
-    /// at the provider's acknowledgment, at a restart between turns, or at once for a session
-    /// running no process. A session's move fails with the driver's error, leaving it on `from`,
-    /// where the provider refused it or the session could not be moved; the other moves go on.
+    /// Moves each of `sessions` from account `from` onto `to` for `actor`, answering once every
+    /// move landed: at the provider's acknowledgment, at a restart between turns, or at once for a
+    /// session running no process. A session's move fails with the driver's error, leaving it on
+    /// `from`, where the provider refused it or the session could not be moved; the other moves go
+    /// on. A session the switch moves without naming it is reported as moved by `actor`.
     fn move_sessions(
         &self,
         from: ProviderAccountId,
         to: ProviderAccountId,
         sessions: Vec<SessionToMove>,
+        actor: DeviceId,
     ) -> BoxFuture<'_, Vec<Result<SessionAccountMove, (SessionId, DriverError)>>>;
 }

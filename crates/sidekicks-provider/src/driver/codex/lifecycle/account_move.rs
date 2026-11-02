@@ -1,7 +1,8 @@
 //! A session's move onto another account as its task makes it: the record's account at once, its
 //! bindings once the spend metered before is recorded, then the move answered to the switch that
 //! waits on it, or, where none waits and the move took the session off another account, reported
-//! to the daemon's record of a move no switch settles.
+//! to the daemon's record of a move no switch settles, by the person whose switch moved the
+//! service where one did.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -12,6 +13,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::codex::session::inbound::CodexAccountMove;
+use crate::driver::contract::account::SessionAccountMove;
 use crate::driver::contract::error::DriverError;
 use crate::port::session_account_move::SessionAccountMoveRecorder;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -103,7 +105,11 @@ impl CodexBindingMove {
             return;
         };
         recorder
-            .record_account_moved(session_id, account_move.provider_account_id)
+            .record_account_moved(
+                SessionAccountMove::unobserved(session_id),
+                account_move.provider_account_id,
+                account_move.actor,
+            )
             .await;
     }
 }

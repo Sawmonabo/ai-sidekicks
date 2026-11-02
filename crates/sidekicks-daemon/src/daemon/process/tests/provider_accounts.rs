@@ -19,6 +19,7 @@ use sidekicks_contracts::wire::integer::{SafeInt, SafeSignedInt};
 use sidekicks_contracts::wire::number::{NonNegativeNumber, Number};
 use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, create_missing_private_folders};
+use sidekicks_provider::account::observer::AccountTurnObserver;
 use sidekicks_provider::account::registry::PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY;
 use sidekicks_provider::account::sign_in::ProviderAccountNotificationPublisher;
 use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
@@ -37,7 +38,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::TestHome;
 use crate::daemon::process::provider_accounts::{
-    AccountTurnObserver, collect_provider_account_legs, hand_turn_end, publish_usage_window,
+    collect_provider_account_legs, follow_usage_event, publish_usage_window,
 };
 use crate::daemon::schema::schema_parts;
 
@@ -223,9 +224,10 @@ impl AccountTurnObserver for RecordedTurnEnds {
     }
 }
 
-// A run's terminal state reaches the observer as a run closed, which asks again each turn-end read
-// a live turn turned away. Killed by the follow's turn-close call removed, where those reads stay
-// owed until another turn on the account ends.
+// A run's terminal state, followed as the observation follows every committed event, reaches the
+// observer as a run closed, which asks again each turn-end read a live turn turned away. Killed by
+// the follow's turn-end hand removed, where those reads stay owed until another turn on the
+// account ends.
 #[tokio::test]
 async fn a_run_end_hands_the_observer_a_closed_run() {
     let session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
@@ -241,9 +243,19 @@ async fn a_run_end_hands_the_observer_a_closed_run() {
     }))
     .expect("the test writes a session event");
     let observer = RecordedTurnEnds::default();
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    // Never opened: a run's end reads nothing.
+    let reads = Arc::new(DatabaseReadPool::new(
+        data_folder.path().join(DAEMON_DATABASE_FILE_NAME),
+        PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY,
+    ));
+    let publisher: Arc<dyn ProviderAccountNotificationPublisher> =
+        Arc::new(RecordedNotifications::default());
 
-    let is_handed = hand_turn_end(
+    follow_usage_event(
         &observer,
+        &reads,
+        &publisher,
         &CommittedEvent {
             envelope: Arc::new(test_envelope(session_id, &event)),
             sequence: SafeInt::new(1).expect("a sequence"),
@@ -252,7 +264,6 @@ async fn a_run_end_hands_the_observer_a_closed_run() {
     )
     .expect("the run's end reads");
 
-    assert!(is_handed);
     assert_eq!(*lock(&observer.closed), 1);
     assert_eq!(*lock(&observer.ended), []);
 }

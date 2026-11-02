@@ -12,6 +12,8 @@ use rstest::rstest;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::io::AsyncWriteExt as _;
 use tokio::sync::watch;
@@ -124,6 +126,7 @@ impl SwitchFixture {
                     session_id: self.session_id,
                     binding_id: binding_id("resting"),
                 }],
+                switching_person(),
             )
             .await;
         assert_eq!(moves.len(), 1);
@@ -165,6 +168,11 @@ impl SwitchFixture {
             .map(|request| request["settings"]["env"].clone())
             .collect()
     }
+}
+
+// The person whose switch the tests make; a Claude Code move names every session it moves.
+fn switching_person() -> DeviceId {
+    DeviceId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a device id")
 }
 
 fn folders(root: &Path, name: &str) -> ProviderAccountFolders {
@@ -593,6 +601,7 @@ async fn a_held_restart_whose_binding_cannot_move_stays_on_the_old_account() {
                 session_id: switch.session_id,
                 binding_id: binding_id("resting"),
             }],
+            switching_person(),
         )
         .await;
 

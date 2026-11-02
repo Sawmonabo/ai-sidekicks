@@ -14,6 +14,7 @@ use sidekicks_contracts::provider::account::record::{
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_std::mutex_lock::lock;
@@ -67,17 +68,23 @@ const THREAD: &str = "thread-on-the-switching-service";
 const WORKSPACE_LEFT: &str = "workspace-of-the-account-left";
 const WORKSPACE_TO: &str = "workspace-of-the-account-moved-to";
 
-/// Each binding move the store was asked for, and each move reported as no switch's.
+/// Each binding move the store was asked for, and each move reported as no switch's with the
+/// person it names.
 #[derive(Default)]
 struct RecordedMoves {
     bindings: Mutex<Vec<(RuntimeBindingId, ProviderAccountId)>>,
-    reported: Mutex<Vec<(SessionId, ProviderAccountId)>>,
+    reported: Mutex<Vec<(SessionId, ProviderAccountId, Option<DeviceId>)>>,
 }
 
 impl RecordedMoves {
-    fn reported(&self) -> Vec<(SessionId, ProviderAccountId)> {
+    fn reported(&self) -> Vec<(SessionId, ProviderAccountId, Option<DeviceId>)> {
         lock(&self.reported).clone()
     }
+}
+
+/// The person whose switch the tests make.
+fn switching_person() -> DeviceId {
+    DeviceId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a device id")
 }
 
 impl RuntimeBindingWriter for RecordedMoves {
@@ -109,10 +116,11 @@ impl RuntimeBindingWriter for RecordedMoves {
 impl SessionAccountMoveRecorder for RecordedMoves {
     fn record_account_moved(
         &self,
-        session_id: SessionId,
+        moved: SessionAccountMove,
         provider_account_id: ProviderAccountId,
+        actor: Option<DeviceId>,
     ) -> BoxFuture<'_, ()> {
-        lock(&self.reported).push((session_id, provider_account_id));
+        lock(&self.reported).push((moved.session_id, provider_account_id, actor));
         async {}.boxed()
     }
 }
@@ -444,7 +452,10 @@ async fn a_switch_is_one_login_whose_answer_moves_each_session_in_its_place() {
         send_frame(scripted, "item/completed");
         login
     };
-    let (moved, login) = tokio::join!(move_codex_sessions(&fixture.legs, to, sessions), script);
+    let (moved, login) = tokio::join!(
+        move_codex_sessions(&fixture.legs, to, sessions, switching_person()),
+        script
+    );
     let replies = format!(
         "{:?}",
         moved
@@ -536,7 +547,10 @@ async fn a_refused_login_moves_nothing_and_fails_every_move_with_the_refusal() {
             "error": {"code": -32600, "message": "the workspace is not allowed"},
         }));
     };
-    let (moved, ()) = tokio::join!(move_codex_sessions(&fixture.legs, to, sessions), script);
+    let (moved, ()) = tokio::join!(
+        move_codex_sessions(&fixture.legs, to, sessions, switching_person()),
+        script
+    );
 
     let carried = fixture.scripted.service.provider_account_id();
     let readings = fixture.scripted.service.rate_limit_reading().observation;
@@ -575,7 +589,7 @@ async fn a_switch_to_an_account_signed_out_of_its_home_refuses_before_any_login(
 
     let to = fixture.to.clone();
     let sessions = vec![fixture.session.clone()];
-    let moved = move_codex_sessions(&fixture.legs, to, sessions).await;
+    let moved = move_codex_sessions(&fixture.legs, to, sessions, switching_person()).await;
     let sent = fixture.unread_requests();
     fixture.seen_by_the_session().await;
 
@@ -689,7 +703,7 @@ async fn a_renewal_waiting_on_a_switch_hands_nothing_once_the_switch_lands() {
         renewal_login.ok()
     };
     let (moved, renewed, renewal_login) = tokio::join!(
-        move_codex_sessions(legs, to.clone(), sessions),
+        move_codex_sessions(legs, to.clone(), sessions, switching_person()),
         renewal,
         script
     );
@@ -719,7 +733,7 @@ async fn a_switch_login_never_answered_leaves_the_carried_account_unknown() {
     tokio::time::pause();
     let scripted = &mut fixture.scripted;
     let (moved, _login) = tokio::join!(
-        move_codex_sessions(&fixture.legs, to, sessions),
+        move_codex_sessions(&fixture.legs, to, sessions, switching_person()),
         scripted.next_request(CODEX_LOGIN_START_METHOD)
     );
     tokio::time::resume();
@@ -782,7 +796,7 @@ async fn a_session_start_after_a_refused_switch_moves_the_sessions_left_behind()
         }));
     };
     let (refused, ()) = tokio::join!(
-        move_codex_sessions(&fixture.legs, to.clone(), sessions),
+        move_codex_sessions(&fixture.legs, to.clone(), sessions, switching_person()),
         refuse
     );
     let (carried, _login) = tokio::join!(
@@ -798,21 +812,22 @@ async fn a_session_start_after_a_refused_switch_moves_the_sessions_left_behind()
     assert!(carried.is_ok());
     assert_eq!(service.provider_account_id(), Some(to.clone()));
     assert_eq!(seen, [format!("moved to {}", to.as_str())]);
-    assert_eq!(moves.reported(), [(session_id, to)]);
+    assert_eq!(moves.reported(), [(session_id, to, None)]);
 }
 
 // Fails when a switch moves a session attached to the service that it did not name, as one with no
 // lead yet, onto the new account without moving its record's binding or reporting the move for
-// the daemon to record, or when it reports the session it named.
+// the daemon to record by the person whose switch it is, or when it reports the session it named.
 #[tokio::test]
 async fn a_switch_reports_each_session_it_moved_without_naming_it() {
     let mut fixture = Fixture::new().await;
+    let person = switching_person();
     let unnamed = SessionQueue::new(new_session_id(), fixture.left.clone(), &fixture.moves);
     let unnamed_drained = unnamed.attach(&fixture.scripted.service);
     let to = fixture.to.clone();
     let sessions = vec![fixture.session.clone()];
     let (moved, _login) = tokio::join!(
-        move_codex_sessions(&fixture.legs, to.clone(), sessions),
+        move_codex_sessions(&fixture.legs, to.clone(), sessions, person.clone()),
         answer_login(&mut fixture.scripted)
     );
     fixture.queue.wait_until_seen(1).await;
@@ -827,7 +842,10 @@ async fn a_switch_reports_each_session_it_moved_without_naming_it() {
     assert!(moved.iter().all(Result::is_ok));
     assert_eq!(seen, [format!("moved to {}", to.as_str())]);
     assert_eq!(unnamed.seen(), [format!("moved to {}", to.as_str())]);
-    assert_eq!(moves.reported(), [(unnamed.session_id, to.clone())]);
+    assert_eq!(
+        moves.reported(),
+        [(unnamed.session_id, to.clone(), Some(person))]
+    );
     assert!(lock(&moves.bindings).contains(&(unnamed.record_binding.clone(), to)));
 }
 
@@ -843,7 +861,7 @@ async fn a_rejoin_carrying_no_account_reports_each_session_it_moved() {
     tokio::time::pause();
     let scripted = &mut fixture.scripted;
     let (unanswered, _login) = tokio::join!(
-        move_codex_sessions(&fixture.legs, to, sessions),
+        move_codex_sessions(&fixture.legs, to, sessions, switching_person()),
         scripted.next_request(CODEX_LOGIN_START_METHOD)
     );
     tokio::time::resume();
@@ -864,5 +882,5 @@ async fn a_rejoin_carrying_no_account_reports_each_session_it_moved() {
     assert!(handed.is_ok());
     assert_eq!(service.provider_account_id(), Some(left.clone()));
     assert_eq!(seen, [format!("moved to {}", left.as_str())]);
-    assert_eq!(moves.reported(), [(session_id, left)]);
+    assert_eq!(moves.reported(), [(session_id, left, None)]);
 }

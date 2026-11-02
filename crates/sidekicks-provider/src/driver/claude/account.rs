@@ -21,6 +21,7 @@ use futures::future::BoxFuture;
 use secrecy::SecretString;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_platforms::{PathRules, Spawner};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
@@ -202,6 +203,8 @@ impl ProviderSwitchLegs for ClaudeAccountLegs {
         from: ProviderAccountId,
         to: ProviderAccountId,
         sessions: Vec<SessionToMove>,
+        // Each session moves on its own process, so every one moved is named and none reported.
+        _actor: DeviceId,
     ) -> BoxFuture<'_, Vec<Result<SessionAccountMove, (SessionId, DriverError)>>> {
         switch::move_claude_sessions(self, from, to, sessions).boxed()
     }

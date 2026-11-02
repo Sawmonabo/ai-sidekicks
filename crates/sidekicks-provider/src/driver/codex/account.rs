@@ -19,6 +19,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 
@@ -211,8 +212,9 @@ impl ProviderSwitchLegs for CodexAccountLegs {
         _from: ProviderAccountId,
         to: ProviderAccountId,
         sessions: Vec<SessionToMove>,
+        actor: DeviceId,
     ) -> BoxFuture<'_, Vec<Result<SessionAccountMove, (SessionId, DriverError)>>> {
-        switch::move_codex_sessions(self, to, sessions).boxed()
+        switch::move_codex_sessions(self, to, sessions, actor).boxed()
     }
 }
 
