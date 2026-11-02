@@ -110,8 +110,8 @@ pub(crate) enum CrashMonitorEndFailure {
 /// decisions, the session services' follows with the chats' write watch and file recount, whose
 /// watermark a clean end stores, the renames' name pushes, the highlighter, the terminals, the
 /// scheduler, the working-folder watch, the projects list, the search index, the drivers, the turn
-/// end captures under way, the git trees a failed call left and, last, the kept worktrees' reads. Answers each step's failure,
-/// every step having run.
+/// end captures under way, the git trees a failed call left and, last, the kept worktrees' reads.
+/// Answers each step's failure, every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     intent: DaemonStopIntent,
