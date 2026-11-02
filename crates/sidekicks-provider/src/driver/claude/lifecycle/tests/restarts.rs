@@ -485,7 +485,7 @@ async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked
 }
 
 // Killed by moving a busy session to the new build at once, which would end its running reply,
-// and by never moving it once the reply ends.
+// by never moving it once the reply ends, and by not telling the person of the new build.
 #[tokio::test(start_paused = true)]
 async fn a_build_move_on_a_busy_session_waits_for_its_turn_to_settle() {
     let fixture = ScriptedDriver::new();
@@ -522,6 +522,19 @@ async fn a_build_move_on_a_busy_session_waits_for_its_turn_to_settle() {
         fixture.relaunches.reported(1).await.as_slice(),
         [(reported_session, Some(_))] if *reported_session == session_id
     ));
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        fixture.engine.wait_until(|_| {
+            fixture
+                .engine
+                .deliveries()
+                .iter()
+                .any(|delivery| delivery.kind == "sessionNotice")
+                .then_some(())
+        }),
+    )
+    .await
+    .expect("the new build is posted");
 }
 
 // Killed by a resume refused because the session's process is live with no transition to wait
