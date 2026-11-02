@@ -140,7 +140,8 @@ fn error_object(error: &ErrorData) -> Map<String, Value> {
 
 // Reads a failed send from its source chain: a refused sign-in, an answer that came back as an
 // error, else no answer. rmcp's HTTP error carries our client's error without naming it as its
-// source, so the walk steps into it.
+// source, so the walk steps into it. A renewal that failed reads as no answer unless the server
+// refused the sign-in, which the authorizer reports as `SignInRequired`.
 #[expect(
     clippy::wildcard_enum_match_arm,
     reason = "rmcp's errors are non-exhaustive, so every other kind is named by the wildcard"
@@ -159,9 +160,7 @@ fn read_transport_failure(error: &DynamicTransportError) -> PollFailure {
             continue;
         };
         match http {
-            StreamableHttpError::AuthRequired(_)
-            | StreamableHttpError::InsufficientScope(_)
-            | StreamableHttpError::Client(McpHttpError::Renewal(_)) => {
+            StreamableHttpError::AuthRequired(_) | StreamableHttpError::InsufficientScope(_) => {
                 return PollFailure::SignInRefused;
             }
             StreamableHttpError::HttpStatus(_)
@@ -331,6 +330,7 @@ mod tests {
     use rmcp::model::{ErrorCode, ErrorData};
     use rmcp::service::ServiceError;
     use rmcp::transport::DynamicTransportError;
+    use rmcp::transport::auth::AuthError;
     use rmcp::transport::streamable_http_client::{AuthRequiredError, StreamableHttpError};
     use rstest::rstest;
     use serde_json::{Map, Value, json};
@@ -338,7 +338,8 @@ mod tests {
     use tokio::time::Instant;
 
     use self::Reply::{
-        Closed, Completed, McpError, Refused, SignInRefused, Silent, Unavailable, Working,
+        AuthorizerSignInRequired, Closed, Completed, McpError, Refused, RenewalFailed,
+        SignInRefused, Silent, Unavailable, Working,
     };
     use super::{DEFAULT_POLL_INTERVAL, PollStep, follow_task, poll_interval};
     use crate::client::http::McpHttpError;
@@ -348,6 +349,7 @@ mod tests {
         TaskIdRejected,
     };
     use crate::client::tasks::{McpTaskContact, McpToolCallEnd};
+    use crate::sign_in::authorizer::SignInAuthorizationError;
 
     // Fails when the server's suggestion is taken unbounded (a removed clamp) or the default is
     // not 2 s.
@@ -380,6 +382,10 @@ mod tests {
         Unavailable,
         /// A 401 asking for a sign-in.
         SignInRefused,
+        /// The authorizer holds no sign-in the server accepts.
+        AuthorizerSignInRequired,
+        /// A refused request whose token's renewal failed on the network, the sign-in kept.
+        RenewalFailed,
         /// No answer within the request's bound.
         Silent,
     }
@@ -435,6 +441,14 @@ mod tests {
             SignInRefused => Err(transport_failure(StreamableHttpError::AuthRequired(
                 AuthRequiredError::new(r#"Bearer error="invalid_token""#.to_owned()),
             ))),
+            AuthorizerSignInRequired => Err(transport_failure(StreamableHttpError::Client(
+                McpHttpError::Authorize(Box::new(SignInAuthorizationError::SignInRequired)),
+            ))),
+            RenewalFailed => Err(transport_failure(StreamableHttpError::Client(
+                McpHttpError::Renewal(Box::new(SignInAuthorizationError::Renewal(
+                    AuthError::TokenRefreshFailed("error sending request".to_owned()),
+                ))),
+            ))),
             Silent => Err(McpRequestError::Service(ServiceError::Timeout {
                 timeout: Duration::from_secs(60),
             })),
@@ -451,7 +465,9 @@ mod tests {
     // write `Lost` or nothing for a sign-in, a rejected id or an error answer (the 503, sign-in
     // and rejected cases); leave Lost's clock running at a `-32602`, or keep `Lost` over it (lost,
     // then rejected); or pick the 300 s arm from the wrong cause (the 503 and sign-in cases). In
-    // `poll_failure`, read any row of its table as another.
+    // `read_transport_failure`, read every failed renewal as a refused sign-in (a renewal failed
+    // on the network), or stop at rmcp's client error instead of stepping into it (the
+    // authorizer's sign-in required). In `poll_failure`, read any row of its table as another.
     #[rstest]
     #[case::closed(|_| Closed, McpToolCallEnd::ConnectionClosed, 0, vec![])]
     #[case::rejected_on_every_poll(
@@ -537,6 +553,18 @@ mod tests {
             (310, SignInNotAccepted),
             (312, Reached),
         ],
+    )]
+    #[case::the_authorizers_sign_in_required(
+        |at| match at { 0..10 => AuthorizerSignInRequired, 10 => Working, _ => Completed },
+        McpToolCallEnd::Answered { result: result() },
+        12,
+        vec![(0, NeedsSignIn), (10, Reached)],
+    )]
+    #[case::a_renewal_failed_on_the_network(
+        |at| match at { 0..310 => RenewalFailed, 310 => Working, _ => Completed },
+        McpToolCallEnd::Answered { result: result() },
+        312,
+        vec![(300, Lost), (310, Reached)],
     )]
     #[tokio::test(start_paused = true)]
     async fn each_failed_poll_is_read_for_what_it_says(
