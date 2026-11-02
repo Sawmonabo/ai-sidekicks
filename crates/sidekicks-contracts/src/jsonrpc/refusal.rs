@@ -592,6 +592,9 @@ refusal_codes! {
     /// `session.link.remove` named a link the daemon wrote from an event (`started`, `copiedFrom`,
     /// `messaged`, `asked`, `mentioned`), which records what happened.
     SessionLinkNotRemovable = "session.link.notRemovable" (FailedPrecondition, 409);
+    /// A message, a steer or a queued message whose first token is `/clear`, `/reset` or `/new`,
+    /// refused before any of it reaches the provider, since a session is never reset in place.
+    SessionMessageResetRefused = "session.message.resetRefused" (InvalidArgument, 422);
     /// The session's provider refused a message, a steer or a queued message as longer than its
     /// own limit, so none of it reached the conversation (`data.fields`:
     /// `SessionMessageTooLargeDetails`).
