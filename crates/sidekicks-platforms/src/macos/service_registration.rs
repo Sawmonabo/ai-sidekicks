@@ -26,6 +26,9 @@ use crate::{LeftoverSweep, current_user_id, replace_file_atomically};
 // The service manager, by its full path so no `PATH` entry stands in for it.
 const LAUNCHCTL_PROGRAM: &str = "/bin/launchctl";
 
+// The program a run with root's rights starts a program as the account through, by its full path.
+const SUDO_PROGRAM: &str = "/usr/bin/sudo";
+
 /// The folder launchd reads the system domain's property lists from.
 pub(crate) const SYSTEM_LIST_FOLDER: &str = "/Library/LaunchDaemons";
 
@@ -246,6 +249,24 @@ impl ServiceRegistration {
             return Ok(());
         }
         answer.succeeded("bootout")
+    }
+
+    /// The command that runs `program` as the account: under root's rights through
+    /// `/usr/bin/sudo -H -u #<user id> --`, which sets the account's home, its groups and a clean
+    /// environment, so what the program writes in the home is the account's; otherwise `program`
+    /// itself. Fails with [`ServiceRegistrationError::NoInvokingAccount`] under root's rights with
+    /// no account named.
+    pub fn account_command(&self, program: &Path) -> Result<Command, ServiceRegistrationError> {
+        if !self.runs_as_root {
+            return Ok(Command::new(program));
+        }
+        let mut command = Command::new(SUDO_PROGRAM);
+        command
+            .args(["-H", "-u"])
+            .arg(format!("#{}", self.account_user_id()?))
+            .arg("--")
+            .arg(program);
+        Ok(command)
     }
 
     /// The account's entry in the user database. Fails with

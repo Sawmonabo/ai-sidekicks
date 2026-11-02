@@ -261,6 +261,14 @@ impl ServiceRegistration {
         match *self {}
     }
 
+    /// The command that runs a program as the account; never called, since no value exists.
+    pub fn account_command(
+        &self,
+        _program: &std::path::Path,
+    ) -> Result<std::process::Command, ServiceRegistrationError> {
+        match *self {}
+    }
+
     /// Why this build refuses the system service; never called, since no value exists.
     pub fn system_service_refusal(&self) -> Option<&'static str> {
         match *self {}
