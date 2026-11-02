@@ -327,7 +327,7 @@ pub use posix::error_codes::{
     is_resource_busy,
 };
 #[cfg(unix)]
-pub use posix::file_facts::{entry_changed_at, file_facts};
+pub use posix::file_facts::{entry_changed_at, file_facts, file_facts_of};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(unix, any(test, feature = "test-support")))]
@@ -528,7 +528,7 @@ pub use windows::error_codes::{
     is_resource_busy,
 };
 #[cfg(target_os = "windows")]
-pub use windows::file_facts::{entry_changed_at, file_facts};
+pub use windows::file_facts::{entry_changed_at, file_facts, file_facts_of};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
