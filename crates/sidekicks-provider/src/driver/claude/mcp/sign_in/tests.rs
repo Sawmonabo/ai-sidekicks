@@ -195,6 +195,7 @@ async fn a_claude_takeover_leaves_the_persons_saved_sign_ins_as_they_were() {
         Arc::clone(&channel),
         json!({"mcpOAuth": {"docs|key": saved(SERVER_NAME, SERVER_ADDRESS, "access-one")}}),
         ScriptedSignInPlace::File,
+        Vec::new(),
     );
 
     let (opened, signed_in) = sign_in(&scripted, user_binding()).await;
@@ -248,6 +249,7 @@ async fn a_sign_in_saved_in_the_keychain_is_read_and_its_item_removed() {
         custom_scheme_channel(),
         json!({"mcpOAuth": {"docs|key": saved(SERVER_NAME, SERVER_ADDRESS, "access-one")}}),
         ScriptedSignInPlace::Keychain,
+        Vec::new(),
     );
 
     let (_opened, signed_in) = sign_in(&scripted, user_binding()).await;
@@ -303,6 +305,7 @@ async fn a_plugin_binding_signs_in_with_its_entry_and_a_connector_reads_the_no_e
         custom_scheme_channel(),
         json!({"mcpOAuth": {"docs|key": saved(SERVER_NAME, SERVER_ADDRESS, "access-one")}}),
         ScriptedSignInPlace::File,
+        Vec::new(),
     );
     let plugin = McpServerBindingRef::Plugin {
         provider: DESCRIPTOR.provider_id(),
@@ -396,6 +399,7 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
         custom_scheme_channel(),
         json!({"mcpOAuth": {"docs|key": saved(SERVER_NAME, SERVER_ADDRESS, "access-one")}}),
         ScriptedSignInPlace::File,
+        Vec::new(),
     );
     let (request, opened, returned) = request(user_binding());
     let signing_in = tokio::spawn(async move { driver.sign_in_with_own_client(request).await });
@@ -423,6 +427,47 @@ async fn a_user_entry_is_read_from_the_config_folder_the_persons_environment_nam
     );
 }
 
+// A frame the sign-in's process writes reporting an error ends the sign-in with that error's text,
+// its folder still removed. Killed by a sign-in that leaves the process's frames unread, which
+// waits for a browser that never returns.
+#[tokio::test]
+async fn an_error_the_sign_in_process_reports_ends_the_sign_in_with_its_text() {
+    let scripted = ScriptedDriver::new();
+    std::fs::create_dir_all(&scripted.home).expect("the person's home is made");
+    std::fs::write(scripted.home.join(".claude.json"), PERSON_CONFIG)
+        .expect("the person's config is written");
+    scripted.starts.script_mcp_sign_in(
+        custom_scheme_channel(),
+        json!({}),
+        ScriptedSignInPlace::File,
+        vec![json!({
+            "type": "system",
+            "subtype": "api_error",
+            "error": "the authorization server refused the client",
+        })],
+    );
+    let (request, _opened, _returned) = request(user_binding());
+
+    let refused = scripted.driver.sign_in_with_own_client(request).await;
+
+    let error = refused.expect_err("the sign-in ends with the reported error");
+    let mut chain = error.to_string();
+    let mut source = std::error::Error::source(&error);
+    while let Some(cause) = source {
+        chain.push_str(": ");
+        chain.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    assert!(
+        chain.contains("the authorization server refused the client"),
+        "the reported text is the cause: {chain}"
+    );
+    let left = std::fs::read_dir(sign_ins_folder(&scripted))
+        .expect("the sign-ins' folder reads")
+        .count();
+    assert_eq!(left, 0, "the sign-in's own folder is removed");
+}
+
 // A sign-in dropped while it waits for the browser leaves no folder, and the start's sweep removes
 // a folder a stopped daemon left, with the keychain item named for it. Killed by a folder with no
 // drop guard, by a start that sweeps nothing, and by a sweep that leaves the keychain item.
@@ -436,6 +481,7 @@ async fn a_dropped_sign_in_leaves_no_folder_and_the_sweep_removes_a_left_one() {
         custom_scheme_channel(),
         json!({}),
         ScriptedSignInPlace::File,
+        Vec::new(),
     );
     let sign_ins = sign_ins_folder(&scripted);
     let (request, opened, _returned) = request(user_binding());

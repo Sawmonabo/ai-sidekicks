@@ -7,15 +7,16 @@
 //! opens; where the authorization server took the daemon's redirect address, the browser's return
 //! is handed back with `mcp_oauth_callback_url`, whose answer comes once the sign-in is saved, and
 //! where it refused that address Claude Code's own loopback listener takes the return, the saved
-//! sign-in then waited for. The sign-in is read back from the folder's credentials file, else the
-//! keychain item Claude Code files for the folder, which is removed once read; the process is
-//! closed and the folder removed whatever the outcome, a dropped sign-in's included. The person's
-//! own folders are only read, for the entry.
+//! sign-in then waited for. What the process writes is read for its whole life: a frame reporting
+//! an error ends the sign-in with that error, a request it waits on is answered as one no one
+//! watches, and its end ends the sign-in. The sign-in is read back from the folder's credentials
+//! file, else the keychain item Claude Code files for the folder, which is removed once read; the
+//! process is closed and the folder removed whatever the outcome, a dropped sign-in's included.
+//! The person's own folders are only read, for the entry.
 
 use std::error::Error;
 use std::future;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use notify::{RecursiveMode, Watcher as _};
@@ -24,7 +25,8 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use tokio::sync::watch;
+use sidekicks_ipc::redaction::sanitize_failure_reason;
+use tokio::sync::{mpsc, watch};
 use tokio::time::{Interval, MissedTickBehavior};
 use url::Url;
 
@@ -32,6 +34,7 @@ use crate::driver::claude::account_credentials::{
     ClaudeCredentialReadError, ClaudeSignInReader, ClaudeStoredCredentials,
     SECURE_STORAGE_FOLDER_VARIABLE, read_claude_credential_file,
 };
+use crate::driver::claude::mcp::ClaudeMcpProcess;
 use crate::driver::claude::mcp::config::{
     ClaudeDeclaredEntry, ClaudePersonConfigFiles, ClaudeServerEntryReader,
 };
@@ -42,9 +45,15 @@ use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
 use crate::driver::claude::session::account_servers::{
     ClaudeAccountReadAsk, ClaudeAccountServerReads,
 };
+use crate::driver::claude::session::errors::ClaudeSessionError;
+use crate::driver::claude::session::process::ClaudeStreamFrame;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
+use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+use crate::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
+use crate::driver::claude::spawn::launch::control_only::ClaudeShortProcessArrival;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
+use crate::driver::claude::spawn::launch::one_turn::compose_unwatched_answer;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
     BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInBrowser, ProviderSignInTakeover,
@@ -52,6 +61,7 @@ use crate::driver::contract::sign_in::{
 };
 use crate::driver::mcp_server::address::read_server_address;
 use crate::driver::mcp_server::sign_in_folder::{SignInFolder, remove_left_sign_in_folders};
+use crate::driver::mcp_server::status::FAILURE_TEXT_MAX_CODE_POINTS;
 
 /// The data folder's folder each sign-in makes its own folder in.
 const CLAUDE_MCP_SIGN_IN_FOLDER: [&str; 2] = ["claude", "mcp-sign-in"];
@@ -117,7 +127,18 @@ pub(crate) enum ClaudeSignInError {
     /// The saved sign-in names no client, and the server's entry names none either.
     #[error("Claude Code's saved MCP sign-in names no client")]
     NoClient,
+    /// The sign-in's process wrote a frame reporting an error.
+    #[error("Claude Code's MCP sign-in process reported an error")]
+    ProcessReported(#[source] ClaudeReportedError),
+    /// The sign-in's process ended before the sign-in did.
+    #[error("Claude Code's MCP sign-in process ended before the sign-in finished")]
+    ProcessEnded,
 }
+
+/// The error text a Claude Code process reported in a frame, sanitized and cut to a bound.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+pub(crate) struct ClaudeReportedError(String);
 
 impl From<ClaudeSignInError> for DriverError {
     /// Every failure of the sign-in is the driver's own.
@@ -141,9 +162,6 @@ pub(crate) struct ClaudeMcpSignInStart {
     /// never where an administrator's MCP file is deployed, under which Claude Code exits at start.
     pub(crate) loads_only_its_servers: bool,
 }
-
-/// The process `starts` brings up for a sign-in, as a channel the sign-in drives.
-pub(crate) type ClaudeMcpSignInChannel = Arc<dyn ClaudeProcessChannel>;
 
 /// Where a sign-in reads the server's entry and the saved sign-in, and makes its own folder.
 pub(crate) struct ClaudeSignInSources<'sources> {
@@ -206,7 +224,10 @@ pub(crate) async fn sign_in_with_claude_client(
             environment: environment.clone(),
             is_armed: true,
         };
-        let channel = starts
+        let ClaudeMcpProcess {
+            channel,
+            mut arrivals,
+        } = starts
             .start_mcp_sign_in(ClaudeMcpSignInStart {
                 environment: environment.clone(),
                 provider_account_id: request.provider_account_id.clone(),
@@ -215,20 +236,33 @@ pub(crate) async fn sign_in_with_claude_client(
                 loads_only_its_servers: !has_managed_mcp_file,
             })
             .await?;
-        let exchanged = run_sign_in(
-            &*channel,
-            SavedSignInPlaces {
-                credentials: sources.credentials,
-                environment: &environment,
-                folder: folder.path(),
-            },
-            &name,
-            &request.redirect_url,
-            request.lifetime,
-            request.browser,
-        )
-        .await;
+        let exchanged = tokio::select! {
+            // A report the process wrote before an answer it sent ends the sign-in first.
+            biased;
+            ended = read_sign_in_arrivals(&*channel, &mut arrivals) => Err(ended),
+            exchanged = run_sign_in(
+                &*channel,
+                SavedSignInPlaces {
+                    credentials: sources.credentials,
+                    environment: &environment,
+                    folder: folder.path(),
+                },
+                &name,
+                &request.redirect_url,
+                request.lifetime,
+                request.browser,
+            ) => exchanged,
+        };
         channel.close().await;
+        // What the process wrote after the exchange ended, read so none of it is dropped unread.
+        while let Ok(arrival) = arrivals.try_recv() {
+            if let ClaudeShortProcessArrival::Frame(frame) = arrival {
+                tracing::debug!(
+                    frame_kind = %frame.observation.frame_kind,
+                    "Claude Code's MCP sign-in process wrote a frame as it closed"
+                );
+            }
+        }
         exchanged?;
         let saved = read_saved_sign_in(
             sources.credentials,
@@ -468,6 +502,88 @@ async fn run_sign_in(
         })
         .await?;
     Ok(())
+}
+
+// Reads what the sign-in's process writes until a frame reports an error, which it answers as the
+// sign-in's failure, or the process ends: a request it waits on is answered as one no one watches
+// answers it, and every other frame is noted at debug. Waits for ever once nothing more can
+// arrive, the sign-in's own waits then deciding its end; fails as an answer cannot be written.
+async fn read_sign_in_arrivals(
+    channel: &dyn ClaudeProcessChannel,
+    arrivals: &mut mpsc::UnboundedReceiver<ClaudeShortProcessArrival>,
+) -> DriverError {
+    loop {
+        match arrivals.recv().await {
+            Some(ClaudeShortProcessArrival::Frame(frame)) => {
+                if let Some(text) = read_reported_error(&frame) {
+                    return ClaudeSignInError::ProcessReported(ClaudeReportedError(text)).into();
+                }
+                tracing::debug!(
+                    frame_kind = %frame.observation.frame_kind,
+                    "Claude Code's MCP sign-in process wrote a frame"
+                );
+            }
+            Some(ClaudeShortProcessArrival::Request(ClaudeInboundRequestEvent::Request(asked))) => {
+                let answer =
+                    serde_json::value::to_raw_value(&compose_unwatched_answer(&asked.body))
+                        .expect("an answer the daemon composes always serializes");
+                if let ClaudeWriteAttempt::Failed { cause, .. } = channel
+                    .answer_inbound_request(asked.request_id, answer)
+                    .await
+                {
+                    return ClaudeSessionError::InputUnwritable(cause).into();
+                }
+            }
+            Some(ClaudeShortProcessArrival::Request(ClaudeInboundRequestEvent::Cancel {
+                ..
+            })) => {}
+            Some(ClaudeShortProcessArrival::Exit) => return ClaudeSignInError::ProcessEnded.into(),
+            None => return future::pending().await,
+        }
+    }
+}
+
+// The members of a frame that say it reports an error.
+#[derive(Deserialize)]
+struct ReportedErrorFrame {
+    #[serde(default)]
+    error: Option<Value>,
+    #[serde(default)]
+    is_error: Option<bool>,
+    #[serde(default)]
+    result: Option<Value>,
+    #[serde(default)]
+    errors: Vec<Value>,
+}
+
+// The error text `frame` reports, sanitized and cut to a bound: its `error`, as text or as an
+// object's `message`, else, for a frame marked `is_error`, its `result` text, its `errors` joined,
+// or its kind. `None` for a frame that reports no error.
+fn read_reported_error(frame: &ClaudeStreamFrame) -> Option<String> {
+    let read: ReportedErrorFrame = serde_json::from_str(&frame.text).ok()?;
+    let text = if let Some(error) = read.error.filter(|error| !error.is_null()) {
+        match error {
+            Value::String(text) => text,
+            other @ (Value::Null
+            | Value::Bool(_)
+            | Value::Number(_)
+            | Value::Array(_)
+            | Value::Object(_)) => other
+                .get("message")
+                .and_then(Value::as_str)
+                .map_or_else(|| other.to_string(), str::to_owned),
+        }
+    } else if read.is_error == Some(true) {
+        let errors: Vec<&str> = read.errors.iter().filter_map(Value::as_str).collect();
+        match read.result.as_ref().and_then(Value::as_str) {
+            Some(result) if !result.is_empty() => result.to_owned(),
+            Some(_) | None if !errors.is_empty() => errors.join("; "),
+            Some(_) | None => frame.observation.frame_kind.clone(),
+        }
+    } else {
+        return None;
+    };
+    Some(sanitize_failure_reason(&text, FAILURE_TEXT_MAX_CODE_POINTS))
 }
 
 // Waits, within `lifetime`, until `places` hold a sign-in for `name`: the folder's file read again
