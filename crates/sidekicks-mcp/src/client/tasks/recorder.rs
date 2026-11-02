@@ -284,8 +284,9 @@ mod tests {
         database
             .reader()
             .execute(
-                "INSERT INTO command_receipts (id, command_id, status, started_at, created_at) \
-                 VALUES ('receipt-1', 'command-1', 'accepted', 't', 't')",
+                "INSERT INTO command_receipts \
+                 (id, command_id, run_id, status, started_at, created_at) \
+                 VALUES ('receipt-1', 'command-1', 'run-1', 'accepted', 't', 't')",
                 [],
             )
             .expect("the claimed receipt is seeded");
