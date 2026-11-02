@@ -433,9 +433,9 @@ impl SessionCreation {
             directory: directory_in_mount(&planning_folder),
         };
         let (mut new_session, account) = self.prepare_birth(target, hand_off.session_id).await?;
-        // A title that makes no name, blank or holding a NUL, leaves the session for the naming
-        // pass to name after its first exchange.
-        new_session.name = session_name_of(&hand_off.title).unwrap_or_default();
+        // A blank title leaves the session for the naming pass to name after its first exchange.
+        new_session.name = session_name_of(&hand_off.title)
+            .expect("a plan's title holds no NUL, and the name is cut to its bound");
         new_session.place = match project_id {
             Some(project_id) => self.read_project_place(project_id).await?,
             None => planning_folder.place,
