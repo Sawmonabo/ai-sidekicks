@@ -101,6 +101,7 @@ mod rate_limits;
 mod release_notes;
 mod rules;
 mod run;
+mod self_update;
 mod server_requests;
 mod service;
 mod session;
