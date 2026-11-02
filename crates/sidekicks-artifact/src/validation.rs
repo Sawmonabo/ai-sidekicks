@@ -52,7 +52,7 @@ macro_rules! file_name_member {
 }
 
 /// The metadata member that records a file's name, which an attachment's line to an agent shows.
-pub const FILE_NAME_MEMBER: &str = file_name_member!();
+pub(crate) const FILE_NAME_MEMBER: &str = file_name_member!();
 
 /// The SQL column expression of the file name a manifest row's `metadata` records: the name where
 /// it is text, NULL where it is absent or any other JSON type.

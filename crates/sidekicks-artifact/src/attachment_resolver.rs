@@ -122,7 +122,7 @@ fn read_stored_payload(
     session_id: &SessionId,
     artifact_id: &ArtifactId,
 ) -> Result<Option<StoredPayload>, ArtifactError> {
-    let stored = connection
+    Ok(connection
         .prepare_cached(&SELECT_PAYLOAD_SQL)?
         .query_row(
             named_params! {
@@ -137,8 +137,7 @@ fn read_stored_payload(
                 })
             },
         )
-        .optional()?;
-    Ok(stored)
+        .optional()?)
 }
 
 /// The file name the manifest `artifact_id` of `session_id` records, read on `connection`; `None`
