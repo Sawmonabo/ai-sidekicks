@@ -1,17 +1,20 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use rstest::rstest;
 use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_std::port_registration::PortRegistration;
 
 use super::{
-    CodexProjectRule, CodexRuleSources, CodexRulesError, RULE_EVALUATION_TIME_LIMIT,
-    read_codex_project_rules, remove_codex_project_rule, take_back_codex_project_rule,
+    CodexProjectRule, CodexProjectRuleFiles, CodexRuleSources, CodexRulesError,
+    RULE_EVALUATION_TIME_LIMIT, read_codex_project_rules, remove_codex_project_rule,
     write_codex_project_rule,
 };
+use crate::driver::codex::delivery::asks::CodexProjectRules;
 
 fn rule(
     sense: RememberedRuleSense,
@@ -264,8 +267,9 @@ async fn a_revoke_one_of_whose_edits_would_break_its_file_changes_no_file() {
 }
 
 // A write into another of the project's folders failed, so the rule this folder took is taken
-// back: out of the daemon's own file alone, the person's copy in the home file and the team's in
-// the project kept. Killed by a take-back that removes the rule wherever a file makes it.
+// back through the rollback's own entry point: out of the daemon's own file alone, the person's copy
+// in the home file and the team's in the project kept. Killed by a take-back that removes the rule
+// wherever a file makes it.
 #[tokio::test]
 async fn taking_back_a_written_rule_leaves_the_persons_and_the_teams_copies() {
     let places = Places::new();
@@ -278,9 +282,13 @@ async fn taking_back_a_written_rule_leaves_the_persons_and_the_teams_copies() {
         .write_rule(None, &rule)
         .await
         .expect("the rule is written");
-    let paths = places.paths("home", "project");
+    let project_rules = CodexProjectRuleFiles {
+        home_folder: places.path("person"),
+        repositories: Arc::new(PortRegistration::new("repositories")),
+    };
 
-    take_back_codex_project_rule(&places.sources(&paths, true), &rule)
+    project_rules
+        .take_back(&places.path("home"), &places.path("project"), &rule)
         .await
         .expect("the written rule is taken back");
 
