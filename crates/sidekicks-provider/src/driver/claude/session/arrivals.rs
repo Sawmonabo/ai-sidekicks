@@ -29,6 +29,7 @@ use crate::driver::claude::delivery::stream::{
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::frame_routing::{ClaudeFrameRouting, ClaudeRoutedObservation};
 use crate::driver::claude::run::routes::ClaudeBoundRun;
+use crate::driver::claude::session::conversation_home::ClaudeConversationHomeKeep;
 use crate::driver::claude::session::process::account::ClaudeProcessAccount;
 use crate::driver::claude::session::process::{
     ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
@@ -117,6 +118,9 @@ pub(crate) enum ClaudeOwnDelivery {
         lead_binding_id: RuntimeBindingId,
         /// Where the move is written.
         bindings: Arc<dyn RuntimeBindingWriter>,
+        /// The home each binding moved names first; `None` where the account moved onto holds
+        /// the conversation.
+        conversation_home: Option<ClaudeConversationHomeKeep>,
         /// Answered how the process's next request goes, where the switch listens for it.
         first_request: Option<oneshot::Sender<ClaudeFirstRequest>>,
     },

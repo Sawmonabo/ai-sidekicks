@@ -519,6 +519,7 @@ mod tests {
                     provider_account_id: moved_to.clone(),
                     lead_binding_id: binding_id("resting"),
                     bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingWriter>,
+                    conversation_home: None,
                     first_request: None,
                 },
             )

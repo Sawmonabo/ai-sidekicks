@@ -358,7 +358,7 @@ impl ClaudeSessionEstablishment {
             callback_tools: request.callback_tools.clone(),
             row_values: request.row_values,
         };
-        let provider_account_id = request.provider_account_id.clone();
+        let provider_account_id = request.provider_account_id;
         let legs = build_claude_spawn_bound_legs(
             ClaudeSpawnLegsRequest {
                 session_id,
@@ -368,7 +368,6 @@ impl ClaudeSessionEstablishment {
                 tool_servers: request.tool_servers,
                 output_schema: request.output_schema,
                 on_mcp_server_status: request.on_mcp_server_status,
-                provider_account_id: request.provider_account_id,
                 command_channel,
                 context,
                 continues_interrupted_turn: request.continued_turn.is_some(),

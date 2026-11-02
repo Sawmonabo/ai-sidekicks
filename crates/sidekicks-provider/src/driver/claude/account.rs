@@ -135,10 +135,10 @@ impl ClaudeAccountLegs {
 impl ProviderAccountLegs for ClaudeAccountLegs {
     fn sign_out_home(
         &self,
-        provider_account_id: ProviderAccountId,
+        _provider_account_id: ProviderAccountId,
         folders: ProviderAccountFolders,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        sign_out::sign_out_claude_home(self, provider_account_id, folders).boxed()
+        sign_out::sign_out_claude_home(self, folders).boxed()
     }
 
     fn observe_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderObserveLegs>> {

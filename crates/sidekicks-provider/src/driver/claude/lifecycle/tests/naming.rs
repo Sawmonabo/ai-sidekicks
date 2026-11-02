@@ -1,11 +1,13 @@
 //! A resting session's name: drawn from its first exchange in a one-turn process, and told to
 //! Claude Code once the driver no longer remembers it.
 
-use serde_json::Value;
+use rstest::rstest;
+use serde_json::{Map, Value};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::ProviderAccountFolders;
+use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, sandbox_cannot_run};
 use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnReply;
 use crate::driver::session_control::NameSessionParams;
@@ -14,11 +16,18 @@ use crate::driver::test_registry::new_session_id;
 /// The conversation the session's stored leg names.
 const STORED_CONVERSATION: &str = "0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d";
 
-// A fresh driver holds nothing of the session, as after a daemon restart. Killed by reading only
-// the driver's memory, which refuses the rename, and by composing the account's home as the
-// person's own, where no file of the conversation sits.
+// A fresh driver holds nothing of the session, as after a daemon restart. After a switch from
+// the account whose home holds the conversation, the stored leg names the new account and the
+// home its recovery data keeps. Killed by reading only the driver's memory, which refuses the
+// rename, by composing the account's home as the person's own, where no file of the conversation
+// sits, and by looking in the home of the account the leg names now.
+#[rstest]
+#[case::on_its_own_account(false)]
+#[case::after_a_switch(true)]
 #[tokio::test]
-async fn a_rename_at_rest_after_a_restart_names_the_conversation_its_stored_leg_ran() {
+async fn a_rename_at_rest_after_a_restart_names_the_conversation_its_stored_leg_ran(
+    #[case] is_switched: bool,
+) {
     let account_folder = tempfile::tempdir().expect("the test makes an account folder");
     let config_folder = account_folder.path().join("config");
     let fixture = ScriptedDriver::with_account_folders_and_sandbox_check(
@@ -33,8 +42,23 @@ async fn a_rename_at_rest_after_a_restart_names_the_conversation_its_stored_leg_
     let file = project_folder.join(format!("{STORED_CONVERSATION}.jsonl"));
     std::fs::write(&file, "{\"type\":\"user\"}\n").expect("the conversation is written");
     let session_id = new_session_id();
-    let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
-    fixture.record_session_leg(session_id, account, STORED_CONVERSATION);
+    let (account, runtime_metadata) = if is_switched {
+        let moved_to = ProviderAccountId::new("account-to".to_owned()).expect("an account id");
+        let other_home = account_folder.path().join("to");
+        fixture.accounts.register(
+            moved_to.clone(),
+            ProviderAccountFolders {
+                configuration_folder: other_home.join("config"),
+                credential_store_folder: other_home.join("credentials"),
+            },
+            None,
+        );
+        (moved_to, claude_conversation_home_metadata(&config_folder))
+    } else {
+        let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
+        (account, Map::new())
+    };
+    fixture.record_session_leg(session_id, account, STORED_CONVERSATION, runtime_metadata);
 
     fixture
         .driver
@@ -57,7 +81,7 @@ async fn a_naming_pass_at_rest_runs_its_one_turn_in_no_mode_of_its_own() {
     let fixture = ScriptedDriver::new();
     let session_id = new_session_id();
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
-    fixture.record_session_leg(session_id, account, STORED_CONVERSATION);
+    fixture.record_session_leg(session_id, account, STORED_CONVERSATION, Map::new());
     fixture.starts.script_one_turn(ClaudeOneTurnReply {
         text: "Login page fix".to_owned(),
         provider_message_id: None,

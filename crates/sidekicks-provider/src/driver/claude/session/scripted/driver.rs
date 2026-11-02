@@ -383,6 +383,21 @@ impl ScriptedDriver {
         account_folders: Option<ProviderAccountFolders>,
         sandbox_check: ClaudeCommandSandboxCheck,
     ) -> Self {
+        Self::build(account_folders, sandbox_check, true)
+    }
+
+    /// The driver of [`Self::new`] before the daemon registered its callback tool host.
+    pub(crate) fn before_the_callback_tool_host() -> Self {
+        Self::build(None, sandbox_cannot_run, false)
+    }
+
+    // The driver over `account_folders` and `sandbox_check`, its callback tool host registered
+    // where `is_host_registered`.
+    fn build(
+        account_folders: Option<ProviderAccountFolders>,
+        sandbox_check: ClaudeCommandSandboxCheck,
+        is_host_registered: bool,
+    ) -> Self {
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");
         let database = TestDatabase::new(schema_parts());
         drop(
@@ -438,10 +453,12 @@ impl ScriptedDriver {
         let recording = Arc::new(RecordingPorts::default());
         let usage = Arc::new(RecordingUsage::default());
         let relaunches = Arc::new(RecordedRelaunches::default());
-        ports
-            .callback_tool_host
-            .register(test_callback_tool_host())
-            .expect("the host registers once");
+        if is_host_registered {
+            ports
+                .callback_tool_host
+                .register(test_callback_tool_host())
+                .expect("the host registers once");
+        }
         register_scripted_ports(ports, &recording);
         ports
             .usage
@@ -508,12 +525,14 @@ impl ScriptedDriver {
     }
 
     /// Records the leg of a session that ran and now rests, as the run engine reads it back: a
-    /// binding that names conversation `resume_handle` on `provider_account_id`'s account.
+    /// binding that names conversation `resume_handle` on `provider_account_id`'s account, holding
+    /// the provider's recovery data `runtime_metadata`.
     pub(crate) fn record_session_leg(
         &self,
         session_id: SessionId,
         provider_account_id: ProviderAccountId,
         resume_handle: &str,
+        runtime_metadata: Map<String, serde_json::Value>,
     ) {
         let recorded_at = "2026-01-01T00:00:00.000Z".to_owned();
         self.engine.set_session_leg(
@@ -531,7 +550,7 @@ impl ScriptedDriver {
                 resume_handle: Some(resume_handle.to_owned()),
                 resolved_executable_path: "/opt/provider/bin".to_owned(),
                 spawn_config: spawn_config_on(provider_account_id),
-                runtime_metadata: Map::new(),
+                runtime_metadata,
                 created_at: recorded_at.clone(),
                 updated_at: recorded_at,
             },

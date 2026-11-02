@@ -54,7 +54,9 @@ impl ClaudeSessionRestarts {
                 return relaunch_failure(&describe_error(&error as &(dyn Error + 'static)));
             }
         }
-        establishment.resume(params).await
+        establishment.resume(params).await.unwrap_or_else(|error| {
+            relaunch_failure(&describe_error(&error as &(dyn Error + 'static)))
+        })
     }
 
     // Has the session directory answer the function legs of `binding_id`, the relaunch's binding,

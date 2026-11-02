@@ -150,9 +150,8 @@ mod tests {
             "callback tool host",
         ));
 
-        let refusal = match HandlerError::from(DriverError::from(error)) {
-            HandlerError::Refused(refusal) => refusal,
-            other => panic!("a port not registered yet answers a refusal, not {other:?}"),
+        let HandlerError::Refused(refusal) = HandlerError::from(DriverError::from(error)) else {
+            panic!("a port not registered yet answers a refusal");
         };
 
         assert_eq!(refusal.code, RefusalCode::ProviderUnavailable);

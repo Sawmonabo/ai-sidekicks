@@ -22,7 +22,7 @@ use crate::driver::claude::account::credentials::SECURE_STORAGE_FOLDER_VARIABLE;
 use crate::driver::claude::delivery::stream::ClaudeFirstRequest;
 use crate::driver::claude::session::control_requests::ClaudeAccountMoveMarker;
 use crate::driver::claude::session::conversation_home::{
-    claude_conversation_home_metadata, read_claude_conversation_home,
+    ClaudeConversationHomeKeep, claude_conversation_home_metadata, read_claude_conversation_home,
 };
 use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
 use crate::driver::claude::session::restart::{ClaudeLegBinding, ClaudeSessionStanding};
@@ -101,11 +101,13 @@ async fn move_claude_session(
     let live = loop {
         match restarts.standing(session.session_id) {
             ClaudeSessionStanding::Live(live) => break live,
-            // Its restart composes its start from the moved account, as does its next open.
+            // Its restart composes its start from the moved account, as does its next open. The
+            // binding names the home and moves first, so a failure leaves the restart on `from`
+            // with it; a restart that began meanwhile is followed as it stands now.
             ClaudeSessionStanding::Held { ended, .. } => {
+                keep_process_home(legs, &session, &ended).await?;
+                move_binding(&*legs.bindings, &session, &to).await?;
                 if restarts.move_held_account(&ended, to.clone()) {
-                    keep_process_home(&*legs.bindings, &session, &ended).await?;
-                    move_binding(&*legs.bindings, &session, &to).await?;
                     return Ok(unobserved());
                 }
             }
@@ -119,7 +121,7 @@ async fn move_claude_session(
             }
         }
     };
-    keep_process_home(&*legs.bindings, &session, &live).await?;
+    let home = keep_process_home(legs, &session, &live).await?;
     let (watch, heard) = oneshot::channel();
     // The lead's binding moves with the session, never apart from its frames: at the marker an
     // in-place move queues among them, or before a relaunch starts the new process on its copy.
@@ -129,6 +131,7 @@ async fn move_claude_session(
                 store,
                 provider_account_id: &to,
                 lead_binding_id: &session.binding_id,
+                conversation_home: Some(home),
             };
             point_at_store(
                 &establishment,
@@ -192,10 +195,12 @@ impl ClaudeHandBack {
             .ok_or_else(|| DriverError::from(session_process_unavailable(session_id)))?;
         match &self.previous_sign_in {
             ClaudeAccountSignIn::Store(store) => {
+                // The account handed back holds the conversation in its own home.
                 let account_move = ClaudeStoreMove {
                     store,
                     provider_account_id: &self.previous,
                     lead_binding_id: &self.binding_id,
+                    conversation_home: None,
                 };
                 point_at_store(
                     &self.establishment,
@@ -220,17 +225,21 @@ impl ClaudeHandBack {
     }
 }
 
-// An in-place move: the store the process is pointed at, the account it signs in to, and the
-// binding the session's lead runs on, which moves with it.
+// An in-place move: the store the process is pointed at, the account it signs in to, the binding
+// the session's lead runs on, which moves with it, and the home every binding moved keeps first
+// where the account moved onto does not hold the conversation.
 struct ClaudeStoreMove<'a> {
     store: &'a str,
     provider_account_id: &'a ProviderAccountId,
     lead_binding_id: &'a RuntimeBindingId,
+    conversation_home: Option<ClaudeConversationHomeKeep>,
 }
 
 // Points `live`'s process at `account_move`'s store in place, through its stream's queue: the
 // session's account, which its stream shares, its lead's binding and its bound runs' move onto
-// the move's account where Claude Code acknowledged it among the frames, and a process started
+// the move's account where Claude Code acknowledged it among the frames, each binding naming the
+// move's home first where it carries one, so a run bound since the lead's home was kept never
+// rests on the new account without it, and a process started
 // from the session's legs signs in to the store from the answer on; `first_request` hears how the
 // next request goes. Fails as the request does, nothing moved.
 async fn point_at_store(
@@ -259,6 +268,7 @@ async fn point_at_store(
         provider_account_id: account_move.provider_account_id.clone(),
         lead_binding_id: account_move.lead_binding_id.clone(),
         bindings: Arc::clone(bindings),
+        conversation_home: account_move.conversation_home,
         first_request,
     };
     live.channel
@@ -295,25 +305,28 @@ async fn read_sign_in(
     ))
 }
 
-// Records in the lead's binding the home `process` wrote the session's conversation into, before
-// the binding moves off the account whose home it may be, so every later resume finds it there.
+// Records in the lead's binding the home `process` wrote the session's conversation into, every
+// other member of its recovery data kept, before the binding moves off the account whose home it
+// may be, so every later resume finds it there; answers that home, which the session's other
+// bindings keep as they move. Fails as the binding cannot be read or written.
 async fn keep_process_home(
-    bindings: &dyn RuntimeBindingWriter,
+    legs: &ClaudeAccountLegs,
     session: &SessionToMove,
     process: &LiveClaudeSession,
-) -> Result<(), DriverError> {
+) -> Result<ClaudeConversationHomeKeep, DriverError> {
     let home = claude_config_folder(
         &process.spawn_bound_legs.spawn_environment,
         PathRules::NATIVE,
     )
     .ok_or_else(|| DriverError::Internal("the session's process names no home".into()))?;
-    bindings
-        .keep_recovery_data(
-            session.binding_id.clone(),
-            claude_conversation_home_metadata(&home),
-        )
+    let keep = ClaudeConversationHomeKeep {
+        pool: Arc::clone(&legs.pool),
+        home,
+    };
+    keep.keep_in(&*legs.bindings, session.binding_id.clone())
         .await
-        .map_err(DriverError::Internal)
+        .map_err(DriverError::Internal)?;
+    Ok(keep)
 }
 
 // Records in the lead's stored binding, for a session with no process, the home of the account it
