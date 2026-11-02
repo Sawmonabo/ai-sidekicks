@@ -30,6 +30,10 @@ pub const BACKUP_DATABASE_FILE_NAME: &str = "daemon.db";
 /// The folder backups go to inside the service's data folder when the person picked none.
 pub const BACKUP_DEFAULT_FOLDER_NAME: &str = "backups";
 
+/// The arguments the daemon's own program is started with to restore a backup with the service
+/// stopped; the backup's folder follows them.
+pub const DATABASE_RESTORE_MODE: [&str; 2] = ["database", "restore"];
+
 ts_constants! {
     /// The longest backup id or computer name accepted, in code points.
     pub const BACKUP_LABEL_MAX_LEN: usize = 256;

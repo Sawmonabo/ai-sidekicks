@@ -22,6 +22,14 @@ ts_constants! {
     pub const DAEMON_DATA_FOLDER_NAME: &str = ".ai-sidekicks";
 }
 
+/// The lock file in the data folder, which the service, or a mode of its program, holds for as long
+/// as it uses the folder.
+pub const DAEMON_LOCK_FILE_NAME: &str = "daemon.lock";
+
+/// The arguments the daemon's own program is started with to erase everything with the service
+/// stopped.
+pub const DATA_ERASE_MODE: [&str; 2] = ["data", "erase"];
+
 branded_uuid_id! {
     /// The id of one export job, minted by the service.
     DataExportJobId
