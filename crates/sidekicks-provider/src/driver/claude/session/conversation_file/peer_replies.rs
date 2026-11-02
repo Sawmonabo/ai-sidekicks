@@ -8,6 +8,9 @@
 
 mod fold;
 mod project_key;
+// The cases follow a transcript through a file watch, which Windows has none of.
+#[cfg(all(test, unix))]
+mod tests;
 
 use std::collections::HashMap;
 use std::error::Error;

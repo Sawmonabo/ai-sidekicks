@@ -331,4 +331,41 @@ mod tests {
             Some(4101)
         );
     }
+
+    // Killed by an exact compare of the paths (the registry's spelling runs through a link), and by
+    // a leading `uds:` kept; the other file name finding a session kills a folder-only compare.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_socket_is_found_through_a_linked_folder_and_a_uds_address() {
+        let scratch = tempfile::tempdir().expect("a scratch folder is made");
+        let real_folder = scratch.path().join("real");
+        std::fs::create_dir(&real_folder).expect("the socket folder is made");
+        let linked_folder = scratch.path().join("linked");
+        std::os::unix::fs::symlink(&real_folder, &linked_folder).expect("the link is made");
+        let config_folder = scratch.path().join("config");
+        let linked_socket = linked_folder.join("4201.sock");
+        write_registry_file(
+            &config_folder,
+            4201,
+            &format!(r#"{{"messagingSocketPath":"{}"}}"#, linked_socket.display()),
+        );
+        let sessions = read_live_sessions(&[config_folder]).await;
+        let real_folder = std::fs::canonicalize(&real_folder).expect("the folder resolves");
+
+        let found = by_socket(
+            &sessions,
+            &format!("uds:{}", real_folder.join("4201.sock").display()),
+        )
+        .await
+        .expect("the sockets' folders resolve");
+        let other = by_socket(
+            &sessions,
+            &format!("uds:{}", real_folder.join("4202.sock").display()),
+        )
+        .await
+        .expect("the sockets' folders resolve");
+
+        assert_eq!(found.map(|session| session.process_id), Some(4201));
+        assert!(other.is_none());
+    }
 }
