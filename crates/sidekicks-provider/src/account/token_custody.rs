@@ -70,6 +70,9 @@ pub enum TokenCustodyError {
     /// The keychain holds no token for the account.
     #[error("no token is sealed for the account")]
     NotSealed,
+    /// A re-supply named an account that signs in another way, which holds no sealed token.
+    #[error("the account takes no pasted token")]
+    NotTokenAccount,
     /// The keychain could not destroy the account's sealed token.
     #[error("the sealed token could not be destroyed")]
     Destroying(#[source] KeychainRefusal),
@@ -81,8 +84,9 @@ pub enum TokenCustodyError {
 impl From<TokenCustodyError> for HandlerError {
     /// A token the keychain could not seal refuses `provider.account.credentialSealRefused` with
     /// its cause, and one it could not destroy `provider.account.credentialDestroyRefused` with
-    /// its cause; one the provider did not accept `provider.account.tokenNotAccepted`, and a
-    /// registry failure as the registry answers it; every other failure is the daemon's own.
+    /// its cause; one the provider did not accept `provider.account.tokenNotAccepted`, a re-supply
+    /// of an account that takes no pasted token `provider.account.notFound`, and a registry failure
+    /// as the registry answers it; every other failure is the daemon's own.
     fn from(error: TokenCustodyError) -> Self {
         match error {
             TokenCustodyError::Sealing(refusal) => Self::Refused(DomainError::keychain_refused(
@@ -98,6 +102,10 @@ impl From<TokenCustodyError> for HandlerError {
             TokenCustodyError::NotAccepted => Self::Refused(DomainError::new(
                 "The provider did not accept that token",
                 RefusalCode::ProviderAccountTokenNotAccepted,
+            )),
+            TokenCustodyError::NotTokenAccount => Self::Refused(DomainError::new(
+                "The provider account takes no pasted token",
+                RefusalCode::ProviderAccountNotFound,
             )),
             TokenCustodyError::StatusRead(failure) => failure.into(),
             TokenCustodyError::Registry(failure) => failure.into(),
@@ -180,10 +188,12 @@ impl ProviderTokenCustody {
 
     /// Replaces `account_id`'s sealed token with `token` once the status read in `folders`
     /// accepts it, destroying the prior one, and raises the account's generation with that
-    /// reading. Fails with [`TokenCustodyError::NotAccepted`] when the provider reports no
-    /// signed-in mode, leaving the prior token and the row as they were, with
-    /// [`TokenCustodyError::Sealing`] when the keychain refuses, and when the account is not
-    /// registered or cannot be read or written.
+    /// reading. Fails with [`TokenCustodyError::NotTokenAccount`] for an account with no token
+    /// sealed, which signs in another way, before any read, so a re-supply never turns a sign-in
+    /// into a token under the services that run on it; with [`TokenCustodyError::NotAccepted`]
+    /// when the provider reports no signed-in mode, leaving the prior token and the row as they
+    /// were; with [`TokenCustodyError::Sealing`] when the keychain refuses; and when the account
+    /// is not registered or cannot be read or written.
     pub async fn replace(
         &self,
         account_id: ProviderAccountId,
@@ -191,6 +201,10 @@ impl ProviderTokenCustody {
         token: &SecretString,
     ) -> Result<RegisteredAccount, TokenCustodyError> {
         let account = self.registry.read(account_id).await?;
+        read_sealed_token(self.keychain.as_ref(), &account.account_id)
+            .await
+            .map_err(TokenCustodyError::Unsealing)?
+            .ok_or(TokenCustodyError::NotTokenAccount)?;
         let status_legs = self.status_legs(&account.provider)?;
         let (health, observed_auth_mode) =
             read_token_status(status_legs, &account.account_id, folders, token).await?;

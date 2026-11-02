@@ -272,7 +272,9 @@ interface ProviderAccountRegisterRequest {
   // account names under the one fold, `foldName`.
   displayLabel?: string;
   // RE-SUPPLY, not a second credential-accepting verb. Supplied, this means "replace the sealed
-  // token on THIS account" and `provider` must match the stored row; omitted, this is an ordinary
+  // token on THIS account": `provider` must match the stored row and the account must hold a sealed
+  // token, an account that signs in another way refused `provider.account.notFound` before any
+  // read, so a pasted token never turns a sign-in into a token account; omitted, this is an ordinary
   // registration and the daemon mints a new identity. It exists because the terminal
   // `reauthRequired` remedy is to mint a fresh token and re-supply it, and deregister-then-register
   // would daemon-mint a NEW immutable identity — discarding the spend, quota, and attention history

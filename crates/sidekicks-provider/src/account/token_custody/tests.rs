@@ -23,7 +23,9 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::sync::Notify;
 
 use super::{ProviderTokenCustody, TokenAccountRegistration, TokenCustodyError};
-use crate::account::registry::{MintedAccount, ProviderAccountRegistry, open_test_registry};
+use crate::account::registry::{
+    AccountAdmission, MintedAccount, ProviderAccountRegistry, open_test_registry,
+};
 use crate::driver::ProviderAccountFolders;
 use crate::driver::contract::account::ProviderTokenStatusLegs;
 use crate::driver::contract::error::DriverError;
@@ -464,4 +466,55 @@ async fn a_resupply_replaces_the_sealed_token_and_never_touches_the_home() {
         serde_json::json!(2)
     );
     assert_eq!(snapshot(minted.home().path()), home_before);
+}
+
+/// A re-supply naming an account that signs in another way, with no token sealed, is refused
+/// `provider.account.notFound` before the provider reads the token: nothing is sealed and the
+/// account's generation and mode stay. Fails when the re-supply seals the pasted token over the
+/// account's own sign-in.
+#[tokio::test]
+async fn a_resupply_of_an_account_with_no_sealed_token_is_refused() {
+    let fixture = Fixture::new().await;
+    let minted = fixture.mint();
+    let signed_in = fixture
+        .registry
+        .admit(
+            &minted,
+            &AccountAdmission {
+                display_label: None,
+                billing_mode: BillingMode::Subscription,
+                health: None,
+                observed_auth_mode: Some(ProviderAuthMode::OauthSubscription),
+            },
+        )
+        .await
+        .expect("the signed-in account is admitted");
+
+    let refused = fixture
+        .custody
+        .replace(
+            signed_in.account_id.clone(),
+            &folders(&minted),
+            &secret("pasted"),
+        )
+        .await
+        .expect_err("a pasted token never replaces a sign-in");
+
+    assert!(matches!(refused, TokenCustodyError::NotTokenAccount));
+    let HandlerError::Refused(refusal) = HandlerError::from(refused) else {
+        panic!("the re-supply answers a refusal");
+    };
+    assert_eq!(refusal.code, RefusalCode::ProviderAccountNotFound);
+    assert!(fixture.keychain.held().is_empty());
+    assert_eq!(*lock(&fixture.status_legs.calls), 0);
+    let after = fixture
+        .registry
+        .read(signed_in.account_id)
+        .await
+        .expect("the account reads");
+    assert_eq!(after.credential_generation, signed_in.credential_generation);
+    assert_eq!(
+        after.observed_auth_mode,
+        Some(ProviderAuthMode::OauthSubscription)
+    );
 }
