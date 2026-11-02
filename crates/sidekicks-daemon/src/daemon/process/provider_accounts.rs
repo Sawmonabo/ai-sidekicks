@@ -1,9 +1,10 @@
 //! The provider account plane at the daemon's start: the account registry, the accounts reader the
 //! drivers resolve folders through, the token custody and its sweep of what a stop left, the
 //! background observer over each provider's own legs, the sign-in broker and the sources the
-//! `provider.account.*` methods act through, and the machine's wake helper where the system has
-//! one; and, once the recovery pass has run, the observer's schedule and its follow of each
-//! metered turn.
+//! `provider.account.*` methods act through, the current-account switch, and the machine's wake
+//! helper where the system has one; and, once the recovery pass has run, the observer's schedule,
+//! its follow of each metered turn, and the move of each session a stop left on another account
+//! than its provider's current one.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -27,20 +28,24 @@ use sidekicks_provider::account::token_custody::ProviderTokenCustody;
 use sidekicks_provider::account::wake_helper::{MachineWakeHelper, SystemWakeHelper};
 use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::contract::account::{
-    ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs,
+    ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs, ProviderSwitchLegs,
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::usage_record::UsageRecord;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::credential_store::SecretKeychain;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio::runtime::Handle;
 
 use crate::ipc::handlers::provider_account::ProviderAccountMethodSources;
 use crate::ipc::handlers::provider_account::notifications::ProviderAccountNotifications;
+use crate::orchestration::account_switch::{AccountSwitch, AccountSwitchDeps};
 
 // The wake helper's program, which the service ships beside its own.
 const WAKE_HELPER_PROGRAM_NAME: &str = "sidekicks-wake-helper";
@@ -71,6 +76,12 @@ pub(crate) struct ProviderAccountPlaneStart<'start> {
     pub(crate) spawner: Spawner,
     /// The daemon's own program, beside which the wake helper's program is shipped.
     pub(crate) daemon_program: &'start Path,
+    /// The sessions' provider processes, whose level control a switch moves a level through.
+    pub(crate) provider_sessions: Arc<ProviderSessions>,
+    /// Where a switch's settlements are appended.
+    pub(crate) appender: Arc<SessionEventAppender>,
+    /// The last good point of each session whose history is damaged.
+    pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
 }
 
 /// The account plane, built before the socket serves.
@@ -103,6 +114,9 @@ pub(crate) async fn build_provider_account_plane(
         machine_device_id,
         spawner,
         daemon_program,
+        provider_sessions,
+        appender,
+        read_damaged_from_sequence,
     } = start;
     let wake_helper = wake_helper().map(|helper| {
         Arc::new(SystemWakeHelper::new(
@@ -136,6 +150,7 @@ pub(crate) async fn build_provider_account_plane(
     let mut observe_legs: HashMap<ProviderId, Arc<dyn ProviderObserveLegs>> = HashMap::new();
     let mut memory_import_legs: HashMap<ProviderId, Arc<dyn ProviderMemoryImportLegs>> =
         HashMap::new();
+    let mut switch_legs: HashMap<ProviderId, Arc<dyn ProviderSwitchLegs>> = HashMap::new();
     for (provider, driver) in providers.drivers() {
         let legs = driver.account_legs();
         if let Some(observe) = Arc::clone(&legs).observe_legs() {
@@ -143,6 +158,9 @@ pub(crate) async fn build_provider_account_plane(
         }
         if let Some(memory_import) = Arc::clone(&legs).memory_import_legs() {
             memory_import_legs.insert(provider.clone(), memory_import);
+        }
+        if let Some(switch) = Arc::clone(&legs).switch_legs() {
+            switch_legs.insert(provider.clone(), switch);
         }
         account_legs.insert(provider.clone(), legs);
     }
@@ -171,6 +189,16 @@ pub(crate) async fn build_provider_account_plane(
         Arc::clone(&publisher) as _,
         Arc::clone(&observer) as Arc<dyn SignedInAccountWatcher>,
     ));
+    let account_switch = Arc::new(AccountSwitch::new(AccountSwitchDeps {
+        accounts: Arc::clone(&registry),
+        account_reader: Arc::clone(&reader),
+        switch_legs,
+        providers: Arc::clone(&providers),
+        level_moves: provider_sessions,
+        appender,
+        reads: Arc::clone(&reads),
+        read_damaged_from_sequence,
+    }));
     ProviderAccountPlane {
         methods: ProviderAccountMethodSources {
             accounts: Arc::clone(&registry),
@@ -185,32 +213,44 @@ pub(crate) async fn build_provider_account_plane(
             live_turns,
             publisher,
             database_reads: reads,
-            machine_device_id,
+            machine_device_id: machine_device_id.clone(),
             wake_helper,
+            account_switch: Arc::clone(&account_switch),
         },
         reader,
         registry,
         observation: ProviderAccountObservation {
             observer,
             turn_ends: None,
+            account_switch,
+            machine_device_id,
         },
     }
 }
 
-/// The background observer, and its follow of each metered turn once started.
+/// The background observer, and its follow of each metered turn once started, beside the switch
+/// that moves the sessions a stop left behind.
 pub(crate) struct ProviderAccountObservation {
     observer: Arc<ProviderAccountObserver>,
     turn_ends: Option<FollowerAttachment>,
+    account_switch: Arc<AccountSwitch>,
+    machine_device_id: DeviceId,
 }
 
 impl ProviderAccountObservation {
-    /// Schedules every registered account's reads and window starts, and has each turn metered
+    /// Moves each session a stop left on another account than its provider's current one onto
+    /// it, schedules every registered account's reads and window starts, and has each turn metered
     /// on an account end that account's turn. Fails when the accounts cannot be listed or the
     /// scheduler has stopped. Runs inside the daemon's runtime, which each turn's end is read on.
     pub(crate) async fn start(
         &mut self,
         followers: &Arc<SessionEventFollowers>,
     ) -> Result<(), ProviderAccountObserverError> {
+        // Its moves land under each provider's switch lock while the start goes on.
+        drop(
+            self.account_switch
+                .follow_current_accounts(self.machine_device_id.clone()),
+        );
         self.observer.start().await?;
         let observer = Arc::clone(&self.observer);
         let runtime = Handle::current();

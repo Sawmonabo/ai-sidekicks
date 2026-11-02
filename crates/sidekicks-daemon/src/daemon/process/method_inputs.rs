@@ -495,6 +495,9 @@ pub(crate) async fn register_method_inputs(
         machine_device_id: machine_device_id.clone(),
         spawner: wake_helper_spawner,
         daemon_program,
+        provider_sessions: Arc::clone(&session.provider_sessions),
+        appender: Arc::clone(&session.appender),
+        read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
     })
     .await;
     register_driver_ports(

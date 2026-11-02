@@ -1,9 +1,10 @@
 //! The `provider.account.*` methods over the account registry, the sign-in broker, the token
-//! custody and the background observer: the list, register, update and delete, the probe, the
-//! home's reset, the brokered sign-in with its code and its cancel, and the memory import. Who may
-//! call them is the gateway's admission and nothing here; each mutation reads its calling device,
-//! which the sign-in takes as its origin and every other names in the service log, and publishes
-//! the account it changed on the subscription's stream.
+//! custody, the background observer and the current-account switch: the list, register, update
+//! and delete, the probe, the home's reset, the brokered sign-in with its code and its cancel, the
+//! memory import and the switch of a provider's current account. Who may call them is the
+//! gateway's admission and nothing here; each mutation reads its calling device, which the sign-in
+//! takes as its origin and every other names in the service log, and publishes the account it
+//! changed on the subscription's stream.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,7 +30,10 @@ use sidekicks_provider::driver::contract::account::{
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
+use crate::orchestration::account_switch::AccountSwitch;
+
 mod credential_home;
+mod current_update;
 mod list;
 mod memory_import;
 pub(crate) mod notifications;
@@ -72,11 +76,12 @@ pub(crate) struct ProviderAccountMethodSources {
     /// The machine's wake helper, which an account's wake switch installs and removes; `None` on
     /// a system with none.
     pub(crate) wake_helper: Option<Arc<dyn MachineWakeHelper>>,
+    /// The switch of a provider's current account, which moves its running sessions.
+    pub(crate) account_switch: Arc<AccountSwitch>,
 }
 
-/// Registers every `provider.account.*` method but the current-account switch, the usage read and
-/// the subscription, over `sources`. Fails the start when a method is already
-/// registered.
+/// Registers every `provider.account.*` method but the usage read and the subscription, over
+/// `sources`. Fails the start when a method is already registered.
 pub(crate) fn register_provider_account_methods(
     registry: &mut MethodRegistryBuilder,
     sources: ProviderAccountMethodSources,
@@ -87,6 +92,7 @@ pub(crate) fn register_provider_account_methods(
     probe::register_provider_account_probe(registry, &sources)?;
     credential_home::register_provider_account_credential_home_reset(registry, &sources)?;
     sign_in::register_provider_account_sign_in(registry, &sources)?;
+    current_update::register_provider_account_current_update(registry, &sources)?;
     memory_import::register_provider_account_memory_import(registry, &sources)
 }
 
