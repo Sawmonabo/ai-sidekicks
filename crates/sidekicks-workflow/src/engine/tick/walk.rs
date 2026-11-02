@@ -2,7 +2,7 @@
 //! settles in log order. Each settle feeds its outputs into the input slots of the nodes they
 //! enter, a node's slots fill in rounds by run index, and a full round with items is decided; a
 //! first-to-arrive node's round is decided by its first input with items. Once the run is quiet,
-//! the flush decides what still waits.
+//! the flush decides what still waits, a node only once none of its ancestors waits.
 
 mod first_to_arrive;
 mod graph;
@@ -19,11 +19,13 @@ use sidekicks_contracts::workflow::run::step::events::WorkflowStepSkipReason;
 use sidekicks_contracts::workflow::run::step::record::{WorkflowStepKey, WorkflowStepSource};
 
 use self::first_to_arrive::FirstToArriveWin;
-use self::graph::{RunGraph, SlotTarget};
+pub(crate) use self::graph::RunGraph;
+use self::graph::SlotTarget;
 use crate::expressions::lineage::{StepKey, StepOutputs};
 
-/// What one walk turn answers: the steps it readied, the steps it skipped and the first-to-arrive
-/// wins it decided, each in the order it handed out their execution indices.
+/// What one walk turn answers: the steps it readied, the steps it skipped, the first-to-arrive
+/// wins it decided and the steps it readied that a later win of the turn canceled, each in the
+/// order it handed out their execution indices.
 #[derive(Default)]
 pub(crate) struct WalkTurn {
     /// The steps readied to run.
@@ -32,6 +34,9 @@ pub(crate) struct WalkTurn {
     pub(crate) skipped: Vec<WalkSkip>,
     /// The first-to-arrive wins, whose losers are to be canceled.
     pub(crate) wins: Vec<FirstToArriveWin>,
+    /// The steps readied in this turn that a later win of it named losers: never dispatched, they
+    /// settle canceled.
+    pub(crate) canceled: Vec<WalkReady>,
 }
 
 /// A step the walk readied.
@@ -75,12 +80,26 @@ enum RoundSlot {
 struct Round {
     /// The slots, slot k at index k.
     slots: Vec<RoundSlot>,
-    /// Whether a first-to-arrive node's step already ran on the round, which then takes its slots'
-    /// later feeds without a step until every slot has fed.
-    is_won: bool,
+    /// Where a first-to-arrive node's step already ran on the round, the execution indices of the
+    /// steps live when it won, its losers among them: the round then takes only their late feeds,
+    /// without a step, until every slot has fed, and a feed from a step readied after the win, a
+    /// loop's next pass among them, goes to a later round.
+    won_among: Option<BTreeSet<u64>>,
 }
 
 impl Round {
+    /// Whether a first-to-arrive node's step already ran on the round.
+    fn is_won(&self) -> bool {
+        self.won_among.is_some()
+    }
+
+    /// Whether a feed from the step at `execution_index` may enter the round.
+    fn admits(&self, execution_index: u64) -> bool {
+        self.won_among
+            .as_ref()
+            .is_none_or(|live_at_win| live_at_win.contains(&execution_index))
+    }
+
     /// Whether every slot is filled.
     fn is_full(&self) -> bool {
         self.slots
@@ -151,8 +170,8 @@ struct LiveStep {
     sources: Vec<Option<WorkflowStepSource>>,
 }
 
-/// The walk of one run over its graph: the steps live, each node's open rounds, and the next
-/// execution index.
+/// The walk of one run over its graph: the steps live, each node's open rounds, the feeds its
+/// disabled skips passed on, and the next execution index.
 pub(crate) struct RunWalk {
     /// The run's graph.
     graph: Arc<RunGraph>,
@@ -164,6 +183,9 @@ pub(crate) struct RunWalk {
     live: BTreeMap<u64, LiveStep>,
     /// Each node's rounds, by its place in the graph.
     rounds: Vec<NodeRounds>,
+    /// Each disabled skip that passed items on, by execution index: the feed of its first slot,
+    /// which its first output carries on, since a skip records no outputs of its own.
+    passed_on: BTreeMap<u64, Option<WorkflowStepSource>>,
 }
 
 impl RunWalk {
@@ -186,6 +208,7 @@ impl RunWalk {
             next_execution_index: 0,
             live: BTreeMap::new(),
             rounds,
+            passed_on: BTreeMap::new(),
         }
     }
 
@@ -252,37 +275,32 @@ impl RunWalk {
             .expect("a dropped step is one the walk readied and has not settled");
     }
 
-    /// Decides what waits once no step is live: each open round not won, by the node's
-    /// `(order, id)` and then run index, its unfilled slots read as settled empty with no source.
-    /// A round with items is readied, or skipped on a disabled node, which passes its first input
-    /// on; a round without is skipped, feeding nothing. The flush ends at the first step it
-    /// readies, since that step's outputs may still feed what waits after it; a flush that
-    /// readies nothing also drops the won rounds still open. Answers nothing while a step is live.
+    /// Decides what waits once no step is live: each open round not won, its unfilled slots read
+    /// as settled empty with no source, one at a time, lowest run index first, of the node first
+    /// by `(order, id)` among those none of whose ancestors along forward edges still has a round
+    /// waiting, so a feed still to come from an ancestor is never cut off. A round with items is
+    /// readied, or skipped on a disabled node, which passes its first input on; a round without is
+    /// skipped, feeding nothing. The flush ends at the first step it readies, since that step's
+    /// outputs may still feed what waits after it; a flush that readies nothing also drops the won
+    /// rounds still open. Answers nothing while a step is live.
     pub(crate) fn flush(&mut self) -> WalkTurn {
         let mut turn = WalkTurn::default();
         if !self.live.is_empty() {
             return turn;
         }
-        let mut has_decided = true;
-        while has_decided {
-            has_decided = false;
-            for place in 0..self.graph.node_count() {
-                while let Some(run_index) = self.first_waiting_round(place) {
-                    has_decided = true;
-                    let mut round = self.take_round(place, run_index);
-                    for slot in &mut round.slots {
-                        if matches!(slot, RoundSlot::Unfilled) {
-                            *slot = RoundSlot::Filled {
-                                source: None,
-                                count: 0,
-                            };
-                        }
-                    }
-                    self.decide_flushed(place, run_index, &round, &mut turn);
-                    if !turn.ready.is_empty() {
-                        return turn;
-                    }
+        while let Some((place, run_index)) = self.next_flushed_round() {
+            let mut round = self.take_round(place, run_index);
+            for slot in &mut round.slots {
+                if matches!(slot, RoundSlot::Unfilled) {
+                    *slot = RoundSlot::Filled {
+                        source: None,
+                        count: 0,
+                    };
                 }
+            }
+            self.decide_flushed(place, run_index, &round, &mut turn);
+            if !turn.ready.is_empty() {
+                return turn;
             }
         }
         for place in 0..self.graph.node_count() {
@@ -294,12 +312,26 @@ impl RunWalk {
         turn
     }
 
+    /// The round the flush decides next: of the first node by `(order, id)` that has a round no
+    /// win took while none of its ancestors does, that node's lowest such run index. A graph's
+    /// forward edges hold no loop, so while any node waits, one of them has no waiting ancestor.
+    fn next_flushed_round(&self) -> Option<(usize, u64)> {
+        (0..self.graph.node_count())
+            .filter_map(|place| Some((place, self.first_waiting_round(place)?)))
+            .find(|&(place, _)| {
+                self.graph
+                    .ancestors(place)
+                    .iter()
+                    .all(|&ancestor| self.first_waiting_round(ancestor).is_none())
+            })
+    }
+
     /// The lowest run index of the node at `place`'s open rounds that no win took.
     fn first_waiting_round(&self, place: usize) -> Option<u64> {
         self.rounds[place]
             .open
             .iter()
-            .find(|(_, round)| !round.is_won)
+            .find(|(_, round)| !round.is_won())
             .map(|(&run_index, _)| run_index)
     }
 
@@ -359,8 +391,9 @@ impl RunWalk {
 
     /// Puts one feed of `count` items from `source` into `target`'s slot and answers the run
     /// index of the round it entered, or `None` for an empty feed dropped while the node has an
-    /// open round. Items enter the lowest open round whose slot is unfilled or settled empty; an
-    /// empty feed the lowest whose slot is unfilled; with no such round the feed opens one.
+    /// open round. Items enter the lowest open round admitting the feed whose slot is unfilled or
+    /// settled empty; an empty feed the lowest admitting one whose slot is unfilled; with no such
+    /// round the feed opens one. A won round admits only the feeds of the steps live at its win.
     fn fill(
         &mut self,
         target: SlotTarget,
@@ -369,13 +402,23 @@ impl RunWalk {
     ) -> Option<u64> {
         let rounds = &mut self.rounds[target.node];
         let openings = &rounds.openings[target.slot];
+        let open = &rounds.open;
+        let first_admitting = |run_indices: &BTreeSet<u64>| {
+            run_indices.iter().copied().find(|run_index| {
+                open.get(run_index)
+                    .is_some_and(|round| round.admits(source.execution_index.get()))
+            })
+        };
         let fitting = if count > 0 {
-            match (openings.unfilled.first(), openings.empty.first()) {
-                (Some(&unfilled), Some(&empty)) => Some(unfilled.min(empty)),
-                (fitting, None) | (None, fitting) => fitting.copied(),
+            match (
+                first_admitting(&openings.unfilled),
+                first_admitting(&openings.empty),
+            ) {
+                (Some(unfilled), Some(empty)) => Some(unfilled.min(empty)),
+                (fitting, None) | (None, fitting) => fitting,
             }
         } else {
-            openings.unfilled.first().copied()
+            first_admitting(&openings.unfilled)
         };
         let run_index = match fitting {
             Some(run_index) => run_index,
@@ -423,7 +466,7 @@ impl RunWalk {
             run_index,
             Round {
                 slots,
-                is_won: false,
+                won_among: None,
             },
         );
         run_index
@@ -439,8 +482,10 @@ impl RunWalk {
 
     /// Decides the round of the node at `place` under `run_index`. A first-to-arrive node's round
     /// readies on its lowest slot with items, the other slots read as fed nothing, and stays open
-    /// until every slot has fed; any other node's round is run once every slot is filled and one
-    /// holds items. A round decided already, or whose filled slots are all empty, is left as it is.
+    /// for the late feeds of the steps live at its win until every slot has fed; a loser readied
+    /// earlier in this turn is taken back from its ready steps and canceled undispatched. Any other node's round is run
+    /// once every slot is filled and one holds items. A round decided already, or whose filled
+    /// slots are all empty, is left as it is.
     fn decide_round(&mut self, place: usize, run_index: u64, turn: &mut WalkTurn) {
         let graph = Arc::clone(&self.graph);
         let node = graph.node(place);
@@ -454,7 +499,7 @@ impl RunWalk {
             }
             return;
         }
-        if round.is_won {
+        if round.is_won() {
             if round.is_full() {
                 self.take_round(place, run_index);
             }
@@ -469,14 +514,28 @@ impl RunWalk {
             .enumerate()
             .map(|(slot, source)| source.filter(|_| slot == winning_slot))
             .collect();
-        round.is_won = true;
-        if round.is_full() {
+        let is_full = round.is_full();
+        let mut losers = first_to_arrive::losers(&graph, place, winning_slot, &self.live);
+        losers.retain(|loser| {
+            let Some(position) = turn.ready.iter().position(|ready| ready.step == *loser) else {
+                return true;
+            };
+            self.live.remove(&loser.execution_index.get());
+            turn.canceled.push(turn.ready.remove(position));
+            false
+        });
+        let round = self.rounds[place]
+            .open
+            .get_mut(&run_index)
+            .expect("the round being decided is open");
+        round.won_among = Some(self.live.keys().copied().collect());
+        if is_full {
             self.take_round(place, run_index);
         }
         let step = self.take_step(place);
         turn.wins.push(FirstToArriveWin {
             deciding: step.clone(),
-            losers: first_to_arrive::losers(&graph, place, winning_slot, &self.live),
+            losers,
         });
         self.ready(place, step, run_index, sources, turn);
     }
@@ -501,6 +560,10 @@ impl RunWalk {
         }
         let execution_index = step.execution_index;
         let carries_items = output_lengths.iter().any(|&count| count > 0);
+        if carries_items {
+            let first_source = sources.first().cloned().flatten();
+            self.passed_on.insert(execution_index.get(), first_source);
+        }
         turn.skipped.push(WalkSkip {
             step,
             run_index,
@@ -572,31 +635,41 @@ impl RunWalk {
     }
 }
 
-/// The input lists the step `ready` runs on, one per input of its kind's spec in spec order: a main
-/// slot's list is its source output's items, cloned once, and a tool input's or an unfed slot's
-/// list is empty. Every source is a step `outputs` recorded.
-pub(crate) fn ready_inputs(
-    graph: &RunGraph,
-    ready: &WalkReady,
-    outputs: &StepOutputs,
-) -> Vec<Vec<WorkflowItem>> {
-    let node = graph.node(graph.place(&ready.step.node_id));
-    let mut inputs = vec![Vec::new(); node.input_count];
-    for (slot, source) in node.slots.iter().zip(&ready.sources) {
-        let Some(source) = source else {
-            continue;
-        };
-        let source_step = outputs
-            .step(&StepKey {
-                node_id: source.node_id.clone(),
-                execution_index: source.execution_index.get(),
-            })
-            .expect("a ready step's sources settled, and the run recorded their outputs");
-        let output_index = usize::try_from(source.output_index.get())
-            .expect("an output index fits in a pointer-sized integer");
-        if let Some(items) = source_step.outputs.get(output_index) {
-            inputs[slot.spec_position].clone_from(items);
+impl RunWalk {
+    /// The input lists the step `ready` runs on, one per input of its kind's spec in spec order: a
+    /// main slot's list is its source output's items, cloned once, and a tool input's or an unfed
+    /// slot's list is empty. A disabled skip's first output reads as the feed of its first slot,
+    /// through any chain of them, and its other outputs as empty; every other source is a step
+    /// `outputs` recorded.
+    pub(crate) fn ready_inputs(
+        &self,
+        ready: &WalkReady,
+        outputs: &StepOutputs,
+    ) -> Vec<Vec<WorkflowItem>> {
+        let node = self.graph.node(self.graph.place(&ready.step.node_id));
+        let mut inputs = vec![Vec::new(); node.input_count];
+        for (slot, source) in node.slots.iter().zip(&ready.sources) {
+            let mut source = source.as_ref();
+            while let Some((skip, passed)) = source
+                .and_then(|skip| Some((skip, self.passed_on.get(&skip.execution_index.get())?)))
+            {
+                source = passed.as_ref().filter(|_| skip.output_index.get() == 0);
+            }
+            let Some(source) = source else {
+                continue;
+            };
+            let source_step = outputs
+                .step(&StepKey {
+                    node_id: source.node_id.clone(),
+                    execution_index: source.execution_index.get(),
+                })
+                .expect("a ready step's sources settled, and the run recorded their outputs");
+            let output_index = usize::try_from(source.output_index.get())
+                .expect("an output index fits in a pointer-sized integer");
+            if let Some(items) = source_step.outputs.get(output_index) {
+                inputs[slot.spec_position].clone_from(items);
+            }
         }
+        inputs
     }
-    inputs
 }

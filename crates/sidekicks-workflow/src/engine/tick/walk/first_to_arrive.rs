@@ -1,6 +1,5 @@
 //! A first-to-arrive node's win: the step it readies on its first main input to settle with items,
-//! and the live steps on the branches that feed only its other inputs, which lose. Canceling the
-//! slower branches of a merge is this engine's own rule; no peer workflow engine cancels this way.
+//! and the live steps on the branches that feed only its other inputs, which lose.
 
 use std::collections::BTreeMap;
 

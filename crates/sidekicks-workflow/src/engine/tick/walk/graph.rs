@@ -80,6 +80,8 @@ pub(crate) struct RunGraph {
     places: HashMap<WorkflowNodeId, usize>,
     /// The trigger's place.
     trigger: usize,
+    /// Each node's ancestors along forward main edges, by place, lowest first.
+    ancestors: Vec<Vec<usize>>,
 }
 
 impl RunGraph {
@@ -196,10 +198,12 @@ impl RunGraph {
         let trigger = *places
             .get(trigger)
             .expect("a run's trigger is a node of its pinned version");
+        let ancestors = forward_ancestors(&graph_nodes, trigger);
         Ok(Self {
             nodes: graph_nodes,
             places,
             trigger,
+            ancestors,
         })
     }
 
@@ -226,6 +230,12 @@ impl RunGraph {
             .expect("a step's node is a node of its run's graph")
     }
 
+    /// The places of the nodes that precede the node at `place` along forward main edges, lowest
+    /// first; two nodes of one loop are never each other's ancestors.
+    pub(crate) fn ancestors(&self, place: usize) -> &[usize] {
+        &self.ancestors[place]
+    }
+
     /// The places of the nodes whose main outputs feed the node at `place`, with repeats.
     pub(crate) fn feeders(&self, place: usize) -> impl Iterator<Item = usize> + '_ {
         self.nodes[place]
@@ -233,6 +243,74 @@ impl RunGraph {
             .iter()
             .flat_map(|slot| slot.feeders.iter().copied())
     }
+}
+
+/// Where a node stands in the depth-first walk that sorts the edges into forward and back ones.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WalkMark {
+    /// The walk has not reached it.
+    Unreached,
+    /// It is on the walk's current path, so an edge into it closes a loop.
+    OnPath,
+    /// The walk has left it.
+    Left,
+}
+
+/// Each of `nodes`' ancestors along forward main edges, by place, lowest first. A depth-first walk
+/// from `trigger`, then from each node it has not reached in place order, following each node's
+/// targets in output order, takes every edge but those that close a loop, its back edges.
+fn forward_ancestors(nodes: &[RunGraphNode], trigger: usize) -> Vec<Vec<usize>> {
+    let node_count = nodes.len();
+    let targets: Vec<Vec<usize>> = nodes
+        .iter()
+        .map(|node| {
+            node.outputs
+                .iter()
+                .flatten()
+                .map(|target| target.node)
+                .collect()
+        })
+        .collect();
+    let mut marks = vec![WalkMark::Unreached; node_count];
+    let mut forward_feeders: Vec<Vec<usize>> = vec![Vec::new(); node_count];
+    for start in std::iter::once(trigger).chain(0..node_count) {
+        if marks[start] != WalkMark::Unreached {
+            continue;
+        }
+        marks[start] = WalkMark::OnPath;
+        let mut path = vec![(start, 0)];
+        while let Some(top) = path.last_mut() {
+            let node = top.0;
+            let Some(&target) = targets[node].get(top.1) else {
+                marks[node] = WalkMark::Left;
+                path.pop();
+                continue;
+            };
+            top.1 += 1;
+            match marks[target] {
+                WalkMark::OnPath => {}
+                WalkMark::Unreached => {
+                    forward_feeders[target].push(node);
+                    marks[target] = WalkMark::OnPath;
+                    path.push((target, 0));
+                }
+                WalkMark::Left => forward_feeders[target].push(node),
+            }
+        }
+    }
+    (0..node_count)
+        .map(|place| {
+            let mut is_ancestor = vec![false; node_count];
+            let mut pending = forward_feeders[place].clone();
+            while let Some(feeder) = pending.pop() {
+                if !is_ancestor[feeder] {
+                    is_ancestor[feeder] = true;
+                    pending.extend(&forward_feeders[feeder]);
+                }
+            }
+            (0..node_count).filter(|&node| is_ancestor[node]).collect()
+        })
+        .collect()
 }
 
 /// The refusal of an edge naming `handle` on `node_id`, whose kind declares no such main handle.
