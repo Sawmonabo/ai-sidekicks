@@ -591,7 +591,7 @@ mod tests {
         );
         assert!(
             moves.contains(&(binding_id("resting"), moved_to, 2)),
-            "the lead's resting binding moves at the answer, after the readings before it: {moves:?}"
+            "the lead's resting binding moves at the answer, after the readings ahead: {moves:?}"
         );
     }
 }

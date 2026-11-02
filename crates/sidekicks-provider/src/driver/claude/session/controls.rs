@@ -610,10 +610,11 @@ impl ClaudeSessionControls {
 
 /// The legs a one-turn process of `live`'s session starts on: its own, at the level, advisor and
 /// style it runs with now, signed in to the credential store its process runs on now, on the full
-/// id of the model it runs, in `working_directory` where one is given, its commands reaching `command_channel` where given. The session's own channel stays the
-/// session process's, since it admits only parties under that process, so its variables give way
-/// to `command_channel`'s, and a process given none runs its commands with no channel. It reports
-/// its MCP servers on no status leg, since its servers are the session's.
+/// id of the model it runs, in `working_directory` where one is given, its commands reaching
+/// `command_channel` where given. The session's own channel stays the session process's, since it
+/// admits only parties under that process, so its variables give way to `command_channel`'s, and a
+/// process given none runs its commands with no channel. It reports its MCP servers on no status
+/// leg, since its servers are the session's.
 pub(crate) fn one_turn_legs(
     live: &LiveClaudeSession,
     working_directory: Option<std::path::PathBuf>,

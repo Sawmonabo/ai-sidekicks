@@ -260,8 +260,8 @@ pub(crate) fn snapshot(root: &Path) -> BTreeMap<String, Option<Vec<u8>>> {
     entries
 }
 
-// Where table T4 leaves a crash: an item sealed before its row was written, a row marked for
-// removal with its item, and a marked row whose item is already gone.
+// Where a stop between the store's steps leaves a crash: an item sealed before its row was
+// written, a row marked for removal with its item, and a marked row whose item is already gone.
 #[derive(Clone, Copy)]
 enum CrashPoint {
     SealedBeforeTheRow,
