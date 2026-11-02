@@ -421,8 +421,8 @@ pub fn read_is_run_stopping(reader: &Connection, run_id: &RunId) -> rusqlite::Re
 /// by its stops; with none, a provider's helper beneath a run whose stop wins reads interrupted
 /// with `daemonRestart`, cut by the restart, since that stop never reaches it; a child held in a
 /// pause the restart orphaned reads interrupted and continues from its own box, a paused lead
-/// stays paused, a pausing lead becomes paused, and any other run fails. Whatever settles the run, each open turn a limit's interrupt row names keeps
-/// that limit's cause.
+/// stays paused, a pausing lead becomes paused, and any other run fails. Whatever settles the run,
+/// each open turn a limit's interrupt row names keeps that limit's cause.
 pub(crate) fn decide_restart_settlement(
     run: &LiveRun,
     facts: &RestartFacts,
@@ -464,8 +464,8 @@ pub(crate) fn decide_restart_settlement(
 /// How a resume that succeeded moves a run a restart left live.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResumedRunMove {
-    /// Left as it is: queued, resting, or waiting on its provider's own end of the turn or of
-    /// its ask.
+    /// Left as it is: queued, resting, waiting on its provider's own end of the turn or of its
+    /// ask, or held on the person, whose answer continues it.
     Left,
     /// Left as it is with its provider running its turn again, so the limits it owes and a
     /// person's pending interrupts go again.
@@ -486,11 +486,11 @@ pub enum ResumedRunMove {
 /// provider holds of its turn. A queued run is left whatever the answer. A stop wins over the
 /// resume before any pause: a stopping run whose turn still runs, `paused` aside, goes on with the
 /// limits it owes and the person's pending interrupts handed again, and any other stopping run
-/// settles by its stops. A turn still
-/// running leaves the run as it is, the provider going on; a turn its provider ended leaves the run
-/// to that end, except that `pausing` reaches its boundary. A gone turn interrupts the run, except
-/// that a lead's pause holds: `paused` stays and `pausing` becomes `paused`; a child's gone turn
-/// interrupts it in any state.
+/// settles by its stops. A run held on the person is left as it is, its card or question kept. A
+/// turn still running leaves the run as it is, the provider going on; a turn its provider ended
+/// leaves the run to that end, except that `pausing` reaches its boundary. A gone turn interrupts
+/// the run, except that a lead's pause holds: `paused` stays and `pausing` becomes `paused`; a
+/// child's gone turn interrupts it in any state.
 pub(crate) fn decide_resumed_move(
     state_before: RunState,
     is_child: bool,
@@ -516,6 +516,9 @@ pub(crate) fn decide_resumed_move(
             ProviderTurnAnswer::StillRunning,
         ) if is_stopping => ResumedRunMove::Running,
         _ if is_stopping => ResumedRunMove::TurnGone,
+        // A run held on the person keeps its card or question; a pausing or paused lead answers
+        // `Waiting` only when its state moved after the driver read it, and is left as it now is.
+        (_, ProviderTurnAnswer::Waiting) => ResumedRunMove::Left,
         (_, ProviderTurnAnswer::Gone) if is_child => ResumedRunMove::TurnGone,
         (RunState::Starting | RunState::Running, ProviderTurnAnswer::StillRunning) => {
             ResumedRunMove::Running

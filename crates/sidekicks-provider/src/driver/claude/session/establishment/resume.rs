@@ -2,7 +2,8 @@
 //! session's live process, one a relaunch or the person's restart brought up, when that process
 //! runs the conversation and settings the resume asks for; one on other settings is ended and
 //! brought up again with the resume's own. A fresh process continues the turn of the run in
-//! progress where the resume names one, on that run and turn.
+//! progress where the resume names one, on that run and turn; where every run in progress waits on
+//! the person or stops, no process is started and the resume is deferred.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -11,6 +12,7 @@ use jiff::Timestamp;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -136,6 +138,14 @@ impl ClaudeSessionEstablishment {
                 ClaudeResumeSlot::CameUp(live) => self.end_came_up(&live).await,
             }
         };
+        if !is_process_owed(&params.live_runs) {
+            // Dropping the claim frees the slot for the person's answer or a later resume.
+            drop(claim);
+            return Ok(ClaudeResumeAnswer {
+                result: DriverResumeResult::Deferred { runs },
+                has_started_process: false,
+            });
+        }
         let resume_handle = params.resume_handle.clone();
         let request = ClaudeSpawnRequest {
             session_id,
@@ -272,29 +282,62 @@ fn runs_as_asked(live: &LiveClaudeSession, params: &ResumeSessionParams) -> bool
 }
 
 // The run in progress among `live_runs` and its newest open turn, which a fresh process continues:
-// a lead run, started on its own and no helper, with a turn started and not ended, and no stop it
-// waits on, which wins over continuing it.
+// a lead run, started on its own and no helper, starting or running with a turn started and not
+// ended, with no stop it waits on, which wins over continuing it, and not held on the person, whose
+// answer continues it instead.
 fn find_run_in_progress(live_runs: &[LiveRunResume]) -> Option<(&LiveRunResume, &OpenTurnResume)> {
     live_runs
         .iter()
-        .filter(|run| run.subagent_id.is_none() && run.parent_run_id.is_none() && !run.is_stopping)
+        .filter(|run| {
+            is_lead(run)
+                && !run.is_stopping
+                && matches!(run.run_state, RunState::Starting | RunState::Running)
+                && !run.is_held(live_runs)
+        })
         .find_map(|run| run.open_turns.last().map(|turn| (run, turn)))
 }
 
-// What a fresh process holds of each run in `live_runs`: the turn of the run in progress, which it
-// continues, still runs; every other run's turn, a helper's included, is gone.
+// What a fresh process holds of each run in `live_runs`: a run held on the person waits on its
+// answer; the turn of the run in progress, which it continues, still runs; every other run's turn,
+// a helper's included, is gone.
 fn answer_fresh_process(
     live_runs: &[LiveRunResume],
     in_progress: Option<RunId>,
 ) -> Vec<ResumedRunAnswer> {
     let mut runs = answer_every_run_gone(live_runs);
-    if let Some(answer) = runs
-        .iter_mut()
-        .find(|answer| Some(answer.run_id) == in_progress)
-    {
-        answer.turn = ProviderTurnAnswer::StillRunning;
+    for (answer, run) in runs.iter_mut().zip(live_runs) {
+        if run.is_held(live_runs) {
+            answer.turn = ProviderTurnAnswer::Waiting;
+        } else if Some(answer.run_id) == in_progress {
+            answer.turn = ProviderTurnAnswer::StillRunning;
+        }
     }
     runs
+}
+
+// Whether a fresh process has work in `live_runs`: a lead with neither a stop nor a hold stands
+// queued, starting or running, or no run is in progress at all (none, or each queued or paused),
+// so the process comes up as a plain resume. Otherwise every run in progress waits on the person
+// or stops, and no process is started for it.
+fn is_process_owed(live_runs: &[LiveRunResume]) -> bool {
+    let has_lead_to_run = live_runs.iter().any(|run| {
+        is_lead(run)
+            && !run.is_stopping
+            && !run.is_held(live_runs)
+            && matches!(
+                run.run_state,
+                RunState::Queued | RunState::Starting | RunState::Running
+            )
+    });
+    let has_run_in_progress = live_runs
+        .iter()
+        .any(|run| !matches!(run.run_state, RunState::Queued | RunState::Paused));
+    has_lead_to_run || !has_run_in_progress
+}
+
+// Whether `run` is a lead: started on its own and no helper.
+fn is_lead(run: &LiveRunResume) -> bool {
+    run.subagent_id.is_none() && run.parent_run_id.is_none()
 }
 
 // What the session's live process holds of each run in `live_runs`: the run holding the session's
@@ -386,7 +429,6 @@ fn resume_failure(
 
 #[cfg(test)]
 mod tests {
-    use sidekicks_contracts::run::state::RunState;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::*;

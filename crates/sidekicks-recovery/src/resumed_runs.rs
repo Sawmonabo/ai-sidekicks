@@ -94,8 +94,9 @@ impl ResumedRunsFinalize {
     /// stored in, which nothing moves before the resumed binding is recorded, and the provider's
     /// answer for it, or as gone where its record could not be read, and one the finalize leaves
     /// running has the person's pending interrupts handed again on a task of their own; a named
-    /// run that has ended is skipped. Writes take the session's append hold themselves, since the caller holds only
-    /// its transition lock. Fails at the first read, driver lookup, record or finalize that fails.
+    /// run that has ended is skipped. Writes take the session's append hold themselves, since the
+    /// caller holds only its transition lock. Fails at the first read, driver lookup, record or
+    /// finalize that fails.
     pub async fn finalize(&self, resumed: ResumedRuns) -> Result<(), ResumedRunsFinalizeError> {
         let session_id = resumed.session_id;
         let live_runs = self

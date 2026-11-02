@@ -26,7 +26,7 @@ use crate::run::read::{LiveRun, RunRead};
 use crate::run::refusals::RunRefusal;
 use crate::run::restart::{
     RestartTurnEnd, ResumedRunMove, decide_resumed_move, decide_turn_gone_settlement,
-    read_is_run_stopping, read_owed_limit, read_turn_cuts,
+    read_has_own_stop, read_owed_limit, read_turn_cuts,
 };
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
@@ -124,18 +124,18 @@ impl RunEngine {
 
     /// Finalizes `run`, a live run as read after a resume that succeeded, from `state_before`, its
     /// state before the restart, and `answer`, what its provider holds of its turn, as
-    /// `decide_resumed_move` decides from the stops the run waits on, read first, and returns the
-    /// move it made. A stop wins over the resume: a stopping run whose turn still runs, `paused`
-    /// aside, is handed its owed limits again, its caller handing the person's pending interrupts,
-    /// and any other ends by its stops. A turn still running leaves the run as it is, a running
-    /// one handing again, on a task of its own, the interrupt of each limit it owes; a turn its
-    /// provider ended is left to its end
-    /// frame; a `pausing` run whose turn ended becomes `paused`, its open turns ended interrupted
-    /// with `daemonRestart` where the turn is gone; any other gone turn settles the run by its
-    /// stops, else interrupted with `daemonRestart`, its open turns ended interrupted and its asks
-    /// let go by the run's end. Each move is written from the state `run` read, under `hold` where
-    /// the caller holds the run's session, so a run that moved since is left as it now is. Fails as
-    /// [`RunEngine::transition`] does.
+    /// `decide_resumed_move` decides from a stop of its own, read first, and returns the move it
+    /// made; a lead's stop is not the helper's, so a helper's own end stands under it. A stop wins
+    /// over the resume: a stopping run whose turn still runs, `paused` aside, is handed its owed
+    /// limits again, its caller handing the person's pending interrupts, and any other ends by its
+    /// stops. A run held on the person is left as it is. A turn still running leaves the run as it
+    /// is, a running one handing again, on a task of its own, the interrupt of each limit it owes;
+    /// a turn its provider ended is left to its end frame; a `pausing` run whose turn ended becomes
+    /// `paused`, its open turns ended interrupted with `daemonRestart` where the turn is gone; any
+    /// other gone turn settles the run by its stops, else interrupted with `daemonRestart`, its
+    /// open turns ended interrupted and its asks let go by the run's end. Each move is written from
+    /// the state `run` read, under `hold` where the caller holds the run's session, so a run that
+    /// moved since is left as it now is. Fails as [`RunEngine::transition`] does.
     pub async fn finalize_resumed_run(
         self: &Arc<Self>,
         run: &LiveRun,
@@ -147,7 +147,7 @@ impl RunEngine {
         let is_stopping = self
             .pool
             .read(ReadLength::Short, move |reader| {
-                Ok::<_, RunEngineError>(read_is_run_stopping(reader, &run_id)?)
+                Ok::<_, RunEngineError>(read_has_own_stop(reader, &run_id)?)
             })
             .await?;
         let resumed_move = decide_resumed_move(
