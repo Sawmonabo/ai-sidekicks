@@ -2,8 +2,8 @@
 //!
 //! - **Which provider.** The provider the server admitted before goes first, then the binding's,
 //!   then every other registered provider in the registry's order; one with no account handed in
-//!   is passed over, and one whose driver finds no entry of the person's for the binding (it has
-//!   no flow for the server) hands on to the next. Any other failure before the browser opens, or
+//!   is passed over, and one whose driver finds no entry of the person's for the binding at the
+//!   server's address (it has no flow for the server) hands on to the next. Any other failure before the browser opens, or
 //!   no provider left, means no provider's flow admits the server; the launch decides what follows,
 //!   and runs the flows at most once per press. A driver's failure answers the launch as the
 //!   driver's error does, but for a sign-in that did not finish, which is
@@ -18,9 +18,10 @@
 //!   the return, and no listener is bound for it.
 //! - **The completion.** A completed flow's credentials are kept as the server's sign-in, which
 //!   marks it signed in, unless the server was signed out since the flow began; the provider is
-//!   recorded as the client the server admits, and the completion event is appended. A failed one
-//!   records no provider, clears the mark that the daemon's own client did not finish, so the next
-//!   press reaches the own client again, and appends its failure.
+//!   recorded as the client the server admits, the sign-in kept or not, since the server admitted
+//!   it, and the completion event is appended. A failed one records no provider, clears the mark
+//!   that the daemon's own client did not finish, so the next press reaches the own client again,
+//!   and appends its failure.
 
 #![cfg_attr(
     not(test),
@@ -413,6 +414,7 @@ impl SignInService {
                     provider = running.provider.as_str(),
                     "a provider's MCP sign-in did not finish"
                 );
+                self.clear_own_client_unfinished(running).await;
                 Some(if let DriverError::SignInFailed(failure) = error {
                     SignInFailureReason::from(failure)
                 } else {
@@ -425,21 +427,10 @@ impl SignInService {
                     error = &error as &(dyn std::error::Error + 'static),
                     "a provider's MCP sign-in task failed"
                 );
+                self.clear_own_client_unfinished(running).await;
                 Some(SignInFailureReason::DidNotFinishInTime)
             }
         };
-        if failure.is_some()
-            && let Err(error) = self
-                .admitted_clients
-                .clear_own_client_unfinished(&running.address)
-                .await
-        {
-            tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "the mark that the daemon's own client did not finish an MCP sign-in was not \
-                 cleared"
-            );
-        }
         if let Err(error) = append_sign_in_completed(&self.events, &running.binding, failure).await
         {
             tracing::warn!(
@@ -450,10 +441,28 @@ impl SignInService {
         outcome.send_replace(Some(failure.is_none()));
     }
 
+    // Clears the mark that the daemon's own client did not finish for `running`'s server, which a
+    // flow that ended without signing in leaves to the own client again; a clear that does not
+    // keep is logged.
+    async fn clear_own_client_unfinished(&self, running: &RunningFlow) {
+        if let Err(error) = self
+            .admitted_clients
+            .clear_own_client_unfinished(&running.address)
+            .await
+        {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the mark that the daemon's own client did not finish an MCP sign-in was not \
+                 cleared"
+            );
+        }
+    }
+
     // Keeps `takeover` as the server's sign-in under its custody lock, its client's secret beside
     // the credentials, which marks the server signed in unless it was signed out since the flow
-    // began, and records the provider as the client the server admits, which also clears the mark
-    // that the daemon's own client did not finish. Answers why the sign-in was not kept.
+    // began, and records the provider as the client the server admits, kept or not, since the
+    // flow completed at the server; the record also clears the mark that the daemon's own client
+    // did not finish. Answers why the sign-in was not kept.
     async fn keep_takeover(
         &self,
         running: &RunningFlow,
@@ -465,25 +474,25 @@ impl SignInService {
             .attempt_credential_store(&running.address, running.since, None, client_secret)
             .save(stored_credentials(takeover, SystemTime::now()))
             .await;
-        if let Err(error) = saved {
-            tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "a provider's MCP sign-in was not kept"
-            );
-            return Some(SignInFailureReason::SignInNotSaved);
-        }
         if let Err(error) = self
             .admitted_clients
             .record_admitted_provider(&running.address, &running.provider)
             .await
         {
-            // The sign-in is kept; the next press finds the provider's flow again.
+            // The next press finds the provider's flow again.
             tracing::warn!(
                 error = &error as &(dyn std::error::Error + 'static),
                 "the provider an MCP server admitted was not recorded"
             );
         }
-        None
+        let Err(error) = saved else {
+            return None;
+        };
+        tracing::warn!(
+            error = &error as &(dyn std::error::Error + 'static),
+            "a provider's MCP sign-in was not kept"
+        );
+        Some(SignInFailureReason::SignInNotSaved)
     }
 }
 
