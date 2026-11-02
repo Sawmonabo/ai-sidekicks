@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -20,7 +21,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::{CredentialStore, sign_in_move};
+use sidekicks_platforms::{BlockingCredentialStore, CredentialStore, sign_in_move};
 use sidekicks_store::credential_store::place::{
     PlaceRecord, SecretsPlace, record_path, write_record,
 };
@@ -28,7 +29,10 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use tempfile::TempDir;
 use tracing_subscriber::layer::SubscriberExt as _;
 
-use super::{ClaudeSignInMoveBounds, ClaudeSignInMoveError, call_keychain_within};
+use super::{
+    CLAUDE_SIGN_IN_MOVE_KEYCHAIN_WAIT, ClaudeSignInMoveBounds, ClaudeSignInMoveError,
+    call_keychain_within, remove_claude_sign_in_move_leftovers,
+};
 use crate::account::credential_home::CredentialHome;
 use crate::account::home_lock::AccountHomeLock;
 use crate::account::observer::AccountLiveTurns;
@@ -163,7 +167,7 @@ struct Fixture {
     _database: TestDatabase,
     registry: Arc<ProviderAccountRegistry>,
     legs: ClaudeAccountLegs,
-    home_lock: AccountHomeLock,
+    home_lock: Arc<AccountHomeLock>,
     sign_ins: ProviderSignInBroker,
     live_turns: LiveTurns,
     keychain: CredentialStore,
@@ -171,6 +175,11 @@ struct Fixture {
 
 impl Fixture {
     async fn new() -> Self {
+        Self::with_keychain(CredentialStore::in_memory()).await
+    }
+
+    // The sign-in broker and the move share one home lock, as the daemon wires them.
+    async fn with_keychain(keychain: CredentialStore) -> Self {
         let data_folder = tempfile::tempdir().expect("the data folder is made");
         let own_home = tempfile::tempdir().expect("the person's own home is made");
         let database = TestDatabase::new(schema_parts());
@@ -184,6 +193,7 @@ impl Fixture {
             ("USER".to_owned(), USER.to_owned()),
         ]);
         let legs = test_account_legs(&services, Weak::new());
+        let home_lock = Arc::new(AccountHomeLock::default());
         let sign_ins = ProviderSignInBroker::new(
             Arc::clone(&registry),
             HashMap::from([(
@@ -192,7 +202,7 @@ impl Fixture {
             )]),
             Arc::new(Unheard),
             Arc::new(Unheard),
-            Arc::new(AccountHomeLock::default()),
+            Arc::clone(&home_lock),
         );
         Self {
             data_folder,
@@ -200,20 +210,21 @@ impl Fixture {
             _database: database,
             registry,
             legs,
-            home_lock: AccountHomeLock::default(),
+            home_lock,
             sign_ins,
             live_turns: LiveTurns::default(),
-            keychain: CredentialStore::in_memory(),
+            keychain,
         }
     }
 
     fn bounds(&self) -> ClaudeSignInMoveBounds<'_> {
         ClaudeSignInMoveBounds {
             registry: &self.registry,
-            home_lock: &self.home_lock,
+            home_lock: self.home_lock.as_ref(),
             sign_ins: &self.sign_ins,
             live_turns: &self.live_turns,
             keychain: &self.keychain,
+            keychain_wait: CLAUDE_SIGN_IN_MOVE_KEYCHAIN_WAIT,
         }
     }
 
@@ -314,11 +325,12 @@ fn store_folder(account: &RegisteredAccount) -> PathBuf {
     account.credential_home.path().join("store")
 }
 
-// Each registered Claude Code account's sign-in moves into its store folder's file and back, while a Codex account's home and an unregistered folder's item are never touched, each
-// guarded by a refused next call that would stop the move; no log line holds a sign-in byte and
-// each is a line the allow-list names. Killed by moving every account rather than Claude Code's
-// (the Codex item's refusal stops the move), by a folder no registry names moved, and by the
-// direction read from anything but the record.
+// Each registered Claude Code account's sign-in moves into its store folder's file and back, while
+// a Codex account's home and an unregistered folder's item are never touched, each guarded by a
+// refused next call that would stop the move; no log line holds a sign-in byte and each is a line
+// the allow-list names. Killed by moving every account rather than Claude Code's (the Codex item's
+// refusal stops the move), by a folder no registry names moved, and by the direction read from
+// anything but the record.
 #[tokio::test]
 async fn the_move_takes_only_registered_claude_code_sign_ins_and_brings_them_back() {
     let fixture = Fixture::new().await;
@@ -405,9 +417,10 @@ enum HomeUse {
 }
 
 // Nothing moves while an observation, a sign-in or a turn holds the account's home: the move
-// waits out an observation and then moves, and refuses a sign-in or a turn, naming the account
-// and no sign-in byte, the sign-in left in its item. Killed by the move taken without the home's
-// hold, and by either use not read.
+// waits out an observation and then moves, and refuses a sign-in or a turn at once, even while an
+// observation holds the home too, naming the account and no sign-in byte, the sign-in left in its
+// item. Killed by the move taken without the home's hold, by either use not read, and by either
+// use read only once the hold is taken.
 #[rstest]
 #[case::an_observation(HomeUse::Observation)]
 #[case::a_sign_in(HomeUse::SignIn)]
@@ -418,8 +431,8 @@ async fn nothing_moves_while_the_home_is_in_use(#[case] home_use: HomeUse) {
     let account = fixture.account(claude()).await;
     let planted = fixture.plant(&store_folder(&account));
     fixture.record(SecretsPlace::LoggedOutServiceFile).await;
-    let held = match home_use {
-        HomeUse::Observation => Some(fixture.home_lock.hold(account.account_id.clone()).await),
+    match home_use {
+        HomeUse::Observation => {}
         HomeUse::SignIn => {
             fixture
                 .sign_ins
@@ -431,14 +444,13 @@ async fn nothing_moves_while_the_home_is_in_use(#[case] home_use: HomeUse) {
                 )
                 .await
                 .expect("the sign-in starts");
-            None
         }
         HomeUse::Turn => {
             *fixture.live_turns.0.lock().expect("the turns") =
                 Some((account.account_id.clone(), new_session_id()));
-            None
         }
-    };
+    }
+    let held = fixture.home_lock.hold(account.account_id.clone()).await;
 
     let mut moving = std::pin::pin!(fixture.legs.move_sign_ins(fixture.bounds()));
     let answer = tokio::time::timeout(Duration::from_millis(100), &mut moving).await;
@@ -527,4 +539,96 @@ async fn a_keychain_call_that_never_answers_stops_the_move_naming_the_account() 
         ),
         "{called:?}"
     );
+}
+
+// Polls the move while it waits for `wait`; the move must not end meanwhile.
+async fn while_moving<Answer>(
+    moving: &mut Pin<&mut impl Future<Output = Result<(), ClaudeSignInMoveError>>>,
+    wait: impl Future<Output = Answer>,
+) -> Answer {
+    tokio::select! {
+        biased;
+        answer = wait => answer,
+        moved = moving.as_mut() => panic!("the move ended early: {moved:?}"),
+    }
+}
+
+// A keychain call under the home's hold that answers only past its bound keeps the hold until it
+// has answered, then stops the move with nothing written: no `.credentials.json`, the item where
+// it was. Killed by the hold let go when the bound passes, and by a move that carries on past a
+// call that outlasted its bound.
+#[tokio::test]
+async fn a_keychain_call_past_its_bound_keeps_the_home_held_and_moves_nothing() {
+    if sign_in_move().is_none() {
+        return;
+    }
+    let blocking = BlockingCredentialStore::new();
+    blocking.release();
+    let fixture = Fixture::with_keychain(CredentialStore::from_store(blocking.clone())).await;
+    let account = fixture.account(claude()).await;
+    let planted = fixture.plant(&store_folder(&account));
+    fixture.record(SecretsPlace::LoggedOutServiceFile).await;
+    let keychain_wait = Duration::from_millis(50);
+    let observation = fixture.home_lock.hold(account.account_id.clone()).await;
+    let mut moving = std::pin::pin!(fixture.legs.move_sign_ins(ClaudeSignInMoveBounds {
+        keychain_wait,
+        ..fixture.bounds()
+    }));
+
+    // The read before the hold answers, and the move waits for the home.
+    while_moving(&mut moving, blocking.wait_for_calls(2)).await;
+    while_moving(&mut moving, tokio::time::sleep(Duration::from_millis(100))).await;
+    blocking.hold_calls_for(&planted.service);
+    drop(observation);
+    while_moving(&mut moving, blocking.wait_for_calls(3)).await;
+    while_moving(&mut moving, tokio::time::sleep(keychain_wait * 4)).await;
+    let is_held = while_moving(
+        &mut moving,
+        tokio::time::timeout(
+            Duration::from_millis(50),
+            fixture.home_lock.hold(account.account_id.clone()),
+        ),
+    )
+    .await
+    .is_err();
+    blocking.release();
+    let answer = moving.await;
+
+    assert!(is_held, "the home stays held while the keychain call runs");
+    assert!(
+        matches!(
+            &answer,
+            Err(ClaudeSignInMoveError::KeychainUnanswered { provider_account_id })
+                if *provider_account_id == account.account_id
+        ),
+        "{answer:?}"
+    );
+    assert_eq!(planted.file(), None);
+    assert_eq!(fixture.item(&planted), Some(planted.text()));
+}
+
+// The start's sweep removes the leftover a move stopped mid-write left beside a Claude Code
+// account's sign-in file, and leaves the same name in a Codex account's home. Killed by a sweep
+// that misses the store folder, and by one over every provider's accounts.
+#[tokio::test]
+async fn the_start_sweeps_a_stopped_moves_leftover() {
+    let fixture = Fixture::new().await;
+    let claude_account = fixture.account(claude()).await;
+    let codex_account = fixture.account(codex()).await;
+    let leftover_name = ".credentials.json.a1b2c3.tmp";
+    let claude_leftover = store_folder(&claude_account).join(leftover_name);
+    let codex_leftover = store_folder(&codex_account).join(leftover_name);
+    for leftover in [&claude_leftover, &codex_leftover] {
+        std::fs::create_dir_all(leftover.parent().expect("a leftover has a folder"))
+            .expect("the store folder is made");
+        std::fs::write(leftover, PLANTED_SECRET).expect("the leftover is written");
+    }
+
+    let failures = remove_claude_sign_in_move_leftovers(&fixture.registry)
+        .await
+        .expect("the sweep runs");
+
+    assert!(failures.is_empty(), "{failures:?}");
+    assert_eq!(claude_leftover.exists(), sign_in_move().is_none());
+    assert!(codex_leftover.exists(), "a Codex account's file stays");
 }

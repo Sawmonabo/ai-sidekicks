@@ -1,9 +1,12 @@
 //! The macOS sign-in move: each named keychain item into its file at mode `0600`, or each file back
-//! into its keychain item, every one written, read back and only then deleted from its source.
+//! into its keychain item, every one written, read back and only then deleted from its source. Each
+//! step is timed against the caller's bound, and a step that outlasts it stops the move before the
+//! next, so nothing moves on after the caller has stopped waiting.
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use secrecy::zeroize::Zeroize as _;
 use secrecy::{ExposeSecret as _, SecretString};
@@ -11,7 +14,7 @@ use subtle::ConstantTimeEq as _;
 
 use crate::{
     CredentialStore, KeychainSignIn, LeftoverSweep, SignInMoveError, flush_folder,
-    replace_file_atomically,
+    remove_atomic_write_leftovers, replace_file_atomically,
 };
 
 // The mode a sign-in's file is written with: its owner reads and writes it, no one else.
@@ -30,14 +33,21 @@ impl SignInMove {
     /// Moves each of `sign_ins` from its item in `store` into its file at mode `0600`, in order: a
     /// sign-in with no item is already moved, or was never there. Blocks on every store call, so
     /// the caller runs it on a blocking thread. Fails with the first sign-in that cannot be moved,
-    /// which keeps its item.
+    /// which keeps its item, and with [`SignInMoveError::Overran`] once a step has run longer than
+    /// `step_bound`, the move stopped before its next step.
     pub fn move_into_files(
         &self,
         store: &CredentialStore,
         sign_ins: &[KeychainSignIn],
+        step_bound: Duration,
     ) -> Result<(), SignInMoveError> {
+        let mut steps = BoundedSteps::new(step_bound);
         for sign_in in sign_ins {
-            move_sign_in(&KeychainItem { store, sign_in }, &SignInFile(sign_in))?;
+            move_sign_in(
+                &KeychainItem { store, sign_in },
+                &SignInFile(sign_in),
+                &mut steps,
+            )?;
         }
         Ok(())
     }
@@ -49,11 +59,62 @@ impl SignInMove {
         &self,
         store: &CredentialStore,
         sign_ins: &[KeychainSignIn],
+        step_bound: Duration,
     ) -> Result<(), SignInMoveError> {
+        let mut steps = BoundedSteps::new(step_bound);
         for sign_in in sign_ins {
-            move_sign_in(&SignInFile(sign_in), &KeychainItem { store, sign_in })?;
+            move_sign_in(
+                &SignInFile(sign_in),
+                &KeychainItem { store, sign_in },
+                &mut steps,
+            )?;
         }
         Ok(())
+    }
+
+    /// Removes the temporary files a move stopped mid-write left beside each of `sign_in_files`,
+    /// the files sign-ins move into, as a start does before any move runs; a live move's file,
+    /// held locked, stays. Blocks; answers each folder's listing failure or removal failure, none
+    /// once every leftover is gone.
+    pub fn remove_leftovers(&self, sign_in_files: &[PathBuf]) -> Vec<io::Error> {
+        sign_in_files
+            .iter()
+            .flat_map(|file| {
+                let folder = file.parent().expect("a sign-in's file names its folder");
+                let name = file.file_name().expect("a sign-in's file has a name");
+                remove_atomic_write_leftovers(folder, |target| name == target)
+            })
+            .collect()
+    }
+}
+
+// The steps of one move, each timed against one bound: once a step has outlasted it, no later step
+// runs.
+struct BoundedSteps {
+    bound: Duration,
+    has_overrun: bool,
+}
+
+impl BoundedSteps {
+    fn new(bound: Duration) -> Self {
+        Self {
+            bound,
+            has_overrun: false,
+        }
+    }
+
+    // Runs `step` unless an earlier step outlasted the bound, and notes whether this one did.
+    fn run<Answer>(
+        &mut self,
+        step: impl FnOnce() -> Result<Answer, SignInMoveError>,
+    ) -> Result<Answer, SignInMoveError> {
+        if self.has_overrun {
+            return Err(SignInMoveError::Overran);
+        }
+        let started = Instant::now();
+        let answer = step();
+        self.has_overrun = started.elapsed() > self.bound;
+        answer
     }
 }
 
@@ -70,16 +131,18 @@ trait SignInPlace {
 }
 
 // Moves the sign-in at `source` to `destination`: written, read back and compared, and only then
-// deleted from `source`, so a stop at any step leaves it whole in one place or both.
+// deleted from `source`, each step one of `steps`, so a stop at any step leaves it whole in one
+// place or both.
 fn move_sign_in(
     source: &dyn SignInPlace,
     destination: &dyn SignInPlace,
+    steps: &mut BoundedSteps,
 ) -> Result<(), SignInMoveError> {
-    let Some(sign_in) = source.read()? else {
+    let Some(sign_in) = steps.run(|| source.read())? else {
         return Ok(());
     };
-    destination.write(&sign_in)?;
-    let is_same = destination.read()?.is_some_and(|copy| {
+    steps.run(|| destination.write(&sign_in))?;
+    let is_same = steps.run(|| destination.read())?.is_some_and(|copy| {
         bool::from(
             copy.expose_secret()
                 .as_bytes()
@@ -91,7 +154,7 @@ fn move_sign_in(
             destination: destination.describe(),
         });
     }
-    source.delete()
+    steps.run(|| source.delete())
 }
 
 // A sign-in's keychain item in the store.
@@ -146,13 +209,6 @@ impl SignInFile<'_> {
         &self.0.file
     }
 
-    fn failed(&self, source: io::Error) -> SignInMoveError {
-        SignInMoveError::File {
-            path: self.path().to_owned(),
-            source,
-        }
-    }
-
     // Flushes the file's folder, so its write or removal survives a power loss before the other
     // place changes.
     fn flush_folder(&self) -> Result<(), SignInMoveError> {
@@ -160,7 +216,7 @@ impl SignInFile<'_> {
             .path()
             .parent()
             .expect("a sign-in's file names its folder");
-        flush_folder(folder).map_err(|source| self.failed(source))
+        flush_folder(folder).map_err(SignInMoveError::File)
     }
 }
 
@@ -169,7 +225,7 @@ impl SignInPlace for SignInFile<'_> {
         let bytes = match fs::read(self.path()) {
             Ok(bytes) => bytes,
             Err(missing) if missing.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(source) => return Err(self.failed(source)),
+            Err(source) => return Err(SignInMoveError::File(source)),
         };
         match String::from_utf8(bytes) {
             Ok(mut text) => {
@@ -180,9 +236,7 @@ impl SignInPlace for SignInFile<'_> {
             }
             Err(not_text) => {
                 not_text.into_bytes().zeroize();
-                Err(SignInMoveError::NotText {
-                    path: self.path().to_owned(),
-                })
+                Err(SignInMoveError::NotText)
             }
         }
     }
@@ -192,12 +246,9 @@ impl SignInPlace for SignInFile<'_> {
             self.path(),
             sign_in.expose_secret().as_bytes(),
             SIGN_IN_FILE_MODE,
-            LeftoverSweep::Unswept,
+            LeftoverSweep::Swept,
         )
-        .map_err(|source| SignInMoveError::Write {
-            path: self.path().to_owned(),
-            source,
-        })?;
+        .map_err(SignInMoveError::Write)?;
         self.flush_folder()
     }
 
@@ -205,12 +256,13 @@ impl SignInPlace for SignInFile<'_> {
         match fs::remove_file(self.path()) {
             Ok(()) => self.flush_folder(),
             Err(missing) if missing.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(source) => Err(self.failed(source)),
+            Err(source) => Err(SignInMoveError::File(source)),
         }
     }
 
+    // The file's path names the account's home, so it stays out of the words.
     fn describe(&self) -> String {
-        self.path().display().to_string()
+        String::from("the sign-in file")
     }
 }
 
@@ -218,6 +270,7 @@ impl SignInPlace for SignInFile<'_> {
 mod tests {
     use std::os::unix::fs::PermissionsExt as _;
     use std::path::Path;
+    use std::time::Duration;
 
     use secrecy::ExposeSecret as _;
 
@@ -225,6 +278,9 @@ mod tests {
     use crate::{BlockingCredentialStore, CredentialStore, KeychainSignIn, SignInMoveError};
 
     const SERVICE: &str = "Provider-credentials-test";
+
+    // A bound no step of a test's move nears.
+    const STEP_BOUND: Duration = Duration::from_secs(60);
 
     // Two sign-ins, each filed under its own account and moving to its own file in `folder`.
     fn two_sign_ins(folder: &Path) -> [KeychainSignIn; 2] {
@@ -278,7 +334,7 @@ mod tests {
         let mover = sign_in_move().expect("macOS supplies the move");
 
         mover
-            .move_into_files(&store, &sign_ins)
+            .move_into_files(&store, &sign_ins, STEP_BOUND)
             .expect("the sign-ins move into files");
 
         assert_each_held_once(&store, &sign_ins, true);
@@ -291,7 +347,7 @@ mod tests {
         }
 
         mover
-            .move_into_keychain(&store, &sign_ins)
+            .move_into_keychain(&store, &sign_ins, STEP_BOUND)
             .expect("the sign-ins move back");
 
         assert_each_held_once(&store, &sign_ins, false);
@@ -320,7 +376,7 @@ mod tests {
         let [_, second] = &sign_ins;
         store.refuse_next_call(&second.service, &second.account);
 
-        let stopped = mover.move_into_files(&store, &sign_ins);
+        let stopped = mover.move_into_files(&store, &sign_ins, STEP_BOUND);
 
         let stopped_at = match &stopped {
             Err(SignInMoveError::Store { account, .. }) => Some(account.as_str()),
@@ -328,7 +384,7 @@ mod tests {
         };
         assert_eq!(stopped_at, Some("second"), "{stopped:?}");
         mover
-            .move_into_files(&store, &sign_ins)
+            .move_into_files(&store, &sign_ins, STEP_BOUND)
             .expect("the next call finishes the move");
         assert_each_held_once(&store, &sign_ins, true);
 
@@ -338,7 +394,7 @@ mod tests {
             .write(&first.service, &first.account, &sign_in_text(first).into())
             .expect("the store writes");
         mover
-            .move_into_keychain(&store, &sign_ins)
+            .move_into_keychain(&store, &sign_ins, STEP_BOUND)
             .expect("the next call finishes the move back");
         assert_each_held_once(&store, &sign_ins, false);
     }
@@ -360,7 +416,7 @@ mod tests {
 
         let refused = sign_in_move()
             .expect("macOS supplies the move")
-            .move_into_keychain(&store, std::slice::from_ref(&sign_in));
+            .move_into_keychain(&store, std::slice::from_ref(&sign_in), STEP_BOUND);
 
         assert!(
             matches!(refused, Err(SignInMoveError::CopyDiffers { .. })),
@@ -374,5 +430,74 @@ mod tests {
         let refusal = refused.expect_err("the move is refused");
         let shown = format!("{refusal} {refusal:?}");
         assert!(!shown.contains("secret-of-"), "{shown}");
+    }
+
+    /// A keychain read that answers only after its bound stops the move before anything is
+    /// written: no file, and the item where it was. Killed by a move that carries on past a step
+    /// that outlasted its bound.
+    #[test]
+    fn a_step_past_its_bound_stops_the_move_before_the_next() {
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let blocking = BlockingCredentialStore::new();
+        blocking.release();
+        let store = CredentialStore::from_store(blocking.clone());
+        let [sign_in, _] = two_sign_ins(folder.path());
+        std::fs::create_dir(sign_in.file.parent().expect("a file has a folder"))
+            .expect("the store folder is made");
+        store
+            .write(
+                &sign_in.service,
+                &sign_in.account,
+                &sign_in_text(&sign_in).into(),
+            )
+            .expect("the store writes");
+        blocking.hold_calls_for(SERVICE);
+        let bound = Duration::from_millis(20);
+        let releasing = std::thread::spawn(move || {
+            // Released only once the held read has waited well past its bound.
+            std::thread::sleep(bound * 5);
+            blocking.release();
+        });
+
+        let stopped = sign_in_move()
+            .expect("macOS supplies the move")
+            .move_into_files(&store, std::slice::from_ref(&sign_in), bound);
+
+        releasing.join().expect("the release ends");
+        assert!(
+            matches!(stopped, Err(SignInMoveError::Overran)),
+            "{stopped:?}"
+        );
+        assert!(!sign_in.file.exists(), "no file is written past the bound");
+        assert_each_held_once(&store, std::slice::from_ref(&sign_in), false);
+    }
+
+    /// The leftover a move stopped mid-write left beside a sign-in file is swept, while the sign-in
+    /// file and another target's leftover stay. Killed by a sweep that misses the leftover, and by
+    /// one that takes files of other targets.
+    #[test]
+    fn a_stopped_moves_leftover_is_swept() {
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let [sign_in, _] = two_sign_ins(folder.path());
+        let store_folder = sign_in.file.parent().expect("a file has a folder");
+        std::fs::create_dir(store_folder).expect("the store folder is made");
+        std::fs::write(&sign_in.file, sign_in_text(&sign_in)).expect("the sign-in file is written");
+        let leftover = store_folder.join(".credentials.json.a1b2c3.tmp");
+        let other = store_folder.join("settings.json.d4e5f6.tmp");
+        for path in [&leftover, &other] {
+            std::fs::write(path, sign_in_text(&sign_in)).expect("a temporary file is written");
+        }
+
+        let failures = sign_in_move()
+            .expect("macOS supplies the move")
+            .remove_leftovers(std::slice::from_ref(&sign_in.file));
+
+        assert!(failures.is_empty(), "{failures:?}");
+        assert!(!leftover.exists(), "the stopped move's leftover is gone");
+        assert!(other.exists(), "another target's file stays");
+        assert_eq!(
+            std::fs::read_to_string(&sign_in.file).ok(),
+            Some(sign_in_text(&sign_in))
+        );
     }
 }
