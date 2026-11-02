@@ -36,8 +36,7 @@ use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::item::{
-    WorkflowItem, WorkflowPairedItem, WorkflowPairedItems, WorkflowStepCodedError,
-    WorkflowStepError, WorkflowStepErrorCode,
+    WorkflowItem, WorkflowPairedItem, WorkflowPairedItems,
 };
 use sidekicks_contracts::workflow::run::failures::{
     WorkflowStepTimedOutCause, WorkflowStepTimedOutDetails,
@@ -60,8 +59,9 @@ use crate::engine::ports::{
     ApprovalCardRaiser, FormQuestionRequest, PersonWaitQuestions, PortError, ReplyQuestionRequest,
     StepAdmissionTicket, WorkflowApprovalCardRequest,
 };
+use crate::engine::tick::node_settings::index;
 use crate::engine::tick::{RunScope, StepReport, StepReportKind, StepSettlement};
-use crate::kinds::{PersonAsk, StepFailure, uncoded_step_error};
+use crate::kinds::{PersonAsk, StepFailure, coded_step_error, uncoded_step_error};
 
 /// The statements the deadline clock and the answer's row read run on a read connection: the
 /// earliest deadline, the steps due by an instant and one waiting step by its wait id.
@@ -385,11 +385,12 @@ pub(crate) fn settle_person_wait(
 
 // `items`, each paired to its own index in them.
 fn paired_to_their_index(items: Vec<WorkflowItem>) -> Vec<WorkflowItem> {
-    (0..)
-        .zip(items)
+    items
+        .into_iter()
+        .enumerate()
         .map(|(position, mut item)| {
             item.paired_item = Some(WorkflowPairedItems::One(WorkflowPairedItem {
-                item: SafeInt::new(position).expect("a list held in memory is shorter than 2^53"),
+                item: index(position),
                 input: None,
             }));
             item
@@ -503,19 +504,12 @@ fn step_timed_out(step: &WorkflowStepKey, limit_ms: SafeInt<1>) -> StepFailure {
         cause: WorkflowStepTimedOutCause::StepTimeout,
         limit_ms,
     };
-    StepFailure::Failed(Box::new(WorkflowStepError::Coded(WorkflowStepCodedError {
-        message: NonEmptyText::new("The step's wait passed its timeout".to_owned())
-            .expect("the message is not empty"),
-        node_id: Some(step.node_id.clone()),
-        item_index: None,
-        code: WorkflowStepErrorCode::new(RefusalCode::WorkflowStepTimedOut.as_str().to_owned())
-            .expect("the timed-out code follows the step failure code's grammar"),
-        details: Some(
-            serde_json::to_value(details)
-                .and_then(serde_json::from_value)
-                .expect("the timed-out details are a JSON object"),
-        ),
-    })))
+    StepFailure::Failed(Box::new(coded_step_error(
+        RefusalCode::WorkflowStepTimedOut,
+        "The step's wait passed its timeout".to_owned(),
+        serde_json::to_value(details).expect("the timed-out details write as JSON"),
+        Some(step.node_id.clone()),
+    )))
 }
 
 /// Why the deadline clock could not read the waits or report a due one.

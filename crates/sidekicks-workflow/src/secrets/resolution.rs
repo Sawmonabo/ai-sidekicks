@@ -19,10 +19,7 @@ use serde_json::Value;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::wire::record::JsonRecord;
-use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_contracts::workflow::definition::item::{
-    WorkflowStepCodedError, WorkflowStepError, WorkflowStepErrorCode,
-};
+use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::kind::{WorkflowNodeKindSpec, WorkflowParamSpec};
 use sidekicks_contracts::workflow::secret::{
     WorkflowSecretId, WorkflowSecretNotFoundDetails, WorkflowSecretReference,
@@ -36,7 +33,7 @@ use sidekicks_store::database::connection::read_pool::{
 };
 
 use crate::expressions::param_strings::{ParamPathSegment, walk_param_strings};
-use crate::kinds::uncoded_step_error;
+use crate::kinds::{coded_step_error, uncoded_step_error};
 use crate::secrets::store::WorkflowSecretStore;
 
 /// The statements [`find_step_secrets`] runs on a read connection: the live record of one
@@ -162,19 +159,9 @@ impl From<StepSecretRefusal> for WorkflowStepError {
     fn from(refusal: StepSecretRefusal) -> Self {
         let message = refusal.to_string();
         match coded_refusal(refusal) {
-            Ok(CodedSecretRefusal { code, details, .. }) => Self::Coded(WorkflowStepCodedError {
-                message: NonEmptyText::new(message)
-                    .expect("a secret refusal's text is never empty"),
-                node_id: None,
-                item_index: None,
-                code: WorkflowStepErrorCode::new(code.as_str().to_owned()).expect(
-                    "a workflow secret refusal's code follows the step failure code's grammar",
-                ),
-                details: Some(
-                    serde_json::from_value(details)
-                        .expect("a secret refusal's details are a JSON object"),
-                ),
-            }),
+            Ok(CodedSecretRefusal { code, details, .. }) => {
+                coded_step_error(code, message, details, None)
+            }
             Err(fault) => uncoded_step_error(fault.to_string()),
         }
     }

@@ -226,7 +226,7 @@ fn lineage_at(lineage: Option<WorkflowPairedItems>, call_item: SafeInt<0>) -> Wo
 }
 
 /// `position` in a list of items as the index the wire carries.
-pub(super) fn index(position: usize) -> SafeInt<0> {
+pub(crate) fn index(position: usize) -> SafeInt<0> {
     u64::try_from(position)
         .ok()
         .and_then(SafeInt::new)

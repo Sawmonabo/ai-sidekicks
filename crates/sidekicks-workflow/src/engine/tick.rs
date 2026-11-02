@@ -12,7 +12,7 @@
 mod admission;
 mod branch_cancellation;
 mod dispatch;
-mod node_settings;
+pub(crate) mod node_settings;
 mod step_failure;
 
 use std::collections::{BTreeMap, HashMap};

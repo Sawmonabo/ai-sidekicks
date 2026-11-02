@@ -19,14 +19,16 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use serde_json::{Map, Value};
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::document::{
-    WorkflowNode, WorkflowNodeKindId, WorkflowNodeOnError,
+    WorkflowNode, WorkflowNodeId, WorkflowNodeKindId, WorkflowNodeOnError,
 };
 use sidekicks_contracts::workflow::definition::item::{
-    WorkflowItem, WorkflowStepError, WorkflowStepUncodedError,
+    WorkflowItem, WorkflowStepCodedError, WorkflowStepError, WorkflowStepErrorCode,
+    WorkflowStepUncodedError,
 };
 use sidekicks_contracts::workflow::definition::refusals::WorkflowNodeHandles;
 use sidekicks_contracts::workflow::kind::{
@@ -175,6 +177,27 @@ pub(crate) fn uncoded_step_error(message: String) -> WorkflowStepError {
         item_index: None,
         code: None,
         details: None,
+    })
+}
+
+/// A step failure carrying `code`, a `workflow.*` refusal code, with `details`, a JSON object,
+/// saying `message`; its node is `node_id` where the caller knows it, else left with its item for
+/// the step's driver to set.
+pub(crate) fn coded_step_error(
+    code: RefusalCode,
+    message: String,
+    details: Value,
+    node_id: Option<WorkflowNodeId>,
+) -> WorkflowStepError {
+    WorkflowStepError::Coded(WorkflowStepCodedError {
+        message: NonEmptyText::new(message).expect("a step failure's text is never empty"),
+        node_id,
+        item_index: None,
+        code: WorkflowStepErrorCode::new(code.as_str().to_owned())
+            .expect("a workflow refusal's code follows the step failure code's grammar"),
+        details: Some(
+            serde_json::from_value(details).expect("a step failure's details are a JSON object"),
+        ),
     })
 }
 
