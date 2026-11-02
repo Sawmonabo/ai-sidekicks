@@ -181,6 +181,9 @@ pub(crate) enum McpToolCallEnd {
         /// The JSON-RPC error object that said so, as sent.
         error: Map<String, Value>,
     },
+    /// The connection closed under the follow, and the task may run on, so the dispatch binds it
+    /// to a new connection or reads its end unknown.
+    ConnectionClosed,
 }
 
 /// What a server did with a request to cancel a task.
@@ -193,14 +196,31 @@ pub(crate) enum McpTaskCancelOutcome {
     Refused,
 }
 
-/// Whether a followed task's server still answers its polls: `Lost` once no poll was answered for
-/// 300 s, back to `Reached` at the next answered poll. The task is left alone either way.
+/// Whether a followed task's server still reads the task, and why not when it does not: no
+/// answer, an error answer, a refused sign-in or a rejected task id, each also read once it has
+/// stood for 300 s. A failed poll that says why replaces the cause that stood, and the task is
+/// left alone either way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum McpTaskContact {
-    /// The last poll, or one within the last 300 s, was answered.
+    /// A poll read the task, and no failed poll since said why it could not.
     Reached,
-    /// No poll was answered for 300 s.
+    /// No poll read the task or answered `-32602` for 300 s; until one does.
     Lost,
+    /// The server answered a poll with an error; until a poll reads the task or answers `-32602`,
+    /// or `ErrorsPersisted` 300 s after the last that did.
+    AnsweredWithErrors,
+    /// The server refused the poll's sign-in; until a poll reads the task or answers `-32602`, or
+    /// `SignInNotAccepted` 300 s after the last that did.
+    NeedsSignIn,
+    /// The server answered `-32602`, rejecting the task's id, inside the grace; until a poll reads
+    /// the task, another failure says why, or `Lost` 300 s after the last `-32602`.
+    TaskIdRejected,
+    /// No sign-in was accepted in the 300 s since a poll last read the task or answered `-32602`;
+    /// until one does.
+    SignInNotAccepted,
+    /// The polls came back with errors for the 300 s since one last read the task or answered
+    /// `-32602`; until one does.
+    ErrorsPersisted,
 }
 
 /// Why a tool call has no end.
@@ -265,8 +285,8 @@ impl McpServerConnection {
     /// Follows the recorded task `mcp_task_id` of `call`, accepted under `mcp_task_generation`,
     /// to its end, as after a restart: polled at once, its questions asked again in the call's
     /// session and run, `contact` saying whether its server answers, and a 2026-07-28 task's
-    /// answers going over `standing`'s live connection. Never fails: a poll that fails is polled
-    /// again.
+    /// answers going over `standing`'s live connection. Never fails: a failed poll is polled
+    /// again or read as the end it says.
     #[expect(
         dead_code,
         reason = "the session's tool-server connections, which the tool-server units open, \

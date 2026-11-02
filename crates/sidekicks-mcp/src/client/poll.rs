@@ -1,17 +1,40 @@
 //! The cadence a task is polled at: one `tasks/get` at a time, 2 s apart unless the server suggests
-//! its own interval, which is held between 250 ms and 30 s. A poll that fails is polled again at
-//! the same cadence, the task left alone; once no poll was answered for 300 s the task's contact
-//! reads lost, and the next answered poll reads it reached again. A status notification only
-//! wakes the next poll early, never sooner than 250 ms after the last one, so a server flooding
+//! its own interval, which is held between 250 ms and 30 s. A status notification only wakes the
+//! next poll early, never sooner than 250 ms after the last one, so a server flooding
 //! notifications cannot drive polls back to back; the poll alone decides the task's state.
+//!
+//! Each failed poll is read for what it says:
+//!
+//! - A closed connection ends the follow at once, the task perhaps still running on the server.
+//! - A `-32601` or a `-32021` ends it at once, the task's end unknown.
+//! - A `-32602` rejects the task's id: the task is polled on through a grace of 300 s on the
+//!   answered clock from the first one, then its end reads unknown. A poll that reads the task
+//!   clears the grace.
+//! - A refused sign-in, an error answer or no answer is polled again at the same cadence, the task
+//!   left alone and the contact saying which.
+//!
+//! The answered clock adds the time between two answered polls with no failed poll between them,
+//! a `-32602` counting as answered, so an outage never counts toward the grace. Lost's clock is
+//! wall time since the last poll that read the task or answered `-32602`, which resets it; once
+//! it reaches 300 s the cause that stands picks the contact: a sign-in not accepted, errors that
+//! persisted, or contact lost. The next poll that reads the task reads it reached again.
 
+use std::error::Error;
 use std::future::Future;
 use std::time::Duration;
 
+use rmcp::model::{ErrorCode, ErrorData};
+use rmcp::service::ServiceError;
+use rmcp::transport::DynamicTransportError;
+use rmcp::transport::streamable_http_client::StreamableHttpError;
+use serde_json::{Map, Value};
 use tokio::sync::{Notify, watch};
 use tokio::time::Instant;
 
-use crate::client::tasks::McpTaskContact;
+use crate::client::http::McpHttpError;
+use crate::client::requests::McpRequestError;
+use crate::client::tasks::{McpTaskContact, McpToolCallEnd};
+use crate::sign_in::authorizer::SignInAuthorizationError;
 
 /// The interval between polls when the server suggests none.
 pub(super) const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -22,19 +45,167 @@ pub(super) const MIN_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// The longest interval a server's suggestion is held to.
 pub(super) const MAX_POLL_INTERVAL: Duration = Duration::from_secs(30);
 
-/// How long no poll may be answered before the task's contact reads lost.
+/// How long no poll may read the task or answer `-32602` before the contact gives up on reaching
+/// the server.
 pub(super) const CONTACT_LOST_AFTER: Duration = Duration::from_secs(300);
+
+/// How long, on the answered clock, a server may reject a task's id before its end reads unknown.
+const TASK_ID_REJECTED_GRACE: Duration = Duration::from_secs(300);
 
 /// What one poll read: wait for the next one, at the interval the server suggested in
 /// milliseconds where it did, or the call's end.
-pub(super) enum PollStep<End> {
+pub(super) enum PollStep {
     /// The task is not done.
     Wait {
         /// The server's suggested interval, in milliseconds.
         suggested_interval_ms: Option<u64>,
     },
     /// The task is done.
-    End(End),
+    End(McpToolCallEnd),
+}
+
+/// What a failed poll says about the task.
+pub(super) enum PollFailure {
+    /// The connection closed under the poll.
+    ConnectionClosed,
+    /// The server answered `-32602`, rejecting the task's id, with this error object.
+    TaskIdRejected {
+        /// The JSON-RPC error object, as sent.
+        error: Map<String, Value>,
+    },
+    /// The server answered `-32601` or `-32021`: it can never give the task's end.
+    Permanent {
+        /// The JSON-RPC error object, as sent.
+        error: Map<String, Value>,
+    },
+    /// The server refused the poll's sign-in.
+    SignInRefused,
+    /// The server answered, with an error or with something that does not read.
+    ErrorAnswer,
+    /// No answer came back.
+    NoAnswer,
+}
+
+/// A poll's error, read for what it says about the task.
+pub(super) trait PollError: Error + 'static {
+    /// What this failed poll says about the task.
+    fn poll_failure(&self) -> PollFailure;
+}
+
+impl PollError for McpRequestError {
+    fn poll_failure(&self) -> PollFailure {
+        match self {
+            Self::Service(error) => error.poll_failure(),
+            Self::Refused { code, error } => read_refusal(*code, error.clone()),
+            Self::ReplyNotKept { .. } | Self::Malformed { .. } => PollFailure::ErrorAnswer,
+        }
+    }
+}
+
+impl PollError for ServiceError {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "rmcp's errors are non-exhaustive, so every other kind is named by the wildcard"
+    )]
+    fn poll_failure(&self) -> PollFailure {
+        match self {
+            Self::TransportClosed => PollFailure::ConnectionClosed,
+            Self::McpError(error) => read_refusal(i64::from(error.code.0), error_object(error)),
+            Self::UnexpectedResponse => PollFailure::ErrorAnswer,
+            Self::TransportSend(error) => read_transport_failure(error),
+            _ => PollFailure::NoAnswer,
+        }
+    }
+}
+
+// Reads a JSON-RPC error the server answered with `code`.
+fn read_refusal(code: i64, error: Map<String, Value>) -> PollFailure {
+    if code == i64::from(ErrorCode::INVALID_PARAMS.0) {
+        PollFailure::TaskIdRejected { error }
+    } else if code == i64::from(ErrorCode::METHOD_NOT_FOUND.0)
+        || code == i64::from(ErrorCode::MISSING_REQUIRED_CLIENT_CAPABILITY.0)
+    {
+        PollFailure::Permanent { error }
+    } else {
+        PollFailure::ErrorAnswer
+    }
+}
+
+// The error object rmcp read, as the server sent it.
+fn error_object(error: &ErrorData) -> Map<String, Value> {
+    serde_json::to_value(error)
+        .and_then(serde_json::from_value)
+        .expect("a JSON-RPC error writes as a JSON object")
+}
+
+// Reads a failed send from its source chain: a refused sign-in, an answer that came back as an
+// error, else no answer. rmcp's HTTP error carries our client's error without naming it as its
+// source, so the walk steps into it.
+#[expect(
+    clippy::wildcard_enum_match_arm,
+    reason = "rmcp's errors are non-exhaustive, so every other kind is named by the wildcard"
+)]
+fn read_transport_failure(error: &DynamicTransportError) -> PollFailure {
+    let mut cause: Option<&(dyn Error + 'static)> = Some(&*error.error);
+    while let Some(current) = cause {
+        if matches!(
+            current.downcast_ref::<SignInAuthorizationError>(),
+            Some(SignInAuthorizationError::SignInRequired)
+        ) {
+            return PollFailure::SignInRefused;
+        }
+        cause = current.source();
+        let Some(http) = current.downcast_ref::<StreamableHttpError<McpHttpError>>() else {
+            continue;
+        };
+        match http {
+            StreamableHttpError::AuthRequired(_)
+            | StreamableHttpError::InsufficientScope(_)
+            | StreamableHttpError::Client(McpHttpError::Renewal(_)) => {
+                return PollFailure::SignInRefused;
+            }
+            StreamableHttpError::HttpStatus(_)
+            | StreamableHttpError::UnexpectedServerResponse(_)
+            | StreamableHttpError::UnexpectedContentType(_)
+            | StreamableHttpError::Deserialize(_)
+            | StreamableHttpError::SessionExpired
+            | StreamableHttpError::ReinitializationFailed(_) => return PollFailure::ErrorAnswer,
+            StreamableHttpError::Client(client) => cause = Some(client),
+            _ => {}
+        }
+    }
+    PollFailure::NoAnswer
+}
+
+/// The time a server answered a task's polls: the time between two answered polls with no failed
+/// poll between them, so an outage never counts.
+#[derive(Default)]
+pub(super) struct AnsweredClock {
+    /// The time counted so far.
+    counted: Duration,
+    /// When the last answered poll came back, while no failed poll followed it.
+    last_answered: Option<Instant>,
+}
+
+impl AnsweredClock {
+    /// Counts a poll answered at `now`, adding the time since the last one when none failed
+    /// between them.
+    pub(super) fn answer(&mut self, now: Instant) {
+        if let Some(last_answered) = self.last_answered {
+            self.counted += now - last_answered;
+        }
+        self.last_answered = Some(now);
+    }
+
+    /// Breaks the chain at a failed poll, so the time until the next answered poll is not counted.
+    pub(super) fn break_chain(&mut self) {
+        self.last_answered = None;
+    }
+
+    /// The time counted so far.
+    pub(super) fn counted(&self) -> Duration {
+        self.counted
+    }
 }
 
 /// The wait before the next poll: the server's suggestion held between the bounds, else the
@@ -47,31 +218,41 @@ pub(super) fn poll_interval(suggested_interval_ms: Option<u64>) -> Duration {
 
 /// Polls with `poll` until it reads the end, waiting the held interval between polls, or less
 /// when `wake` is notified but at least [`MIN_POLL_INTERVAL`] from the last poll, and keeping
-/// `contact` to whether a poll was answered within 300 s. The first poll runs at once.
-pub(super) async fn follow_task<End, Error, Poll, Polled>(
+/// `contact` to why the server is not reached, if it is not. The first poll runs at once. A closed
+/// connection ends `ConnectionClosed`; a `-32601`, a `-32021`, or a `-32602` past its grace, ends
+/// `TaskUnknown` with the server's error.
+pub(super) async fn follow_task<Error, Poll, Polled>(
     wake: &Notify,
     contact: &watch::Sender<McpTaskContact>,
     mut poll: Poll,
-) -> End
+) -> McpToolCallEnd
 where
-    Error: std::error::Error + 'static,
+    Error: PollError,
     Poll: FnMut() -> Polled,
-    Polled: Future<Output = Result<PollStep<End>, Error>>,
+    Polled: Future<Output = Result<PollStep, Error>>,
 {
+    // Lost's clock: the last poll that read the task or answered `-32602`.
     let mut last_answered = Instant::now();
+    let mut answered = AnsweredClock::default();
+    // The answered clock's reading at the first `-32602` since a poll last read the task.
+    let mut grace_start: Option<Duration> = None;
     let mut interval = DEFAULT_POLL_INTERVAL;
     loop {
         let polled_at = Instant::now();
-        match poll().await {
+        let polled = poll().await;
+        let now = Instant::now();
+        match polled {
             Ok(PollStep::End(end)) => {
-                contact.send_if_modified(reach);
+                set_contact(contact, McpTaskContact::Reached);
                 return end;
             }
             Ok(PollStep::Wait {
                 suggested_interval_ms,
             }) => {
-                last_answered = Instant::now();
-                contact.send_if_modified(reach);
+                last_answered = now;
+                answered.answer(now);
+                grace_start = None;
+                set_contact(contact, McpTaskContact::Reached);
                 interval = poll_interval(suggested_interval_ms);
             }
             Err(error) => {
@@ -79,12 +260,33 @@ where
                     error = &error as &(dyn std::error::Error + 'static),
                     "a tool server task poll failed"
                 );
-                if last_answered.elapsed() >= CONTACT_LOST_AFTER {
-                    contact.send_if_modified(|state| {
-                        let is_new = *state != McpTaskContact::Lost;
-                        *state = McpTaskContact::Lost;
-                        is_new
-                    });
+                let cause = match error.poll_failure() {
+                    PollFailure::ConnectionClosed => return McpToolCallEnd::ConnectionClosed,
+                    PollFailure::Permanent { error } => {
+                        return McpToolCallEnd::TaskUnknown { error };
+                    }
+                    PollFailure::TaskIdRejected { error } => {
+                        last_answered = now;
+                        answered.answer(now);
+                        let started = *grace_start.get_or_insert(answered.counted());
+                        if answered.counted().saturating_sub(started) >= TASK_ID_REJECTED_GRACE {
+                            return McpToolCallEnd::TaskUnknown { error };
+                        }
+                        set_contact(contact, McpTaskContact::TaskIdRejected);
+                        None
+                    }
+                    PollFailure::SignInRefused => Some(McpTaskContact::NeedsSignIn),
+                    PollFailure::ErrorAnswer => Some(McpTaskContact::AnsweredWithErrors),
+                    PollFailure::NoAnswer => Some(*contact.borrow()),
+                };
+                if let Some(cause) = cause {
+                    answered.break_chain();
+                    let arm = if now - last_answered >= CONTACT_LOST_AFTER {
+                        cause_at_contact_lost(cause)
+                    } else {
+                        cause
+                    };
+                    set_contact(contact, arm);
                 }
             }
         }
@@ -97,20 +299,55 @@ where
     }
 }
 
-// Marks the task's server reached; true when that changed the state.
-fn reach(state: &mut McpTaskContact) -> bool {
-    let is_new = *state != McpTaskContact::Reached;
-    *state = McpTaskContact::Reached;
-    is_new
+// The arm the standing cause picks once Lost's clock reaches 300 s.
+fn cause_at_contact_lost(cause: McpTaskContact) -> McpTaskContact {
+    match cause {
+        McpTaskContact::NeedsSignIn | McpTaskContact::SignInNotAccepted => {
+            McpTaskContact::SignInNotAccepted
+        }
+        McpTaskContact::AnsweredWithErrors | McpTaskContact::ErrorsPersisted => {
+            McpTaskContact::ErrorsPersisted
+        }
+        McpTaskContact::Reached | McpTaskContact::Lost | McpTaskContact::TaskIdRejected => {
+            McpTaskContact::Lost
+        }
+    }
+}
+
+// Writes `arm` to the task's contact, telling its readers only when it changed.
+fn set_contact(contact: &watch::Sender<McpTaskContact>, arm: McpTaskContact) {
+    contact.send_if_modified(|state| {
+        let is_new = *state != arm;
+        *state = arm;
+        is_new
+    });
 }
 
 #[cfg(test)]
 mod tests {
+    use std::any::TypeId;
     use std::time::Duration;
 
+    use rmcp::model::{ErrorCode, ErrorData};
+    use rmcp::service::ServiceError;
+    use rmcp::transport::DynamicTransportError;
+    use rmcp::transport::streamable_http_client::{AuthRequiredError, StreamableHttpError};
     use rstest::rstest;
+    use serde_json::{Map, Value, json};
+    use tokio::sync::{Notify, watch};
+    use tokio::time::Instant;
 
-    use super::{DEFAULT_POLL_INTERVAL, poll_interval};
+    use self::Reply::{
+        Closed, Completed, McpError, Refused, SignInRefused, Silent, Unavailable, Working,
+    };
+    use super::{DEFAULT_POLL_INTERVAL, PollStep, follow_task, poll_interval};
+    use crate::client::http::McpHttpError;
+    use crate::client::requests::McpRequestError;
+    use crate::client::tasks::McpTaskContact::{
+        AnsweredWithErrors, ErrorsPersisted, Lost, NeedsSignIn, Reached, SignInNotAccepted,
+        TaskIdRejected,
+    };
+    use crate::client::tasks::{McpTaskContact, McpToolCallEnd};
 
     // Fails when the server's suggestion is taken unbounded (a removed clamp) or the default is
     // not 2 s.
@@ -124,5 +361,217 @@ mod tests {
         #[case] expected: Duration,
     ) {
         assert_eq!(poll_interval(suggested), expected);
+    }
+
+    /// What a scripted poll answers.
+    #[derive(Clone, Copy)]
+    enum Reply {
+        /// `working`.
+        Working,
+        /// `completed`, with the result inline.
+        Completed,
+        /// The connection closed.
+        Closed,
+        /// A JSON-RPC error with this code, read raw as a 2025-11-25 poll reads it.
+        Refused(i32),
+        /// A JSON-RPC error with this code, read through rmcp as a 2026-07-28 poll reads it.
+        McpError(i32),
+        /// An HTTP 503.
+        Unavailable,
+        /// A 401 asking for a sign-in.
+        SignInRefused,
+        /// No answer within the request's bound.
+        Silent,
+    }
+
+    fn object(value: Value) -> Map<String, Value> {
+        let Value::Object(object) = value else {
+            panic!("an object");
+        };
+        object
+    }
+
+    fn refused_error(code: i32) -> Map<String, Value> {
+        object(json!({ "code": code, "message": "refused" }))
+    }
+
+    fn mcp_error(code: i32) -> Map<String, Value> {
+        object(json!({ "code": code, "message": "refused", "data": { "taskId": "task-1" } }))
+    }
+
+    fn result() -> Map<String, Value> {
+        object(json!({ "content": [] }))
+    }
+
+    fn transport_failure(error: StreamableHttpError<McpHttpError>) -> McpRequestError {
+        McpRequestError::Service(ServiceError::TransportSend(
+            DynamicTransportError::from_parts("test", TypeId::of::<()>(), Box::new(error)),
+        ))
+    }
+
+    fn poll_reply(reply: Reply) -> Result<PollStep, McpRequestError> {
+        match reply {
+            Working => Ok(PollStep::Wait {
+                suggested_interval_ms: None,
+            }),
+            Completed => Ok(PollStep::End(McpToolCallEnd::Answered { result: result() })),
+            Closed => Err(McpRequestError::Service(ServiceError::TransportClosed)),
+            Refused(code) => Err(McpRequestError::Refused {
+                code: i64::from(code),
+                error: refused_error(code),
+            }),
+            McpError(code) => Err(McpRequestError::Service(ServiceError::McpError(
+                ErrorData::new(
+                    ErrorCode(code),
+                    "refused",
+                    Some(json!({ "taskId": "task-1" })),
+                ),
+            ))),
+            Unavailable => Err(transport_failure(
+                StreamableHttpError::UnexpectedServerResponse(
+                    "HTTP 503 Service Unavailable".into(),
+                ),
+            )),
+            SignInRefused => Err(transport_failure(StreamableHttpError::AuthRequired(
+                AuthRequiredError::new(r#"Bearer error="invalid_token""#.to_owned()),
+            ))),
+            Silent => Err(McpRequestError::Service(ServiceError::Timeout {
+                timeout: Duration::from_secs(60),
+            })),
+        }
+    }
+
+    // Each case polls every 2 s, `script` answering by the second since the follow began, and
+    // reads the follow's end, the second it ended at and each contact change with its second.
+    // Mutations, each failing a case: in `follow_task`, end on any error (the no-answer, 503 and
+    // sign-in cases); poll on at `ConnectionClosed` (closed); poll on at a permanent code (the
+    // `-32601` and `-32021` cases); never clear the grace at a reading poll (reading clears the
+    // grace); measure the grace on wall time, or leave `break_chain` out (an outage before the
+    // second `-32602`); reset the answered clock at a failed poll (a failed poll in every 300 s);
+    // write `Lost` or nothing for a sign-in, a rejected id or an error answer (the 503, sign-in
+    // and rejected cases); leave Lost's clock running at a `-32602`, or keep `Lost` over it (lost,
+    // then rejected); or pick the 300 s arm from the wrong cause (the 503 and sign-in cases). In
+    // `poll_failure`, read any row of its table as another.
+    #[rstest]
+    #[case::closed(|_| Closed, McpToolCallEnd::ConnectionClosed, 0, vec![])]
+    #[case::rejected_on_every_poll(
+        |_| Refused(-32_602),
+        McpToolCallEnd::TaskUnknown { error: refused_error(-32_602) },
+        300,
+        vec![(0, TaskIdRejected)],
+    )]
+    #[case::reading_clears_the_grace(
+        |at| if at == 202 { Working } else { McpError(-32_602) },
+        McpToolCallEnd::TaskUnknown { error: mcp_error(-32_602) },
+        504,
+        vec![(0, TaskIdRejected), (202, Reached), (204, TaskIdRejected)],
+    )]
+    #[case::an_outage_then_rejected(
+        |at| if at < 600 { Silent } else { McpError(-32_602) },
+        McpToolCallEnd::TaskUnknown { error: mcp_error(-32_602) },
+        900,
+        vec![(300, Lost), (600, TaskIdRejected)],
+    )]
+    #[case::an_outage_before_the_second_rejection(
+        |at| if at == 0 || at >= 600 { McpError(-32_602) } else { Silent },
+        McpToolCallEnd::TaskUnknown { error: mcp_error(-32_602) },
+        900,
+        vec![(0, TaskIdRejected), (300, Lost), (600, TaskIdRejected)],
+    )]
+    #[case::a_failed_poll_in_every_300_s(
+        |at| if at % 300 == 150 { Silent } else { McpError(-32_602) },
+        McpToolCallEnd::TaskUnknown { error: mcp_error(-32_602) },
+        304,
+        vec![(0, TaskIdRejected)],
+    )]
+    #[case::method_not_found_raw(
+        |_| Refused(-32_601),
+        McpToolCallEnd::TaskUnknown { error: refused_error(-32_601) },
+        0,
+        vec![],
+    )]
+    #[case::method_not_found(
+        |_| McpError(-32_601),
+        McpToolCallEnd::TaskUnknown { error: mcp_error(-32_601) },
+        0,
+        vec![],
+    )]
+    #[case::missing_capability(
+        |_| McpError(-32_021),
+        McpToolCallEnd::TaskUnknown { error: mcp_error(-32_021) },
+        0,
+        vec![],
+    )]
+    #[case::no_answer(
+        |at| match at { 0..310 => Silent, 310 => Working, _ => Completed },
+        McpToolCallEnd::Answered { result: result() },
+        312,
+        vec![(300, Lost), (310, Reached)],
+    )]
+    #[case::service_unavailable(
+        |at| match at { 10 | 312 => Working, 314.. => Completed, _ => Unavailable },
+        McpToolCallEnd::Answered { result: result() },
+        314,
+        vec![
+            (0, AnsweredWithErrors),
+            (10, Reached),
+            (12, AnsweredWithErrors),
+            (310, ErrorsPersisted),
+            (312, Reached),
+        ],
+    )]
+    #[case::lost_then_rejected(
+        |at| match at { 302 => McpError(-32_602), 604 => Working, 606.. => Completed, _ => Silent },
+        McpToolCallEnd::Answered { result: result() },
+        606,
+        vec![(300, Lost), (302, TaskIdRejected), (602, Lost), (604, Reached)],
+    )]
+    #[case::sign_in_refused(
+        |at| match at { 10 | 312 => Working, 314.. => Completed, _ => SignInRefused },
+        McpToolCallEnd::Answered { result: result() },
+        314,
+        vec![
+            (0, NeedsSignIn),
+            (10, Reached),
+            (12, NeedsSignIn),
+            (310, SignInNotAccepted),
+            (312, Reached),
+        ],
+    )]
+    #[tokio::test(start_paused = true)]
+    async fn each_failed_poll_is_read_for_what_it_says(
+        #[case] script: fn(u64) -> Reply,
+        #[case] expected_end: McpToolCallEnd,
+        #[case] expected_ended_at: u64,
+        #[case] expected_contacts: Vec<(u64, McpTaskContact)>,
+    ) {
+        let wake = Notify::new();
+        let contact = watch::Sender::new(Reached);
+        let mut seen = contact.subscribe();
+        let started = Instant::now();
+        let follow = follow_task(&wake, &contact, || {
+            std::future::ready(poll_reply(script(started.elapsed().as_secs())))
+        });
+        tokio::pin!(follow);
+        let mut contacts = Vec::new();
+        // Bounded so a mutant that never ends fails here, not at the runner's kill.
+        let end = loop {
+            tokio::select! {
+                end = &mut follow => break Some(end),
+                changed = seen.changed() => {
+                    changed.expect("the contact is kept");
+                    contacts.push((started.elapsed().as_secs(), *seen.borrow_and_update()));
+                }
+                () = tokio::time::sleep_until(started + Duration::from_mins(50)) => break None,
+            }
+        };
+        // A `Reached` written by the poll that read the end loses the race to the end.
+        if seen.has_changed().expect("the contact is kept") {
+            contacts.push((started.elapsed().as_secs(), *seen.borrow_and_update()));
+        }
+
+        assert_eq!(end, Some(expected_end));
+        assert_eq!(started.elapsed().as_secs(), expected_ended_at);
+        assert_eq!(contacts, expected_contacts);
     }
 }

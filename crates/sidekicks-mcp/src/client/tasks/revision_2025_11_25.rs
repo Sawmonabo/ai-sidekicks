@@ -98,7 +98,7 @@ async fn poll_once(
     mcp_task_id: &str,
     wake: &Arc<Notify>,
     held: &Mutex<Option<HeldResult>>,
-) -> Result<PollStep<McpToolCallEnd>, McpRequestError> {
+) -> Result<PollStep, McpRequestError> {
     if let Some(end) = take_held_end(connection, held) {
         return Ok(PollStep::End(end));
     }

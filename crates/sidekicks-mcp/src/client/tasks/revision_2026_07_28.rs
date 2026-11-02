@@ -183,7 +183,7 @@ async fn poll_once(
     standing: &McpStandingConnection,
     mcp_task_id: &str,
     asked: &Mutex<HashSet<String>>,
-) -> Result<PollStep<McpToolCallEnd>, ServiceError> {
+) -> Result<PollStep, ServiceError> {
     let reply = connection.requests.get_task(mcp_task_id).await?;
     let suggested_interval_ms = reply.task.task.poll_interval_ms;
     let input_requests = match reply.task.payload {
