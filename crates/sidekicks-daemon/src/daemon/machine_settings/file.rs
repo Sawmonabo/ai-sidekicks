@@ -18,8 +18,9 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_contracts::machine::settings::{
     BranchNamePattern, MACHINE_SETTINGS_FILE_PATH_SEGMENTS, MachineSettings, MachineSettingsChange,
-    MachineSettingsReading, ProjectBranchPatternRefusedDetails, SettingsFileRepair,
-    SettingsFileRepairCause, parse_machine_settings_file,
+    MachineSettingsReading, ProjectBranchPatternRefusedDetails, ProviderCommandValues,
+    ProviderKnobValues, ProviderSettingValues, SettingsFileRepair, SettingsFileRepairCause,
+    parse_machine_settings_file,
 };
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
@@ -69,6 +70,22 @@ struct Listeners {
     watchers: Vec<watch::Sender<MachineSettings>>,
 }
 
+/// The provider members of the settings file, the only ones a change through
+/// [`MachineSettingsFile::update_provider`] can reach and the ones `machine.settings.update` never
+/// does.
+#[expect(
+    dead_code,
+    reason = "the provider.update handler reads and writes each member"
+)]
+pub(crate) struct ProviderSettingsMembers<'settings> {
+    /// The values set on each provider's declared Settings rows.
+    pub(crate) settings: &'settings mut ProviderSettingValues,
+    /// Each provider's command path per place.
+    pub(crate) commands: &'settings mut ProviderCommandValues,
+    /// Each provider's knobs.
+    pub(crate) knobs: &'settings mut ProviderKnobValues,
+}
+
 /// The settings file under the person's `home_folder`, in the daemon's data folder.
 pub(crate) fn machine_settings_file_path(home_folder: &Path) -> PathBuf {
     MACHINE_SETTINGS_FILE_PATH_SEGMENTS
@@ -108,6 +125,32 @@ impl MachineSettingsFile {
         let mut repair = self.repair.lock().await;
         let current = self.read_from_disk(&mut repair).await?;
         let settings = apply_change(current.settings, change)?;
+        self.write(&settings).await?;
+        *repair = None;
+        self.announce(&MachineSettingsReading {
+            settings: settings.clone(),
+            repair: None,
+        });
+        Ok(settings)
+    }
+
+    /// Applies `change` to the provider members of the file as it stands, writes it with every
+    /// other member as it was, clears the repair and tells every listener: the file's one writer of
+    /// those members. Fails with [`MachineSettingsFileError::Folder`] or
+    /// [`MachineSettingsFileError::Write`] when the change cannot be written, and as [`Self::read`]
+    /// does.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the provider.update handler"))]
+    pub(crate) async fn update_provider(
+        &self,
+        change: impl FnOnce(ProviderSettingsMembers<'_>) + Send,
+    ) -> Result<MachineSettings, MachineSettingsFileError> {
+        let mut repair = self.repair.lock().await;
+        let mut settings = self.read_from_disk(&mut repair).await?.settings;
+        change(ProviderSettingsMembers {
+            settings: &mut settings.provider_settings,
+            commands: &mut settings.provider_commands,
+            knobs: &mut settings.provider_knobs,
+        });
         self.write(&settings).await?;
         *repair = None;
         self.announce(&MachineSettingsReading {
@@ -269,7 +312,8 @@ fn reading_of(
     }
 }
 
-// The settings with the change's one member replaced by its whole value.
+// The settings with the change's one member replaced by its whole value. No change reaches a
+// provider member, which only `update_provider` writes.
 fn apply_change(
     mut settings: MachineSettings,
     change: MachineSettingsChange,
@@ -331,9 +375,11 @@ mod tests {
     use std::sync::Arc;
 
     use sidekicks_contracts::machine::settings::{
-        MachineSettings, MachineSettingsChange, SettingsFileRepairCause,
+        MachineSettings, MachineSettingsChange, ProviderKnobs, SettingsFileRepairCause,
     };
-
+    use sidekicks_contracts::provider::id::ProviderId;
+    use sidekicks_contracts::wire::integer::SafeInt;
+    use sidekicks_contracts::wire::record::Record;
     use sidekicks_platforms::make_folder_link;
 
     use super::{MachineSettingsFile, machine_settings_file_path};
@@ -395,5 +441,66 @@ mod tests {
         let third = file.read().await.expect("the changed file reads");
         assert_eq!(third.repair, None);
         assert!(!third.settings.updates_automatic);
+    }
+
+    // A helper limit written through the provider writer leaves every other member as the file
+    // held it, the provider members beside it included. Killed by writing from the defaults.
+    #[tokio::test]
+    async fn a_provider_knob_write_leaves_every_other_member_as_it_was() {
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        let file_path = machine_settings_file_path(folder.path());
+        std::fs::create_dir_all(file_path.parent().expect("the file has a folder"))
+            .expect("the data folder is made");
+        let held = serde_json::json!({
+            "updatesAutomatic": false,
+            "editorId": "zed",
+            "providerSettings": { "claude": { "advisor": "opus" } },
+            "providerCommands": { "codex": [{ "path": "/opt/codex/bin/codex" }] },
+            "providerKnobs": { "claude": { "availableForNewSessions": false } },
+            "voice": { "mode": "tap", "callVoice": null, "dictationLanguage": null },
+        });
+        std::fs::write(&file_path, held.to_string()).expect("the file is written");
+        let file = MachineSettingsFile::new(file_path.clone());
+        let before = file.read().await.expect("the file reads");
+        assert_eq!(before.repair, None);
+        let before = serde_json::to_value(before.settings).expect("settings serialize");
+
+        let codex: ProviderId = serde_json::from_value("codex".into()).expect("a provider id");
+        file.update_provider(|members| {
+            let mut knobs = members.knobs.clone().into_map();
+            knobs.insert(
+                codex,
+                ProviderKnobs {
+                    helpers_at_once: Some(Some(SafeInt::new(3).expect("3 is a safe integer"))),
+                    ..ProviderKnobs::default()
+                },
+            );
+            *members.knobs = Record::new(knobs).expect("no provider id is __proto__");
+        })
+        .await
+        .expect("the change is written");
+
+        let written: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&file_path).expect("the written file reads"))
+                .expect("the written file is JSON");
+        let before = before.as_object().expect("settings serialize as an object");
+        let written = written.as_object().expect("the written file is an object");
+        assert_eq!(
+            written["providerKnobs"],
+            serde_json::json!({
+                "claude": { "availableForNewSessions": false },
+                "codex": { "helpersAtOnce": 3 },
+            })
+        );
+        assert_eq!(written.len(), before.len());
+        for (member, value) in before {
+            if member != "providerKnobs" {
+                assert_eq!(
+                    serde_json::to_vec(&written[member]).expect("a member serializes"),
+                    serde_json::to_vec(value).expect("a member serializes"),
+                    "{member}"
+                );
+            }
+        }
     }
 }
