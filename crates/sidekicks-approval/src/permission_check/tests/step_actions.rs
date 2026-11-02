@@ -191,6 +191,7 @@ async fn a_session_rule_answers_a_steps_second_identical_action() {
 fn command_step(line: &str) -> StepAction {
     StepAction::Command {
         line: line.to_owned(),
+        shown_line: line.to_owned(),
     }
 }
 
@@ -255,6 +256,46 @@ async fn a_steps_card_offers_a_rule_only_over_one_plain_command(
     };
     let (category, subject, offered) = fixture.card_offer(&card.approval_request_id);
     assert_eq!((category.as_str(), subject.as_str(), offered), expected);
+}
+
+// A command step's card shows its filled, masked line, while its category and the rule it offers
+// are read from the line of value references, so a filled value holding a quote, which the shell
+// only ever reads as one word, cannot change the rule. Killed by the card showing the reference
+// line, by its stored action carrying it, and by reading the filled line for the rule, which reads
+// three commands and offers none.
+#[tokio::test]
+async fn a_command_steps_card_shows_its_filled_line_and_reads_the_rule_from_references() {
+    let fixture = CheckFixture::new().await;
+    let shown_line = r#"cargo test "x"; rm -rf ~; echo """#;
+    let step = StepAction::Command {
+        line: r#"cargo test "${SIDEKICKS_VALUE_1}""#.to_owned(),
+        shown_line: shown_line.to_owned(),
+    };
+    let verdict = fixture
+        .check
+        .check_step_action(fixture.step_check(PermissionLevel::Ask, &step))
+        .await
+        .expect("the check decides");
+    let ToolCallVerdict::CardRaised(card) = verdict else {
+        panic!("the step raises its card");
+    };
+    let (category, subject, offered) = fixture.card_offer(&card.approval_request_id);
+    assert_eq!(
+        (category.as_str(), subject.as_str(), offered),
+        ("toolExecution", "cargo test", true)
+    );
+    let (scope, command): (String, String) = fixture
+        .approvals
+        .database
+        .reader()
+        .query_row(
+            "SELECT scope, json_extract(resource_descriptor, '$.action.command')
+             FROM approval_requests WHERE id = ?1",
+            [card.approval_request_id.text().as_str()],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("the test reads the card");
+    assert_eq!((scope.as_str(), command.as_str()), (shown_line, shown_line));
 }
 
 // A session rule the daemon keeps over a command's words answers the step whose line names them:

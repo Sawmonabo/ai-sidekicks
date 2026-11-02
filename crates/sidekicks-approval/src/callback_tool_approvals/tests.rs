@@ -237,6 +237,7 @@ impl SeamFixture {
             level: PermissionLevel::Ask,
             action: StepAction::Command {
                 line: "cargo test".to_owned(),
+                shown_line: "cargo test".to_owned(),
             },
         }
     }

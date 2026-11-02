@@ -38,8 +38,12 @@ pub enum StepAction {
     /// Runs one command line in the step's shell.
     Command {
         /// The line as the shell runs it, each filled value a `SIDEKICKS_VALUE_<n>` reference and
-        /// never the value; the card shows it and the rule over it is read from it.
+        /// never the value; the session rule over the command is read from it, so no filled value
+        /// can change which command the rule sees.
         line: String,
+        /// The line with each filled value in place and every secret masked, which the card shows
+        /// so the person approves what will run.
+        shown_line: String,
     },
     /// Runs a program with host access: the interpreter and its code file. A program with no host
     /// access asks nothing.

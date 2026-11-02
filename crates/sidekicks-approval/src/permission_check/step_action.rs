@@ -8,8 +8,9 @@
 //!   level but Sandboxed, which never asks and so refuses it.
 //! - A command and a program with host access ask at Read-only, Ask and Reviewed, since no
 //!   provider's reviewer sees a step the daemon runs, and run free at Sandboxed, inside the
-//!   provider's own sandbox, and at YOLO. A command's rule is read from its line as a provider's
-//!   command ask's is; a program's launch line names no rule.
+//!   provider's own sandbox, and at YOLO. A command's card shows its filled, masked line, and its
+//!   rule is read from the line of value references as a provider's command ask's is; a program's
+//!   launch line names no rule.
 
 use sidekicks_contracts::approval::ApprovalCategory;
 use sidekicks_contracts::mcp::server::McpApprovalMode;
@@ -64,7 +65,7 @@ pub(crate) trait StepActionAsk {
     fn gate_at(&self, level: PermissionLevel) -> StepGate;
 
     /// The words the card names: the written file's path, the tool's server-qualified name, the
-    /// command line, or the program's launch line.
+    /// filled, masked command line, or the program's launch line.
     fn subject(&self) -> String;
 
     /// The server and the tool a tool call names, apart, which a session rule over it keys on so
@@ -74,8 +75,9 @@ pub(crate) trait StepActionAsk {
     /// The action as the card shows it and a session rule names its kind.
     fn ask_action(&self) -> ProviderAskAction;
 
-    /// What the card is about and the rule's words: a command's line is read once under
-    /// `shell_lines` for both, and a program names no rule. Fails when the line's read panics.
+    /// What the card is about and the rule's words: a command's line of value references is read
+    /// once under `shell_lines` for both, and a program names no rule. Fails when the line's read
+    /// panics.
     async fn read(
         &self,
         shell_lines: &ShellLineReadingBound,
@@ -141,7 +143,7 @@ impl StepActionAsk for StepAction {
             Self::McpCall { server, tool, .. } => {
                 compose_tool_server_tool_name(server.as_str(), tool.as_str())
             }
-            Self::Command { line } => line.clone(),
+            Self::Command { shown_line, .. } => shown_line.clone(),
             Self::Code { command } => command.clone(),
         }
     }
@@ -183,8 +185,10 @@ impl StepActionAsk for StepAction {
                 category: ApprovalCategory::ToolExecution,
                 rule_subject: Some(self.subject()),
             },
-            Self::Command { .. } => {
-                let action = self.ask_action();
+            Self::Command { line, .. } => {
+                let action = ProviderAskAction::Command {
+                    command: line.clone(),
+                };
                 let read_action = action.clone();
                 read_command_line(shell_lines, &action, move |reader, reading| {
                     StepActionReading {
