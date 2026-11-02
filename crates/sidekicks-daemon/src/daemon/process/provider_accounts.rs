@@ -362,7 +362,7 @@ impl ProviderAccountObservation {
         let publisher: Arc<dyn ProviderAccountNotificationPublisher> =
             Arc::clone(&self.publisher) as _;
         let runtime = Handle::current();
-        // The binding cursors' follow, attached before this one, has marked an ended run by the
+        // The binding cursors' follow, attached before this one, has recorded an ended run by the
         // time this hears it, so the run's turn no longer reads as live.
         self.usage_events = Some(followers.follow_all(move |event| {
             Ok(follow_usage_event(
