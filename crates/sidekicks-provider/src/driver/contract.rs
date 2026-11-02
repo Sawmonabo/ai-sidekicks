@@ -47,7 +47,7 @@ use crate::driver::run_control::{
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverHandoverBriefResult,
-    DriverResumeResult, ExportHandoverBriefParams, MoveSessionToForkParams,
+    DriverResumeResult, EndKeptTurnsParams, ExportHandoverBriefParams, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderCommandsListener,
     ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams, RevokeRuleParams,
     SessionCommandAnswer, SetSessionGoalParams, StartingLevel, StartingLevelParams,
@@ -79,6 +79,11 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: ResumeSessionParams,
     ) -> BoxFuture<'_, Result<DriverResumeResult, DriverError>>;
+
+    /// Ends on the provider each turn a restart kept running in a session the start does not
+    /// resume. Answers once the driver holds the session for the work, which then runs on the
+    /// driver's own tasks under `params.stop`, each turn's outcome logged.
+    fn end_kept_turns(&self, params: EndKeptTurnsParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Waits until the session's process no longer comes back on its own, so a run's binding is
     /// opened on the leg it settles on: answers once the process is live, and fails

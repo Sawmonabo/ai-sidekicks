@@ -196,7 +196,8 @@ pub struct WaitingMessage {
 }
 
 /// Params of `resume_run`: the paused or pausing run to continue from where it stopped, with the
-/// messages that waited for it in send order, delivered as it continues.
+/// messages that waited for it in send order, delivered as it continues, and whether the daemon's
+/// restart cut the run's turn short of its pause, so the continue owes that work first.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResumeRunParams {
     /// The session.
@@ -205,6 +206,9 @@ pub struct ResumeRunParams {
     pub run_id: RunId,
     /// The messages that waited for it, in send order.
     pub messages: Vec<WaitingMessage>,
+    /// Set where the daemon's restart cut the run's turn while it was pausing, so the continue owes
+    /// that cut work its continuation before the messages.
+    pub is_continuation_owed: bool,
 }
 
 /// Params of `find_taken_messages`: messages a resume of the run sent with no answer back, by the

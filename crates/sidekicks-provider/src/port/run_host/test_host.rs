@@ -81,6 +81,8 @@ pub(crate) enum EngineCall {
     CountStep(RunId),
     /// A turn's end that moves no run.
     RecordTurnEnd(RunId, TurnOutcome),
+    /// A turn's end the daemon wrote with no provider frame, by the turn's number.
+    RecordDaemonTurnEnd(RunId, SafeInt<1>, TurnOutcome),
     /// A turn the daemon or the provider started itself, as the minted run.
     StartDaemonTurn(RunId),
     /// A run's turn ended on its process's exit.
@@ -122,6 +124,7 @@ impl RecordingRunEngine {
                 EngineCall::StartTurn(_)
                 | EngineCall::CountStep(_)
                 | EngineCall::RecordTurnEnd(..)
+                | EngineCall::RecordDaemonTurnEnd(..)
                 | EngineCall::StartDaemonTurn(_)
                 | EngineCall::EndTurnOnProcessExit(_)
                 | EngineCall::EndTurnOnClose(_) => None,
@@ -167,6 +170,7 @@ impl RecordingRunEngine {
             | EngineCall::StartTurn(_)
             | EngineCall::CountStep(_)
             | EngineCall::RecordTurnEnd(..)
+            | EngineCall::RecordDaemonTurnEnd(..)
             | EngineCall::EndTurnOnProcessExit(_)
             | EngineCall::EndTurnOnClose(_) => None,
         })
@@ -353,6 +357,20 @@ impl RunHost for RecordingRunEngine {
         turn_end: ProviderTurnEnd,
     ) -> BoxFuture<'_, Result<bool, RunHostError>> {
         self.record(EngineCall::RecordTurnEnd(run_id, turn_end.outcome));
+        async { Ok(true) }.boxed()
+    }
+
+    fn record_daemon_turn_end(
+        &self,
+        run_id: RunId,
+        turn_number: SafeInt<1>,
+        outcome: TurnOutcome,
+    ) -> BoxFuture<'_, Result<bool, RunHostError>> {
+        self.record(EngineCall::RecordDaemonTurnEnd(
+            run_id,
+            turn_number,
+            outcome,
+        ));
         async { Ok(true) }.boxed()
     }
 

@@ -595,6 +595,7 @@ mod tests {
                         attachments: vec![picture],
                         skills: Vec::new(),
                     }],
+                    is_continuation_owed: false,
                 })
                 .await
         };

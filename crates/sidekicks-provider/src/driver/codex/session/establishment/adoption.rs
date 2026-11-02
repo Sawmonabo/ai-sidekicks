@@ -2,17 +2,24 @@
 //! binding its resume names. A conversation the service holds loaded is joined as it runs, with no
 //! setting sent, since Codex applies none to a loaded conversation, so its running turns, waiting
 //! asks and helpers go on; one no client holds is loaded again with every setting the session
-//! holds. The session's record is rebuilt from the live runs the resume names: each open turn
-//! Codex lists bound to its run, each loaded helper bound to its child run, and what Codex holds
-//! of each run's turns answered.
+//! holds. The resume asks for the conversation's newest turn beside its paged history. The
+//! session's record is rebuilt from the live runs the resume names: a lead run whose turn the end
+//! of the daemon's own service cut continued in a new turn, a lead whose cut turn Codex continued
+//! itself on a service the daemon only joined held to the turn that newest one shows, every other
+//! open turn Codex lists bound to its run, each loaded helper bound to its child run, and what
+//! Codex holds of each run's turns answered. A lead held on the person waits with its cut turn
+//! unbound, and a pausing lead's cut turn is gone, so the daemon ends it as the pause owes; both
+//! keep their deliveries' binding for the person's continue.
 
 use std::sync::Arc;
 
 use serde_json::value::RawValue;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::turn::ProviderTurnId;
 use tokio::time::Instant;
 
+use super::continuation::{answer_continued_runs, read_cut_turns};
 use super::{
     CodexEstablishedSession, CodexHandleResume, CodexResumedThread, CodexSessionEstablishment,
     compose_failed_resume, prepare_adoption, read_resumed_thread, request_thread_resume,
@@ -29,7 +36,7 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::settings::{
     compose_resume_settings_request, require_execution_posture,
 };
-use crate::driver::codex::session::history::CodexListedTurn;
+use crate::driver::codex::session::history::{CodexListedTurn, compose_codex_newest_turn_page};
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::owed_turn_ends::is_codex_turn_in_progress;
 use crate::driver::codex::session::slots::let_go_codex_thread;
@@ -145,7 +152,7 @@ impl CodexSessionEstablishment {
             Ok::<_, CodexError>((resumed, result))
         }
         .await;
-        let (resumed, result) = match adopted {
+        let (mut resumed, mut result) = match adopted {
             Ok(adopted) => adopted,
             Err(error) => {
                 release_registered(&service, &record, &registered);
@@ -158,19 +165,32 @@ impl CodexSessionEstablishment {
             .iter()
             .map(|listed| listed.id.clone())
             .collect();
-        record.declared_output_speed = resumed.declared_output_speed;
-        record.reasoning_effort = resumed.reasoning_effort;
+        record.declared_output_speed = resumed.declared_output_speed.take();
+        record.reasoning_effort = resumed.reasoning_effort.take();
         let binding = CodexRunBinding {
             session_id,
             binding_id: params.binding_id.clone(),
             agent_id: params.agent_id,
             step_bound: composed.step_bound,
         };
+        // After every step that can fail, so a failed adoption never leaves a continuation running.
+        let continued = self
+            .continue_cut_runs(
+                &mut record,
+                &connection,
+                &params.live_runs,
+                &resumed,
+                &binding,
+            )
+            .await;
+        answer_continued_runs(&mut result, &continued);
         self.bind_listed_turns(
             &mut record,
             &params.live_runs,
             &resumed.listed_turns,
             &binding,
+            &continued,
+            &result,
         );
         for helper in &helpers {
             restore_helper(&mut record, helper, &binding);
@@ -208,8 +228,7 @@ impl CodexSessionEstablishment {
         let deadline = Instant::now() + CODEX_UNLOAD_TIMEOUT;
         loop {
             let reply = if is_loaded {
-                let bare = compose_codex_bare_thread_resume_params(record.thread_id.clone());
-                request_thread_resume(connection, &record.thread_id, &bare).await
+                request_bare_thread_resume(connection, &record.thread_id).await
             } else {
                 self.request_resume_with_settings(record, connection).await
             };
@@ -226,43 +245,69 @@ impl CodexSessionEstablishment {
         }
     }
 
-    // Binds each open turn of a lead run that Codex lists to its run, numbered and started as its
-    // log recorded it, and the run's deliveries onto `binding`; a listed turn Codex ended is
-    // bound too, so its end, which Codex sent while the daemon was away, ends it.
+    // Binds each lead run not in `continued` by its answer in `result`, which binds nothing where
+    // it answers no runs. A lead Codex still runs or ended has each open turn Codex lists bound
+    // to it, numbered and started as its log recorded it, and its deliveries onto `binding`; a
+    // listed turn Codex ended is bound too, so its end, which Codex sent while the daemon was
+    // away, ends it, and a pausing lead's turn listed running is marked to pause at its next step
+    // end, as a pause asked of it would. A lead waiting on the person, and a pausing or paused one
+    // with no turn Codex runs and no stop pending, binds no turn, since a cut turn's listed end
+    // would end the run, but keeps its deliveries' binding for the person's continue; that
+    // binding leaves with the run's routes, at its next turn's end or the session's close. Any
+    // other lead Codex holds no turn of binds nothing: its turns are the daemon's to end. A run in
+    // `continued` is skipped: its cut turns are ended in the log.
     fn bind_listed_turns(
         &self,
         record: &mut CodexSessionRecord,
         live_runs: &[LiveRunResume],
         listed_turns: &[CodexListedTurn],
         binding: &CodexRunBinding,
+        continued: &[ResumedRunAnswer],
+        result: &DriverResumeResult,
     ) {
+        let DriverResumeResult::Resumed { runs: answers, .. } = result else {
+            return;
+        };
         let run_routes = &self.dependencies.run_routes;
-        for run in live_runs.iter().filter(|run| run.subagent_id.is_none()) {
-            let mut is_bound = false;
-            for turn in &run.open_turns {
-                let Some(turn_id) = turn.provider_turn_id.as_ref().map(ProviderTurnId::as_str)
-                else {
-                    continue;
-                };
-                if !listed_turns.iter().any(|listed| listed.id == turn_id) {
-                    continue;
+        let is_continued = |run: &LiveRunResume| {
+            continued
+                .iter()
+                .any(|continued| continued.run_id == run.run_id)
+        };
+        for run in live_runs
+            .iter()
+            .filter(|run| run.subagent_id.is_none() && !is_continued(run))
+        {
+            let Some(answer) = answers.iter().find(|answer| answer.run_id == run.run_id) else {
+                continue;
+            };
+            let is_bound = match answer.turn {
+                ProviderTurnAnswer::StillRunning | ProviderTurnAnswer::EndedByProvider => {
+                    bind_open_turns(record, run, listed_turns)
                 }
-                record.add_active_turn(turn_id.to_owned(), run.run_id);
-                record.delivery.started_turn_by_turn_id.insert(
-                    turn_id.to_owned(),
-                    StartedTurn {
-                        turn_number: turn.turn_number,
-                        event_id: turn.started_event_id.clone(),
-                    },
-                );
-                is_bound = true;
-            }
+                ProviderTurnAnswer::Waiting => true,
+                ProviderTurnAnswer::Gone => {
+                    !run.is_stopping
+                        && matches!(run.run_state, RunState::Pausing | RunState::Paused)
+                }
+            };
             if is_bound {
                 run_routes.bind_run(run.run_id, record.session_id);
                 run_routes.bind_run_delivery(run.run_id, binding.clone());
             }
         }
     }
+}
+
+/// `thread/resume` of `thread_id` as it stands, with no setting, asking for its newest turn, and
+/// the reply. Fails as the request does, and when the reply names another conversation.
+pub(super) async fn request_bare_thread_resume(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+) -> Result<Box<RawValue>, CodexError> {
+    let mut bare = compose_codex_bare_thread_resume_params(thread_id.to_owned());
+    bare.initial_turns_page = Some(compose_codex_newest_turn_page());
+    request_thread_resume(connection, thread_id, &bare).await
 }
 
 /// What Codex holds of each run's turns after a resume, `turns_by_run` naming each run's turns by
@@ -309,6 +354,40 @@ fn answer_turns(
     }
 }
 
+// Binds each open turn of lead `run` that `listed_turns` names to the run, numbered and started
+// as its log recorded it, and marks a pausing run's turn listed running to pause at its next step
+// end. Answers whether any turn is bound.
+fn bind_open_turns(
+    record: &mut CodexSessionRecord,
+    run: &LiveRunResume,
+    listed_turns: &[CodexListedTurn],
+) -> bool {
+    let mut is_bound = false;
+    for turn in &run.open_turns {
+        let Some(turn_id) = turn.provider_turn_id.as_ref().map(ProviderTurnId::as_str) else {
+            continue;
+        };
+        let Some(listed) = listed_turns.iter().find(|listed| listed.id == turn_id) else {
+            continue;
+        };
+        record.add_active_turn(turn_id.to_owned(), run.run_id);
+        record.delivery.started_turn_by_turn_id.insert(
+            turn_id.to_owned(),
+            StartedTurn {
+                turn_number: turn.turn_number,
+                event_id: turn.started_event_id.clone(),
+            },
+        );
+        if run.run_state == RunState::Pausing && is_codex_turn_in_progress(&listed.turn) {
+            record
+                .pause_run_id_by_turn_id
+                .insert(turn_id.to_owned(), run.run_id);
+        }
+        is_bound = true;
+    }
+    is_bound
+}
+
 /// A live helper run whose conversation the service holds loaded, with the run it was started
 /// beneath.
 struct LoadedHelper {
@@ -337,29 +416,49 @@ fn find_loaded_helpers(live_runs: &[LiveRunResume], loaded: &[String]) -> Vec<Lo
         .collect()
 }
 
-// Each live run's answer: a lead's from its open turns as Codex lists them, a helper's
-// `StillRunning` where its conversation is loaded and bound again, else `Gone`.
+// Each live run's answer. A lead whose turns the service's end cut answers `Waiting` where it is
+// held on the person, so its cut turn stays unbound until the person's answer continues it, and
+// `Gone` where it is pausing with no stop pending, so the daemon ends the cut turn as the pause
+// owes; any other lead answers from its open turns as Codex lists them. A helper answers
+// `StillRunning` where its conversation is loaded and bound again, else `Waiting` where it is
+// held on the person, else `Gone`.
 fn answer_live_runs(
     live_runs: &[LiveRunResume],
     resumed: &CodexResumedThread,
     helpers: &[LoadedHelper],
 ) -> Vec<ResumedRunAnswer> {
+    let is_conversation_read = matches!(
+        resumed.status,
+        Some(CodexThreadStatus::Active | CodexThreadStatus::Idle)
+    );
     live_runs
         .iter()
         .map(|run| {
             let turn = if run.subagent_id.is_some() {
                 if helpers.iter().any(|helper| helper.run.run_id == run.run_id) {
                     ProviderTurnAnswer::StillRunning
+                } else if run.is_held(live_runs) {
+                    ProviderTurnAnswer::Waiting
                 } else {
                     ProviderTurnAnswer::Gone
                 }
             } else {
-                let turn_ids: Vec<&str> = run
-                    .open_turns
-                    .iter()
-                    .filter_map(|turn| turn.provider_turn_id.as_ref().map(ProviderTurnId::as_str))
-                    .collect();
-                answer_turns(resumed.status, &resumed.listed_turns, &turn_ids)
+                let is_cut =
+                    is_conversation_read && read_cut_turns(run, &resumed.listed_turns).is_some();
+                if is_cut && run.is_held(live_runs) {
+                    ProviderTurnAnswer::Waiting
+                } else if is_cut && run.run_state == RunState::Pausing && !run.is_stopping {
+                    ProviderTurnAnswer::Gone
+                } else {
+                    let turn_ids: Vec<&str> = run
+                        .open_turns
+                        .iter()
+                        .filter_map(|turn| {
+                            turn.provider_turn_id.as_ref().map(ProviderTurnId::as_str)
+                        })
+                        .collect();
+                    answer_turns(resumed.status, &resumed.listed_turns, &turn_ids)
+                }
             };
             ResumedRunAnswer {
                 run_id: run.run_id,

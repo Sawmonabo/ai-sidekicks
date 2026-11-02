@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
-use serde::Deserialize;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
@@ -17,20 +16,13 @@ use crate::driver::codex::hooks::server::{
     CodexHookAnswer, CodexHookAnswerer, CodexHookEvent, CodexHookInput,
 };
 use crate::driver::codex::lifecycle::CodexDriver;
-use crate::driver::codex::run::turn_interrupt::interrupt_codex_turn;
+use crate::driver::codex::run::turn_interrupt::{
+    interrupt_codex_running_turn, interrupt_codex_turn,
+};
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::history::read_codex_newest_turn;
 use crate::driver::codex::session::state::CodexSessionRecord;
-use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
-use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::{HelperStopReason, HelperTokenLimitParams};
-
-// The member of a listed turn this stop reads.
-#[derive(Deserialize)]
-struct ListedTurnStatus {
-    status: Option<String>,
-}
 
 /// The helper conversations stopped alone, whose every later turn is interrupted at its start and
 /// whose every pre-tool call is denied.
@@ -86,7 +78,11 @@ impl CodexStoppedHelpers {
         let helper_thread_id = helper_thread_id.to_owned();
         self.tasks.spawn(async move {
             let stopped = match service.connection() {
-                Ok(connection) => stop_codex_helper_turn(&connection, &helper_thread_id).await,
+                Ok(connection) => {
+                    interrupt_codex_running_turn(&connection, &helper_thread_id, None)
+                        .await
+                        .map(drop)
+                }
                 Err(error) => Err(error),
             };
             if let Err(error) = stopped {
@@ -189,28 +185,9 @@ impl CodexDriver {
             return Ok(());
         };
         let connection = conversation.service.connection()?;
-        stop_codex_helper_turn(&connection, params.subagent_id.as_str()).await?;
+        interrupt_codex_running_turn(&connection, params.subagent_id.as_str(), None).await?;
         Ok(())
     }
-}
-
-/// Interrupts the running turn of the helper conversation `helper_thread_id`, read as its newest
-/// turn; a helper whose newest turn has ended, or that no message has reached yet, is left as it
-/// is.
-pub(super) async fn stop_codex_helper_turn(
-    connection: &CodexAppServerConnection,
-    helper_thread_id: &str,
-) -> Result<(), CodexError> {
-    let Some(newest) = read_codex_newest_turn(connection, helper_thread_id).await? else {
-        return Ok(());
-    };
-    let status =
-        read_codex_object::<ListedTurnStatus>(newest.turn.get()).and_then(|listed| listed.status);
-    if status.as_deref().and_then(CodexTurnStatus::read) != Some(CodexTurnStatus::InProgress) {
-        return Ok(());
-    }
-    interrupt_codex_turn(connection, helper_thread_id, &newest.id).await?;
-    Ok(())
 }
 
 #[cfg(test)]
@@ -222,10 +199,11 @@ mod tests {
     use tokio_util::sync::CancellationToken;
     use tokio_util::task::TaskTracker;
 
-    use super::{CodexStoppedHelpers, stop_codex_helper_turn};
+    use super::CodexStoppedHelpers;
     use crate::driver::codex::hooks::server::{
         CodexHookAnswer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
     };
+    use crate::driver::codex::run::turn_interrupt::interrupt_codex_running_turn;
     use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
     use crate::driver::codex::transport::connection::CodexConnectionHandlers;
     use crate::driver::codex::transport::connection::scripted_service::connect_scripted_service;
@@ -275,7 +253,7 @@ mod tests {
             },
         );
         let stop = tokio::spawn(async move {
-            let stopped = stop_codex_helper_turn(&connection, HELPER_THREAD).await;
+            let stopped = interrupt_codex_running_turn(&connection, HELPER_THREAD, None).await;
             (connection, stopped)
         });
 

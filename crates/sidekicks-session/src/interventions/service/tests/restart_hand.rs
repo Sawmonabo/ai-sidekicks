@@ -1,0 +1,104 @@
+//! A person's interrupt a restart found pending, handed again over the harness's running run.
+
+use std::sync::atomic::Ordering;
+
+use futures::FutureExt as _;
+use rstest::rstest;
+use rusqlite::{OptionalExtension as _, params};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::run_control::InterruptPendingChoice;
+use sidekicks_store::database::statement::DATABASE_NOW_SQL;
+
+use super::{Harness, applied, harness};
+use crate::run::engine::test_fixture::stored_run_state;
+
+impl Harness {
+    // Records an interrupt of the run left in `state` with its stored `record`, asked at version 1
+    // from the test's device, as a restart finds it; answers its id.
+    fn record_pending_interrupt(&self, state: &str, record: &str) -> String {
+        let id = mint_uuid_v7().to_string();
+        self.database
+            .reader()
+            .execute(
+                &format!(
+                    "INSERT INTO interventions (id, target_run_id, type, state, payload, device_id,
+                       expected_run_version, client_idempotency_key, created_at)
+                     VALUES (?1, ?2, 'interrupt', ?3, ?4, 'device-1', 1, ?1, {DATABASE_NOW_SQL})"
+                ),
+                params![id, self.run_id.text().as_str(), state, record],
+            )
+            .expect("the test records the interrupt");
+        id
+    }
+
+    // The state of intervention `id`.
+    fn intervention_state(&self, id: &str) -> String {
+        self.database
+            .reader()
+            .query_row(
+                "SELECT state FROM interventions WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )
+            .expect("the intervention's state reads")
+    }
+
+    // The trigger of the run's interrupted end, `None` when it carries none.
+    fn interrupted_trigger(&self) -> Option<String> {
+        self.database
+            .reader()
+            .query_row(
+                "SELECT json_extract(payload, '$.trigger') FROM session_events
+                  WHERE run_id = ?1 AND type = 'agent.run.interrupted'",
+                [self.run_id.text().as_str()],
+                |row| row.get(0),
+            )
+            .optional()
+            .expect("the run's end reads")
+            .expect("the run ended interrupted")
+    }
+}
+
+// A person's interrupt pending at the restart, `requested` or `accepted`, beside a limit's
+// `accepted` row, is handed again through the live path: the queue's hold is taken again, the row
+// is carried from where it stands to `applied` by one driver call, the run ends `interrupted` as
+// the person's, with no trigger, and the hold is let go with the person's choice. Killed by the
+// limit's row handed too (a second driver call), by a `requested` row dispatched without its
+// accept (the verdict's move from `accepted` is refused and the run stays running), by an
+// `accepted` row accepted again (the accept's move is refused and no driver call is made), and by
+// no hold taken (`holds_taken` reads 0).
+#[rstest]
+#[case::requested("requested")]
+#[case::accepted("accepted")]
+#[tokio::test]
+async fn a_persons_pending_interrupt_is_handed_again_through_the_live_path(
+    #[case] person_state: &str,
+) {
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_apply_intervention()
+        .times(1)
+        .returning(|_| async { Ok(applied()) }.boxed());
+    let harness = harness(driver).await;
+    let person = harness.record_pending_interrupt(person_state, r#"{"pending":"nextTurn"}"#);
+    harness.record_pending_interrupt("accepted", r#"{"limit":"stepLimit"}"#);
+
+    harness
+        .service
+        .carry_out_pending_interrupts(harness.run_id)
+        .await
+        .expect("the person's interrupt is handed again");
+
+    assert_eq!(
+        stored_run_state(&harness.database, &harness.run_id).0,
+        "interrupted"
+    );
+    assert_eq!(harness.interrupted_trigger(), None);
+    assert_eq!(harness.intervention_state(&person), "applied");
+    assert_eq!(harness.holds_taken.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        harness.released_choices(),
+        [InterruptPendingChoice::NextTurn]
+    );
+}

@@ -37,6 +37,7 @@ use sidekicks_store::database::stored_column::{
 use sidekicks_store::events::session::read::readable_event_sql;
 
 use crate::run::engine::turns::{open_turns_sql, turn_holds_no_end_sql};
+use crate::run::restart::read_is_run_stopping;
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// A run as it stands now. `version` counts every progression of the run, state changes and
@@ -156,9 +157,9 @@ static SELECT_LIVE_RUNS_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
     })
 });
 
-// A session's live runs in the order they were written, each with the run it was started beneath
-// and the provider's id of the helper it is, from the newest helper start naming it as the
-// helper's own run.
+// A session's live runs in the order they were written, each with the run it was started beneath,
+// the provider's id of the helper it is, from the newest helper start naming it as the helper's own
+// run, and its state.
 static SELECT_LIVE_RUN_SUBAGENTS_SQL: LazyLock<String> = LazyLock::new(|| {
     let started = SessionEventType::AgentSubagentStarted;
     format!(
@@ -170,7 +171,8 @@ static SELECT_LIVE_RUN_SUBAGENTS_SQL: LazyLock<String> = LazyLock::new(|| {
         AND started.type = '{started}'
         AND json_extract(started.payload, '$.childRunId') = runs.run_id
       ORDER BY started.sequence DESC
-      LIMIT 1) AS subagent_id
+      LIMIT 1) AS subagent_id,
+    runs.state
   FROM runs
   WHERE runs.session_id = @session_id
     AND runs.state NOT IN ({terminal_states})
@@ -326,7 +328,8 @@ impl<'connection> RunStateReader<'connection> {
     /// Every run of `session_id` that has not ended, queued runs included, in the order they were
     /// written, as a resume names them to the provider: each with the run it was started beneath,
     /// its turns started with no end, under the provider's own turn ids and with their starts'
-    /// ids, and the provider's id of the helper it is.
+    /// ids, the provider's id of the helper it is, whether a pending stop wins over its resume, and
+    /// its state.
     pub fn list_live_run_resumes(
         &self,
         session_id: &SessionId,
@@ -337,11 +340,14 @@ impl<'connection> RunStateReader<'connection> {
             .reader
             .prepare_cached(&SELECT_LIVE_RUN_SUBAGENTS_SQL)?
             .query_map(session, |row| {
+                let run_id = text_column(row, 0, |text| RunId::new(&text))?;
                 Ok(LiveRunResume {
-                    run_id: text_column(row, 0, |text| RunId::new(&text))?,
+                    run_id,
                     parent_run_id: optional_text_column(row, 1, |text| RunId::new(&text))?,
                     open_turns: Vec::new(),
                     subagent_id: optional_text_column(row, 2, SubagentId::new)?,
+                    is_stopping: read_is_run_stopping(self.reader, &run_id)?,
+                    run_state: text_column(row, 3, closed_word)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;

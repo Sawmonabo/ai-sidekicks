@@ -1,8 +1,10 @@
 //! The ends a resumed conversation still owes its session: each turn the session's record holds
 //! live or ending that the resume lists as over sent its `turn/completed` while the daemon was not
-//! connected, and Codex sends none again, so its listed end is routed as Codex's own.
+//! connected, and Codex sends none again, so its listed end is routed as Codex's own. A listed
+//! turn is read here for how it stands.
 
 use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::value::RawValue;
 
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
@@ -47,14 +49,40 @@ pub(crate) async fn end_owed_codex_turns(
 
 /// Whether a turn as `thread/turns/list` lists it still runs.
 pub(crate) fn is_codex_turn_in_progress(turn: &RawValue) -> bool {
+    read_codex_listed_turn(turn).status == Some(CodexTurnStatus::InProgress)
+}
+
+/// How a turn as `thread/turns/list` lists it stands: its status, whether it carries the time it
+/// ended, which only a turn something stopped or finished carries, and the first turn of its chain.
+pub(super) struct CodexListedTurnState {
+    /// Its status; `None` for a word Codex does not send or a turn that reads as no object.
+    pub(super) status: Option<CodexTurnStatus>,
+    /// Whether it carries `completedAt`: a turn a cold load marked interrupted carries none.
+    pub(super) has_completed_at: bool,
+    /// The first turn of the chain of work that led to it; `None` where Codex names none.
+    pub(super) root_turn_id: Option<String>,
+}
+
+/// Reads the listed turn `turn` for how it stands.
+pub(super) fn read_codex_listed_turn(turn: &RawValue) -> CodexListedTurnState {
     #[derive(Deserialize)]
-    struct ListedTurnStatus {
+    #[serde(rename_all = "camelCase")]
+    struct ListedTurn {
         status: Option<String>,
+        completed_at: Option<IgnoredAny>,
+        root_turn_id: Option<String>,
     }
-    read_codex_object::<ListedTurnStatus>(turn.get())
-        .and_then(|listed| listed.status)
-        .and_then(|status| CodexTurnStatus::read(&status))
-        == Some(CodexTurnStatus::InProgress)
+    let listed = read_codex_object::<ListedTurn>(turn.get());
+    CodexListedTurnState {
+        status: listed
+            .as_ref()
+            .and_then(|listed| listed.status.as_deref())
+            .and_then(CodexTurnStatus::read),
+        has_completed_at: listed
+            .as_ref()
+            .is_some_and(|listed| listed.completed_at.is_some()),
+        root_turn_id: listed.and_then(|listed| listed.root_turn_id),
+    }
 }
 
 // The params of the `turn/completed` Codex sent for a listed turn: the conversation and the turn.

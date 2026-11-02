@@ -38,9 +38,10 @@ use crate::driver::codex::run::routes::CodexRunRoutes;
 use crate::driver::codex::run::start::record::CodexTurnRequest;
 use crate::driver::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
 use crate::driver::codex::run::steer::steer_codex_run;
-use crate::driver::codex::run::stopped_helpers::stop_codex_helper_turn;
 use crate::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
-use crate::driver::codex::run::turn_interrupt::interrupt_codex_turn;
+use crate::driver::codex::run::turn_interrupt::{
+    interrupt_codex_running_turn, interrupt_codex_turn,
+};
 use crate::driver::codex::session::background_terminals::end_codex_running_commands;
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::CodexError;
@@ -138,7 +139,7 @@ impl CodexRunControl {
         })
         .await?;
         let connection = reading.connection?;
-        stop_codex_helper_turn(&connection, &route.thread_id).await?;
+        interrupt_codex_running_turn(&connection, &route.thread_id, None).await?;
         end_codex_running_commands(&connection, &route.thread_id, false).await;
         // A helper holds none of the queue's steers.
         Ok(Vec::new())

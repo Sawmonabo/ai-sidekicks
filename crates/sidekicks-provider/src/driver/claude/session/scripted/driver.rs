@@ -293,7 +293,7 @@ impl SessionRelaunchListener for RecordedRelaunches {
     ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
         let binding_id = match result {
             DriverResumeResult::Resumed { binding_id, .. } => Some(binding_id),
-            DriverResumeResult::Failed { .. } => None,
+            DriverResumeResult::Failed { .. } | DriverResumeResult::Deferred { .. } => None,
         };
         lock(&self.taken).push((session_id, binding_id));
         self.reported.notify_waiters();
