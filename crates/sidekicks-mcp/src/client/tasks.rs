@@ -40,8 +40,8 @@ use crate::client::poll::{PollError, PollFailure};
 use crate::client::requests::{McpRequestError, RequestWait};
 use crate::sign_in::canonical_server_address;
 
-/// The identity of one task-augmented MCP dispatch. `command_id` is the client-supplied
-/// idempotency key on the dispatch's command receipt row; `tool_name` names no stored row.
+/// The identity of one MCP tool dispatch. `command_id` is the client-supplied idempotency key on
+/// the dispatch's command receipt row; `tool_name` names no stored row.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct McpTaskDispatchIdentity {
     /// The dispatch's idempotency key.

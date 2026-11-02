@@ -56,8 +56,8 @@ fn address_task_receipt(status: &str, is_completed: bool) -> StoredReceipt {
 }
 
 // Mutations: in `follow_across_reconnects`, return the `ConnectionClosed` end instead of waiting
-// for the replacement, or keep polling the closed connection; in `poll_once`, go on polling a
-// closed connection.
+// for the replacement, keep polling the closed connection, or resume before the replacement is
+// published, so the follow never ends; in `poll_once`, go on polling a closed connection.
 #[tokio::test(start_paused = true)]
 async fn a_task_whose_connection_a_reconnect_replaces_is_followed_on_the_new_one_to_its_end() {
     let fixture = fixture_at_address().await;
@@ -65,23 +65,30 @@ async fn a_task_whose_connection_a_reconnect_replaces_is_followed_on_the_new_one
     let contact = contact();
     let uncanceled = CancellationToken::new();
 
-    let (dispatched, new) = tokio::join!(
-        fixture
-            .dispatch
-            .call(&standing, track_call(), &contact, &uncanceled),
-        async {
-            until(|| !old.requests("tasks/get").is_empty()).await;
-            // The Reconnect publishes the new connection, then closes the old one under the follow.
-            let (_, new) = fixture
-                .connect(task_server(|method, _| match method {
-                    "tasks/get" => v1_status_reply("completed"),
-                    "tasks/result" => Reply::Answer(json!({ "result": text_result("tracked") })),
-                    _ => method_not_found(),
-                }))
-                .await;
-            new
-        },
-    );
+    let (dispatched, new) = timeout(Duration::from_secs(600), async {
+        tokio::join!(
+            fixture
+                .dispatch
+                .call(&standing, track_call(), &contact, &uncanceled),
+            async {
+                until(|| !old.requests("tasks/get").is_empty()).await;
+                // The Reconnect publishes the new connection, then closes the old one under the
+                // follow.
+                let (_, new) = fixture
+                    .connect(task_server(|method, _| match method {
+                        "tasks/get" => v1_status_reply("completed"),
+                        "tasks/result" => {
+                            Reply::Answer(json!({ "result": text_result("tracked") }))
+                        }
+                        _ => method_not_found(),
+                    }))
+                    .await;
+                new
+            },
+        )
+    })
+    .await
+    .expect("the follow ends on the new connection");
     let (end, written) = dispatched.expect("the call is dispatched").complete().await;
 
     assert_eq!(end.expect("the call ends"), tracked_end());

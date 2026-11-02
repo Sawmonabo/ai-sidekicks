@@ -141,7 +141,7 @@ pub(super) async fn follow_task(
             .task_watches
             .watch(&connection.scope, run_id, mcp_task_id, contact);
     if resumption == Some(McpTaskResumption::AfterRestart) {
-        watch.owe_restart_cancel();
+        watch.mark_restart_cancel_owed();
     }
     let held = Mutex::new(None);
     let bound = Mutex::new(ReaskBound::Unstarted);
@@ -234,7 +234,7 @@ async fn keep_reask_bound(
         ReaskBound::Spent => return None,
         ReaskBound::RanOut if is_waiting_on_input => ReaskBound::RanOut,
         ReaskBound::RanOut => ReaskBound::Spent,
-        ReaskBound::Unstarted | ReaskBound::Running { .. } if !watch.awaits_reask() => {
+        ReaskBound::Unstarted | ReaskBound::Running { .. } if !watch.is_awaiting_reask() => {
             ReaskBound::Spent
         }
         ReaskBound::Unstarted | ReaskBound::Running { .. } if !is_waiting_on_input => {
@@ -295,7 +295,7 @@ async fn cancel_after_restart(
     bound: &Mutex<ReaskBound>,
     reading: &V1TaskReading,
 ) -> Option<PollStep> {
-    if !watch.owes_restart_cancel() {
+    if !watch.is_restart_cancel_owed() {
         return None;
     }
     let watches = &connection.scope.task_watches;

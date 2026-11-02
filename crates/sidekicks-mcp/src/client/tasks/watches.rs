@@ -61,10 +61,10 @@ struct WatchedTask {
     asked: HashSet<String>,
     /// Whether a follow that adopted the entry still waits for the server to ask a 2025-11-25
     /// task's question again, which any ask ends.
-    awaits_reask: bool,
+    is_awaiting_reask: bool,
     /// Whether a 2025-11-25 task resumed after a restart is still to be canceled at the first
     /// answered poll that reads it waiting on input, across a re-bind too.
-    owes_restart_cancel: bool,
+    is_restart_cancel_owed: bool,
 }
 
 /// A 2025-11-25 task's question left open when the connection its request came on closed.
@@ -165,7 +165,7 @@ impl TaskWatches {
         let (wake, contact) = match lock(&self.watched).entry(key.clone()) {
             Entry::Occupied(mut left) => {
                 let left = left.get_mut();
-                left.awaits_reask = true;
+                left.is_awaiting_reask = true;
                 (Arc::clone(&left.wake), left.contact.clone())
             }
             Entry::Vacant(vacant) => {
@@ -180,8 +180,8 @@ impl TaskWatches {
                     kept_question: None,
                     detached_takes: Vec::new(),
                     asked: HashSet::new(),
-                    awaits_reask: false,
-                    owes_restart_cancel: false,
+                    is_awaiting_reask: false,
+                    is_restart_cancel_owed: false,
                 });
                 (wake, contact)
             }
@@ -221,7 +221,7 @@ impl TaskWatches {
         mcp_task_id: &str,
     ) {
         if let Some(watched) = lock(&self.watched).get_mut(&watch_key(scope, mcp_task_id)) {
-            watched.owes_restart_cancel = false;
+            watched.is_restart_cancel_owed = false;
         }
     }
 
@@ -251,7 +251,7 @@ impl TaskWatches {
         let kept = {
             let mut watched = lock(&self.watched);
             let task = watched.get_mut(&key)?;
-            task.awaits_reask = false;
+            task.is_awaiting_reask = false;
             task.kept_question.take()
         };
         if let Some(kept) = kept {
@@ -758,10 +758,10 @@ impl TaskWatch<'_> {
 
     /// Whether the follow, re-bound after its connection's close, still waits for the server to
     /// ask the task's question again.
-    pub(super) fn awaits_reask(&self) -> bool {
+    pub(super) fn is_awaiting_reask(&self) -> bool {
         lock(&self.watches.watched)
             .get(&self.key)
-            .is_some_and(|task| task.awaits_reask)
+            .is_some_and(|task| task.is_awaiting_reask)
     }
 
     /// Stops waiting for the server's next ask, withdrawing the question kept for it; true when
@@ -770,7 +770,7 @@ impl TaskWatch<'_> {
         let kept = lock(&self.watches.watched)
             .get_mut(&self.key)
             .and_then(|task| {
-                task.awaits_reask = false;
+                task.is_awaiting_reask = false;
                 task.kept_question.take()
             });
         match kept {
@@ -781,18 +781,18 @@ impl TaskWatch<'_> {
 
     /// Records that the task, resumed after a restart, is to be canceled at the first answered poll
     /// that reads it waiting on input.
-    pub(super) fn owe_restart_cancel(&self) {
+    pub(super) fn mark_restart_cancel_owed(&self) {
         if let Some(task) = lock(&self.watches.watched).get_mut(&self.key) {
-            task.owes_restart_cancel = true;
+            task.is_restart_cancel_owed = true;
         }
     }
 
     /// Whether the task, resumed after a restart, is still to be canceled at the next answered poll
     /// that reads it waiting on input.
-    pub(super) fn owes_restart_cancel(&self) -> bool {
+    pub(super) fn is_restart_cancel_owed(&self) -> bool {
         lock(&self.watches.watched)
             .get(&self.key)
-            .is_some_and(|task| task.owes_restart_cancel)
+            .is_some_and(|task| task.is_restart_cancel_owed)
     }
 
     /// Records that the card took the task's input request `input_key`, so it is never asked
