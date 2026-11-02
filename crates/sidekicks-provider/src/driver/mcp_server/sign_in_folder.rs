@@ -7,12 +7,14 @@ use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use sidekicks_platforms::{LeftoverSweep, create_private_folder, replace_file_atomically};
-use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_platforms::{
+    LeftoverSweep, create_private_folder, remove_tree, replace_file_atomically,
+};
 use sidekicks_std::random_hex::random_hex;
 
-/// One sign-in's own folder, removed when dropped unless [`SignInFolder::remove`] removed it
-/// first, so a sign-in dropped mid-flow leaves no token behind.
+/// One sign-in's own folder, removed off the runtime's workers by [`SignInFolder::remove`] when
+/// the sign-in ends, and in place when dropped before that, so a sign-in dropped mid-flow leaves
+/// no token behind.
 pub(crate) struct SignInFolder {
     path: PathBuf,
     is_removed: bool,
@@ -53,24 +55,26 @@ impl SignInFolder {
         &self.path
     }
 
-    /// Removes the folder now; a folder already gone counts as removed. Fails with the system's
-    /// error, the folder then still removed when this drops.
+    /// Removes the folder now, off the runtime's workers; a folder already gone counts as removed.
+    /// Fails with the system's error, the folder then still removed when this drops.
     pub(crate) async fn remove(mut self) -> io::Result<()> {
-        tokio::fs::remove_dir_all(&self.path)
+        let removing = self.path.clone();
+        tokio::task::spawn_blocking(move || remove_tree(&removing))
             .await
-            .none_if_missing()?;
+            .map_err(io::Error::other)??;
         self.is_removed = true;
         Ok(())
     }
 }
 
 impl Drop for SignInFolder {
-    // Removed in place, not on a spawned task, so the folder is gone once the sign-in is.
+    // A sign-in dropped before its end has its folder removed here, in place and not on a spawned
+    // task, so the folder is gone once the sign-in is.
     fn drop(&mut self) {
         if self.is_removed {
             return;
         }
-        if let Err(error) = std::fs::remove_dir_all(&self.path).none_if_missing() {
+        if let Err(error) = remove_tree(&self.path) {
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
                 folder = %self.path.display(),
@@ -81,10 +85,11 @@ impl Drop for SignInFolder {
 }
 
 /// Removes `parent`, the folder each sign-in makes its own in, with every folder a stopped daemon
-/// left there; none there counts as removed. Fails with the system's error.
+/// left there, off the runtime's workers; none there counts as removed. Fails with the system's
+/// error.
 pub(crate) async fn remove_left_sign_in_folders(parent: &Path) -> io::Result<()> {
-    tokio::fs::remove_dir_all(parent)
+    let removing = parent.to_owned();
+    tokio::task::spawn_blocking(move || remove_tree(&removing))
         .await
-        .none_if_missing()
-        .map(drop)
+        .map_err(io::Error::other)?
 }
