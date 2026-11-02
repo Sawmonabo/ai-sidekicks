@@ -324,6 +324,7 @@ fn compose_report_reading(
         used_tokens: SafeInt::new(window_used_tokens)?,
         used_percent: Percent::new(share_percent(window_used_tokens, window_max_tokens))?,
         breakdown: SessionContextBreakdown::Totals {
+            categories: None,
             cached_input_tokens: count(breakdown.cached_input)?,
             input_tokens: count(breakdown.input)?,
             output_tokens: count(breakdown.output)?,

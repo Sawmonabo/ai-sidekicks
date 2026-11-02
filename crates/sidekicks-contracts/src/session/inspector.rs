@@ -99,9 +99,49 @@ pub enum SessionContextBreakdown {
     Buckets {
         /// The buckets, in the provider's order.
         categories: Vec<SessionContextCategory>,
+        /// Never present: only totals carry token figures.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        cached_input_tokens: Option<Never>,
+        /// Never present: only totals carry token figures.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        input_tokens: Option<Never>,
+        /// Never present: only totals carry token figures.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        output_tokens: Option<Never>,
+        /// Never present: only totals carry token figures.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        reasoning_tokens: Option<Never>,
     },
     /// Totals only.
     Totals {
+        /// Never present: only named buckets carry categories.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        categories: Option<Never>,
         /// Cached input tokens.
         cached_input_tokens: SafeInt<0>,
         /// Input tokens.
