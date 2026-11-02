@@ -359,9 +359,7 @@ mod tests {
     // configuration's when the session set none. Killed by the fallback order swapped.
     #[tokio::test]
     async fn a_session_limit_answers_over_the_configuration() {
-        let database = TestDatabase::new(
-            schema_parts().with_parts(sidekicks_session::budget::schema::schema_parts()),
-        );
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),
