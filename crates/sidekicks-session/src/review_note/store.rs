@@ -45,7 +45,7 @@ use sidekicks_store::database::statement::{
     StatementBindings, StatementResult, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::{
-    closed_word, optional_text_column, safe_int_column, text_column,
+    closed_word, optional_text_column, returned_parsed, safe_int_column, text_column,
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use tokio::sync::Notify;
@@ -328,7 +328,7 @@ impl SessionReviewNoteStore {
         let removed_note_ids = deleted
             .rows
             .iter()
-            .map(|row| deleted_note_id(row.as_slice()))
+            .map(|row| returned_parsed(row, 0, ReviewNoteId::new))
             .collect::<rusqlite::Result<_>>()?;
         Ok(SessionReviewNoteDeleteResponse { removed_note_ids })
     }
@@ -662,22 +662,6 @@ fn optional_safe_int_column(row: &Row<'_>, index: usize) -> rusqlite::Result<Opt
     row.get::<_, Option<i64>>(index)?
         .map(|_| safe_int_column(row, index))
         .transpose()
-}
-
-// The id a delete's `RETURNING note_id` row names.
-fn deleted_note_id(row: &[Value]) -> rusqlite::Result<ReviewNoteId> {
-    match row.first() {
-        Some(Value::Text(text)) => ReviewNoteId::new(text).map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(error))
-        }),
-        Some(Value::Null | Value::Integer(_) | Value::Real(_) | Value::Blob(_)) | None => {
-            Err(rusqlite::Error::FromSqlConversionFailure(
-                0,
-                Type::Null,
-                Box::new(StoredNoteMemberInvalid("note id")),
-            ))
-        }
-    }
 }
 
 #[cfg(test)]

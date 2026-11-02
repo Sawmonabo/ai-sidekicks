@@ -12,11 +12,13 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::database::stored_column::{safe_int_column, text_column};
+use sidekicks_store::database::stored_column::{
+    returned_integer, returned_parsed, safe_int_column, text_column,
+};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 use crate::directory::lookups::{SessionWriteError, session_exists_statement};
-use crate::messaging::{SessionMessagingError, returned_integer, returned_parsed};
+use crate::messaging::SessionMessagingError;
 
 /// The statements the store's reads run: a session's line.
 pub const SESSION_EXCHANGE_STORE_STATEMENT_CAPACITY: usize = 1;
@@ -87,14 +89,17 @@ impl SessionExchangeStore {
 
     /// Counts one message between `session_id` and `peer_session_id`, a send reaching `sent` or an
     /// answer delivered back, in either direction, and answers the pair's count: one at the
-    /// pair's first message. Fails with [`SessionMessagingError::Write`]: `session.notFound` for
-    /// either session this daemon holds no row for, or the write not kept, which a session paired
-    /// with itself is.
+    /// pair's first message. A message a session sends itself is in no exchange, so it counts
+    /// nothing and answers `None`. Fails with [`SessionMessagingError::Write`]: `session.notFound`
+    /// for either session this daemon holds no row for, or the write not kept.
     pub async fn record_message(
         &self,
         session_id: &SessionId,
         peer_session_id: &SessionId,
-    ) -> Result<SafeInt<1>, SessionMessagingError> {
+    ) -> Result<Option<SafeInt<1>>, SessionMessagingError> {
+        if session_id == peer_session_id {
+            return Ok(None);
+        }
         let (first, second) = if session_id.text().as_str() < peer_session_id.text().as_str() {
             (session_id, peer_session_id)
         } else {
@@ -133,10 +138,12 @@ impl SessionExchangeStore {
             .and_then(|result| result.rows.first())
             .expect("a committed record answers its one returned count");
         let count = returned_integer(row, 0)?;
-        Ok(u64::try_from(count)
-            .ok()
-            .and_then(SafeInt::new)
-            .ok_or(rusqlite::Error::IntegralValueOutOfRange(0, count))?)
+        Ok(Some(
+            u64::try_from(count)
+                .ok()
+                .and_then(SafeInt::new)
+                .ok_or(rusqlite::Error::IntegralValueOutOfRange(0, count))?,
+        ))
     }
 
     /// The line of `session_id`'s latest exchange, or `None` when it trades with no session. Fails
@@ -200,6 +207,7 @@ mod tests {
     use std::sync::Arc;
 
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
@@ -218,8 +226,9 @@ mod tests {
 
     // Killed by storing the pair in the order it was sent (A to B and B to A become two rows, and
     // the second count reads 1), by the person's write leaving the row (the line after it still
-    // reads 2), and by a reset that only zeroes the count (the next message reads 1 only when the
-    // row was deleted, and a zeroed row fails the count's CHECK or reads as a line of 0).
+    // reads 2), by a reset that only zeroes the count (the next message reads 1 only when the row
+    // was deleted, and a zeroed row fails the count's CHECK or reads as a line of 0), and by a
+    // message to oneself written as a pair (the pair's CHECK fails the write).
     #[tokio::test]
     async fn a_pair_is_one_count_until_the_person_writes_in_either_session() {
         let database = TestDatabase::new(schema_parts());
@@ -248,7 +257,15 @@ mod tests {
             .record_message(&b, &a)
             .await
             .expect("B to A is counted");
-        assert_eq!((first.get(), second.get()), (1, 2));
+        assert_eq!(
+            (first.map(SafeInt::get), second.map(SafeInt::get)),
+            (Some(1), Some(2))
+        );
+        let to_itself = store
+            .record_message(&a, &a)
+            .await
+            .expect("a message to oneself is no failure");
+        assert_eq!(to_itself, None);
         assert_eq!(
             count(store.exchange_of(a).await.expect("A's line reads")),
             Some((b, 2))
@@ -271,6 +288,6 @@ mod tests {
             .record_message(&a, &b)
             .await
             .expect("the next message is counted");
-        assert_eq!(restarted.get(), 1);
+        assert_eq!(restarted.map(SafeInt::get), Some(1));
     }
 }

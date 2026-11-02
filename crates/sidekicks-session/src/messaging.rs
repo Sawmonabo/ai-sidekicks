@@ -3,10 +3,8 @@
 //! session set. Each is a plain store over its table; the services that deliver, wake and remind
 //! read them, and nothing here holds a timer or a task.
 
-use rusqlite::types::{Type, Value};
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
-use sidekicks_store::database::stored_column::wrong_type_failure;
 use sidekicks_store::database::writer::WriteError;
 
 use crate::directory::lookups::SessionWriteError;
@@ -54,40 +52,4 @@ impl From<SessionMessagingError> for HandlerError {
             | SessionMessagingError::InstantOutOfRange) => Self::Internal(Box::new(fault)),
         }
     }
-}
-
-// The TEXT value at `index` of a row a write's `RETURNING` answered.
-fn returned_text(row: &[Value], index: usize) -> rusqlite::Result<&str> {
-    match row.get(index) {
-        Some(Value::Text(text)) => Ok(text),
-        Some(other @ (Value::Null | Value::Integer(_) | Value::Real(_) | Value::Blob(_))) => {
-            Err(wrong_type_failure(index, other))
-        }
-        None => Err(rusqlite::Error::InvalidColumnIndex(index)),
-    }
-}
-
-// The INTEGER value at `index` of a row a write's `RETURNING` answered.
-fn returned_integer(row: &[Value], index: usize) -> rusqlite::Result<i64> {
-    match row.get(index) {
-        Some(Value::Integer(integer)) => Ok(*integer),
-        Some(other @ (Value::Null | Value::Text(_) | Value::Real(_) | Value::Blob(_))) => {
-            Err(wrong_type_failure(index, other))
-        }
-        None => Err(rusqlite::Error::InvalidColumnIndex(index)),
-    }
-}
-
-// The TEXT value at `index` of a returned row read through `parse`, its failure kept as the cause.
-fn returned_parsed<Parsed, Failure>(
-    row: &[Value],
-    index: usize,
-    parse: impl FnOnce(&str) -> Result<Parsed, Failure>,
-) -> rusqlite::Result<Parsed>
-where
-    Failure: std::error::Error + Send + Sync + 'static,
-{
-    parse(returned_text(row, index)?).map_err(|failure| {
-        rusqlite::Error::FromSqlConversionFailure(index, Type::Text, Box::new(failure))
-    })
 }

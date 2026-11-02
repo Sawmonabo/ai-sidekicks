@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use rusqlite::types::{Type, Value};
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::name_fold::fold_name;
@@ -18,7 +17,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::statement::{StatementResult, WriteStatement};
-use sidekicks_store::database::stored_column::wrong_type_failure;
+use sidekicks_store::database::stored_column::returned_parsed;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 use crate::directory::list_feed::SessionListFeed;
@@ -229,15 +228,7 @@ fn session_ids_of(result: Option<&StatementResult>) -> Result<Vec<SessionId>, Se
     result
         .map_or(&[][..], |result| result.rows.as_slice())
         .iter()
-        .map(|row| match row.first() {
-            Some(Value::Text(text)) => SessionId::new(text).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(error))
-            }),
-            Some(other @ (Value::Null | Value::Integer(_) | Value::Real(_) | Value::Blob(_))) => {
-                Err(wrong_type_failure(0, other))
-            }
-            None => Err(rusqlite::Error::InvalidColumnIndex(0)),
-        })
+        .map(|row| returned_parsed(row, 0, SessionId::new))
         .collect::<rusqlite::Result<Vec<_>>>()
         .map_err(SessionGroupError::StoredSessionId)
 }

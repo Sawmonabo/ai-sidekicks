@@ -14,11 +14,13 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::database::stored_column::{safe_int_column, text_column};
+use sidekicks_store::database::stored_column::{
+    returned_integer, returned_parsed, safe_int_column, text_column,
+};
 use sidekicks_store::database::writer::DatabaseWriter;
 
 use crate::directory::lookups::write_while_session_exists;
-use crate::messaging::{SessionMessagingError, returned_integer, returned_parsed};
+use crate::messaging::SessionMessagingError;
 
 /// The statements the store's reads run: a target's held messages.
 pub const PAUSED_QUEUE_STORE_STATEMENT_CAPACITY: usize = 1;
@@ -337,12 +339,14 @@ mod tests {
             )
             .expect("the test stamps the first arrival after the second");
 
-        assert!(
-            matches!(first, PausedQueueHold::Held { arrival_sequence } if arrival_sequence.get() == 1)
-        );
-        assert!(
-            matches!(second, PausedQueueHold::Held { arrival_sequence } if arrival_sequence.get() == 2)
-        );
+        assert!(matches!(
+            first,
+            PausedQueueHold::Held { arrival_sequence } if arrival_sequence.get() == 1
+        ));
+        assert!(matches!(
+            second,
+            PausedQueueHold::Held { arrival_sequence } if arrival_sequence.get() == 2
+        ));
         assert_eq!(again, PausedQueueHold::AlreadyHeld);
         let held = store.held_for(target).await.expect("the queue reads");
         assert_eq!(
