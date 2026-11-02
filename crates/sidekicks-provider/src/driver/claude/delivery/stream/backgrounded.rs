@@ -63,8 +63,8 @@ impl ClaudeDeliveryStream {
                     tracing::warn!(
                         session_id = %session.session_id,
                         tool_use_id = %tool_use_id,
-                        "a Claude Code call moved to the background has an id or task id no row can \
-                         carry, so its move is not recorded"
+                        "a Claude Code call moved to the background has an id or task id no row \
+                         can carry, so its move is not recorded"
                     );
                     continue;
                 };
