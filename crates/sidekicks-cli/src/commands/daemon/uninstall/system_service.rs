@@ -24,8 +24,8 @@ use sidekicks_contracts::daemon::secrets_place::{
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_platforms::{
-    ServiceInstall, ServiceOwner, ServiceRegistration, ServiceRegistrationError, Spawner,
-    read_child_exit,
+    CtrlCListener, ServiceInstall, ServiceOwner, ServiceRegistration, ServiceRegistrationError,
+    Spawner, read_child_exit,
 };
 use tokio::runtime::Handle;
 
@@ -112,6 +112,11 @@ pub(crate) trait LoggedOutServiceUninstall: LoggedOutServiceRegistration {
     /// refusal as a `ClientError::Remote`, and as the program's run fails.
     async fn run_daemon_mode(&self, program: &Path, arguments: Vec<OsString>)
     -> anyhow::Result<()>;
+
+    /// Stops the running background service, which holds the data folder, so the move back can
+    /// take it; a service not running is already stopped. Fails with `ClientError::Canceled` after
+    /// a Ctrl-C on `ctrl_c`, and as the stop fails.
+    async fn end_running_service(&self, ctrl_c: &mut CtrlCListener) -> anyhow::Result<()>;
 }
 
 impl LoggedOutServiceUninstall for ServiceRegistration {
@@ -137,6 +142,16 @@ impl LoggedOutServiceUninstall for ServiceRegistration {
     ) -> anyhow::Result<()> {
         run_offline_mode(program, arguments).await
     }
+
+    async fn end_running_service(&self, ctrl_c: &mut CtrlCListener) -> anyhow::Result<()> {
+        end_running_daemon(
+            DaemonEndingVerb::Stop,
+            "could not stop the background service before moving the secrets back",
+            ctrl_c,
+        )
+        .await?;
+        Ok(())
+    }
 }
 
 /// Removes this account's system service through `registration`, the login agent's `owner` read
@@ -145,8 +160,9 @@ impl LoggedOutServiceUninstall for ServiceRegistration {
 /// root's rights nor a session at the screen; with [`CommandFailure::SecretsKeychainLocked`] when
 /// items are in the files and the run has root's rights, the login keychain refuses the check, or
 /// it refuses the move back after the removal; with [`CommandFailure::SystemServiceKept`] when the
-/// prompt is canceled or macOS does not remove it; and as a read, the removal, the agent's install
-/// or start, or the wait for its service fails.
+/// prompt is canceled or macOS does not remove it; `ClientError::Canceled` after a Ctrl-C while a
+/// login agent's service stops for the move; and as a read, the removal, that stop, the agent's
+/// install or start, or the wait for its service fails.
 pub(crate) fn uninstall_logged_out_service<Output: Write, ErrorOutput: Write>(
     registration: &impl LoggedOutServiceUninstall,
     owner: ServiceOwner,
@@ -166,14 +182,17 @@ pub(crate) fn uninstall_logged_out_service<Output: Write, ErrorOutput: Write>(
     if has_secrets_in_files && runs_as_root {
         return Err(CommandFailure::SecretsKeychainLocked.into());
     }
-    // The listener stays held but unwatched: a Ctrl-C reaches the modes and the prompt, which share
-    // the terminal, and the command still reads how each ended.
-    run_listening_for_ctrl_c(async |_ctrl_c| {
+    // A Ctrl-C reaches the modes and the prompt, which share the terminal, and the command still
+    // reads how each ended; only the service's stop watches the listener.
+    run_listening_for_ctrl_c(async |ctrl_c| {
         if has_secrets_in_files {
             check_keychain(registration, program).await?;
         }
         remove_system_service(registration).await?;
         if has_secrets_in_files {
+            // A login agent's service, such as the app's while the system service was turned off,
+            // may hold the data folder the move takes; the agent is started again below.
+            registration.end_running_service(ctrl_c).await?;
             move_secrets_back(registration, program).await?;
         }
         Ok(())
@@ -202,12 +221,7 @@ pub(crate) fn finish_moving_secrets_back(
     run_listening_for_ctrl_c(async |ctrl_c| {
         check_keychain(registration, program).await?;
         if is_agent_loaded {
-            end_running_daemon(
-                DaemonEndingVerb::Stop,
-                "could not stop the background service before moving the secrets back",
-                ctrl_c,
-            )
-            .await?;
+            registration.end_running_service(ctrl_c).await?;
         }
         move_secrets_back(registration, program).await
     })
@@ -388,7 +402,8 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
     use sidekicks_platforms::{
-        ServiceInstall, ServiceOwner, ServiceRegistrationError, Spawner, SystemServiceOwner,
+        CtrlCListener, ServiceInstall, ServiceOwner, ServiceRegistrationError, Spawner,
+        SystemServiceOwner,
     };
 
     use super::{LoggedOutServiceUninstall, uninstall_logged_out_service};
@@ -398,11 +413,13 @@ mod tests {
     use crate::exit_codes::CommandFailure;
 
     /// A run at the screen for an account whose home is `home`, whose login keychain refuses every
-    /// mode, which records each mode run and any removal of the system service.
+    /// mode, which records each mode run, any removal of the system service and any stop of the
+    /// running service.
     struct LockedKeychainRegistration {
         home: PathBuf,
         modes_run: RefCell<Vec<Vec<OsString>>>,
         is_removal_asked: Cell<bool>,
+        is_stop_asked: Cell<bool>,
     }
 
     impl LoginRegistration for LockedKeychainRegistration {
@@ -503,11 +520,20 @@ mod tests {
             })
             .into())
         }
+
+        #[expect(
+            clippy::unused_async_trait_impl,
+            reason = "the trait's stop waits on the service; this one records the ask"
+        )]
+        async fn end_running_service(&self, _ctrl_c: &mut CtrlCListener) -> anyhow::Result<()> {
+            self.is_stop_asked.set(true);
+            Ok(())
+        }
     }
 
-    // Fails when the check is dropped or comes after the removal (the removal is recorded, and a
-    // dropped check runs the move in its place), and when the keychain's refusal is not read as
-    // the locked line.
+    // Fails when the check is dropped or comes after the removal or the stop (the removal or the
+    // stop is recorded, and a dropped check runs the move in its place), and when the keychain's
+    // refusal is not read as the locked line.
     #[test]
     fn a_locked_keychain_keeps_the_system_service() {
         let home = tempfile::tempdir().expect("a temporary home");
@@ -522,6 +548,7 @@ mod tests {
             home: home.path().to_path_buf(),
             modes_run: RefCell::new(Vec::new()),
             is_removal_asked: Cell::new(false),
+            is_stop_asked: Cell::new(false),
         };
         let mut context = CommandContext {
             stdout: Vec::new(),
@@ -550,6 +577,10 @@ mod tests {
         assert!(
             !registration.is_removal_asked.get(),
             "the system service was removed"
+        );
+        assert!(
+            !registration.is_stop_asked.get(),
+            "the running service was stopped"
         );
         let check: Vec<OsString> = SECRETS_KEYCHAIN_CHECK_MODE
             .into_iter()
