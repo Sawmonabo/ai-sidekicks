@@ -116,7 +116,7 @@ lenient_object!(
 
 /// A tool call the session's lead started and has not yet answered, by its `tool_use_id`, with
 /// the run that started it, whose route may be forgotten before a held call ends.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(crate) struct ClaudeOpenToolCall {
     tool_name: EventText,
     run: ClaudeBoundRun,

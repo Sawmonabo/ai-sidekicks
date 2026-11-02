@@ -46,7 +46,6 @@ struct ClaudeResourceLink {
 lenient_object!(ClaudeResourceLink);
 
 /// How a held call closes: its opening, which names its run, how it ended, and its body.
-#[derive(Debug)]
 pub(crate) struct ClaudeHeldCallEnd {
     /// The call.
     pub(crate) tool_use_id: String,
