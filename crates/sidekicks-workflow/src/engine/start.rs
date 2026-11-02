@@ -22,6 +22,7 @@ use std::sync::{Arc, LazyLock};
 
 use jiff::tz::TimeZone;
 use rusqlite::Connection;
+use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -242,6 +243,18 @@ pub(crate) enum WorkflowRunStartError {
         #[source]
         removal: io::Error,
     },
+    /// The start ended without a run and the trigger step's input it stored could not be deleted;
+    /// `ended` is how it ended.
+    #[error("the trigger step's stored input {artifact_id} was left behind")]
+    PayloadLeft {
+        /// The stored input.
+        artifact_id: ArtifactId,
+        /// How the start ended.
+        ended: Box<Result<WorkflowStartOutcome, WorkflowRunStartError>>,
+        /// Why the deletion failed.
+        #[source]
+        removal: PortError,
+    },
 }
 
 impl From<WorkflowRunStartError> for HandlerError {
@@ -268,7 +281,8 @@ impl From<WorkflowRunStartError> for HandlerError {
             | WorkflowRunStartError::Draft(_)
             | WorkflowRunStartError::Append(_)
             | WorkflowRunStartError::ChainRootMissing { .. }
-            | WorkflowRunStartError::FolderLeft { .. }) => Self::Internal(Box::new(fault)),
+            | WorkflowRunStartError::FolderLeft { .. }
+            | WorkflowRunStartError::PayloadLeft { .. }) => Self::Internal(Box::new(fault)),
         }
     }
 }
@@ -390,8 +404,8 @@ impl WorkflowRunStarter {
     /// `workflow.run.inputRequired`), [`WorkflowRunStartError::Version`]
     /// (`workflow.version.notFound`) or [`WorkflowRunStartError::Session`] (`session.notFound`)
     /// before anything is made, and with the other variants when a read, the provider, the folder,
-    /// the payload store or the write fails; the run's own folder goes with every outcome but a
-    /// start.
+    /// the payload store or the write fails; the run's own folder and its stored trigger input go
+    /// with every outcome but a start.
     pub(crate) async fn start(
         &self,
         start: WorkflowRunStart,
@@ -593,7 +607,8 @@ impl WorkflowRunStarter {
 
     // Reads the run's scope and builds the trigger step's input, then commits the run's row, with
     // its chain's count for a joining run, and its started event, whose instant is the row's start.
-    // The scope is read first, so a failed read leaves no stored input behind.
+    // The scope is read first, so a failed read leaves no stored input behind, and a stored input
+    // is deleted again when the commit makes no run.
     async fn write(
         &self,
         start: WorkflowRunStart,
@@ -619,6 +634,10 @@ impl WorkflowRunStarter {
         let trigger_input = self
             .trigger_input(session_id, &trigger_step, &checked.start_items)
             .await?;
+        let stored_input = match &trigger_input {
+            WorkflowPayloadRef::Artifact { artifact_id, .. } => Some(*artifact_id),
+            WorkflowPayloadRef::Inline { .. } => None,
+        };
         // The limit is read at each joining start, so a changed setting holds the next one.
         let chain_ask_after = match chain {
             WorkflowRunChainPlace::Joins { .. } => self.chain_ask_after.chain_ask_after_runs(),
@@ -663,7 +682,7 @@ impl WorkflowRunStarter {
                 },
             )
             .await;
-        match (appended, chain) {
+        let ended = match (appended, chain) {
             (Ok(_receipt), _) => {
                 let node_params = checked
                     .nodes
@@ -717,6 +736,19 @@ impl WorkflowRunStarter {
                 Err(WorkflowRunStartError::ChainRootMissing { chain_root_run_id })
             }
             (Err(error), _) => Err(WorkflowRunStartError::Append(error)),
+        };
+        match stored_input {
+            Some(artifact_id) if !matches!(ended, Ok(WorkflowStartOutcome::Started(_))) => {
+                match self.payloads.delete(&artifact_id).await {
+                    Ok(()) => ended,
+                    Err(removal) => Err(WorkflowRunStartError::PayloadLeft {
+                        artifact_id,
+                        ended: Box::new(ended),
+                        removal,
+                    }),
+                }
+            }
+            Some(_) | None => ended,
         }
     }
 }

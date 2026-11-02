@@ -75,15 +75,24 @@ struct KeptPayload {
     artifact_id: ArtifactId,
 }
 
-/// A payload store that keeps what each write was given and answers a fresh artifact.
+/// A payload store that keeps what each write was given and answers a fresh artifact, and keeps
+/// each artifact deleted.
 #[derive(Default)]
 struct KeptPayloads {
     writes: Mutex<Vec<KeptPayload>>,
+    deletes: Mutex<Vec<ArtifactId>>,
 }
 
 impl KeptPayloads {
     fn writes(&self) -> Vec<KeptPayload> {
         self.writes
+            .lock()
+            .expect("the test's payloads lock")
+            .clone()
+    }
+
+    fn deletes(&self) -> Vec<ArtifactId> {
+        self.deletes
             .lock()
             .expect("the test's payloads lock")
             .clone()
@@ -118,6 +127,17 @@ impl StepPayloadArtifacts for KeptPayloads {
         _artifact_id: &'call ArtifactId,
     ) -> BoxFuture<'call, Result<Vec<u8>, PortError>> {
         Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+    }
+
+    fn delete<'call>(
+        &'call self,
+        artifact_id: &'call ArtifactId,
+    ) -> BoxFuture<'call, Result<(), PortError>> {
+        self.deletes
+            .lock()
+            .expect("the test's payloads lock")
+            .push(*artifact_id);
+        Box::pin(async { Ok(()) })
     }
 }
 
@@ -513,7 +533,7 @@ enum NothingWritten {
 
 /// Mutations: a refusal checked after the write (a run row or an event is kept); a wrong code; the
 /// inputs left unchecked (the run starts); the count's refusal read as an error; a held start's
-/// own folder left behind.
+/// own folder left behind; a held start's stored input, above the inline cap, left undeleted.
 #[rstest]
 #[case::unknown_session(NothingWritten::UnknownSession)]
 #[case::unknown_version(NothingWritten::UnknownVersion)]
@@ -537,9 +557,10 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
     .await;
     let input = match case {
         NothingWritten::InputLeftOut => Vec::new(),
-        NothingWritten::UnknownSession
-        | NothingWritten::UnknownVersion
-        | NothingWritten::HeldOnChain => vec![item(json!({ "ticket": "T-1" }))],
+        NothingWritten::UnknownSession | NothingWritten::UnknownVersion => {
+            vec![item(json!({ "ticket": "T-1" }))]
+        }
+        NothingWritten::HeldOnChain => vec![item(json!({ "ticket": "x".repeat(70 * 1024) }))],
     };
     let mut request = start(
         WorkflowStartArrival::Person,
@@ -598,7 +619,15 @@ async fn a_refused_or_held_start_writes_nothing(#[case] case: NothingWritten) {
     );
     assert_eq!(fixture.count("SELECT COUNT(*) FROM session_events"), 0);
     assert_eq!(run_folders(&fixture.data_folder()), Vec::<PathBuf>::new());
-    assert_eq!(fixture.payloads.writes(), Vec::new());
+    let written: Vec<ArtifactId> = fixture
+        .payloads
+        .writes()
+        .iter()
+        .map(|kept| kept.artifact_id)
+        .collect();
+    let stored_count = usize::from(matches!(case, NothingWritten::HeldOnChain));
+    assert_eq!(written.len(), stored_count);
+    assert_eq!(fixture.payloads.deletes(), written);
 }
 
 /// A start that is written, by where it works and how large its input is.

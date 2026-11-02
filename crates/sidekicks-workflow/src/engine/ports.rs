@@ -308,6 +308,13 @@ pub trait StepPayloadArtifacts: Send + Sync {
         &'call self,
         artifact_id: &'call ArtifactId,
     ) -> BoxFuture<'call, Result<Vec<u8>, PortError>>;
+
+    /// Deletes `artifact_id`, a stored payload no record will name. Fails when the artifact cannot
+    /// be removed.
+    fn delete<'call>(
+        &'call self,
+        artifact_id: &'call ArtifactId,
+    ) -> BoxFuture<'call, Result<(), PortError>>;
 }
 
 /// An approval card a workflow wait opens.
@@ -485,6 +492,13 @@ impl StepPayloadArtifacts for RefusingPorts {
         &'call self,
         _artifact_id: &'call ArtifactId,
     ) -> BoxFuture<'call, Result<Vec<u8>, PortError>> {
+        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+    }
+
+    fn delete<'call>(
+        &'call self,
+        _artifact_id: &'call ArtifactId,
+    ) -> BoxFuture<'call, Result<(), PortError>> {
         Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
     }
 }
