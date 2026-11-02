@@ -373,11 +373,12 @@ impl ChatFileVersions {
                 continue;
             };
             let file_path = self.file_path_of(key);
-            let claimed = tokio::task::spawn_blocking(move || claim.version_of(&file_path))
-                .await
-                .map_err(ArtifactError::from)?
-                .map_err(ArtifactError::from)?;
             let is_explained = index + 1 < call_count || is_call_still_held;
+            let claimed =
+                tokio::task::spawn_blocking(move || claim.version_of(&file_path, is_explained))
+                    .await
+                    .map_err(ArtifactError::from)?
+                    .map_err(ArtifactError::from)?;
             match claimed {
                 ClaimedVersion::Disk => {
                     self.record_version(
@@ -387,11 +388,11 @@ impl ChatFileVersions {
                     )
                     .await?;
                 }
-                ClaimedVersion::Rebuilt(bytes) if is_explained => {
+                ClaimedVersion::Rebuilt(bytes) => {
                     self.record_version(key, session_id, PathWrite::ToolResult(bytes.into()))
                         .await?;
                 }
-                ClaimedVersion::Rebuilt(_) | ClaimedVersion::Nothing => {}
+                ClaimedVersion::Nothing => {}
             }
         }
         if is_report_due {
@@ -711,10 +712,10 @@ enum ResolvedClaim {
 }
 
 impl ResolvedClaim {
-    /// The version this claim keeps of the file at `file_path`, as [`claimed_version`] finds it;
-    /// nothing from a patch that does not apply to its base, or a base that is not UTF-8. Fails as
-    /// a read fails.
-    fn version_of(self, file_path: &Path) -> io::Result<ClaimedVersion> {
+    /// The version this claim keeps of the file at `file_path`, as [`claimed_version`] finds it
+    /// with `is_explained`; nothing from a patch that does not apply to its base, or a base that is
+    /// not UTF-8. Fails as a read fails.
+    fn version_of(self, file_path: &Path, is_explained: bool) -> io::Result<ClaimedVersion> {
         let text = match self {
             Self::Text(text) => text,
             Self::Patch {
@@ -734,7 +735,7 @@ impl ResolvedClaim {
                 patched.replace("\r\n", "\n")
             }
         };
-        claimed_version(&text, file_path)
+        claimed_version(&text, file_path, is_explained)
     }
 }
 

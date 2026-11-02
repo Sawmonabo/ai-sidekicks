@@ -79,13 +79,18 @@ pub(super) enum ClaimedVersion {
     Disk,
     /// The claim's text spelled in the disk file's form.
     Rebuilt(Vec<u8>),
-    /// No version: the file is gone or is in neither encoding.
+    /// No version: the file is gone, is in neither encoding, or differs unexplained.
     Nothing,
 }
 
-/// The version `claim` keeps of the file at `path`: the disk's bytes when they hold it, else the
-/// claim rebuilt in the disk's form. Fails as the file's read fails.
-pub(super) fn claimed_version(claim: &str, path: &Path) -> io::Result<ClaimedVersion> {
+/// The version `claim` keeps of the file at `path`: the disk's bytes when they hold it, else, when
+/// `is_explained` says a later call explains the difference, the claim rebuilt in the disk's form.
+/// Fails as the file's read fails.
+pub(super) fn claimed_version(
+    claim: &str,
+    path: &Path,
+    is_explained: bool,
+) -> io::Result<ClaimedVersion> {
     let file = match File::open(path) {
         Ok(file) => file,
         Err(error) if is_missing_entry(&error) => return Ok(ClaimedVersion::Nothing),
@@ -94,6 +99,9 @@ pub(super) fn claimed_version(claim: &str, path: &Path) -> io::Result<ClaimedVer
     let file_size = file.metadata()?.len();
     if check_claim(claim, &file, file_size)? == ClaimCheck::Equal {
         return Ok(ClaimedVersion::Disk);
+    }
+    if !is_explained {
+        return Ok(ClaimedVersion::Nothing);
     }
     (&file).seek(SeekFrom::Start(0))?;
     Ok(
