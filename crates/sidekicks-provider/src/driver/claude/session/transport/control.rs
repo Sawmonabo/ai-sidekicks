@@ -143,6 +143,12 @@ pub(crate) enum ClaudeControlRequest {
     },
     /// Reads the build's version.
     GetBinaryVersion {},
+    /// Reads the account's plan limits and the session's spend; the local scan for the reply's
+    /// `behaviors` is skipped, since no reader takes it.
+    GetUsage {
+        /// Always `true`.
+        skip_behaviors: bool,
+    },
     /// Starts Claude Code's own sign-in to one of its MCP servers, answered once the authorization
     /// address is built, with the address and how the browser's return reaches Claude Code.
     McpAuthenticate {
@@ -206,6 +212,7 @@ impl ClaudeControlRequest {
             Self::StopTask { .. } => ClaudeControlSubtype::StopTask,
             Self::SetModel { .. } => ClaudeControlSubtype::SetModel,
             Self::GetBinaryVersion {} => ClaudeControlSubtype::GetBinaryVersion,
+            Self::GetUsage { .. } => ClaudeControlSubtype::GetUsage,
             Self::McpAuthenticate { .. } => ClaudeControlSubtype::McpAuthenticate,
             Self::McpOauthCallbackUrl { .. } => ClaudeControlSubtype::McpOauthCallbackUrl,
             Self::McpMessage { .. } => ClaudeControlSubtype::McpMessage,
@@ -248,6 +255,9 @@ pub(crate) enum ClaudeControlSubtype {
     SetModel,
     /// `get_binary_version`.
     GetBinaryVersion,
+    /// `get_usage`, sent by the daemon; the stream's `ControlRequestGetUsage` frame kind is the
+    /// same request seen from the stream.
+    GetUsage,
     /// `mcp_authenticate`.
     McpAuthenticate,
     /// `mcp_oauth_callback_url`.
@@ -282,6 +292,7 @@ impl ClaudeControlSubtype {
             Self::StopTask => "stop_task",
             Self::SetModel => "set_model",
             Self::GetBinaryVersion => "get_binary_version",
+            Self::GetUsage => "get_usage",
             Self::McpAuthenticate => "mcp_authenticate",
             Self::McpOauthCallbackUrl => "mcp_oauth_callback_url",
             Self::McpMessage => "mcp_message",
@@ -594,7 +605,7 @@ pub(crate) struct ClaudeFlagSettings {
     /// The session's advisor model, `""` for none, which outranks the person's own advisor.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) advisor_model: Option<String>,
-    /// Environment keys the process reads from its next request on; one sent as `""` is removed.
+    /// Environment keys the process reads from its next request on.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) env: Option<BTreeMap<String, String>>,
     /// Whether Ultracode is on for the session alone.

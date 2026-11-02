@@ -12,10 +12,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::trust_statement::DeviceId;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
@@ -80,6 +82,24 @@ pub(crate) enum CodexSessionInbound {
     /// A call of the driver's own on the record: its close and let-go, a level or mode move, a
     /// side question, and the reads its compaction needs.
     Lifecycle(CodexLifecycleCall),
+    /// The session moved onto another account where the switching service acknowledged it among
+    /// the frames, so the spend metered before it stays on the account it left.
+    AccountMoved(CodexAccountMove),
+}
+
+/// A session's move onto another account, queued at the place among its frames where the service
+/// acknowledged it.
+pub(crate) struct CodexAccountMove {
+    /// The account the session moved onto.
+    pub(crate) provider_account_id: ProviderAccountId,
+    /// The binding its lead runs on, which moves with it, where a switch named the session; the
+    /// session's own binding moves either way.
+    pub(crate) binding_id: Option<RuntimeBindingId>,
+    /// Where the bindings' move, or its failure, goes once the spend before it is recorded, where
+    /// a switch waits on it.
+    pub(crate) moved: Option<oneshot::Sender<Result<(), DriverError>>>,
+    /// The person whose switch moved the session without naming it; `None` where no switch did.
+    pub(crate) actor: Option<DeviceId>,
 }
 
 /// A call on a session's record, each answering on its own `reply`; a dropped `reply` means the
@@ -329,6 +349,9 @@ pub(crate) trait CodexSessionInboundHandler: Send {
     /// Runs one of the driver's own calls on the session's record.
     fn lifecycle(&mut self, call: CodexLifecycleCall) -> BoxFuture<'_, ()>;
 
+    /// Moves the session onto another account at its place among the frames.
+    fn account_moved(&mut self, account_move: CodexAccountMove) -> BoxFuture<'_, ()>;
+
     /// When timed work next comes due, `None` when none waits.
     fn next_deadline(&self) -> Option<Instant>;
 
@@ -370,6 +393,9 @@ pub(crate) async fn drain_codex_session_inbound(
             }
             CodexSessionInbound::Call(call) => handler.call(call).await,
             CodexSessionInbound::Lifecycle(call) => handler.lifecycle(call).await,
+            CodexSessionInbound::AccountMoved(account_move) => {
+                handler.account_moved(account_move).await;
+            }
         }
     }
 }

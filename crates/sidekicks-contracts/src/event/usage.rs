@@ -27,6 +27,7 @@ use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 use crate::wire::integer::{SafeInt, SafeSignedInt};
+use crate::wire::list::BoundedVec;
 use crate::wire::number::Number;
 use crate::wire::text::{BoundedText, FreeFormText};
 
@@ -55,8 +56,9 @@ pub enum UsageContainment {
 
 /// The `usage.tokenCount.recorded` payload: one turn's own token figures, never a running total, so
 /// a run's or a session's total is the sum of its rows. A count is absent when the provider
-/// reported none, never zero. The account is the one the turn was charged to, read from the run's
-/// admission, never from the provider.
+/// reported none, never zero. The account is the one the turn was charged to: the account its
+/// runtime binding names when the reading is recorded, never the provider's word, so a turn that
+/// spans an account switch records its readings on each side of the switch under each account.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -122,7 +124,7 @@ pub struct UsageTokenCountRecordedPayload {
     pub reasoning_tokens: Option<SafeInt<0>>,
     /// Whether `input_tokens` has the cache's read and written tokens taken out.
     pub containment: UsageContainment,
-    /// The account the turn was charged to.
+    /// The account the turn was charged to: its binding's account when the reading was recorded.
     pub provider_account_id: ProviderAccountId,
     /// The account's credential generation seen with the turn.
     pub credential_generation: CredentialGeneration,
@@ -333,10 +335,28 @@ fn window_dependent_required() -> Value {
     dependent_required
 }
 
+/// One window of an account's whole set of quota readings: its limit, absent naming
+/// [`DEFAULT_RATE_LIMIT_ID`], and its length in minutes.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UsageRateLimitWindowKey {
+    /// Which of the account's limits the window belongs to; absent names
+    /// [`DEFAULT_RATE_LIMIT_ID`].
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BoundedText<1, EVENT_FIELD_MAX_LEN>")]
+    pub limit_id: Option<BoundedText<1, EVENT_FIELD_MAX_LEN>>,
+    /// The window's length in minutes.
+    pub window_mins: SafeSignedInt,
+}
+
 /// The `usage.rateLimit.updated` payload: a snapshot of one of an account's quotas, keyed by the
 /// account, `limitId` and `windowMins`. It names no session and no run; the envelope binds it to
-/// the machine's
-/// sentinel session. A display reading only, never an input to a security or admission decision.
+/// the machine's sentinel session, and its `occurredAt` is when the quota was read. A display
+/// reading only, never an input to a security or admission decision.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -370,6 +390,16 @@ pub struct UsageRateLimitUpdatedPayload {
     #[schemars(with = "WireInstant")]
     #[garde(dive)]
     pub resets_at: Option<WireInstant>,
+    /// Every window the account's own limits read named, this one among them, on a reading that
+    /// read: the account's whole standing, so a stored window it does not name is gone. Absent on
+    /// what the provider pushes during a turn, which names only the windows that moved.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "BoundedVec<UsageRateLimitWindowKey, 1, { usize::MAX }>")]
+    pub whole_set: Option<BoundedVec<UsageRateLimitWindowKey, 1, { usize::MAX }>>,
 }
 
 /// Why a provider retried a request mid-run, in the vocabulary every provider's retry is read
@@ -635,6 +665,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<UsageTokenCountRecordedPayload>().checked(),
         Definition::read::<UsageCostUpdatedPayload>().checked(),
         Definition::read::<UsageContextWindowUpdatedPayload>().checked(),
+        Definition::read::<UsageRateLimitWindowKey>(),
         Definition::read::<UsageRateLimitUpdatedPayload>().checked(),
         Definition::read::<ApiRetryErrorKind>(),
         Definition::read::<UsageApiRequestRetriedPayload>().checked(),

@@ -16,9 +16,9 @@ use sidekicks_std::file::clone_or_copy::clone_or_copy;
 
 /// What a copy does with what its destination already has.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TreeCopyPolicy {
-    /// A setup's copy into a tree: an entry the tree already has is kept and logged, never copied
-    /// over, and a folder both have is copied into.
+pub enum TreeCopyPolicy {
+    /// A setup's copy into a tree: an entry the tree already has is kept and logged by its path
+    /// from the folder the copy lands in, never copied over, and a folder both have is copied into.
     KeepExisting,
     /// A kept or put-back copy: the destination is made by the copy, every entry is new, and each
     /// file and link keeps its source's times; anything already there fails the copy.
@@ -27,7 +27,7 @@ pub(crate) enum TreeCopyPolicy {
 
 /// What a copy tells its follower as it goes, so a progress figure can read how much of the file
 /// under way has reached its destination.
-pub(crate) trait TreeCopyFollower: Sync {
+pub trait TreeCopyFollower: Sync {
     /// The copy begins the file at `destination`.
     fn file_began(&self, destination: &Path);
 
@@ -37,7 +37,7 @@ pub(crate) trait TreeCopyFollower: Sync {
 
 /// Why a copy stopped; what it copied before stays where it is.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum TreeCopyError {
+pub enum TreeCopyError {
     /// The walk of the source failed.
     #[error("the folder to copy could not be read")]
     Walk(#[source] ignore::Error),
@@ -63,7 +63,7 @@ enum EntryCopy {
 /// Copies `source`, a folder, a file or a link, to `destination` under `policy`, telling
 /// `follower` of each file. Blocks on the file system, so it runs on a blocking thread. Fails with
 /// the walk's failure or the first entry that could not be copied.
-pub(crate) fn copy_tree(
+pub fn copy_tree(
     source: &Path,
     destination: &Path,
     policy: TreeCopyPolicy,
@@ -74,6 +74,8 @@ pub(crate) fn copy_tree(
         move |source| TreeCopyError::Entry { path, source }
     };
     let root = fs::symlink_metadata(source).map_err(entry_failure(source))?;
+    // A kept entry is logged by its path from here, so the log never names where that folder is.
+    let landing_folder = destination.parent().unwrap_or(destination);
     // The folders made, with their source's modes, set once their entries are in, so a folder
     // whose mode refuses writes still takes them.
     let mut made_folders: Vec<(PathBuf, Permissions)> = Vec::new();
@@ -83,6 +85,7 @@ pub(crate) fn copy_tree(
         &root,
         policy,
         follower,
+        landing_folder,
         &mut made_folders,
     )
     .map_err(entry_failure(source))?;
@@ -110,6 +113,7 @@ pub(crate) fn copy_tree(
                 &metadata,
                 policy,
                 follower,
+                landing_folder,
                 &mut made_folders,
             )
             .map_err(entry_failure(path))?;
@@ -125,13 +129,15 @@ pub(crate) fn copy_tree(
     Ok(())
 }
 
-// Copies the one entry at `source`, whose own metadata is `metadata`, to `destination`.
+// Copies the one entry at `source`, whose own metadata is `metadata`, to `destination`, under the
+// copy's `landing_folder`.
 fn copy_entry(
     source: &Path,
     destination: &Path,
     metadata: &Metadata,
     policy: TreeCopyPolicy,
     follower: Option<&dyn TreeCopyFollower>,
+    landing_folder: &Path,
     made_folders: &mut Vec<(PathBuf, Permissions)>,
 ) -> io::Result<EntryCopy> {
     let file_type = metadata.file_type();
@@ -148,7 +154,7 @@ fn copy_entry(
                 if fs::symlink_metadata(destination)?.is_dir() {
                     Ok(EntryCopy::Copied)
                 } else {
-                    Ok(keep(destination))
+                    Ok(keep(destination, landing_folder))
                 }
             }
             Err(error) => Err(error),
@@ -162,7 +168,7 @@ fn copy_entry(
                 }
                 Ok(EntryCopy::Copied)
             }
-            Err(error) => keep_or_fail(error, policy, destination),
+            Err(error) => keep_or_fail(error, policy, destination, landing_folder),
         };
     }
     if !file_type.is_file() {
@@ -175,7 +181,7 @@ fn copy_entry(
         follower.file_began(destination);
     }
     if let Err(error) = clone_or_copy(source, destination) {
-        return keep_or_fail(error, policy, destination);
+        return keep_or_fail(error, policy, destination, landing_folder);
     }
     // Set through the path, so a copy that kept a read-only mode takes its times too.
     if policy == TreeCopyPolicy::IntoEmpty {
@@ -192,18 +198,23 @@ fn keep_or_fail(
     error: io::Error,
     policy: TreeCopyPolicy,
     destination: &Path,
+    landing_folder: &Path,
 ) -> io::Result<EntryCopy> {
     if policy == TreeCopyPolicy::KeepExisting && error.kind() == io::ErrorKind::AlreadyExists {
-        Ok(keep(destination))
+        Ok(keep(destination, landing_folder))
     } else {
         Err(error)
     }
 }
 
-// Logs that the destination's own entry was kept, so the person can tell why it was not copied.
-fn keep(destination: &Path) -> EntryCopy {
+// Logs that the destination's own entry was kept, so the person can tell why it was not copied,
+// naming it by its path from `landing_folder`.
+fn keep(destination: &Path, landing_folder: &Path) -> EntryCopy {
     tracing::info!(
-        path = %destination.display(),
+        path = %destination
+            .strip_prefix(landing_folder)
+            .unwrap_or(destination)
+            .display(),
         "A copy kept an entry the destination already has rather than copying over it"
     );
     EntryCopy::Kept

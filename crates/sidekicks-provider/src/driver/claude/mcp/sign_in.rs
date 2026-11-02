@@ -36,7 +36,7 @@ use url::Url;
 
 use self::saved_credentials::{complete_client, holds_sign_in_for, read_saved_sign_in};
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::account_credentials::{
+use crate::driver::claude::account::credentials::{
     ClaudeCredentialReadError, ClaudeSignInReader, read_claude_credential_file,
 };
 use crate::driver::claude::mcp::ClaudeMcpProcess;

@@ -9,7 +9,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::CredentialStore;
 
 use super::{ClaudeAccountServerAnswers, read_claude_account_answers, read_claude_account_servers};
-use crate::driver::claude::account_credentials::ClaudeSignInReader;
+use crate::driver::claude::account::credentials::ClaudeSignInReader;
 use crate::driver::claude::mcp::config::ClaudeMcpConfigReading;
 use crate::driver::claude::mcp::connectors::list_fetch::ClaudeConnectorFetchSettings;
 use crate::driver::claude::mcp::connectors::organization_mark::{

@@ -10,7 +10,8 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use process_wrap::tokio::ChildWrapper;
-use sidekicks_platforms::{Spawner, wrap_leading_child_command};
+use secrecy::{ExposeSecret as _, SecretString};
+use sidekicks_platforms::{SecretPipe, Spawner, wrap_leading_child_command};
 use tokio::process::Command;
 
 /// The environment variable that carries a recorded child's nonce, by which the sweep recognizes
@@ -60,15 +61,26 @@ impl ChildRecord {
     }
 }
 
+/// A secret a child is handed on a pipe it inherits, which no variable and no argument carries.
+pub(crate) struct ChildSecret {
+    /// The system's pipe the secret is handed on.
+    pub(crate) pipe: SecretPipe,
+    /// The variable naming the pipe's descriptor in the child's environment.
+    pub(crate) variable: &'static str,
+    /// The secret.
+    pub(crate) secret: SecretString,
+}
+
 /// Starts `command` on `spawner`'s thread as a child of the daemon leading a process group of its
 /// own, so the sweep's kill and its end of survivors reach what the child started, while the
-/// daemon's own stop reaches the child alone; recorded in `records` across the start. Fails with
-/// the record's error, the spawn's or the spawner's; a child that could not be recorded is killed
-/// and reaped first.
+/// daemon's own stop reaches the child alone, with `secret` handed on its pipe where given;
+/// recorded in `records` across the start. Fails with the record's error, the pipe's, the spawn's
+/// or the spawner's; a child that could not be recorded is killed and reaped first.
 pub(crate) async fn spawn_recorded_child(
     spawner: &Spawner,
     records: &Arc<dyn DaemonChildRecords>,
     mut command: Command,
+    secret: Option<ChildSecret>,
 ) -> io::Result<RecordedChild> {
     let nonce = records.prepare_spawn().await.map_err(io::Error::other)?;
     let record = ChildRecord {
@@ -79,7 +91,19 @@ pub(crate) async fn spawn_recorded_child(
     command.env(SPAWN_NONCE_ENVIRONMENT_NAME, &record.nonce);
     let daemon_pid = std::process::id();
     let spawned = spawner
-        .run(move || wrap_leading_child_command(command, daemon_pid).spawn())
+        .run(move || {
+            let spawn = |command| wrap_leading_child_command(command, daemon_pid).spawn();
+            match secret {
+                // The one place the secret is read out, on the thread that starts its child.
+                Some(secret) => secret.pipe.spawn_with_secret(
+                    command,
+                    secret.variable,
+                    secret.secret.expose_secret().as_bytes(),
+                    spawn,
+                ),
+                None => spawn(command),
+            }
+        })
         .await
         .and_then(|spawned| spawned);
     let mut child = match spawned {

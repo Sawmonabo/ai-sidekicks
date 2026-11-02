@@ -11,6 +11,10 @@ use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
 use crate::driver::claude::spawn::system_prompt::claude_appended_system_prompt_arguments;
 
+/// The flag that has Claude Code load no MCP server but those its command line names; under an
+/// administrator's MCP file it makes Claude Code exit at start instead.
+pub(crate) const CLAUDE_NO_MCP_SERVERS: &str = "--strict-mcp-config";
+
 /// How a spawn's conversation starts: a new one, a resume of one, one kept nowhere (a throwaway
 /// copy of a conversation or a new one), or a fork at one message.
 pub(crate) enum ClaudeConversationStart {
@@ -106,7 +110,7 @@ pub(crate) fn compose_claude_arguments(request: &ClaudeArgumentsRequest<'_>) -> 
     // Loads no MCP file of the person's own. A deployed managed file already keeps them out, and
     // under it this flag makes Claude Code exit at startup.
     if !request.has_managed_mcp_file {
-        arguments.push("--strict-mcp-config".to_owned());
+        arguments.push(CLAUDE_NO_MCP_SERVERS.to_owned());
     }
     if let Some(schema) = request.output_schema {
         arguments.push("--json-schema".to_owned());

@@ -303,7 +303,8 @@ mod tests {
         connection
             .execute(
                 "INSERT INTO session_create_requests (client_idempotency_key, session_id, \
-                 project_id, execution_mode) VALUES (?1, ?1, ?2, ?3)",
+                 project_id, execution_mode, provider_account_id) \
+                 VALUES (?1, ?1, ?2, ?3, 'account-a')",
                 params![
                     session_text.as_str(),
                     project_id,

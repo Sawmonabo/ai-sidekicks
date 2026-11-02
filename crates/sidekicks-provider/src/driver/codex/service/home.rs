@@ -1,13 +1,14 @@
 //! The Codex home one service runs on, and the three kinds of service the daemon keeps there: its
-//! own on an account home or the capability read's, the lasting one on the person's own Codex
-//! folder that terminals join, and one already there that is not the daemon's, which it only
-//! joins; and how the driver resolves the home an account runs in.
+//! own on an account home, the switching home, the capability read's or an MCP sign-in's, the
+//! lasting one on the person's own Codex folder that terminals join, and one already there that is
+//! not the daemon's, which it only joins; and how the driver resolves the home an account runs in.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use serde_json::{Map, Value};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::port_registration::PortRegistration;
@@ -25,6 +26,10 @@ const CODEX_PERSONAL_HOME_FOLDER_NAME: &str = ".codex";
 pub(crate) enum CodexHomeKind {
     /// The home the app manages for the account it names.
     Account(ProviderAccountId),
+    /// The daemon's own home under its data folder, apart from every account home, where the one
+    /// switching service runs on tokens the daemon hands it, carrying every session that follows
+    /// the provider's current account; it keeps no sign-in of its own.
+    Switching,
     /// The person's own Codex folder, which the daemon runs a service on only while terminal reach
     /// is on.
     PersonalFolder,
@@ -46,14 +51,71 @@ pub(crate) struct CodexServiceHome {
 }
 
 impl CodexServiceHome {
-    /// The account the home belongs to; `None` for the person's own folder and the folders the
-    /// capability read and an MCP sign-in run in.
+    /// The account the home belongs to; `None` for the switching home, the person's own folder
+    /// and the folders the capability read and an MCP sign-in run in.
     pub(crate) fn provider_account_id(&self) -> Option<&ProviderAccountId> {
         match &self.kind {
             CodexHomeKind::Account(provider_account_id) => Some(provider_account_id),
-            CodexHomeKind::PersonalFolder
+            CodexHomeKind::Switching
+            | CodexHomeKind::PersonalFolder
             | CodexHomeKind::CapabilityRead
             | CodexHomeKind::McpSignIn => None,
+        }
+    }
+}
+
+/// The key of a binding's recovery data that names the home holding its conversation.
+const CONVERSATION_HOME_KEY: &str = "conversationHome";
+
+/// The value of [`CONVERSATION_HOME_KEY`] for a conversation the switching home holds.
+const SWITCHING_CONVERSATION_HOME: &str = "switching";
+
+/// Which home holds a conversation, kept in its binding's recovery data, so its resume and its
+/// purge reach the service that holds it whichever account it ran on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CodexConversationHome {
+    /// The home of the account the binding names, which recovery data with no home member means.
+    Account,
+    /// The switching home.
+    Switching,
+}
+
+impl CodexConversationHome {
+    /// The home a conversation on a service of `home` lives in.
+    pub(crate) fn of_service(home: &CodexServiceHome) -> Self {
+        match home.kind {
+            CodexHomeKind::Switching => Self::Switching,
+            CodexHomeKind::Account(_)
+            | CodexHomeKind::PersonalFolder
+            | CodexHomeKind::CapabilityRead
+            | CodexHomeKind::McpSignIn => Self::Account,
+        }
+    }
+
+    /// The home a binding's recovery data `runtime_metadata` names.
+    pub(crate) fn read(runtime_metadata: &Map<String, Value>) -> Self {
+        match runtime_metadata
+            .get(CONVERSATION_HOME_KEY)
+            .and_then(Value::as_str)
+        {
+            Some(SWITCHING_CONVERSATION_HOME) => Self::Switching,
+            _ => Self::Account,
+        }
+    }
+
+    /// Writes the home into recovery data `runtime_metadata`: the switching home by name, the
+    /// account's by leaving the member out.
+    pub(crate) fn keep_in(self, runtime_metadata: &mut Map<String, Value>) {
+        match self {
+            Self::Account => {
+                runtime_metadata.remove(CONVERSATION_HOME_KEY);
+            }
+            Self::Switching => {
+                runtime_metadata.insert(
+                    CONVERSATION_HOME_KEY.to_owned(),
+                    Value::from(SWITCHING_CONVERSATION_HOME),
+                );
+            }
         }
     }
 }
@@ -62,10 +124,10 @@ impl CodexServiceHome {
 /// who may stop it. A session's recovery and a conversation's purge read it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexServiceKind {
-    /// The daemon's own service with no hook switch: on an account home a lasting service kept in
-    /// its record, which a daemon restart keeps running and the next start joins, and on the
-    /// capability read's home and an MCP sign-in's the daemon's own child, which the daemon's stop
-    /// ends.
+    /// The daemon's own service with no hook switch: on an account home or the switching home a
+    /// lasting service kept in its record, which a daemon restart keeps running and the next start
+    /// joins, and on the capability read's home and an MCP sign-in's the daemon's own child, which
+    /// the daemon's stop ends.
     Account,
     /// The lasting service on the person's own Codex folder that terminals join: started by the
     /// daemon in a session of its own with the daemon's two hooks, kept in its record, outliving a

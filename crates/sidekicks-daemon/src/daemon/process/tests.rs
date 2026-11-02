@@ -1,3 +1,4 @@
+mod provider_accounts;
 mod restart;
 
 use std::io;

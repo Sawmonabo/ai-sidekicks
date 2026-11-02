@@ -16,10 +16,10 @@ use sidekicks_std::mutex_lock::lock;
 use crate::port::usage_sink::ProviderQuotaWindow;
 
 /// The five-hour window's length in minutes.
-const SESSION_WINDOW_MINUTES: i64 = 300;
+pub(crate) const SESSION_WINDOW_MINUTES: i64 = 300;
 
 /// A weekly window's length in minutes.
-const WEEKLY_WINDOW_MINUTES: i64 = 10_080;
+pub(crate) const WEEKLY_WINDOW_MINUTES: i64 = 10_080;
 
 /// The model display name each account's latest limits read named for its weekly window over one
 /// model, which every process on the account reads its events' windows by.
@@ -30,6 +30,11 @@ impl ClaudeUsageProbeModels {
     /// Keeps `display_name` as the model `account`'s latest limits read named.
     pub(crate) fn note(&self, account: ProviderAccountId, display_name: String) {
         lock(&self.0).insert(account, display_name);
+    }
+
+    /// Drops the model `account`'s limits reads named, once the account is removed.
+    pub(crate) fn forget(&self, account: &ProviderAccountId) {
+        lock(&self.0).remove(account);
     }
 
     fn model_of(&self, account: &ProviderAccountId) -> Option<String> {
@@ -115,23 +120,37 @@ mod tests {
 
     // Killed by a window keeping Claude Code's own name, by a wrong length, by a scoped window
     // named before any limits read named its model, by one named for another account's read (the
-    // read keyed by anything but the session's account), and by reading a window that is no
-    // account limit.
+    // read keyed by anything but the session's account), by one named for an account since
+    // removed (the model kept past its account), and by reading a window that is no account
+    // limit.
     #[rstest]
-    #[case::five_hour("five_hour", None, Some(("session", 300)))]
-    #[case::seven_day("seven_day", None, Some(("weekly_all", 10_080)))]
+    #[case::five_hour("five_hour", None, false, Some(("session", 300)))]
+    #[case::seven_day("seven_day", None, false, Some(("weekly_all", 10_080)))]
     #[case::scoped(
         "seven_day_overage_included",
         Some(ACCOUNT),
+        false,
         Some(("weekly_scoped:Opus", 10_080))
     )]
-    #[case::scoped_before_any_read("seven_day_overage_included", None, None)]
-    #[case::scoped_read_on_another_account("seven_day_overage_included", Some(OTHER_ACCOUNT), None)]
-    #[case::per_model_key("seven_day_opus", Some(ACCOUNT), None)]
-    #[case::overage("overage", Some(ACCOUNT), None)]
+    #[case::scoped_before_any_read("seven_day_overage_included", None, false, None)]
+    #[case::scoped_read_on_another_account(
+        "seven_day_overage_included",
+        Some(OTHER_ACCOUNT),
+        false,
+        None
+    )]
+    #[case::scoped_after_the_account_is_forgotten(
+        "seven_day_overage_included",
+        Some(ACCOUNT),
+        true,
+        None
+    )]
+    #[case::per_model_key("seven_day_opus", Some(ACCOUNT), false, None)]
+    #[case::overage("overage", Some(ACCOUNT), false, None)]
     fn each_event_window_reads_as_its_account_limit(
         #[case] name: &str,
         #[case] probed_account: Option<&str>,
+        #[case] is_forgotten: bool,
         #[case] expected: Option<(&str, i64)>,
     ) {
         let members = json!({
@@ -140,6 +159,9 @@ mod tests {
         let probe_models = ClaudeUsageProbeModels::default();
         if let Some(probed_account) = probed_account {
             probe_models.note(account(probed_account), "Opus".to_owned());
+        }
+        if is_forgotten {
+            probe_models.forget(&account(ACCOUNT));
         }
 
         let windows = read_claude_quota_windows(
@@ -153,5 +175,37 @@ mod tests {
             .map(|window| (window.limit_id.as_str(), window.window_mins))
             .collect();
         assert_eq!(read, Vec::from_iter(expected));
+    }
+
+    // The event 2.1.316 sent on an account with no five-hour limit names only its weekly window.
+    // Killed by a `session` window read where the event names no `five_hour`.
+    #[test]
+    fn an_event_without_five_hour_reads_no_session_window() {
+        let members = json!({
+            "type": "rate_limit_event",
+            "rate_limit_info": {
+                "status": "allowed",
+                "resetsAt": 1_793_973_600,
+                "rateLimitType": "seven_day",
+                "overageStatus": "rejected",
+                "overageDisabledReason": "org_level_disabled",
+                "isUsingOverage": false,
+                "unifiedWindows": {"seven_day": {
+                    "utilization": 0.46, "resetsAt": 1_793_973_600, "status": "allowed"
+                }}
+            }
+        });
+
+        let windows = read_claude_quota_windows(
+            members.as_object().expect("the members are an object"),
+            &ClaudeUsageProbeModels::default(),
+            &account(ACCOUNT),
+        );
+
+        let read: Vec<(&str, i64)> = windows
+            .iter()
+            .map(|window| (window.limit_id.as_str(), window.window_mins))
+            .collect();
+        assert_eq!(read, [("weekly_all", 10_080)]);
     }
 }

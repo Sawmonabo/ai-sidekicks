@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::machine::settings::EnvironmentRow;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::session::id::SessionId;
@@ -72,6 +71,18 @@ pub(crate) struct ClaudeSpawnContext {
     pub(crate) step_bound: Option<SafeInt<1>>,
 }
 
+impl ClaudeSpawnContext {
+    /// The context with its configuration home moved to `conversation_home` where one is given:
+    /// the home that holds the conversation a resume continues, which a switch left apart from the
+    /// account's own, while the credential store stays the account's.
+    pub(crate) fn in_conversation_home(mut self, conversation_home: Option<&Path>) -> Self {
+        if let Some(home) = conversation_home {
+            self.account_folders.config_folder = home.to_string_lossy().into_owned();
+        }
+        self
+    }
+}
+
 /// What one spawn's legs are built from: the create's or resume's spawn-bound members and the
 /// context resolved for it.
 pub(crate) struct ClaudeSpawnLegsRequest {
@@ -89,8 +100,6 @@ pub(crate) struct ClaudeSpawnLegsRequest {
     pub(crate) output_schema: Option<Map<String, Value>>,
     /// Receives each tool server's status.
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
-    /// The account the spawn is admitted against.
-    pub(crate) provider_account_id: ProviderAccountId,
     /// The command channel a session process's commands reach the daemon through, opened before
     /// the spawn; `None` for a process that runs no session's commands, or where none opens.
     pub(crate) command_channel: Option<Arc<ClaudeCommandChannel>>,
@@ -204,7 +213,6 @@ pub(crate) async fn build_claude_spawn_bound_legs(
             deny_env_vars: credential_policy.deny_env_vars,
             home: ClaudeProcessHome::Account {
                 folders: &context.account_folders,
-                provider_account_id: &request.provider_account_id,
             },
             data_folder: &services.data_folder,
         },

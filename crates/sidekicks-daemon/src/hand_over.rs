@@ -1,6 +1,7 @@
-//! The planning transcript a hand-off gives its fresh session: the planning session's whole
-//! conversation, every run of it, as plain text under a one-line header per turn, kept in the
-//! fresh session's own storage folder so deleting the planning session never breaks it.
+//! A session's whole conversation, every run of it, as one plain text file under a one-line header
+//! per turn, kept in a session's own storage folder: the planning transcript a hand-off gives its
+//! fresh session, so deleting the planning session never breaks it, and the transcript a
+//! hand-over brief points at.
 //!
 //! - The file is rendered from the canonical fold as the log is read, one hydrated page at a time,
 //!   and a body too long for a page is written a frame at a time, so memory holds one page and the
@@ -8,7 +9,7 @@
 //! - Each attempt writes under a temporary name of its own, removed on any failure, and the whole
 //!   file then takes its name without replacing one already there, so a reader never meets half a
 //!   file and two attempts, a late one included, leave one whole copy.
-//! - The storage folder goes with the fresh session's purge.
+//! - The storage folder goes with its session's purge.
 
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
@@ -38,15 +39,17 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
+pub(crate) mod brief;
+
 /// The planning transcript's file name in the fresh session's storage folder.
 pub(crate) const PLANNING_TRANSCRIPT_FILE_NAME: &str = "planning-transcript.txt";
 
 // How many random bytes name one attempt's temporary file.
 const ATTEMPT_NAME_BYTES: usize = 8;
 
-/// Why the planning transcript could not be written.
+/// Why a transcript file could not be written.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum PlanningTranscriptError {
+pub(crate) enum TranscriptFileError {
     /// The read pool is closed, a connection did not open, or the read did not finish.
     #[error(transparent)]
     Pool(#[from] DatabaseReadError),
@@ -56,36 +59,37 @@ pub(crate) enum PlanningTranscriptError {
     Render(#[from] Box<CleanupFailures<TranscriptRenderError, io::Error>>),
     /// The whole file could not be given its name; its temporary file is removed, and a failure to
     /// remove it rides beside the cause.
-    #[error("the planning transcript could not be given its name")]
+    #[error("the transcript file could not be given its name")]
     Publish(#[source] CleanupFailures<io::Error>),
 }
 
-/// Why rendering the planning transcript into its temporary file stopped.
+/// Why rendering a transcript into its temporary file stopped.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum TranscriptRenderError {
-    /// The planning session's log could not be read, or a row did not read as its type's.
+    /// The session's log could not be read, or a row did not read as its type's.
     #[error(transparent)]
     Fold(#[from] CanonicalTranscriptFoldError),
     /// A message's queued item or one of its files' manifests could not be read.
     #[error("a message's attachments could not be read")]
     Attachments(#[source] rusqlite::Error),
     /// The system gave no random bytes to name the attempt's temporary file.
-    #[error("the planning transcript's temporary name could not be made")]
+    #[error("the transcript file's temporary name could not be made")]
     TemporaryName(#[source] getrandom::Error),
     /// The storage folder or the temporary file could not be made or written.
-    #[error("the planning transcript could not be written")]
+    #[error("the transcript file could not be written")]
     Write(#[from] io::Error),
 }
 
-/// Writes a planning session's transcript into a fresh session's storage folder.
+/// Writes a session's transcript as a file into a session's storage folder.
 #[cfg_attr(
     not(test),
     expect(
         dead_code,
-        reason = "the plan verdict's hand-off writes the fresh session's planning transcript"
+        reason = "the plan verdict's hand-off and the provider switch's hand-over brief write \
+                  session transcripts"
     )
 )]
-pub(crate) struct PlanningTranscriptWriter {
+pub(crate) struct TranscriptFileWriter {
     reads: Arc<DatabaseReadPool>,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     data_folder: PathBuf,
@@ -98,10 +102,11 @@ pub(crate) struct PlanningTranscriptWriter {
     not(test),
     expect(
         dead_code,
-        reason = "the plan verdict's hand-off writes the fresh session's planning transcript"
+        reason = "the plan verdict's hand-off and the provider switch's hand-over brief write \
+                  session transcripts"
     )
 )]
-impl PlanningTranscriptWriter {
+impl TranscriptFileWriter {
     /// A writer reading through `reads`, stopping a damaged session's reads where
     /// `read_damaged_from_sequence` answers, and writing under `data_folder`.
     pub(crate) fn new(
@@ -122,24 +127,47 @@ impl PlanningTranscriptWriter {
     /// `fresh_session_id`'s storage folder and answers the file's path. A file already there is
     /// left as it is. Fails when the log cannot be read or the file cannot be written or named,
     /// leaving no temporary file and nothing under the file's name.
-    pub(crate) async fn write(
+    pub(crate) async fn write_planning_transcript(
         &self,
         planning_session_id: SessionId,
         fresh_session_id: SessionId,
-    ) -> Result<PathBuf, PlanningTranscriptError> {
-        let storage_folder = session_storage_folder(&self.data_folder, &fresh_session_id);
-        let file_path = storage_folder.join(PLANNING_TRANSCRIPT_FILE_NAME);
+    ) -> Result<PathBuf, TranscriptFileError> {
+        self.write_file(
+            planning_session_id,
+            fresh_session_id,
+            PLANNING_TRANSCRIPT_FILE_NAME,
+        )
+        .await
+    }
+
+    /// Writes `source_session_id`'s transcript as `file_name` in `storage_session_id`'s storage
+    /// folder and answers the file's path. A file already there is left as it is. Fails when the
+    /// log cannot be read or the file cannot be written or named, leaving no temporary file and
+    /// nothing under the file's name.
+    pub(crate) async fn write_file(
+        &self,
+        source_session_id: SessionId,
+        storage_session_id: SessionId,
+        file_name: &str,
+    ) -> Result<PathBuf, TranscriptFileError> {
+        let storage_folder = session_storage_folder(&self.data_folder, &storage_session_id);
+        let file_path = storage_folder.join(file_name);
+        let temporary_stem = Path::new(file_name)
+            .file_stem()
+            .map_or_else(String::new, |stem| stem.to_string_lossy().into_owned());
         let read_damaged_from_sequence = Arc::clone(&self.read_damaged_from_sequence);
+        let read_file_path = file_path.clone();
         let written = self
             .reads
             .read(ReadLength::Long, move |connection| {
                 write_temporary_file(
                     connection,
                     &*read_damaged_from_sequence,
-                    planning_session_id,
-                    &storage_folder,
+                    source_session_id,
+                    &read_file_path,
+                    &temporary_stem,
                 )
-                .map_err(PlanningTranscriptError::from)
+                .map_err(TranscriptFileError::from)
             })
             .await?;
         let Some(temporary_path) = written else {
@@ -149,7 +177,7 @@ impl PlanningTranscriptWriter {
         self.publish_pause.pass().await;
         publish_without_replacing(&temporary_path, &file_path)
             .await
-            .map_err(PlanningTranscriptError::Publish)?;
+            .map_err(TranscriptFileError::Publish)?;
         Ok(file_path)
     }
 }
@@ -166,20 +194,23 @@ pub(crate) async fn remove_session_storage_folder(
         .map_err(io::Error::other)?
 }
 
-// Renders the transcript into a new file under a name of this attempt's own in `storage_folder`
-// and answers its path, `None` when the transcript file is already there. A failure removes the
-// file it made.
+// Renders `source_session_id`'s transcript into a new file beside `file_path`, named
+// `<temporary_stem>.<this attempt's own>.tmp`, and answers its path, `None` when `file_path` is
+// already there. A failure removes the file it made.
 fn write_temporary_file(
     connection: &Connection,
     read_damaged_from_sequence: &DamagedFromSequenceReader,
-    planning_session_id: SessionId,
-    storage_folder: &Path,
+    source_session_id: SessionId,
+    file_path: &Path,
+    temporary_stem: &str,
 ) -> Result<Option<PathBuf>, Box<CleanupFailures<TranscriptRenderError, io::Error>>> {
     let unmade = |failure: TranscriptRenderError| {
         Box::new(CleanupFailures::new(failure, Vec::new(), RENDERING))
     };
-    let file_path = storage_folder.join(PLANNING_TRANSCRIPT_FILE_NAME);
-    if fs::symlink_metadata(&file_path)
+    let storage_folder = file_path
+        .parent()
+        .expect("a file in a storage folder has a parent");
+    if fs::symlink_metadata(file_path)
         .none_if_missing()
         .map_err(|failure| unmade(failure.into()))?
         .is_some()
@@ -189,7 +220,7 @@ fn write_temporary_file(
     fs::create_dir_all(storage_folder).map_err(|failure| unmade(failure.into()))?;
     let attempt = random_hex(ATTEMPT_NAME_BYTES)
         .map_err(|failure| unmade(TranscriptRenderError::TemporaryName(failure)))?;
-    let temporary_path = storage_folder.join(format!("planning-transcript.{attempt}.tmp"));
+    let temporary_path = storage_folder.join(format!("{temporary_stem}.{attempt}.tmp"));
     // A new file only, so an attempt never writes into another's.
     let file = File::options()
         .write(true)
@@ -199,7 +230,7 @@ fn write_temporary_file(
     match render_transcript(
         connection,
         read_damaged_from_sequence,
-        planning_session_id,
+        source_session_id,
         file,
     ) {
         Ok(()) => Ok(Some(temporary_path)),
@@ -215,20 +246,20 @@ fn write_temporary_file(
 }
 
 // What a rendering failure names as its operation.
-const RENDERING: &str = "writing the planning transcript";
+const RENDERING: &str = "writing a transcript file";
 
-// Streams the planning session's transcript into `file` and flushes it to disk.
+// Streams `session_id`'s transcript into `file` and flushes it to disk.
 fn render_transcript(
     connection: &Connection,
     read_damaged_from_sequence: &DamagedFromSequenceReader,
-    planning_session_id: SessionId,
+    session_id: SessionId,
     file: File,
 ) -> Result<(), TranscriptRenderError> {
     let mut sink = TranscriptFileSink {
         text: PlainTranscript::new(BufWriter::new(file)),
         attachments: AttachmentNames {
             connection,
-            session_id: planning_session_id,
+            session_id,
         },
         run: RunHeader::default(),
         turn_role: None,
@@ -236,7 +267,7 @@ fn render_transcript(
     stream_session_transcript(
         connection,
         read_damaged_from_sequence,
-        &planning_session_id,
+        &session_id,
         &mut sink,
     )
     .map_err(|failure| match failure {
@@ -415,7 +446,7 @@ fn tool_result_line(
 }
 
 /// The names of the files a person's message carried, read from its queued item and the
-/// planning session's manifests on the transcript's own connection.
+/// session's manifests on the transcript's own connection.
 struct AttachmentNames<'reader> {
     connection: &'reader Connection,
     session_id: SessionId,
@@ -525,7 +556,7 @@ mod tests {
     use sidekicks_store::events::session::read::HYDRATED_PAGE_TEXT_BYTES;
     use sidekicks_store::events::test_log::{AT, SessionTestLog};
 
-    use super::{PLANNING_TRANSCRIPT_FILE_NAME, PlanningTranscriptWriter};
+    use super::{PLANNING_TRANSCRIPT_FILE_NAME, TranscriptFileWriter};
 
     fn run_queued(log: &SessionTestLog, run_id: RunId, parent_run_id: Option<RunId>) {
         let mut payload = json!({
@@ -666,7 +697,7 @@ mod tests {
         let log = SessionTestLog::new(crate::daemon::schema::schema_parts());
         let expected = plan_session(&log);
         let data_folder = tempfile::tempdir().expect("the data folder is made");
-        let writer = Arc::new(PlanningTranscriptWriter::new(
+        let writer = Arc::new(TranscriptFileWriter::new(
             Arc::new(DatabaseReadPool::new(
                 log.database.path(),
                 ARTIFACT_STATEMENT_CAPACITY,
@@ -683,7 +714,7 @@ mod tests {
         let held = writer.publish_pause.arm();
         let first = tokio::spawn({
             let writer = Arc::clone(&writer);
-            async move { writer.write(planning, fresh).await }
+            async move { writer.write_planning_transcript(planning, fresh).await }
         });
         held.reached.await.expect("the first attempt is held");
         let first_entries = entries(&storage);
@@ -691,7 +722,7 @@ mod tests {
         assert_ne!(first_entries[0], PLANNING_TRANSCRIPT_FILE_NAME);
 
         let second = writer
-            .write(planning, fresh)
+            .write_planning_transcript(planning, fresh)
             .await
             .expect("the second attempt writes");
         assert_eq!(second, file_path);
@@ -719,7 +750,7 @@ mod tests {
 
         fs::write(&file_path, "kept\n").expect("the file is changed");
         writer
-            .write(planning, fresh)
+            .write_planning_transcript(planning, fresh)
             .await
             .expect("a write with the file there answers it");
         assert_eq!(

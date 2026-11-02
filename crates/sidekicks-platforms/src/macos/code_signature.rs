@@ -1,9 +1,9 @@
-//! The code signature the desktop's client helper is admitted by. The requirement is built at start
-//! from this program's own signature: the helper must carry the app's helper identifier, be signed
-//! by the same team as this program under Apple's certificate chain, and have library validation
-//! on; the process responsible for it must be the app itself, signed the same way. A program with
-//! no team in its signature (a development build) builds no requirement and admits no client by
-//! its signature.
+//! The code signature the desktop's client helper is admitted by, and the team requirement the wake
+//! helper's install checks. The requirement is built at start from this program's own signature:
+//! the helper must carry the app's helper identifier, be signed by the same team as this program
+//! under Apple's certificate chain, and have library validation on; the process responsible for it
+//! must be the app itself, signed the same way. A program with no team in its signature (a
+//! development build) builds no requirement and admits no client by its signature.
 
 use std::io;
 use std::ptr::NonNull;
@@ -52,16 +52,9 @@ impl DesktopClientRequirement {
     /// signature. Fails when this program's signature cannot be read, when its team is not one a
     /// requirement can name, or when a requirement does not compile.
     pub fn for_this_program(app_identifier: &str) -> Result<Option<Self>, CodeSignatureError> {
-        let Some(team) = read_own_team()? else {
+        let Some(team) = read_own_quotable_team()? else {
             return Ok(None);
         };
-        if team.is_empty()
-            || !team
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric())
-        {
-            return Err(CodeSignatureError::TeamIdentifier);
-        }
         let helper_identifier = format!("{app_identifier}{HELPER_IDENTIFIER_SUFFIX}");
         Ok(Some(Self {
             helper: compile(&signed_by_team(&helper_identifier, &team))?,
@@ -96,13 +89,35 @@ impl DesktopClientRequirement {
     }
 }
 
-/// The requirement that `identifier` is signed by `team` under Apple's certificate chain with
-/// library validation on, so the signed program loads no library another team signed.
+/// The requirement that `identifier` is signed by `team` as [`team_requirement`] says.
 fn signed_by_team(identifier: &str, team: &str) -> String {
+    format!("{} and identifier \"{identifier}\"", team_requirement(team))
+}
+
+/// The requirement text that a program is signed by `team` under Apple's certificate chain with
+/// library validation on, so the signed program loads no library another team signed.
+pub(crate) fn team_requirement(team: &str) -> String {
     format!(
-        "anchor apple generic and identifier \"{identifier}\" and certificate leaf[subject.OU] = \
-         \"{team}\" and ! entitlement[\"com.apple.security.cs.disable-library-validation\"] exists"
+        "anchor apple generic and certificate leaf[subject.OU] = \"{team}\" and \
+         ! entitlement[\"com.apple.security.cs.disable-library-validation\"] exists"
     )
+}
+
+/// The team in this program's own signature, as [`team_requirement`] can quote it; `None` when the
+/// signature names none (an ad hoc signature). Fails as the signature cannot be read, and with
+/// [`CodeSignatureError::TeamIdentifier`] for a team a requirement cannot quote.
+pub(crate) fn read_own_quotable_team() -> Result<Option<String>, CodeSignatureError> {
+    let Some(team) = read_own_team()? else {
+        return Ok(None);
+    };
+    if team.is_empty()
+        || !team
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric())
+    {
+        return Err(CodeSignatureError::TeamIdentifier);
+    }
+    Ok(Some(team))
 }
 
 /// `text` compiled. Fails with the Security framework's status when it does not compile.
@@ -126,12 +141,20 @@ fn compile(text: &str) -> Result<Requirement, CodeSignatureError> {
 }
 
 /// The team in this program's own signature; `None` when it names none (an ad hoc signature).
-/// Fails with the Security framework's status when the signature cannot be read.
+/// The signing information is read from the file on disk, so the running code is first checked
+/// to still match it, and a program replaced on disk since it started reads no team of the
+/// replacement. Fails with the Security framework's status when the signature cannot be read or
+/// the file no longer matches.
 fn read_own_team() -> Result<Option<String>, CodeSignatureError> {
     let mut own: *mut SecCode = std::ptr::null_mut();
     // SAFETY: `own` is a live pointer the call fills with a new reference to this program's code.
     let status = unsafe { SecCode::copy_self(SecCSFlags::DefaultFlags, NonNull::from(&mut own)) };
     let own = owned(status, own).map_err(|status| CodeSignatureError::OwnSignature { status })?;
+    // SAFETY: `own` is a live object the call only reads.
+    let status = unsafe { own.check_validity(SecCSFlags::DefaultFlags, None) };
+    if status != 0 {
+        return Err(CodeSignatureError::OwnSignature { status });
+    }
     let mut on_disk: *const SecStaticCode = std::ptr::null();
     // SAFETY: `on_disk` is a live pointer the call fills with a new reference to the code on disk.
     let status =

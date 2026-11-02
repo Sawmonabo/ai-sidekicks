@@ -161,15 +161,17 @@ CREATE INDEX idx_sessions_shape_state ON sessions(shape, state);
 CREATE INDEX idx_sessions_activity ON sessions(id, last_activity_at);
 
 -- Each session.create's idempotency key, the session it made and where that session works: its
--- project (NULL for a chat), its execution mode and the group it asked for (NULL for none, and for
--- every chat). Written in the session.created write, so a retry with the key, or the daemon's
--- start, finishes a session left provisioning.
+-- project (NULL for a chat), its execution mode, the group it asked for (NULL for none, and for
+-- every chat) and the account its lead was born on, the current one that write's guard held.
+-- Written in the session.created write, so a retry with the key, or the daemon's start, finishes a
+-- session left provisioning.
 CREATE TABLE session_create_requests (
   client_idempotency_key  TEXT NOT NULL PRIMARY KEY,
   session_id              TEXT NOT NULL UNIQUE,
   project_id              TEXT,
   execution_mode          TEXT NOT NULL CHECK(execution_mode IN ({execution_modes})),
-  group_id                TEXT
+  group_id                TEXT,
+  provider_account_id     TEXT NOT NULL
 ) STRICT;
 
 -- A project's sessions, which its rules reach, found by the project they were made in.

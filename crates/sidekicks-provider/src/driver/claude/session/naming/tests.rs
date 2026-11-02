@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use serde_json::Map;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
@@ -82,6 +83,7 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
     fn probe_sign_in(
         &self,
         _environment: Vec<(String, String)>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<String, ClaudeLaunchError>> {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }
@@ -89,6 +91,7 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
     fn read_model_catalog(
         &self,
         _environment: Vec<(String, String)>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<ClaudeModelCatalogReading, ClaudeLaunchError>> {
         unreachable!("{ONLY_THE_ONE_TURN}")
     }
@@ -138,7 +141,7 @@ async fn a_naming_pass_whose_one_turn_never_answers_ends_with_none_at_its_deadli
     );
     let session_id = new_session_id();
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
-    fixture.record_session_leg(session_id, account, "stored-conversation");
+    fixture.record_session_leg(session_id, account, "stored-conversation", Map::new());
     let cancel = CancellationToken::new();
     let params = NameSessionParams {
         session_id,

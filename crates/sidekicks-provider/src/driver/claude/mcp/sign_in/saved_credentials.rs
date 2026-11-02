@@ -10,7 +10,7 @@ use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 
 use super::ClaudeSignInError;
-use crate::driver::claude::account_credentials::{
+use crate::driver::claude::account::credentials::{
     ClaudeSignInReader, ClaudeStoredCredentials, read_claude_credential_file,
 };
 use crate::driver::claude::mcp::machine_probe::variables::expand_remote_address;

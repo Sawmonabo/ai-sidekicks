@@ -38,7 +38,7 @@ impl LiveClaudeSession {
         for rejection in &read.rejections {
             emit_driver_diagnostic(&DriverDiagnosticRecord {
                 provider: DESCRIPTOR.provider_id(),
-                provider_account_id: Some(self.admitted_provider_account_id.clone()),
+                provider_account_id: Some(self.admitted_provider_account_id()),
                 kind: DriverDiagnosticKind::McpServerStatusRejected,
                 raw_wire_type: Some(wire_type.to_owned()),
                 disposition_reason: rejection.reason.clone(),

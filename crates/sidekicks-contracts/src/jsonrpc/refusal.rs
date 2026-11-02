@@ -406,6 +406,12 @@ refusal_codes! {
     /// from the account; `data.fields` carries the reset time when the provider gives one.
     ProviderAccountAllowanceExhausted = "provider.account.allowanceExhausted"
         (ResourceExhausted, 429);
+    /// The place the daemon keeps its secrets would not destroy a removed account's token, so the
+    /// removal stopped with the account marked; it no longer reads as registered, and the next
+    /// start destroys the token and finishes the removal. `data.fields.cause` is `locked` or
+    /// `unavailable`.
+    ProviderAccountCredentialDestroyRefused = "provider.account.credentialDestroyRefused"
+        (Unavailable, 503);
     /// The account's credential home is missing, unreadable, or structurally unusable.
     ProviderAccountCredentialHomeUnavailable = "provider.account.credentialHome.unavailable"
         (Unavailable, 503);
@@ -425,8 +431,13 @@ refusal_codes! {
     /// provider's other account names, trimmed and compared by full Unicode case folding
     /// (`foldName`).
     ProviderAccountDisplayLabelTaken = "provider.account.displayLabelTaken" (AlreadyExists, 409);
-    /// `provider.account.delete` refused because a run bound to the account is live.
+    /// `provider.account.delete` refused because a run bound to the account is live or a workflow
+    /// step waits on it.
     ProviderAccountInUse = "provider.account.inUse" (FailedPrecondition, 409);
+    /// `provider.account.memory.import` refused because the account's one memory import has
+    /// already run; its outcome stays on the account and nothing is copied again.
+    ProviderAccountMemoryAlreadyImported = "provider.account.memory.alreadyImported"
+        (FailedPrecondition, 409);
     /// The account's sign-in is gone or the provider refused it: `provider.account.current.update`
     /// named a known-dead target (its stored reading is `reauthRequired`, or its last limits read
     /// showed its provider sign-in gone), or a provider call such as a voice call needed a sign-in.
@@ -443,7 +454,8 @@ refusal_codes! {
     /// only an account added from a pasted token or API key is named by the person, and every other
     /// account is named by the identity its provider reports.
     ProviderAccountRenameRefused = "provider.account.renameRefused" (FailedPrecondition, 409);
-    /// A brokered sign-in is already in flight for this account.
+    /// A brokered sign-in, an account switch or a credential-home reset is already in flight for
+    /// this account, so another of the three is refused until it ends.
     ProviderAccountSignInInFlight = "provider.account.signInInFlight" (FailedPrecondition, 409);
     /// Brokered sign-in was requested for a provider whose pinned flow emits neither an
     /// authorization URL nor a device code, so there is nothing the person could act on.

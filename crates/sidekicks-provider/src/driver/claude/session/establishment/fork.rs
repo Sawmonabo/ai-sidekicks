@@ -15,9 +15,9 @@ use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 
 use super::context::ClaudeSpawnContextError;
+use super::errors::ClaudeEstablishmentError;
 use super::{
-    ClaudeCallbackBinding, ClaudeEstablishmentError, ClaudeModelCheck, ClaudeSessionEstablishment,
-    ClaudeSessionStart,
+    ClaudeCallbackBinding, ClaudeModelCheck, ClaudeSessionEstablishment, ClaudeSessionStart,
 };
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::conversation_file::{
@@ -75,8 +75,10 @@ impl ClaudeSessionEstablishment {
             }
         };
         let settings = lock(&predecessor.settings).clone();
-        // The predecessor's own legs, at the level, model, advisor and style it runs with now.
+        // The predecessor's own legs, at the level, model, advisor and style it runs with now,
+        // signed in to the credential store it runs on now.
         let legs = ClaudeSpawnBoundLegs {
+            spawn_environment: predecessor.signed_in_spawn_environment(),
             execution_posture: settings.execution_posture.clone(),
             model: settings.running_model.clone(),
             advisor: settings.advisor.clone(),
@@ -99,7 +101,7 @@ impl ClaudeSessionEstablishment {
             callback_tools: ClaudeCallbackBinding::Shared(Arc::clone(
                 &predecessor.callback_tool_binding,
             )),
-            provider_account_id: predecessor.admitted_provider_account_id.clone(),
+            provider_account_id: predecessor.admitted_provider_account_id(),
             session_mode: settings.session_mode,
             output_speed: settings.applied_output_speed.clone(),
             // Metered on from the predecessor's thread, the only one its usage was reported under.
@@ -127,7 +129,7 @@ impl ClaudeSessionEstablishment {
                     &forked_provider_session_id,
                     vec![LeftConversation {
                         session_id,
-                        provider_account_id: predecessor.admitted_provider_account_id.clone(),
+                        provider_account_id: predecessor.admitted_provider_account_id(),
                         conversation_id: predecessor.provider_session_id.clone(),
                     }],
                 ))
@@ -149,7 +151,7 @@ impl ClaudeSessionEstablishment {
                         &predecessor.provider_session_id,
                         vec![LeftConversation {
                             session_id,
-                            provider_account_id: predecessor.admitted_provider_account_id.clone(),
+                            provider_account_id: predecessor.admitted_provider_account_id(),
                             conversation_id: forked_provider_session_id.clone(),
                         }],
                     ))
@@ -199,7 +201,7 @@ impl ClaudeSessionEstablishment {
             .require_port()?
             .resolve_spawn_context(
                 predecessor.session_id,
-                predecessor.admitted_provider_account_id.clone(),
+                predecessor.admitted_provider_account_id(),
             )
             .await
             .map_err(ClaudeSpawnContextError::Place)?;
