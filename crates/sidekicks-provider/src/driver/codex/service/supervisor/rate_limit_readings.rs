@@ -3,8 +3,8 @@
 //! switch keeps the last readings of the account it left for the frames that arrived before it.
 //! Complete reads keep Codex's own client's order: each is numbered as it is sent, its answer
 //! dropped where a read sent after it was applied first; the pushes that arrive while it is out
-//! are laid back over its answer, field by field per limit; and a hard-stop push drops every read
-//! still out, since each left before the stop.
+//! are laid back over its answer, field by field per limit; and a hard-stop push or a switch drops
+//! every read still out, since each left before it.
 
 use std::collections::BTreeMap;
 use std::mem;
@@ -88,6 +88,15 @@ impl CodexRateLimitReadings {
         self.observation = observation;
         self.arrival += 1;
     }
+
+    // Starts afresh as a switch lands, keeping `left`'s last readings and dropping every read
+    // still out: each was sent on the account left, so its answer never lands on the new one's.
+    fn restart(&mut self, left: Option<ProviderAccountId>) {
+        let observation = mem::take(&mut self.observation);
+        self.left = left.map(|left| (left, observation));
+        self.reads_out.clear();
+        self.arrival += 1;
+    }
 }
 
 /// The readings as one filing takes them: the account they are read under, the readings, and
@@ -143,15 +152,12 @@ impl CodexService {
     }
 
     /// Starts the readings afresh as a switch lands, keeping the account left with its last
-    /// readings, and runs `carry`, which moves the service onto its new account, under the same
-    /// hold, so no reading is ever taken with one account and the other's readings.
+    /// readings and dropping every read sent on it, and runs `carry`, which moves the service onto
+    /// its new account, under the same hold, so no reading is ever taken with one account and the
+    /// other's readings.
     pub(crate) fn restart_rate_limits(&self, carry: impl FnOnce()) {
         let mut routing = self.lock_routing();
-        let left = self.provider_account_id();
-        let readings = &mut routing.rate_limits;
-        let observation = mem::take(&mut readings.observation);
-        readings.left = left.map(|left| (left, observation));
-        readings.arrival += 1;
+        routing.rate_limits.restart(self.provider_account_id());
         carry();
     }
 
@@ -165,6 +171,7 @@ impl CodexService {
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
+    use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
     use super::CodexRateLimitReadings;
     use crate::driver::codex::usage_limit_signal::{
@@ -206,6 +213,26 @@ mod tests {
         assert_eq!(
             readings.observation,
             observe_codex_rate_limit_read(&whole_set(30))
+        );
+    }
+
+    // Fails when a switch keeps the reads sent on the account it left: Codex does not promise to
+    // answer requests in the order they were sent, so one answered after the switch's login would
+    // replace the new account's readings with the old one's, and its new arrival would be filed
+    // under the new account.
+    #[test]
+    fn a_read_sent_before_a_switch_and_answered_after_it_changes_nothing() {
+        let mut readings = CodexRateLimitReadings::default();
+        let left = ProviderAccountId::new("account-left".to_owned()).expect("an account id");
+
+        let sent_before = readings.send_read();
+        readings.restart(Some(left));
+        let after_the_switch = (readings.observation.clone(), readings.arrival);
+        readings.answer_read(sent_before, Some(&whole_set(40)));
+
+        assert_eq!(
+            (readings.observation.clone(), readings.arrival),
+            after_the_switch
         );
     }
 }
