@@ -210,6 +210,13 @@ pub fn make_folder_link(target: &Path, link: &Path) -> io::Result<()> {
     std::os::windows::fs::symlink_dir(target, link)
 }
 
+/// Makes `link` a symbolic link to the file `target`, which needs the person's developer mode or
+/// the right to make links. Fails with the system's error.
+#[cfg(any(test, feature = "test-support"))]
+pub fn make_file_link(target: &Path, link: &Path) -> io::Result<()> {
+    std::os::windows::fs::symlink_file(target, link)
+}
+
 /// The access-list entry that denies everyone (`S-1-1-0`) the reading of a file and the listing
 /// and reading of a folder.
 #[cfg(any(test, feature = "test-support"))]

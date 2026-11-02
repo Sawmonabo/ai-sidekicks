@@ -158,7 +158,7 @@ pub fn write_and_flush(target: &Path, contents: &[u8], mode: u32) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
-    use sidekicks_platforms::has_file_mode;
+    use sidekicks_platforms::{has_file_mode, make_file_link};
 
     use super::{rewrite_file_in_place, write_file_atomically, write_file_atomically_if_changed};
 
@@ -200,5 +200,29 @@ mod tests {
         assert_eq!(std::fs::read(&kept).expect("the file reads"), b"{\"a\":1}");
         assert!(has_file_mode(&kept, 0o600).expect("the file's mode reads"));
         assert!(has_file_mode(&made, 0o640).expect("the new file's mode reads"));
+    }
+
+    // Fails when the rewrite replaces the link with a file of its own, so a settings file linked
+    // into the person's dotfiles stops following them.
+    #[tokio::test]
+    async fn a_rewrite_through_a_link_writes_its_target_and_keeps_the_link() {
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let target = folder.path().join("dotfiles.json");
+        write_file_atomically(&target, b"{}", 0o600)
+            .await
+            .expect("the target is written");
+        let link = folder.path().join("settings.json");
+        make_file_link(&target, &link).expect("the link is made");
+
+        rewrite_file_in_place(&link, b"{\"a\":1}", 0o644)
+            .await
+            .expect("the file is rewritten through its link");
+
+        let link_metadata = std::fs::symlink_metadata(&link).expect("the link reads");
+        assert!(link_metadata.file_type().is_symlink());
+        assert_eq!(
+            std::fs::read(&target).expect("the target reads"),
+            b"{\"a\":1}"
+        );
     }
 }

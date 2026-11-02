@@ -187,6 +187,12 @@ pub fn make_folder_link(target: &Path, link: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(target, link)
 }
 
+/// Makes `link` a symbolic link to the file `target`. Fails with the system's error.
+#[cfg(any(test, feature = "test-support"))]
+pub fn make_file_link(target: &Path, link: &Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
 /// Whether a path inside a folder [`make_unreadable`] made unreadable still opens, to name what is
 /// or is not there: a mode-000 folder lets no path through it.
 #[cfg(any(test, feature = "test-support"))]

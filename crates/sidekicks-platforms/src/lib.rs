@@ -333,7 +333,7 @@ pub use posix::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::file_system::{
     CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, UnwritableEntry,
-    is_superuser, make_folder_link, make_unreadable, make_unwritable,
+    is_superuser, make_file_link, make_folder_link, make_unreadable, make_unwritable,
 };
 #[cfg(unix)]
 pub use posix::file_system::{
@@ -534,7 +534,7 @@ pub use windows::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::file_system::{
     CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, UnwritableEntry,
-    is_superuser, make_folder_link, make_unreadable, make_unwritable,
+    is_superuser, make_file_link, make_folder_link, make_unreadable, make_unwritable,
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
