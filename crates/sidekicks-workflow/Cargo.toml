@@ -3,7 +3,7 @@ name = "sidekicks-workflow"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Workflows: their definitions and versions, runs, secrets and the agent tools that write them."
+description = "Workflows: their definitions and versions, runs, secrets, the agent tools that write them, the node kinds and the engine's ports."
 license.workspace = true
 publish.workspace = true
 
