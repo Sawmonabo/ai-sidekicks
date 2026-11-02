@@ -32,7 +32,7 @@ use super::{
     CodexEstablishedSession, CodexHandleResume, CodexResumedThread, CodexSessionEstablishment,
     compose_failed_resume, prepare_adoption, read_resumed_thread, request_thread_resume,
 };
-use crate::driver::codex::delivery::memory::CodexBoundChildRun;
+use crate::driver::codex::delivery::memory::{CodexBoundChildRun, CodexChildRun};
 use crate::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
 use crate::driver::codex::run::turn_interrupt::interrupt_codex_running_turn;
 use crate::driver::codex::service::home::CodexConversationHome;
@@ -580,18 +580,18 @@ fn restore_helper(
         }
         return None;
     };
-    bind_codex_helper_run(
-        record,
-        run_routes,
-        helper.subagent_id,
-        CodexBoundChildRun {
+    let child = CodexChildRun {
+        bound: Some(CodexBoundChildRun {
             child_run_id: helper.run_id,
             parent_run_id: helper.parent_run_id,
             start_row_event_id: None,
-        },
-        binding.agent_id,
-        binding.binding_id.clone(),
-    );
+        }),
+        agent_id: binding.agent_id,
+        binding_id: binding.binding_id.clone(),
+        subagent_id: helper.subagent_id,
+        parent_tool_call_id: None,
+    };
+    bind_codex_helper_run(record, run_routes, thread_id.clone(), child);
     if helper.is_held && !is_codex_turn_in_progress(&newest_turn.turn) {
         record
             .held_continuation_turn_ids
