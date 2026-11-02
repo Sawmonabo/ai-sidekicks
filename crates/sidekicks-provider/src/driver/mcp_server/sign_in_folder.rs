@@ -1,14 +1,13 @@
 //! The folder of the daemon's own an MCP sign-in through a provider's own client runs in: made for
 //! that sign-in alone, readable by the person alone, and gone once the sign-in ends, whether it
-//! ends, fails or is dropped mid-flow; and the start's removal of the folders a stopped daemon
-//! left.
+//! ends, fails or is dropped mid-flow.
 
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use sidekicks_platforms::{
-    LeftoverSweep, create_private_folder, remove_tree, replace_file_atomically,
+    LeftoverSweep, create_private_folder, remove_tree, remove_tree_awaited, replace_file_atomically,
 };
 use sidekicks_std::random_hex::random_hex;
 
@@ -58,10 +57,7 @@ impl SignInFolder {
     /// Removes the folder now, off the runtime's workers; a folder already gone counts as removed.
     /// Fails with the system's error, the folder then still removed when this drops.
     pub(crate) async fn remove(mut self) -> io::Result<()> {
-        let removing = self.path.clone();
-        tokio::task::spawn_blocking(move || remove_tree(&removing))
-            .await
-            .map_err(io::Error::other)??;
+        remove_tree_awaited(&self.path).await?;
         self.is_removed = true;
         Ok(())
     }
@@ -82,14 +78,4 @@ impl Drop for SignInFolder {
             );
         }
     }
-}
-
-/// Removes `parent`, the folder each sign-in makes its own in, with every folder a stopped daemon
-/// left there, off the runtime's workers; none there counts as removed. Fails with the system's
-/// error.
-pub(crate) async fn remove_left_sign_in_folders(parent: &Path) -> io::Result<()> {
-    let removing = parent.to_owned();
-    tokio::task::spawn_blocking(move || remove_tree(&removing))
-        .await
-        .map_err(io::Error::other)?
 }

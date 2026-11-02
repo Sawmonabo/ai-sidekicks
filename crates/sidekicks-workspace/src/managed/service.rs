@@ -35,7 +35,6 @@ use tokio_util::task::AbortOnDropHandle;
 
 use crate::git::GIT_ENTRY_NAME;
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
-use crate::git::worktree::service::remove_folder;
 use crate::managed::write_watcher::{ManagedWorkspaceReport, ManagedWorkspaceWriteWatcher};
 use crate::repo::mount::service::{RepoMountService, RepoMountServiceError};
 
@@ -285,7 +284,7 @@ impl ManagedWorkspaceService {
     /// them in its own write. A session with no managed workspace changes nothing. Fails with the
     /// removal's failure.
     pub async fn delete_folder(&self, session_id: SessionId) -> Result<(), ManagedWorkspaceError> {
-        remove_folder(&self.workspace_path_of(session_id))
+        sidekicks_platforms::remove_tree_awaited(&self.workspace_path_of(session_id))
             .await
             .map_err(ManagedWorkspaceError::Removal)
     }
@@ -346,7 +345,7 @@ impl ManagedWorkspaceService {
         session_id: SessionId,
         workspace_path: &Path,
     ) -> Result<(), ManagedWorkspaceError> {
-        remove_folder(workspace_path)
+        sidekicks_platforms::remove_tree_awaited(workspace_path)
             .await
             .map_err(ManagedWorkspaceError::Removal)?;
         self.repo_mounts.delete_managed(session_id).await?;

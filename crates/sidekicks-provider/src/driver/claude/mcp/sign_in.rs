@@ -61,7 +61,7 @@ use crate::driver::contract::sign_in::{
     ProviderSignInTakeover, ProviderSignInTakeoverRequest,
 };
 use crate::driver::mcp_server::address::read_server_address;
-use crate::driver::mcp_server::sign_in_folder::{SignInFolder, remove_left_sign_in_folders};
+use crate::driver::mcp_server::sign_in_folder::SignInFolder;
 use crate::driver::mcp_server::status::FAILURE_TEXT_MAX_CODE_POINTS;
 
 /// The data folder's folder each sign-in makes its own folder in.
@@ -350,7 +350,7 @@ pub(crate) async fn remove_left_claude_sign_ins(
             }
         }
     }
-    remove_left_sign_in_folders(&parent)
+    sidekicks_platforms::remove_tree_awaited(&parent)
         .await
         .map_err(|error| DriverError::Internal(Box::new(error)))
 }

@@ -48,7 +48,6 @@ use crate::driver::contract::params_and_results::{
 };
 use crate::driver::contract::sign_in::{ProviderSignInTakeover, ProviderSignInTakeoverRequest};
 use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
-use crate::driver::mcp_server::sign_in_folder::remove_left_sign_in_folders;
 use crate::driver::read_current_account;
 use crate::driver::session_control::{
     AskSideQuestionParams, ClearSessionGoalParams, DriverAuthProbeResult, DriverAuthProbeStatus,
@@ -273,7 +272,7 @@ impl CodexDriver {
 
     /// Removes the folders of MCP sign-ins a stopped daemon left. Fails as the removal fails.
     pub(crate) async fn remove_left_sign_in_folders(&self) -> Result<(), DriverError> {
-        remove_left_sign_in_folders(&self.registry.mcp_sign_in_folder())
+        sidekicks_platforms::remove_tree_awaited(&self.registry.mcp_sign_in_folder())
             .await
             .map_err(|error| DriverError::Internal(Box::new(error)))
     }
