@@ -571,7 +571,7 @@ async fn a_read_s_figures_record_the_whole_set_and_each_reported_identity_column
     }
 
     assert_eq!(
-        fixture.usage.sets(),
+        fixture.usage.whole_sets(),
         [
             (account.account_id.clone(), figures().windows),
             (account.account_id.clone(), figures().windows),

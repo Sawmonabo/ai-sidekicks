@@ -1,5 +1,6 @@
 //! What a limits read that answered figures leaves: its quota windows recorded as the account's
-//! whole set, and on the account's row when the read was taken, the identity the provider reported
+//! whole set, or, from a pasted token's turn, which names only the windows it was charged to, as
+//! a partial set, and on the account's row when the read was taken, the identity the provider reported
 //! and when it last renewed the home's sign-in, each reported column written only where the
 //! provider reported it, so an absent one keeps what an earlier read stored. The read's time is
 //! state on the row rather than an event, so a read that changed no window still says when its
@@ -16,6 +17,7 @@ use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 
+use crate::account::observer::token_read::reads_limits_by_turn;
 use crate::account::observer::window_store::read_usage_windows;
 use crate::account::observer::{ObserverShared, ProviderAccountObserverError};
 use crate::account::registry::{RegisteredAccount, refusal_or_failure};
@@ -37,7 +39,7 @@ static RECORD_READ_SQL: LazyLock<String> = LazyLock::new(|| {
 
 impl ObserverShared {
     /// Records `figures`, what a read of `account` taken at `read_at` answered: its windows as the
-    /// account's whole set, then the read's time and what it reported of the account on its row,
+    /// account's whole set, or as a partial set where a turn read them, then the read's time and what it reported of the account on its row,
     /// then publishes each of the account's windows as it now reads. Fails when the windows cannot
     /// be recorded or read back, and with
     /// [`crate::account::errors::ProviderAccountRegistryError::NotFound`] for an account no longer
@@ -48,14 +50,21 @@ impl ObserverShared {
         figures: &ProviderAccountFigures,
         read_at: &WireInstant,
     ) -> Result<(), ProviderAccountObserverError> {
-        self.usage
-            .record_whole_quota_windows(
-                account.provider.clone(),
-                account.account_id.clone(),
-                figures.windows.clone(),
-            )
-            .await
-            .map_err(ProviderAccountObserverError::WindowsNotRecorded)?;
+        let (provider, account_id, windows) = (
+            account.provider.clone(),
+            account.account_id.clone(),
+            figures.windows.clone(),
+        );
+        let recorded = if reads_limits_by_turn(account) {
+            self.usage
+                .record_quota_windows(provider, account_id, windows)
+                .await
+        } else {
+            self.usage
+                .record_whole_quota_windows(provider, account_id, windows)
+                .await
+        };
+        recorded.map_err(ProviderAccountObserverError::WindowsNotRecorded)?;
         let identity = &figures.identity;
         self.database_writer
             .write(vec![WriteStatement {

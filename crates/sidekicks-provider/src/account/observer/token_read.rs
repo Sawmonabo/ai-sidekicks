@@ -77,9 +77,10 @@ mod tests {
     use crate::driver::schema::schema_parts;
 
     // The five-minute read of a pasted Claude token sends a turn on the sealed token in place of
-    // the limits read, takes its answer as the reading and writes its spend as one row with no
-    // session. Killed by the limits read run on the token (a read counted, no token handed) and by
-    // the turn's spend dropped (no row).
+    // the limits read, takes its answer as the reading, records its windows as a partial set, and
+    // writes its spend as one row with no session. Killed by the limits read run on the token (a
+    // read counted, no token handed), by the turn's windows recorded as the whole set (which
+    // removes every window the turn did not name), and by the turn's spend dropped (no row).
     #[tokio::test(start_paused = true)]
     async fn a_pasted_token_is_read_by_a_turn_that_writes_a_sessionless_row() {
         let database = TestDatabase::new(schema_parts());
@@ -110,6 +111,11 @@ mod tests {
             Some(ProviderObservation::Figures(figures()))
         );
         assert_eq!(fixture.legs.reads(), 0);
+        assert_eq!(
+            fixture.usage.partial_sets(),
+            [(account.account_id.clone(), figures().windows)]
+        );
+        assert!(fixture.usage.whole_sets().is_empty());
         assert_eq!(fixture.turns[&claude()].tokens_read(), ["pasted-token"]);
         assert_eq!(usage_rows(&database, &account), [(None::<String>, 1_i64)]);
     }

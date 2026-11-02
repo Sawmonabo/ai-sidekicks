@@ -213,17 +213,28 @@ pub(super) fn figures() -> ProviderAccountFigures {
     }
 }
 
-// Each whole set of quota windows the observer recorded, with its account.
-#[derive(Default)]
-pub(super) struct RecordedWholeSets(Mutex<Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)>>);
+// One set of quota windows the observer recorded, with its account.
+type RecordedQuotaSet = (ProviderAccountId, Vec<ProviderQuotaWindow>);
 
-impl RecordedWholeSets {
-    pub(super) fn sets(&self) -> Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)> {
-        lock(&self.0).clone()
+// Each set of quota windows the observer recorded: the whole sets a limits read answered, and the
+// partial ones a turn named.
+#[derive(Default)]
+pub(super) struct RecordedQuotaSets {
+    whole: Mutex<Vec<RecordedQuotaSet>>,
+    partial: Mutex<Vec<RecordedQuotaSet>>,
+}
+
+impl RecordedQuotaSets {
+    pub(super) fn whole_sets(&self) -> Vec<RecordedQuotaSet> {
+        lock(&self.whole).clone()
+    }
+
+    pub(super) fn partial_sets(&self) -> Vec<RecordedQuotaSet> {
+        lock(&self.partial).clone()
     }
 }
 
-impl UsageSink for RecordedWholeSets {
+impl UsageSink for RecordedQuotaSets {
     fn record_metered(
         &self,
         _metered: MeteredUsage,
@@ -234,10 +245,11 @@ impl UsageSink for RecordedWholeSets {
     fn record_quota_windows(
         &self,
         _provider: ProviderId,
-        _provider_account_id: ProviderAccountId,
-        _windows: Vec<ProviderQuotaWindow>,
+        provider_account_id: ProviderAccountId,
+        windows: Vec<ProviderQuotaWindow>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Err("the observer records only whole sets".into()) }.boxed()
+        lock(&self.partial).push((provider_account_id, windows));
+        async { Ok(()) }.boxed()
     }
 
     fn record_whole_quota_windows(
@@ -246,7 +258,7 @@ impl UsageSink for RecordedWholeSets {
         provider_account_id: ProviderAccountId,
         windows: Vec<ProviderQuotaWindow>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        lock(&self.0).push((provider_account_id, windows));
+        lock(&self.whole).push((provider_account_id, windows));
         async { Ok(()) }.boxed()
     }
 
@@ -366,7 +378,7 @@ pub(super) struct Fixture {
     pub(super) keychain: Arc<ScriptedKeychain>,
     pub(super) legs: Arc<ScriptedLegs>,
     pub(super) turns: HashMap<ProviderId, Arc<ScriptedTurns>>,
-    pub(super) usage: Arc<RecordedWholeSets>,
+    pub(super) usage: Arc<RecordedQuotaSets>,
     pub(super) wakes: Arc<ScriptedWakeHelper>,
     pub(super) notifications: Arc<RecordedNotifications>,
     pub(super) observer: ProviderAccountObserver,
@@ -418,7 +430,7 @@ impl Fixture {
                 )
             })
             .collect();
-        let usage = Arc::new(RecordedWholeSets::default());
+        let usage = Arc::new(RecordedQuotaSets::default());
         let wakes = Arc::new(ScriptedWakeHelper::new(WakeHelperStatus::Installed));
         let notifications = Arc::new(RecordedNotifications::default());
         let observer = ProviderAccountObserver::new(ProviderAccountObserverDeps {

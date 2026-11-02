@@ -9,8 +9,9 @@
 //! - A provider whose reads each start a process reads one account at a time.
 //! - `Check now` answers the last read while it is under a minute old, and a hold's end while the
 //!   throttle ladder holds the account; the opt-out stops every read but `Check now`.
-//! - An answer with figures records its quota windows as the account's whole set, and the
-//!   identity and sign-in renewal the provider reported with it on the account's row.
+//! - An answer with figures records its quota windows as the account's whole set, or as a partial
+//!   set where a pasted token's turn read them, and the identity and sign-in renewal the provider
+//!   reported with it on the account's row.
 //! - The stored health: an answer with figures reads signed in and takes the account off the
 //!   ladder; a sign-in gone reads `reauthRequired`; a refused read climbs the ladder; a sign-in
 //!   refused on the way to the answer, or the second read in a row with no answer, reads
