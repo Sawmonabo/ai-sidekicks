@@ -44,7 +44,10 @@ use crate::driver::codex::session::calls::CodexSessionTask;
 use crate::driver::codex::session::context_reading::CodexFixedStart;
 use crate::driver::codex::session::controls::update_codex_session_mode;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::history::{CodexListedTurn, read_codex_turns};
+use crate::driver::codex::session::history::{
+    CodexListedTurn, compose_codex_newest_turn_page, read_codex_resumed_newest_turn,
+    read_codex_turns,
+};
 use crate::driver::codex::session::inbound::{CodexSessionInboundReceiver, codex_session_inbound};
 use crate::driver::codex::session::owed_turn_ends::end_owed_codex_turns;
 use crate::driver::codex::session::slots::let_go_codex_thread;
@@ -601,6 +604,7 @@ impl CodexSessionEstablishment {
         );
         // The history is paged afterwards instead of arriving on one reply.
         resume.exclude_turns = Some(true);
+        resume.initial_turns_page = Some(compose_codex_newest_turn_page());
         resume.service_tier =
             compose_codex_service_tier(output_speed.as_deref()).map(CodexServiceTierChange);
         let reply = request_thread_resume(connection, &record.thread_id, &resume).await?;
@@ -659,10 +663,12 @@ impl CodexSessionEstablishment {
     }
 }
 
-/// What a resume reads back: the conversation's turns, whether the session held the conversation
-/// on the service before it, where the conversation stands, its declared tier and its effort.
+/// What a resume reads back: the conversation's turns, the newest of them, whether the session
+/// held the conversation on the service before it, where the conversation stands, its declared
+/// tier and its effort.
 struct CodexResumedThread {
     listed_turns: Vec<CodexListedTurn>,
+    newest_turn_id: Option<String>,
     was_held: bool,
     status: Option<CodexThreadStatus>,
     declared_output_speed: Option<ProviderOutputSpeedState>,
@@ -692,16 +698,25 @@ async fn request_thread_resume(
 }
 
 // What the resume `reply` of the record's conversation reads back, its turns read page by page
-// on `connection`. Fails as the turns' read does.
+// on `connection`, with the reply's newest turn, the live one where a turn runs, added where the
+// pages lack it. Fails as the turns' read does.
 async fn read_resumed_thread(
     record: &CodexSessionRecord,
     connection: &CodexAppServerConnection,
     reply: &RawValue,
     was_held: bool,
 ) -> Result<CodexResumedThread, CodexError> {
-    let listed_turns = read_codex_turns(connection, &record.thread_id).await?;
+    let mut listed_turns = read_codex_turns(connection, &record.thread_id).await?;
+    let newest_turn = read_codex_resumed_newest_turn(reply);
+    let newest_turn_id = newest_turn.as_ref().map(|newest| newest.id.clone());
+    if let Some(newest) = newest_turn
+        && !listed_turns.iter().any(|listed| listed.id == newest.id)
+    {
+        listed_turns.push(newest);
+    }
     Ok(CodexResumedThread {
         listed_turns,
+        newest_turn_id,
         was_held,
         status: read_thread(reply, THREAD_RESUME_METHOD)?.status,
         declared_output_speed: read_codex_declared_tier(record.session_id, reply),

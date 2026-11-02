@@ -2,10 +2,12 @@
 //! binding its resume names. A conversation the service holds loaded is joined as it runs, with no
 //! setting sent, since Codex applies none to a loaded conversation, so its running turns, waiting
 //! asks and helpers go on; one no client holds is loaded again with every setting the session
-//! holds. The session's record is rebuilt from the live runs the resume names: a lead run whose
-//! turn the end of the daemon's own service cut continued in a new turn, every other open turn
-//! Codex lists bound to its run, each loaded helper bound to its child run, and what Codex holds
-//! of each run's turns answered.
+//! holds. The resume asks for the conversation's newest turn beside its paged history. The
+//! session's record is rebuilt from the live runs the resume names: a lead run whose turn the end
+//! of the daemon's own service cut continued in a new turn, a lead whose cut turn Codex continued
+//! itself on a service the daemon only joined held to the turn that newest one shows, every other
+//! open turn Codex lists bound to its run, each loaded helper bound to its child run, and what
+//! Codex holds of each run's turns answered.
 
 use std::sync::Arc;
 
@@ -31,7 +33,7 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::settings::{
     compose_resume_settings_request, require_execution_posture,
 };
-use crate::driver::codex::session::history::CodexListedTurn;
+use crate::driver::codex::session::history::{CodexListedTurn, compose_codex_newest_turn_page};
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::owed_turn_ends::is_codex_turn_in_progress;
 use crate::driver::codex::session::slots::let_go_codex_thread;
@@ -146,7 +148,7 @@ impl CodexSessionEstablishment {
             Ok::<_, CodexError>((resumed, result))
         }
         .await;
-        let (resumed, mut result) = match adopted {
+        let (mut resumed, mut result) = match adopted {
             Ok(adopted) => adopted,
             Err(error) => {
                 release_registered(&service, &record, &registered);
@@ -159,8 +161,8 @@ impl CodexSessionEstablishment {
             .iter()
             .map(|listed| listed.id.clone())
             .collect();
-        record.declared_output_speed = resumed.declared_output_speed;
-        record.reasoning_effort = resumed.reasoning_effort;
+        record.declared_output_speed = resumed.declared_output_speed.take();
+        record.reasoning_effort = resumed.reasoning_effort.take();
         let binding = CodexRunBinding {
             session_id,
             binding_id: params.binding_id.clone(),
@@ -173,8 +175,7 @@ impl CodexSessionEstablishment {
                 &mut record,
                 &connection,
                 &params.live_runs,
-                resumed.status,
-                &resumed.listed_turns,
+                &resumed,
                 &binding,
             )
             .await;
@@ -222,8 +223,7 @@ impl CodexSessionEstablishment {
         let deadline = Instant::now() + CODEX_UNLOAD_TIMEOUT;
         loop {
             let reply = if is_loaded {
-                let bare = compose_codex_bare_thread_resume_params(record.thread_id.clone());
-                request_thread_resume(connection, &record.thread_id, &bare).await
+                request_bare_thread_resume(connection, &record.thread_id).await
             } else {
                 self.request_resume_with_settings(record, connection).await
             };
@@ -288,6 +288,17 @@ impl CodexSessionEstablishment {
             }
         }
     }
+}
+
+/// `thread/resume` of `thread_id` as it stands, with no setting, asking for its newest turn, and
+/// the reply. Fails as the request does, and when the reply names another conversation.
+pub(super) async fn request_bare_thread_resume(
+    connection: &CodexAppServerConnection,
+    thread_id: &str,
+) -> Result<Box<RawValue>, CodexError> {
+    let mut bare = compose_codex_bare_thread_resume_params(thread_id.to_owned());
+    bare.initial_turns_page = Some(compose_codex_newest_turn_page());
+    request_thread_resume(connection, thread_id, &bare).await
 }
 
 /// What Codex holds of each run's turns after a resume, `turns_by_run` naming each run's turns by

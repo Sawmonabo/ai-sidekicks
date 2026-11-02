@@ -1,12 +1,15 @@
 //! A conversation's turns, and the turn each of the person's messages started, read back from
-//! Codex page by page, since a resume asks for no turns.
+//! Codex page by page, since a resume asks only for the newest turn.
 
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
-use crate::driver::codex::app_server_protocol::{ThreadItemsListParams, ThreadTurnsListParams};
+use crate::driver::codex::app_server_protocol::{
+    SortDirection, ThreadItemsListParams, ThreadResumeInitialTurnsPageParams,
+    ThreadTurnsListParams, TurnItemsView,
+};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 
@@ -135,6 +138,31 @@ fn read_listed_turn(turn: Box<RawValue>) -> Option<CodexListedTurn> {
         .and_then(|listed| listed.id)
         .filter(|id| !id.is_empty())?;
     Some(CodexListedTurn { id, turn })
+}
+
+/// The page a `thread/resume` asks for: the conversation's newest turn, the live one where a turn
+/// runs, its items not loaded.
+pub(crate) fn compose_codex_newest_turn_page() -> ThreadResumeInitialTurnsPageParams {
+    ThreadResumeInitialTurnsPageParams {
+        items_view: Some(TurnItemsView::NotLoaded),
+        limit: Some(1),
+        sort_direction: Some(SortDirection::Desc),
+    }
+}
+
+/// The newest turn a `thread/resume` reply's page holds; `None` where the reply carries no page,
+/// as an older Codex answers, or the page holds no turn with an id.
+pub(crate) fn read_codex_resumed_newest_turn(reply: &RawValue) -> Option<CodexListedTurn> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct ResumeReply {
+        initial_turns_page: Option<CodexPage>,
+    }
+    read_codex_object::<ResumeReply>(reply.get())?
+        .initial_turns_page?
+        .data
+        .into_iter()
+        .find_map(read_listed_turn)
 }
 
 /// The turn each of the person's messages started on `thread_id`, by the message's id, read from
