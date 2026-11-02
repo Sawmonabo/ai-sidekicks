@@ -24,8 +24,8 @@ use crate::messaging::SessionMessagingError;
 /// every wait.
 pub const SESSION_WAIT_STORE_STATEMENT_CAPACITY: usize = 3;
 
-/// Deletes every wait of, or on, the session the `@sessionId` parameter names: the purge of it, after
-/// which no call can wait on it or be answered for it.
+/// Deletes every wait of, or on, the session the `@sessionId` parameter names: the purge of it,
+/// after which no call can wait on it or be answered for it.
 pub const DELETE_SESSION_WAITS_SQL: &str =
     "DELETE FROM session_waits WHERE session_id = @sessionId OR awaited_session_id = @sessionId";
 

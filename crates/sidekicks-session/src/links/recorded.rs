@@ -14,7 +14,8 @@ pub struct RecordedSessionLink {
     pub source_session_id: SessionId,
     /// The session it acted on.
     pub target_session_id: SessionId,
-    /// What it did: any kind but `related`, which a person adds; none is ever removed.
+    /// What it did: any kind but `related`, which is added on purpose, by a person or by an agent
+    /// asked to; none is ever removed.
     pub kind: SessionLinkKind,
     /// When the event occurred, in the stored form.
     pub occurred_at: String,

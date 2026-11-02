@@ -148,7 +148,8 @@ impl SessionMessageReadingPublisher for RecordingPorts {
 }
 
 /// Registers what a scripted driver composes over: `recording` as the approval ports, the queue's
-/// intake and the session message readings, every daemon turn on one binding, and a machine with no repositories.
+/// intake and the session message readings, every daemon turn on one binding, and a machine with
+/// no repositories.
 pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<RecordingPorts>) {
     ports
         .daemon_turn_bindings
