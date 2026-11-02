@@ -315,7 +315,7 @@ fn is_sign_in_refusal_line(line: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
+    use std::sync::{Arc, Weak};
 
     use jiff::Timestamp;
     use rstest::rstest;
