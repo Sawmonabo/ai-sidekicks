@@ -31,7 +31,7 @@ pub(super) async fn run_in_read_folder<Answer>(
         .await
         .map_err(io::Error::other)
         .and_then(|removed| removed);
-    log_unremoved(&folder, removed);
+    log_unremoved(removed);
     answer
 }
 
@@ -51,7 +51,7 @@ impl Drop for ReadFolder {
         let Some(folder) = self.0.take() else {
             return;
         };
-        let remove = move || log_unremoved(&folder, remove_tree(&folder));
+        let remove = move || log_unremoved(remove_tree(&folder));
         match tokio::runtime::Handle::try_current() {
             Ok(runtime) => drop(runtime.spawn_blocking(remove)),
             // Dropped off the runtime, where a blocking removal holds no task up.
@@ -60,11 +60,12 @@ impl Drop for ReadFolder {
     }
 }
 
-fn log_unremoved(folder: &Path, removed: io::Result<()>) {
+// Logs a removal that failed; the folder's path stays out of the log, since it names the
+// person's home.
+fn log_unremoved(removed: io::Result<()>) {
     if let Err(error) = removed {
         tracing::warn!(
             error = &error as &(dyn std::error::Error + 'static),
-            folder = %folder.display(),
             "a Claude Code account read's folder could not be removed"
         );
     }
