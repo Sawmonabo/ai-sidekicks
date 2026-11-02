@@ -10,6 +10,7 @@ use std::io;
 use std::path::Path;
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::file::temporary_removal::remove_temporary_after;
 use crate::missing_entry::MissingEntry;
 
 /// How a publish ended: the file has the target's name, or another file had it already.
@@ -54,7 +55,11 @@ pub fn blocking_publish_without_replacing(
         Err(link_failure) if sidekicks_platforms::is_hard_link_unsupported(&link_failure) => {
             rename_into_free_name(temporary_path, target_path)
         }
-        Err(link_failure) => Err(remove_temporary_after(link_failure, temporary_path)),
+        Err(link_failure) => Err(remove_temporary_after(
+            link_failure,
+            temporary_path,
+            PUBLISHING,
+        )),
     }
 }
 
@@ -76,7 +81,7 @@ fn rename_into_free_name(
             remove_temporary(temporary_path)?;
             Ok(PublishOutcome::TargetExists)
         }
-        Err(failure) => Err(remove_temporary_after(failure, temporary_path)),
+        Err(failure) => Err(remove_temporary_after(failure, temporary_path, PUBLISHING)),
     }
 }
 
@@ -88,15 +93,6 @@ fn is_name_taken(path: &Path) -> io::Result<bool> {
 fn remove_temporary(temporary_path: &Path) -> Result<(), CleanupFailures<io::Error>> {
     fs::remove_file(temporary_path)
         .map_err(|removal_failure| CleanupFailures::new(removal_failure, Vec::new(), PUBLISHING))
-}
-
-// Removes the temporary file after `failure`, keeping the removal's own failure beside it.
-fn remove_temporary_after(failure: io::Error, temporary_path: &Path) -> CleanupFailures<io::Error> {
-    let removal_failures = match fs::remove_file(temporary_path) {
-        Ok(()) => Vec::new(),
-        Err(removal_failure) => vec![removal_failure],
-    };
-    CleanupFailures::new(failure, removal_failures, PUBLISHING)
 }
 
 // What a publish's failure names as its operation.

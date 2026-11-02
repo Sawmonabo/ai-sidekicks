@@ -1,7 +1,6 @@
 //! One file copied to a new path, as a clone where the file system makes one, never over an entry
 //! already there and never leaving a partial copy at the path.
 
-use std::error::Error;
 use std::ffi::OsString;
 use std::fs::{self, File, Permissions};
 use std::io;
@@ -10,6 +9,7 @@ use std::path::{Path, PathBuf};
 use sidekicks_platforms::create_new_file;
 
 use crate::file::publish_without_replacing::{PublishOutcome, blocking_publish_without_replacing};
+use crate::file::temporary_removal::remove_temporary_after;
 use crate::random_hex::random_hex;
 
 // The mode a fallback copy is made with, before it takes the source's own.
@@ -18,11 +18,16 @@ const FALLBACK_COPY_MODE: u32 = 0o600;
 // The random bytes in a fallback copy's temporary name, so two copies to one path never meet.
 const TEMPORARY_NAME_RANDOM_BYTES: usize = 8;
 
+// What a fallback copy's failure names as its operation.
+const COPYING: &str = "copying the file";
+
 /// Copies `source` to `destination`, keeping its mode: a clone where the file system makes one,
 /// else a byte copy into a temporary file beside `destination` that takes its name only whole, so
 /// a copy that fails partway, or is cut by a crash, never carries the name. Fails with
 /// `AlreadyExists` when anything is at `destination`, which is never replaced, `NotFound` when
-/// `source` or the folder is missing, else with the copy's or the naming's error.
+/// `source` or the folder is missing, else with the copy's or the naming's error; when removing a
+/// copy that failed partway fails too, the error keeps the copy's kind and wraps a
+/// [`CleanupFailures`](crate::cleanup_failures::CleanupFailures) holding both.
 pub fn clone_or_copy(source: &Path, destination: &Path) -> io::Result<()> {
     match reflink_copy::reflink(source, destination) {
         Ok(()) => Ok(()),
@@ -49,16 +54,11 @@ fn copy_then_publish(source: &Path, destination: &Path) -> io::Result<()> {
     let permissions = match copy_into_new_file(source, &temporary) {
         Ok(permissions) => permissions,
         Err(error) => {
-            if let Err(removal) = fs::remove_file(&temporary)
-                && removal.kind() != io::ErrorKind::NotFound
-            {
-                tracing::warn!(
-                    error = &removal as &(dyn Error + 'static),
-                    path = %temporary.display(),
-                    "A copy that failed partway could not be removed"
-                );
+            let failures = remove_temporary_after(error, &temporary, COPYING);
+            if failures.cleanup_failures().is_empty() {
+                return Err(failures.into_parts().0);
             }
-            return Err(error);
+            return Err(io::Error::new(failures.original().kind(), failures));
         }
     };
     match blocking_publish_without_replacing(&temporary, destination).map_err(io::Error::other)? {

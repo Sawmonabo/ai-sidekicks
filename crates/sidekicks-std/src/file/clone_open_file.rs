@@ -21,10 +21,11 @@ pub enum CloneOpenFileError {
 }
 
 /// Clones the open file `source` into a new file at `destination`, which takes the source's
-/// permissions, never as a byte copy and never over an entry already there; a failed clone leaves
+/// permissions, never as a byte copy and never over an entry already there; a refused clone leaves
 /// nothing at the path. Fails with [`CloneOpenFileError::Refused`] when the copy's place is on
 /// another volume or the volume makes no clones, else with [`CloneOpenFileError::Failed`] holding
-/// the clone's error.
+/// the clone's error; that error can come once the clone is made, as when setting its permissions
+/// fails, and then leaves the clone at the path for the caller to remove.
 pub fn clone_open_file(source: &File, destination: &Path) -> Result<(), CloneOpenFileError> {
     reflink_copy::reflink_file_to_path(source, destination).map_err(
         |error| match read_clone_refusal(source, destination, error) {

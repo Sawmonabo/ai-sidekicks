@@ -18,6 +18,7 @@ use sidekicks_std::file::clone_open_file::{CloneOpenFileError, clone_open_file};
 use sidekicks_std::file::publish_without_replacing::{
     PublishOutcome, blocking_publish_without_replacing,
 };
+use sidekicks_std::file::temporary_removal::remove_temporary_after;
 use sidekicks_std::random_hex::random_hex;
 use sidekicks_workspace::git::turn_snapshot::capture_folder::CAPTURES_SEGMENT;
 
@@ -138,7 +139,9 @@ impl CopyStore {
         });
         match hashed {
             Ok((clone, hash)) => self.publish(temporary, clone, hash),
-            Err(failure) => Err(remove_temporary_after(failure, temporary)),
+            Err(failure) => Err(FileCopyError::Publish(remove_temporary_after(
+                failure, temporary, KEEPING,
+            ))),
         }
     }
 
@@ -149,7 +152,9 @@ impl CopyStore {
         let mut copy = create_new_file(&temporary, BYTE_COPY_MODE).map_err(FileCopyError::Io)?;
         match copy_hashing(reader, &mut copy) {
             Ok(hash) => self.publish(&temporary, copy, hash),
-            Err(failure) => Err(remove_temporary_after(failure, &temporary)),
+            Err(failure) => Err(FileCopyError::Publish(remove_temporary_after(
+                failure, &temporary, KEEPING,
+            ))),
         }
     }
 
@@ -174,10 +179,16 @@ impl CopyStore {
                 return Ok(hash);
             }
             Ok(false) => {}
-            Err(failure) => return Err(remove_temporary_after(failure, temporary)),
+            Err(failure) => {
+                return Err(FileCopyError::Publish(remove_temporary_after(
+                    failure, temporary, KEEPING,
+                )));
+            }
         }
         if let Err(failure) = flush_open_file(&copy) {
-            return Err(remove_temporary_after(failure, temporary));
+            return Err(FileCopyError::Publish(remove_temporary_after(
+                failure, temporary, KEEPING,
+            )));
         }
         drop(copy);
         match blocking_publish_without_replacing(temporary, &target)
@@ -216,15 +227,6 @@ fn copy_hashing(reader: &mut impl Read, writer: &mut impl Write) -> io::Result<S
         Sha256Hex::new(base16ct::lower::encode_string(&hasher.finalize()))
             .expect("a SHA-256 in lowercase hex matches its pattern"),
     )
-}
-
-// Removes the temporary file after `failure`, keeping the removal's own failure beside it.
-fn remove_temporary_after(failure: io::Error, temporary: &Path) -> FileCopyError {
-    let removal_failures = match fs::remove_file(temporary) {
-        Ok(()) => Vec::new(),
-        Err(removal_failure) => vec![removal_failure],
-    };
-    FileCopyError::Publish(CleanupFailures::new(failure, removal_failures, KEEPING))
 }
 
 #[cfg(test)]
