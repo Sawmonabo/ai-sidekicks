@@ -48,6 +48,17 @@ fn refused_limits_read() -> (&'static str, Value) {
     )
 }
 
+/// Codex's refusal of a limits read the usage server answered by refusing the sign-in, worded as
+/// Codex words it.
+fn sign_in_refused_limits_read() -> (&'static str, Value) {
+    (
+        "account/rateLimits/read",
+        json!({"error": {"code": -32603, "message": "failed to fetch codex rate limits: GET \
+            https://chatgpt.com/backend-api/wham/usage failed: 401 Unauthorized; \
+            content-type=application/json; body={}"}}),
+    )
+}
+
 /// The home's account read finding an account signed in.
 fn signed_in_account_read() -> (&'static str, Value) {
     (
@@ -361,19 +372,23 @@ const EXPIRED: i64 = 1_700_000_000;
 const UNEXPIRED: i64 = 4_000_000_000;
 
 // Killed by the count never reaching two, by an unexpired token counting, by the before-and-after
-// comparison skipped, and by a file rewritten during the read not clearing the count.
+// comparison skipped, by a file rewritten during the read not clearing the count, and by a read
+// the usage server never answered, as with no network, counting a dead renewal.
 #[rstest]
-#[case::a_dead_renewal_twice(EXPIRED, None, ProviderObservation::SignInGone)]
+#[case::a_dead_renewal_twice(EXPIRED, None, true, ProviderObservation::SignInGone)]
 #[case::a_renewal_written(
     EXPIRED,
     Some(("2026-10-29T19:00:00.5Z", EXPIRED)),
+    true,
     ProviderObservation::RefusedInBand
 )]
-#[case::no_renewal_needed(UNEXPIRED, None, ProviderObservation::RefusedInBand)]
+#[case::no_renewal_needed(UNEXPIRED, None, true, ProviderObservation::RefusedInBand)]
+#[case::offline_twice(EXPIRED, None, false, ProviderObservation::RefusedInBand)]
 #[tokio::test]
 async fn a_renewal_that_leaves_auth_json_unchanged_twice_reads_as_a_lost_sign_in(
     #[case] access_token_expiry: i64,
     #[case] second_read_renews: Option<(&str, i64)>,
+    #[case] is_sign_in_refused: bool,
     #[case] second: ProviderObservation,
 ) {
     let mut fixture = Fixture::new(ProviderAuthMode::OauthSubscription).await;
@@ -382,7 +397,12 @@ async fn a_renewal_that_leaves_auth_json_unchanged_twice_reads_as_a_lost_sign_in
         "2026-10-29T18:00:00.123456Z",
         access_token_expiry,
     );
-    let answers = [refused_limits_read(), signed_in_account_read()];
+    let limits_refusal = if is_sign_in_refused {
+        sign_in_refused_limits_read()
+    } else {
+        refused_limits_read()
+    };
+    let answers = [limits_refusal, signed_in_account_read()];
 
     let first = fixture.observe(&answers, None).await;
     let observed_second = fixture.observe(&answers, second_read_renews).await;
