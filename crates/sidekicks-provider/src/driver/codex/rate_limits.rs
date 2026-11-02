@@ -1,7 +1,7 @@
 //! The account's rate-limit readings as the daemon records them: a complete read at each start and
 //! reconnect of a service, kept as the service's readings, and each window whose reading changed,
-//! read or pushed, handed to the usage record as the account's quota windows, which stamps them
-//! with the account's credential generation.
+//! read or pushed, handed to the usage record as the quota windows of the account the service runs
+//! on, which stamps them with the account's credential generation.
 
 use std::collections::HashMap;
 use std::mem;
@@ -110,17 +110,17 @@ impl CodexRateLimitFiling {
         Ok(read)
     }
 
-    /// Records `service`'s readings as they stand: the windows whose reading changed since the
-    /// account's last recording, in one sparse set; a set the record refused is recorded again
-    /// with the next reading. A service no account owns, the terminal service on the person's own
-    /// folder, names no account, which the record requires, so its readings stay unrecorded,
-    /// logged once; so do readings that come before the usage record registers.
+    /// Records `service`'s readings as they stand under the account it runs on, the switching
+    /// service's the one it carries: the windows whose reading changed since the account's last
+    /// recording, in one sparse set; a set the record refused is recorded again with the next
+    /// reading. A service on no account, the terminal service on the person's own folder, names
+    /// none, which the record requires, so its readings stay unrecorded, logged once; so do
+    /// readings that come before the usage record registers.
     pub(crate) async fn file(&self, service: &CodexService) {
-        let Some(provider_account_id) = service.home().provider_account_id().cloned() else {
+        let Some(provider_account_id) = service.provider_account_id() else {
             if !mem::replace(&mut lock(&self.filed).is_unfiled_reading_logged, true) {
                 tracing::debug!(
-                    "the person's own folder's rate limits name no account, so no usage row is \
-                     filed"
+                    "the codex service's rate limits name no account, so no usage row is filed"
                 );
             }
             return;

@@ -58,6 +58,7 @@ use crate::driver::codex::service::command_line::{
     TerminalServiceHooks, read_terminal_service_hooks,
 };
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
+use crate::driver::codex::service::registry::switching_home;
 use crate::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::driver::codex::service::supervisor::events::{
     CodexServiceEvents, CodexServiceRecoveryCause,
@@ -70,6 +71,7 @@ use crate::driver::codex::service::supervisor::transition::state::SupervisorStat
 use crate::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
+use crate::driver::codex::service::switching::CodexSwitchingAccount;
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::shells::CodexShellKind;
@@ -253,6 +255,9 @@ pub(crate) fn test_codex_service_dependencies(
         drains: LastingServiceDrains::default(),
         tasks: TaskTracker::new(),
         exec_relay,
+        switching: Arc::new(CodexSwitchingAccount::new(Arc::new(PortRegistration::new(
+            "provider accounts",
+        )))),
     })
 }
 
@@ -342,6 +347,18 @@ pub(crate) fn start_scripted_terminal_service() -> ScriptedCodexService {
 
 // A service of `kind` on a home of `home_kind` whose connection the test scripts, a start of its
 // own running `program`, telling `events` what happens to it.
+/// Starts the switching service, on the switching home under its data folder, whose connection
+/// the test scripts. Must be called within a runtime.
+#[cfg(test)]
+pub(crate) fn start_scripted_switching_service() -> ScriptedCodexService {
+    start_scripted_codex_service_on(
+        CodexHomeKind::Switching,
+        CodexServiceKind::Account,
+        Arc::new(UnstartedProgram),
+        Arc::new(UnheardEvents),
+    )
+}
+
 fn start_scripted_codex_service_on(
     home_kind: CodexHomeKind,
     kind: CodexServiceKind,
@@ -356,9 +373,16 @@ fn start_scripted_codex_service_on(
         Arc::new(UnrecordedChildren),
     );
     let socket: PathBuf = folder.path().join("codex.sock");
+    // The switching service is found on its own home, as the registry names it.
+    let codex_home = match home_kind {
+        CodexHomeKind::Switching => switching_home(&dependencies.data_folder),
+        CodexHomeKind::Account(_)
+        | CodexHomeKind::PersonalFolder
+        | CodexHomeKind::CapabilityRead => folder.path().join("home"),
+    };
     let (service, script) = script_codex_service(
         CodexServiceHome {
-            codex_home: folder.path().join("home"),
+            codex_home,
             kind: home_kind,
         },
         CodexServiceSocket {

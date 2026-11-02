@@ -2,7 +2,7 @@
 //! listed for the backup, holding the conversations a purge deletes there, and apart from the
 //! account home whose socket a terminal's plain `codex` joins.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -22,9 +22,12 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::account::CODEX_EPHEMERAL_CREDENTIAL_STORE;
 use crate::driver::codex::service::home::{CodexConversationHome, CodexHomeKind, CodexServiceHome};
 use crate::driver::codex::service::registry::{home_socket_path, switching_home};
-use crate::driver::codex::service::supervisor::CodexProgramResolver;
 use crate::driver::codex::service::supervisor::test_service::{
     CODEX_HOME_NAME, REQUEST_RECORD_NAME, TestCodexProgram,
+};
+use crate::driver::codex::service::supervisor::{CodexProgramResolver, CodexServiceDependencies};
+use crate::driver::codex::service::switching::test_sign_in::{
+    AccountHomes, compose_access_token, write_sign_in,
 };
 use crate::driver::codex::session::purge::purge_codex_conversations;
 use crate::driver::contract::MockProviderDriver;
@@ -39,6 +42,9 @@ use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The conversation the purge deletes from the switching home.
 const SWITCHING_THREAD: &str = "switching-thread-1";
+
+/// The `ChatGPT` workspace the test's account signs in to.
+const TEST_WORKSPACE: &str = "workspace-of-the-test-account";
 
 /// The test's stand-in run with each home as its `CODEX_HOME`, as the daemon's own resolver runs
 /// Codex, recording each home's requests in a file of its own beside the homes.
@@ -111,6 +117,33 @@ fn per_home_services() -> StandInServices {
     })
 }
 
+// Signs the test's account in within its own home and has `dependencies`' switching service find
+// it there as the current account, so each of its starts hands that account's tokens.
+fn sign_in(dependencies: &CodexServiceDependencies, account_home: &Path) {
+    write_sign_in(
+        account_home,
+        TEST_WORKSPACE,
+        &compose_access_token(TEST_WORKSPACE),
+    );
+    AccountHomes {
+        homes: HashMap::from([(test_provider_account_id(), account_home.to_owned())]),
+        current: test_provider_account_id(),
+    }
+    .register_on(dependencies.switching.provider_accounts());
+}
+
+// The methods of the requests the service on `codex_home` was sent, in order.
+fn recorded_methods(services: &StandInServices, codex_home: &Path) -> Vec<String> {
+    std::fs::read_to_string(request_record(services.folder.path(), codex_home))
+        .expect("the service's requests were recorded")
+        .lines()
+        .map(|line| {
+            let request: Value = serde_json::from_str(line).expect("a request is JSON");
+            request["method"].as_str().unwrap_or_default().to_owned()
+        })
+        .collect()
+}
+
 // Every entry under `folder`, by path, with a file's bytes; a socket, a link or a folder by its
 // kind.
 fn read_tree(folder: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
@@ -137,8 +170,9 @@ fn read_tree(folder: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 }
 
 // Fails when a restart stops the switching service, when the next daemon launches another instead
-// of joining it by its record, when it runs without the ephemeral sign-in store, or when the
-// backup's homes leave its home out.
+// of joining it by its record, when it runs without the ephemeral sign-in store, when the backup's
+// homes leave its home out, or when either start answers before the account's tokens were handed,
+// so a resume could run there on none, the rejoin's hand among them.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_restart_rejoins_the_switching_service_by_its_record_and_the_backup_lists_its_home() {
     if !CAN_BIND_A_SOCKET_LISTENER {
@@ -148,6 +182,7 @@ async fn a_restart_rejoins_the_switching_service_by_its_record_and_the_backup_li
     let startup_timeout = services.dependencies.startup_timeout;
     let data_folder = services.dependencies.data_folder.clone();
 
+    sign_in(&services.dependencies, &services.home.codex_home);
     let first = this_daemon(&services);
     let kept = first
         .switching_service()
@@ -164,7 +199,10 @@ async fn a_restart_rejoins_the_switching_service_by_its_record_and_the_backup_li
         .switching_service()
         .await
         .expect("the switching home is made");
+    sign_in(joined.dependencies(), &services.home.codex_home);
     let rejoined = joined.ensure_started(startup_timeout).await;
+    // Read as the start answered: anything sent after, a resume among it, comes later.
+    let sent_by_the_rejoin = recorded_methods(&services, &switching_home(&data_folder));
     let joined_process = joined.process_id();
     let joined_home = joined.home().codex_home.clone();
     next.shutdown(DaemonStopIntent::Stop).await;
@@ -206,6 +244,21 @@ async fn a_restart_rejoins_the_switching_service_by_its_record_and_the_backup_li
         vec![(DESCRIPTOR.id.to_owned(), joined_home.clone())]
     );
     assert_eq!(backed_up, vec![joined_home.join("sessions")]);
+    let handed: Vec<&str> = sent_by_the_rejoin
+        .iter()
+        .map(String::as_str)
+        .filter(|method| *method != "initialize")
+        .collect();
+    assert_eq!(
+        handed,
+        [
+            "environment/add",
+            "account/login/start",
+            "environment/add",
+            "account/login/start"
+        ],
+        "each start hands the tokens before it answers"
+    );
 }
 
 // Fails when the purge sends an unpinned conversation's delete to its account's service, which
@@ -219,6 +272,7 @@ async fn a_purge_deletes_an_unpinned_conversation_from_the_switching_home_alone(
     let startup_timeout = services.dependencies.startup_timeout;
     let registry = this_daemon(&services);
     let account_home = services.home.codex_home.clone();
+    sign_in(&services.dependencies, &account_home);
     let before = read_tree(&account_home);
     let mut runtime_metadata = Map::new();
     CodexConversationHome::Switching.keep_in(&mut runtime_metadata);
@@ -268,6 +322,7 @@ async fn a_terminal_in_an_account_home_joins_the_accounts_own_service() {
     let startup_timeout = services.dependencies.startup_timeout;
     let registry = this_daemon(&services);
     let account_home = services.home.codex_home.clone();
+    sign_in(&services.dependencies, &account_home);
 
     let account = registry
         .service_for(&test_provider_account_id())

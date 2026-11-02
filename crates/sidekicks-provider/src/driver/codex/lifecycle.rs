@@ -63,6 +63,7 @@ use crate::driver::codex::service::program::CodexInstalledProgram;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::driver::codex::service::supervisor::{CodexServiceDependencies, CodexServiceId};
+use crate::driver::codex::service::switching::CodexSwitchingAccount;
 use crate::driver::codex::session::calls::CodexSessionCallDependencies;
 use crate::driver::codex::session::controls::CodexSessionControls;
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
@@ -227,6 +228,9 @@ impl CodexDriver {
             drains: LastingServiceDrains::default(),
             tasks: tasks.clone(),
             exec_relay,
+            switching: Arc::new(CodexSwitchingAccount::new(Arc::clone(
+                &services.ports.provider_accounts,
+            ))),
         });
         let registry = Arc::new(CodexServiceRegistry::new(
             Arc::clone(&homes) as _,
@@ -239,6 +243,7 @@ impl CodexDriver {
             dependencies,
             rate_limits.clone(),
             Arc::clone(&services.ports.provider_account_registry),
+            Arc::clone(&services.runtime_bindings),
         ));
         let slots = Arc::new(CodexSessionSlots::new());
         let views = Arc::new(CodexSessionViews::default());
