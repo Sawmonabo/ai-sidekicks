@@ -19,6 +19,7 @@ mod restarts;
 mod resumed_runs;
 mod session_controls;
 mod settings_reads;
+mod staged_reviews;
 
 /// Longer than every restart's wait, so a restart that would come has come.
 const RESTART_WAITS_PASSED: Duration = Duration::from_secs(5);
