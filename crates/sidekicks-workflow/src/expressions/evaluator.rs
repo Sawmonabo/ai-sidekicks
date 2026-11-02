@@ -127,8 +127,11 @@ impl ExpressionEvaluator {
             let opened = StepExpressions::new(bindings, &templates, cancel).map(|step| {
                 open_steps.insert(id, step);
             });
-            // A caller that stops waiting now drops the step at its handle's close.
-            answer.send(opened).unwrap_or_else(drop);
+            if answer.send(opened).is_err() {
+                tracing::trace!(
+                    "a step's opener stopped waiting; its handle's close drops the step"
+                );
+            }
         }))
         .await;
         answered.await??;
@@ -172,10 +175,10 @@ impl StepExpressionsHandle {
                 if answer.is_closed() {
                     return;
                 }
-                if let Some(step) = open_steps.get(&id) {
-                    answer
-                        .send(step.evaluate_item(item_index))
-                        .unwrap_or_else(drop);
+                if let Some(step) = open_steps.get(&id)
+                    && answer.send(step.evaluate_item(item_index)).is_err()
+                {
+                    tracing::trace!("an evaluation's caller stopped waiting before its value");
                 }
             }))
             .await;
@@ -195,9 +198,12 @@ impl Drop for StepExpressionsHandle {
             })) {
             // A stopped thread holds no step.
             Ok(()) | Err(TrySendError::Closed(_)) => {}
-            // A full channel runs a job soon, and the thread drops the step before it; the send
-            // fails only once the thread has stopped.
-            Err(TrySendError::Full(_)) => self.evaluator.closed_steps.send(id).unwrap_or(()),
+            // A full channel runs a job soon, and the thread drops the step before it.
+            Err(TrySendError::Full(_)) => {
+                if self.evaluator.closed_steps.send(id).is_err() {
+                    tracing::trace!("the expression thread had stopped, holding no step");
+                }
+            }
         }
     }
 }

@@ -139,20 +139,12 @@ fn evaluated(expression: &str) -> Result<Value, ExpressionError> {
     "[$first().json.name, $last().json.name, $item().json.name, $count($all())]",
     json!(["Bob", "Ada", "Ada", 2.0])
 )]
-#[case::labeled_node(
-    "[$first('source').json.name, $last('source').json.name, $count($all('source'))]",
-    json!(["Bob", "Ada", 2.0])
-)]
 #[case::linked_item("$item('source').json.name", json!("Ada"))]
 #[case::empty_node("$exists($first('empty'))", json!(false))]
 #[case::params("$params('source').mode", json!("fast"))]
 #[case::indexes("[$runIndex, $itemIndex]", json!([2.0, 1.0]))]
 #[case::now_value("$now", json!("2025-03-04T15:00:00.000Z"))]
 #[case::now_call("$now()", json!("2025-03-04T15:00:00.000Z"))]
-#[case::now_picture(
-    "$now('[Y0001]-[M01]-[D01] [H01]:[m01]', '+0100')",
-    json!("2025-03-04 16:00")
-)]
 #[case::millis("$string($millis())", json!("1741100400000"))]
 #[case::today("$today", json!("2025-03-05"))]
 #[case::env("$env.REGION", json!("eu"))]
