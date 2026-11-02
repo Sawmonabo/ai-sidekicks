@@ -26,7 +26,8 @@ impl CodexRunControl {
     /// Interrupts a helper's running turn on its own conversation and ends the commands it left
     /// running; the route is marked first, so the helper's end reads as this interrupt's however
     /// soon it arrives. A run with no helper route answers at once with nothing sent. Answers no
-    /// steers, since a helper holds none of the queue's; fails as the helper's stop fails.
+    /// steers, since a helper holds none of the queue's; fails as the helper's stop fails, the mark
+    /// cleared.
     pub(super) async fn interrupt_helper_run(
         &self,
         run_id: RunId,
@@ -34,8 +35,13 @@ impl CodexRunControl {
         let Some(route) = self.dependencies.run_routes.begin_helper_interrupt(run_id) else {
             return Ok(Vec::new());
         };
-        self.stop_helper_turn(route.session_id, &route.thread_id)
-            .await?;
+        if let Err(error) = self
+            .stop_helper_turn(route.session_id, &route.thread_id)
+            .await
+        {
+            self.dependencies.run_routes.end_helper_interrupt(run_id);
+            return Err(error);
+        }
         Ok(Vec::new())
     }
 
@@ -44,7 +50,7 @@ impl CodexRunControl {
     /// `Interrupted` for a turn it stopped, `AlreadyInterrupted` for a newest turn that ended
     /// interrupted, and `AlreadyEnded` for one that ended otherwise, for a helper no message has
     /// reached and for a conversation Codex does not hold. A bound route is marked first, as an
-    /// interrupt marks it. Codex holds no helper's hook call here, so no pausing or paused helper
+    /// interrupt marks it, and cleared when the stop fails. Codex holds no helper's hook call here, so no pausing or paused helper
     /// is stopped differently. Fails as a request fails, and with `CodexError::Unanswered` past
     /// [`CODEX_DETACHED_INTERRUPT_DEADLINE`].
     pub(crate) async fn stop_child_run(
@@ -56,8 +62,15 @@ impl CodexRunControl {
             .run_routes
             .begin_helper_interrupt(params.run_id);
         // A Codex helper's id is its own conversation's.
-        self.stop_helper_turn(params.session_id, params.subagent_id.as_str())
-            .await
+        let stopped = self
+            .stop_helper_turn(params.session_id, params.subagent_id.as_str())
+            .await;
+        if stopped.is_err() {
+            self.dependencies
+                .run_routes
+                .end_helper_interrupt(params.run_id);
+        }
+        stopped
     }
 
     // Interrupts the running turn of the helper conversation `thread_id`, read as its newest

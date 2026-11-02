@@ -180,3 +180,68 @@ async fn a_helpers_stop_answers_from_its_newest_turn(
         "nothing more was sent"
     );
 }
+
+// Which of the two helper stops a test takes.
+#[derive(Clone, Copy)]
+enum HelperStop {
+    // The person's interrupt of the helper's run.
+    Interrupt,
+    // The stop from the console.
+    Stop,
+}
+
+// A helper whose interrupt Codex refused keeps its route with the daemon's mark cleared, so the
+// end its own `turn/completed` brings, which reads that mark, is its own and not the interrupt's.
+// Kills the mark kept on a failure, by either stop.
+#[rstest]
+#[case::interrupt(HelperStop::Interrupt)]
+#[case::stop(HelperStop::Stop)]
+#[tokio::test(start_paused = true)]
+async fn a_failed_helper_interrupt_leaves_its_end_unmarked(#[case] helper_stop_kind: HelperStop) {
+    let mut session = TestCodexSession::start().await;
+    let helper_run = new_run_id();
+    let params = helper_stop(&session, helper_run);
+    let run_routes = Arc::clone(&session.task.run_routes);
+    run_routes.bind_helper_run(helper_run, params.session_id, HELPER_THREAD);
+    let control = Arc::clone(&session.task.run_control);
+    let task = &mut session.task;
+    let script = &mut session.scripted.script;
+    let service_side = async {
+        let listed = script.next_sent().await;
+        assert_eq!(listed["method"], "thread/turns/list");
+        script.answer(
+            &listed,
+            &json!({"data": [{"id": HELPER_TURN, "status": "inProgress"}]}),
+        );
+        let interrupt = script.next_sent().await;
+        assert_eq!(interrupt["method"], "turn/interrupt");
+        script.send(&json!({
+            "jsonrpc": "2.0",
+            "id": interrupt["id"],
+            "error": {"code": -32603, "message": "internal error"},
+        }));
+    };
+    let is_failed = tokio::time::timeout(
+        DEADLOCK_BOUND,
+        Box::pin(async {
+            let stopping = async {
+                match helper_stop_kind {
+                    HelperStop::Interrupt => control.interrupt_run(helper_run).await.is_err(),
+                    HelperStop::Stop => control.stop_child_run(&params).await.is_err(),
+                }
+            };
+            tokio::join!(task.drive(stopping), service_side).0
+        }),
+    )
+    .await
+    .expect("the helper's stop is answered");
+
+    assert!(is_failed, "the refused interrupt fails the stop");
+    let route = run_routes
+        .retire_helper_run(helper_run)
+        .expect("the helper's route stays until its end");
+    assert!(
+        !route.is_interrupted_by_daemon,
+        "the helper's own end does not read as the failed interrupt's"
+    );
+}
