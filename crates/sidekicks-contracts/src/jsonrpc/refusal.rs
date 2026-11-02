@@ -447,7 +447,8 @@ refusal_codes! {
     /// only an account added from a pasted token or API key is named by the person, and every other
     /// account is named by the identity its provider reports.
     ProviderAccountRenameRefused = "provider.account.renameRefused" (FailedPrecondition, 409);
-    /// A brokered sign-in is already in flight for this account.
+    /// A brokered sign-in, an account switch or a credential-home reset is already in flight for
+    /// this account, so another of the three is refused until it ends.
     ProviderAccountSignInInFlight = "provider.account.signInInFlight" (FailedPrecondition, 409);
     /// Brokered sign-in was requested for a provider whose pinned flow emits neither an
     /// authorization URL nor a device code, so there is nothing the person could act on.
