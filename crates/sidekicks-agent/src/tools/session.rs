@@ -1,13 +1,14 @@
 //! The contracts of the twelve session tools, through which a session reaches the person's other
 //! sessions: the rules every session holds, the errors every tool shares, and each tool's
-//! description, arguments and result. The six that read or reorganize sessions are here; the six
-//! that act sit in their own files beside them.
+//! description, arguments and result. The six that read or reorganize sessions are here, with
+//! `session_send`'s arguments; the rest of the six that act sit in their own files beside them.
 
 use std::borrow::Cow;
 
 use schemars::{JsonSchema, Schema, SchemaGenerator};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 
@@ -18,6 +19,7 @@ pub mod options;
 pub mod read;
 pub mod rules;
 pub mod search;
+pub mod send;
 pub mod update;
 
 #[cfg(test)]
@@ -51,9 +53,18 @@ impl ToolDescription {
 }
 
 /// The words a field's description ends with for free-form text of at most `max` code points,
-/// since Codex shows the model no lengths or patterns.
+/// `usize::MAX` meaning no bound, since Codex shows the model no lengths or patterns.
 pub(crate) fn text_limits(max: usize) -> String {
+    if max == usize::MAX {
+        return "At least one character that is not whitespace, with no NUL character.".to_owned();
+    }
     format!("1 to {max} characters, not only whitespace, with no NUL character.")
+}
+
+/// The words a field's description ends with for a list of paths, since Codex shows the model no
+/// lengths or patterns.
+pub(crate) fn path_limits() -> String {
+    format!("Each 1 to {FILE_PATH_MAX_LEN} characters, with no NUL character.")
 }
 
 /// A field's description: the tool's own words for it, then its limits as free-form text of at
