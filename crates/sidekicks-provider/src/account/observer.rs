@@ -16,6 +16,8 @@
 //!   `indeterminate`; anything else stores nothing, so no failed read reads as a reading.
 //! - Only `Check now` writes as the probe; every other read writes as the background observer,
 //!   which never moves the generation, and a read that cannot tell never does either.
+//! - Each read that rewrote the account's row publishes the account as it now reads.
+//! - A turn-end read restarts the account's interval only once it answers figures.
 //! - A pasted token whose own scope cannot read its limits is read by a turn instead, and each
 //!   account's closed usage windows are started by one, each turn written as a usage row of its own.
 
@@ -25,7 +27,7 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use sidekicks_contracts::provider::account::record::{
-    ProviderAccountHealthState, ProviderAccountId,
+    ProviderAccountHealthState, ProviderAccountId, ProviderAccountNotification,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
@@ -44,7 +46,7 @@ use crate::account::observer::window_start::{WindowStartTimers, WindowStartWakes
 use crate::account::registry::{
     HealthObservation, HealthObserver, ProviderAccountRegistry, RegisteredAccount,
 };
-use crate::account::sign_in::SignedInAccountWatcher;
+use crate::account::sign_in::{ProviderAccountNotificationPublisher, SignedInAccountWatcher};
 use crate::account::token_custody::{ProviderTokenCustody, TokenCustodyError};
 use crate::account::wake_helper::MachineWakeHelper;
 use crate::driver::contract::account::{
@@ -107,6 +109,8 @@ pub struct ProviderAccountObserverDeps {
     /// The machine's wake helper, which wakes it for a window reset on an account whose wake
     /// switch is on; `None` on a system with none.
     pub wake_helper: Option<Arc<dyn MachineWakeHelper>>,
+    /// Where each account a read rewrote goes out as changed.
+    pub publisher: Arc<dyn ProviderAccountNotificationPublisher>,
 }
 
 /// One read of an account and when it was taken.
@@ -232,6 +236,7 @@ struct ObserverShared {
     database_reads: Arc<DatabaseReadPool>,
     database_writer: Arc<DatabaseWriter>,
     usage: Arc<dyn UsageSink>,
+    publisher: Arc<dyn ProviderAccountNotificationPublisher>,
     // One per provider whose reads run one at a time; its window turns take it too.
     one_reader_at_a_time: HashMap<ProviderId, Arc<tokio::sync::Mutex<()>>>,
     live_turns: Arc<dyn AccountLiveTurns>,
@@ -266,6 +271,7 @@ impl ProviderAccountObserver {
                 database_reads: deps.database_reads,
                 database_writer: deps.database_writer,
                 usage: deps.usage,
+                publisher: deps.publisher,
                 one_reader_at_a_time,
                 live_turns: deps.live_turns,
                 scheduler: Arc::clone(&deps.scheduler),
@@ -386,26 +392,13 @@ impl ProviderAccountObserver {
     }
 
     /// A turn ended on `provider_account_id`'s account: where its provider reads at a turn's end,
-    /// the account is read and its interval starts again from that read.
+    /// the account is read in a task of its own, and its interval starts again from that read once
+    /// the read answers figures; a read refused or with no answer leaves the interval as it was.
     pub fn turn_ended(&self, provider_account_id: ProviderAccountId) {
         let shared = Arc::clone(&self.shared);
         tokio::spawn(async move {
-            let provider = match shared.registry.read(provider_account_id.clone()).await {
-                Ok(account) => account.provider,
-                Err(error) => {
-                    log_read_failure(&ProviderAccountObserverError::Registry(error));
-                    return;
-                }
-            };
-            if shared
-                .legs
-                .get(&provider)
-                .is_some_and(|legs| legs.reads_at_turn_end())
-            {
-                if let Err(error) = shared.schedule.restart(&provider_account_id) {
-                    log_read_failure(&ProviderAccountObserverError::Schedule(error));
-                }
-                shared.spawn_read(provider_account_id, ReadAsker::TurnEnd);
+            if let Err(error) = shared.read_at_turn_end(provider_account_id).await {
+                log_read_failure(&error);
             }
         });
     }
@@ -425,6 +418,38 @@ impl SignedInAccountWatcher for ProviderAccountObserver {
 }
 
 impl ObserverShared {
+    // The turn-end read of an account whose provider reads at a turn's end, and the restart of
+    // its interval from a read that answered figures, so a read the live turn or a held home
+    // turned away never pushes the next one back.
+    async fn read_at_turn_end(
+        self: &Arc<Self>,
+        provider_account_id: ProviderAccountId,
+    ) -> Result<(), ProviderAccountObserverError> {
+        let provider = self
+            .registry
+            .read(provider_account_id.clone())
+            .await?
+            .provider;
+        if !self
+            .legs
+            .get(&provider)
+            .is_some_and(|legs| legs.reads_at_turn_end())
+        {
+            return Ok(());
+        }
+        let answer = self
+            .read(provider_account_id.clone(), ReadAsker::TurnEnd)
+            .await?;
+        if let AccountReadAnswer::Read(AccountReading {
+            observation: Some(ProviderObservation::Figures(_)),
+            ..
+        }) = answer
+        {
+            self.schedule.restart(&provider_account_id)?;
+        }
+        Ok(())
+    }
+
     // Runs a read no caller waits on, its failure written to the service log.
     fn spawn_read(self: Arc<Self>, provider_account_id: ProviderAccountId, asker: ReadAsker) {
         tokio::spawn(async move {
@@ -604,6 +629,8 @@ impl ObserverShared {
                 (indeterminate_after(in_a_row), in_a_row)
             }
         };
+        let is_rewritten = stored.is_some()
+            || matches!(reading.observation, Some(ProviderObservation::Figures(_)));
         if let Some((state, writer)) = stored {
             let observation = HealthObservation {
                 state,
@@ -613,10 +640,19 @@ impl ObserverShared {
                 .record_health(account_id, &observation, writer)
                 .await?;
         }
-        let mut accounts = lock(&self.accounts);
-        let memory = accounts.entry(account_id.clone()).or_default();
-        memory.last = Some(reading.clone());
-        memory.unanswered_in_a_row = unanswered_in_a_row;
+        {
+            let mut accounts = lock(&self.accounts);
+            let memory = accounts.entry(account_id.clone()).or_default();
+            memory.last = Some(reading.clone());
+            memory.unanswered_in_a_row = unanswered_in_a_row;
+        }
+        if is_rewritten {
+            let account = self.registry.read(account_id.clone()).await?;
+            self.publisher
+                .publish(ProviderAccountNotification::AccountChanged {
+                    account: account.to_provider_account(),
+                });
+        }
         Ok(())
     }
 }
@@ -637,5 +673,7 @@ fn log_read_failure(error: &ProviderAccountObserverError) {
     );
 }
 
+#[cfg(test)]
+mod test_fixture;
 #[cfg(test)]
 mod tests;

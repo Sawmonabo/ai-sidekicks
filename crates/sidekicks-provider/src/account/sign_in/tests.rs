@@ -10,7 +10,7 @@ use rstest::rstest;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{
     BillingMode, ProviderAccountHealthState, ProviderAccountId, ProviderAccountNotification,
-    ProviderSignInOutcome,
+    ProviderAuthMode, ProviderSignInOutcome,
 };
 use sidekicks_contracts::provider::account::sign_in::{
     NewAccountSignIn, PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderAccountSignInRequest,
@@ -30,6 +30,7 @@ use super::{
     SignedInAccountWatcher,
 };
 use crate::account::credential_home::CredentialHome;
+use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::tests::register;
 use crate::account::registry::{
     HealthObservation, ProviderAccountRegistry, RegisteredAccount, open_test_registry,
@@ -49,6 +50,12 @@ const CODE: &str = "pasted-code-4e1b";
 
 /// The longest wait for a notification the attempt's task publishes.
 const NOTIFICATION_WAIT: Duration = Duration::from_secs(5);
+
+/// How long the test tries for the home before it reads as held.
+const HELD_HOME_WAIT: Duration = Duration::from_millis(50);
+
+/// The kind of sign-in the scripted status read reports.
+const OBSERVED_AUTH_MODE: ProviderAuthMode = ProviderAuthMode::OauthSubscription;
 
 type Code = FreeFormText<PROVIDER_SIGN_IN_CODE_MAX_LEN>;
 
@@ -168,6 +175,7 @@ impl ProviderSignInLegs for ScriptedLegs {
                         observed_at: WireInstant::now(),
                     },
                     is_account_named,
+                    observed_auth_mode: Some(OBSERVED_AUTH_MODE),
                 }),
                 Status::Unreadable | Status::Unsupported => {
                     Err(DriverError::Internal(PROMPT_LINE.into()))
@@ -235,11 +243,14 @@ fn provider(id: &str) -> ProviderId {
     ProviderId::new(id.to_owned()).expect("a test provider id")
 }
 
-// One attempt through each row of the sign-in table: no row while the flow runs, a code only to
-// the attempt waiting for one, one settled end, and the registry as that end leaves it. No
-// published notification carries the prompt or the code, and no session event is appended. Dies
-// to a row inserted at the start, to a raw line forwarded as the failure text, to a code written
-// before the prompt or twice, and to a failed new account keeping its home.
+// One attempt through each way a sign-in ends: no row while the flow runs, the account's home held
+// from the flow's start until the attempt settles, a code only to the attempt waiting for one, a
+// written row published as the account it now is before one settled end, and the registry as that
+// end leaves it, a new account with the kind of sign-in its status read reported. No published
+// notification carries the prompt or the code, and no session event is appended. Dies to a row
+// inserted at the start, to a raw line forwarded as the failure text, to a code written before the
+// prompt or twice, to a failed new account keeping its home, to the home left free during the
+// flow or held after it, to a written row not published, and to the reported kind not written.
 #[rstest]
 #[case::new_named(false, Status::Read { is_account_named: true }, ProviderSignInEnd::Finished,
     Some(ProviderSignInOutcome::Succeeded))]
@@ -265,7 +276,7 @@ fn provider(id: &str) -> ProviderId {
 #[case::registered_canceled(true, Status::Read { is_account_named: true },
     ProviderSignInEnd::Canceled, Some(ProviderSignInOutcome::Canceled))]
 #[tokio::test]
-async fn one_sign_in_attempt_settles_as_the_table_says(
+async fn one_sign_in_attempt_settles_as_its_end_says(
     #[case] is_registered: bool,
     #[case] status: Status,
     #[case] end: ProviderSignInEnd,
@@ -289,6 +300,7 @@ async fn one_sign_in_attempt_settles_as_the_table_says(
     });
     let (published_sender, mut published) = mpsc::unbounded();
     let watcher = Arc::new(RecordingWatcher::default());
+    let home_lock = Arc::new(AccountHomeLock::default());
     let broker = ProviderSignInBroker::new(
         Arc::clone(&registry),
         HashMap::from([(
@@ -297,6 +309,7 @@ async fn one_sign_in_attempt_settles_as_the_table_says(
         )]),
         Arc::new(RecordingPublisher(published_sender)),
         Arc::clone(&watcher) as Arc<dyn SignedInAccountWatcher>,
+        Arc::clone(&home_lock),
     );
     let events_before = session_event_count(&database.path());
     let request = match &existing {
@@ -333,9 +346,15 @@ async fn one_sign_in_attempt_settles_as_the_table_says(
         assert_eq!(flow.home, account.credential_home.path());
     }
 
-    // No row while the flow runs; the minted home is there to sign in to.
+    // No row while the flow runs; the minted home is there to sign in to, and the attempt holds it.
     assert_eq!(account_ids(&registry).await, existing_ids);
     assert!(flow.home.is_dir());
+    assert!(
+        tokio::time::timeout(HELD_HOME_WAIT, home_lock.hold(flow.account_id.clone()))
+            .await
+            .is_err(),
+        "the attempt holds the account's home while its flow runs"
+    );
     if is_registered {
         assert!(matches!(
             broker.start(request, SignInOrigin::ThisMachine).await,
@@ -377,6 +396,17 @@ async fn one_sign_in_attempt_settles_as_the_table_says(
     } else {
         flow.finish(end);
     }
+    // A row the attempt wrote goes out as the account it now is, before the attempt's end.
+    let is_row_written = end == ProviderSignInEnd::Finished
+        && matches!(status, Status::Read { is_account_named } if is_account_named || is_registered);
+    if is_row_written {
+        let ProviderAccountNotification::AccountChanged { account } =
+            next_notification(&mut published).await
+        else {
+            panic!("the written row is published");
+        };
+        assert_eq!(account.account_id(), &flow.account_id);
+    }
     let ProviderAccountNotification::SignInCompleted {
         attempt_id: completed_id,
         account_id,
@@ -392,6 +422,12 @@ async fn one_sign_in_attempt_settles_as_the_table_says(
     assert_eq!(
         failure_reason.is_some(),
         outcome == ProviderSignInOutcome::Failed
+    );
+    // The home is free once the attempt has settled.
+    drop(
+        tokio::time::timeout(NOTIFICATION_WAIT, home_lock.hold(flow.account_id.clone()))
+            .await
+            .expect("the settled attempt frees the account's home"),
     );
     // A finished sign-in, new or registered, is observed from then on, and no other end is.
     let watched = lock(&watcher.0).clone();
@@ -416,6 +452,7 @@ async fn one_sign_in_attempt_settles_as_the_table_says(
             assert_eq!(accounts.len(), 1);
             assert_eq!(accounts[0].account_id, flow.account_id);
             assert_eq!(accounts[0].billing_mode, BillingMode::Unknown);
+            assert_eq!(accounts[0].observed_auth_mode, Some(OBSERVED_AUTH_MODE));
             assert!(flow.home.is_dir(), "an admitted account keeps its home");
         }
         (None, ProviderSignInOutcome::Failed | ProviderSignInOutcome::Canceled) => {

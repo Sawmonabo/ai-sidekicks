@@ -33,10 +33,11 @@ pub(super) fn register_provider_account_current_update(
                     .await?;
                 // The moves land on their own, after the answer.
                 drop(made.settled);
+                // The account made current goes out even where none was current before it.
                 if let Some(left) = &made.left {
                     sources.publish_change(method, &device, left);
-                    sources.publish_change(method, &device, &made.account);
                 }
+                sources.publish_change(method, &device, &made.account);
                 Ok(ProviderAccountCurrentUpdateResponse {
                     account: made.account.to_provider_account(),
                     moving_sessions: made

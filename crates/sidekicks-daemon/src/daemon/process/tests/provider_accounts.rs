@@ -1,23 +1,36 @@
 use std::collections::HashSet;
+use std::sync::Mutex;
 
 use rusqlite::params;
 use sidekicks_client::daemon_connection::{DaemonConnection, DaemonEndpoint};
+use sidekicks_contracts::event::usage::UsageRateLimitUpdatedPayload;
 use sidekicks_contracts::provider::account::methods::ProviderAccountList;
-use sidekicks_contracts::provider::account::record::ProviderAccountListRequest;
+use sidekicks_contracts::provider::account::record::{
+    ProviderAccountId, ProviderAccountListRequest, ProviderAccountNotification,
+};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeSignedInt;
+use sidekicks_contracts::wire::number::{NonNegativeNumber, Number};
+use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, create_missing_private_folders};
+use sidekicks_provider::account::registry::PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY;
+use sidekicks_provider::account::sign_in::ProviderAccountNotificationPublisher;
 use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::test_driver_services;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, open_database,
 };
 use tokio_util::sync::CancellationToken;
 
 use super::TestHome;
-use crate::daemon::process::provider_accounts::collect_provider_account_legs;
+use crate::daemon::process::provider_accounts::{
+    collect_provider_account_legs, publish_usage_window,
+};
 use crate::daemon::schema::schema_parts;
 
 // The stored account's id.
@@ -106,4 +119,81 @@ async fn the_plane_collects_each_act_the_real_drivers_offer() {
         [claude]
     );
     assert!(legs.sign_in.is_empty());
+}
+
+// Each notification published, in order.
+#[derive(Default)]
+struct RecordedNotifications(Mutex<Vec<ProviderAccountNotification>>);
+
+impl ProviderAccountNotificationPublisher for RecordedNotifications {
+    fn publish(&self, notification: ProviderAccountNotification) {
+        lock(&self.0).push(notification);
+    }
+}
+
+// The five-hour `session` reading of the stored account, `window_mins` long.
+fn session_reading(window_mins: i64) -> UsageRateLimitUpdatedPayload {
+    UsageRateLimitUpdatedPayload {
+        provider: ProviderId::new("codex".to_owned()).expect("a provider id"),
+        provider_account_id: ProviderAccountId::new(ACCOUNT_ID.to_owned()).expect("an account id"),
+        credential_generation: serde_json::from_value(1.into()).expect("a generation"),
+        limit_id: Some(BoundedText::new("session".to_owned()).expect("a limit id")),
+        window_mins: SafeSignedInt::new(window_mins).expect("a window length"),
+        used_percent: Number::new(40.0).expect("a share"),
+        resets_at: None,
+        whole_set: None,
+    }
+}
+
+// A quota reading goes out as the window the projection keeps for its account, limit and length,
+// and a reading the projection keeps no row for publishes nothing. Killed by the publish dropped,
+// and by a window of another length published in the reading's place.
+#[tokio::test]
+async fn a_quota_reading_publishes_the_window_the_projection_keeps() {
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let database_path = data_folder.path().join(DAEMON_DATABASE_FILE_NAME);
+    let connection =
+        open_database(&database_path, &schema_parts().into_schema()).expect("the store opens");
+    let now = WireInstant::now();
+    connection
+        .execute(
+            "INSERT INTO provider_accounts (account_id, provider, credential_home_path,
+               billing_mode, is_default, created_at, updated_at)
+             VALUES (?1, 'codex', '/accounts/1', 'unknown', 1, ?2, ?2)",
+            params![ACCOUNT_ID, now.as_str()],
+        )
+        .expect("the account is stored");
+    for (window_mins, used_percent) in [(10_080, 5.0), (300, 40.0)] {
+        connection
+            .execute(
+                "INSERT INTO provider_account_usage_windows (account_id, limit_id, window_mins,
+                   used_percent, observed_at, observed_credential_generation, source)
+                 VALUES (?1, 'session', ?2, ?3, ?4, 1, 'run')",
+                params![ACCOUNT_ID, window_mins, used_percent, now.as_str()],
+            )
+            .expect("the window is stored");
+    }
+    drop(connection);
+    let reads = DatabaseReadPool::new(database_path, PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY);
+    let published = RecordedNotifications::default();
+
+    publish_usage_window(&reads, &published, &session_reading(300))
+        .await
+        .expect("the reading is published");
+    publish_usage_window(&reads, &published, &session_reading(60))
+        .await
+        .expect("a reading with no row publishes nothing");
+
+    let published = lock(&published.0).clone();
+    let [ProviderAccountNotification::UsageWindowUpdated { account_id, window }] =
+        published.as_slice()
+    else {
+        panic!("one window is published, not {published:?}");
+    };
+    assert_eq!(account_id.as_str(), ACCOUNT_ID);
+    assert_eq!(window.window_mins.get(), 300);
+    assert_eq!(
+        window.used_percent,
+        NonNegativeNumber::new(40.0).expect("a share")
+    );
 }

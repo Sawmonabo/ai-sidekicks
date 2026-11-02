@@ -88,7 +88,8 @@ pub trait ProviderSignInLegs: Send + Sync {
     ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>>;
 
     /// Reads the provider's own status in `home` after a sign-in there ended: the account's
-    /// health and whether the provider named the account. Opens no credential file. Fails with
+    /// health, whether the provider named the account and the kind of sign-in it reports. Opens
+    /// no credential file. Fails with
     /// the driver's error where the status could not be read.
     fn observe_sign_in(
         &self,
@@ -156,14 +157,16 @@ pub enum ProviderSignInEnd {
     Canceled,
 }
 
-/// The status read after a sign-in ended: the account's health as observed, and whether the
-/// provider named the account that signed in.
+/// The status read after a sign-in ended: the account's health as observed, whether the provider
+/// named the account that signed in, and the kind of sign-in its status read reports.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProviderSignInObservation {
     /// The account's health.
     pub health: HealthObservation,
     /// Whether the provider reported who signed in.
     pub is_account_named: bool,
+    /// The kind of sign-in the provider's status read reports; `None` where it reports none.
+    pub observed_auth_mode: Option<ProviderAuthMode>,
 }
 
 /// A provider's status read of a pasted token or API key: the registration-time invocation that
