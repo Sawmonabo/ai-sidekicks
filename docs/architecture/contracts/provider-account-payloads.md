@@ -721,16 +721,16 @@ interface ProviderAccountUsageWindow {
 // provider holding none answers an empty list, which the page reads as saying so. Its request is
 // `ProviderRequest`, the provider whose rules are listed.
 interface ProviderStandingRuleListResponse {
+  provider: ProviderId;
   rules: Array<{
     ruleId: string; // daemon-minted from the rule's place, its file, its scope, its decision and its text, so one file path in two places names two rules
-    provider: ProviderId;
-    text: string; // the rule as the provider's file spells it
-    decision: string; // the provider's own word for what the rule does: the name of Claude Code's list (`allow`, `deny` or `ask`), or the word a Codex rule file writes, such as `allow`, `prompt` or `forbidden`
     scope?: // absent for a rule of the system folder or the managed settings
       | { kind: "accountHome"; accountId: ProviderAccountId }
-      | { kind: "project"; projectId: ProjectId };
+      | { kind: "project"; repoMountId: RepoMountId };
     place?: Place; // where the file is, its path in that place's form; absent on a computer without a WSL 2 distribution
     sourcePath: string; // the file it came from; display-only data, never a capability
+    decision: string; // the provider's own word for what the rule does: the name of Claude Code's list (`allow`, `deny` or `ask`), or the word a Codex rule file writes, such as `allow`, `prompt` or `forbidden`
+    text: string; // the rule as the provider's file spells it
   }>;
 }
 
@@ -743,6 +743,7 @@ interface ProviderStandingRuleListResponse {
 // provider refuses to load, or one still making the rule, is refused
 // `provider.standingRule.revokeRefused`; both write nothing.
 interface ProviderStandingRuleRevokeRequest {
+  provider: ProviderId;
   ruleId: string;
 }
 interface ProviderStandingRuleRevokeResponse {
