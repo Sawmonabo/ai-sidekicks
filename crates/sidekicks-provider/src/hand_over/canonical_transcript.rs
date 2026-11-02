@@ -10,18 +10,28 @@
 //!   plain text.
 //! - A row whose body cannot be read keeps its place as an empty segment marked unavailable, never
 //!   dropped and never invented, so the hand-over can declare the loss.
+//! - A call the provider moved to the background answers with its stand-in until a close follows;
+//!   of several closes the last one's outcome and body stand at the first one's place.
+use std::collections::HashMap;
+
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value};
-use sidekicks_contracts::event::declared_variants::ToolActivityPayload;
+use sidekicks_contracts::event::declared_variants::{
+    ToolActivityPayload, ToolCallBackgroundedPayload, ToolCallEndCause, ToolCallFailedPayload,
+};
 use sidekicks_contracts::event::envelope::{
     EventEnvelope, HydratedSessionEvent, HydratedSessionEventContent,
 };
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{QueueItemId, UserMessageSentPayload};
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_store::events::session::read::{SessionEventReads, SessionLogReadError};
+use sidekicks_store::events::session::read::tool_call_closes::ToolCallCloses;
+use sidekicks_store::events::session::read::{
+    HydratedPage, SessionEventReads, SessionLogReadError,
+};
 
 /// Who wrote a turn. The transcript has no third author.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,6 +118,8 @@ pub enum CanonicalTranscriptSegment {
         outcome: CanonicalToolResultOutcome,
         /// Where the result came from.
         provenance: CanonicalToolResultProvenance,
+        /// Why the call ended with no result, on a failed result that says so.
+        end_cause: Option<ToolCallEndCause>,
         /// The result's body; empty when `is_content_unavailable`.
         text: String,
         /// Whether the body could not be read.
@@ -201,9 +213,9 @@ pub enum CanonicalTranscriptFoldError {
 }
 
 /// Folds run `run_id`'s transcript under `bound` from the session log. It reads only the run's
-/// rows of the seven transcript types, at or below the bound, and then the session's head, all in
-/// one read transaction; nothing is kept between calls. Fails when the log cannot be read or a
-/// row's payload is not its type's.
+/// rows of the eight transcript types, at or below the bound, with the calls whose result folds,
+/// and then the session's head, all in one read transaction; nothing is kept between calls. Fails
+/// when the log cannot be read or a row's payload is not its type's.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the provider switch's hand-over brief")
@@ -220,7 +232,8 @@ where
     // One snapshot from the first page to the head, so a body a page names is still there when
     // it is read and the head is the one the rows were read under.
     let snapshot = reads.snapshot().map_err(SessionLogReadError::from)?;
-    let mut fold = TurnFold::default();
+    let closes = reads.read_run_tool_call_closes(session_id, run_id, bound.before_sequence())?;
+    let mut fold = TurnFold::new(closes);
     let mut turns: Vec<CanonicalTranscriptTurn> = Vec::new();
     let mut collect = |step| {
         match step {
@@ -236,6 +249,19 @@ where
                 .push(segment),
         }
         Ok::<_, CanonicalTranscriptFoldError>(())
+    };
+    // A call's last close, loaded whole, to fold in place of its first.
+    let read_last_close = |sequence| {
+        let HydratedPage {
+            mut events,
+            oversized,
+        } = read_run_close(reads, session_id, run_id, sequence)?;
+        match events.pop() {
+            Some(event) => Ok::<_, SessionLogReadError>(event),
+            None => reads.load_body(
+                oversized.expect("the snapshot holds the close the run's read of its calls named"),
+            ),
+        }
     };
     let mut after_position = START_OF_LOG_POSITION;
     // Rows past the bound would only add segments the bound drops, so the read stops at it. Each
@@ -253,10 +279,22 @@ where
         };
         after_position = last;
         for event in page.events {
-            fold.add(event, &mut collect)?;
+            match fold.last_close_for(&event.event) {
+                Some(last_close) => {
+                    let last_close = read_last_close(last_close)?;
+                    fold.add_in_place_of(&event.event, last_close, &mut collect)?;
+                }
+                None => fold.add(event, &mut collect)?,
+            }
         }
         if let Some(unloaded) = page.oversized {
-            fold.add(reads.load_body(unloaded)?, &mut collect)?;
+            match fold.last_close_for(&unloaded.event) {
+                Some(last_close) => {
+                    let last_close = read_last_close(last_close)?;
+                    fold.add_in_place_of(&unloaded.event, last_close, &mut collect)?;
+                }
+                None => fold.add(reads.load_body(unloaded)?, &mut collect)?,
+            }
         }
     }
     // Read after the rows, so the head is at or past every row the fold holds.
@@ -272,6 +310,32 @@ where
     })
 }
 
+/// Run `run_id`'s close at `sequence` as a one-row page, the row loaded or, past a page's text,
+/// unloaded; the reads of a call's last close, which a fold folds in place of its first.
+pub(crate) fn read_run_close<DamagedFrom>(
+    reads: &SessionEventReads<'_, DamagedFrom>,
+    session_id: &SessionId,
+    run_id: &RunId,
+    sequence: i64,
+) -> Result<HydratedPage, SessionLogReadError>
+where
+    DamagedFrom: Fn(&SessionId) -> Option<i64>,
+{
+    reads.read_run_page_hydrated(
+        session_id,
+        run_id,
+        sequence - 1,
+        TOOL_CALL_CLOSE_TYPES.as_slice(),
+        Some(sequence + 1),
+    )
+}
+
+/// The types of a tool call's closes, the rows a call's result folds from.
+const TOOL_CALL_CLOSE_TYPES: [&str; 2] = [
+    SessionEventType::AgentToolCallCompleted.as_str(),
+    SessionEventType::AgentToolCallFailed.as_str(),
+];
+
 /// The event types that add to a transcript. A turn start adds no segment, but it is what keeps
 /// two agent turns in a row apart.
 #[derive(Clone, Copy)]
@@ -281,17 +345,19 @@ enum TranscriptEventKind {
     AgentMessage,
     AgentThinking,
     ToolCallInvoked,
+    ToolCallBackgrounded,
     ToolCallCompleted,
     ToolCallFailed,
 }
 
 impl TranscriptEventKind {
-    const ALL: [Self; 7] = [
+    const ALL: [Self; 8] = [
         Self::TurnStarted,
         Self::UserMessage,
         Self::AgentMessage,
         Self::AgentThinking,
         Self::ToolCallInvoked,
+        Self::ToolCallBackgrounded,
         Self::ToolCallCompleted,
         Self::ToolCallFailed,
     ];
@@ -303,6 +369,7 @@ impl TranscriptEventKind {
             Self::AgentMessage => SessionEventType::AgentMessageSent,
             Self::AgentThinking => SessionEventType::AgentThinkingUpdated,
             Self::ToolCallInvoked => SessionEventType::AgentToolCallInvoked,
+            Self::ToolCallBackgrounded => SessionEventType::AgentToolCallBackgrounded,
             Self::ToolCallCompleted => SessionEventType::AgentToolCallCompleted,
             Self::ToolCallFailed => SessionEventType::AgentToolCallFailed,
         }
@@ -341,11 +408,16 @@ pub(crate) enum TurnFoldStep {
     Segment(CanonicalTranscriptSegment),
 }
 
-/// One run's turn boundaries as its rows are folded: it holds only the open turn's author, and
-/// hands each turn opening and each segment on as its row is read.
-#[derive(Default)]
+/// One run's turn boundaries as its rows are folded: it holds only the open turn's author and the
+/// run's calls whose result folds, and hands each turn opening and each segment on as its row is
+/// read. A call's result stands once: a moved call's stand-in only while no close follows, and of
+/// several closes the last one's, which its reader folds in place of the first.
 pub(crate) struct TurnFold {
     open_role: Option<CanonicalTranscriptRole>,
+    /// The run's calls with a stand-in or several closes, by call id.
+    folded_calls: HashMap<String, ToolCallCloses>,
+    /// Each call's last close by its first, for the calls answered more than once.
+    last_closes: HashMap<i64, i64>,
 }
 
 /// A row's stored body as the fold meets it.
@@ -391,6 +463,32 @@ enum RowFold {
 }
 
 impl TurnFold {
+    /// A fold of a run whose calls with a stand-in or several closes are `closes`, as the run's
+    /// read of them answers under the bound its pages are read under.
+    pub(crate) fn new(closes: Vec<ToolCallCloses>) -> Self {
+        let last_closes = closes
+            .iter()
+            .filter_map(|call| {
+                let (first, last) = (call.first_close?, call.last_close?);
+                (first != last).then_some((first, last))
+            })
+            .collect();
+        Self {
+            open_role: None,
+            folded_calls: closes
+                .into_iter()
+                .map(|call| (call.tool_call_id.clone(), call))
+                .collect(),
+            last_closes,
+        }
+    }
+
+    /// The sequence of the last close of the call `event` first closes, when a later close of it
+    /// follows; its reader reads that row and folds it with [`TurnFold::add_in_place_of`].
+    pub(crate) fn last_close_for(&self, event: &EventEnvelope) -> Option<i64> {
+        self.last_closes.get(&i64::from(event.sequence)).copied()
+    }
+
     /// Folds one row of the run, its body loaded, handing on what it opens and adds. Fails with
     /// what `emit` fails with, or when the row's payload is not its type's.
     pub(crate) fn add<Error>(
@@ -401,29 +499,62 @@ impl TurnFold {
     where
         Error: From<CanonicalTranscriptFoldError>,
     {
+        let position = event.event.sequence.get();
+        self.add_at(position, event, emit)
+    }
+
+    /// Folds `last`, the last close of the call `first` first closes, its body loaded, at
+    /// `first`'s place. Fails as [`TurnFold::add`] does.
+    pub(crate) fn add_in_place_of<Error>(
+        &mut self,
+        first: &EventEnvelope,
+        last: HydratedSessionEvent,
+        emit: &mut impl FnMut(TurnFoldStep) -> Result<(), Error>,
+    ) -> Result<(), Error>
+    where
+        Error: From<CanonicalTranscriptFoldError>,
+    {
+        self.add_at(first.sequence.get(), last, emit)
+    }
+
+    /// Folds `event`, its body loaded, at `position`.
+    fn add_at<Error>(
+        &mut self,
+        position: u64,
+        event: HydratedSessionEvent,
+        emit: &mut impl FnMut(TurnFoldStep) -> Result<(), Error>,
+    ) -> Result<(), Error>
+    where
+        Error: From<CanonicalTranscriptFoldError>,
+    {
         let HydratedSessionEvent { event, content } = event;
-        let position = event.sequence.get();
-        let row = read_row(position, &event, RowBody::of(content))?;
+        let Some(row) = self.read_row(position, &event, RowBody::of(content))? else {
+            return Ok(());
+        };
         if let Some(segment) = self.enter(row, position, emit)? {
             emit(TurnFoldStep::Segment(segment))?;
         }
         Ok(())
     }
 
-    /// Folds one row whose body is too long to load, handing on the turn it opens. Answers the
-    /// segment the body continues, its text the part before the body, for its reader to hand on
-    /// with the body's frames; `None` when the row's segment takes no body and was handed on
-    /// whole. Fails as [`TurnFold::add`] does.
+    /// Folds `event`, a row whose body is too long to load, at the place of `place`: the row
+    /// itself, or the first close of the call whose last close it is. Answers the segment the
+    /// body continues, its text the part before the body, for its reader to hand on with the
+    /// body's frames; `None` when the row's segment takes no body and was handed on whole, or the
+    /// row adds nothing. Fails as [`TurnFold::add`] does.
     pub(crate) fn add_streamed<Error>(
         &mut self,
+        place: &EventEnvelope,
         event: &EventEnvelope,
         emit: &mut impl FnMut(TurnFoldStep) -> Result<(), Error>,
     ) -> Result<Option<CanonicalTranscriptSegment>, Error>
     where
         Error: From<CanonicalTranscriptFoldError>,
     {
-        let position = event.sequence.get();
-        let row = read_row(position, event, RowBody::Streamed)?;
+        let position = place.sequence.get();
+        let Some(row) = self.read_row(position, event, RowBody::Streamed)? else {
+            return Ok(None);
+        };
         let is_body = matches!(row, RowFold::Append { is_body: true, .. });
         let segment = self.enter(row, position, emit)?;
         if is_body {
@@ -433,6 +564,113 @@ impl TurnFold {
             emit(TurnFoldStep::Segment(segment))?;
         }
         Ok(None)
+    }
+
+    /// Whether a result of call `tool_call_id` placed at `position` stands: a close only at its
+    /// call's first close, and a stand-in only while no close follows.
+    fn is_result_standing(
+        &self,
+        tool_call_id: Option<&ToolCallId>,
+        is_stand_in: bool,
+        position: u64,
+    ) -> bool {
+        let Some(call) = tool_call_id.and_then(|id| self.folded_calls.get(id.as_str())) else {
+            return true;
+        };
+        if is_stand_in {
+            return call.first_close.is_none();
+        }
+        call.first_close == i64::try_from(position).ok()
+    }
+
+    /// What the row `event` adds placed at `position`, its body `body`; `None` for a result that
+    /// does not stand there. Fails when its payload is not its type's.
+    fn read_row(
+        &self,
+        position: u64,
+        event: &EventEnvelope,
+        body: RowBody,
+    ) -> Result<Option<RowFold>, CanonicalTranscriptFoldError> {
+        let sequence = event.sequence.get();
+        let assistant = |segment, is_body| RowFold::Append {
+            role: CanonicalTranscriptRole::Assistant,
+            segment,
+            is_body,
+        };
+        Ok(Some(
+            match TranscriptEventKind::of(event.event_type.as_str()) {
+                TranscriptEventKind::TurnStarted => RowFold::CloseTurn,
+                TranscriptEventKind::UserMessage => {
+                    let sent = read_payload::<UserMessageSentPayload>(sequence, &event.payload)?;
+                    RowFold::Append {
+                        role: CanonicalTranscriptRole::User,
+                        segment: Some(CanonicalTranscriptSegment::Text {
+                            position,
+                            text: sent.message.into_string(),
+                            is_content_unavailable: false,
+                            queue_item_id: sent.queue_item_id,
+                        }),
+                        is_body: false,
+                    }
+                }
+                TranscriptEventKind::AgentMessage => assistant(
+                    written_segment(position, body, |text| text_segment(position, text)),
+                    true,
+                ),
+                TranscriptEventKind::AgentThinking => assistant(
+                    written_segment(position, body, |text| {
+                        CanonicalTranscriptSegment::Reasoning { position, text }
+                    }),
+                    true,
+                ),
+                TranscriptEventKind::ToolCallInvoked => {
+                    let tool = read_payload::<ToolActivityPayload>(sequence, &event.payload)?;
+                    assistant(Some(tool_call_segment(position, tool, body)), true)
+                }
+                TranscriptEventKind::ToolCallBackgrounded => {
+                    let moved =
+                        read_payload::<ToolCallBackgroundedPayload>(sequence, &event.payload)?;
+                    if !self.is_result_standing(Some(&moved.tool_call_id), true, position) {
+                        return Ok(None);
+                    }
+                    let result = ToolResultRow {
+                        tool_call_id: Some(moved.tool_call_id),
+                        outcome: CanonicalToolResultOutcome::Succeeded,
+                        end_cause: None,
+                    };
+                    assistant(Some(result.segment(position, body)), true)
+                }
+                TranscriptEventKind::ToolCallCompleted => {
+                    let tool = read_payload::<ToolActivityPayload>(sequence, &event.payload)?;
+                    if !self.is_result_standing(tool.tool_call_id.as_ref(), false, position) {
+                        return Ok(None);
+                    }
+                    let result = ToolResultRow {
+                        tool_call_id: tool.tool_call_id,
+                        outcome: CanonicalToolResultOutcome::Succeeded,
+                        end_cause: None,
+                    };
+                    assistant(Some(result.segment(position, body)), true)
+                }
+                TranscriptEventKind::ToolCallFailed => {
+                    let tool = read_payload::<ToolCallFailedPayload>(sequence, &event.payload)?;
+                    if !self.is_result_standing(tool.tool_call_id.as_ref(), false, position) {
+                        return Ok(None);
+                    }
+                    // A call that ended with no result carries no body by design, which is no loss.
+                    let body = match (tool.end_cause, body) {
+                        (Some(_), RowBody::Unavailable) => RowBody::Whole(String::new()),
+                        (_, body) => body,
+                    };
+                    let result = ToolResultRow {
+                        tool_call_id: tool.tool_call_id,
+                        outcome: CanonicalToolResultOutcome::Failed,
+                        end_cause: tool.end_cause,
+                    };
+                    assistant(Some(result.segment(position, body)), true)
+                }
+            },
+        ))
     }
 
     /// Applies `row` to the turn boundaries: a turn start or a change of author ends the open
@@ -464,65 +702,6 @@ impl TurnFold {
         }
         Ok(Some(segment))
     }
-}
-
-/// What the row at `position` adds, its body `body`. Fails when its payload is not its type's.
-fn read_row(
-    position: u64,
-    event: &EventEnvelope,
-    body: RowBody,
-) -> Result<RowFold, CanonicalTranscriptFoldError> {
-    let assistant = |segment, is_body| RowFold::Append {
-        role: CanonicalTranscriptRole::Assistant,
-        segment,
-        is_body,
-    };
-    Ok(match TranscriptEventKind::of(event.event_type.as_str()) {
-        TranscriptEventKind::TurnStarted => RowFold::CloseTurn,
-        TranscriptEventKind::UserMessage => {
-            let sent = read_payload::<UserMessageSentPayload>(position, &event.payload)?;
-            RowFold::Append {
-                role: CanonicalTranscriptRole::User,
-                segment: Some(CanonicalTranscriptSegment::Text {
-                    position,
-                    text: sent.message.into_string(),
-                    is_content_unavailable: false,
-                    queue_item_id: sent.queue_item_id,
-                }),
-                is_body: false,
-            }
-        }
-        TranscriptEventKind::AgentMessage => assistant(
-            written_segment(position, body, |text| text_segment(position, text)),
-            true,
-        ),
-        TranscriptEventKind::AgentThinking => assistant(
-            written_segment(position, body, |text| {
-                CanonicalTranscriptSegment::Reasoning { position, text }
-            }),
-            true,
-        ),
-        TranscriptEventKind::ToolCallInvoked => {
-            let tool = read_payload::<ToolActivityPayload>(position, &event.payload)?;
-            assistant(Some(tool_call_segment(position, tool, body)), true)
-        }
-        TranscriptEventKind::ToolCallCompleted => {
-            let tool = read_payload::<ToolActivityPayload>(position, &event.payload)?;
-            let outcome = CanonicalToolResultOutcome::Succeeded;
-            assistant(
-                Some(tool_result_segment(position, tool, outcome, body)),
-                true,
-            )
-        }
-        TranscriptEventKind::ToolCallFailed => {
-            let tool = read_payload::<ToolActivityPayload>(position, &event.payload)?;
-            let outcome = CanonicalToolResultOutcome::Failed;
-            assistant(
-                Some(tool_result_segment(position, tool, outcome, body)),
-                true,
-            )
-        }
-    })
 }
 
 /// `payload` read as its type's, `sequence` naming the row when it does not read.
@@ -593,31 +772,56 @@ fn tool_call_segment(
     }
 }
 
-/// A tool result's segment; one with no call id is carried as a tool line, as a call is.
-fn tool_result_segment(
-    position: u64,
-    tool: ToolActivityPayload,
+/// What a result row says of its call: which call, how it ended and why where it ended with no
+/// result.
+struct ToolResultRow {
+    tool_call_id: Option<ToolCallId>,
     outcome: CanonicalToolResultOutcome,
-    body: RowBody,
-) -> CanonicalTranscriptSegment {
-    let is_streamed = matches!(body, RowBody::Streamed);
-    let body = body.into_head();
-    let Some(tool_call_id) = tool.tool_call_id else {
-        return body.map_or_else(
-            || unavailable_text_segment(position),
-            |body| {
-                let heading = format!("[tool result {}]", outcome.as_str());
-                text_segment(position, tool_line(heading, &body, is_streamed))
-            },
-        );
-    };
-    CanonicalTranscriptSegment::ToolResult {
-        position,
-        tool_call_id: tool_call_id.into_string(),
-        outcome,
-        provenance: CanonicalToolResultProvenance::Provider,
-        is_content_unavailable: body.is_none(),
-        text: body.unwrap_or_default(),
+    end_cause: Option<ToolCallEndCause>,
+}
+
+impl ToolResultRow {
+    /// The result's segment; one with no call id is carried as a tool line, as a call is.
+    fn segment(self, position: u64, body: RowBody) -> CanonicalTranscriptSegment {
+        let is_streamed = matches!(body, RowBody::Streamed);
+        let body = body.into_head();
+        let Some(tool_call_id) = self.tool_call_id else {
+            return body.map_or_else(
+                || unavailable_text_segment(position),
+                |body| {
+                    let heading = format!("[tool result {}]", self.outcome.as_str());
+                    let shown = if is_streamed {
+                        &body
+                    } else {
+                        shown_tool_result_body(&body, self.end_cause)
+                    };
+                    text_segment(position, tool_line(heading, shown, is_streamed))
+                },
+            );
+        };
+        CanonicalTranscriptSegment::ToolResult {
+            position,
+            tool_call_id: tool_call_id.into_string(),
+            outcome: self.outcome,
+            provenance: CanonicalToolResultProvenance::Provider,
+            end_cause: self.end_cause,
+            is_content_unavailable: body.is_none(),
+            text: body.unwrap_or_default(),
+        }
+    }
+}
+
+/// A tool result's body as a reader shows it whole: its text, or, for a result with no body whose
+/// call ended with no result, why in plain words. A reader handing a body on in frames shows its
+/// frames instead.
+pub fn shown_tool_result_body(text: &str, end_cause: Option<ToolCallEndCause>) -> &str {
+    match end_cause {
+        Some(end_cause) if text.is_empty() => match end_cause {
+            ToolCallEndCause::Stopped => "stopped before it answered",
+            ToolCallEndCause::ProcessExit => "ended when its process exited",
+            ToolCallEndCause::DaemonRestart => "failed",
+        },
+        Some(_) | None => text,
     }
 }
 
@@ -633,210 +837,4 @@ fn tool_line(mut heading: String, body: &str, is_streamed: bool) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Arc;
-
-    use rusqlite::Connection;
-    use serde_json::json;
-    use sidekicks_contracts::event::session::SessionEvent;
-    use sidekicks_contracts::run::id::RunId;
-    use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_store::database::writer::test_file::{
-        TestDatabase, test_envelope, test_session_id,
-    };
-    use sidekicks_store::events::content::codec::BodyEncoder;
-    use sidekicks_store::events::session::insert::{
-        SessionEventRow, insert_session_event, monotonic_ns_now,
-    };
-    use sidekicks_store::events::session::read::SessionEventReads;
-    use sidekicks_store::events::test_log::SessionTestLog;
-
-    use super::{
-        CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptRole,
-        CanonicalTranscriptSegment, CanonicalTranscriptTurn, TranscriptExportBound,
-        fold_canonical_transcript,
-    };
-    use crate::driver::schema::schema_parts;
-
-    /// Appends `event` to `session_id`'s log through the row write, with `body` as its stored
-    /// body.
-    fn append(
-        writer: &Connection,
-        session_id: &SessionId,
-        event: serde_json::Value,
-        body: Option<&str>,
-    ) {
-        let event: SessionEvent =
-            serde_json::from_value(event).expect("the test writes a well-formed event");
-        let mut envelope = test_envelope(*session_id, &event);
-        let content_payload = body.map(|body| {
-            envelope
-                .describe_content(body.to_owned())
-                .expect("the event carries a body")
-        });
-        let row = SessionEventRow {
-            payload: serde_json::to_string(envelope.payload()).expect("a JSON object serializes"),
-            envelope: Arc::new(envelope),
-            monotonic_ns: monotonic_ns_now(),
-            content_payload,
-        };
-        insert_session_event(writer, &mut BodyEncoder::new(), &row)
-            .expect("the test writes its row");
-    }
-
-    #[test]
-    fn a_turn_whose_body_cannot_be_read_keeps_its_place_and_another_run_stays_out() {
-        let database = TestDatabase::new(schema_parts());
-        let writer = database.opener()().expect("the test creates its database");
-        let session_id = test_session_id();
-        let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        let agent_message = json!({
-            "type": "agent.message.sent",
-            "payload": { "sessionId": session_id, "runId": run_id, "providerMessageId": "m" },
-        });
-        let user_message = json!({
-            "type": "user.message.sent",
-            "payload": {
-                "sessionId": session_id,
-                "runId": run_id,
-                "actor": "person",
-                "message": "Fix the build",
-            },
-        });
-        let turn_ended = json!({
-            "type": "agent.turn.completed",
-            "payload": {
-                "sessionId": session_id,
-                "runId": run_id,
-                "runVersion": 1,
-                "turnNumber": 1,
-            },
-        });
-        let turn_started = json!({
-            "type": "agent.turn.started",
-            "payload": {
-                "sessionId": session_id,
-                "runId": run_id,
-                "runVersion": 1,
-                "turnNumber": 2,
-            },
-        });
-        append(&writer, &session_id, user_message, None);
-        append(
-            &writer,
-            &session_id,
-            agent_message.clone(),
-            Some("Looking."),
-        );
-        append(&writer, &session_id, turn_ended, None);
-        append(&writer, &session_id, turn_started, None);
-        append(&writer, &session_id, agent_message, None);
-        // Another run's message in the same session stays out of this run's transcript.
-        let other_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        let other_run_message = json!({
-            "type": "user.message.sent",
-            "payload": {
-                "sessionId": session_id,
-                "runId": other_run_id,
-                "actor": "person",
-                "message": "Another run",
-            },
-        });
-        append(&writer, &session_id, other_run_message, None);
-
-        let reader = database.reader();
-        let reads = SessionEventReads::new(&reader, |_: &SessionId| None);
-        let projection = fold_canonical_transcript(
-            &reads,
-            &session_id,
-            &run_id,
-            TranscriptExportBound::AtOrBelow(5),
-        )
-        .expect("the run's transcript folds");
-
-        let text =
-            |position, text: &str, is_content_unavailable| CanonicalTranscriptSegment::Text {
-                position,
-                text: text.to_owned(),
-                is_content_unavailable,
-                queue_item_id: None,
-            };
-        assert_eq!(projection.built_at_position, 5);
-        assert_eq!(
-            projection.turns,
-            [
-                CanonicalTranscriptTurn {
-                    position: 0,
-                    role: CanonicalTranscriptRole::User,
-                    segments: vec![text(0, "Fix the build", false)],
-                },
-                CanonicalTranscriptTurn {
-                    position: 1,
-                    role: CanonicalTranscriptRole::Assistant,
-                    segments: vec![text(1, "Looking.", false)],
-                },
-                CanonicalTranscriptTurn {
-                    position: 4,
-                    role: CanonicalTranscriptRole::Assistant,
-                    segments: vec![text(4, "", true)],
-                },
-            ]
-        );
-    }
-
-    // Killed by a reply's pieces or a completion's patched files folded as rows of their own,
-    // which would hand a provider a reply cut where the wire cut it or a result once per file.
-    #[test]
-    fn a_row_stored_in_pieces_folds_as_one_segment_with_its_whole_body() {
-        let log = SessionTestLog::new(schema_parts());
-        let (reply, _) = log.reply("m1", Some(0), "Hello, ");
-        log.reply("m1", Some(0), "world.");
-        let files = json!([
-            { "path": "/repo/a.rs", "unavailable": "absent" },
-            { "path": "/repo/b.rs", "unavailable": "absent" },
-        ]);
-        let body = json!({ "files": files }).to_string();
-        let (completion, _) = log.tool_completion(
-            log.run_id,
-            "call-1",
-            Some(json!([{ "path": "/repo/a.rs", "size": 0 }, { "path": "/repo/b.rs", "size": 0 }])),
-            Some(&body),
-        );
-
-        let reader = log.reader();
-        let reads = SessionEventReads::new(&reader, |_: &SessionId| None);
-        let projection = fold_canonical_transcript(
-            &reads,
-            &log.session_id,
-            &log.run_id,
-            TranscriptExportBound::Unbounded,
-        )
-        .expect("the run's transcript folds");
-
-        let position = |sequence: i64| u64::try_from(sequence).expect("a sequence is not negative");
-        assert_eq!(
-            projection.turns,
-            [CanonicalTranscriptTurn {
-                position: position(reply),
-                role: CanonicalTranscriptRole::Assistant,
-                segments: vec![
-                    CanonicalTranscriptSegment::Text {
-                        position: position(reply),
-                        text: "Hello, world.".to_owned(),
-                        is_content_unavailable: false,
-                        queue_item_id: None,
-                    },
-                    CanonicalTranscriptSegment::ToolResult {
-                        position: position(completion),
-                        tool_call_id: "call-1".to_owned(),
-                        outcome: CanonicalToolResultOutcome::Succeeded,
-                        provenance: CanonicalToolResultProvenance::Provider,
-                        text: body,
-                        is_content_unavailable: false,
-                    },
-                ],
-            }]
-        );
-    }
-}
+mod tests;
