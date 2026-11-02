@@ -9,6 +9,7 @@
 //! Codex's own loader evaluates them.
 
 mod evaluator;
+mod listing;
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -19,7 +20,7 @@ use std::time::{Duration, Instant};
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::approval::RememberedRuleSense;
-use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
+use sidekicks_contracts::wire::text::{TextError, is_ecmascript_whitespace};
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_policy::destructive_git::covers_destructive_git;
@@ -34,7 +35,7 @@ use sidekicks_workspace::git::exclude::{ExcludeError, add_repository_exclude};
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::asks::CodexProjectRules;
-use crate::driver::codex::rules::evaluator::RuleFileEvaluator;
+use crate::driver::codex::rules::evaluator::{EvaluatedRuleFile, RuleFileEvaluator};
 use crate::port::repository_reader::RepositoryReader;
 
 // The folder a project keeps its Codex settings in, and in it and in every other folder Codex
@@ -62,10 +63,11 @@ pub(crate) const RULE_EVALUATION_TIME_LIMIT: Duration = Duration::from_secs(5);
 // that never reaches starlark's cancel check, before the read answers without it.
 const RULE_EVALUATION_WAIT_MARGIN: Duration = Duration::from_secs(1);
 
-// Held on the daemon's rule file across its read and write, so two edits never drop each other's.
-static PROJECT_RULE_FILE_LOCK: LazyLock<KeyedLock<PathBuf>> = LazyLock::new(KeyedLock::new);
+// Held on a rule file the daemon edits across its read and write, so two edits never drop each
+// other's.
+static RULE_FILE_LOCK: LazyLock<KeyedLock<PathBuf>> = LazyLock::new(KeyedLock::new);
 
-/// Why a Codex project rule could not be written, removed or read.
+/// Why a Codex rule could not be written, removed, listed or read.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum CodexRulesError {
     /// Codex keeps no project rule on this kind of ask.
@@ -99,8 +101,8 @@ pub(crate) enum CodexRulesError {
         #[source]
         failure: io::Error,
     },
-    /// The rule file could not be written.
-    #[error("writing the project's rule file failed")]
+    /// A rule file could not be written.
+    #[error("writing a rule file failed")]
     Write(#[source] AtomicWriteError),
     /// The rule file could not be listed in the repository's exclude list.
     #[error("keeping the project's rule file out of commits failed")]
@@ -117,7 +119,7 @@ pub(crate) enum CodexRulesError {
     /// The task evaluating the rule files ended before it answered.
     #[error("evaluating the rule files stopped")]
     EvaluationStopped(#[source] tokio::task::JoinError),
-    /// The daemon's rule file could not be deleted once its last rule went.
+    /// A rule file could not be deleted once its last rule went.
     #[error("deleting the emptied rule file {} failed", path.display())]
     Delete {
         /// The rule file.
@@ -134,6 +136,24 @@ pub(crate) enum CodexRulesError {
     RuleInUneditedFile {
         /// The file that keeps it.
         path: PathBuf,
+    },
+    /// A Codex config file is not TOML, so Codex does not start on it.
+    #[error("Codex does not read the config file {}", path.display())]
+    UnreadableConfig {
+        /// The config file.
+        path: PathBuf,
+        /// The TOML reader's failure.
+        #[source]
+        failure: toml::de::Error,
+    },
+    /// A rule's text, a protected path or a file's path does not fit the settings list's bounds.
+    #[error("a rule or path read from {} does not fit the settings list", path.display())]
+    Unlistable {
+        /// The file it was read from.
+        path: PathBuf,
+        /// The bound it broke.
+        #[source]
+        failure: TextError,
     },
 }
 
@@ -287,11 +307,11 @@ pub(crate) async fn write_codex_project_rule(
         sense: opposite_sense(rule.sense),
         ..rule.clone()
     })?;
-    if is_codex_home_project(sources).await {
+    if is_codex_home_project(sources.project_folder, sources.codex_home).await {
         return Err(CodexRulesError::ProjectIsCodexHome);
     }
     let file_path = project_rule_file(sources.project_folder);
-    let _hold = PROJECT_RULE_FILE_LOCK
+    let _hold = RULE_FILE_LOCK
         .acquire(resolve_lock_key(&file_path).await?)
         .await;
     let text = if let Some(text) = read_if_present(&file_path).await? {
@@ -326,14 +346,14 @@ pub(crate) async fn remove_codex_project_rule(
     rule: &ProviderAskRule,
 ) -> Result<(), CodexRulesError> {
     let removed = compose_rule_lines(rule)?;
-    if is_codex_home_project(sources).await {
+    if is_codex_home_project(sources.project_folder, sources.codex_home).await {
         return Err(CodexRulesError::ProjectIsCodexHome);
     }
     let file_path = project_rule_file(sources.project_folder);
     if let Some(path) = find_rule_elsewhere(sources, &file_path, rule, &removed).await? {
         return Err(CodexRulesError::RuleInUneditedFile { path });
     }
-    let _hold = PROJECT_RULE_FILE_LOCK
+    let _hold = RULE_FILE_LOCK
         .acquire(resolve_lock_key(&file_path).await?)
         .await;
     let text = read_if_present(&file_path).await?.unwrap_or_default();
@@ -376,12 +396,12 @@ pub(crate) async fn read_codex_project_rules(
     let files = read_rule_file_texts(sources).await?;
     let mut rules = Vec::new();
     for (file, evaluated) in evaluate_rule_files(files, sources, AfterFailure::Stop).await? {
-        let file_rules = evaluated.map_err(|reason| CodexRulesError::Unloadable {
+        let evaluated = evaluated.map_err(|reason| CodexRulesError::Unloadable {
             path: file.path.clone(),
             reason,
         })?;
         if file.is_project {
-            rules.extend(file_rules.into_iter().map(|rule| CodexProjectRule {
+            rules.extend(evaluated.rules.into_iter().map(|rule| CodexProjectRule {
                 file: file.path.clone(),
                 rule,
             }));
@@ -406,7 +426,7 @@ async fn find_rule_elsewhere(
             continue;
         }
         let is_kept = match evaluated {
-            Ok(rules) => rules.contains(&wanted),
+            Ok(evaluated) => evaluated.rules.contains(&wanted),
             Err(_) => literal_lines
                 .iter()
                 .any(|line| file.text.contains(line.as_str())),
@@ -426,7 +446,9 @@ async fn read_rule_file_texts(
         (sources.system_folder.join(CODEX_RULES_FOLDER), false),
         (sources.codex_home.join(CODEX_RULES_FOLDER), false),
     ];
-    if sources.is_project_trusted && !is_codex_home_project(sources).await {
+    if sources.is_project_trusted
+        && !is_codex_home_project(sources.project_folder, sources.codex_home).await
+    {
         folders.push((project_rules_folder(sources.project_folder), true));
     }
     let mut files = Vec::new();
@@ -451,7 +473,7 @@ async fn evaluate_rule_files(
     files: Vec<RuleFileText>,
     sources: &CodexRuleSources<'_>,
     after_failure: AfterFailure,
-) -> Result<Vec<(RuleFileText, Result<Vec<ProviderAskRule>, String>)>, CodexRulesError> {
+) -> Result<Vec<(RuleFileText, Result<EvaluatedRuleFile, String>)>, CodexRulesError> {
     let Some(first_file) = files.first() else {
         return Ok(Vec::new());
     };
@@ -492,19 +514,19 @@ async fn evaluate_rule_files(
     finished.map_err(CodexRulesError::EvaluationStopped)
 }
 
-// Whether the project's `.codex` folder is the Codex home, as written or once resolved, which
+// Whether `project_folder`'s `.codex` folder is `codex_home`, as written or once resolved, which
 // Codex never reads as a project's.
-async fn is_codex_home_project(sources: &CodexRuleSources<'_>) -> bool {
-    let project_settings = sources.project_folder.join(CODEX_PROJECT_SETTINGS_FOLDER);
-    if project_settings == sources.codex_home {
+async fn is_codex_home_project(project_folder: &Path, codex_home: &Path) -> bool {
+    let project_settings = project_folder.join(CODEX_PROJECT_SETTINGS_FOLDER);
+    if project_settings == codex_home {
         return true;
     }
     // A path that does not resolve is compared as written, as Codex's loader compares it.
     let resolve = |path: PathBuf| async move { resolve_real_location(&path).await.unwrap_or(path) };
-    resolve(project_settings).await == resolve(sources.codex_home.to_path_buf()).await
+    resolve(project_settings).await == resolve(codex_home.to_path_buf()).await
 }
 
-// The daemon's rule file as its lock knows it, one key for every spelling of the file.
+// A rule file as its lock knows it, one key for every spelling of the file.
 async fn resolve_lock_key(file_path: &Path) -> Result<PathBuf, CodexRulesError> {
     resolve_real_location(file_path)
         .await

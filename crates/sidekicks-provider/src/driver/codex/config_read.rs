@@ -16,6 +16,9 @@ use crate::driver::codex::transport::connection::{CodexAppServerConnection, read
 /// The request that reads Codex's settings for a folder.
 const CONFIG_READ_METHOD: &str = "config/read";
 
+/// The file each of Codex's config layers keeps its settings in, in the layer's folder.
+pub(crate) const CODEX_CONFIG_FILE_NAME: &str = "config.toml";
+
 /// A `config/read` reply: the effective config as `Config` reads it, the layer that set each key,
 /// and each layer where the read asked for them.
 #[derive(Deserialize)]
