@@ -94,8 +94,13 @@ async fn start_codex_window(
         kind: CodexHomeKind::Account(provider_account_id),
     };
     let executable = dependencies.program.resolve(&home).await?;
-    let server_names =
-        list_mcp_server_names(dependencies, &executable, CODEX_SERVER_LIST_DEADLINE).await?;
+    let server_names = list_mcp_server_names(
+        dependencies,
+        &executable,
+        &home.kind,
+        CODEX_SERVER_LIST_DEADLINE,
+    )
+    .await?;
     let mut overrides = compose_lockdown_overrides(&server_names);
     overrides.extend([
         (
