@@ -641,19 +641,18 @@ impl WorkflowRunStarter {
             });
         }
         let bytes = serde_json::to_vec(items).map_err(WorkflowRunStartError::InputJson)?;
-        let size_bytes =
-            SafeInt::new(u64::try_from(bytes.len()).expect("a length fits in 64 bits"))
-                .expect("a payload above the inline cap holds bytes");
-        let item_count = u64::try_from(items.len()).expect("a count fits in 64 bits");
+        let size_bytes = SafeInt::new(SafeInt::from_usize(bytes.len()).get())
+            .expect("a payload above the inline cap holds bytes");
+        let item_count = SafeInt::from_usize(items.len());
         let artifact_id = self
             .payloads
-            .write(session_id, trigger_step, bytes, item_count)
+            .write(session_id, trigger_step, bytes, item_count.get())
             .await
             .map_err(WorkflowRunStartError::Payload)?;
         Ok(WorkflowPayloadRef::Artifact {
             artifact_id,
             size_bytes,
-            item_count: SafeInt::new(item_count).expect("an item count is a safe integer"),
+            item_count,
         })
     }
 

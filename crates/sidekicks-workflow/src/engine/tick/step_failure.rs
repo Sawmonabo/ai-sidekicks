@@ -18,9 +18,7 @@ use crate::engine::tick::branch_cancellation::{
     BranchCancelReason, BranchLoser, BranchWave, cancel_branches,
 };
 use crate::engine::tick::dispatch::error_members;
-use crate::engine::tick::node_settings::{
-    index, main_inputs, main_output_count, place_on_first_output,
-};
+use crate::engine::tick::node_settings::{main_inputs, main_output_count, place_on_first_output};
 use crate::kinds::{StepFailure, uncoded_step_error};
 
 /// The most tries the engine gives a step, whatever its node's `retry.maxTries` asks.
@@ -150,14 +148,15 @@ fn passed_on_items(
                 .map(move |(item_index, item)| (input_index, item_index, item))
         })
         .map(|(input_index, item_index, item)| {
-            let is_failed = failed_item
-                .is_none_or(|failed| input_index == 0 && index(item_index).get() == failed);
+            let is_failed = failed_item.is_none_or(|failed| {
+                input_index == 0 && SafeInt::from_usize(item_index).get() == failed
+            });
             WorkflowItem {
                 json: item.json.clone(),
                 binary: item.binary.clone(),
                 paired_item: Some(WorkflowPairedItems::One(WorkflowPairedItem {
-                    item: index(item_index),
-                    input: Some(index(input_index)),
+                    item: SafeInt::from_usize(item_index),
+                    input: Some(SafeInt::from_usize(input_index)),
                 })),
                 error: is_failed.then(|| error.clone()),
             }

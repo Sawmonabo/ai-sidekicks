@@ -374,10 +374,7 @@ impl RunWalk {
             let count = output_lengths.get(output_index).copied().unwrap_or(0);
             let source = WorkflowStepSource {
                 node_id: node.id.clone(),
-                output_index: SafeInt::new(
-                    u64::try_from(output_index).expect("an output index fits in 64 bits"),
-                )
-                .expect("a kind's output count is far below the largest safe integer"),
+                output_index: SafeInt::from_usize(output_index),
                 execution_index,
             };
             for &target in targets {

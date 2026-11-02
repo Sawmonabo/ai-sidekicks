@@ -111,7 +111,7 @@ pub(crate) fn per_item_calls(main_input: Vec<WorkflowItem>) -> Vec<Vec<Vec<Workf
 pub(crate) fn join_per_item_outputs(calls: Vec<Vec<Vec<WorkflowItem>>>) -> Vec<Vec<WorkflowItem>> {
     let mut joined: Vec<Vec<WorkflowItem>> = Vec::new();
     for (call_index, call_outputs) in calls.into_iter().enumerate() {
-        let call_item = index(call_index);
+        let call_item = SafeInt::from_usize(call_index);
         if joined.len() < call_outputs.len() {
             joined.resize_with(call_outputs.len(), Vec::new);
         }
@@ -144,7 +144,7 @@ fn fill_paired_items(main_input_lengths: &[usize], outputs: &mut [Vec<WorkflowIt
             if item.paired_item.is_none() {
                 let source = if is_single_item { 0 } else { position };
                 item.paired_item = Some(WorkflowPairedItems::One(WorkflowPairedItem {
-                    item: index(source),
+                    item: SafeInt::from_usize(source),
                     input: None,
                 }));
             }
@@ -183,8 +183,8 @@ fn ensure_output_item(
         .enumerate()
         .flat_map(|(input_index, input_length)| {
             (0..*input_length).map(move |item_index| WorkflowPairedItem {
-                item: index(item_index),
-                input: Some(index(input_index)),
+                item: SafeInt::from_usize(item_index),
+                input: Some(SafeInt::from_usize(input_index)),
             })
         })
         .collect();
@@ -234,14 +234,6 @@ fn lineage_at(lineage: Option<WorkflowPairedItems>, call_item: SafeInt<0>) -> Wo
     }
 }
 
-/// `position` in a list of items as the index the wire carries.
-pub(crate) fn index(position: usize) -> SafeInt<0> {
-    u64::try_from(position)
-        .ok()
-        .and_then(SafeInt::new)
-        .expect("a list held in memory is shorter than 2^53 items")
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -287,7 +279,7 @@ mod tests {
     /// The lineage pointing at input item `item` on no named input.
     fn one(item: usize) -> WorkflowPairedItems {
         WorkflowPairedItems::One(WorkflowPairedItem {
-            item: index(item),
+            item: SafeInt::from_usize(item),
             input: None,
         })
     }
@@ -415,8 +407,8 @@ mod tests {
         );
 
         let paired = |item: usize, input: usize| WorkflowPairedItem {
-            item: index(item),
-            input: Some(index(input)),
+            item: SafeInt::from_usize(item),
+            input: Some(SafeInt::from_usize(input)),
         };
         let first = if is_added {
             vec![WorkflowItem {

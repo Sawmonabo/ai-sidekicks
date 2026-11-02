@@ -59,7 +59,6 @@ use crate::engine::ports::{
     ApprovalCardRaiser, FormQuestionRequest, PersonWaitQuestions, PortError, ReplyQuestionRequest,
     StepAdmissionTicket, WorkflowApprovalCardRequest,
 };
-use crate::engine::tick::node_settings::index;
 use crate::engine::tick::{RunScope, StepReport, StepReportKind, StepSettlement};
 use crate::kinds::{PersonAsk, StepFailure, coded_step_error, uncoded_step_error};
 
@@ -389,7 +388,7 @@ fn paired_to_their_index(items: Vec<WorkflowItem>) -> Vec<WorkflowItem> {
         .enumerate()
         .map(|(position, mut item)| {
             item.paired_item = Some(WorkflowPairedItems::One(WorkflowPairedItem {
-                item: index(position),
+                item: SafeInt::from_usize(position),
                 input: None,
             }));
             item

@@ -4,12 +4,13 @@
 
 use std::collections::BTreeMap;
 
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::workflow::definition::document::{WorkflowNode, WorkflowNodeOnError};
 use sidekicks_contracts::workflow::definition::item::WorkflowItem;
 
 use super::{StepDispatch, error_members, fill_step_failure, scrub_outputs};
 use crate::engine::tick::node_settings::{
-    index, join_per_item_outputs, main_input_lengths, main_inputs, per_item_calls, shape_outputs,
+    join_per_item_outputs, main_input_lengths, main_inputs, per_item_calls, shape_outputs,
 };
 use crate::engine::tick::step_failure::{passed_on_outputs, step_retry};
 use crate::engine::tick::{StepReportKind, StepSettlement};
@@ -174,7 +175,7 @@ fn passed_on_call_outputs(
         .flatten()
         .filter_map(|item| item.error.as_mut())
     {
-        *error_members(error).2 = Some(index(call_index));
+        *error_members(error).2 = Some(SafeInt::from_usize(call_index));
     }
     outputs
 }
@@ -185,7 +186,7 @@ fn fill_failed_call(mut failure: StepFailure, call_index: usize) -> StepFailure 
     if let Some(error) = failure.error_mut() {
         error_members(error)
             .2
-            .get_or_insert_with(|| index(call_index));
+            .get_or_insert_with(|| SafeInt::from_usize(call_index));
     }
     failure
 }
