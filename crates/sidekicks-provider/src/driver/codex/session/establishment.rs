@@ -282,6 +282,7 @@ impl CodexSessionEstablishment {
         let (inbound, receiver) = codex_session_inbound(params.session_id);
         let record = CodexSessionRecord::new(CodexEstablishedConversation {
             session_id: params.session_id,
+            lead_agent_id: params.agent_id,
             service,
             inbound,
             thread_id: thread.id.clone(),

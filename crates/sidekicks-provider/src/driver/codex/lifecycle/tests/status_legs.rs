@@ -4,6 +4,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+
 use super::super::intake::CodexSessionIntake;
 use super::{answer_stopping_request, driver_holding};
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
@@ -43,6 +46,7 @@ async fn a_service_exit_ends_each_attached_sessions_status_leg_once() {
         let (mut record, routing) = open_test_record(
             &scripted,
             session_id,
+            AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
             inbound.clone(),
             &parts.delivery,
             parts.pending_compactions.clone(),

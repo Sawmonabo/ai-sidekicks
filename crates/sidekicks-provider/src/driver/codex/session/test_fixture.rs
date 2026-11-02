@@ -197,6 +197,7 @@ impl TestCodexSession {
         let (record, routing) = open_test_record(
             &scripted,
             session_id,
+            lead_agent_id,
             inbound,
             &delivery,
             pending_compactions.clone(),
@@ -541,11 +542,13 @@ impl TestCodexTask {
     }
 }
 
-/// The record of `session_id`'s conversation [`TEST_THREAD`] at Ask on `scripted`'s service, its
-/// queue `inbound` attached there and its frames routed through `delivery`, and its routing band.
+/// The record of `session_id`'s conversation [`TEST_THREAD`] at Ask on `scripted`'s service, led
+/// by `lead_agent_id`, its queue `inbound` attached there and its frames routed through `delivery`,
+/// and its routing band.
 pub(crate) async fn open_test_record(
     scripted: &ScriptedCodexService,
     session_id: SessionId,
+    lead_agent_id: AgentId,
     inbound: CodexSessionInboundSender,
     delivery: &Arc<CodexFrameDelivery>,
     pending_compactions: PendingCompactionRegistry,
@@ -557,6 +560,7 @@ pub(crate) async fn open_test_record(
     let mut routing = CodexSessionRouting::new(pending_compactions);
     let mut record = CodexSessionRecord::new(CodexEstablishedConversation {
         session_id,
+        lead_agent_id,
         service: Arc::clone(&scripted.service),
         inbound,
         thread_id: TEST_THREAD.to_owned(),

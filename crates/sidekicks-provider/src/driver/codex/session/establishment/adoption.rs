@@ -89,6 +89,7 @@ impl CodexSessionEstablishment {
         let (inbound, receiver) = codex_session_inbound(session_id);
         let mut record = CodexSessionRecord::new(CodexEstablishedConversation {
             session_id,
+            lead_agent_id: params.agent_id,
             service: Arc::clone(&service),
             inbound: inbound.clone(),
             thread_id: thread_id.clone(),
