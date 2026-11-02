@@ -64,21 +64,21 @@ const DELETE_PLACE_SQL: &str = "
    WHERE provider_name = @provider_name AND place = coalesce(@place, '')";
 
 const SELECT_READINGS_SQL: &str = "
-  SELECT nullif(place, ''), installation_state, raw_version, parsed_version, latest_version, resolved_path,
-         identity, size, modified_second, modified_nanosecond, checked_at, marker_etag,
-         marker_build
+  SELECT nullif(place, ''), installation_state, raw_version, parsed_version, latest_version,
+         resolved_path, identity, size, modified_second, modified_nanosecond, checked_at,
+         marker_etag, marker_build
     FROM provider_place_readings
    WHERE provider_name = ?1";
 
 const SELECT_READING_SQL: &str = "
-  SELECT nullif(place, ''), installation_state, raw_version, parsed_version, latest_version, resolved_path,
-         identity, size, modified_second, modified_nanosecond, checked_at, marker_etag,
-         marker_build
+  SELECT nullif(place, ''), installation_state, raw_version, parsed_version, latest_version,
+         resolved_path, identity, size, modified_second, modified_nanosecond, checked_at,
+         marker_etag, marker_build
     FROM provider_place_readings
    WHERE provider_name = ?1 AND place = coalesce(?2, '')";
 
-/// The readings table, `provider_place_readings`, which the provider crate's schema registers beside
-/// the provider drivers' own part.
+/// The readings table, `provider_place_readings`, which the provider crate's schema registers
+/// beside the provider drivers' own part.
 pub fn schema_part() -> SchemaPart {
     SchemaPart::new("provider_place_readings", readings_schema_sql())
 }

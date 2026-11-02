@@ -149,10 +149,13 @@ impl MachineSettingsFile {
 
     // Reads the file as it stands, hands it to `change`, writes what comes back, clears the repair
     // and tells every listener, all under the one lock.
-    async fn write_change(
+    async fn write_change<Change>(
         &self,
-        change: impl FnOnce(MachineSettings) -> Result<MachineSettings, MachineSettingsFileError> + Send,
-    ) -> Result<MachineSettings, MachineSettingsFileError> {
+        change: Change,
+    ) -> Result<MachineSettings, MachineSettingsFileError>
+    where
+        Change: FnOnce(MachineSettings) -> Result<MachineSettings, MachineSettingsFileError> + Send,
+    {
         let mut repair = self.repair.lock().await;
         let current = self.read_from_disk(&mut repair).await?;
         let settings = change(current.settings)?;
