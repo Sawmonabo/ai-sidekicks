@@ -140,6 +140,13 @@ impl CodexStoppedHelpers {
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         lock(&self.helpers).retain(|_, stopped| stopped.session_id != session_id);
     }
+
+    /// Whether the helper conversation `helper_thread_id` was stopped at its token limit.
+    pub(crate) fn is_stopped_at_token_limit(&self, helper_thread_id: &str) -> bool {
+        lock(&self.helpers)
+            .get(helper_thread_id)
+            .is_some_and(|stopped| matches!(stopped.reason, HelperStopReason::TokenLimit))
+    }
 }
 
 impl CodexHookAnswerer for CodexStoppedHelpers {

@@ -6,6 +6,7 @@
 use serde_json::value::RawValue;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
+use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -23,6 +24,7 @@ use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::DeliveryOperation;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::delivery::{ChildRunSubagent, DeliveryBinding, InboundDelivery, InboundOutcome};
+use crate::run::state_entry::RunStateEntry;
 
 /// What a thread is to the session's helpers.
 pub(crate) enum ChildRunLookup {
@@ -169,7 +171,9 @@ impl CodexFrameDelivery {
 
     /// Ends the child run of a helper whose last turn ended, with the `subagent.completed` row,
     /// after the asks that turn still held and the pieces it still had waiting; `turn_params` is
-    /// that turn's `turn/completed` params.
+    /// that turn's `turn/completed` params. A helper stopped at its token limit ends stopped for
+    /// it unless its turn failed, and an end after the daemon's interrupt of the helper's run
+    /// says it is that interrupt's; the run's helper route goes with it.
     pub(crate) async fn complete_child(
         &self,
         record: &mut CodexSessionRecord,
@@ -225,6 +229,14 @@ impl CodexFrameDelivery {
             .delivery
             .child_thread_id_by_run_id
             .remove(&bound.child_run_id);
+        let helper_route = self
+            .dependencies
+            .run_routes
+            .retire_helper_run(bound.child_run_id);
+        let is_stopped_at_token_limit = self
+            .dependencies
+            .stopped_helpers
+            .is_stopped_at_token_limit(child_thread_id);
         let completed = LateAppendableRow::AgentSubagentCompleted(subagent_row(
             record,
             &child,
@@ -240,11 +252,24 @@ impl CodexFrameDelivery {
             content: None,
         };
         self.send(record, row, "turn/completed").await;
-        let change = compose_codex_child_terminal(
+        let mut change = compose_codex_child_terminal(
             bound.child_run_id,
             turn_params.get(),
             &mut self.lock_diagnostics(),
         );
+        // The limit's stop interrupts the helper's turn, which may still finish first; a failure
+        // keeps its own words.
+        if is_stopped_at_token_limit
+            && matches!(
+                change.entry,
+                RunStateEntry::Completed { .. } | RunStateEntry::Interrupted { .. }
+            )
+        {
+            change.entry = RunStateEntry::Stopped {
+                intended_close: None,
+                trigger: Some(StopTrigger::TokenLimit),
+            };
+        }
         let end = InboundDelivery::RunLifecycle {
             binding: DeliveryBinding {
                 binding_id: child.binding_id,
@@ -255,7 +280,8 @@ impl CodexFrameDelivery {
             },
             change,
             turn_end: None,
-            is_daemon_interrupt_end: false,
+            is_daemon_interrupt_end: helper_route
+                .is_some_and(|route| route.is_interrupted_by_daemon),
         };
         self.send(record, end, "turn/completed").await;
     }
