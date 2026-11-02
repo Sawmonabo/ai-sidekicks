@@ -73,6 +73,7 @@ pub(crate) mod rewind;
 pub mod run_control;
 pub mod schema;
 pub mod session_control;
+pub mod session_inspector;
 pub(crate) mod streamed_text;
 pub mod task_list;
 #[cfg(any(test, feature = "test-support"))]
