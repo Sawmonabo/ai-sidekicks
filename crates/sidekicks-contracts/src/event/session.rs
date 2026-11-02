@@ -672,13 +672,9 @@ fn git_settled_run(payload: &GitSettledPayload) -> Option<EventRun> {
     reason = "every run rule that reads its payload answers an Option"
 )]
 fn run_queued_run(payload: &AgentRunQueuedPayload) -> Option<EventRun> {
-    let (run_id, run_version) = match payload {
-        AgentRunQueuedPayload::SessionAgent(queued) => (queued.run_id, queued.run_version),
-        AgentRunQueuedPayload::ResolvedAgent(queued) => (queued.run_id, queued.run_version),
-    };
     Some(EventRun {
-        run_id,
-        run_version: Some(run_version),
+        run_id: payload.run_id(),
+        run_version: Some(payload.run_version()),
         turn_number: None,
     })
 }

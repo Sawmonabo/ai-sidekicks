@@ -176,6 +176,14 @@ impl AgentRunQueuedPayload {
             Self::ResolvedAgent(payload) => payload.run_id,
         }
     }
+
+    /// The run's version at creation.
+    pub fn run_version(&self) -> SafeInt<0> {
+        match self {
+            Self::SessionAgent(payload) => payload.run_version,
+            Self::ResolvedAgent(payload) => payload.run_version,
+        }
+    }
 }
 
 /// The TypeScript module of a run's creation record.
