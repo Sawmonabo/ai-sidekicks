@@ -9,7 +9,8 @@ use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
 use super::{
     CodexProjectRule, CodexRuleSources, CodexRulesError, RULE_EVALUATION_TIME_LIMIT,
-    read_codex_project_rules, remove_codex_project_rule, write_codex_project_rule,
+    read_codex_project_rules, remove_codex_project_rule, take_back_codex_project_rule,
+    write_codex_project_rule,
 };
 
 fn rule(
@@ -252,6 +253,38 @@ async fn a_revoke_one_of_whose_edits_would_break_its_file_changes_no_file() {
         matches!(&revoked, Err(CodexRulesError::RevokeRefused { path, .. }) if *path == team_file),
         "{revoked:?}"
     );
+    assert_eq!(
+        fs::read_to_string(&home_file).expect("the home file reads"),
+        home_text
+    );
+    assert_eq!(
+        fs::read_to_string(&team_file).expect("the team file reads"),
+        team_text
+    );
+}
+
+// A write into another of the project's folders failed, so the rule this folder took is taken
+// back: out of the daemon's own file alone, the person's copy in the home file and the team's in
+// the project kept. Killed by a take-back that removes the rule wherever a file makes it.
+#[tokio::test]
+async fn taking_back_a_written_rule_leaves_the_persons_and_the_teams_copies() {
+    let places = Places::new();
+    let home_text = "prefix_rule(pattern=[\"cargo\", \"build\"])\n";
+    let home_file = places.write("home/rules/default.rules", home_text);
+    let team_text = "prefix_rule(pattern=[\"cargo\", \"build\"])\n";
+    let team_file = places.write("project/.codex/rules/team.rules", team_text);
+    let rule = allow_command("cargo build");
+    places
+        .write_rule(None, &rule)
+        .await
+        .expect("the rule is written");
+    let paths = places.paths("home", "project");
+
+    take_back_codex_project_rule(&places.sources(&paths, true), &rule)
+        .await
+        .expect("the written rule is taken back");
+
+    assert!(!rule_file(&places.path("project")).exists());
     assert_eq!(
         fs::read_to_string(&home_file).expect("the home file reads"),
         home_text

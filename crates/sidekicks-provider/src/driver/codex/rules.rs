@@ -302,14 +302,14 @@ impl CodexProjectRules for CodexProjectRuleFiles {
         .boxed()
     }
 
-    fn remove<'call>(
+    fn take_back<'call>(
         &'call self,
         codex_home: &'call Path,
         project_folder: &'call Path,
         rule: &'call ProviderAskRule,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>> {
         async move {
-            remove_codex_project_rule(&self.sources(codex_home, project_folder), rule).await
+            take_back_codex_project_rule(&self.sources(codex_home, project_folder), rule).await
         }
         .boxed()
     }
@@ -360,6 +360,47 @@ pub(crate) async fn write_codex_project_rule(
         .collect();
     lines.extend(written.iter().map(String::as_str));
     write_rule_file(&file_path, &lines).await
+}
+
+/// Takes the lines [`write_codex_project_rule`] writes for `rule` back out of the project's own
+/// rule file, where a write into another of the project's folders failed, and deletes the file once
+/// it holds no rule. No other rule file is read or touched, so a copy of the rule the person keeps
+/// in a home or project file stays; a file without the lines needs nothing. Refuses the rules the
+/// write refuses and a project whose `.codex` is the Codex home; fails as the file cannot be read,
+/// written or deleted.
+pub(crate) async fn take_back_codex_project_rule(
+    sources: &CodexRuleSources<'_>,
+    rule: &ProviderAskRule,
+) -> Result<(), CodexRulesError> {
+    let written = compose_rule_lines(rule)?;
+    if is_codex_home_project(sources.project_folder, sources.codex_home).await {
+        return Err(CodexRulesError::ProjectIsCodexHome);
+    }
+    let file_path = project_rule_file(sources.project_folder);
+    let _hold = RULE_FILE_LOCK
+        .acquire(resolve_lock_key(&file_path).await?)
+        .await;
+    let Some(text) = read_if_present(&file_path).await? else {
+        return Ok(());
+    };
+    let lines: Vec<&str> = rule_lines(&text).collect();
+    let kept: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|line| !written.iter().any(|rule_line| rule_line == line))
+        .collect();
+    if kept.len() == lines.len() {
+        return Ok(());
+    }
+    if kept.is_empty() {
+        return tokio::fs::remove_file(&file_path).await.map_err(|failure| {
+            CodexRulesError::Delete {
+                path: file_path.clone(),
+                failure,
+            }
+        });
+    }
+    write_rule_file(&file_path, &kept).await
 }
 
 /// Takes a revoked rule out of every home and project rule file Codex reads for the project's

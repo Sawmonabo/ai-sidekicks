@@ -78,8 +78,8 @@ pub(crate) struct CodexAskOwners {
     pub(crate) questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
 }
 
-/// Writes a project's rule into, or takes it back out of, one of the project's working folders,
-/// reading the rule files Codex reads there.
+/// Writes a project's rule into one of the project's working folders, reading the rule files Codex
+/// reads there, or takes back what it wrote.
 pub(crate) trait CodexProjectRules: Send + Sync {
     /// Writes `rule` into `project_folder`'s own rule file, read beside the rules of `codex_home`,
     /// the session's. Fails as the write fails or Codex would refuse the rule.
@@ -90,9 +90,10 @@ pub(crate) trait CodexProjectRules: Send + Sync {
         rule: &'call ProviderAskRule,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>>;
 
-    /// Takes `rule` out of each rule file of `codex_home`, the session's, and of `project_folder`
-    /// that makes it. Fails as the removal fails.
-    fn remove<'call>(
+    /// Takes the lines `write` wrote for `rule` back out of `project_folder`'s own rule file, read
+    /// beside the rules of `codex_home`, the session's, leaving every other rule file as it is.
+    /// Fails as the removal fails.
+    fn take_back<'call>(
         &'call self,
         codex_home: &'call Path,
         project_folder: &'call Path,
@@ -303,7 +304,7 @@ impl CodexAskHandOff {
                     let codex_home = codex_home.clone();
                     async move {
                         project_rules
-                            .remove(&codex_home, project_folder, rule)
+                            .take_back(&codex_home, project_folder, rule)
                             .await
                     }
                     .boxed()
