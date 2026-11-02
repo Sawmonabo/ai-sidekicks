@@ -3,6 +3,7 @@
 //! composed once the run engine and the other handles the daemon registers after the drivers are
 //! built, on the first call that needs a session.
 
+pub(super) mod account_move;
 mod controls;
 mod effects;
 pub(super) mod intake;
@@ -30,6 +31,7 @@ use crate::command::askpass::command_askpass_program_path;
 use crate::command::channel::command_channel_root;
 use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::codex::account::CodexAccountLegs;
 use crate::driver::codex::account_home_logs::AccountHomeLogExpiry;
 use crate::driver::codex::calibration::CodexCompactionLimits;
 use crate::driver::codex::commands::{CodexCommandSource, CodexProviderCommandCache};
@@ -62,6 +64,7 @@ use crate::driver::codex::service::program::CodexInstalledProgram;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::driver::codex::service::supervisor::{CodexServiceDependencies, CodexServiceId};
+use crate::driver::codex::service::switching::CodexSwitchingAccount;
 use crate::driver::codex::session::calls::CodexSessionCallDependencies;
 use crate::driver::codex::session::controls::CodexSessionControls;
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
@@ -129,6 +132,10 @@ pub(crate) struct CodexDriver {
     model_windows: Arc<CodexModelWindowCache>,
     // The services whose rate limits were read since they first started.
     rate_limits_read: Mutex<HashSet<CodexServiceId>>,
+    // The one filing of rate limits, which the session pieces and the account legs share.
+    rate_limits: CodexRateLimitFiling,
+    /// Codex's own acts on one account's home, which the account plane runs.
+    pub(crate) account_legs: Arc<CodexAccountLegs>,
     // Held through a capability read, so a second one never empties the scratch home the first
     // runs in.
     capability_read: tokio::sync::Mutex<()>,
@@ -201,31 +208,44 @@ impl CodexDriver {
             wrapper_program: command_wrapper_program_path(&link_folder),
             askpass_program: command_askpass_program_path(&link_folder),
         });
+        let dependencies = Arc::new(CodexServiceDependencies {
+            spawner: services.spawner.clone(),
+            provider_services: Arc::clone(&services.provider_services),
+            processes: Arc::clone(&services.processes),
+            child_records: Arc::clone(&services.child_records),
+            program: Arc::new(CodexInstalledProgram::new(
+                Arc::clone(&services.command_search),
+                services.home_folder.clone(),
+                Arc::clone(&services.base_environment),
+                Arc::clone(&services.reserved_names),
+            )),
+            data_folder: services.data_folder.clone(),
+            logs_folder: service_log_folder(&services.data_folder),
+            additional_config_overrides: Vec::new(),
+            startup_timeout: CODEX_SERVICE_STARTUP_TIMEOUT,
+            dispatches_hook_mode: services.dispatches_hook_mode,
+            session_shell_kind: shells.session_kind,
+            events: Arc::new(CodexDriverServiceEvents::new(Arc::clone(&link))),
+            release: Arc::clone(&release),
+            drains: LastingServiceDrains::default(),
+            tasks: tasks.clone(),
+            exec_relay,
+            switching: Arc::new(CodexSwitchingAccount::new(Arc::clone(
+                &services.ports.provider_accounts,
+            ))),
+        });
         let registry = Arc::new(CodexServiceRegistry::new(
             Arc::clone(&homes) as _,
-            Arc::new(CodexServiceDependencies {
-                spawner: services.spawner.clone(),
-                provider_services: Arc::clone(&services.provider_services),
-                processes: Arc::clone(&services.processes),
-                child_records: Arc::clone(&services.child_records),
-                program: Arc::new(CodexInstalledProgram::new(
-                    Arc::clone(&services.command_search),
-                    services.home_folder.clone(),
-                    Arc::clone(&services.base_environment),
-                    Arc::clone(&services.reserved_names),
-                )),
-                data_folder: services.data_folder.clone(),
-                logs_folder: service_log_folder(&services.data_folder),
-                additional_config_overrides: Vec::new(),
-                startup_timeout: CODEX_SERVICE_STARTUP_TIMEOUT,
-                dispatches_hook_mode: services.dispatches_hook_mode,
-                session_shell_kind: shells.session_kind,
-                events: Arc::new(CodexDriverServiceEvents::new(Arc::clone(&link))),
-                release: Arc::clone(&release),
-                drains: LastingServiceDrains::default(),
-                tasks: tasks.clone(),
-                exec_relay,
-            }),
+            Arc::clone(&dependencies),
+        ));
+        // One filing, so the account legs' reads and the services' pushes share what was filed.
+        let rate_limits = CodexRateLimitFiling::new(Arc::clone(&services.ports.usage));
+        let account_legs = Arc::new(CodexAccountLegs::new(
+            Arc::clone(&registry),
+            dependencies,
+            rate_limits.clone(),
+            Arc::clone(&services.ports.provider_account_registry),
+            Arc::clone(&services.runtime_bindings),
         ));
         let slots = Arc::new(CodexSessionSlots::new());
         let views = Arc::new(CodexSessionViews::default());
@@ -275,6 +295,8 @@ impl CodexDriver {
             model_windows: Arc::new(CodexModelWindowCache::new(Arc::clone(&compaction_limits))),
             compaction_limits,
             rate_limits_read: Mutex::default(),
+            rate_limits,
+            account_legs,
             capability_read: tokio::sync::Mutex::default(),
             tasks,
             link,
@@ -284,7 +306,7 @@ impl CodexDriver {
 
     /// The session pieces, composed on first use. Fails while the run engine, its dispatch or the
     /// queue's binding of the daemon's own turns is not registered yet.
-    fn parts(&self) -> Result<&Arc<CodexDriverParts>, DriverError> {
+    pub(super) fn parts(&self) -> Result<&Arc<CodexDriverParts>, DriverError> {
         if let Some(parts) = self.parts.get() {
             return Ok(parts);
         }
@@ -317,6 +339,7 @@ impl CodexDriver {
             pending_compactions: self.pending_compactions.clone(),
             stopped_helpers: Arc::clone(&self.stopped_helpers),
             effects,
+            provider_accounts: Arc::clone(&ports.provider_accounts),
         }));
         let hand_off = Arc::new(CodexAskHandOff::new(CodexAskHandOffDependencies {
             delivery: Arc::clone(&delivery),
@@ -348,7 +371,7 @@ impl CodexDriver {
                 command_channel_root: self.command_channel_root.clone(),
             },
         ));
-        let rate_limits = CodexRateLimitFiling::new(Arc::clone(&self.ports.usage));
+        let rate_limits = self.rate_limits.clone();
         let recovery = Arc::new(CodexServiceRecovery::new(
             CodexServiceRecoveryDependencies {
                 slots: Arc::clone(&self.slots),

@@ -1,15 +1,19 @@
 //! A session's log for tests: the events and their bodies written through the daemon's insert, so
 //! each row's join and run stamps are the ones a live append makes, and a stored body damaged.
 
-use rusqlite::Connection;
+use rusqlite::{Connection, params_from_iter};
 use serde_json::{Value, json};
+use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use zstd::zstd_safe;
 
 use crate::database::schema::SchemaParts;
+use crate::database::statement::{StatementBindings, WriteStatement, named_bindings};
 use crate::database::writer::test_file::{TestDatabase, insert_test_event, test_session_id};
+use crate::events::session::appender::UnsequencedEventEnvelope;
+use crate::events::session::version::SESSION_EVENT_VERSION;
 
 /// The instant every test row occurs at unless a test names another.
 pub const AT: &str = "2026-10-14T09:00:00.000Z";
@@ -136,5 +140,36 @@ impl SessionTestLog {
                 rusqlite::params![stored, sequence],
             )
             .expect("the damaged body is written");
+    }
+}
+
+/// The stored form of `envelope` at `sequence`, as a projection rebuild reads it back from the log.
+pub fn stored_envelope(envelope: &UnsequencedEventEnvelope, sequence: usize) -> EventEnvelope {
+    serde_json::from_value(json!({
+        "id": envelope.id.as_str(),
+        "sessionId": envelope.session_id(),
+        "sequence": sequence,
+        "occurredAt": envelope.occurred_at.as_str(),
+        "category": envelope.category(),
+        "type": envelope.event_type(),
+        "payload": envelope.payload(),
+        "version": &*SESSION_EVENT_VERSION,
+    }))
+    .expect("the stored envelope reads")
+}
+
+/// Runs each of `statements` on `connection` in order, as a projection's write does.
+pub fn run_write_statements(connection: &Connection, statements: &[WriteStatement]) {
+    for statement in statements {
+        match &statement.bindings {
+            StatementBindings::None => connection.execute(&statement.sql, []),
+            StatementBindings::Positional(values) => {
+                connection.execute(&statement.sql, params_from_iter(values))
+            }
+            StatementBindings::Named(values) => {
+                connection.execute(&statement.sql, named_bindings(values).as_slice())
+            }
+        }
+        .expect("the projection's statement runs");
     }
 }

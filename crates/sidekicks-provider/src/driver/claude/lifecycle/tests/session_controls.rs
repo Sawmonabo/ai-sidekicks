@@ -18,7 +18,7 @@ use sidekicks_contracts::wire::BoolLiteral;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
+use sidekicks_platforms::{PathRules, RUNS_COMMAND_WRAPPER};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
@@ -26,6 +26,7 @@ use sidekicks_workspace::git::process::test_repository::make_test_repository;
 use super::{resume_params, start_params};
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::lifecycle::ClaudeDriver;
+use crate::driver::claude::session::conversation_home::claude_conversation_home_metadata;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{
     ScriptedDriver, create_params, end_turn_of,
@@ -47,20 +48,22 @@ use crate::driver::contract::params_and_results::RunOpeningItem;
 use crate::driver::run_control::InterruptRunRequest;
 use crate::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, MoveSessionToForkParams,
+    ResumeSessionParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
 use crate::port::running_command_publisher::RunningCommandParams;
+use crate::port::usage_sink::MeteredUsageOwner;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::posture::compose_execution_posture;
 use crate::run::state_entry::RunStateEntry;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 // The full id the build resolves the session's `opus` to.
-const FULL_MODEL_ID: &str = "claude-opus-4-7";
+pub(super) const FULL_MODEL_ID: &str = "claude-opus-4-7";
 
 // A one-turn reply answering `text`, reporting `usage` where given.
-fn one_turn_reply(text: &str, usage: Option<UsageAxisCounts>) -> ClaudeOneTurnReply {
+pub(super) fn one_turn_reply(text: &str, usage: Option<UsageAxisCounts>) -> ClaudeOneTurnReply {
     ClaudeOneTurnReply {
         text: text.to_owned(),
         provider_message_id: None,
@@ -70,11 +73,12 @@ fn one_turn_reply(text: &str, usage: Option<UsageAxisCounts>) -> ClaudeOneTurnRe
             cumulative,
             declared_per_turn: None,
         }),
+        compaction_summary: None,
     }
 }
 
 // Input and output counts.
-fn counts(input: u64, output: u64) -> UsageAxisCounts {
+pub(super) fn counts(input: u64, output: u64) -> UsageAxisCounts {
     UsageAxisCounts {
         input: Some(input),
         output: Some(output),
@@ -377,12 +381,13 @@ async fn a_staged_reviews_command_is_stopped_and_moved_on_the_reviews_own_proces
 }
 
 // Killed by running a side question in the session's own posture instead of plan mode, on the
-// alias instead of its full id, by refusing one on a session at rest, by metering the copy's turn
-// from the session's reported base instead of from zero (a `result`'s usage is its own turn's), and
-// by a copy that keeps an askpass or channel variable or sets only `GIT_TERMINAL_PROMPT` of the
-// no-prompt environment.
+// alias instead of its full id, by refusing one on a session at rest, by metering the fork's total
+// from zero or the live parent's cumulative read as zero instead of less the parent's, and by a
+// copy that keeps an askpass or channel variable or sets only `GIT_TERMINAL_PROMPT` of the
+// no-prompt environment, and by a copy at rest started in its account's home rather than the one
+// its binding names as holding its conversation, where a switch left it.
 #[tokio::test(start_paused = true)]
-async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_own_turn() {
+async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_the_fork_less_the_parent() {
     let fixture = ScriptedDriver::new();
     fixture
         .services
@@ -416,12 +421,25 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
         })
         .await
         .expect("the session opens");
+    let live_start = fixture.starts.take_started().pop().expect("a start");
+    let routes = &fixture
+        .driver
+        .composed_parts()
+        .expect("composed")
+        .run_start
+        .routes;
+    let parent_message = json!({"type": "assistant", "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "message": {"id": "message-1", "role": "assistant", "content": [],
+            "usage": {"input_tokens": 120, "output_tokens": 15}}});
+    hand_scripted_frame(&*live_start.listener, routes, live_session, &parent_message);
     let resting_session = new_session_id();
     fixture.starts.script_catalog(json!({"models": [
         {"value": "opus", "displayName": "Opus", "resolvedModel": FULL_MODEL_ID},
     ]}));
     fixture.usage.report_prior(counts(100, 10));
-    fixture.starts.script_one_turn(one_turn_reply("live", None));
+    fixture
+        .starts
+        .script_one_turn(one_turn_reply("live", Some(counts(180, 40))));
     fixture
         .starts
         .script_one_turn(one_turn_reply("at rest", Some(counts(150, 30))));
@@ -439,9 +457,14 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
         .await
         .expect("the live session's question is answered");
     assert_eq!(answered(&fixture), 1);
+    let conversation_home = fixture.folder.path().join("conversation-home");
+    let resting_resume = ResumeSessionParams {
+        runtime_metadata: claude_conversation_home_metadata(&conversation_home),
+        ..resume_params(resting_session)
+    };
     fixture
         .driver
-        .ask_side_question(ask(resting_session, Some(resume_params(resting_session))))
+        .ask_side_question(ask(resting_session, Some(resting_resume)))
         .await
         .expect("the resting session's question is answered");
     assert_eq!(answered(&fixture), 2);
@@ -459,6 +482,7 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
         model: FULL_MODEL_ID.to_owned(),
         resume_handle: Some(resume_handle),
         permission_mode: Some(ClaudePermissionMode::Plan),
+        text: "Why?".to_owned(),
     };
     assert_eq!(
         fixture.starts.take_one_turns(),
@@ -495,6 +519,10 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
     .into();
     let environments = fixture.starts.take_one_turn_environments();
     assert_eq!(environments.len(), 2);
+    assert_eq!(
+        PathRules::NATIVE.environment_value(&environments[1], "CLAUDE_CONFIG_DIR"),
+        conversation_home.to_str()
+    );
     for environment in &environments {
         assert_eq!(prompt_variables(environment), no_prompt);
     }
@@ -502,6 +530,7 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
         .usage
         .metered()
         .into_iter()
+        .filter(|metered| matches!(metered.owner, MeteredUsageOwner::SideQuestion))
         .map(|metered| {
             (
                 metered.session_id,
@@ -510,7 +539,13 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
             )
         })
         .collect();
-    assert_eq!(metered, [(resting_session, Some(150), Some(30))]);
+    assert_eq!(
+        metered,
+        [
+            (live_session, Some(60), Some(25)),
+            (resting_session, Some(50), Some(20)),
+        ]
+    );
 }
 
 // Killed by answering a side question the model refused as an internal failure.
@@ -588,6 +623,7 @@ async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
     let claude = Arc::new(ClaudeDriver::with_starts(
         &fixture.services,
         fixture.starts.clone(),
+        fixture.starts.keychain.clone(),
     ));
     let driver: Arc<dyn ProviderDriver> = claude.clone();
     let channel = Arc::new(ScriptedChannel::default());

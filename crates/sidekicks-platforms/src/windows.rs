@@ -41,6 +41,7 @@ pub(crate) mod processes;
 pub(crate) mod real_path;
 pub(crate) mod run_folder;
 pub(crate) mod running_program;
+pub(crate) mod secret_pipe;
 pub(crate) mod session_child;
 pub(crate) mod shell_folder_start;
 pub(crate) mod shell_start;

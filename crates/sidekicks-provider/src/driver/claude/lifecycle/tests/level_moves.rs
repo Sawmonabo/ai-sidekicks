@@ -106,7 +106,7 @@ async fn a_reported_sandboxed_level_fails_closed_and_tells_only_where_the_sandbo
             .all(|notice| notice["level"] == "sandboxed")
     );
     live.permission_mode
-        .note_report("dontAsk", "system", &live.admitted_provider_account_id);
+        .note_report("dontAsk", "system", &live.admitted_provider_account_id());
     assert_eq!(live.permission_mode.reported_level(), None);
 }
 
@@ -141,7 +141,7 @@ async fn a_reported_mode_is_followed_with_nothing_sent() {
             .expect("the reported mode is followed");
         assert_eq!(lock(&live.settings).session_mode, mode);
         live.permission_mode
-            .note_report(word, "system", &live.admitted_provider_account_id);
+            .note_report(word, "system", &live.admitted_provider_account_id());
         assert_eq!(live.permission_mode.reported_level(), None, "{word}");
     }
     assert!(

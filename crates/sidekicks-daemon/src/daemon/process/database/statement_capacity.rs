@@ -6,6 +6,7 @@ use sidekicks_approval::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 use sidekicks_artifact::plans::service::PLANS_STATEMENT_CAPACITY;
 use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_mcp::binding::store::MCP_BINDING_STORE_STATEMENT_CAPACITY;
+use sidekicks_provider::account::resolver::PROVIDER_ACCOUNTS_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::DRIVERS_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::capabilities::writer::DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY;
 use sidekicks_provider::runtime_binding::store::RUNTIME_BINDING_STORE_STATEMENT_CAPACITY;
@@ -34,6 +35,7 @@ use sidekicks_session::questions::service::QUESTION_STATEMENT_CAPACITY;
 use sidekicks_session::readings::READINGS_STATEMENT_CAPACITY;
 use sidekicks_session::related::ranking::RELATED_RANKING_STATEMENT_CAPACITY;
 use sidekicks_session::review_note::store::REVIEW_NOTE_STORE_STATEMENT_CAPACITY;
+use sidekicks_session::run::agent::RUN_AGENT_STATEMENT_CAPACITY;
 use sidekicks_session::run::binding_cursors::RUN_BINDING_CURSORS_STATEMENT_CAPACITY;
 use sidekicks_session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
 use sidekicks_session::run::folders::SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY;
@@ -115,6 +117,7 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + PROJECT_RECORDS_STATEMENT_CAPACITY
     + PROJECT_SESSION_ACTIVITY_STATEMENT_CAPACITY
     + PROJECTION_REBUILD_STATEMENT_CAPACITY
+    + PROVIDER_ACCOUNTS_STATEMENT_CAPACITY
     + PROVIDER_CHOICE_STATEMENT_CAPACITY
     + PROVIDER_SESSIONS_STATEMENT_CAPACITY
     + QUESTION_STATEMENT_CAPACITY
@@ -129,7 +132,6 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + RESTART_SETTLE_STATEMENT_CAPACITY
     + RETENTION_STATEMENT_CAPACITY
     + REVIEW_NOTE_STORE_STATEMENT_CAPACITY
-    // The reviewer denials' set and the run engine's each hold the run agent reader's.
     + REVIEWER_DENIALS_STATEMENT_CAPACITY
     + RUN_BINDING_CURSORS_STATEMENT_CAPACITY
     + RUN_ENGINE_STATEMENT_CAPACITY
@@ -168,4 +170,7 @@ pub(super) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + WORKSPACE_SERVICE_STATEMENT_CAPACITY
     + WORKTREE_CREATOR_STATEMENT_CAPACITY
     + WORKTREE_SERVICE_STATEMENT_CAPACITY
-    + WORKTREE_STATUS_READER_STATEMENT_CAPACITY;
+    + WORKTREE_STATUS_READER_STATEMENT_CAPACITY
+    // The reviewer denials', the run engine's and the live run folders' sets each hold the run
+    // agent reader's, which is counted once.
+    - 2 * RUN_AGENT_STATEMENT_CAPACITY;

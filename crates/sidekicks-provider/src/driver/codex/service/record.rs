@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use sidekicks_platforms::{
     LeftoverSweep, ProcessRecord, create_private_folder, real_path, replace_file_atomically,
 };
+use sidekicks_std::missing_entry::MissingEntry as _;
 
 use crate::service_log::provider_home_key;
 
@@ -166,10 +167,10 @@ pub(crate) fn one_recorded_file_per_folder(
 // Every record file kept under `data_folder`, of every Codex folder, a folder's records listed
 // together; none when no record was ever kept. Blocking. Fails with a folder's read error.
 fn recorded_files(data_folder: &Path) -> io::Result<Vec<LastingServiceRecordFile>> {
-    let folders = match std::fs::read_dir(data_folder.join(RECORD_FOLDER_NAME)) {
-        Ok(folders) => folders,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(error),
+    let Some(folders) =
+        std::fs::read_dir(data_folder.join(RECORD_FOLDER_NAME)).none_if_missing()?
+    else {
+        return Ok(Vec::new());
     };
     let mut files = Vec::new();
     for folder in folders {
@@ -232,10 +233,8 @@ impl LockedServiceRecord {
     /// The record kept, or `None` when none is. Blocking. Fails with the read's error, and with
     /// `InvalidData` for a file that does not read as a record.
     pub(crate) fn read(&self) -> io::Result<Option<LastingServiceRecord>> {
-        let text = match std::fs::read(&self.file.record) {
-            Ok(text) => text,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error),
+        let Some(text) = std::fs::read(&self.file.record).none_if_missing()? else {
+            return Ok(None);
         };
         serde_json::from_slice(&text)
             .map(Some)
@@ -258,11 +257,9 @@ impl LockedServiceRecord {
     /// Removes the record, for a service that has ended; a missing record is already gone.
     /// Blocking. Fails with the removal's error.
     pub(crate) fn remove(&self) -> io::Result<()> {
-        match std::fs::remove_file(&self.file.record) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error),
-        }
+        std::fs::remove_file(&self.file.record)
+            .none_if_missing()
+            .map(|_removed| ())
     }
 }
 

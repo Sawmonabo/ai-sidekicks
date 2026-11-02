@@ -195,6 +195,18 @@ impl ExecutionEpochs {
         self.cursors.remove(binding_id);
     }
 
+    /// Moves `binding_id`'s cursor onto `provider_account_id`, the account its binding now runs
+    /// under; a binding with no cursor open has nothing to move.
+    pub(crate) fn move_account(
+        &mut self,
+        binding_id: &RuntimeBindingId,
+        provider_account_id: ProviderAccountId,
+    ) {
+        if let Some(cursor) = self.cursors.get_mut(binding_id) {
+            cursor.binding.provider_account_id = provider_account_id;
+        }
+    }
+
     /// The binding a cursor counts for. Fails with [`EpochCursorError::NotOpen`] for a binding
     /// with no cursor open.
     pub fn binding(

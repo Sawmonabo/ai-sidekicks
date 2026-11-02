@@ -25,6 +25,7 @@ pub(crate) mod private_folder;
 pub(crate) mod process;
 pub(crate) mod real_path;
 pub(crate) mod run_folder;
+pub(crate) mod secret_pipe;
 pub(crate) mod shell_folder_start;
 pub(crate) mod shell_start;
 pub(crate) mod shell_start_confirmation;

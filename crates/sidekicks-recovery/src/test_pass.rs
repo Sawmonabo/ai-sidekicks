@@ -37,10 +37,8 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::{
     registry_of_first_providers, test_driver_services,
 };
-use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, RuntimeBindingStore};
-use sidekicks_provider::runtime_binding::test_store::{
-    binding_input, spawn_config_on, spawned_build, test_provider_account_id,
-};
+use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
+use sidekicks_provider::runtime_binding::test_store::bind_resumable;
 use sidekicks_queue::delivery::test_fixture::test_delivery;
 use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::provider_session::test_opening::{
@@ -592,19 +590,13 @@ impl PassFixture {
         run_id: RunId,
         provider_index: usize,
     ) -> RuntimeBindingId {
-        self.bindings
-            .create(CreateRuntimeBindingInput {
-                run_id,
-                provider_name: ProviderId::new(PROVIDERS[provider_index].id.to_owned())
-                    .expect("a table id is a provider id"),
-                ..binding_input(
-                    spawn_config_on(test_provider_account_id()),
-                    spawned_build("1.0.0", "/opt/provider/bin"),
-                )
-            })
-            .await
-            .expect("the run's binding is recorded")
-            .id
+        bind_resumable(
+            &self.bindings,
+            run_id,
+            ProviderId::new(PROVIDERS[provider_index].id.to_owned())
+                .expect("a table id is a provider id"),
+        )
+        .await
     }
 
     /// Appends `event`, a session event's `type` and `payload` as JSON, through the engine.

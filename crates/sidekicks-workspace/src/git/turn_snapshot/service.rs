@@ -24,7 +24,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_platforms::{create_private_folder, remove_tree};
+use sidekicks_platforms::{create_private_folder, remove_tree_awaited};
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::random_hex::random_hex;
 use sidekicks_store::database::connection::read_pool::{
@@ -293,8 +293,7 @@ impl TurnSnapshotService {
         let mut lock_file = scratch_index.clone().into_os_string();
         lock_file.push(".lock");
         for removal_path in [scratch_index, PathBuf::from(lock_file)] {
-            let removing = removal_path.clone();
-            let removed = joined(tokio::task::spawn_blocking(move || remove_tree(&removing)).await);
+            let removed = remove_tree_awaited(&removal_path).await;
             if let Err(failure) = removed {
                 CaptureDiagnostic::ScratchIndexCleanupFailed {
                     run_id: input.run_id,

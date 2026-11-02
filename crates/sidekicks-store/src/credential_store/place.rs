@@ -75,6 +75,11 @@ impl PlaceRecord {
         }
     }
 
+    /// Where the secrets end up: a move's destination while one is under way, else the place.
+    pub fn destination(self) -> SecretsPlace {
+        self.moving_to.unwrap_or(self.place)
+    }
+
     /// Whether the record names the operating system's store, as the place or a move's end.
     pub(crate) fn names_operating_system(self) -> bool {
         self.place == SecretsPlace::OperatingSystem
@@ -90,7 +95,7 @@ pub fn record_path(data_folder: &Path) -> PathBuf {
 /// The record at `path`, or `None` when there is none. Fails with [`KeychainRefusal`] when it
 /// cannot be read or does not parse; the file is then left as it is, since a new pick could strand
 /// the items.
-pub(crate) async fn read_record(path: &Path) -> Result<Option<PlaceRecord>, KeychainRefusal> {
+pub async fn read_record(path: &Path) -> Result<Option<PlaceRecord>, KeychainRefusal> {
     let text = match tokio::fs::read(path).await.none_if_missing() {
         Ok(Some(text)) => text,
         Ok(None) => return Ok(None),

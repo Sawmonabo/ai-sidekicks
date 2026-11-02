@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::control::ProcessExit;
 
 use crate::driver::codex::lifecycle::CodexDriverParts;
@@ -46,7 +47,10 @@ impl CodexDriverServiceEvents {
 // Logs a service event that came before any session composed the pieces.
 fn log_event_before_any_session(service: &CodexService, event: &'static str) {
     tracing::debug!(
-        codex_home = %service.home().codex_home.display(),
+        provider_account_id = service
+            .provider_account_id()
+            .as_ref()
+            .map(ProviderAccountId::as_str),
         event,
         "a codex service event came before any session, with nothing to act on"
     );

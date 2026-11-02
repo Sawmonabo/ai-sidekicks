@@ -1,7 +1,8 @@
 //! The provider accounts' part of the daemon's schema: the registry of the accounts this machine
-//! may run against, truth no event rebuilds, and the newest quota reading per account and limit,
-//! a cache each read replaces. No column holds credential material: credentials live in each
-//! account's credential home, written by the provider's own tooling.
+//! may run against, truth no event rebuilds; the newest quota reading per account and limit, a
+//! cache each read replaces; and one row per turn an account paid for, projected from the session
+//! log's usage events. No column holds credential material: credentials live in each account's
+//! credential home, written by the provider's own tooling.
 
 use sidekicks_contracts::provider::account::record::{
     BillingMode, MemoryImportOutcomeKind, ProviderAccountHealthState,
@@ -15,6 +16,7 @@ use crate::database::sql_list::{sql_list_of, sql_list_of_every};
 pub(super) fn provider_accounts_schema_sql() -> String {
     let billing_modes = sql_list_of_every::<BillingMode>();
     let health_states = sql_list_of_every::<ProviderAccountHealthState>();
+    let indeterminate = <&'static str>::from(ProviderAccountHealthState::Indeterminate);
     let auth_modes = sql_list_of_every::<ProviderAuthMode>();
     let imported = <&'static str>::from(MemoryImportOutcomeKind::Imported);
     let memory_import_outcomes =
@@ -53,6 +55,13 @@ CREATE TABLE provider_accounts (
                             CHECK(health_state IS NULL OR health_state IN ({health_states})),
   -- When health_state was observed; not updated_at, which a relabel moves.
   health_observed_at        TEXT,
+  -- The state of the last reading that could tell, never indeterminate: what a probe's crossing
+  -- into or out of being signed in is judged against, so a reading that could not tell between
+  -- two that could never reads as a crossing. NULL until a reading told.
+  known_health_state        TEXT
+                            CHECK(known_health_state IS NULL
+                              OR (known_health_state IN ({health_states})
+                                  AND known_health_state != '{indeterminate}')),
   -- The mode the provider's own status surface reports, never assumed; unknown is a mode this
   -- daemon does not recognize.
   observed_auth_mode        TEXT
@@ -75,6 +84,14 @@ CREATE TABLE provider_accounts (
   -- Opt-out for the background health observer only; the probe verb and spawn validation still
   -- write the pair.
   probe_enabled             INTEGER NOT NULL DEFAULT 1 CHECK(probe_enabled IN (0, 1)),
+  -- The limits read's place on its throttle ladder: 0 when the last read answered, one step up
+  -- for each read the provider throttled or refused since. Kept here so a restart resumes it.
+  read_hold_rung            INTEGER NOT NULL DEFAULT 0 CHECK(read_hold_rung >= 0),
+  read_held_until           TEXT,               -- when the latest hold ends; NULL until one is set
+  -- When the last limits read that answered figures was taken; NULL before the first. It names
+  -- the account's whole set, so each stored window reads as read no earlier, and a read that
+  -- changed no window writes only this, never an event.
+  limits_read_at            TEXT,
   -- An account's redeemable limit resets from its last limits read; NULL where the read
   -- carried none.
   reset_credits_available   INTEGER
@@ -85,6 +102,9 @@ CREATE TABLE provider_accounts (
   -- window_start_enabled is 0.
   wake_for_window_start_enabled INTEGER NOT NULL DEFAULT 0
                             CHECK(wake_for_window_start_enabled IN (0, 1)),
+  -- When the daemon last spent a turn that starts the account's closed windows; NULL before the
+  -- first. A window whose reset came before it was started by it, so a restart sends no second.
+  window_start_sent_at      TEXT,
   -- The one memory import: NULL until it runs, then imported with its count and time, or nothing
   -- to import with neither.
   memory_import_outcome     TEXT
@@ -202,6 +222,41 @@ CREATE TABLE provider_account_usage_windows (
   source        TEXT NOT NULL CHECK(source IN ({reading_sources})),
   PRIMARY KEY (account_id, limit_id, window_mins)
 ) STRICT;
+
+-- One row per turn, so an account's figures can be cut by a day and by a model: a projection of
+-- each usage.tokenCount.recorded event, keyed by its id, beside the turns no session owns, which
+-- the observer writes under a minted id. No foreign key to the event log: a session purge must not
+-- reach an account's spend.
+CREATE TABLE provider_account_usage_turns (
+  turn_id         TEXT NOT NULL PRIMARY KEY,
+  account_id      TEXT NOT NULL
+                  REFERENCES provider_accounts(account_id) ON DELETE CASCADE,
+  provider        TEXT NOT NULL,                  -- the account's provider, kept as written
+  occurred_at     TEXT NOT NULL,                  -- the turn's instant; the by-day slice's key
+  session_id      TEXT,                           -- NULL on a turn no session owns
+  run_id          TEXT,
+  model_id        TEXT,                           -- NULL groups as its own unattributed bucket
+  -- Each NULL where the provider reported none; NULL is not zero.
+  input_tokens          INTEGER,
+  output_tokens         INTEGER,
+  cache_read_tokens     INTEGER,
+  cache_write_tokens    INTEGER,
+  reasoning_tokens      INTEGER,
+  -- Whole micro-dollars and where they came from, set once when the turn is priced.
+  cost_usd_micros INTEGER,
+  cost_source     TEXT
+                  CHECK(cost_source IS NULL OR cost_source IN ('providerReported', 'derivedExact')),
+  observed_credential_generation INTEGER NOT NULL
+                  CHECK(observed_credential_generation >= 1),
+  CHECK ((cost_usd_micros IS NULL) = (cost_source IS NULL)),
+  CHECK (run_id IS NULL OR session_id IS NOT NULL)
+) STRICT;
+
+-- The two slices the account surface draws.
+CREATE INDEX idx_provider_account_usage_turns_account_day
+  ON provider_account_usage_turns(account_id, occurred_at);
+CREATE INDEX idx_provider_account_usage_turns_account_model
+  ON provider_account_usage_turns(account_id, model_id);
 "
     )
 }

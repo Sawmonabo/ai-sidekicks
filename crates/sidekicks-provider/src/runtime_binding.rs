@@ -6,4 +6,4 @@ pub mod resume;
 pub mod store;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_store;
-pub(crate) mod writer;
+pub mod writer;

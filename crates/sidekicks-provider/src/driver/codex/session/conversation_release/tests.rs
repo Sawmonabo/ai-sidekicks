@@ -15,7 +15,7 @@ use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
 use crate::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInboundHandler, CodexSessionInboundReceiver,
+    CodexAccountMove, CodexSessionCall, CodexSessionInboundHandler, CodexSessionInboundReceiver,
     codex_session_inbound, drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
@@ -65,6 +65,10 @@ impl CodexSessionInboundHandler for SessionFrames {
 
     fn lifecycle(&mut self, _call: CodexLifecycleCall) -> BoxFuture<'_, ()> {
         unreachable!("the driver makes no call")
+    }
+
+    fn account_moved(&mut self, _account_move: CodexAccountMove) -> BoxFuture<'_, ()> {
+        unreachable!("no account moves")
     }
 }
 

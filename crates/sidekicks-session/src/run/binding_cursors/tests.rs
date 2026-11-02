@@ -6,6 +6,7 @@ use serde_json::json;
 use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
@@ -13,11 +14,13 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::{EpochPosition, RUN_START_POSITION};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::account::observer::AccountLiveTurns as _;
 use sidekicks_provider::run::delivery::DeliveryOperation;
 use sidekicks_provider::runtime_binding::store::CreateRuntimeBindingInput;
 use sidekicks_provider::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
 };
+use sidekicks_provider::runtime_binding::writer::RuntimeBindingWriter as _;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use sidekicks_store::events::content::codec::BodyEncoder;
@@ -150,11 +153,7 @@ impl Harness {
     }
 
     fn is_open(&self, binding_id: &RuntimeBindingId) -> bool {
-        self.epochs
-            .lock()
-            .expect("no test thread panics holding the cursors")
-            .binding(binding_id)
-            .is_ok()
+        self.cursors.is_binding_open(binding_id)
     }
 
     // Has the cursors hear the session close.
@@ -482,4 +481,28 @@ async fn a_cursor_opens_where_its_runs_log_stands(#[case] is_relaunch: bool) {
             },
         }
     );
+}
+
+// A live turn's binding a driver moves onto another account through the cursors counts as a live
+// turn on that account and no longer on the one it left, so the account it runs on now cannot be
+// removed under it. Killed by a move that writes the row and leaves the cursor on the old account.
+#[tokio::test]
+async fn a_binding_moved_onto_another_account_holds_a_live_turn_there() {
+    let harness = Harness::new().await;
+    let binding_id = harness.bind(harness.run()).await;
+    let (left, moved_to) = (
+        test_provider_account_id(),
+        ProviderAccountId::new("account-2".to_owned()).expect("the test's account id is valid"),
+    );
+    let live_on = |account| harness.cursors.sessions_with_live_turns(account);
+    assert_eq!(live_on(&left), [harness.session_id]);
+
+    harness
+        .cursors
+        .move_account(binding_id, moved_to.clone())
+        .await
+        .expect("the binding moves");
+
+    assert_eq!(live_on(&moved_to), [harness.session_id]);
+    assert_eq!(live_on(&left), Vec::new());
 }

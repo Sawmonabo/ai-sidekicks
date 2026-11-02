@@ -103,14 +103,16 @@ CREATE TABLE mcp_project_server_switches (
 
 ```sql
 -- Owner: Plan-022
--- Which OAuth client each server admitted at its last sign-in, one row per server: the daemon's own, or
--- a provider's own client (Claude Code's or Codex's) where the server admits only that one. A fact about the server,
--- so it is kept once here rather than on each binding that names the server. A sign-out forgets only the
--- sign-in and keeps this row, so every later sign-in is one press. Not a credential.
+-- Which OAuth client each server admitted, one row per server address however many bindings or providers
+-- name it, as its sign-in is kept: a provider's own client (Claude Code's or Codex's), written when that
+-- provider's flow completes, and the mark that the daemon's own client ended an attempt with no callback, so
+-- the next press goes to a provider's flow and the mark survives a restart. A fact about the server, so it is
+-- kept once here rather than on each binding that names the server. A sign-out forgets only the sign-in and
+-- keeps this row, so every later sign-in is one press. Not a credential.
 CREATE TABLE mcp_server_admitted_clients (
-  provider              TEXT NOT NULL,  -- the provider's open id, as in mcp_server_bindings
-  server_name           TEXT NOT NULL,
-  admitted_oauth_client TEXT NOT NULL,  -- 'daemon', or the open id of the provider whose own client the server admits
-  PRIMARY KEY (provider, server_name)
+  server_address           TEXT NOT NULL PRIMARY KEY,  -- the server's canonical address, the account its sign-in is kept under
+  admitted_oauth_client    TEXT,  -- the open id of the provider whose own client the server admitted; NULL until one has
+  own_client_unfinished_at TEXT,  -- when the daemon's own client last ended an attempt with no callback; NULL otherwise
+  CHECK(admitted_oauth_client IS NOT NULL OR own_client_unfinished_at IS NOT NULL)
 ) STRICT;
 ```

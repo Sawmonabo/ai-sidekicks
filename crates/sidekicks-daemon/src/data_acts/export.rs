@@ -297,16 +297,9 @@ async fn run_export(
             total_bytes: SafeInt::new(total_bytes).expect("an export's bytes are a safe integer"),
         },
         Err(failure) => {
-            let removed = destination.to_path_buf();
-            let removal = match tokio::task::spawn_blocking(move || {
-                sidekicks_platforms::remove_tree(&removed)
-            })
-            .await
+            if let Err(removal_failure) =
+                sidekicks_platforms::remove_tree_awaited(destination).await
             {
-                Ok(removal) => removal,
-                Err(failure) => Err(io::Error::other(failure)),
-            };
-            if let Err(removal_failure) = removal {
                 tracing::warn!(
                     folder = %destination.display(),
                     error = &removal_failure as &(dyn Error + 'static),

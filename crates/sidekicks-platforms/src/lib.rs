@@ -58,7 +58,10 @@
               standard streams (`_setmode`), macOS's input-wait reads (`proc_pidinfo`'s thread and \
               work-loop lists and BSD information, `proc_pidfdinfo`, `proc_piddynkqueueinfo`), the \
               Linux input-wait test's page mapping (`mmap`, `munmap`) and macOS's user temp folder \
-              (`confstr`) are C interfaces too"
+              (`confstr`) and the wake helper's power-event calls (`IOPMSchedulePowerEvent`, \
+              `IOPMCancelScheduledPowerEvent`), its cast of the queue's listing \
+              (`IOPMCopyScheduledPowerEvents`), its socket peer read (`getpeereid`) and its login \
+              items read (`statusForLegacyURL`) are C interfaces too"
 )]
 
 mod atomic_write;
@@ -113,6 +116,7 @@ mod session_child;
 mod shell_folder_start;
 mod shell_line_command;
 mod shell_start;
+mod sign_in_move;
 mod socket;
 mod spawner;
 #[cfg(any(test, feature = "test-support"))]
@@ -126,9 +130,11 @@ mod test_program;
 #[cfg(test)]
 mod thread_cpu_time;
 mod tool_memory_cap;
+mod tree_removal;
 #[cfg(not(target_os = "linux"))]
 mod user_namespace;
 mod volume;
+mod wake_helper;
 mod wake_watch;
 mod wall_clock;
 mod watch;
@@ -269,7 +275,16 @@ pub(crate) use macos::running_program::is_program_path_marked_replaced;
 #[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "macos")]
+pub use macos::sign_in_move::{SignInMove, sign_in_move};
+#[cfg(target_os = "macos")]
 pub use macos::volume::read_volume;
+#[cfg(target_os = "macos")]
+pub use macos::wake_helper::{
+    WAKE_HELPER_SOCKET_PATH,
+    program::{PowerEvents, SystemPowerEvents, WakeBookings, answer_wake_connection},
+};
+#[cfg(target_os = "macos")]
+pub use macos::wake_helper::{WakeHelper, wake_helper};
 #[cfg(target_os = "macos")]
 pub use macos::windowless_app::launch_app_windowless;
 #[cfg(target_os = "macos")]
@@ -348,12 +363,12 @@ pub use posix::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::file_system::{
     CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, UnwritableEntry,
-    is_superuser, make_folder_link, make_unreadable, make_unwritable,
+    is_superuser, make_unreadable, make_unwritable,
 };
 #[cfg(unix)]
 pub use posix::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, open_regular_file,
-    remove_tree, rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, make_folder_link,
+    open_regular_file, remove_tree, rename_replacing,
 };
 #[cfg(unix)]
 pub use posix::login_shell::{login_shell, name_as_login_shell};
@@ -375,6 +390,8 @@ pub use posix::real_path::real_path;
 pub use posix::run_folder::{
     RUN_FOLDER_FILE_MODE, check_private_run_folder, create_private_run_folder, daemon_run_folder,
 };
+#[cfg(unix)]
+pub use posix::secret_pipe::{SecretPipe, secret_pipe};
 #[cfg(unix)]
 pub use posix::shell_folder_start::shell_folder_start;
 #[cfg(all(unix, any(test, feature = "test-support")))]
@@ -467,6 +484,9 @@ pub use shell_line_command::{
 };
 pub use shell_start::{DOES_SHELL_MODE_KEEP_ITS_FOLDER, SHELL_START_CONFIRMATION};
 pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_failure};
+pub use sign_in_move::{KeychainSignIn, SIGN_IN_MOVE_STEPS, SignInMoveError};
+#[cfg(not(target_os = "macos"))]
+pub use sign_in_move::{SignInMove, sign_in_move};
 pub use socket::connection::found_no_listener;
 pub use socket::path::{SocketPathEntry, SocketPathRefused};
 pub use spawner::Spawner;
@@ -490,9 +510,14 @@ pub use terminal::{
 #[cfg(any(test, feature = "test-support"))]
 pub use test_program::{harness_test_name, pass_through_start, terminal_taking_start};
 pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
+pub use tree_removal::remove_tree_awaited;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;
 pub use volume::{NotAVolumeId, Volume, VolumeId, create_volume_folder};
+pub use wake_helper::message::{UnknownWakeMessage, WakeRefusal, WakeReply, WakeRequest};
+#[cfg(not(target_os = "macos"))]
+pub use wake_helper::{WakeHelper, wake_helper};
+pub use wake_helper::{WakeHelperError, WakeHelperStatus};
 pub use wake_watch::WakeWatchError;
 pub use wall_clock::{WallClock, WallClockWait};
 pub use watch::{FileAppendWatch, FolderArrivalWait, FolderArrivalWatch};
@@ -554,12 +579,12 @@ pub use windows::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::file_system::{
     CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, UnwritableEntry,
-    is_superuser, make_folder_link, make_unreadable, make_unwritable,
+    is_superuser, make_unreadable, make_unwritable,
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
-    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, open_regular_file,
-    remove_tree, rename_replacing,
+    CAN_RENAME_REPLACE_EMPTY_FOLDER, create_new_file, has_file_mode, make_folder_link,
+    open_regular_file, remove_tree, rename_replacing,
 };
 #[cfg(target_os = "windows")]
 pub use windows::input_wait::{may_wait_for_input, read_input_wait};
@@ -603,6 +628,8 @@ pub use windows::run_folder::{
 };
 #[cfg(target_os = "windows")]
 pub(crate) use windows::running_program::is_program_path_marked_replaced;
+#[cfg(target_os = "windows")]
+pub use windows::secret_pipe::{SecretPipe, secret_pipe};
 #[cfg(target_os = "windows")]
 pub use windows::session_child::{SessionChild, start_session_child};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]

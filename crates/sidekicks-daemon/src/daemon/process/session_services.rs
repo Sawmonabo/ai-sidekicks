@@ -176,11 +176,6 @@ pub(crate) struct SessionServiceStart {
 }
 
 /// The session services, each built once for the daemon's life.
-#[expect(
-    dead_code,
-    reason = "the daemon's driver ports read the inbound dispatch, and a chat's version reads the \
-              chat versions"
-)]
 pub(crate) struct SessionServices {
     /// The terminals; the stop drains them.
     pub(crate) terminals: Arc<Terminals>,

@@ -30,7 +30,9 @@ use sidekicks_contracts::wire::text::TextError;
 use sidekicks_mcp::binding::resolver::McpAttributionTable;
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
-use sidekicks_provider::driver::session_control::{CreateSessionParams, DriverResumeResult};
+use sidekicks_provider::driver::session_control::{
+    CreateSessionParams, DriverResumeResult, SessionAccountPin,
+};
 use sidekicks_provider::driver::{
     AccountFoldersError, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
     SessionSpawnContextResolver,
@@ -292,6 +294,8 @@ impl SessionDirectoryProviderPort {
                 tool_servers: None,
                 output_schema: None,
                 provider_account_id,
+                // No agent definition or workflow step names an account of its own yet.
+                account_pin: SessionAccountPin::FollowsCurrent,
                 on_mcp_server_status: None,
             },
             provider: binding.provider_name,

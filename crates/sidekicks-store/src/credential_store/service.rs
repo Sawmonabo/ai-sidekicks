@@ -13,16 +13,22 @@ pub enum KeychainService {
     /// This machine's identity key and channel key, under `identity-<machine id>` and
     /// `channel-<machine id>`.
     MachineKeys,
+    /// Each pasted provider token or API key, under its account's id.
+    ProviderTokens,
+    /// Each MCP server's sign-in, its credentials and any proof key, under the server's address.
+    McpSignIns,
     /// The delivery channels' secrets: the web address and its signing secret.
     DeliverySecrets,
 }
 
 impl KeychainService {
     /// Every service, in the order a move and an erase walk them.
-    pub(crate) const ALL: [Self; 4] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::WorkflowSecrets,
         Self::Probe,
         Self::MachineKeys,
+        Self::ProviderTokens,
+        Self::McpSignIns,
         Self::DeliverySecrets,
     ];
 
@@ -32,6 +38,8 @@ impl KeychainService {
             Self::WorkflowSecrets => "ai-sidekicks-workflow-secrets",
             Self::Probe => "ai-sidekicks-probe",
             Self::MachineKeys => "ai-sidekicks-machine-keys",
+            Self::ProviderTokens => "ai-sidekicks-provider-tokens",
+            Self::McpSignIns => "ai-sidekicks-mcp-sign-ins",
             Self::DeliverySecrets => "ai-sidekicks-delivery-secrets",
         }
     }
@@ -40,7 +48,11 @@ impl KeychainService {
     /// and an erase sweeps any left behind.
     pub(crate) const fn is_moved(self) -> bool {
         match self {
-            Self::WorkflowSecrets | Self::MachineKeys | Self::DeliverySecrets => true,
+            Self::WorkflowSecrets
+            | Self::MachineKeys
+            | Self::ProviderTokens
+            | Self::McpSignIns
+            | Self::DeliverySecrets => true,
             Self::Probe => false,
         }
     }

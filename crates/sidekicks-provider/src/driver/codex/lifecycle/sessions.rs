@@ -9,6 +9,7 @@ use sidekicks_contracts::session::id::SessionId;
 
 use super::{CODEX_SERVICE_STARTUP_TIMEOUT, CodexDriver, CodexDriverParts};
 use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnWait};
+use crate::driver::codex::service::home::CodexConversationHome;
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::history::read_codex_turn_id_by_client_message_id;
@@ -91,9 +92,10 @@ impl CodexDriver {
         Ok(resumed.result)
     }
 
-    /// The person's restart of a session whose service stayed down: the service starts again and
-    /// its recovery resumes the session with the rest; a session the service holds no record of
-    /// is resumed as a resume is. Fails as the service's start fails.
+    /// The person's restart of a session whose service stayed down: the service of the home that
+    /// holds its conversation starts again and its recovery resumes the session with the rest; a
+    /// session the service holds no record of is resumed as a resume is. Fails as the service's
+    /// start fails.
     pub(crate) async fn restart_session(
         &self,
         params: ResumeSessionParams,
@@ -101,7 +103,10 @@ impl CodexDriver {
         let parts = self.parts()?;
         let service = parts
             .registry
-            .service_for(&params.provider_account_id)
+            .service_for_conversation(
+                &params.provider_account_id,
+                CodexConversationHome::read(&params.runtime_metadata),
+            )
             .await?;
         match parts
             .recovery

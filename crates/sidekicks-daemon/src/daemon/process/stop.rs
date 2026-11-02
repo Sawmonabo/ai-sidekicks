@@ -1,23 +1,29 @@
 //! The daemon's stop in its two steps, which the erase also runs one by one: the work ends within
 //! the drain bound, then everything that holds a file in the data folder closes. Each step takes
-//! the parts it closes, so a step run again skips what is already closed.
+//! the parts it closes, so a step run again skips what is already closed. The process waits here
+//! for the first stop asked for, running the erase's steps as they come on the task that owns it.
 
+use std::error::Error;
 use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use futures::FutureExt as _;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_session::search::index::live::LiveIndexCloseError;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_workspace::clone::askpass::broker::AskpassBrokerError;
 use sidekicks_workspace::git::worktree::setup::WorktreeSetupError;
+use tokio::sync::oneshot;
 use tokio::task::JoinError;
 
 use crate::daemon::process::database::{DatabaseFileCloseFailure, close_database_file};
 use crate::daemon::process::providers::{ProvidersRegistrationStopFailure, shut_down_drivers};
 use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess};
 use crate::daemon::stop_drain::describe_drain;
+use crate::data_acts::erase::EraseStep;
 
 /// Why a step of the stop failed; every other step still ran.
 #[derive(Debug, thiserror::Error)]
@@ -244,6 +250,10 @@ pub(crate) async fn stop_work(
         let drain = session.terminals.drain(remaining()).await;
         tracing::info!("{}", describe_drain(drain));
     }
+    // Before the scheduler, whose jobs and timers it holds.
+    if let Some(provider_accounts) = &mut process.provider_accounts {
+        provider_accounts.stop();
+    }
     // Before the drivers, since a job it runs may still call into them.
     if let Some(scheduler) = process.scheduler.take()
         && let Err(failure) = scheduler.stop().await
@@ -342,4 +352,130 @@ pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<Daemon
     }
     drop(process.data_folder_lock.take());
     failures
+}
+
+/// A step of the erase the process runs on the task that owns it, answering once the step ran.
+pub(super) enum DaemonCommand {
+    /// Ends the daemon's work as the stop does.
+    StopWork(oneshot::Sender<()>),
+    /// Closes everything that holds a file in the data folder.
+    CloseDataFolder(oneshot::Sender<()>),
+}
+
+impl DaemonProcess {
+    /// The stop asked for over the socket: the lifecycle methods' stop asks with
+    /// [`DaemonStopIntent::Stop`], their restart with [`DaemonStopIntent::Restart`], and the
+    /// erase's end with [`DaemonStopIntent::Stop`]; the first ask wins.
+    pub(crate) fn accept_stop(&self) -> Arc<dyn Fn(DaemonStopIntent) + Send + Sync> {
+        let stop_asked = self.stop_asked.clone();
+        Arc::new(move |intent| {
+            stop_asked.send_if_modified(|asked| {
+                let is_first = asked.is_none();
+                if is_first {
+                    *asked = Some(intent);
+                }
+                is_first
+            });
+        })
+    }
+
+    /// The erase's step that ends the daemon's work as the stop does.
+    pub(crate) fn stop_work_step(&self) -> EraseStep {
+        self.command_step(DaemonCommand::StopWork)
+    }
+
+    /// The erase's step that closes everything that holds a file in the data folder.
+    pub(crate) fn close_data_folder_step(&self) -> EraseStep {
+        self.command_step(DaemonCommand::CloseDataFolder)
+    }
+
+    // An erase step that sends the command `command` makes to the task that owns the process and
+    // waits until it ran. Once the stop has begun, the stop closes these parts instead, and the
+    // erase's later steps race the runtime's end.
+    fn command_step(&self, command: fn(oneshot::Sender<()>) -> DaemonCommand) -> EraseStep {
+        let commands = self.command_sender.clone();
+        Arc::new(move || {
+            let commands = commands.clone();
+            async move {
+                let (reply, replied) = oneshot::channel();
+                if commands.send(command(reply)).await.is_err() || replied.await.is_err() {
+                    tracing::info!(
+                        "the daemon's stop had begun before the erase's step, so the stop closes \
+                         those parts"
+                    );
+                }
+            }
+            .boxed()
+        })
+    }
+
+    /// Runs the erase's steps as they come, until the first stop asked for: the system's stop
+    /// request, which stops, damage found in the database file, which restarts so the next start
+    /// repairs it, or a stop or restart over the socket, which the erase's end asks for.
+    pub(crate) async fn wait_for_stop(&mut self) -> DaemonStopIntent {
+        let mut stop_asked = self.stop_asked.subscribe();
+        let damage = self
+            .database
+            .as_ref()
+            .map(|database| Arc::clone(&database.damage));
+        loop {
+            let command = tokio::select! {
+                () = self.system_stop.cancelled() => return DaemonStopIntent::Stop,
+                () = async {
+                    match &damage {
+                        Some(damage) => {
+                            damage.when_found().await;
+                        }
+                        None => std::future::pending().await,
+                    }
+                } => return DaemonStopIntent::Restart,
+                asked = stop_asked.wait_for(Option::is_some) => return match asked.as_deref() {
+                    Ok(Some(intent)) => *intent,
+                    // The process holds the sender, so the wait ends only with an ask.
+                    Ok(None) | Err(_) => DaemonStopIntent::Stop,
+                },
+                Some(command) = self.commands.recv() => command,
+            };
+            self.run_command(command).await;
+        }
+    }
+
+    // Runs one of the erase's steps, logging each failure, and answers that it ran.
+    async fn run_command(&mut self, command: DaemonCommand) {
+        let (failures, reply) = match command {
+            DaemonCommand::StopWork(reply) => (
+                stop_work(self, DaemonStopIntent::Stop, DAEMON_STOP_DRAIN_BOUND).await,
+                reply,
+            ),
+            DaemonCommand::CloseDataFolder(reply) => (close_data_folder(self).await, reply),
+        };
+        for failure in &failures {
+            tracing::error!(
+                error = failure as &(dyn Error + 'static),
+                "a step of the erase's stop failed"
+            );
+        }
+        if reply.send(()).is_err() {
+            tracing::debug!("the erase ended before its step answered");
+        }
+    }
+
+    /// Stops the daemon for `intent`: its work within the drain bound, then its data folder; a
+    /// part the erase already closed is skipped. Fails with every step's failure, each step having
+    /// run.
+    pub(crate) async fn stop(
+        mut self,
+        intent: DaemonStopIntent,
+    ) -> Result<(), SettleFailures<DaemonStopFailure>> {
+        let mut failures = stop_work(&mut self, intent, DAEMON_STOP_DRAIN_BOUND).await;
+        failures.extend(close_data_folder(&mut self).await);
+        settle_all(
+            failures
+                .into_iter()
+                .map(Err)
+                .collect::<Vec<Result<(), _>>>(),
+            "the daemon's stop",
+        )
+        .map(drop)
+    }
 }

@@ -6,12 +6,17 @@
 //! session in a new process carries the cursor of the session's leg on, opened before the resume
 //! runs, since the resumed provider delivers under it at once. A cursor whose row is not written is
 //! forgotten, and an open whose session closes while it reads opens none. An undo's confirmed cut
-//! is fenced here, where a fork's binding joins its run's cursors.
+//! is fenced here, where a fork's binding joins its run's cursors. The drivers write their bindings
+//! through the cursors, so a binding moved onto another account moves its cursor too.
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
+use serde_json::{Map, Value};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEventReadError;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -21,10 +26,12 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
+use sidekicks_provider::account::observer::AccountLiveTurns;
 use sidekicks_provider::runtime_binding::store::{
-    CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStore,
-    RuntimeBindingStoreError,
+    CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingRebind, RuntimeBindingRelaunch,
+    RuntimeBindingStore, RuntimeBindingStoreError,
 };
+use sidekicks_provider::runtime_binding::writer::RuntimeBindingWriter;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -435,6 +442,12 @@ impl RunBindingCursors {
         Ok(())
     }
 
+    /// Whether `binding_id`'s cursor is open, for a test that reads the cursors from outside.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn is_binding_open(&self, binding_id: &RuntimeBindingId) -> bool {
+        lock(&self.epochs).binding(binding_id).is_ok()
+    }
+
     /// The binding `session_id` runs on now: the one its cursors recorded or continued last,
     /// `None` once that run's cursors dropped or the session closed.
     pub fn current_binding(&self, session_id: &SessionId) -> Option<RuntimeBindingId> {
@@ -510,6 +523,69 @@ impl RunBindingCursors {
 
     fn lock_sessions(&self) -> MutexGuard<'_, HeldSessions> {
         lock(&self.sessions)
+    }
+}
+
+impl AccountLiveTurns for RunBindingCursors {
+    /// The sessions holding a run not yet ended on a binding under `provider_account_id`.
+    fn sessions_with_live_turns(&self, provider_account_id: &ProviderAccountId) -> Vec<SessionId> {
+        let sessions = self.lock_sessions();
+        let epochs = lock(&self.epochs);
+        sessions
+            .by_session
+            .iter()
+            .filter(|(_, session)| {
+                session
+                    .binding_ids_by_run
+                    .iter()
+                    .filter(|(run_id, _)| !session.ended_run_ids.contains(run_id))
+                    .flat_map(|(_, binding_ids)| binding_ids)
+                    .any(|binding_id| {
+                        epochs.binding(binding_id).is_ok_and(|binding| {
+                            binding.provider_account_id == *provider_account_id
+                        })
+                    })
+            })
+            .map(|(session_id, _)| *session_id)
+            .collect()
+    }
+}
+
+/// The store's writes, the account move also moving the binding's open cursor, so the sessions
+/// with a live turn on an account are the ones running on it now.
+impl RuntimeBindingWriter for RunBindingCursors {
+    fn rebind(
+        &self,
+        rebind: RuntimeBindingRebind,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        self.store.rebind(rebind)
+    }
+
+    fn keep_recovery_data(
+        &self,
+        binding_id: RuntimeBindingId,
+        runtime_metadata: Map<String, Value>,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        self.store.keep_recovery_data(binding_id, runtime_metadata)
+    }
+
+    /// Fails as the store's move fails, the cursor then left on the account it was on.
+    fn move_account(
+        &self,
+        binding_id: RuntimeBindingId,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move {
+            RuntimeBindingWriter::move_account(
+                &*self.store,
+                binding_id.clone(),
+                provider_account_id.clone(),
+            )
+            .await?;
+            lock(&self.epochs).move_account(&binding_id, provider_account_id);
+            Ok(())
+        }
+        .boxed()
     }
 }
 

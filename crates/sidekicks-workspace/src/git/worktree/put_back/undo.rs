@@ -23,7 +23,6 @@ use crate::git::worktree::kept_copy::{KEPT_TREE_ENTRY, RowWriteError};
 use crate::git::worktree::reads::{
     BRANCH_REF_PREFIX, LINKED_RECORDS_FOLDER_NAME, common_folder_of_record, read_ref_heads,
 };
-use crate::git::worktree::service::remove_folder;
 use crate::git::worktree::stale_record::{
     StaleRecordError, is_record_named_by, is_same_git_file, read_named_git_file,
 };
@@ -204,7 +203,9 @@ async fn remove_own_record(
         .ref_store_payload(common_folder)
         .map(|payload| payload.tree_refs_folder(&record_name.to_string_lossy()));
     for folder in [Some(record.clone()), refs_folder].into_iter().flatten() {
-        remove_folder(&folder).await.map_err(at(&folder))?;
+        sidekicks_platforms::remove_tree_awaited(&folder)
+            .await
+            .map_err(at(&folder))?;
     }
     Ok(())
 }

@@ -158,7 +158,7 @@ pub(crate) async fn start_managed_codex_service(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let RecordedChild { child, record } =
-        spawn_recorded_child(spawner, child_records, command).await?;
+        spawn_recorded_child(spawner, child_records, command, None).await?;
     let process_id = child.id();
     let (ends, ends_received) = watch::channel(None);
     let (exit, exit_received) = oneshot::channel();
@@ -345,6 +345,12 @@ impl LastingCodexService {
             .await
             .map_err(CodexShutdownRequestError::Connect)?;
         request_codex_service_shutdown(connection, self.process.id()).await
+    }
+
+    /// Kills the service at once, through its pin, as a stop does once its grace passes; answers
+    /// whether it still ran. Fails with the system's error.
+    pub(crate) fn kill(&self) -> io::Result<bool> {
+        self.process.kill()
     }
 
     /// Waits with no bound and no thread for the service's end, for one asked to drain. Dropping
