@@ -20,7 +20,7 @@ pub enum DaemonStopIntent {
 /// Every failure met while ending the lasting services a provider's records name with no daemon
 /// running; every other record was still settled when it is answered.
 #[derive(Debug, thiserror::Error)]
-#[error("ending the provider's recorded services met {} failures", .failures.len())]
+#[error("ending the provider's recorded services failed (failures: {})", .failures.len())]
 pub struct RecordedServicesStopError {
     /// Each failure, in the order the records answered.
     pub failures: Vec<DriverError>,
