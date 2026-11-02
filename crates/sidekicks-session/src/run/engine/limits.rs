@@ -236,6 +236,7 @@ impl RunEngine {
                     draft: SessionEventDraft::of_session(run.session_id, &reached)?,
                     preceding_events: Vec::new(),
                     statements: vec![no_token_limit_reached_statement(&run_id)],
+                    occurred_at: None,
                 })
             })
             .await;
@@ -672,6 +673,7 @@ impl RunEngine {
                             draft: SessionEventDraft::of_session(run.session_id, &reached)?,
                             preceding_events: Vec::new(),
                             statements,
+                            occurred_at: None,
                         })
                     })
                     .await;

@@ -439,6 +439,7 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         InboundDelivery::ChildRun {
             binding,
             parent_run_id,
+            ..
         } => {
             recorded.kind = "childRun";
             recorded.binding_id = Some(binding.binding_id.clone());

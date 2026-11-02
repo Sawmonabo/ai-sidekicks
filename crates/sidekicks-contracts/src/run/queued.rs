@@ -202,7 +202,7 @@ run_queued_payload! {
             deserialize_with = "crate::wire::present"
         )]
         #[schemars(with = "ProviderChildStart")]
-        pub provider_child: Option<ProviderChildStart>,
+        pub provider_child: Option<Box<ProviderChildStart>>,
     }
 }
 
