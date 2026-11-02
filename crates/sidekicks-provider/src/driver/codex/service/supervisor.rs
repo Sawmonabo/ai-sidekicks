@@ -40,7 +40,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::codex::exec_relay::{CodexExecRelay, CodexExecRelayDependencies};
-use crate::driver::codex::server_requests::CodexServerRequestResponder;
+use crate::driver::codex::server_requests::{CodexServerRequestResponder, CodexTokenRefresher};
 use crate::driver::codex::service::asks::CodexServiceAsks;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::record::LastingServiceRecordFile;
@@ -487,15 +487,42 @@ impl CodexService {
         let (connection, _reply) = open_codex_connection(
             sender,
             receiver,
-            CodexConnectionHandlers {
-                events,
-                responder: None,
-            },
+            self.detached_connection_handlers(events),
             CODEX_CLIENT_NAME,
             self.dependencies.startup_timeout,
         )
         .await?;
         Ok(connection)
+    }
+
+    /// The handlers of a connection on the service that belongs to no session: its notifications
+    /// and close to `events`, no ask routed, and the switching service's token refreshes answered
+    /// as on its main connection, since Codex sends one to every connection and takes the first
+    /// answer.
+    pub(crate) fn detached_connection_handlers(
+        &self,
+        events: Arc<dyn CodexConnectionEvents>,
+    ) -> CodexConnectionHandlers {
+        CodexConnectionHandlers {
+            events,
+            responder: None,
+            token_refresher: self.token_refresher(),
+        }
+    }
+
+    // The answer to the service's token refreshes: the switching account's renewer on the
+    // switching service, which runs on handed tokens; none elsewhere, where a refresh answers
+    // `-32601`.
+    fn token_refresher(&self) -> Option<Arc<dyn CodexTokenRefresher>> {
+        match &self.home.kind {
+            CodexHomeKind::Switching => {
+                Some(Arc::clone(&self.dependencies.switching) as Arc<dyn CodexTokenRefresher>)
+            }
+            CodexHomeKind::Account(_)
+            | CodexHomeKind::PersonalFolder
+            | CodexHomeKind::CapabilityRead
+            | CodexHomeKind::McpSignIn => None,
+        }
     }
 
     /// Whether the service is up or on its way back up: starting, reconnecting or restarting.
@@ -757,6 +784,7 @@ impl CodexService {
             }),
             responder: Some(Arc::new(CodexServiceAsks::new(Arc::downgrade(self)))
                 as Arc<dyn CodexServerRequestResponder>),
+            token_refresher: self.token_refresher(),
         }
     }
 

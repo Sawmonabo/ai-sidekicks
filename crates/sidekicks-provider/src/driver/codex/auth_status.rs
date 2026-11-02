@@ -1,6 +1,6 @@
 //! Codex's sign-in state as `account/read` reports it, read into the driver's probe answer and into
-//! the account a sign-in left, and the sign-in read that tells a failed resume needing a new
-//! sign-in from one needing recovery.
+//! the account a sign-in left, the sign-in read that tells a failed resume needing a new sign-in
+//! from one needing recovery, and the renewing read that has Codex renew a home's sign-in.
 
 use std::time::Duration;
 
@@ -74,7 +74,7 @@ pub(crate) async fn read_codex_account(
     connection: &CodexAppServerConnection,
     timeout: Duration,
 ) -> Result<CodexAccountReading, CodexError> {
-    let reply = request_account(connection, timeout).await?;
+    let reply = request_account(connection, false, timeout).await?;
     let Some(reply) = read_codex_object::<AccountReadReply>(reply.get()) else {
         return Ok(CodexAccountReading::Unreadable);
     };
@@ -100,8 +100,20 @@ pub(crate) async fn read_codex_auth_status(
     connection: &CodexAppServerConnection,
     timeout: Duration,
 ) -> Result<DriverAuthProbeResult, CodexError> {
-    let reply = request_account(connection, timeout).await?;
+    let reply = request_account(connection, false, timeout).await?;
     Ok(classify_codex_auth_status(&reply))
+}
+
+/// Asks `connection`'s service to renew the sign-in it holds, waiting at most `timeout`: Codex
+/// renews it with its own refresh token under its own refresh lock and writes what it got to its
+/// home's `auth.json`. Its reply is not read, since Codex does not report the renewal there; the
+/// caller reads the home's `auth.json` again. Fails as the request does.
+pub(crate) async fn renew_codex_sign_in(
+    connection: &CodexAppServerConnection,
+    timeout: Duration,
+) -> Result<(), CodexError> {
+    request_account(connection, true, timeout).await?;
+    Ok(())
 }
 
 /// Reads an `account/read` reply into the probe's answer: an account names its sign-in kind as the
@@ -158,7 +170,7 @@ pub(crate) async fn classify_codex_resume_recovery_condition(
     let Ok(connection) = service.connection() else {
         return RecoveryCondition::RecoveryNeeded;
     };
-    match request_account(&connection, CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT).await {
+    match request_account(&connection, false, CODEX_RESUME_AUTH_CLASSIFICATION_TIMEOUT).await {
         Ok(reply) => match classify_codex_auth_status(&reply).status {
             DriverAuthProbeStatus::Unauthenticated => RecoveryCondition::ReauthRequired,
             DriverAuthProbeStatus::Authenticated | DriverAuthProbeStatus::Indeterminate => {
@@ -175,17 +187,19 @@ pub(crate) async fn classify_codex_resume_recovery_condition(
     }
 }
 
+// Sends `account/read`, renewing the sign-in only where `refresh_token`: the providers rotate
+// refresh tokens single-use, so only the renewer, under the home's hold, asks for one, and a read
+// that only checks never ends the sign-in it checks.
 async fn request_account(
     connection: &CodexAppServerConnection,
+    refresh_token: bool,
     timeout: Duration,
 ) -> Result<Box<RawValue>, CodexError> {
     connection
         .request_within(
             CODEX_ACCOUNT_READ_METHOD,
-            // No refresh: the providers rotate refresh tokens single-use, and a refresh would end
-            // the sign-in being checked.
             &GetAccountParams {
-                refresh_token: Some(false),
+                refresh_token: Some(refresh_token),
             },
             timeout,
         )

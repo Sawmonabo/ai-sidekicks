@@ -498,6 +498,7 @@ pub(crate) async fn register_method_inputs(
             provider_accounts: accounts.reader,
             provider_account_registry: accounts.registry,
             session_account_moves: accounts.account_move_record,
+            account_home_lock: accounts.home_lock,
             run_engine: Arc::clone(&session.engine),
             inbound_dispatch: Arc::clone(&session.inbound_dispatch),
             queue_admission: session.queue.admission(),

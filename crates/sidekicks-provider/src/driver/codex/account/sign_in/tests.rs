@@ -38,7 +38,7 @@ const WAIT: Duration = Duration::from_secs(10);
 // with the registry's database and folder they keep.
 async fn legs_holding(
     scripted: &ScriptedCodexService,
-) -> (CodexAccountLegs, (TestDatabase, tempfile::TempDir)) {
+) -> (Arc<CodexAccountLegs>, (TestDatabase, tempfile::TempDir)) {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
     let database = TestDatabase::new(schema_parts());
     let (registry, _writer) = open_test_registry(&database, folder.path()).await;
@@ -50,6 +50,7 @@ async fn legs_holding(
         CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
         accounts,
         Arc::new(NothingServed),
+        Arc::new(PortRegistration::new("account home lock")),
     );
     (legs, (database, folder))
 }

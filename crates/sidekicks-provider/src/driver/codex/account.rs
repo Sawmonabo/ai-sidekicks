@@ -9,12 +9,13 @@ mod memory;
 mod sign_in;
 mod sign_out;
 mod switch;
+pub(crate) mod token_refresh;
 mod window_start;
 
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -26,8 +27,10 @@ use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::Semaphore;
 
 use crate::account::credential_home::CredentialHome;
+use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::ProviderAccountRegistry;
 use crate::driver::ProviderAccountFolders;
+use crate::driver::codex::account::token_refresh::{CodexRenewalFlights, CodexTokenRenewer};
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
@@ -56,7 +59,8 @@ pub(crate) const CODEX_EPHEMERAL_CREDENTIAL_STORE: &str =
 /// What Codex's account legs reach a home's Codex through: the driver's services, one per home,
 /// what a short-lived service started for one act runs on, the driver's filing of rate limits, the
 /// account registry, the binding store a switch moves bindings in, each account's dead renewals in
-/// a row, and the one browser sign-in the machine runs at a time.
+/// a row, the one browser sign-in the machine runs at a time, and the renewals the switching
+/// service's token refresh runs in account homes.
 pub(crate) struct CodexAccountLegs {
     registry: Arc<CodexServiceRegistry>,
     dependencies: Arc<CodexServiceDependencies>,
@@ -72,30 +76,44 @@ pub(crate) struct CodexAccountLegs {
     // One permit, held by the browser sign-in under way: Codex's callback listens on one port
     // machine-wide, and a second browser sign-in cancels the first's listener.
     browser_sign_in: Arc<Semaphore>,
+    // The daemon's lock on account homes, which each renewal holds.
+    account_home_lock: Arc<PortRegistration<Arc<AccountHomeLock>>>,
+    // The renewals in flight, one per account, made at the first once the lock is registered.
+    token_renewals: OnceLock<CodexRenewalFlights>,
 }
 
 impl CodexAccountLegs {
     /// The legs over `registry`, whose short-lived services run on `dependencies`, the ones
     /// `registry`'s own services share; limits read are filed through `rate_limits`, the driver's
     /// own filing, each account's mode and reset credits read and kept in the registry `accounts`
-    /// registers, and a switch's bindings moved in `bindings`.
+    /// registers, a switch's bindings moved in `bindings`, and each renewal held under the lock
+    /// `account_home_lock` registers. The switching service's token refresh is answered through
+    /// these legs, which hold no strong reference to it.
     pub(crate) fn new(
         registry: Arc<CodexServiceRegistry>,
         dependencies: Arc<CodexServiceDependencies>,
         rate_limits: CodexRateLimitFiling,
         accounts: Arc<PortRegistration<Arc<ProviderAccountRegistry>>>,
         bindings: Arc<dyn RuntimeBindingWriter>,
-    ) -> Self {
-        Self {
-            registry,
-            short_lived_dependencies: compose_short_lived_dependencies(&dependencies),
-            dependencies,
-            rate_limits,
-            accounts,
-            bindings,
-            dead_renewals: Mutex::default(),
-            browser_sign_in: Arc::new(Semaphore::new(1)),
-        }
+        account_home_lock: Arc<PortRegistration<Arc<AccountHomeLock>>>,
+    ) -> Arc<Self> {
+        Arc::new_cyclic(|legs| {
+            dependencies
+                .switching
+                .attach_renewer(CodexTokenRenewer::new(legs.clone()));
+            Self {
+                registry,
+                short_lived_dependencies: compose_short_lived_dependencies(&dependencies),
+                dependencies,
+                rate_limits,
+                accounts,
+                bindings,
+                dead_renewals: Mutex::default(),
+                browser_sign_in: Arc::new(Semaphore::new(1)),
+                account_home_lock,
+                token_renewals: OnceLock::new(),
+            }
+        })
     }
 
     /// Drops the dead renewals counted for `provider_account_id`'s account, which was removed.

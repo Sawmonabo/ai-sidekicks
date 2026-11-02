@@ -1,6 +1,7 @@
 //! The requests the Codex service sends the daemon: which methods are routed to a person or the
 //! callback-tool host, how each ask is classified and answered in its own method's shape, the
-//! `-32601` every other method gets, and the turn a routed ask names.
+//! token refresh a refresher answers and its one refusal, the `-32601` every other method gets,
+//! and the turn a routed ask names.
 
 use futures::future::BoxFuture;
 use serde::Deserialize;
@@ -12,6 +13,7 @@ use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_std::text_cut::cut_to_code_points;
 
+use crate::driver::codex::account::auth_file::CodexAuthTokens;
 use crate::driver::codex::app_server_protocol::SERVER_REQUEST_METHODS;
 use crate::driver::codex::delivery::question_answers::compose_codex_user_input_answers;
 use crate::driver::codex::event_normalizer::is_codex_tool_call_approval_elicitation;
@@ -24,6 +26,14 @@ use crate::mcp::elicitation_form::compose_elicitation_content;
 /// whole.
 pub(crate) const CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON: &str = "The daemon composed an answer \
      larger than this transport will send; refusing rather than delivering a truncated result.";
+
+/// Codex's request for fresh tokens, sent to every initialized connection of a service running on
+/// tokens a client handed it once a request is refused for its login; the first answer wins.
+pub(crate) const CODEX_TOKEN_REFRESH_METHOD: &str = "account/chatgptAuthTokens/refresh";
+
+/// The JSON-RPC code of a refused token refresh: the first of the server-error range, since no
+/// standard code says a renewal failed.
+const CODEX_TOKEN_REFRESH_REFUSED_CODE: i64 = -32_000;
 
 /// The most code points of a turn id a routed ask names that the daemon resolves or records, the
 /// same bound as a tool call's id, the same kind of opaque handle.
@@ -40,10 +50,12 @@ pub(crate) enum CodexAskKind {
     Question,
 }
 
-/// A server request the daemon routes, by its method. Every other method, `currentTime/read`,
-/// `attestation/generate` and `account/chatgptAuthTokens/refresh` among them, is answered `-32601`
-/// through [`compose_unrouted_request_error`]. A refusal answers `decline` or `denied`, never
-/// `cancel` or `abort`, which would interrupt the turn.
+/// A server request the daemon routes to a person or the callback-tool host, by its method. A
+/// token refresh goes to the connection's [`CodexTokenRefresher`] where it has one; every other
+/// method, `currentTime/read` and `attestation/generate` among them, and a token refresh on a
+/// connection with no refresher, is answered `-32601` through [`compose_unrouted_request_error`].
+/// A refusal answers `decline` or `denied`, never `cancel` or `abort`, which would interrupt the
+/// turn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexRoutedMethod {
     /// `item/tool/call`: a daemon tool's call.
@@ -63,6 +75,13 @@ pub(crate) enum CodexRoutedMethod {
     /// `mcpServer/elicitation/request`: Codex's own approval of a tool-server call, or a tool
     /// server's question.
     ElicitationRequest,
+}
+
+/// What answers a service's token refresh with the tokens of the login it runs on.
+pub(crate) trait CodexTokenRefresher: Send + Sync {
+    /// The tokens a refresh is answered with, or `None` for its refusal. Never fails otherwise, and
+    /// no token it reads leaves it but in the answer.
+    fn refresh_tokens(&self) -> BoxFuture<'_, Option<CodexAuthTokens>>;
 }
 
 /// Why a routed ask was never decided, so it answers its method's refusal.
@@ -282,6 +301,15 @@ pub(crate) fn compose_unrouted_request_error() -> Value {
     json!({
         "code": JsonRpcErrorCode::MethodNotFound.code(),
         "message": "The daemon does not handle this server request.",
+    })
+}
+
+/// The JSON-RPC error object answering a token refresh that could not be answered with tokens: one
+/// fixed refusal naming no account, path or token.
+pub(crate) fn compose_token_refresh_refusal() -> Value {
+    json!({
+        "code": CODEX_TOKEN_REFRESH_REFUSED_CODE,
+        "message": "the sign-in could not be renewed",
     })
 }
 

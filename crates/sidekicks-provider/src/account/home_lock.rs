@@ -3,9 +3,10 @@
 //! run once, each later asker waiting on the answer in flight.
 //!
 //! - A hold waits behind every act that asked for the home first and ends when it drops.
-//! - A shared act joins the one in flight on the account, else starts only while no other act
-//!   holds the home. It runs in a task of its own, so it keeps the home until it ends even after
-//!   every asker stops waiting, and leaves no act behind that would hold the home for ever.
+//! - A shared act joins the one in flight on the account, else starts, either only while no other
+//!   act holds the home or once the home is free. It runs in a task of its own, so it keeps the
+//!   home until it ends even after every asker stops waiting, and leaves no act behind that would
+//!   hold the home for ever.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -32,6 +33,13 @@ impl AccountHomeLock {
     ) -> KeyHold<'_, ProviderAccountId> {
         self.holds.acquire(provider_account_id).await
     }
+}
+
+// How a shared act takes its account's home: only when no other act holds it, or once it is free.
+#[derive(Clone, Copy)]
+enum HomeWait {
+    IfFree,
+    UntilFree,
 }
 
 /// A shared act ended without an answer: its task panicked or the runtime stopped under it.
@@ -67,12 +75,36 @@ impl<Answer: Clone + Send + Sync + 'static> AccountHomeFlights<Answer> {
         provider_account_id: ProviderAccountId,
         work: impl FnOnce() -> BoxFuture<'static, Answer> + Send + 'static,
     ) -> Result<Option<Answer>, AccountHomeActEnded> {
+        self.join_or_start(provider_account_id, HomeWait::IfFree, work)
+            .await
+    }
+
+    /// Joins the act in flight on `provider_account_id`, else starts `work` once the home's hold
+    /// is free, waiting behind every act that asked for it first, and answers the act's answer;
+    /// `None` only when it joined an act [`Self::run_if_free`] started that found the home held.
+    /// Fails when the act's task ended without an answer.
+    pub async fn run_when_free(
+        &self,
+        provider_account_id: ProviderAccountId,
+        work: impl FnOnce() -> BoxFuture<'static, Answer> + Send + 'static,
+    ) -> Result<Option<Answer>, AccountHomeActEnded> {
+        self.join_or_start(provider_account_id, HomeWait::UntilFree, work)
+            .await
+    }
+
+    // The act in flight on the account, else one started with `wait`.
+    async fn join_or_start(
+        &self,
+        provider_account_id: ProviderAccountId,
+        wait: HomeWait,
+        work: impl FnOnce() -> BoxFuture<'static, Answer> + Send + 'static,
+    ) -> Result<Option<Answer>, AccountHomeActEnded> {
         let flight = {
             let mut in_flight = lock(&self.in_flight);
             if let Some(flight) = in_flight.get(&provider_account_id) {
                 flight.clone()
             } else {
-                let flight = self.start(provider_account_id.clone(), work);
+                let flight = self.start(provider_account_id.clone(), wait, work);
                 in_flight.insert(provider_account_id, flight.clone());
                 flight
             }
@@ -80,19 +112,26 @@ impl<Answer: Clone + Send + Sync + 'static> AccountHomeFlights<Answer> {
         flight.await
     }
 
-    // Spawns the act's task, which takes the home only when it is free, and drops its entry once
-    // the home is freed, so an asker in between joins the answer rather than finding the home
-    // held by an act already done.
+    // Spawns the act's task, which takes the home as `wait` says, and drops its entry once the
+    // home is freed, so an asker in between joins the answer rather than finding the home held by
+    // an act already done.
     fn start(
         &self,
         provider_account_id: ProviderAccountId,
+        wait: HomeWait,
         work: impl FnOnce() -> BoxFuture<'static, Answer> + Send + 'static,
     ) -> AccountHomeFlight<Answer> {
         let home_lock = Arc::clone(&self.home_lock);
         let in_flight = Arc::clone(&self.in_flight);
         let task = tokio::spawn(async move {
-            let answer = if let Ok(hold) = home_lock.holds.try_acquire(provider_account_id.clone())
-            {
+            let hold = match wait {
+                HomeWait::IfFree => home_lock
+                    .holds
+                    .try_acquire(provider_account_id.clone())
+                    .ok(),
+                HomeWait::UntilFree => Some(home_lock.hold(provider_account_id.clone()).await),
+            };
+            let answer = if let Some(hold) = hold {
                 let answer = work().await;
                 drop(hold);
                 Some(answer)

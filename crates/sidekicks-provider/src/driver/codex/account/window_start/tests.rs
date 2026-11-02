@@ -112,6 +112,7 @@ async fn one_exec_runs_in_the_account_s_home_and_its_counts_are_the_spend() {
         CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
         accounts,
         Arc::new(NothingServed),
+        Arc::new(PortRegistration::new("account home lock")),
     );
     let account_home = root.join("account");
     let folders = ProviderAccountFolders {

@@ -70,6 +70,7 @@ async fn a_short_lived_service_that_never_drains_is_killed_at_the_grace() {
         CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
         Arc::new(PortRegistration::new("provider account registry")),
         Arc::new(NothingServed),
+        Arc::new(PortRegistration::new("account home lock")),
     );
     let startup_timeout = dependencies.startup_timeout;
 

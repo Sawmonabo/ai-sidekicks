@@ -48,6 +48,7 @@ async fn read_scripted(
         CodexConnectionHandlers {
             events,
             responder: None,
+            token_refresher: None,
         },
     );
     let folders: Vec<PathBuf> = if roots.is_empty() {

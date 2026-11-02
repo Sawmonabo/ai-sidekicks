@@ -621,38 +621,17 @@ pub(crate) fn claude_keychain_account(environment: &[(String, String)]) -> Strin
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-    use std::sync::{Arc, Mutex};
-
     use secrecy::SecretString;
     use sidekicks_platforms::CredentialStore;
-    use tracing_subscriber::layer::SubscriberExt;
 
     use super::{
         ClaudeSignInReader, ClaudeSignInReading, SECURE_STORAGE_FOLDER_VARIABLE,
         claude_keychain_account, claude_keychain_service,
     };
+    use crate::captured_logs::CapturedLogs;
 
     // A token no log line may hold.
     const PLANTED_TOKEN: &str = "planted-access-token-value";
-
-    // Every line the test's subscriber writes, kept for the test to read.
-    #[derive(Clone, Default)]
-    struct CapturedLines(Arc<Mutex<Vec<u8>>>);
-
-    impl Write for CapturedLines {
-        fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
-            self.0
-                .lock()
-                .expect("the capture is not poisoned")
-                .extend_from_slice(buffer);
-            Ok(buffer.len())
-        }
-
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
 
     // A credential file planted under a temporary folder is read, left byte for byte as it was,
     // and no log line of the read holds its token, through a reading, an unreadable file and a
@@ -683,14 +662,7 @@ mod tests {
         ];
         let store = CredentialStore::in_memory();
         let reader = ClaudeSignInReader::with_keychain(store.clone());
-        let lines = CapturedLines::default();
-        let writer = lines.clone();
-        let subscriber = tracing_subscriber::registry().with(
-            tracing_subscriber::fmt::layer()
-                .with_writer(move || writer.clone())
-                .with_ansi(false),
-        );
-        let _default = tracing::subscriber::set_default(subscriber);
+        let (lines, _default) = CapturedLogs::start();
 
         let ClaudeSignInReading::Read(sign_in) = reader.read(&environment).await else {
             panic!("the file's record");
@@ -730,8 +702,7 @@ mod tests {
         };
         assert_eq!(sign_in.access_token.as_str(), PLANTED_TOKEN);
 
-        let logged = String::from_utf8(lines.0.lock().expect("not poisoned").clone())
-            .expect("the log is text");
+        let logged = lines.text();
         assert!(!logged.is_empty(), "the unreadable file is logged");
         assert!(
             !logged.contains(PLANTED_TOKEN),

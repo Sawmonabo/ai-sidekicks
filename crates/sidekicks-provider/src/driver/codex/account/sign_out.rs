@@ -77,6 +77,7 @@ mod tests {
             CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
             accounts,
             Arc::new(NothingServed),
+            Arc::new(PortRegistration::new("account home lock")),
         );
         let codex_home = scripted.service.home().codex_home.clone();
         let named = ProviderAccountFolders {

@@ -101,7 +101,7 @@ impl UsageSink for RecordedWindows {
 /// driver registry holding that service, every account resolving to another home, as the one the
 /// unpinned sessions run in.
 struct Fixture {
-    legs: CodexAccountLegs,
+    legs: Arc<CodexAccountLegs>,
     database: TestDatabase,
     recorded: Arc<RecordedWindows>,
     scripted: ScriptedCodexService,
@@ -156,6 +156,7 @@ impl Fixture {
             CodexRateLimitFiling::new(usage),
             accounts,
             Arc::new(NothingServed),
+            Arc::new(PortRegistration::new("account home lock")),
         );
         Self {
             legs,

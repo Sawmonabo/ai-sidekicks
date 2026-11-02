@@ -15,6 +15,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::DatabaseWriter;
 
+use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::ProviderAccountRegistry;
 use crate::callback_tools::host::CallbackToolHost;
 use crate::command::running_set::RunningCommandSets;
@@ -207,6 +208,10 @@ pub struct DriverPorts {
     /// The record of each session a driver moved onto another account with no switch waiting on
     /// the move; a move made before it is registered is logged and goes unrecorded.
     pub session_account_moves: Arc<PortRegistration<Arc<dyn SessionAccountMoveRecorder>>>,
+    /// The daemon's one lock on account homes, which a driver's renewal in an account's home holds
+    /// so no other act runs there meanwhile; a renewal asked for before it is registered is
+    /// refused.
+    pub account_home_lock: Arc<PortRegistration<Arc<AccountHomeLock>>>,
 }
 
 impl Default for DriverPorts {
@@ -252,6 +257,7 @@ impl DriverPorts {
             run_pauses: Arc::new(PortRegistration::new("run pauses")),
             continued_messages: Arc::new(PortRegistration::new("continued messages")),
             session_account_moves: Arc::new(PortRegistration::new("session account moves")),
+            account_home_lock: Arc::new(PortRegistration::new("account home lock")),
         }
     }
 }

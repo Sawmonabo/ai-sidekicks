@@ -108,6 +108,8 @@ pub(crate) struct ProviderAccountPlane {
     /// The record of each session a driver moves onto another account outside a switch, which
     /// the drivers' port takes.
     pub(crate) account_move_record: Arc<SessionAccountMoveRecord>,
+    /// The one lock on account homes every act in a home holds, which the drivers' port takes.
+    pub(crate) home_lock: Arc<AccountHomeLock>,
     /// What the `provider.account.*` methods act through.
     pub(crate) methods: ProviderAccountMethodSources,
     /// The background observer, started once the recovery pass has run.
@@ -229,7 +231,7 @@ pub(crate) async fn build_provider_account_plane(
             account_reader: Arc::clone(&reader),
             account_legs,
             memory_import_legs,
-            home_lock,
+            home_lock: Arc::clone(&home_lock),
             live_turns,
             publisher: Arc::clone(&publisher),
             database_reads: Arc::clone(&reads),
@@ -240,6 +242,7 @@ pub(crate) async fn build_provider_account_plane(
         reader,
         registry,
         account_move_record,
+        home_lock,
         observation: ProviderAccountObservation {
             observer,
             usage_events: None,

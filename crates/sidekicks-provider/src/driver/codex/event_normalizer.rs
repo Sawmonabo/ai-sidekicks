@@ -282,8 +282,8 @@ impl CodexInboundMethod {
             Self::AccountChatgptAuthTokensRefresh => request(
                 CONNECTION,
                 Reads(
-                    "credential brokering the driver does not do, so it is refused on the \
-                     transport",
+                    "answered on the transport by the renewer on the switching service, and \
+                     refused on every other service",
                 ),
             ),
 

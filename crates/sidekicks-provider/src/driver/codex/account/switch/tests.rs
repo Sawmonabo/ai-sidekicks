@@ -246,7 +246,7 @@ impl CodexSessionInboundHandler for SessionQueue {
 /// session attached to it with its conversation registered, and two accounts signed in each in a
 /// home of its own: the one the service carries, and a registered one to move to.
 struct Fixture {
-    legs: CodexAccountLegs,
+    legs: Arc<CodexAccountLegs>,
     scripted: ScriptedCodexService,
     database: TestDatabase,
     session: SessionToMove,
@@ -310,6 +310,7 @@ impl Fixture {
             CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
             accounts,
             Arc::new(NothingServed),
+            Arc::new(PortRegistration::new("account home lock")),
         );
 
         // The service carries the account left, as its start handed it.

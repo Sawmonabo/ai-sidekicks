@@ -114,6 +114,7 @@ fn connect(
         CodexConnectionHandlers {
             events: Arc::clone(&events) as Arc<dyn CodexConnectionEvents>,
             responder,
+            token_refresher: None,
         },
     );
     (connection, service, events)

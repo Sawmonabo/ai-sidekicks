@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, Weak};
@@ -27,7 +26,6 @@ use sidekicks_store::credential_store::place::{
 };
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tempfile::TempDir;
-use tracing_subscriber::layer::SubscriberExt as _;
 
 use super::{
     CLAUDE_SIGN_IN_MOVE_KEYCHAIN_WAIT, ClaudeSignInMoveBounds, ClaudeSignInMoveError,
@@ -44,6 +42,7 @@ use crate::account::sign_in::{
     AccountsInFlight, ProviderAccountNotificationPublisher, ProviderSignInBroker,
     ProviderSignInError, SignedInAccountWatcher,
 };
+use crate::captured_logs::CapturedLogs;
 use crate::driver::claude::account::credentials::{
     SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account, claude_keychain_service,
 };
@@ -64,23 +63,6 @@ const USER: &str = "tester";
 
 // What may appear in the move's log: its one summary line.
 const ALLOWED_LOG_MESSAGES: [&str; 1] = ["the Claude Code sign-ins moved"];
-
-#[derive(Clone, Default)]
-struct CapturedLines(Arc<Mutex<Vec<u8>>>);
-
-impl Write for CapturedLines {
-    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
-        self.0
-            .lock()
-            .expect("the capture is not poisoned")
-            .extend_from_slice(buffer);
-        Ok(buffer.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
 
 // The sessions with a turn live on the one account set here.
 #[derive(Default)]
@@ -350,14 +332,7 @@ async fn the_move_takes_only_registered_claude_code_sign_ins_and_brings_them_bac
             .keychain
             .refuse_next_call(&untouched.service, &untouched.account);
     }
-    let lines = CapturedLines::default();
-    let writer = lines.clone();
-    let subscriber = tracing_subscriber::registry().with(
-        tracing_subscriber::fmt::layer()
-            .with_writer(move || writer.clone())
-            .with_ansi(false),
-    );
-    let _default = tracing::subscriber::set_default(subscriber);
+    let (lines, _default) = CapturedLogs::start();
     let does_system_move = sign_in_move().is_some();
 
     fixture.record(SecretsPlace::LoggedOutServiceFile).await;
@@ -402,7 +377,7 @@ async fn the_move_takes_only_registered_claude_code_sign_ins_and_brings_them_bac
         );
         assert_eq!(fixture.item(untouched), Some(untouched.text()));
     }
-    let log = String::from_utf8(lines.0.lock().expect("the capture").clone()).expect("text");
+    let log = lines.text();
     assert!(!log.contains(PLANTED_SECRET), "{log}");
     for line in log.lines() {
         assert!(

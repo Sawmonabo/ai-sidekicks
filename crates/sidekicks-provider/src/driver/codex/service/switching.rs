@@ -9,12 +9,16 @@
 //! One hand at a time: each holds the switching service's hand through its login's answer, so a
 //! renewal never hands an account back over a switch that landed meanwhile. A login written and
 //! never answered leaves the service's account unknown, carried as none until the next hand.
+//! When Codex refuses the login it runs on, it asks for fresh tokens, which the renewer attached
+//! here answers.
+
+mod refresh;
 
 use std::collections::HashMap;
-use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
-use secrecy::{ExposeSecret as _, SecretString};
+use secrecy::SecretString;
 use serde_json::value::RawValue;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -24,12 +28,14 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
-use subtle::ConstantTimeEq as _;
 use tokio::sync::oneshot;
 
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::account::auth_file::{CodexAuthTokens, read_codex_auth_tokens};
+use crate::driver::codex::account::auth_file::{
+    CodexAuthTokens, is_same_token, read_codex_auth_tokens,
+};
 use crate::driver::codex::account::login::CodexLoginAccountParams;
+use crate::driver::codex::account::token_refresh::CodexTokenRenewer;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::{
@@ -53,19 +59,24 @@ pub(crate) struct CodexNamedMove {
     pub(crate) moved: oneshot::Sender<Result<(), DriverError>>,
 }
 
-/// The account the switching service carries and the tokens it was last handed for it.
+/// The account the switching service carries, the tokens it was last handed for it, and the
+/// renewer its token refreshes are answered through.
 pub(crate) struct CodexSwitchingAccount {
     provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     // Shared with the hook a switch's answer runs on the connection's reader.
     carried: Arc<Mutex<Option<CarriedAccount>>>,
     // Held by each hand from its tokens' read through its login's answer.
     hands: tokio::sync::Mutex<()>,
+    // Attached once the account legs are built; a refresh before then is refused.
+    renewer: OnceLock<CodexTokenRenewer>,
 }
 
-// The account the service carries and the access token last handed for it.
+// The account the service carries, the access token last handed for it, and the token its home
+// could not renew, which every later refresh for it is refused on at once.
 struct CarriedAccount {
     provider_account_id: ProviderAccountId,
     access_token: SecretString,
+    dead_token: Option<SecretString>,
 }
 
 impl CodexSwitchingAccount {
@@ -78,7 +89,14 @@ impl CodexSwitchingAccount {
             provider_accounts,
             carried: Arc::default(),
             hands: tokio::sync::Mutex::default(),
+            renewer: OnceLock::new(),
         }
+    }
+
+    /// Attaches the renewer the service's token refreshes are answered through. A driver builds
+    /// its account legs once, so a second attach is ignored and the first renewer kept.
+    pub(crate) fn attach_renewer(&self, renewer: CodexTokenRenewer) {
+        let _first_kept = self.renewer.set(renewer);
     }
 
     /// The account the switching service carries; `None` before its first hand and after a login
@@ -115,10 +133,7 @@ impl CodexSwitchingAccount {
                 .request(CODEX_LOGIN_START_METHOD, &compose_login(tokens))
                 .await,
         )?;
-        *lock(&self.carried) = Some(CarriedAccount {
-            provider_account_id,
-            access_token,
-        });
+        carry(&self.carried, provider_account_id, access_token);
         Ok(())
     }
 
@@ -185,10 +200,7 @@ impl CodexSwitchingAccount {
                         return;
                     };
                     service.restart_rate_limits(|| {
-                        *lock(&carried) = Some(CarriedAccount {
-                            provider_account_id: to.clone(),
-                            access_token,
-                        });
+                        carry(&carried, to.clone(), access_token);
                     });
                     move_attached_sessions(&service, &to, named, actor.as_ref());
                 }),
@@ -216,10 +228,9 @@ impl CodexSwitchingAccount {
         let Some(tokens) = read_home_tokens(codex_home).await? else {
             return Ok(false);
         };
-        let is_renewed = lock(&self.carried).as_ref().is_some_and(|carried| {
-            let handed = carried.access_token.expose_secret().as_bytes();
-            !bool::from(handed.ct_eq(tokens.access_token.expose_secret().as_bytes()))
-        });
+        let is_renewed = lock(&self.carried)
+            .as_ref()
+            .is_some_and(|carried| !is_same_token(&carried.access_token, &tokens.access_token));
         if !is_renewed {
             return Ok(false);
         }
@@ -264,14 +275,7 @@ impl CodexSwitchingAccount {
         &self,
         provider_account_id: &ProviderAccountId,
     ) -> Result<CodexAuthTokens, CodexError> {
-        let folders = self
-            .provider_accounts
-            .require_port()
-            .map_err(|error| CodexError::Driver(DriverError::Internal(Box::new(error))))?
-            .resolve_account_folders(provider_account_id.clone())
-            .await
-            .map_err(|error| CodexError::Driver(error.into()))?;
-        read_home_tokens(&folders.configuration_folder)
+        read_home_tokens(&self.resolve_home(provider_account_id).await?)
             .await?
             .ok_or_else(|| {
                 CodexError::Driver(DriverError::from(DomainError::new(
@@ -280,6 +284,41 @@ impl CodexSwitchingAccount {
                 )))
             })
     }
+
+    // `provider_account_id`'s Codex home. Fails for an account that is not registered or whose
+    // folders cannot be resolved.
+    async fn resolve_home(
+        &self,
+        provider_account_id: &ProviderAccountId,
+    ) -> Result<PathBuf, CodexError> {
+        let folders = self
+            .provider_accounts
+            .require_port()
+            .map_err(|error| CodexError::Driver(DriverError::Internal(Box::new(error))))?
+            .resolve_account_folders(provider_account_id.clone())
+            .await
+            .map_err(|error| CodexError::Driver(error.into()))?;
+        Ok(folders.configuration_folder)
+    }
+}
+
+// Carries `provider_account_id` on `access_token` in `carried`, keeping the token its home could
+// not renew while the account stays the same and forgetting it when the account changes.
+fn carry(
+    carried: &Mutex<Option<CarriedAccount>>,
+    provider_account_id: ProviderAccountId,
+    access_token: SecretString,
+) {
+    let mut carried = lock(carried);
+    let dead_token = carried
+        .take()
+        .filter(|before| before.provider_account_id == provider_account_id)
+        .and_then(|before| before.dead_token);
+    *carried = Some(CarriedAccount {
+        provider_account_id,
+        access_token,
+        dead_token,
+    });
 }
 
 // Queues each session attached to `service` its move onto `to` at this place among its frames:

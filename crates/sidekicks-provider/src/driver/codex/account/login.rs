@@ -1,8 +1,10 @@
 //! The params of Codex's `account/login/start`, written by hand so a credential it carries stays a
 //! secret until the request is encoded.
 
-use secrecy::{ExposeSecret as _, SecretString};
-use serde::{Serialize, Serializer};
+use secrecy::SecretString;
+use serde::Serialize;
+
+use crate::driver::codex::account::auth_file::serialize_secret;
 
 /// One `account/login/start` request, its arm named by `type`.
 #[derive(Debug, Serialize)]
@@ -25,12 +27,4 @@ pub(crate) enum CodexLoginAccountParams {
         /// token's claims.
         chatgpt_plan_type: Option<String>,
     },
-}
-
-// Writes the secret's text into the encoded request, the one place it leaves its wrapper.
-fn serialize_secret<S: Serializer>(
-    secret: &SecretString,
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    serializer.serialize_str(secret.expose_secret())
 }

@@ -45,6 +45,7 @@ fn start_pass(
         CodexConnectionHandlers {
             events,
             responder: None,
+            token_refresher: None,
         },
     );
     let pass = tokio::spawn(async move {
