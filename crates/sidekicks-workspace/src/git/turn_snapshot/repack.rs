@@ -11,23 +11,26 @@
 //! - One lock per capture folder orders its packs, folds and sweep passes.
 
 use std::collections::{HashMap, HashSet};
-use std::ffi::OsString;
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
+use tokio::time::Instant;
 
 use crate::git::process::version::GitFeature;
 use crate::git::process::{GitCall, GitError, GitRunner};
 use crate::git::turn_snapshot::capture::{CORE_FSYNC_PIN, GitFloorReports};
-use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
-use crate::git::turn_snapshot::capture_steps::joined;
+use crate::git::turn_snapshot::capture_folder::{CaptureFolder, OBJECTS_SEGMENT, in_git_folder};
+use crate::git::turn_snapshot::capture_steps::{UNRESOLVED_NAME_EXIT_CODE, joined};
 use crate::git::turn_snapshot::diagnostics::CaptureDiagnostic;
+use crate::git::turn_snapshot::refs::SNAPSHOT_REFS_PREFIX;
 use answers::{
     BasePresence, ObjectCounts, read_bases_present, read_object_counts, read_points, read_reach,
 };
@@ -43,9 +46,20 @@ const FOLD_PACK_THRESHOLD: u64 = 10;
 /// capture's pack into several.
 const PACK_SIZE_LIMIT_PIN: [&str; 2] = ["-c", "pack.packSizeLimit=0"];
 
-/// The exit of `rev-parse --verify -q` when the name resolves to nothing, an unborn `HEAD` among
-/// them.
-const UNRESOLVED_NAME_EXIT_CODE: i32 = 1;
+/// How long one fold may run, past the runner's bound for other calls, since its work grows with
+/// every pack the folder holds; a temporary pack older than this was left by a git cut short.
+const FOLD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+/// How long a folder whose fold failed waits before a fold is due there again, so a failing fold
+/// is not run again at every capture.
+const FOLD_RETRY_WAIT: Duration = Duration::from_secs(60 * 60);
+
+/// The folder of an object folder that holds its packs.
+const PACK_SEGMENT: &str = "pack";
+
+/// The name prefixes of the temporary files a pack write keeps in the pack folder until it
+/// finishes: `pack-objects`' and `index-pack`'s `tmp_`, and `repack`'s `.tmp-`.
+const TEMPORARY_PACK_PREFIXES: [&str; 2] = ["tmp_", ".tmp-"];
 
 /// One capture's commit in its capture folder and the base it stands on, for its pack.
 #[derive(Clone, Debug)]
@@ -138,7 +152,8 @@ pub enum PackingError {
 }
 
 /// Packs every capture folder after each capture and at each sweep, one at a time per folder, and
-/// keeps, for this daemon run, how many packs each folder's last fold left.
+/// keeps, for this daemon run, how many packs each folder's last fold left and when its last fold
+/// failed.
 pub struct CapturePacking {
     /// The daemon's git.
     git: GitRunner,
@@ -146,6 +161,8 @@ pub struct CapturePacking {
     folder_lock: KeyedLock<PathBuf>,
     /// The packs each folder's last fold left in this daemon run.
     packs_left_by_fold: Mutex<HashMap<PathBuf, u64>>,
+    /// When each folder's last fold failed, until a fold there succeeds.
+    failed_folds: Mutex<HashMap<PathBuf, Instant>>,
     /// The places whose git was reported too old to fold.
     floor_reports: GitFloorReports,
 }
@@ -157,6 +174,7 @@ impl CapturePacking {
             git,
             folder_lock: KeyedLock::new(),
             packs_left_by_fold: Mutex::new(HashMap::new()),
+            failed_folds: Mutex::new(HashMap::new()),
             floor_reports: GitFloorReports::new(),
         }
     }
@@ -277,12 +295,18 @@ impl CapturePacking {
     ) -> Result<ObjectCounts, PackingError> {
         let folder = capture_folder.folder();
         // The packs' name prefix: git names each `pack-<hash>` in the folder's pack folder.
-        let pack_base = folder.join("objects").join("pack").join("pack");
+        let pack_base = folder
+            .join(OBJECTS_SEGMENT)
+            .join(PACK_SEGMENT)
+            .join(PACK_SEGMENT);
         // `--revs` on standard input, never a `rev-list` pipe, whose line buffer a long path
         // passes; `--non-empty` writes no pack when nothing is new; never `--local`,
         // `--incremental` or `--thin`, which leave borrowed objects out.
-        let mut arguments = settings_in(folder, &[&CORE_FSYNC_PIN, &PACK_SIZE_LIMIT_PIN]);
-        arguments.extend(["pack-objects", "-q", "--revs", "--non-empty"].map(OsString::from));
+        let mut arguments = in_git_folder(
+            folder,
+            &[&CORE_FSYNC_PIN, &PACK_SIZE_LIMIT_PIN],
+            &["pack-objects", "-q", "--revs", "--non-empty"],
+        );
         arguments.push(pack_base.into_os_string());
         let mut call = GitCall::read(arguments).with_input(revisions);
         for (name, value) in capture_folder.write_environment() {
@@ -290,8 +314,7 @@ impl CapturePacking {
         }
         self.git.run(place, call).await?;
         // No alternate attached, so only what the folder's own packs hold is removed.
-        let mut arguments = settings_in(folder, &[]);
-        arguments.extend(["prune-packed", "-q"].map(OsString::from));
+        let arguments = in_git_folder(folder, &[], &["prune-packed", "-q"]);
         self.git.run(place, GitCall::read(arguments)).await?;
         self.count_objects(place, folder, hold).await
     }
@@ -303,18 +326,20 @@ impl CapturePacking {
         folder: &Path,
         _hold: &KeyHold<'_, PathBuf>,
     ) -> Result<ObjectCounts, PackingError> {
-        let mut arguments = settings_in(folder, &[]);
-        arguments.extend(["count-objects", "-v"].map(OsString::from));
+        let arguments = in_git_folder(folder, &[], &["count-objects", "-v"]);
         let output = self.git.run(place, GitCall::read(arguments)).await?;
         read_object_counts(&output.stdout)
     }
 
     // Whether a fold of `folder` holding `packs` packs is due: more than the threshold and more
     // than the last fold left, since packs already in geometric order would otherwise be folded
-    // again, with nothing merged, after every capture.
+    // again, with nothing merged, after every capture, and not while a failed fold there waits.
     fn is_fold_due(&self, folder: &Path, packs: u64) -> bool {
         let left = lock(&self.packs_left_by_fold).get(folder).copied();
-        is_fold_due(packs, left)
+        let since_failure = lock(&self.failed_folds)
+            .get(folder)
+            .map(|failed_at| failed_at.elapsed());
+        is_fold_due(packs, left, since_failure)
     }
 
     // Whether the git for `place` can fold; a git that cannot is reported once and the fold
@@ -350,7 +375,7 @@ impl CapturePacking {
     }
 
     // Folds `folder`'s packs into geometric order when a fold is due, and keeps how many packs
-    // it left.
+    // it left, or when it failed, so the next fold there waits.
     async fn fold_held(
         &self,
         place: Option<&Place>,
@@ -361,12 +386,39 @@ impl CapturePacking {
         if !self.is_fold_due(folder, counts.packs) {
             return Ok(());
         }
+        let folded = self.fold(place, folder, hold).await;
+        let mut failed_folds = lock(&self.failed_folds);
+        match &folded {
+            Ok(()) => {
+                failed_folds.remove(folder);
+            }
+            Err(_) => {
+                failed_folds.insert(folder.to_path_buf(), Instant::now());
+            }
+        }
+        folded
+    }
+
+    // Removes the temporary packs a fold cut short left, folds `folder`'s packs under the fold's
+    // own bound, and keeps how many packs it left.
+    async fn fold(
+        &self,
+        place: Option<&Place>,
+        folder: &Path,
+        hold: &KeyHold<'_, PathBuf>,
+    ) -> Result<(), PackingError> {
+        let pack_folder = folder.join(OBJECTS_SEGMENT).join(PACK_SEGMENT);
+        joined(
+            tokio::task::spawn_blocking(move || remove_stale_temporary_packs(&pack_folder)).await,
+        )
+        .map_err(PackingError::Folder)?;
         // No alternate attached; `-n` writes neither `info/refs` nor `objects/info/packs`, and no
         // bitmap is written, which a `pack.writeBitmaps` setting would otherwise fail on. Never
         // `-a`, `-A` or `-m`, which fail on a folder whose objects are borrowed.
-        let mut arguments = settings_in(folder, &[&CORE_FSYNC_PIN, &PACK_SIZE_LIMIT_PIN]);
-        arguments.extend(
-            [
+        let arguments = in_git_folder(
+            folder,
+            &[&CORE_FSYNC_PIN, &PACK_SIZE_LIMIT_PIN],
+            &[
                 "repack",
                 "--geometric=2",
                 "-d",
@@ -374,10 +426,11 @@ impl CapturePacking {
                 "-n",
                 "-q",
                 "--no-write-bitmap-index",
-            ]
-            .map(OsString::from),
+            ],
         );
-        self.git.run(place, GitCall::read(arguments)).await?;
+        self.git
+            .run_within(place, GitCall::read(arguments), FOLD_TIMEOUT)
+            .await?;
         let left = self.count_objects(place, folder, hold).await?;
         lock(&self.packs_left_by_fold).insert(folder.to_path_buf(), left.packs);
         Ok(())
@@ -391,14 +444,14 @@ impl CapturePacking {
         folder: &Path,
         _hold: &KeyHold<'_, PathBuf>,
     ) -> Result<Vec<SnapshotPoint>, PackingError> {
-        let mut arguments = settings_in(folder, &[]);
-        arguments.extend(
-            [
+        let arguments = in_git_folder(
+            folder,
+            &[],
+            &[
                 "for-each-ref",
                 "--format=%(refname) %(objectname) %(tree) %(parent)",
-                "refs/sidekicks/runs/",
-            ]
-            .map(OsString::from),
+                SNAPSHOT_REFS_PREFIX,
+            ],
         );
         let output = self.git.run(place, GitCall::read(arguments)).await?;
         let (points, unreadable) = read_points(&output.stdout);
@@ -436,8 +489,7 @@ impl CapturePacking {
             input.extend_from_slice(base.as_str().as_bytes());
             input.push(b'\n');
         }
-        let mut arguments = settings_in(common_folder, &[]);
-        arguments.extend(["cat-file", "--batch-check"].map(OsString::from));
+        let arguments = in_git_folder(common_folder, &[], &["cat-file", "--batch-check"]);
         let output = self
             .git
             .run(place, GitCall::read(arguments).with_input(input))
@@ -456,9 +508,11 @@ impl CapturePacking {
                     continue;
                 }
             }
-            let mut arguments = settings_in(common_folder, &[]);
-            arguments
-                .extend(["rev-list", "-n1", base.as_str(), "--not", "--all"].map(OsString::from));
+            let arguments = in_git_folder(
+                common_folder,
+                &[],
+                &["rev-list", "-n1", base.as_str(), "--not", "--all"],
+            );
             let output = self.git.run(place, GitCall::read(arguments)).await?;
             if !read_reach(&output.stdout, base)? {
                 unreached.insert(base.clone());
@@ -482,8 +536,11 @@ impl CapturePacking {
             revisions.push_str(tree.as_str());
             revisions.push('\n');
         }
-        let mut arguments = settings_in(common_folder, &[]);
-        arguments.extend(["rev-parse", "--verify", "-q", "HEAD^{tree}"].map(OsString::from));
+        let arguments = in_git_folder(
+            common_folder,
+            &[],
+            &["rev-parse", "--verify", "-q", "HEAD^{tree}"],
+        );
         // An unborn `HEAD` has no tree, so nothing is left out.
         match self.git.run(place, GitCall::read(arguments)).await {
             Ok(output) => {
@@ -506,19 +563,39 @@ impl CapturePacking {
     }
 }
 
-// Whether a fold of a folder holding `packs` packs is due, when the last fold there left `left`.
-fn is_fold_due(packs: u64, left: Option<u64>) -> bool {
-    packs > left.unwrap_or(0).max(FOLD_PACK_THRESHOLD)
+// Whether a fold of a folder holding `packs` packs is due, when the last fold there left `left`
+// and its last fold failed `since_failure` ago.
+fn is_fold_due(packs: u64, left: Option<u64>, since_failure: Option<Duration>) -> bool {
+    since_failure.is_none_or(|since_failure| since_failure >= FOLD_RETRY_WAIT)
+        && packs > left.unwrap_or(0).max(FOLD_PACK_THRESHOLD)
 }
 
-// The arguments of a call against the git folder `folder`: `settings`, then `--git-dir=<folder>`.
-fn settings_in(folder: &Path, settings: &[&[&str; 2]]) -> Vec<OsString> {
-    let mut arguments: Vec<OsString> = settings
-        .iter()
-        .flat_map(|setting| setting.iter().map(OsString::from))
-        .collect();
-    arguments.push(git_folder_argument(folder));
-    arguments
+// Removes from `pack_folder` each temporary pack file written longer ago than a fold may run, so
+// only what a git cut short at its bound, or a crash, left; a live write's file is never that old.
+fn remove_stale_temporary_packs(pack_folder: &Path) -> io::Result<()> {
+    let Some(entries) = fs::read_dir(pack_folder).none_if_missing()? else {
+        return Ok(());
+    };
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !TEMPORARY_PACK_PREFIXES
+            .iter()
+            .any(|prefix| name.starts_with(prefix))
+        {
+            continue;
+        }
+        let Some(metadata) = entry.metadata().none_if_missing()? else {
+            continue;
+        };
+        // A write time ahead of the clock reads as just written.
+        let age = metadata.modified()?.elapsed().unwrap_or(Duration::ZERO);
+        if age > FOLD_TIMEOUT {
+            fs::remove_file(entry.path()).none_if_missing()?;
+        }
+    }
+    Ok(())
 }
 
 // Logs that `base`, under the captures of `folder`, is gone or names a `found_type` object.

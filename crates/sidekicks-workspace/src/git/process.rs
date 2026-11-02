@@ -408,10 +408,20 @@ impl GitRunner {
     /// printed when it exits with a failure; a live index read fails so too when the read of the
     /// repository's setting or of the program's build does.
     pub async fn run(&self, place: Option<&Place>, call: GitCall) -> Result<GitOutput, GitError> {
+        self.run_within(place, call, self.limits.timeout).await
+    }
+
+    /// Runs `call` as [`run`](Self::run) does, but held to `bound` in place of the runner's own,
+    /// which it may pass, for the one long call whose work grows with what it holds; a shorter
+    /// bound the call carries still wins. Fails as [`run`](Self::run) does.
+    pub(crate) async fn run_within(
+        &self,
+        place: Option<&Place>,
+        call: GitCall,
+        bound: Duration,
+    ) -> Result<GitOutput, GitError> {
         let executable = self.executable_for(place)?;
-        let timeout = call.timeout.map_or(self.limits.timeout, |timeout| {
-            timeout.min(self.limits.timeout)
-        });
+        let timeout = call.timeout.map_or(bound, |timeout| timeout.min(bound));
         let prepared = self.prepare(executable, call).await?;
         self.run_git(executable, prepared, timeout).await
     }

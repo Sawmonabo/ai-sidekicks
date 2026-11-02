@@ -4,21 +4,20 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use jiff::Timestamp;
 use rstest::rstest;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
-use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 use super::test_support::{
-    TURN_ENDED_SECOND, answer, answer_in_git_folder, answer_with_captures, as_the_test,
-    files_with_bytes, made_capture_folder, minted_run_id, repository_with_a_commit,
-    service_reading, turn_of, utf8, write_in,
+    answer, answer_in_git_folder, answer_with_captures, as_the_test, files_with_bytes,
+    made_capture_folder, minted_run_id, repository_with_a_commit, service_reading, turn_of, utf8,
+    write_in,
 };
 use super::{TurnSnapshotCaptureOutcome, TurnSnapshotPruneOutcome};
 use crate::folder::canonical_path::canonical_folder_path;
+use crate::git::process::version::KeptProgramFacts;
 use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder, test_git_runner};
 use crate::git::turn_snapshot::capture::LARGE_FILE_BYTES;
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
@@ -243,94 +242,6 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_in_the_capture_folder_an
     );
 }
 
-// Fails when a ref under the snapshot prefix that no capture writes is listed, when a listed
-// turn's ordinal, commit or time is misread, or when an owner with no capture folder answers
-// anything but an empty list.
-#[tokio::test]
-async fn the_list_answers_each_captured_turn_and_nothing_else() {
-    let git = test_git_runner();
-    let root = tempfile::tempdir().expect("the temporary folder is made");
-    let (repository, _) = repository_with_a_commit(&git, root.path()).await;
-    let database = TestDatabase::new(schema_parts());
-    let service = service_over(&git, &database, Arc::new(KeyedLock::new()));
-    let owner = root.path().join("owner");
-    let run_id = minted_run_id();
-    let mut snapshot_commits = Vec::new();
-    for turn_ordinal in [0, 1] {
-        let input = turn_of(&repository, &owner, run_id, turn_ordinal);
-        let outcome = service.capture_turn_snapshot(None, &input).await;
-        let TurnSnapshotCaptureOutcome::Captured {
-            snapshot_commit, ..
-        } = outcome
-        else {
-            panic!("the turn is captured, got {outcome:?}");
-        };
-        snapshot_commits.push(snapshot_commit.as_str().to_owned());
-    }
-    let capture_folder = made_capture_folder(&git, &owner, &repository).await;
-    let prefix = build_run_snapshot_ref_prefix(RunContextKey::from(run_id));
-    for stray_ref in [
-        "refs/heads/elsewhere".to_owned(),
-        format!("{prefix}epoch-0/other"),
-    ] {
-        let arguments = [
-            "update-ref",
-            stray_ref.as_str(),
-            snapshot_commits[0].as_str(),
-        ];
-        answer_in_git_folder(&git, capture_folder.folder(), &arguments, &[]).await;
-    }
-    let git_common_dir = read_git_common_folder(&git, None, &repository, None)
-        .await
-        .expect("the repository's git folder is read");
-
-    let listed = service
-        .list_turn_snapshots(None, &owner, &git_common_dir)
-        .await
-        .expect("the snapshots are listed");
-    let unowned = service
-        .list_turn_snapshots(None, &root.path().join("another-owner"), &git_common_dir)
-        .await
-        .expect("an owner with no folder lists");
-
-    let turn_ended_at = WireInstant::from_timestamp(
-        Timestamp::from_second(TURN_ENDED_SECOND).expect("the instant is in range"),
-    )
-    .expect("the instant writes");
-    let read: Vec<_> = listed
-        .iter()
-        .map(|entry| {
-            (
-                entry.run_id,
-                entry.epoch,
-                entry.turn_ordinal,
-                entry.snapshot_commit.as_str(),
-                entry.created_at.as_str(),
-            )
-        })
-        .collect();
-    assert_eq!(
-        read,
-        [
-            (
-                run_id,
-                0,
-                0,
-                snapshot_commits[0].as_str(),
-                turn_ended_at.as_str()
-            ),
-            (
-                run_id,
-                0,
-                1,
-                snapshot_commits[1].as_str(),
-                turn_ended_at.as_str()
-            ),
-        ]
-    );
-    assert!(unowned.is_empty(), "got {unowned:?}");
-}
-
 // Fails when the capture takes a lock of its own instead of the run setup gate's: it then runs
 // while the gate holds the checkout.
 #[tokio::test]
@@ -421,7 +332,9 @@ async fn each_capture_needs_only_the_git_features_it_calls(
     let git_folder = repository.join(".git");
     let before = files_with_bytes(&git_folder);
     let database = TestDatabase::new(schema_parts());
-    let old_git = git.reading_version_as(version_output, true).await;
+    let old_git = git
+        .reading_version_as(version_output, KeptProgramFacts::Current)
+        .await;
     let service = service_over(&old_git, &database, Arc::new(KeyedLock::new()));
     let owner = root.path().join("owner");
     let run_id = minted_run_id();

@@ -20,7 +20,7 @@ use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argume
 use crate::git::turn_snapshot::repack::CapturePacking;
 
 /// The second every test turn ends at.
-pub(crate) const TURN_ENDED_SECOND: i64 = 1_800_000_000;
+const TURN_ENDED_SECOND: i64 = 1_800_000_000;
 
 /// What `call` printed, its line end dropped. Panics when git fails.
 pub(crate) async fn answer(git: &GitRunner, call: GitCall) -> String {

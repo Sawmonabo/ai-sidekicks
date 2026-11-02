@@ -1,6 +1,6 @@
 use rstest::rstest;
 
-use super::{GitFeature, GitVersion};
+use super::{GitFeature, GitVersion, KeptProgramFacts};
 use crate::git::process::test_git_runner;
 
 // Each feature is met from its first release and missed just before it, whatever build suffix
@@ -57,15 +57,17 @@ async fn the_running_git_names_a_version_that_reads() {
     assert!(matches!(has_geometric, Ok(true)), "got {has_geometric:?}");
 }
 
-// A refusal reads the build again only when the program's stat data changed since the record:
-// kept facts answer the kept release, stale ones the running git's. Fails when every refusal reads
-// git again, or when a changed program is never read again.
+// A refusal reads the build again only when the program's stat data changed since the record or
+// cannot be read: kept facts answer the kept release, stale or unreadable ones the running git's.
+// Fails when every refusal reads git again, when a changed program is never read again, or when a
+// stat that fails at the record and again since stands for an unchanged program.
 #[rstest]
-#[case::unchanged_program_keeps_the_record(true)]
-#[case::changed_program_is_read_again(false)]
+#[case::unchanged_program_keeps_the_record(KeptProgramFacts::Current)]
+#[case::changed_program_is_read_again(KeptProgramFacts::Changed)]
+#[case::unreadable_program_is_read_again(KeptProgramFacts::Unreadable)]
 #[tokio::test]
 async fn a_refusal_reads_the_build_again_only_after_the_program_changed(
-    #[case] are_facts_current: bool,
+    #[case] kept_facts: KeptProgramFacts,
 ) {
     let running = test_git_runner()
         .version(None, GitFeature::RepackGeometric)
@@ -73,7 +75,7 @@ async fn a_refusal_reads_the_build_again_only_after_the_program_changed(
         .expect("the running git's version reads");
     let kept = GitVersion::from_version_output(b"git version 2.35.9\n").expect("the version reads");
     let git = test_git_runner()
-        .reading_version_as(b"git version 2.35.9\n", are_facts_current)
+        .reading_version_as(b"git version 2.35.9\n", kept_facts)
         .await;
 
     let answered = git
@@ -81,6 +83,9 @@ async fn a_refusal_reads_the_build_again_only_after_the_program_changed(
         .await
         .expect("the version answers");
 
-    let expected = if are_facts_current { kept } else { running };
+    let expected = match kept_facts {
+        KeptProgramFacts::Current => kept,
+        KeptProgramFacts::Changed | KeptProgramFacts::Unreadable => running,
+    };
     assert_eq!(answered, expected);
 }

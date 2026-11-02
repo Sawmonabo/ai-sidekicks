@@ -37,7 +37,7 @@ use crate::git::turn_snapshot::capture::{
     EXCLUDE_PER_DIRECTORY_GITIGNORE, GitFloorReports, SparseListingPartition, TURN_SNAPSHOT_SUBJECT,
 };
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
-use crate::git::turn_snapshot::capture_steps::{CaptureStepError, SnapshotCheckout, joined};
+use crate::git::turn_snapshot::capture_steps::{CaptureStepError, SnapshotCheckout, at, joined};
 use crate::git::turn_snapshot::diagnostics::{
     CaptureDiagnostic, CaptureStep, TurnSnapshotRetentionSkipReason,
 };
@@ -196,8 +196,9 @@ impl TurnSnapshotService {
     /// Records the checkout's project state (tracked plus non-ignored untracked files, a file over
     /// the size bound left out) as a snapshot commit at the turn's ref in the owner's capture
     /// folder, running git for the project at `place`, then packs what it borrows from the
-    /// repository. Never fails: every failure is logged and answered `Failed` with its step, since a
-    /// snapshot never holds up a turn; a git lacking a feature is logged once per place and feature.
+    /// repository. Never fails: every failure is logged and answered `Failed` with its step, since
+    /// a snapshot never holds up a turn; a git lacking a feature is logged once per place and
+    /// feature.
     pub async fn capture_turn_snapshot(
         &self,
         place: Option<&Place>,
@@ -607,13 +608,6 @@ fn read_run_context(
         .optional()?)
 }
 
-// Tags a step's failure with the step.
-fn at<Failure: Into<CaptureStepError>>(
-    step: CaptureStep,
-) -> impl FnOnce(Failure) -> (CaptureStep, CaptureStepError) {
-    move |failure| (step, failure.into())
-}
-
 // The one place a capture failure is reported: the log, then the outcome.
 fn fail_capture(
     input: &TurnSnapshotCaptureInput,
@@ -642,8 +636,6 @@ fn skipped(
 ) -> TurnSnapshotPruneOutcome {
     TurnSnapshotPruneOutcome::Skipped { reason, cause }
 }
-
-pub(crate) mod list;
 
 #[cfg(test)]
 pub(crate) mod test_support;

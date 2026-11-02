@@ -27,7 +27,7 @@ use crate::git::turn_snapshot::capture::{
     split_nul_terminated_listing_bytes,
 };
 use crate::git::turn_snapshot::capture_folder::CaptureFolder;
-use crate::git::turn_snapshot::capture_steps::{CaptureStepError, SnapshotCheckout};
+use crate::git::turn_snapshot::capture_steps::{CaptureStepError, SnapshotCheckout, at};
 use crate::git::turn_snapshot::diagnostics::{CaptureDiagnostic, CaptureStep, CommandCapturePhase};
 use crate::git::turn_snapshot::held_checkout::{CaptureRoots, CaptureStartFailure, hold_checkout};
 use crate::git::turn_snapshot::kept_index::{KeptIndex, open_kept_index};
@@ -204,15 +204,14 @@ impl CommandCaptureService {
             Ok(held) => held,
             Err(CaptureStartFailure::BelowFloor) => return Err(CaptureStep::GitFloor),
             Err(CaptureStartFailure::Failed(step, failure)) => {
-                return Err(report_failure(input, phase, step, failure.into()));
+                return Err(report_failure(phase, step, failure));
             }
         };
         let checkout = held.checkout(&self.git, place);
         let captured =
             capture_checkout(&checkout, held.is_sparse_root, input.captured_at, phase).await;
         drop(held.hold);
-        let captured =
-            captured.map_err(|(step, failure)| report_failure(input, phase, step, failure))?;
+        let captured = captured.map_err(|(step, failure)| report_failure(phase, step, failure))?;
 
         let changes = match before_tree {
             Some(before_tree) if *before_tree != captured.tree => read_tree_changes(
@@ -224,7 +223,7 @@ impl CommandCaptureService {
                 &captured.tree,
             )
             .await
-            .map_err(|failure| report_failure(input, phase, CaptureStep::DiffTrees, failure))?,
+            .map_err(|failure| report_failure(phase, CaptureStep::DiffTrees, failure))?,
             Some(_) | None => Vec::new(),
         };
         let capture = CommandCapture {
@@ -240,23 +239,12 @@ impl CommandCaptureService {
     }
 }
 
-/// Why a command capture's step failed.
-#[derive(Debug, thiserror::Error)]
-enum CommandCaptureError {
-    /// A capture step shared with the turn snapshot failed.
-    #[error(transparent)]
-    Step(#[from] CaptureStepError),
-    /// git's listing of the changes between the two trees did not read.
-    #[error(transparent)]
-    DiffTree(#[from] DiffTreeReadError),
-}
-
 /// A failed step and why.
-type StepFailure = (CaptureStep, CommandCaptureError);
+type StepFailure = (CaptureStep, CaptureStepError);
 
 /// Why `diff-tree`'s raw output did not read as changes between two trees; nothing of it is kept.
 #[derive(Debug, thiserror::Error)]
-enum DiffTreeReadError {
+pub(crate) enum DiffTreeReadError {
     /// A record's header ends without its NUL.
     #[error("a diff-tree record's header ends without its NUL")]
     UnterminatedHeader,
@@ -453,7 +441,6 @@ async fn list_on_kept_index(
         .git
         .run(checkout.place, call)
         .await
-        .map_err(CaptureStepError::from)
         .map_err(at(step))?;
     Ok(output.stdout)
 }
@@ -483,7 +470,7 @@ async fn read_tree_changes(
     capture_folder: &CaptureFolder,
     before_tree: &GitObjectId,
     after_tree: &GitObjectId,
-) -> Result<Vec<TreeChange>, CommandCaptureError> {
+) -> Result<Vec<TreeChange>, CaptureStepError> {
     // Replace refs pinned off, so a replaced tree never stands in for a capture's.
     let [pin_flag, pin_setting] = USE_REPLACE_REFS_PIN;
     let arguments = in_folder(
@@ -503,7 +490,7 @@ async fn read_tree_changes(
     for (name, value) in capture_folder.read_environment() {
         call = call.with_environment(name, value);
     }
-    let output = git.run(place, call).await.map_err(CaptureStepError::from)?;
+    let output = git.run(place, call).await?;
     Ok(read_diff_tree_records(&output.stdout)?)
 }
 
@@ -618,22 +605,14 @@ fn read_diff_tree_side(mode: &[u8], object: &[u8]) -> Result<Option<TreeEntry>, 
     }
 }
 
-// `step` paired with a failure, for `map_err`.
-fn at<Failure: Into<CommandCaptureError>>(
-    step: CaptureStep,
-) -> impl FnOnce(Failure) -> StepFailure {
-    move |failure| (step, failure.into())
-}
-
-// Logs the capture's failure at `failed_step` once, with its phase, and answers the step.
+// Logs the capture's failure at `failed_step` once, with its phase, and answers the step; the
+// person's checkout path stays out of the log.
 fn report_failure(
-    input: &CommandCaptureInput,
     phase: CommandCapturePhase,
     failed_step: CaptureStep,
-    failure: CommandCaptureError,
+    failure: CaptureStepError,
 ) -> CaptureStep {
     CaptureDiagnostic::CommandCaptureFailed {
-        checkout_root: input.checkout_root.clone(),
         phase,
         failed_step,
         detail: Box::new(failure),

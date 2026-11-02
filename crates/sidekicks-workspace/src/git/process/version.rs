@@ -104,10 +104,10 @@ pub(crate) struct GitBuild {
 impl GitRunner {
     /// The release of the git program for a project at `place`, which [`GitVersion::has`] checks
     /// a feature against: the one kept from the last read, read again first only when it lacks
-    /// `needed` and the program's stat data changed since, so an upgrade counts at the next call
-    /// and an unchanged git spawns nothing. Fails as [`run`](Self::run) does, and with
-    /// `UnreadableVersion` when git names no version this code can read, so no feature is ever
-    /// taken to be there.
+    /// `needed` and the program's stat data changed since or cannot be read, so an upgrade counts
+    /// at the next call and an unchanged git spawns nothing. Fails as [`run`](Self::run) does, and
+    /// with `UnreadableVersion` when git names no version this code can read, so no feature is
+    /// ever taken to be there.
     pub(crate) async fn version(
         &self,
         place: Option<&Place>,
@@ -126,7 +126,10 @@ impl GitRunner {
             return Ok(kept.version);
         }
         let facts = read_program_facts(executable, &kept.installed_program).await;
-        if facts == (kept.program_facts, kept.installed_program_facts) {
+        // A stat that fails tells nothing, so it never stands for an unchanged program.
+        let is_unchanged = matches!(facts, (Some(_), Some(_)))
+            && facts == (kept.program_facts, kept.installed_program_facts);
+        if is_unchanged {
             return Ok(kept.version);
         }
         // A failed read keeps nothing, so the next call reads again.
@@ -188,14 +191,13 @@ impl GitRunner {
     }
 
     /// This runner with its git taken to be the release `version_output` names, its other facts
-    /// read from the running git, for a test of what an older or newer git does. With
-    /// `are_facts_current` false the kept stat data no longer matches the programs, as after an
-    /// upgrade.
+    /// read from the running git, for a test of what an older or newer git does, its kept stat
+    /// data as `kept_facts` says.
     #[cfg(test)]
     pub(crate) async fn reading_version_as(
         mut self,
         version_output: &[u8],
-        are_facts_current: bool,
+        kept_facts: KeptProgramFacts,
     ) -> Self {
         let executable = self
             .executable_for(None)
@@ -203,24 +205,42 @@ impl GitRunner {
             .to_path_buf();
         let mut build = self.read_build(&executable).await.expect("the build reads");
         build.version = GitVersion::from_version_output(version_output).expect("the version reads");
-        if !are_facts_current {
-            let stale = |facts: Option<FileFacts>| {
-                facts.map(|facts| FileFacts {
-                    size: facts.size + 1,
-                    ..facts
-                })
-            };
-            build.program_facts = stale(build.program_facts);
-            build.installed_program_facts = stale(build.installed_program_facts);
+        match kept_facts {
+            KeptProgramFacts::Current => {}
+            KeptProgramFacts::Changed => {
+                let stale = |facts: Option<FileFacts>| {
+                    facts.map(|facts| FileFacts {
+                        size: facts.size + 1,
+                        ..facts
+                    })
+                };
+                build.program_facts = stale(build.program_facts);
+                build.installed_program_facts = stale(build.installed_program_facts);
+            }
+            KeptProgramFacts::Unreadable => {
+                build.installed_program = executable.with_file_name("no-such-git");
+                build.installed_program_facts = None;
+            }
         }
         self.build_record = std::sync::Arc::new(tokio::sync::Mutex::new(Some(build)));
         self
     }
 }
 
+/// How a test runner's kept stat data of its git stands against the programs.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum KeptProgramFacts {
+    /// It matches the programs.
+    Current,
+    /// It no longer matches them, as after an upgrade.
+    Changed,
+    /// The installed program's stat failed when the record was read and fails again since.
+    Unreadable,
+}
+
 // The stat data of `program` and `installed_program`, links followed, on the blocking pool; a stat
-// that fails, or a blocking task that does not finish, reads `None`, which a later stat that works
-// differs from.
+// that fails, or a blocking task that does not finish, reads `None`.
 async fn read_program_facts(
     program: &Path,
     installed_program: &Path,

@@ -40,16 +40,16 @@ use crate::git::turn_snapshot::capture::{
     SparseListingPartition, UnreadPath, UnrecognizedObjectFormat, join_nul_terminated_listing,
     split_nul_terminated_listing_bytes, to_raw_git_date,
 };
-use crate::git::turn_snapshot::capture_folder::{
-    CaptureFolder, CaptureFolderError, git_folder_argument,
-};
+use crate::git::turn_snapshot::capture_folder::{CaptureFolder, CaptureFolderError, in_git_folder};
+use crate::git::turn_snapshot::command_capture::DiffTreeReadError;
+use crate::git::turn_snapshot::diagnostics::CaptureStep;
 use crate::git::turn_snapshot::refs::USE_REPLACE_REFS_PIN;
 
 const INDEX_COPY_OPERATION: &str = "copying the live index to the scratch index";
 
 /// The exit of `rev-parse --verify -q` when the name resolves to nothing, an unborn `HEAD` among
 /// them; any other failure exits 128.
-const UNRESOLVED_NAME_EXIT_CODE: i32 = 1;
+pub(crate) const UNRESOLVED_NAME_EXIT_CODE: i32 = 1;
 
 /// Why one capture step failed; the service reports it with the step's name, and the turn ends
 /// anyway.
@@ -109,6 +109,16 @@ pub(crate) enum CaptureStepError {
         #[source]
         read_back: Box<CaptureStepError>,
     },
+    /// git's listing of the changes between two trees did not read.
+    #[error(transparent)]
+    DiffTree(#[from] DiffTreeReadError),
+}
+
+/// Pairs a step's failure with the step, for `map_err`.
+pub(crate) fn at<Failure: Into<CaptureStepError>>(
+    step: CaptureStep,
+) -> impl FnOnce(Failure) -> (CaptureStep, CaptureStepError) {
+    move |failure| (step, failure.into())
 }
 
 /// Where a capture's git calls run: the daemon's git, the project's place, the top level of the
@@ -461,8 +471,9 @@ impl SnapshotCheckout<'_> {
         // referent outside the namespace and exit 0 (git 2.50.1, 2.54.0). With it, 2.50.1 replaces
         // the symref and 2.54.0 refuses; a live referent refuses on both, and the id read back
         // through it is reported as found, not as written here.
-        let arguments = self.in_capture_folder(
-            &CORE_FSYNC_PIN,
+        let arguments = in_git_folder(
+            self.capture_folder.folder(),
+            &[&CORE_FSYNC_PIN],
             &[
                 "update-ref",
                 "--no-deref",
@@ -494,7 +505,8 @@ impl SnapshotCheckout<'_> {
         snapshot_ref: &str,
     ) -> Result<Option<GitObjectId>, CaptureStepError> {
         // The pattern also matches refs below `<ref>/`, so the exact name is picked out.
-        let arguments = self.in_capture_folder(
+        let arguments = in_git_folder(
+            self.capture_folder.folder(),
             &[],
             &[
                 "for-each-ref",
@@ -542,23 +554,12 @@ impl SnapshotCheckout<'_> {
         }
         call
     }
-
-    // The arguments of a call against the capture folder's own git folder: `settings`, then
-    // `--git-dir=<folder>` and `arguments`.
-    fn in_capture_folder(&self, settings: &[&str], arguments: &[&str]) -> Vec<OsString> {
-        settings
-            .iter()
-            .map(OsString::from)
-            .chain([git_folder_argument(self.capture_folder.folder())])
-            .chain(arguments.iter().map(OsString::from))
-            .collect()
-    }
 }
 
 /// Whether the checkout at `root` is sparse, read from `core.sparseCheckout` alone (what git
 /// consults before skip-worktree), running git for the project at `place`. A rules file without
-/// the bit fails the matcher (exit 128), so the capture fails closed. Read per root, not per mode: a
-/// worktree inherits sparseness. Fails as git does.
+/// the bit fails the matcher (exit 128), so the capture fails closed. Read per root, not per mode:
+/// a worktree inherits sparseness. Fails as git does.
 pub(crate) async fn detect_sparse_root(
     git: &GitRunner,
     place: Option<&Place>,

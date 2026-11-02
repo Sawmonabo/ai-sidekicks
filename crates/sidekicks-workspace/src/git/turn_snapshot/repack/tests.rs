@@ -8,7 +8,9 @@ use rstest::rstest;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
-use super::{CaptureFolderSweep, CapturePacking, is_fold_due};
+use super::{
+    CaptureFolderSweep, CapturePacking, FOLD_TIMEOUT, is_fold_due, remove_stale_temporary_packs,
+};
 use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder, test_git_runner};
 use crate::git::turn_snapshot::capture_folder::{CaptureFolder, git_folder_argument};
 use crate::git::turn_snapshot::command_capture::{CommandCaptureInput, CommandCaptureService};
@@ -257,21 +259,55 @@ async fn a_fold_merges_the_folders_own_packs_and_nothing_it_borrows() {
     assert!(!folder.join("objects").join("info").join("packs").exists());
 }
 
-// Fails on an off-by-one at the threshold, or when the packs the last fold left are ignored, so
-// packs already in geometric order are folded again after every capture.
+// Fails on an off-by-one at the threshold, when the packs the last fold left are ignored, so
+// packs already in geometric order are folded again after every capture, or when a fold that
+// failed within the hour is run again, or never again after it.
 #[rstest]
-#[case::at_the_threshold(10, None, false)]
-#[case::past_the_threshold(11, None, true)]
-#[case::past_a_fold_that_left_fewer(11, Some(10), true)]
-#[case::as_the_last_fold_left(12, Some(12), false)]
-#[case::past_the_last_fold(13, Some(12), true)]
-#[case::below_the_threshold_after_a_fold(10, Some(3), false)]
-fn a_fold_is_due_past_ten_packs_and_past_what_the_last_fold_left(
+#[case::at_the_threshold(10, None, None, false)]
+#[case::past_the_threshold(11, None, None, true)]
+#[case::past_a_fold_that_left_fewer(11, Some(10), None, true)]
+#[case::as_the_last_fold_left(12, Some(12), None, false)]
+#[case::past_the_last_fold(13, Some(12), None, true)]
+#[case::below_the_threshold_after_a_fold(10, Some(3), None, false)]
+#[case::within_the_hour_after_a_failed_fold(11, None, Some(59 * 60), false)]
+#[case::an_hour_after_a_failed_fold(11, None, Some(60 * 60), true)]
+fn a_fold_is_due_past_ten_packs_past_what_the_last_fold_left_and_an_hour_after_a_failure(
     #[case] packs: u64,
     #[case] left: Option<u64>,
+    #[case] since_failure_seconds: Option<u64>,
     #[case] is_due: bool,
 ) {
-    assert_eq!(is_fold_due(packs, left), is_due);
+    let since_failure = since_failure_seconds.map(Duration::from_secs);
+    assert_eq!(is_fold_due(packs, left, since_failure), is_due);
+}
+
+// Fails when a temporary pack a git cut short left stays, or when one a live write still holds,
+// or a finished pack, is removed.
+#[test]
+fn only_temporary_packs_older_than_a_fold_may_run_are_removed() {
+    let pack_folder = tempfile::tempdir().expect("the temporary folder is made");
+    let stale_time = SystemTime::now() - FOLD_TIMEOUT - Duration::from_secs(60);
+    let stale = ["tmp_pack_stale", ".tmp-12-pack-stale.pack"];
+    let kept = ["tmp_pack_live", ".tmp-13-pack-live.pack", "pack-0a.pack"];
+    for name in stale.iter().chain(&kept) {
+        std::fs::write(pack_folder.path().join(name), b"").expect("the file is written");
+    }
+    for name in stale.iter().chain(&["pack-0a.pack"]) {
+        std::fs::File::options()
+            .write(true)
+            .open(pack_folder.path().join(name))
+            .and_then(|file| file.set_modified(stale_time))
+            .expect("the file is aged");
+    }
+
+    remove_stale_temporary_packs(pack_folder.path()).expect("the folder is cleaned");
+
+    for name in stale {
+        assert!(!pack_folder.path().join(name).exists(), "{name} is removed");
+    }
+    for name in kept {
+        assert!(pack_folder.path().join(name).exists(), "{name} is kept");
+    }
 }
 
 // Fails when the sweep skips the reach pack (the gc then takes the blob only the lost branch
@@ -294,7 +330,9 @@ async fn a_sweep_packs_the_captures_whose_base_no_ref_reaches_and_skips_an_idle_
         GitCall::read(in_folder(&repository, &["symbolic-ref", "--short", "HEAD"])),
     )
     .await;
-    // A capture on `main`, whose base stays reached.
+    // A capture on `main`, whose base stays reached; its staged file gives its tree an object
+    // beyond the base's tree, so packing it as unreached would write a pack.
+    stage_file(&git, &repository, "on-main.txt", "on main\n").await;
     service
         .capture_turn_snapshot(None, &turn_of(&repository, &owner, run_id, 0))
         .await;

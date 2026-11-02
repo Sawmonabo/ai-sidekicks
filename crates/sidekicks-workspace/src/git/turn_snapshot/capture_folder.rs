@@ -25,7 +25,7 @@ use crate::git::turn_snapshot::capture_steps::joined;
 pub const CAPTURES_SEGMENT: &str = "captures";
 
 /// A git folder's object folder.
-const OBJECTS_SEGMENT: &str = "objects";
+pub(crate) const OBJECTS_SEGMENT: &str = "objects";
 
 /// The folder in a capture folder that holds the indexes captures stage into.
 const INDEXES_SEGMENT: &str = "indexes";
@@ -261,6 +261,21 @@ pub(crate) fn git_folder_argument(folder: &Path) -> OsString {
     let mut argument = OsString::from("--git-dir=");
     argument.push(folder);
     argument
+}
+
+/// The arguments of a call against the git folder `folder`: each of `settings` in turn, then
+/// `--git-dir=<folder>` and `arguments`.
+pub(crate) fn in_git_folder(
+    folder: &Path,
+    settings: &[&[&str]],
+    arguments: &[&str],
+) -> Vec<OsString> {
+    settings
+        .iter()
+        .flat_map(|setting| setting.iter().map(OsString::from))
+        .chain([git_folder_argument(folder)])
+        .chain(arguments.iter().map(OsString::from))
+        .collect()
 }
 
 // `objects` as one entry of git's alternate list, in the C-style quotes git reads there, so a path

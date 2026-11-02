@@ -121,8 +121,6 @@ pub(crate) enum CaptureDiagnostic {
     },
     /// One of a command's two captures did not complete; the command runs anyway.
     CommandCaptureFailed {
-        /// The checkout the command runs in.
-        checkout_root: PathBuf,
         /// Which of the two captures failed.
         phase: CommandCapturePhase,
         /// The step that failed.
@@ -232,12 +230,10 @@ impl CaptureDiagnostic {
                 "A turn snapshot was not captured"
             ),
             Self::CommandCaptureFailed {
-                checkout_root,
                 phase,
                 failed_step,
                 detail,
             } => tracing::warn!(
-                checkout_root = %checkout_root.display(),
                 phase = <&str>::from(*phase),
                 failed_step = <&str>::from(*failed_step),
                 error = &**detail as &(dyn Error + 'static),
