@@ -4,11 +4,12 @@
 //!   client it admitted, or the daemon's own client's last attempt that did not finish, goes to
 //!   the provider's flow with no request sent. A redirect address whose host is not loopback is
 //!   never signed in by the daemon's own client, nor is a server whose metadata does not list the
-//!   `S256` PKCE method, which the client must refuse. Then a client the server's owner issued; else
-//!   dynamic registration, with one adjusted retry when the server refuses the redirect or the
-//!   metadata; else, where the server offers no registration, the client metadata document this
-//!   deployment's relay serves, when the server takes one for a public client on a loopback
-//!   redirect; else the provider's flow.
+//!   `S256` PKCE method, since the daemon's client never opens a browser without it: both go to the
+//!   provider's flow, the latter refused as such only where no provider's flow admits the server.
+//!   Then a client the server's owner issued; else dynamic registration, with one adjusted retry
+//!   when the server refuses the redirect or the metadata; else, where the server offers no
+//!   registration, the client metadata document this deployment's relay serves, when the server
+//!   takes one for a public client on a loopback redirect; else the provider's flow.
 //! - **The classification.** A registration that got no answer or a server error failed and may
 //!   be tried again; a server that publishes no metadata offers no sign-in; a definite refusal of
 //!   registration, or of the pushed authorization request, goes to the provider's flow. It is read
@@ -113,6 +114,8 @@ pub(crate) enum SignInClient {
     ProviderFlow {
         /// The provider whose client the server admitted before, when one did.
         admitted_provider: Option<ProviderId>,
+        /// Why the sign-in is refused where no provider's flow admits the server.
+        refusal_if_none_admits: SignInUnsupportedReason,
     },
 }
 
@@ -144,6 +147,7 @@ pub(crate) async fn choose_client(
         })) => {
             return SignInClient::ProviderFlow {
                 admitted_provider: Some(provider),
+                refusal_if_none_admits: SignInUnsupportedReason::NoProviderFlow,
             };
         }
         Ok(Some(AdmittedClient {
@@ -159,20 +163,20 @@ pub(crate) async fn choose_client(
         };
     }
     if !is_loopback_address(request.redirect_address) {
-        return SignInClient::ProviderFlow {
-            admitted_provider: None,
-        };
+        return provider_flow();
     }
     let metadata = resolution.metadata;
-    // A server that does not list `S256` may ignore the challenge, so the client refuses it before
-    // the browser opens, the field's absence included.
+    // A server that does not list `S256` may ignore the challenge, so the daemon's own client never
+    // opens a browser for it, the field's absence included; a provider's own flow may still admit
+    // it.
     let takes_s256 = metadata
         .code_challenge_methods_supported
         .as_ref()
         .is_some_and(|methods| methods.iter().any(|method| method == PKCE_METHOD));
     if !takes_s256 {
-        return SignInClient::Unsupported {
-            reason: SignInUnsupportedReason::NoS256Challenge,
+        return SignInClient::ProviderFlow {
+            admitted_provider: None,
+            refusal_if_none_admits: SignInUnsupportedReason::NoS256Challenge,
         };
     }
     let has_registration_endpoint = metadata.registration_endpoint.is_some();
@@ -187,9 +191,7 @@ pub(crate) async fn choose_client(
     } else if let Some(client_id) = document_client_id {
         configure(manager, own_client_config(&client_id, request))
     } else {
-        SignInClient::ProviderFlow {
-            admitted_provider: None,
-        }
+        provider_flow()
     }
 }
 
@@ -208,9 +210,7 @@ pub(crate) fn classify_pushed_authorization_refusal(
 ) -> SignInClient {
     match refusal {
         PushedAuthorizationRefusal::InvalidClient
-        | PushedAuthorizationRefusal::UnauthorizedClient => SignInClient::ProviderFlow {
-            admitted_provider: None,
-        },
+        | PushedAuthorizationRefusal::UnauthorizedClient => provider_flow(),
         PushedAuthorizationRefusal::Other { .. } => SignInClient::Failed {
             source: Box::new(refusal),
         },
@@ -254,11 +254,7 @@ async fn register(
                     reason: SignInUnsupportedReason::UnusableMetadata,
                 }
             }
-            RegistrationOutcome::Answered { status, .. } if is_refusal(status) => {
-                SignInClient::ProviderFlow {
-                    admitted_provider: None,
-                }
-            }
+            RegistrationOutcome::Answered { status, .. } if is_refusal(status) => provider_flow(),
             // No answer, a server error, or a success whose body rmcp could not read.
             RegistrationOutcome::Unanswered | RegistrationOutcome::Answered { .. } => {
                 SignInClient::Failed {
@@ -266,6 +262,15 @@ async fn register(
                 }
             }
         },
+    }
+}
+
+// A provider's own flow, for a server that admitted none before, refused as offering no provider's
+// flow where none admits it.
+fn provider_flow() -> SignInClient {
+    SignInClient::ProviderFlow {
+        admitted_provider: None,
+        refusal_if_none_admits: SignInUnsupportedReason::NoProviderFlow,
     }
 }
 

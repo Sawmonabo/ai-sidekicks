@@ -172,12 +172,14 @@ pub(crate) struct FakeAuthorizationServer {
     pub(crate) revocation_authorizations: Arc<Mutex<Vec<Option<String>>>>,
 }
 
-/// How the fake authorization server answers; by default it registers every client, answers
-/// every token request with tokens and every revocation with 200.
+/// How the fake authorization server answers; by default it lists `S256` among its PKCE methods,
+/// registers every client, answers every token request with tokens and every revocation with 200.
 #[derive(Clone, Copy)]
 pub(crate) struct FakeServerAnswers {
     /// Whether its metadata says it sends `iss` with every response.
     pub(crate) is_issuer_in_response: bool,
+    /// Whether its metadata lists `S256` among its PKCE methods; it lists none otherwise.
+    pub(crate) is_s256_listed: bool,
     /// Whether it refuses every registration with 403.
     pub(crate) is_registration_refused: bool,
     /// Whether it refuses every token request with `invalid_grant`.
@@ -190,6 +192,7 @@ impl Default for FakeServerAnswers {
     fn default() -> Self {
         Self {
             is_issuer_in_response: false,
+            is_s256_listed: true,
             is_registration_refused: false,
             is_code_refused: false,
             revocation_status: StatusCode::OK,
@@ -212,6 +215,7 @@ pub(crate) async fn serve_authorization_server(
 ) -> FakeAuthorizationServer {
     let FakeServerAnswers {
         is_issuer_in_response,
+        is_s256_listed,
         is_registration_refused,
         is_code_refused,
         revocation_status,
@@ -223,7 +227,7 @@ pub(crate) async fn serve_authorization_server(
         "http://{}",
         listener.local_addr().expect("the port's address")
     );
-    let metadata = json!({
+    let mut metadata = json!({
         "issuer": base,
         "authorization_endpoint": format!("{base}/authorize"),
         "token_endpoint": format!("{base}/token"),
@@ -231,10 +235,12 @@ pub(crate) async fn serve_authorization_server(
         "revocation_endpoint": format!("{base}/revoke"),
         "token_endpoint_auth_methods_supported": ["client_secret_post"],
         "response_types_supported": ["code"],
-        "code_challenge_methods_supported": ["S256"],
         "authorization_response_iss_parameter_supported": is_issuer_in_response,
-    })
-    .to_string();
+    });
+    if is_s256_listed {
+        metadata["code_challenge_methods_supported"] = json!(["S256"]);
+    }
+    let metadata = metadata.to_string();
     let requests = Arc::new(AtomicUsize::new(0));
     let token_requests = Arc::new(AtomicUsize::new(0));
     let token_forms = Arc::new(Mutex::new(Vec::new()));

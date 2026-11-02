@@ -20,6 +20,7 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot::error::TryRecvError;
 
 use crate::client::http::McpRequestAuthorizer as _;
+use crate::errors::{McpRefusal, SignInUnsupportedReason};
 use crate::sign_in::canonical_server_address;
 use crate::sign_in::completion_event::SignInFailureReason;
 use crate::sign_in::service::{ProviderAccounts, SignInTarget};
@@ -324,6 +325,58 @@ async fn only_a_driver_whose_flow_returns_through_the_relay_gets_a_listener() {
         "no listener is bound for the driver's own listener"
     );
     assert!(*is_own_return_closed);
+}
+
+/// A server whose metadata does not list `S256`, which the daemon's own client never opens a
+/// browser for, goes to the providers' flows: one that admits it signs in, and where none does the
+/// sign-in is refused as unsupported for the missing method. Killed by the refusal answered
+/// before the providers' flows are asked, and by the reason lost to the plain no-flow one.
+#[rstest]
+#[case::a_provider_admits(true)]
+#[case::none_admits(false)]
+#[tokio::test]
+async fn a_server_without_s256_signs_in_through_a_provider_or_is_refused_for_it(
+    #[case] does_provider_admit: bool,
+) {
+    let server = serve_authorization_server(FakeServerAnswers {
+        is_s256_listed: false,
+        ..FakeServerAnswers::default()
+    })
+    .await;
+    let flow = if does_provider_admit {
+        ScriptedFlow::Completes {
+            issuer: server.base.clone(),
+        }
+    } else {
+        ScriptedFlow::NoFlow
+    };
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let harness = harness_with(vec![scripted_driver(flow, "only", &calls)]).await;
+    let provider = registered_providers(&harness).remove(0);
+    let (target, accounts) = provider_target(&harness, &provider, &server);
+
+    let launched = harness.service.launch(&target, &[], &accounts).await;
+
+    assert_eq!(*lock(&calls), ["only"], "the provider's flow is asked");
+    if does_provider_admit {
+        assert_eq!(
+            launched.expect("the provider's flow opens the browser"),
+            scripted_browser_url()
+        );
+        let completions = settled_completions(&harness).await;
+        assert_eq!(completions[0]["outcome"], "success");
+    } else {
+        assert!(
+            matches!(
+                &launched,
+                Err(McpRefusal::ServerSignInUnsupported {
+                    reason: SignInUnsupportedReason::NoS256Challenge,
+                    ..
+                })
+            ),
+            "refused for the missing method, not {launched:?}"
+        );
+    }
 }
 
 /// A completed flow keeps the credentials with the issuer they came from, marks the server

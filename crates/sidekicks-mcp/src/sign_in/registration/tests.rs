@@ -114,7 +114,7 @@ enum Arm {
     Failed,
     Unsupported(SignInUnsupportedReason),
     OwnClientUnfinished,
-    ProviderFlow(Option<String>),
+    ProviderFlow(Option<String>, SignInUnsupportedReason),
 }
 
 fn own(client_id: &str) -> Arm {
@@ -122,7 +122,7 @@ fn own(client_id: &str) -> Arm {
 }
 
 fn provider_flow() -> Arm {
-    Arm::ProviderFlow(None)
+    Arm::ProviderFlow(None, SignInUnsupportedReason::NoProviderFlow)
 }
 
 fn arm_of(client: SignInClient) -> Arm {
@@ -131,9 +131,13 @@ fn arm_of(client: SignInClient) -> Arm {
         SignInClient::Failed { .. } => Arm::Failed,
         SignInClient::Unsupported { reason } => Arm::Unsupported(reason),
         SignInClient::OwnClientUnfinished => Arm::OwnClientUnfinished,
-        SignInClient::ProviderFlow { admitted_provider } => {
-            Arm::ProviderFlow(admitted_provider.map(|provider| provider.as_str().to_owned()))
-        }
+        SignInClient::ProviderFlow {
+            admitted_provider,
+            refusal_if_none_admits,
+        } => Arm::ProviderFlow(
+            admitted_provider.map(|provider| provider.as_str().to_owned()),
+            refusal_if_none_admits,
+        ),
     }
 }
 
@@ -279,20 +283,22 @@ fn answer(status: u16, body: &str) -> Response {
 #[case::no_metadata(Row::with(None), Arm::Unsupported(SignInUnsupportedReason::NoSignInRoute),
     &[])]
 // An authorization request sent where PKCE may be ignored: no method listed, or no `S256`. The
-// owner-issued client sends no registration, so only the sign-in's own check refuses it.
+// owner-issued client sends no registration, so only the sign-in's own check sends it to a
+// provider's flow, refused for the missing method where none admits it.
 #[case::no_pkce_method_listed(
     Row { pkce: Pkce::Unlisted, owner_client_id: Some("owner-client"), ..answering(&[CREATED]) },
-    Arm::Unsupported(SignInUnsupportedReason::NoS256Challenge), &[])]
+    Arm::ProviderFlow(None, SignInUnsupportedReason::NoS256Challenge), &[])]
 #[case::only_plain_pkce(
     Row { pkce: Pkce::PlainOnly, owner_client_id: Some("owner-client"), ..answering(&[CREATED]) },
-    Arm::Unsupported(SignInUnsupportedReason::NoS256Challenge), &[])]
+    Arm::ProviderFlow(None, SignInUnsupportedReason::NoS256Challenge), &[])]
 #[case::pushed_authorization_refused_invalid_client(
     Row { pushed_refusal: Some(PushedAuthorizationRefusal::InvalidClient),
           ..answering(&[CREATED]) },
     provider_flow(), &["native"])]
 // The admitted row read after registration, or not at all.
 #[case::an_admitted_provider(Row { admitted: Admitted::Provider, ..answering(&[CREATED]) },
-    Arm::ProviderFlow(Some("provider-a".to_owned())), &[])]
+    Arm::ProviderFlow(Some("provider-a".to_owned()), SignInUnsupportedReason::NoProviderFlow),
+    &[])]
 #[case::an_own_client_attempt_that_did_not_finish(
     Row { admitted: Admitted::OwnClientUnfinished, ..answering(&[CREATED]) },
     Arm::OwnClientUnfinished, &[])]

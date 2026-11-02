@@ -15,7 +15,8 @@
 //!   again and marks nothing. A provider's flow running for the server ends the same way, with
 //!   no mark.
 //! - **After a mark.** Where no provider's flow admits the server, the daemon's own client is the
-//!   only client there is: the mark clears and the same press signs in with the own client.
+//!   only client there is: the mark clears and the same press signs in with the own client, or,
+//!   where the own client would go to a provider's flow again, is refused at once.
 
 use std::collections::HashMap;
 use std::ops::ControlFlow;
@@ -371,12 +372,6 @@ impl SignInService {
             {
                 ProviderFlowStart::Opened(browser_url) => return Ok(browser_url),
                 ProviderFlowStart::NoneAdmits { failure } => {
-                    if let Some(failure) = failure {
-                        tracing::warn!(
-                            error = &*failure as &(dyn std::error::Error + 'static),
-                            "no provider's MCP sign-in started, so the daemon's own client signs in"
-                        );
-                    }
                     self.admitted_clients
                         .clear_own_client_unfinished(&server.address)
                         .await
@@ -390,6 +385,23 @@ impl SignInService {
                         resolution,
                     )
                     .await;
+                    // The providers' flows were just tried, so none is run again.
+                    if let SignInClient::ProviderFlow {
+                        refusal_if_none_admits,
+                        ..
+                    } = client
+                    {
+                        return Err(match failure {
+                            Some(source) => failed(source),
+                            None => unsupported(refusal_if_none_admits),
+                        });
+                    }
+                    if let Some(failure) = failure {
+                        tracing::warn!(
+                            error = &*failure as &(dyn std::error::Error + 'static),
+                            "no provider's MCP sign-in started, so the daemon's own client signs in"
+                        );
+                    }
                 }
             }
         }
@@ -493,7 +505,8 @@ impl SignInService {
 
     // The launch's answer for every client but the daemon's own, whose configuration continues
     // the launch: a provider's flow is run, the provider the server admitted first, and no
-    // provider's flow refuses the sign-in with the failure of the one asked, or as unsupported.
+    // provider's flow refuses the sign-in with the failure of the one asked, or as unsupported for
+    // the reason the client carries.
     async fn answer_other_client(
         self: &Arc<Self>,
         target: &SignInTarget,
@@ -502,7 +515,7 @@ impl SignInService {
         provider_accounts: &ProviderAccounts,
     ) -> ControlFlow<Result<Url, McpRefusal>, OAuthClientConfig> {
         let binding = Box::new(target.binding.clone());
-        let admitted_provider = match client {
+        let (admitted_provider, refusal_if_none_admits) = match client {
             SignInClient::OwnClient(own_client) => return ControlFlow::Continue(own_client),
             SignInClient::Unsupported { reason } => {
                 return ControlFlow::Break(Err(McpRefusal::ServerSignInUnsupported {
@@ -513,8 +526,11 @@ impl SignInService {
             SignInClient::Failed { source } => {
                 return ControlFlow::Break(Err(McpRefusal::ServerSignInFailed { binding, source }));
             }
-            SignInClient::ProviderFlow { admitted_provider } => admitted_provider,
-            SignInClient::OwnClientUnfinished => None,
+            SignInClient::ProviderFlow {
+                admitted_provider,
+                refusal_if_none_admits,
+            } => (admitted_provider, refusal_if_none_admits),
+            SignInClient::OwnClientUnfinished => (None, SignInUnsupportedReason::NoProviderFlow),
         };
         ControlFlow::Break(
             match self
@@ -528,7 +544,7 @@ impl SignInService {
                 Ok(ProviderFlowStart::NoneAdmits { failure: None }) => {
                     Err(McpRefusal::ServerSignInUnsupported {
                         binding,
-                        reason: SignInUnsupportedReason::NoProviderFlow,
+                        reason: refusal_if_none_admits,
                     })
                 }
                 Err(refusal) => Err(refusal),
@@ -578,9 +594,9 @@ impl SignInService {
         drop(ended);
     }
 
-    // Keeps the attempt, its receiver serving and its timer started, ending with no mark any attempt
-    // a racing launch kept for the same server, a press of its own. Fails once the daemon's stop
-    // has begun, the attempt dropped.
+    // Keeps the attempt, its receiver serving and its timer started, ending with no mark any
+    // attempt a racing launch kept for the same server, a press of its own. Fails once the daemon's
+    // stop has begun, the attempt dropped.
     fn open_attempt(
         self: &Arc<Self>,
         target: &SignInTarget,
