@@ -317,7 +317,7 @@ async fn read_json_file(
 // The names of the folders in `folder`, sorted; none where it cannot be listed, which is logged
 // unless it is absent, naming the folder by `listed`, what it lists, never by its path.
 async fn list_folder_names(folder: &Path, listed: &str) -> Vec<String> {
-    let listed = async {
+    let names_read = async {
         let mut entries = tokio::fs::read_dir(folder).await?;
         let mut names = Vec::new();
         while let Some(entry) = entries.next_entry().await? {
@@ -330,7 +330,7 @@ async fn list_folder_names(folder: &Path, listed: &str) -> Vec<String> {
         Ok::<_, io::Error>(names)
     }
     .await;
-    match listed {
+    match names_read {
         Ok(mut names) => {
             names.sort();
             names

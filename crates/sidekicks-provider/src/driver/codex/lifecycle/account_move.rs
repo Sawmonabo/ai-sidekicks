@@ -95,16 +95,15 @@ impl CodexBindingMove {
         if !is_reported {
             return;
         }
-        match recorder.port() {
-            Some(recorder) => {
-                recorder
-                    .record_account_moved(session_id, account_move.provider_account_id)
-                    .await;
-            }
-            None => tracing::warn!(
+        let Some(recorder) = recorder.port() else {
+            tracing::warn!(
                 %session_id,
                 "a session moved onto another account before its record was registered"
-            ),
-        }
+            );
+            return;
+        };
+        recorder
+            .record_account_moved(session_id, account_move.provider_account_id)
+            .await;
     }
 }

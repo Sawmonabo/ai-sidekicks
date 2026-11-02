@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
+use futures::StreamExt as _;
 use futures::future::BoxFuture;
 use rstest::rstest;
 use secrecy::{ExposeSecret as _, SecretString};
