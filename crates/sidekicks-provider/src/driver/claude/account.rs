@@ -34,7 +34,8 @@ use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::installed_build::resolve_claude_build;
 use crate::driver::contract::account::{
     MemoryImportStore, ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObserveLegs,
-    ProviderSwitchLegs, ProviderTokenStatusLegs, SessionAccountMove, SessionToMove,
+    ProviderSignInLegs, ProviderSwitchLegs, ProviderTokenStatusLegs, ProviderWindowTurnLegs,
+    SessionAccountMove, SessionToMove,
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
@@ -145,6 +146,18 @@ impl ProviderAccountLegs for ClaudeAccountLegs {
     }
 
     fn switch_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSwitchLegs>> {
+        Some(self)
+    }
+
+    fn window_turn_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderWindowTurnLegs>> {
+        Some(self)
+    }
+
+    fn sign_in_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSignInLegs>> {
+        None
+    }
+
+    fn token_status_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenStatusLegs>> {
         Some(self)
     }
 }

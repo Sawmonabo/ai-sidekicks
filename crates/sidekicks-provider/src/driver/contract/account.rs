@@ -57,6 +57,20 @@ pub trait ProviderAccountLegs: Send + Sync {
     /// `provider.account.current.update` runs; `None` for a provider whose sessions never run on an
     /// account of the plane's.
     fn switch_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSwitchLegs>>;
+
+    /// These legs as the provider's throwaway turns, which the background observer runs to start
+    /// an account's closed windows and to read a pasted token's limits; `None` for a provider with
+    /// no such turn, whose windows are then never started.
+    fn window_turn_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderWindowTurnLegs>>;
+
+    /// These legs as the provider's interactive sign-in, which the sign-in broker runs; `None` for
+    /// a provider with no sign-in of its own here, whose sign-ins the broker refuses as unsupported.
+    fn sign_in_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSignInLegs>>;
+
+    /// These legs as the provider's status read of a pasted token, which the token custody runs
+    /// at each registration and re-supply; `None` for a provider that takes no pasted token, whose
+    /// token registrations the custody refuses.
+    fn token_status_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenStatusLegs>>;
 }
 
 /// A provider's own interactive sign-in, run in one account's home: the flow's start, and the

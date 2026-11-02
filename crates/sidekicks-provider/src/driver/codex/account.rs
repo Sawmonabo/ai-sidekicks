@@ -43,7 +43,8 @@ use crate::driver::codex::service::supervisor::{
 };
 use crate::driver::contract::account::{
     MemoryImportStore, ProviderAccountLegs, ProviderMemoryImportLegs, ProviderObservation,
-    ProviderObserveLegs, ProviderSwitchLegs, SessionAccountMove, SessionToMove,
+    ProviderObserveLegs, ProviderSignInLegs, ProviderSwitchLegs, ProviderTokenStatusLegs,
+    ProviderWindowTurnLegs, SessionAccountMove, SessionToMove,
 };
 use crate::driver::contract::error::DriverError;
 use crate::runtime_binding::writer::RuntimeBindingWriter;
@@ -161,6 +162,18 @@ impl ProviderAccountLegs for CodexAccountLegs {
 
     fn switch_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSwitchLegs>> {
         Some(self)
+    }
+
+    fn window_turn_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderWindowTurnLegs>> {
+        Some(self)
+    }
+
+    fn sign_in_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSignInLegs>> {
+        None
+    }
+
+    fn token_status_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderTokenStatusLegs>> {
+        None
     }
 }
 
