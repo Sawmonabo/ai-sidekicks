@@ -17,7 +17,8 @@
 //! a `-32602` counting as answered, so an outage never counts toward the grace. Lost's clock is
 //! wall time since the last poll that read the task or answered `-32602`, which resets it; once
 //! it reaches 300 s the cause that stands picks the contact: a sign-in not accepted, errors that
-//! persisted, or contact lost. The next poll that reads the task reads it reached again.
+//! persisted, or contact lost. The next poll that reads the task reads it reached again, or reads
+//! the standing arm the contact held, which says what the task did and so holds to the end.
 
 use std::error::Error;
 use std::future::Future;
@@ -217,9 +218,10 @@ pub(super) fn poll_interval(suggested_interval_ms: Option<u64>) -> Duration {
 
 /// Polls with `poll` until it reads the end, waiting the held interval between polls, or less
 /// when `wake` is notified but at least [`MIN_POLL_INTERVAL`] from the last poll, and keeping
-/// `contact` to why the server is not reached, if it is not. The first poll runs at once. A closed
-/// connection ends `ConnectionClosed`; a `-32601`, a `-32021`, or a `-32602` past its grace, ends
-/// `TaskUnknown` with the server's error.
+/// `contact` to why the server is not reached, if it is not, a standing arm it held written back
+/// once a poll reads the task. The first poll runs at once. A closed connection ends
+/// `ConnectionClosed`; a `-32601`, a `-32021`, or a `-32602` past its grace, ends `TaskUnknown`
+/// with the server's error.
 pub(super) async fn follow_task<Error, Poll, Polled>(
     wake: &Notify,
     contact: &watch::Sender<McpTaskContact>,
@@ -236,13 +238,15 @@ where
     // The answered clock's reading at the first `-32602` since a poll last read the task.
     let mut grace_start: Option<Duration> = None;
     let mut interval = DEFAULT_POLL_INTERVAL;
+    // What a poll that reads the task writes: `Reached`, or the standing arm the contact held.
+    let mut answered_arm = McpTaskContact::Reached;
     loop {
         let polled_at = Instant::now();
         let polled = poll().await;
         let now = Instant::now();
         match polled {
             Ok(PollStep::End(end)) => {
-                set_contact(contact, McpTaskContact::Reached);
+                set_contact(contact, &mut answered_arm, McpTaskContact::Reached);
                 return end;
             }
             Ok(PollStep::Wait {
@@ -251,7 +255,7 @@ where
                 last_answered = now;
                 answered.answer(now);
                 grace_start = None;
-                set_contact(contact, McpTaskContact::Reached);
+                set_contact(contact, &mut answered_arm, McpTaskContact::Reached);
                 interval = poll_interval(suggested_interval_ms);
             }
             Err(error) => {
@@ -271,7 +275,7 @@ where
                         if answered.counted().saturating_sub(started) >= TASK_ID_REJECTED_GRACE {
                             return McpToolCallEnd::TaskUnknown { error };
                         }
-                        set_contact(contact, McpTaskContact::TaskIdRejected);
+                        set_contact(contact, &mut answered_arm, McpTaskContact::TaskIdRejected);
                         None
                     }
                     PollFailure::SignInRefused => Some(McpTaskContact::NeedsSignIn),
@@ -285,7 +289,7 @@ where
                     } else {
                         cause
                     };
-                    set_contact(contact, arm);
+                    set_contact(contact, &mut answered_arm, arm);
                 }
             }
         }
@@ -307,15 +311,29 @@ fn cause_at_contact_lost(cause: McpTaskContact) -> McpTaskContact {
         McpTaskContact::AnsweredWithErrors | McpTaskContact::ErrorsPersisted => {
             McpTaskContact::ErrorsPersisted
         }
-        McpTaskContact::Reached | McpTaskContact::Lost | McpTaskContact::TaskIdRejected => {
-            McpTaskContact::Lost
-        }
+        McpTaskContact::Reached
+        | McpTaskContact::Lost
+        | McpTaskContact::TaskIdRejected
+        | McpTaskContact::CancelRefused { .. } => McpTaskContact::Lost,
     }
 }
 
-// Writes `arm` to the task's contact, telling its readers only when it changed.
-fn set_contact(contact: &watch::Sender<McpTaskContact>, arm: McpTaskContact) {
+// Writes `arm` to the task's contact, telling its readers only when it changed. A standing arm the
+// contact holds is first kept as `answered_arm`, which a `Reached` write puts back in its place.
+fn set_contact(
+    contact: &watch::Sender<McpTaskContact>,
+    answered_arm: &mut McpTaskContact,
+    arm: McpTaskContact,
+) {
     contact.send_if_modified(|state| {
+        if state.is_standing() {
+            *answered_arm = *state;
+        }
+        let arm = if arm == McpTaskContact::Reached {
+            *answered_arm
+        } else {
+            arm
+        };
         let is_new = *state != arm;
         *state = arm;
         is_new
@@ -345,8 +363,8 @@ mod tests {
     use crate::client::http::McpHttpError;
     use crate::client::requests::McpRequestError;
     use crate::client::tasks::McpTaskContact::{
-        AnsweredWithErrors, ErrorsPersisted, Lost, NeedsSignIn, Reached, SignInNotAccepted,
-        TaskIdRejected,
+        AnsweredWithErrors, CancelRefused, ErrorsPersisted, Lost, NeedsSignIn, Reached,
+        SignInNotAccepted, TaskIdRejected,
     };
     use crate::client::tasks::{McpTaskContact, McpToolCallEnd};
     use crate::sign_in::authorizer::SignInAuthorizationError;
@@ -573,8 +591,39 @@ mod tests {
         #[case] expected_ended_at: u64,
         #[case] expected_contacts: Vec<(u64, McpTaskContact)>,
     ) {
+        let (end, ended_at, contacts) = follow_script(Reached, script).await;
+
+        assert_eq!(end, Some(expected_end));
+        assert_eq!(ended_at, expected_ended_at);
+        assert_eq!(contacts, expected_contacts);
+    }
+
+    // Mutation: write `Reached` at an answered poll in place of the standing arm the contact held.
+    #[tokio::test(start_paused = true)]
+    async fn an_answered_poll_after_an_outage_restores_a_refused_cancel() {
+        let refused = CancelRefused { is_from_stop: true };
+
+        let (end, ended_at, contacts) = follow_script(refused, |at| match at {
+            0..310 => Silent,
+            310 => Working,
+            _ => Completed,
+        })
+        .await;
+
+        assert_eq!(end, Some(McpToolCallEnd::Answered { result: result() }));
+        assert_eq!(ended_at, 312);
+        assert_eq!(contacts, [(300, Lost), (310, refused)]);
+    }
+
+    // Follows a task polled every 2 s from the contact `initial`, `script` answering by the second
+    // since the follow began, and gives its end, the second it ended at and each contact change
+    // with its second; `None` for a follow still running after 50 minutes.
+    async fn follow_script(
+        initial: McpTaskContact,
+        script: fn(u64) -> Reply,
+    ) -> (Option<McpToolCallEnd>, u64, Vec<(u64, McpTaskContact)>) {
         let wake = Notify::new();
-        let contact = watch::Sender::new(Reached);
+        let contact = watch::Sender::new(initial);
         let mut seen = contact.subscribe();
         let started = Instant::now();
         let follow = follow_task(&wake, &contact, || {
@@ -597,9 +646,6 @@ mod tests {
         if seen.has_changed().expect("the contact is kept") {
             contacts.push((started.elapsed().as_secs(), *seen.borrow_and_update()));
         }
-
-        assert_eq!(end, Some(expected_end));
-        assert_eq!(started.elapsed().as_secs(), expected_ended_at);
-        assert_eq!(contacts, expected_contacts);
+        (end, started.elapsed().as_secs(), contacts)
     }
 }

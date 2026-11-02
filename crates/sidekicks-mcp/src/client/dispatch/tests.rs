@@ -13,8 +13,9 @@ use tokio_util::sync::CancellationToken;
 use super::{McpCallCompletionError, McpToolDispatch, McpToolDispatchError};
 use crate::client::McpClient;
 use crate::client::connection::standing::McpStandingConnection;
-use crate::client::tasks::McpToolCallEnd;
+use crate::client::tasks::McpTaskContact::{CancelRefused, Reached};
 use crate::client::tasks::recorder::McpTaskHandleRecorder;
+use crate::client::tasks::{McpTaskContact, McpToolCallEnd};
 use crate::client::test_server::{
     Reply, Responder, TestServer, contact, method_not_found, start_test_server, test_client,
     text_result, track_call, tracked_end, v1_initialize_result, v1_status_reply, v1_task,
@@ -124,6 +125,7 @@ fn receipt_without_task(status: &str, is_completed: bool) -> StoredReceipt {
 /// `task_reply` with the method and how many of it came before.
 fn task_server(mut task_reply: impl FnMut(&str, usize) -> Reply + Send + 'static) -> Responder {
     tools_server(
+        v1_initialize_result(),
         json!({ "taskSupport": "required" }),
         move |method, earlier| match method {
             "tools/call" => Reply::Answer(json!({ "result": { "task": v1_task("working") } })),
@@ -135,13 +137,18 @@ fn task_server(mut task_reply: impl FnMut(&str, usize) -> Reply + Send + 'static
 /// A 2025-11-25 server whose `track` tool runs as a plain call, whose `tools/call` is never
 /// answered.
 fn silent_call_server() -> Responder {
-    tools_server(json!({ "taskSupport": "forbidden" }), |_, _| Reply::Silent)
+    tools_server(
+        v1_initialize_result(),
+        json!({ "taskSupport": "forbidden" }),
+        |_, _| Reply::Silent,
+    )
 }
 
-/// A 2025-11-25 server listing the one tool `track`, with `execution`, at its start; every later
-/// request but `initialize` is answered through `reply` with the method and how many of it came
-/// before.
+/// A 2025-11-25 server answering `initialize` with `initialize` and listing the one tool `track`,
+/// with `execution`, at its start; every later request is answered through `reply` with the method
+/// and how many of it came before.
 fn tools_server(
+    initialize: Value,
     execution: Value,
     mut reply: impl FnMut(&str, usize) -> Reply + Send + 'static,
 ) -> Responder {
@@ -151,7 +158,7 @@ fn tools_server(
         let count = *earlier;
         *earlier += 1;
         match method {
-            "initialize" => Reply::Answer(json!({ "result": v1_initialize_result() })),
+            "initialize" => Reply::Answer(json!({ "result": initialize.clone() })),
             "tools/list" if count == 0 => Reply::Answer(json!({ "result": { "tools": [{
                 "name": "track",
                 "inputSchema": { "type": "object" },
@@ -244,6 +251,7 @@ async fn a_call_dropped_unanswered_leaves_its_receipt_claimed_without_a_task() {
     let fixture = Fixture::new().await;
     let (standing, server) = fixture
         .connect(tools_server(
+            v1_initialize_result(),
             json!({ "taskSupport": "required" }),
             |_, _| Reply::Silent,
         ))
@@ -261,6 +269,112 @@ async fn a_call_dropped_unanswered_leaves_its_receipt_claimed_without_a_task() {
     assert_eq!(
         fixture.receipts(),
         [receipt_without_task("accepted", false)]
+    );
+}
+
+// Mutations: in `call`, send no `tasks/cancel` at the caller's cancel of a held task, or end the
+// follow there; in `cancel_followed_task`, leave a refused cancel's contact `Reached`; in
+// `outcome_of`, write `failed` for every end a cancel reached; in `follow_task`, write `Reached`
+// over the refused cancel at the poll that reads the end.
+#[rstest::rstest]
+#[case::taken(
+    true,
+    || v1_status_reply("cancelled"),
+    "cancelled",
+    McpToolCallEnd::Canceled,
+    "failed",
+    1,
+    Reached
+)]
+#[case::answered_first(
+    true,
+    || Reply::Answer(json!({ "error": { "code": -32602, "message": "task ended" } })),
+    "completed",
+    tracked_end(),
+    "completed",
+    1,
+    Reached
+)]
+#[case::refused_with_method_not_found(
+    true,
+    method_not_found,
+    "completed",
+    tracked_end(),
+    "completed",
+    1,
+    CancelRefused { is_from_stop: true }
+)]
+#[case::cancel_not_declared(
+    false,
+    method_not_found,
+    "completed",
+    tracked_end(),
+    "completed",
+    0,
+    CancelRefused { is_from_stop: true }
+)]
+#[tokio::test(start_paused = true)]
+async fn a_canceled_task_is_asked_to_cancel_and_followed_to_the_end_it_reaches(
+    #[case] is_cancel_declared: bool,
+    #[case] cancel_reply: fn() -> Reply,
+    #[case] after: &'static str,
+    #[case] expected_end: McpToolCallEnd,
+    #[case] expected_status: &str,
+    #[case] expected_cancels: usize,
+    #[case] expected_contact: McpTaskContact,
+) {
+    let fixture = Fixture::new().await;
+    let mut initialize = v1_initialize_result();
+    if !is_cancel_declared {
+        initialize["capabilities"]["tasks"]
+            .as_object_mut()
+            .expect("the tasks capability is an object")
+            .remove("cancel");
+    }
+    // Two polls read `working`, the cancel sent after the first; the third reads `after`.
+    let (standing, server) = fixture
+        .connect(tools_server(
+            initialize,
+            json!({ "taskSupport": "required" }),
+            move |method, earlier| match (method, earlier) {
+                ("tools/call", _) => {
+                    Reply::Answer(json!({ "result": { "task": v1_task("working") } }))
+                }
+                ("tasks/get", 0 | 1) => v1_status_reply("working"),
+                ("tasks/get", _) => v1_status_reply(after),
+                ("tasks/cancel", _) => cancel_reply(),
+                ("tasks/result", _) => Reply::Answer(json!({ "result": text_result("tracked") })),
+                _ => method_not_found(),
+            },
+        ))
+        .await;
+    let contact = contact();
+    let cancellation = CancellationToken::new();
+
+    let (dispatched, ()) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &cancellation),
+        async {
+            until(|| server.requests("tasks/get").len() == 1).await;
+            cancellation.cancel();
+        },
+    );
+    let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+
+    assert_eq!(server.requests("tasks/cancel").len(), expected_cancels);
+    assert_eq!(
+        server.requests("tasks/get").len(),
+        3,
+        "the follow went on to the end"
+    );
+    assert_eq!(end.expect("the call ends"), expected_end);
+    assert_eq!(*contact.borrow(), expected_contact);
+    written.expect("the caller writes the end");
+    let [stored] = <[_; 1]>::try_from(fixture.receipts()).expect("one receipt");
+    assert_eq!(
+        (stored.status.as_str(), stored.is_completed),
+        (expected_status, true)
     );
 }
 

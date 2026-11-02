@@ -202,7 +202,9 @@ pub(crate) enum McpTaskCancelOutcome {
 /// Whether a followed task's server still reads the task, and why not when it does not: no
 /// answer, an error answer, a refused sign-in or a rejected task id, each also read once it has
 /// stood for 300 s. A failed poll that says why replaces the cause that stood, and the task is
-/// left alone either way.
+/// left alone either way. A standing arm says what the task did and holds to the end in place of
+/// `Reached`: a poll's cause shows over it while that cause holds, and an answered poll restores
+/// it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum McpTaskContact {
     /// A poll read the task, and no failed poll since said why it could not.
@@ -224,6 +226,20 @@ pub(crate) enum McpTaskContact {
     /// The polls came back with errors for the 300 s since one last read the task or answered
     /// `-32602`; until one does.
     ErrorsPersisted,
+    /// The server refused to cancel the task, which runs on and is followed to its end; a
+    /// standing arm.
+    CancelRefused {
+        /// Whether the cancel was the person's or the agent's stop, which the row reads as refused.
+        is_from_stop: bool,
+    },
+}
+
+impl McpTaskContact {
+    /// Whether this arm says what the task did, so it holds to the follow's end in place of
+    /// `Reached`.
+    pub(crate) fn is_standing(self) -> bool {
+        matches!(self, Self::CancelRefused { .. })
+    }
 }
 
 /// Why a tool call has no end.

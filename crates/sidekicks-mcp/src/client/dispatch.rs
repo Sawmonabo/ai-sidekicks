@@ -6,6 +6,9 @@
 //!   call is dropped, which tells the server it is canceled, and its end is unknown; a task is
 //!   canceled on the still-open connection and its end read once. The caller writes every other
 //!   end through [`McpDispatchedCall::complete`], or hands it off.
+//! - The caller's cancel asks the server to cancel an accepted task beside its follow, which goes
+//!   on to the end the server gives: `failed` after `cancelled`, `completed` when the result came
+//!   first, and on through a refused or failed cancel.
 //! - An end without the server's answer while the client stops came from the stop, so nothing is
 //!   written and the receipt stays in flight.
 
@@ -141,7 +144,8 @@ impl McpToolDispatch {
     /// read, the receipt recorded and claimed, then the call made, `contact` saying whether a
     /// task's server still answers. The session's close ends the call at once, writing its end;
     /// `cancellation` drops a call the server has not accepted as a task, its end `Canceled`
-    /// and outcome unknown, and leaves an accepted task followed to its end.
+    /// and outcome unknown, and asks the server to cancel an accepted task, which is followed to
+    /// its end, `contact` reading `CancelRefused` when the server refuses.
     ///
     /// Fails, writing nothing, when `cancellation` fires, the session's connections close or the
     /// client stops before the call is sent, when no connection is live, when the server's tools
@@ -189,7 +193,24 @@ impl McpToolDispatch {
         let race = {
             let mut ending =
                 pin!(connection.call_tool(standing, call, is_task_tool, &sink, contact));
-            let mut is_following_past_cancel = false;
+            // The caller's cancel: false for a call the server has not accepted as a task, which is
+            // then dropped; an accepted task is asked to cancel beside its follow, which goes on.
+            let mut caller_cancel = pin!(async {
+                cancellation.cancelled().await;
+                let Some((generation, mcp_task_id)) = sink.held_handle() else {
+                    return false;
+                };
+                // Boxed, so the request's future is held only once a task is canceled.
+                Box::pin(cancel_followed_task(
+                    &connection,
+                    generation,
+                    &mcp_task_id,
+                    contact,
+                ))
+                .await;
+                true
+            });
+            let mut is_cancel_sent = false;
             loop {
                 tokio::select! {
                     biased;
@@ -217,11 +238,11 @@ impl McpToolDispatch {
                             }
                         };
                     }
-                    () = cancellation.cancelled(), if !is_following_past_cancel => {
-                        if sink.held_handle().is_none() {
+                    is_task_held = &mut caller_cancel, if !is_cancel_sent => {
+                        if !is_task_held {
                             break CallRace::Canceled;
                         }
-                        is_following_past_cancel = true;
+                        is_cancel_sent = true;
                     }
                 }
             }
@@ -333,6 +354,30 @@ fn closed_error(standing: &McpStandingConnection) -> McpToolDispatchError {
         McpToolDispatchError::ClientStopping
     } else {
         McpToolDispatchError::SessionClosed
+    }
+}
+
+/// Asks the server to cancel the followed task `mcp_task_id` at its caller's cancel, its follow
+/// going on to the end the server gives: a refused cancel sets `contact` to `CancelRefused`, and a
+/// failed one is logged.
+async fn cancel_followed_task(
+    connection: &McpServerConnection,
+    generation: McpTaskGeneration,
+    mcp_task_id: &str,
+    contact: &watch::Sender<McpTaskContact>,
+) {
+    match connection.cancel_task(generation, mcp_task_id).await {
+        Ok(McpTaskCancelOutcome::Taken) => {}
+        Ok(McpTaskCancelOutcome::Refused) => {
+            contact.send_modify(|state| {
+                *state = McpTaskContact::CancelRefused { is_from_stop: true };
+            });
+        }
+        Err(error) => tracing::warn!(
+            error = &error as &(dyn std::error::Error + 'static),
+            server = connection.scope.server_name.as_str(),
+            "a canceled tool server task was not canceled on its server; its follow goes on"
+        ),
     }
 }
 
