@@ -25,13 +25,19 @@ const UNIX_EPOCH_INTERVALS: i128 = 116_444_736_000_000_000;
 /// serial and 128-bit file id, its size, its link count, and its last write and change times.
 /// Fails with the system's error from the open or a read, `NotFound` when nothing is there.
 pub fn file_facts(path: &Path) -> io::Result<FileFacts> {
-    // Opened as `entry_identity` opens an entry, but through a link to its target.
-    let opened = OpenOptions::new()
+    file_facts_of(&open_for_attributes(path)?)
+}
+
+/// Opens the file or folder at `path` through any link only to read its attributes, as
+/// `entry_identity` opens an entry but through a link to its target: every share mode, so it leaves
+/// other handles' locks alone, and backup semantics, without which a folder does not open. Fails
+/// with the system's error from the open.
+pub(crate) fn open_for_attributes(path: &Path) -> io::Result<File> {
+    OpenOptions::new()
         .access_mode(FILE_READ_ATTRIBUTES)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(path)?;
-    file_facts_of(&opened)
+        .open(path)
 }
 
 /// The facts of the open file `file`, read through its handle, never its path, so they are the very

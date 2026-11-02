@@ -4,21 +4,19 @@
 pub(crate) mod folder;
 
 use std::ffi::OsString;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, ErrorKind};
 use std::os::windows::ffi::OsStringExt;
-use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
 
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-    FILE_SHARE_WRITE, GetDriveTypeW, GetFinalPathNameByHandleW, GetVolumePathNameW,
-    VOLUME_NAME_GUID,
+    GetDriveTypeW, GetFinalPathNameByHandleW, GetVolumePathNameW, VOLUME_NAME_GUID,
 };
 use windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOTE;
 
 use crate::volume::{Volume, VolumeId};
+use crate::windows::file_facts::open_for_attributes;
 use crate::windows::real_path::{strip_verbatim_prefix, verbatim_path};
 
 // The UTF-16 units a volume GUID path's prefix takes before its first separator: `\\?\`.
@@ -34,8 +32,7 @@ const FIRST_PATH_UNITS: usize = 128;
 /// holds a NUL, and the system's error otherwise.
 pub fn read_volume(path: &Path) -> io::Result<Volume> {
     let root = read_volume_root(path)?;
-    // SAFETY: the root is a live NUL-terminated string.
-    if unsafe { GetDriveTypeW(root.as_ptr()) } == DRIVE_REMOTE {
+    if is_remote_root(&root) {
         return Err(io::Error::new(
             ErrorKind::Unsupported,
             "a network share has no volume GUID path",
@@ -45,13 +42,7 @@ pub fn read_volume(path: &Path) -> io::Result<Volume> {
     // does.
     let (_, root_units) = root.split_last().expect("the root ends in its NUL");
     let top = PathBuf::from(OsString::from_wide(&strip_verbatim_prefix(root_units)?));
-    // Opened as `read_clone_refusal` opens a folder, so a file and a folder both open.
-    let opened = OpenOptions::new()
-        .access_mode(FILE_READ_ATTRIBUTES)
-        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-        .open(path)?;
-    let id = String::from_utf16(&volume_guid_path(&opened)?)
+    let id = String::from_utf16(&volume_guid_path(&open_for_attributes(path)?)?)
         .map_err(|error| io::Error::new(ErrorKind::InvalidData, error))?;
     Ok(Volume {
         top,
@@ -83,6 +74,14 @@ pub(crate) fn read_volume_root(path: &Path) -> io::Result<Vec<u16>> {
         .expect("the root read ends in a NUL");
     volume_root.truncate(end + 1);
     Ok(volume_root)
+}
+
+/// Whether the volume root `root`, NUL-terminated as [`read_volume_root`] reads it, is a network
+/// share's, a mapped drive included.
+pub(crate) fn is_remote_root(root: &[u16]) -> bool {
+    assert_eq!(root.last(), Some(&0), "a volume root ends in its NUL");
+    // SAFETY: the root is a live NUL-terminated string, as the line above holds.
+    unsafe { GetDriveTypeW(root.as_ptr()) == DRIVE_REMOTE }
 }
 
 /// The volume GUID path (`\\?\Volume{…}\`) of the volume holding the open file or folder `file`,

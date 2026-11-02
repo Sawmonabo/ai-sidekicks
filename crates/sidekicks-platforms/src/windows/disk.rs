@@ -18,13 +18,12 @@ use windows_sys::Wdk::Storage::FileSystem::{
 use windows_sys::Wdk::System::SystemServices::FILE_FS_FULL_SIZE_INFORMATION;
 use windows_sys::Win32::Foundation::RtlNtStatusToDosError;
 use windows_sys::Win32::Storage::FileSystem::{
-    FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, GetDriveTypeW,
+    FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
 };
 use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
-use windows_sys::Win32::System::WindowsProgramming::DRIVE_REMOTE;
 
 use crate::windows::real_path::verbatim_path;
-use crate::windows::volume::read_volume_root;
+use crate::windows::volume::{is_remote_root, read_volume_root};
 
 /// A file's flush failed, and so did setting its read-only attribute back afterwards.
 #[derive(Debug, thiserror::Error)]
@@ -84,9 +83,7 @@ pub fn volume_free_bytes(folder: &Path) -> io::Result<u64> {
 /// remote drive. Fails with `InvalidInput` when the path holds a NUL, and with the system's error
 /// when its volume cannot be read.
 pub fn is_on_network_file_system(path: &Path) -> io::Result<bool> {
-    let volume_root = read_volume_root(path)?;
-    // SAFETY: the root is a live NUL-terminated string.
-    Ok(unsafe { GetDriveTypeW(volume_root.as_ptr()) } == DRIVE_REMOTE)
+    Ok(is_remote_root(&read_volume_root(path)?))
 }
 
 /// Flushes the file at `path` to disk through a write open, which the flush needs; a read-only file

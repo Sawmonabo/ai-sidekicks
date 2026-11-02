@@ -3,26 +3,16 @@
 //! no clones. So the two ends' volumes are compared first, by their volume GUID paths, and only
 //! after the clone has failed.
 
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, ErrorKind};
-use std::os::windows::fs::OpenOptionsExt;
 use std::path::Path;
 
 use windows_sys::Win32::Foundation::ERROR_INVALID_FUNCTION;
-use windows_sys::Win32::Storage::FileSystem::{
-    FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-    FILE_SHARE_WRITE,
-};
 
 use crate::clone_refusal::CloneRefusal;
+use crate::windows::error_codes::win32_code;
+use crate::windows::file_facts::open_for_attributes;
 use crate::windows::volume::volume_guid_path;
-
-// The high half of an HRESULT that wraps a Win32 code (`HRESULT_FROM_WIN32`): the failure bit and
-// facility 7. reflink-copy's `DeviceIoControl` calls answer in this form.
-const WIN32_HRESULT_HIGH_HALF: u32 = 0x8007_0000;
-
-// The high half of an HRESULT, which holds its failure bit and its facility.
-const HRESULT_HIGH_HALF_MASK: u32 = 0xFFFF_0000;
 
 /// A clone failed, and so did reading which volume its source or its destination's folder is on.
 #[derive(Debug, thiserror::Error)]
@@ -36,12 +26,13 @@ pub struct CloneVolumeReadFailure {
 }
 
 /// What `error`, from cloning `source` into a new file at `destination`, tells: a copy on another
-/// volume when the volume GUID paths of the source and of the destination's folder differ, else a
-/// volume that makes no clones for `ERROR_INVALID_FUNCTION`, plain or as an HRESULT. Fails with
-/// `error` itself, unchanged, for the source's or the destination's own refusal (`AlreadyExists`,
-/// `NotFound` or `PermissionDenied`, as std reads a plain code) and for any other code on one
-/// volume. When a volume cannot be read, as a network share's cannot, fails with an error of the
-/// clone's kind that wraps a [`CloneVolumeReadFailure`] (reached with `get_ref` or `into_inner`).
+/// volume when the volume GUID paths of the source and of the destination's folder differ or the
+/// source's cannot be read, as a network share's cannot, else a volume that makes no clones for
+/// `ERROR_INVALID_FUNCTION`, plain or as an HRESULT. Fails with `error` itself, unchanged, for the
+/// source's or the destination's own refusal (`AlreadyExists`, `NotFound` or `PermissionDenied`, as
+/// std reads a plain code) and for any other code on one volume. When the destination folder's
+/// volume cannot be read, fails with an error of the clone's kind that wraps a
+/// [`CloneVolumeReadFailure`] (reached with `get_ref` or `into_inner`).
 pub fn read_clone_refusal(
     source: &File,
     destination: &Path,
@@ -52,13 +43,10 @@ pub fn read_clone_refusal(
             .parent()
             .filter(|folder| !folder.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        // Opened as `file_facts` opens a file; a folder opens only with backup semantics.
-        let opened_folder = OpenOptions::new()
-            .access_mode(FILE_READ_ATTRIBUTES)
-            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
-            .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
-            .open(folder)?;
-        Ok(volume_guid_path(source)? == volume_guid_path(&opened_folder)?)
+        let folder_volume = volume_guid_path(&open_for_attributes(folder)?)?;
+        // A source whose volume has no GUID path, a network share's, is on another volume than a
+        // folder whose volume has one.
+        Ok(volume_guid_path(source).is_ok_and(|source_volume| source_volume == folder_volume))
     })
 }
 
@@ -75,7 +63,7 @@ fn refusal_of(
     }
     match is_one_volume() {
         Ok(false) => Ok(CloneRefusal::AcrossVolumes),
-        Ok(true) if win32_code_of(&error) == Some(ERROR_INVALID_FUNCTION) => {
+        Ok(true) if win32_code(&error) == Some(ERROR_INVALID_FUNCTION) => {
             Ok(CloneRefusal::Unsupported)
         }
         Ok(true) => Err(error),
@@ -86,16 +74,6 @@ fn refusal_of(
                 volume_read,
             },
         )),
-    }
-}
-
-// The Win32 code `error` carries, plain or wrapped in an HRESULT, whose low half it is.
-fn win32_code_of(error: &io::Error) -> Option<u32> {
-    let code = error.raw_os_error()?.cast_unsigned();
-    if code & HRESULT_HIGH_HALF_MASK == WIN32_HRESULT_HIGH_HALF {
-        Some(code & !HRESULT_HIGH_HALF_MASK)
-    } else {
-        Some(code)
     }
 }
 
