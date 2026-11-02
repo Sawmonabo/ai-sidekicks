@@ -19,6 +19,7 @@ use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_workspace::clone::service::CloneAttachedListener;
 use sidekicks_workspace::repo::mount::service::managed_folder_hold_statement;
 
 use super::{HandOffSeeding, SessionHandOff, record_hand_off_statement};
@@ -488,5 +489,55 @@ async fn the_start_hands_each_unseeded_hand_off_to_the_port_and_finishes_none_it
             "SELECT count(*) FROM workspaces WHERE session_id = '{left}'"
         )),
         0
+    );
+}
+
+// Dies to the clone's attach handing the port no hand-off (the fresh session waits for the next
+// start, provisioning) and to the project filter dropped (the chat's hand-off handed too).
+#[tokio::test]
+async fn a_clone_s_attach_hands_its_project_s_unseeded_hand_offs_to_the_port() {
+    let fixture = Fixture::new().await;
+    let planning = fixture
+        .creation
+        .create(project_request(new_key(), None))
+        .await
+        .expect("the planning session is made")
+        .session_id;
+    let planning_chat = fixture
+        .creation
+        .create(chat_request(new_key()))
+        .await
+        .expect("the planning chat is made")
+        .session_id;
+    let fresh_session = || SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is an id");
+    let (fresh, fresh_chat) = (fresh_session(), fresh_session());
+    record_hand_off(&fixture.writer, planning, fresh).await;
+    record_hand_off(&fixture.writer, planning_chat, fresh_chat).await;
+    for born in [fresh, fresh_chat] {
+        fixture
+            .creation
+            .create_handed_off(hand_off_key(born))
+            .await
+            .expect("the fresh session is born");
+    }
+    let seeding = RecordingSeeding::set_on(&fixture);
+    fixture.start_cloning();
+    let state = fixture
+        .creation
+        .finish_handed_off(hand_off_key(fresh))
+        .await
+        .expect("the finish waits for the clone");
+    assert_eq!(state, SessionState::Provisioning);
+
+    fixture.end_cloning();
+    fixture
+        .creation
+        .clone_attached(ProjectId::new(PROJECT_ID).expect("a project id"))
+        .await
+        .expect("the clone's sessions and hand-offs are handed on");
+
+    assert_eq!(
+        seeding.calls(),
+        vec![("finish_hand_off", fresh, Some("provisioning".to_owned()))]
     );
 }

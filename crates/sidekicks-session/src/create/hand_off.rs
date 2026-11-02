@@ -44,7 +44,7 @@ use sidekicks_workspace::working_folder::{
 use tokio::sync::SetOnceError;
 
 use crate::changes::session_name_of;
-use crate::create::provisioning::failed_at;
+use crate::create::provisioning::{SessionFinishFailure, failed_at, finish_failure};
 use crate::create::{CreateTarget, SessionCreateError, SessionCreation};
 use crate::queue_store::{QueueItemReader, RecordedQueueItemState};
 
@@ -62,8 +62,17 @@ const SELECT_HAND_OFFS_SQL: &str = "SELECT session_id, client_idempotency_key, p
 static SELECT_HAND_OFF_SQL: LazyLock<String> =
     LazyLock::new(|| format!("{SELECT_HAND_OFFS_SQL}\n  WHERE client_idempotency_key = @key"));
 
-static SELECT_HAND_OFFS_IN_ORDER_SQL: LazyLock<String> =
-    LazyLock::new(|| format!("{SELECT_HAND_OFFS_SQL}\n  ORDER BY session_id"));
+// Every hand-off in order, those whose fresh session was made in one project when `@projectId`
+// names it.
+static SELECT_HAND_OFFS_IN_ORDER_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "{SELECT_HAND_OFFS_SQL}
+  WHERE @projectId IS NULL
+     OR session_id IN (SELECT session_id FROM session_create_requests
+                        WHERE project_id = @projectId)
+  ORDER BY session_id"
+    )
+});
 
 // The planning session's project as it reads now, and the one its create record names, which
 // outlives a project forgotten since.
@@ -127,7 +136,7 @@ pub trait HandOffSeeding: Send + Sync {
 
 /// A hand-off's finish that stopped, with the step it stopped at.
 #[derive(Debug, thiserror::Error)]
-#[error("the hand-off's {step:?} step did not finish")]
+#[error("the hand-off's {} step did not finish", <&'static str>::from(.step))]
 pub struct HandOffStepFailure {
     /// The step that did not finish.
     pub step: PlanHandOffStep,
@@ -175,12 +184,17 @@ pub fn read_hand_off(
         .optional()
 }
 
-// Every hand-off whose seed no run has taken: no seed in the fresh session's queue, or one still
-// waiting or never delivered.
-fn query_unseeded_hand_offs(reader: &Connection) -> rusqlite::Result<Vec<SessionHandOff>> {
+// Every hand-off whose seed no run has taken, those whose fresh session was made in `project_id`
+// when it names one: no seed in the fresh session's queue, or one still waiting or never
+// delivered.
+fn query_unseeded_hand_offs(
+    reader: &Connection,
+    project_id: Option<ProjectId>,
+) -> rusqlite::Result<Vec<SessionHandOff>> {
+    let project = project_id.map(|project_id| project_id.text().as_str().to_owned());
     let hand_offs = reader
         .prepare_cached(&SELECT_HAND_OFFS_IN_ORDER_SQL)?
-        .query_map([], hand_off_of_row)?
+        .query_map(named_params! { "@projectId": project }, hand_off_of_row)?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     let queue = QueueItemReader::new(reader);
     let mut unseeded = Vec::new();
@@ -237,15 +251,33 @@ impl SessionCreation {
             .ok_or_else(|| SessionCreateError::HandOffSeeding(Box::new(HandOffSeedingUnset)))
     }
 
-    /// Every hand-off whose seed no run has taken, for the daemon's start to hand to the port.
-    pub(super) async fn read_unseeded_hand_offs(
+    /// Hands the seeding port's `finish_hand_off` every hand-off whose seed no run has taken,
+    /// those whose fresh session was made in `project_id` when it names one, holding no key, so
+    /// the port takes the plan's lock before the key. Answers each hand-off's outcome, a port
+    /// unset or failing as [`SessionCreateError::HandOffSeeding`]; fails as the read fails.
+    pub(super) async fn hand_unseeded_hand_offs_to_port(
         &self,
-    ) -> Result<Vec<SessionHandOff>, SessionCreateError> {
-        self.reads
-            .read(ReadLength::Short, |reader| {
-                Ok::<_, SessionCreateError>(query_unseeded_hand_offs(reader)?)
+        project_id: Option<ProjectId>,
+    ) -> Result<Vec<Result<(), SessionFinishFailure>>, SessionCreateError> {
+        let hand_offs = self
+            .reads
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, SessionCreateError>(query_unseeded_hand_offs(reader, project_id)?)
             })
-            .await
+            .await?;
+        let mut outcomes = Vec::new();
+        for hand_off in hand_offs {
+            let session_id = hand_off.session_id;
+            let handed = match self.hand_off_seeding() {
+                Ok(seeding) => seeding
+                    .finish_hand_off(hand_off)
+                    .await
+                    .map_err(SessionCreateError::HandOffSeeding),
+                Err(unset) => Err(unset),
+            };
+            outcomes.push(handed.map_err(|failure| finish_failure(session_id, failure)));
+        }
+        Ok(outcomes)
     }
 
     /// Finishes the fresh session of the hand-off whose create ran under `key`, the whole finish in

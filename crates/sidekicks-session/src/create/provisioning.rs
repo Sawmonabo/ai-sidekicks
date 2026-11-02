@@ -3,9 +3,9 @@
 //! level and mode its provider starts it at, and `session.activated`. A create runs them at once;
 //! a project's clone runs them for the sessions made while it cloned; the daemon's start runs them
 //! for every session a stop left provisioning, after removing the workspace of each chat whose
-//! create stopped before the chat was born, then hands each hand-off whose seed no run has taken
-//! to the seeding port. A session a hand-off names is finished only by its hand-off's finish,
-//! which shares the bind and the activation.
+//! create stopped before the chat was born. Both then hand each hand-off whose seed no run has
+//! taken, the clone only its project's, to the seeding port. A session a hand-off names is
+//! finished only by its hand-off's finish, which shares the bind and the activation.
 
 use std::borrow::Cow;
 use std::error::Error;
@@ -183,17 +183,7 @@ impl SessionCreation {
             );
         }
         outcomes.extend(self.finish_each_provisioning(None).await?);
-        for hand_off in self.read_unseeded_hand_offs().await? {
-            let session_id = hand_off.session_id;
-            let handed = match self.hand_off_seeding() {
-                Ok(seeding) => seeding
-                    .finish_hand_off(hand_off)
-                    .await
-                    .map_err(SessionCreateError::HandOffSeeding),
-                Err(unset) => Err(unset),
-            };
-            outcomes.push(handed.map_err(|failure| finish_failure(session_id, failure)));
-        }
+        outcomes.extend(self.hand_unseeded_hand_offs_to_port(None).await?);
         settle_all(outcomes, "finishing the creates a stop left part way")?;
         Ok(())
     }
@@ -531,14 +521,20 @@ impl SessionCreation {
 }
 
 impl CloneAttachedListener for SessionCreation {
-    /// Finishes every session made in the project while it cloned; each is tried, and the
-    /// failures are answered together.
+    /// Finishes every session made in the project while it cloned, and hands each of its
+    /// hand-offs whose seed no run has taken to the seeding port, whose finish binds the fresh
+    /// session now that the folder is attached; each is tried, and the failures are answered
+    /// together.
     fn clone_attached(
         &self,
         project_id: ProjectId,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async move {
-            let outcomes = self.finish_each_provisioning(Some(project_id)).await?;
+            let mut outcomes = self.finish_each_provisioning(Some(project_id)).await?;
+            outcomes.extend(
+                self.hand_unseeded_hand_offs_to_port(Some(project_id))
+                    .await?,
+            );
             settle_all(
                 outcomes,
                 "finishing the sessions made while the project cloned",
@@ -559,7 +555,11 @@ pub(super) fn failed_at<Failure: Into<SessionCreateError>>(
     }
 }
 
-fn finish_failure(session_id: SessionId, failure: SessionCreateError) -> SessionFinishFailure {
+/// `failure` as the failure of `session_id`'s finish.
+pub(super) fn finish_failure(
+    session_id: SessionId,
+    failure: SessionCreateError,
+) -> SessionFinishFailure {
     SessionFinishFailure {
         session_id,
         failure: Box::new(failure),

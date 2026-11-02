@@ -276,7 +276,7 @@ impl Fixture {
     }
 
     /// Puts the project back to cloning, its folder detached.
-    fn start_cloning(&self) {
+    pub(super) fn start_cloning(&self) {
         self.execute(&format!(
             "UPDATE repo_mounts SET state = 'detached' WHERE id = '{PROJECT_ID}';
              UPDATE projects SET state = 'cloning', clone_url = 'https://example.com/app.git', \
@@ -285,7 +285,7 @@ impl Fixture {
     }
 
     /// Ends the project's clone, its folder attached again.
-    fn end_cloning(&self) {
+    pub(super) fn end_cloning(&self) {
         self.execute(&format!(
             "UPDATE projects SET state = 'active', clone_url = NULL, clone_outcome = NULL \
              WHERE id = '{PROJECT_ID}';
