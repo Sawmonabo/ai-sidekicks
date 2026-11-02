@@ -604,7 +604,7 @@ fn silent_exit(stopped: Option<ProcessExit>, silent_for: Duration) -> ProcessExi
 fn report_crash_loop(service: &CodexService) {
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: service.home.provider_account_id().cloned(),
+        provider_account_id: service.provider_account_id(),
         kind: DriverDiagnosticKind::ProviderCrashLoop,
         raw_wire_type: None,
         disposition_reason: "the Codex service ended on its own too many times in the crash \

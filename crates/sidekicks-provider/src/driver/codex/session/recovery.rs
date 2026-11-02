@@ -630,7 +630,7 @@ impl CodexServiceRecovery {
             return true;
         };
         CodexTransportDiagnostic::PortDeliveryFailed {
-            provider_account_id: service.home().provider_account_id().cloned(),
+            provider_account_id: service.provider_account_id(),
             port: CodexDeliveryPort::SessionRelaunched,
             session_id: Some(session_id),
             error,
@@ -697,7 +697,7 @@ impl CodexServiceRecovery {
                     .await
                 {
                     CodexTransportDiagnostic::PortDeliveryFailed {
-                        provider_account_id: service.home().provider_account_id().cloned(),
+                        provider_account_id: service.provider_account_id(),
                         port: CodexDeliveryPort::RunEnd,
                         session_id: Some(session_id),
                         error,
@@ -736,7 +736,7 @@ impl CodexServiceRecovery {
             &*self.dependencies.dispatch,
             DeliveryOrigin {
                 provider: DESCRIPTOR.provider_id(),
-                provider_account_id: service.home().provider_account_id().cloned(),
+                provider_account_id: service.provider_account_id(),
                 raw_wire_type: None,
             },
             InboundDelivery::SessionNotice {
@@ -841,7 +841,7 @@ fn report_restarted(
     };
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: service.home().provider_account_id().cloned(),
+        provider_account_id: service.provider_account_id(),
         kind: DriverDiagnosticKind::ProviderRestarted,
         raw_wire_type: None,
         disposition_reason: disposition_reason.to_owned(),
