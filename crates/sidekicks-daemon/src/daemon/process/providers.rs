@@ -135,12 +135,11 @@ pub(crate) struct Providers {
     /// Each posture's curated credential list, which the run engine and the permission check
     /// read too.
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
-    /// The one store of runtime bindings, which the run queue and the binding cursors write too.
-    pub(crate) runtime_bindings: Arc<RuntimeBindingStore>,
     /// The epoch cursors of the open runtime bindings, which the inbound dispatch attributes on.
     pub(crate) epochs: Arc<Mutex<ExecutionEpochs>>,
-    /// The cursors of each run's binding, through which every driver writes its bindings, so an
-    /// account a driver moves a binding onto is the one its cursor answers for.
+    /// The cursors of each run's binding over the one store of runtime bindings, through which
+    /// every driver writes its bindings, so an account a driver moves a binding onto is the one its
+    /// cursor answers for.
     pub(crate) binding_cursors: Arc<RunBindingCursors>,
     /// Which provider process runs each session, which every driver records at spawn and exit
     /// and the run queue reads.
@@ -230,7 +229,6 @@ pub(crate) fn build_providers(
         refreshing,
         provider_services,
         execution_postures,
-        runtime_bindings,
         epochs,
         binding_cursors,
         processes,
