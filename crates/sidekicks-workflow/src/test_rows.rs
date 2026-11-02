@@ -52,8 +52,22 @@ pub fn insert_workflow_version(
             { "id": TEST_NODE_ID, "kind": "human.approval", "kindVersion": 1, "name": "Approve" }
         ],
         "edges": [],
-    })
-    .to_string();
+    });
+    insert_workflow_version_body(connection, definition_id, version_id, &body);
+}
+
+/// Stores the workflow `definition_id` with its version 1, `version_id`, whose body is `body`, a
+/// canonical body holding the workflow's `name`.
+pub(crate) fn insert_workflow_version_body(
+    connection: &Connection,
+    definition_id: &str,
+    version_id: &str,
+    body: &serde_json::Value,
+) {
+    let name = body["name"]
+        .as_str()
+        .expect("the test's body names its workflow");
+    let body = body.to_string();
     let content_hash = format!("b3:{}", "0".repeat(64));
     connection
         .execute(

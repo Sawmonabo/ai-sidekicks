@@ -285,7 +285,7 @@ type PermissionCheckResponse =
 // - workflowStart (Cedar, `cedar_policy::Authorizer::is_authorized` over the resident policy set):
 //   policyAllow on a permit, denied on a forbid, an evaluation error, an owner that does not
 //   resolve, or an agent's start whose run has no posture to read; context = `{ posture }` of the
-//   asking run, `{}` for a trigger's start. No start waits on a card.
+//   asking run. No start waits on a card.
 // A card that cannot be recorded rejects with the typed `approval.persistenceUnavailable`, and the
 // action does not proceed; a provider ask the check could not decide is refused at its provider.
 
