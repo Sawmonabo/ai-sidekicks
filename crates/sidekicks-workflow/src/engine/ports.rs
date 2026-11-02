@@ -386,3 +386,96 @@ pub trait EngineRecordSink: Send + Sync {
     /// Records `entry`, already scrubbed.
     fn record(&self, entry: Map<String, Value>) -> BoxFuture<'_, ()>;
 }
+
+/// What a refusing test port panics or fails with: a test that reaches one has a fault.
+#[cfg(test)]
+pub(crate) const REFUSED_PORT_CALL: &str = "a test's ports take no call";
+
+/// The ports a test holds, which refuse every call: a test that reaches one has a fault.
+#[cfg(test)]
+pub(crate) struct RefusingPorts;
+
+#[cfg(test)]
+impl StepAdmission for RefusingPorts {
+    fn enqueue(&self, _work: StepAdmissionWork) -> Box<dyn StepAdmissionTicket> {
+        panic!("{REFUSED_PORT_CALL}")
+    }
+
+    fn weigh(&self) {
+        panic!("{REFUSED_PORT_CALL}")
+    }
+}
+
+#[cfg(test)]
+impl AgentStepRunner for RefusingPorts {
+    fn run(
+        &self,
+        _request: AgentStepRequest,
+    ) -> BoxFuture<'_, Result<Box<dyn AgentStepRun>, PortError>> {
+        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+    }
+
+    fn reattach<'call>(
+        &'call self,
+        _step: &'call WorkflowStepKey,
+    ) -> BoxFuture<'call, Result<Box<dyn AgentStepRun>, PortError>> {
+        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+    }
+}
+
+#[cfg(test)]
+impl StepActionApproval for RefusingPorts {
+    fn check_step_action(
+        &self,
+        _check: crate::runs::step_action::StepActionCheck,
+    ) -> BoxFuture<'_, Result<crate::runs::step_action::StepActionVerdict, PortError>> {
+        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+    }
+}
+
+#[cfg(test)]
+impl StepProcessLauncher for RefusingPorts {
+    fn command_shell(&self, _provider: &ProviderId) -> Option<PathBuf> {
+        None
+    }
+
+    fn launch(
+        &self,
+        _launch: StepLaunch,
+    ) -> BoxFuture<'_, Result<Box<dyn StepProcess>, PortError>> {
+        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+    }
+}
+
+#[cfg(test)]
+impl StepPayloadArtifacts for RefusingPorts {
+    fn write<'call>(
+        &'call self,
+        _session_id: SessionId,
+        _step: &'call WorkflowStepKey,
+        _bytes: Vec<u8>,
+        _item_count: u64,
+    ) -> BoxFuture<'call, Result<ArtifactId, PortError>> {
+        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+    }
+
+    fn read<'call>(
+        &'call self,
+        _artifact_id: &'call ArtifactId,
+    ) -> BoxFuture<'call, Result<Vec<u8>, PortError>> {
+        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
+    }
+}
+
+/// An engine's ports for a test, each refusing every call.
+#[cfg(test)]
+pub(crate) fn refusing_engine_ports() -> EnginePorts {
+    let ports = Arc::new(RefusingPorts);
+    EnginePorts {
+        admission: Arc::clone(&ports) as Arc<dyn StepAdmission>,
+        agent_steps: Arc::clone(&ports) as Arc<dyn AgentStepRunner>,
+        processes: Arc::clone(&ports) as Arc<dyn StepProcessLauncher>,
+        payloads: Arc::clone(&ports) as Arc<dyn StepPayloadArtifacts>,
+        step_actions: ports,
+    }
+}

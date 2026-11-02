@@ -1,6 +1,6 @@
 //! What a running step reads and records: its session, step and run, its params for each item, its
 //! secrets, cancel and redaction, the services it runs through, and the log lines, progress and run
-//! variables it records for the tick to take.
+//! variables it records for the step's driver to take.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -135,7 +135,8 @@ pub(crate) struct StepRunVariable {
     pub(crate) is_kept: bool,
 }
 
-/// What a step recorded since the tick last took its records.
+/// What a step recorded since the step's driver last took its records, which it takes when woken
+/// and when the step ends.
 #[derive(Debug, Default)]
 pub(crate) struct StepRecords {
     /// The log lines, each scrubbed of the run's secrets.
@@ -143,19 +144,28 @@ pub(crate) struct StepRecords {
     /// Whether the step reported progress.
     #[cfg_attr(
         test,
-        expect(dead_code, reason = "the tick, which writes what a step recorded")
+        expect(
+            dead_code,
+            reason = "the step's driver, which takes what a step recorded"
+        )
     )]
     pub(crate) has_progressed: bool,
     /// The run variables the step set, by name, the latest value of each.
     #[cfg_attr(
         test,
-        expect(dead_code, reason = "the tick, which writes what a step recorded")
+        expect(
+            dead_code,
+            reason = "the step's driver, which takes what a step recorded"
+        )
     )]
     pub(crate) run_variables: BTreeMap<String, StepRunVariable>,
     /// Whether the step asked for its node's other inputs' branches to be canceled.
     #[cfg_attr(
         test,
-        expect(dead_code, reason = "the tick, which writes what a step recorded")
+        expect(
+            dead_code,
+            reason = "the step's driver, which takes what a step recorded"
+        )
     )]
     pub(crate) cancels_other_inputs: bool,
 }
@@ -202,7 +212,7 @@ pub(crate) struct StepContext {
     params: StepParams,
     /// The step's templates open on the expression thread, `None` when its params hold none.
     expressions: Option<StepExpressionsHandle>,
-    /// What the step recorded since the tick last took it.
+    /// What the step recorded since the step's driver last took it.
     records: Mutex<StepRecords>,
     /// Woken when the step marks progress or asks to cancel its node's other inputs.
     recorded: Notify,
@@ -305,7 +315,6 @@ impl StepContext {
     /// The node's params for input item `item_index`: the one shared map when they hold no
     /// template, else each template evaluated for the item in one hop. Fails with
     /// [`StepParamsError::Expression`] when the evaluation does.
-    #[expect(dead_code, reason = "the kinds' executors")]
     pub(crate) async fn item_params(
         &self,
         item_index: usize,
@@ -372,66 +381,6 @@ impl StepContext {
     }
 }
 
-/// The ports a test context holds, which refuse every call: a test that reaches one has a fault.
-#[cfg(test)]
-struct RefusingPorts;
-
-#[cfg(test)]
-const REFUSED_PORT_CALL: &str = "a test context's ports take no call";
-
-#[cfg(test)]
-impl StepActionApproval for RefusingPorts {
-    fn check_step_action(
-        &self,
-        _check: crate::runs::step_action::StepActionCheck,
-    ) -> futures::future::BoxFuture<
-        '_,
-        Result<crate::runs::step_action::StepActionVerdict, crate::engine::ports::PortError>,
-    > {
-        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
-    }
-}
-
-#[cfg(test)]
-impl StepProcessLauncher for RefusingPorts {
-    fn command_shell(&self, _provider: &ProviderId) -> Option<PathBuf> {
-        None
-    }
-
-    fn launch(
-        &self,
-        _launch: crate::engine::ports::StepLaunch,
-    ) -> futures::future::BoxFuture<
-        '_,
-        Result<Box<dyn crate::engine::ports::StepProcess>, crate::engine::ports::PortError>,
-    > {
-        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
-    }
-}
-
-#[cfg(test)]
-impl StepPayloadArtifacts for RefusingPorts {
-    fn write<'call>(
-        &'call self,
-        _session_id: SessionId,
-        _step: &'call WorkflowStepKey,
-        _bytes: Vec<u8>,
-        _item_count: u64,
-    ) -> futures::future::BoxFuture<
-        'call,
-        Result<sidekicks_contracts::artifacts::id::ArtifactId, crate::engine::ports::PortError>,
-    > {
-        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
-    }
-
-    fn read<'call>(
-        &'call self,
-        _artifact_id: &'call sidekicks_contracts::artifacts::id::ArtifactId,
-    ) -> futures::future::BoxFuture<'call, Result<Vec<u8>, crate::engine::ports::PortError>> {
-        Box::pin(async { Err(REFUSED_PORT_CALL.into()) })
-    }
-}
-
 /// A context for step `run`'s first attempt in a test session, its params `params` with no
 /// template open and its secrets `secrets`, writing through `redaction`, its ports refusing every
 /// call.
@@ -446,7 +395,7 @@ pub(crate) fn test_step_context(
     };
 
     let (params, _templates) = StepParams::read(params).expect("the test's params read");
-    let ports = Arc::new(RefusingPorts);
+    let ports = crate::engine::ports::refusing_engine_ports();
     StepContext::new(StepContextParts {
         session_id: SessionId::new("0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7b")
             .expect("the test's session id is a UUID"),
@@ -469,9 +418,9 @@ pub(crate) fn test_step_context(
         cancel: CancellationToken::new(),
         redaction,
         admission: None,
-        step_actions: Arc::clone(&ports) as Arc<dyn StepActionApproval>,
-        processes: Arc::clone(&ports) as Arc<dyn StepProcessLauncher>,
-        payloads: ports,
+        step_actions: ports.step_actions,
+        processes: ports.processes,
+        payloads: ports.payloads,
         http: reqwest::Client::new(),
         params,
         expressions: None,

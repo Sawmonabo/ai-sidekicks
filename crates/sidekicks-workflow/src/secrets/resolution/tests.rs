@@ -1,13 +1,13 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use futures::future::BoxFuture;
+use rstest::rstest;
 use rusqlite::{Connection, params};
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::ExposeSecret;
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::wire::record::JsonRecord;
+use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::keyed_lock::HeldWorkEnd;
@@ -20,7 +20,7 @@ use super::{
     resolve_step_secrets,
 };
 use crate::schema::schema_parts;
-use crate::secrets::store::WorkflowSecretStore;
+use crate::secrets::store::{ScriptedKeychain, WorkflowSecretStore};
 
 const SHARED_ID: &str = "0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c0001";
 const FIRST_PROJECT_ID: &str = "0190f1c4-7e3a-7b1c-9d2e-3f4a5b6c0002";
@@ -34,72 +34,17 @@ const SHARED_VALUE: &str = "shared-hunter2-do-not-print";
 const FIRST_PROJECT_VALUE: &str = "project-hunter2-do-not-print";
 const REMOVING_VALUE: &str = "removing-hunter2-do-not-print";
 
-/// A keychain holding fixed values by account, recording each account read, or refusing every
-/// read.
-struct ScriptedKeychain {
-    values: HashMap<String, String>,
-    is_refusing: bool,
-    reads: Mutex<Vec<String>>,
-}
-
-impl ScriptedKeychain {
-    /// The keychain holding the shared, first project and removing records' values; the unsealed
-    /// record's keychain entry is missing.
-    fn holding(is_refusing: bool) -> Arc<Self> {
-        Arc::new(Self {
-            values: HashMap::from([
-                (SHARED_ID.to_owned(), SHARED_VALUE.to_owned()),
-                (FIRST_PROJECT_ID.to_owned(), FIRST_PROJECT_VALUE.to_owned()),
-                (REMOVING_ID.to_owned(), REMOVING_VALUE.to_owned()),
-            ]),
-            is_refusing,
-            reads: Mutex::new(Vec::new()),
-        })
-    }
-
-    fn reads(&self) -> Vec<String> {
-        self.reads
-            .lock()
-            .expect("no test thread panics holding it")
-            .clone()
-    }
-}
-
-impl SecretKeychain for ScriptedKeychain {
-    fn write<'call>(
-        &'call self,
-        _account: &'call str,
-        _value: &'call SecretString,
-    ) -> BoxFuture<'call, Result<(), KeychainRefusal>> {
-        Box::pin(async { Err(KeychainRefusal::from(HeldWorkEnd::Unanswered)) })
-    }
-
-    fn read<'call>(
-        &'call self,
-        account: &'call str,
-    ) -> BoxFuture<'call, Result<Option<SecretString>, KeychainRefusal>> {
-        self.reads
-            .lock()
-            .expect("no test thread panics holding it")
-            .push(account.to_owned());
-        let answer = if self.is_refusing {
-            Err(KeychainRefusal::from(HeldWorkEnd::Unanswered))
-        } else {
-            Ok(self.values.get(account).cloned().map(SecretString::from))
-        };
-        Box::pin(async move { answer })
-    }
-
-    fn remove<'call>(
-        &'call self,
-        _account: &'call str,
-    ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
-        Box::pin(async { Err(KeychainRefusal::from(HeldWorkEnd::Unanswered)) })
-    }
-
-    fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
-        Box::pin(async { Err(KeychainRefusal::from(HeldWorkEnd::Unanswered)) })
-    }
+/// The keychain holding the shared, first project and removing records' values, or refusing every
+/// read; the unsealed record's keychain entry is missing.
+fn scripted_keychain(is_refusing: bool) -> Arc<ScriptedKeychain> {
+    ScriptedKeychain::holding(
+        &[
+            (SHARED_ID, SHARED_VALUE),
+            (FIRST_PROJECT_ID, FIRST_PROJECT_VALUE),
+            (REMOVING_ID, REMOVING_VALUE),
+        ],
+        is_refusing,
+    )
 }
 
 /// A connection on a test database holding: a shared `deploy-key`, the first project's
@@ -175,7 +120,7 @@ fn assert_not_found(result: Result<String, StepSecretRefusal>, reference: &str) 
 async fn an_unmarked_parameters_reference_never_resolves() {
     let database = TestDatabase::new(schema_parts());
     let connection = database_with_secrets(&database);
-    let keychain = ScriptedKeychain::holding(false);
+    let keychain = scripted_keychain(false);
     let store = WorkflowSecretStore::new(Arc::clone(&keychain) as Arc<dyn SecretKeychain>);
 
     let found = find_step_secrets(
@@ -234,7 +179,7 @@ async fn a_nested_sensitive_leaf_resolves_under_its_path() {
             .expect("the node's secrets resolve")
     };
 
-    let keychain = ScriptedKeychain::holding(false);
+    let keychain = scripted_keychain(false);
     let resolved = resolve(
         json!({
             "headers": [{
@@ -253,7 +198,7 @@ async fn a_nested_sensitive_leaf_resolves_under_its_path() {
     assert_eq!(only.value.expose_secret(), SHARED_VALUE);
     assert_eq!(keychain.reads(), vec![SHARED_ID.to_owned()]);
 
-    let keychain = ScriptedKeychain::holding(false);
+    let keychain = scripted_keychain(false);
     let resolved = resolve(
         json!({ "headers": [{ "name": "secret://shared/deploy-key" }], "url": "plain" }),
         Arc::clone(&keychain),
@@ -272,7 +217,7 @@ async fn a_nested_sensitive_leaf_resolves_under_its_path() {
 async fn a_reference_resolves_only_in_its_own_place() {
     let database = TestDatabase::new(schema_parts());
     let connection = database_with_secrets(&database);
-    let store = WorkflowSecretStore::new(ScriptedKeychain::holding(false));
+    let store = WorkflowSecretStore::new(scripted_keychain(false));
     let first_project = project(FIRST_PROJECT);
 
     assert_not_found(
@@ -320,7 +265,7 @@ async fn a_reference_resolves_only_in_its_own_place() {
 async fn a_record_being_removed_or_unsealed_is_not_found() {
     let database = TestDatabase::new(schema_parts());
     let connection = database_with_secrets(&database);
-    let store = WorkflowSecretStore::new(ScriptedKeychain::holding(false));
+    let store = WorkflowSecretStore::new(scripted_keychain(false));
 
     assert_not_found(
         resolve_one(&connection, &store, None, "secret://shared/old-key").await,
@@ -339,7 +284,7 @@ async fn a_record_being_removed_or_unsealed_is_not_found() {
 async fn a_refusing_keychain_is_store_unavailable_without_naming_the_value() {
     let database = TestDatabase::new(schema_parts());
     let connection = database_with_secrets(&database);
-    let store = WorkflowSecretStore::new(ScriptedKeychain::holding(true));
+    let store = WorkflowSecretStore::new(scripted_keychain(true));
 
     let refusal = resolve_one(&connection, &store, None, "secret://shared/deploy-key")
         .await
@@ -357,4 +302,46 @@ async fn a_refusing_keychain_is_store_unavailable_without_naming_the_value() {
     for text in written {
         assert!(!text.contains("hunter2"), "{text}");
     }
+}
+
+/// Each refusal fails the step with its own code and details: a reference no record holds as
+/// `workflow.secret.notFound` naming it, a keychain that cannot be used as
+/// `workflow.secret.storeUnavailable` with its own cause, and a failed read with no code.
+/// Mutations: swap the two codes; drop the details; give a failed read a code.
+#[rstest]
+#[case::not_found(
+    StepSecretRefusal::NotFound {
+        reference: "secret://shared/missing".parse().expect("the test's reference reads"),
+    },
+    json!({
+        "message": "No secret is stored for secret://shared/missing.",
+        "code": "workflow.secret.notFound",
+        "details": { "reference": "secret://shared/missing" },
+    }),
+)]
+#[case::store_unavailable(
+    StepSecretRefusal::StoreUnavailable(KeychainRefusal::from(HeldWorkEnd::Unanswered)),
+    {
+        let refusal = KeychainRefusal::from(HeldWorkEnd::Unanswered);
+        json!({
+            "message": refusal.to_string(),
+            "code": "workflow.secret.storeUnavailable",
+            "details": { "cause": refusal.cause() },
+        })
+    },
+)]
+#[case::database(
+    StepSecretRefusal::Database(rusqlite::Error::QueryReturnedNoRows),
+    json!({ "message": "a read of a workflow secret's record failed" }),
+)]
+fn each_secret_refusal_fails_the_step_with_its_own_code(
+    #[case] refusal: StepSecretRefusal,
+    #[case] expected: serde_json::Value,
+) {
+    let error = WorkflowStepError::from(refusal);
+
+    assert_eq!(
+        serde_json::to_value(error).expect("a step failure writes"),
+        expected
+    );
 }

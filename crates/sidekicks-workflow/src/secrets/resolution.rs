@@ -11,12 +11,18 @@
 mod tests;
 
 use std::convert::Infallible;
+use std::error::Error;
 
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use secrecy::SecretString;
+use serde_json::Value;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::wire::record::JsonRecord;
+use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_contracts::workflow::definition::item::{
+    WorkflowStepCodedError, WorkflowStepError, WorkflowStepErrorCode,
+};
 use sidekicks_contracts::workflow::kind::{WorkflowNodeKindSpec, WorkflowParamSpec};
 use sidekicks_contracts::workflow::secret::{
     WorkflowSecretId, WorkflowSecretNotFoundDetails, WorkflowSecretReference,
@@ -30,6 +36,7 @@ use sidekicks_store::database::connection::read_pool::{
 };
 
 use crate::expressions::param_strings::{ParamPathSegment, walk_param_strings};
+use crate::kinds::uncoded_step_error;
 use crate::secrets::store::WorkflowSecretStore;
 
 /// The statements [`find_step_secrets`] runs on a read connection: the live record of one
@@ -85,33 +92,90 @@ pub enum StepSecretRefusal {
     Pool(#[from] DatabaseReadError),
 }
 
+/// The code a refusal answers, its details and the keychain's failure underneath, where there is
+/// one.
+struct CodedSecretRefusal {
+    /// The refusal's code.
+    code: RefusalCode,
+    /// The code's details.
+    details: Value,
+    /// The keychain's failure underneath.
+    failure: Option<Box<dyn Error + Send + Sync>>,
+}
+
+/// The code and details of a reference that did not resolve and of a keychain that could not be
+/// used; a failed read, which answers no code, comes back as it is.
+fn coded_refusal(refusal: StepSecretRefusal) -> Result<CodedSecretRefusal, StepSecretRefusal> {
+    let (code, details, failure) = match refusal {
+        StepSecretRefusal::NotFound { reference } => (
+            RefusalCode::WorkflowSecretNotFound,
+            serde_json::to_value(WorkflowSecretNotFoundDetails::Reference(
+                WorkflowSecretReferenceNotFound {
+                    reference,
+                    secret_id: None,
+                },
+            )),
+            None,
+        ),
+        StepSecretRefusal::StoreUnavailable(keychain_refusal) => {
+            let (cause, failure) = keychain_refusal.into_cause_and_failure();
+            (
+                RefusalCode::WorkflowSecretStoreUnavailable,
+                serde_json::to_value(WorkflowSecretStoreUnavailableDetails { cause }),
+                failure,
+            )
+        }
+        fault @ (StepSecretRefusal::Database(_) | StepSecretRefusal::Pool(_)) => {
+            return Err(fault);
+        }
+    };
+    Ok(CodedSecretRefusal {
+        code,
+        details: details.expect("a secret refusal's details are plain JSON"),
+        failure,
+    })
+}
+
 impl From<StepSecretRefusal> for HandlerError {
     /// A reference that did not resolve and a keychain that could not be used answer their own
     /// codes; a failed read is a fault in the daemon.
     fn from(refusal: StepSecretRefusal) -> Self {
         let message = refusal.to_string();
-        match refusal {
-            StepSecretRefusal::NotFound { reference } => {
-                let details =
-                    WorkflowSecretNotFoundDetails::Reference(WorkflowSecretReferenceNotFound {
-                        reference,
-                        secret_id: None,
-                    });
-                Self::Refused(
-                    DomainError::new(message, RefusalCode::WorkflowSecretNotFound)
-                        .with_detail(details),
-                )
-            }
-            StepSecretRefusal::StoreUnavailable(keychain_refusal) => {
-                Self::Refused(DomainError::keychain_refused(
-                    keychain_refusal,
-                    RefusalCode::WorkflowSecretStoreUnavailable,
-                    |cause| WorkflowSecretStoreUnavailableDetails { cause },
-                ))
-            }
-            fault @ (StepSecretRefusal::Database(_) | StepSecretRefusal::Pool(_)) => {
-                Self::Internal(Box::new(fault))
-            }
+        match coded_refusal(refusal) {
+            Ok(CodedSecretRefusal {
+                code,
+                details,
+                failure,
+            }) => Self::Refused(
+                DomainError::new(message, code)
+                    .with_detail(details)
+                    .with_optional_source(failure),
+            ),
+            Err(fault) => Self::Internal(Box::new(fault)),
+        }
+    }
+}
+
+impl From<StepSecretRefusal> for WorkflowStepError {
+    /// A reference that did not resolve and a keychain that could not be used fail the step with
+    /// their own codes, and a failed read fails it with no code; the step's driver sets the node.
+    fn from(refusal: StepSecretRefusal) -> Self {
+        let message = refusal.to_string();
+        match coded_refusal(refusal) {
+            Ok(CodedSecretRefusal { code, details, .. }) => Self::Coded(WorkflowStepCodedError {
+                message: NonEmptyText::new(message)
+                    .expect("a secret refusal's text is never empty"),
+                node_id: None,
+                item_index: None,
+                code: WorkflowStepErrorCode::new(code.as_str().to_owned()).expect(
+                    "a workflow secret refusal's code follows the step failure code's grammar",
+                ),
+                details: Some(
+                    serde_json::from_value(details)
+                        .expect("a secret refusal's details are a JSON object"),
+                ),
+            }),
+            Err(fault) => uncoded_step_error(fault.to_string()),
         }
     }
 }

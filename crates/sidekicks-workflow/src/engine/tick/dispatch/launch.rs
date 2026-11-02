@@ -1,0 +1,303 @@
+//! A step's launch: everything between its admission and the start of its executor. Its secrets
+//! resolve, its params are read and its templates opened on the expression thread, and its context
+//! is built.
+
+use std::sync::Arc;
+
+use sidekicks_contracts::workflow::definition::item::WorkflowItem;
+use tokio_util::sync::CancellationToken;
+
+use super::StepDispatch;
+use crate::engine::ports::{StepAdmissionTicket, WorkflowNodeKey};
+use crate::engine::tick::node_settings::main_inputs;
+use crate::engine::tick::{ReadyStep, RunScope, RunSnapshot};
+use crate::expressions::bindings::ExpressionBindings;
+use crate::expressions::lineage::StepKey;
+use crate::kinds::step_context::{StepContext, StepContextParts, StepParams};
+use crate::kinds::{NodeKind, StepFailure, uncoded_step_error};
+use crate::secrets::resolution::resolve_node_secrets;
+
+impl StepDispatch {
+    /// Launches `ready`, a step of kind `kind` in the run of `scope`, reading `snapshot`: resolves
+    /// its node's secrets, reads its params, opens its templates on the expression thread when it
+    /// has any, and builds its context around `cancel` and its place at the memory gate,
+    /// `admission`. Its inputs arrive already cut for an execute-once node. Reports nothing; fails
+    /// with [`StepFailure::Failed`] when a secret, a param or a template does.
+    pub(crate) async fn launch(
+        &self,
+        scope: &RunScope,
+        snapshot: &RunSnapshot,
+        ready: &ReadyStep,
+        kind: &NodeKind,
+        cancel: CancellationToken,
+        admission: Option<Arc<dyn StepAdmissionTicket>>,
+    ) -> Result<StepContext, StepFailure> {
+        let node = scope
+            .nodes
+            .get(&ready.step.node_id)
+            .expect("the step's driver looked its node up in the run's nodes");
+        let secrets = resolve_node_secrets(
+            &self.reads,
+            &self.secrets,
+            scope.project.as_ref(),
+            &kind.spec,
+            &node.params,
+        )
+        .await
+        .map_err(|refusal| StepFailure::Failed(Box::new(refusal.into())))?;
+        let (params, templates) = StepParams::read(&node.params).map_err(|refusal| {
+            StepFailure::Failed(Box::new(uncoded_step_error(refusal.to_string())))
+        })?;
+        let expressions = if templates.is_empty() {
+            None
+        } else {
+            let input_items: Arc<[WorkflowItem]> = main_inputs(&kind.spec, &ready.inputs)
+                .next()
+                .map_or_else(|| Arc::from([]), |items| Arc::from(items.as_slice()));
+            let bindings = ExpressionBindings {
+                step: StepKey {
+                    node_id: ready.step.node_id.clone(),
+                    execution_index: ready.step.execution_index.get(),
+                },
+                input_items,
+                steps: Arc::clone(&snapshot.outputs),
+                node_params: Arc::clone(&scope.node_params),
+                run_index: ready.run_index,
+                run_started_at: scope.run_started_at,
+                time_zone: scope.time_zone.clone(),
+                environment_rows: Arc::clone(&scope.environment_rows),
+                run_variables: Arc::clone(&snapshot.run_variables),
+                kept_values: Arc::clone(&scope.kept_values),
+                run_id: scope.run_id,
+                run_trigger: scope.trigger.clone(),
+                workflow_id: scope.workflow_id,
+                workflow_name: scope.workflow_name.clone(),
+            };
+            let opened = self
+                .evaluator
+                .open_step(bindings, templates, &cancel)
+                .await
+                .map_err(|error| {
+                    StepFailure::Failed(Box::new(uncoded_step_error(error.to_string())))
+                })?;
+            Some(opened)
+        };
+        Ok(StepContext::new(StepContextParts {
+            session_id: scope.session_id,
+            step: ready.step.clone(),
+            node_key: WorkflowNodeKey::new(scope.workflow_id, &node.id),
+            node_name: node.name.clone(),
+            run_index: ready.run_index,
+            permission_level: scope.permission_level,
+            working_folder: scope.working_folder.clone(),
+            provider: scope.provider.clone(),
+            secrets,
+            cancel,
+            redaction: Arc::clone(&scope.redaction),
+            admission,
+            step_actions: Arc::clone(&self.ports.step_actions),
+            processes: Arc::clone(&self.ports.processes),
+            payloads: Arc::clone(&self.ports.payloads),
+            http: self.http.clone(),
+            params,
+            expressions,
+        }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use rstest::rstest;
+    use serde_json::{Map, Value, json};
+    use sidekicks_contracts::workflow::definition::document::WorkflowNode;
+    use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use tokio::time::timeout;
+    use tokio_util::sync::CancellationToken;
+
+    use super::StepDispatch;
+    use crate::engine::ports::{WorkflowNodeKey, refusing_engine_ports};
+    use crate::engine::tick::{ReadyStep, RunScope, RunSnapshot, test_run_scope};
+    use crate::expressions::evaluator::ExpressionEvaluator;
+    use crate::expressions::lineage::StepOutputs;
+    use crate::kinds::step_context::StepContext;
+    use crate::kinds::{NodeKind, StepFailure, pass_through_kind};
+    use crate::schema::schema_parts;
+    use crate::secrets::resolution::STEP_SECRET_STATEMENT_CAPACITY;
+    use crate::secrets::store::{ScriptedKeychain, WorkflowSecretStore};
+
+    /// The longest a test waits on a launch or an evaluation.
+    const WAIT: Duration = Duration::from_secs(10);
+
+    /// A dispatch over `database`, a keychain holding nothing and ports refusing every call.
+    fn test_dispatch(database: &TestDatabase) -> StepDispatch {
+        StepDispatch::new(
+            refusing_engine_ports(),
+            ExpressionEvaluator::start().expect("the expression thread starts"),
+            Arc::new(DatabaseReadPool::new(
+                database.path(),
+                STEP_SECRET_STATEMENT_CAPACITY,
+            )),
+            Arc::new(WorkflowSecretStore::new(ScriptedKeychain::holding(
+                &[],
+                false,
+            ))),
+            reqwest::Client::new(),
+        )
+    }
+
+    /// A kind whose inputs are a tool input, then a main one, and whose `token` param is
+    /// sensitive.
+    fn tool_then_main_kind() -> NodeKind {
+        pass_through_kind(
+            json!({
+                "kind": "test.greet", "version": 1, "category": "developer",
+                "displayName": "Greet", "description": "A test kind.", "icon": "test",
+                "outputsDeriveFromParams": false,
+                "inputs": [
+                    { "type": "tool", "id": "inputs/tool/0", "label": "Tool" },
+                    { "type": "main", "id": "inputs/main/0", "label": "In" },
+                ],
+                "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+                "params": [
+                    { "id": "token", "label": "Token", "type": "string", "sensitive": true },
+                ],
+            }),
+            None,
+        )
+    }
+
+    /// The node `greet` of the test kind holding `params`.
+    fn greet_node(params: &Value) -> WorkflowNode {
+        serde_json::from_value(json!({
+            "id": "greet", "kind": "test.greet", "kindVersion": 1, "name": "Greet", "order": 0,
+            "params": params,
+        }))
+        .expect("the test's node reads")
+    }
+
+    /// Launches the first execution of `node`, the run's one node, over `inputs` in a manual run,
+    /// returning the run's scope with the launch's answer.
+    async fn launch(
+        database: &TestDatabase,
+        node: WorkflowNode,
+        inputs: Vec<Vec<Value>>,
+    ) -> (RunScope, Result<StepContext, StepFailure>) {
+        let scope = test_run_scope(WorkflowRunMode::Manual, vec![node.clone()]);
+        let snapshot = RunSnapshot {
+            outputs: Arc::new(StepOutputs::new([(
+                node.id.clone(),
+                node.name.as_str().to_owned(),
+            )])),
+            run_variables: Arc::new(Map::new()),
+        };
+        let ready = ReadyStep {
+            step: serde_json::from_value(json!({
+                "workflowRunId": scope.run_id, "nodeId": node.id, "attempt": 1,
+                "executionIndex": 0,
+            }))
+            .expect("the test's step key reads"),
+            run_index: 0,
+            inputs: inputs
+                .into_iter()
+                .map(|items| {
+                    items
+                        .into_iter()
+                        .map(|json| {
+                            serde_json::from_value(json!({ "json": json }))
+                                .expect("the test's item reads")
+                        })
+                        .collect()
+                })
+                .collect(),
+            input_ref: serde_json::from_value(json!({ "kind": "inline", "items": [] }))
+                .expect("the test's input reference reads"),
+        };
+        let launched = timeout(
+            WAIT,
+            test_dispatch(database).launch(
+                &scope,
+                &snapshot,
+                &ready,
+                &tool_then_main_kind(),
+                CancellationToken::new(),
+                None,
+            ),
+        )
+        .await
+        .expect("the launch answers in time");
+        (scope, launched)
+    }
+
+    /// A templated step evaluates its templates over the items of its first main input, past a
+    /// tool input listed before it, keeps its literals, and keys its node by the workflow and the
+    /// node's id on the run's provider. Mutations: read the first list as the main input; leave
+    /// the expressions unopened; key the node by another id.
+    #[tokio::test]
+    async fn a_templated_launch_reads_the_first_main_input() {
+        let database = TestDatabase::new(schema_parts());
+        let node = greet_node(&json!({ "greeting": "={{ $json.name }}", "fixed": "x" }));
+
+        let (scope, launched) = launch(
+            &database,
+            node.clone(),
+            vec![
+                Vec::new(),
+                vec![json!({ "name": "Ada" }), json!({ "name": "Bob" })],
+            ],
+        )
+        .await;
+
+        let context = launched.expect("the step launches");
+        for (item_index, name) in [(0, "Ada"), (1, "Bob")] {
+            let params = timeout(WAIT, context.item_params(item_index))
+                .await
+                .expect("the evaluation answers in time")
+                .expect("the item's params evaluate");
+            assert_eq!(
+                Value::Object(Map::clone(&params)),
+                json!({ "greeting": name, "fixed": "x" })
+            );
+        }
+        assert_eq!(
+            context.node_key,
+            WorkflowNodeKey::new(scope.workflow_id, &node.id)
+        );
+        assert_eq!(context.provider, scope.provider);
+    }
+
+    /// A template never closed fails the step with no code, naming its path, and a sensitive
+    /// reference no record holds fails it as `workflow.secret.notFound`, naming the reference.
+    /// Mutations: pass the secret refusal on with no code; run the unclosed template as text.
+    #[rstest]
+    #[case::unclosed_template(
+        json!({ "bad": "={{ a" }),
+        json!({ "message": "the template at bad is never closed" }),
+    )]
+    #[case::missing_secret(
+        json!({ "token": "secret://shared/missing" }),
+        json!({
+            "message": "No secret is stored for secret://shared/missing.",
+            "code": "workflow.secret.notFound",
+            "details": { "reference": "secret://shared/missing" },
+        }),
+    )]
+    #[tokio::test]
+    async fn a_launch_refusal_fails_the_step(#[case] params: Value, #[case] expected: Value) {
+        let database = TestDatabase::new(schema_parts());
+
+        let (_scope, launched) = launch(&database, greet_node(&params), vec![Vec::new()]).await;
+
+        let Err(StepFailure::Failed(error)) = launched else {
+            panic!("the launch fails the step");
+        };
+        assert_eq!(
+            serde_json::to_value(error).expect("a step failure writes"),
+            expected
+        );
+    }
+}

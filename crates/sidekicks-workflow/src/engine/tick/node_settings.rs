@@ -10,7 +10,40 @@ use sidekicks_contracts::workflow::definition::document::WorkflowNode;
 use sidekicks_contracts::workflow::definition::item::{
     WorkflowItem, WorkflowPairedItem, WorkflowPairedItems, WorkflowPinnedItem,
 };
+use sidekicks_contracts::workflow::kind::WorkflowNodeKindSpec;
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
+
+/// The main inputs among a step's `inputs`, one list per input handle of `spec` in spec order: the
+/// lists at the inputs whose `is_tool()` is false, in spec order.
+pub(crate) fn main_inputs<'inputs>(
+    spec: &WorkflowNodeKindSpec,
+    inputs: &'inputs [Vec<WorkflowItem>],
+) -> impl Iterator<Item = &'inputs Vec<WorkflowItem>> {
+    spec.inputs
+        .as_slice()
+        .iter()
+        .zip(inputs)
+        .filter(|(handle, _)| !handle.is_tool())
+        .map(|(_, items)| items)
+}
+
+/// How many items each of a step's main inputs holds, in spec order.
+pub(crate) fn main_input_lengths(
+    spec: &WorkflowNodeKindSpec,
+    inputs: &[Vec<WorkflowItem>],
+) -> Vec<usize> {
+    main_inputs(spec, inputs).map(Vec::len).collect()
+}
+
+/// How many main outputs a kind's executor gives: its outputs whose `is_tool()` is false. An
+/// error output a node adds comes after these, so it is not counted.
+pub(crate) fn main_output_count(spec: &WorkflowNodeKindSpec) -> usize {
+    spec.outputs
+        .as_slice()
+        .iter()
+        .filter(|output| !output.is_tool())
+        .count()
+}
 
 /// The outputs a pinned node gives in place of running, honored only in a manual run: its pinned
 /// items on the first main output and every other of its `main_output_count` outputs empty, or
@@ -76,15 +109,13 @@ pub(crate) fn join_per_item_outputs(calls: Vec<Vec<Vec<WorkflowItem>>>) -> Vec<V
 /// Fills the lineage of every output item whose `pairedItem` is unset, where it can only be one
 /// thing: every item came from the one item of a single main input, or a single main input and a
 /// single output hold as many items each and item k came from item k. Any other shape, a collapse
-/// among them, is left for the kind to set.
-pub(crate) fn fill_paired_items(
-    main_inputs: &[Vec<WorkflowItem>],
-    outputs: &mut [Vec<WorkflowItem>],
-) {
-    let is_single_item = matches!(main_inputs, [only] if only.len() == 1);
+/// among them, is left for the kind to set. `main_input_lengths` is how many items each main input
+/// held.
+pub(crate) fn fill_paired_items(main_input_lengths: &[usize], outputs: &mut [Vec<WorkflowItem>]) {
+    let is_single_item = matches!(main_input_lengths, [1]);
     let is_same_count = matches!(
-        (main_inputs, &*outputs),
-        ([input], [output]) if input.len() == output.len()
+        (main_input_lengths, &*outputs),
+        ([input_length], [output]) if *input_length == output.len()
     );
     if !is_single_item && !is_same_count {
         return;
@@ -103,11 +134,12 @@ pub(crate) fn fill_paired_items(
 }
 
 /// Gives an always-output node one empty item on its first output where that output is missing
-/// or empty, its lineage every item of every main input, input by input; the outputs unchanged
-/// when the node does not set it or its first output holds an item.
+/// or empty, its lineage every item of every main input, input by input, each main input holding
+/// as many items as `main_input_lengths` says; the outputs unchanged when the node does not set it
+/// or its first output holds an item.
 pub(crate) fn ensure_output_item(
     node: &WorkflowNode,
-    main_inputs: &[Vec<WorkflowItem>],
+    main_input_lengths: &[usize],
     outputs: &mut Vec<Vec<WorkflowItem>>,
 ) {
     if node.always_output_data != Some(true)
@@ -115,11 +147,11 @@ pub(crate) fn ensure_output_item(
     {
         return;
     }
-    let lineage = main_inputs
+    let lineage = main_input_lengths
         .iter()
         .enumerate()
-        .flat_map(|(input_index, input)| {
-            (0..input.len()).map(move |item_index| WorkflowPairedItem {
+        .flat_map(|(input_index, input_length)| {
+            (0..*input_length).map(move |item_index| WorkflowPairedItem {
                 item: index(item_index),
                 input: Some(index(input_index)),
             })
@@ -287,13 +319,12 @@ mod tests {
         #[case] item_one_set_to: Option<usize>,
         #[case] expected: Vec<Vec<Option<usize>>>,
     ) {
-        let main_inputs: Vec<_> = input_counts.iter().map(|count| items(*count)).collect();
         let mut outputs: Vec<_> = output_counts.iter().map(|count| items(*count)).collect();
         if let Some(source) = item_one_set_to {
             outputs[0][1].paired_item = Some(one(source));
         }
 
-        fill_paired_items(&main_inputs, &mut outputs);
+        fill_paired_items(input_counts, &mut outputs);
 
         let lineage: Vec<Vec<_>> = outputs
             .into_iter()
@@ -306,8 +337,30 @@ mod tests {
         assert_eq!(lineage, expected);
     }
 
-    /// An always-output node with nothing on output 0 gives one empty item paired to every input
-    /// item, input by input. Mutations: drop the input index; add the item when output 0 has items.
+    /// A kind whose inputs and outputs are each a main handle, a tool handle and a main handle.
+    fn main_tool_main_spec() -> WorkflowNodeKindSpec {
+        serde_json::from_value(json!({
+            "kind": "test.step", "version": 1, "category": "developer",
+            "displayName": "Test", "description": "A test kind.", "icon": "test",
+            "params": [], "outputsDeriveFromParams": false,
+            "inputs": [
+                { "type": "main", "id": "inputs/main/0", "label": "A" },
+                { "type": "tool", "id": "inputs/tool/0", "label": "Tool" },
+                { "type": "main", "id": "inputs/main/1", "label": "B" },
+            ],
+            "outputs": [
+                { "type": "main", "id": "outputs/main/0", "label": "A" },
+                { "type": "tool", "id": "outputs/tool/0", "label": "Tool" },
+                { "type": "main", "id": "outputs/main/1", "label": "B" },
+            ],
+        }))
+        .expect("the test kind's spec reads")
+    }
+
+    /// An always-output node with nothing on output 0 gives one empty item paired to every item of
+    /// its main inputs, input by input, its tool input skipped; the kind gives as many outputs as
+    /// it has main ones. Mutations: drop the input index; add the item when output 0 has items;
+    /// count a tool input; count a tool output.
     #[rstest]
     #[case::empty(Some(true), 0, true)]
     #[case::has_items(Some(true), 1, false)]
@@ -317,11 +370,15 @@ mod tests {
         #[case] output_count: usize,
         #[case] is_added: bool,
     ) {
+        let spec = main_tool_main_spec();
+        assert_eq!(main_output_count(&spec), 2);
+        let main_input_lengths = main_input_lengths(&spec, &[items(2), Vec::new(), items(1)]);
+        assert_eq!(main_input_lengths, [2, 1]);
         let mut outputs = vec![items(output_count), items(1)];
 
         ensure_output_item(
             &node("node", None, always_output_data),
-            &[items(2), items(1)],
+            &main_input_lengths,
             &mut outputs,
         );
 

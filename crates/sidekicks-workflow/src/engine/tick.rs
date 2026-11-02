@@ -10,6 +10,7 @@
 )]
 
 mod admission;
+mod dispatch;
 mod node_settings;
 
 use std::collections::{BTreeMap, HashMap};
@@ -96,15 +97,47 @@ pub(crate) struct RunScope {
     pub(crate) cancel: CancellationToken,
 }
 
+/// A run's scope for a test: the run, workflow and start instant of the test expression
+/// bindings, started in `mode` over `nodes`, in UTC with no project or pins, working in
+/// `/workspace` at `Ask` on the provider `test-provider`.
+#[cfg(test)]
+pub(crate) fn test_run_scope(mode: WorkflowRunMode, nodes: Vec<WorkflowNode>) -> RunScope {
+    let bindings =
+        crate::expressions::bindings::test_expression_bindings(Vec::new(), StepOutputs::default());
+    RunScope {
+        session_id: SessionId::new("0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7b")
+            .expect("the test's session id is a UUID"),
+        run_id: bindings.run_id,
+        workflow_id: bindings.workflow_id,
+        workflow_name: bindings.workflow_name,
+        mode,
+        trigger: bindings.run_trigger,
+        node_params: Arc::new(
+            nodes
+                .iter()
+                .map(|node| (node.id.clone(), node.params.clone()))
+                .collect(),
+        ),
+        nodes: nodes
+            .into_iter()
+            .map(|node| (node.id.clone(), node))
+            .collect(),
+        pin_data: None,
+        run_started_at: bindings.run_started_at,
+        time_zone: TimeZone::UTC,
+        environment_rows: Arc::new([]),
+        kept_values: Arc::new([]),
+        project: None,
+        working_folder: PathBuf::from("/workspace"),
+        permission_level: PermissionLevel::Ask,
+        provider: ProviderId::new("test-provider".to_owned()).expect("the test's provider id"),
+        redaction: Arc::new(RunRedaction::new(&[])),
+        cancel: CancellationToken::new(),
+    }
+}
+
 /// What a run's steps had recorded when the turn began, handed to each step that turn dispatches
 /// so every one reads the same fixed copy.
-#[cfg_attr(
-    test,
-    expect(
-        dead_code,
-        reason = "the tick's turn, which takes it, and the dispatch, which hands it to each step"
-    )
-)]
 pub(crate) struct RunSnapshot {
     /// Each node's executions so far.
     pub(crate) outputs: Arc<StepOutputs>,
@@ -125,7 +158,10 @@ pub(crate) struct ReadyStep {
     pub(crate) step: WorkflowStepKey,
     /// The loop's run index, `$runIndex`.
     pub(crate) run_index: u64,
-    /// The input items, one list per input handle in handle order.
+    /// The input items, one list per input handle of the kind's spec in spec order. The main
+    /// inputs are the lists at the inputs whose `is_tool()` is false, in spec order; a tool input's
+    /// list is empty, since a node wired into a `tool` input runs only when its agent calls it,
+    /// never as a step.
     pub(crate) inputs: Vec<Vec<WorkflowItem>>,
     /// The input exactly as the pending row stored it, which `workflow.step.started` repeats.
     pub(crate) input_ref: WorkflowPayloadRef,

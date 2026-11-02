@@ -25,7 +25,9 @@ use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowNode, WorkflowNodeKindId, WorkflowNodeOnError,
 };
-use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
+use sidekicks_contracts::workflow::definition::item::{
+    WorkflowItem, WorkflowStepError, WorkflowStepUncodedError,
+};
 use sidekicks_contracts::workflow::definition::refusals::WorkflowNodeHandles;
 use sidekicks_contracts::workflow::kind::{
     OutputMainHandleId, WorkflowNodeKindSpec, WorkflowOutputHandleSpec,
@@ -121,8 +123,9 @@ pub(crate) enum PersonAsk {
 )]
 #[derive(Debug)]
 pub(crate) enum StepFailure {
-    /// The step failed; its node's `onError` decides what follows.
-    Failed(WorkflowStepError),
+    /// The step failed; its node's `onError` decides what follows. Boxed, so a result that may
+    /// carry it stays small.
+    Failed(Box<WorkflowStepError>),
     /// The person declined the step's own card: the step fails and is never retried.
     Declined {
         /// The `why not` words, where the person typed any.
@@ -130,6 +133,18 @@ pub(crate) enum StepFailure {
         /// When the decline was recorded.
         at: WireInstant,
     },
+}
+
+/// A step failure with no code of its own, saying `message`, its node and item left for the step's
+/// driver to set.
+pub(crate) fn uncoded_step_error(message: String) -> WorkflowStepError {
+    WorkflowStepError::Uncoded(WorkflowStepUncodedError {
+        message: NonEmptyText::new(message).expect("a step failure's text is never empty"),
+        node_id: None,
+        item_index: None,
+        code: None,
+        details: None,
+    })
 }
 
 /// One kind's version: its spec, the param holding its shell line, and its executor.

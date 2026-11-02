@@ -8,10 +8,18 @@
 //! the value, then remove the record, so a crash in between is finished at the next start instead
 //! of leaving a value with no record.
 
+#[cfg(test)]
+use std::collections::HashMap;
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 
+#[cfg(test)]
+use futures::future::BoxFuture;
 use secrecy::SecretString;
 use sidekicks_contracts::workflow::secret::{WorkflowSecretId, WorkflowSecretValue};
+#[cfg(test)]
+use sidekicks_std::keyed_lock::HeldWorkEnd;
 use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
 
 /// Seals, resolves and removes workflow secrets' values in the keychain.
@@ -56,6 +64,80 @@ impl WorkflowSecretStore {
             .remove(secret_id.text().as_str())
             .await
             .map(|_was_held| ())
+    }
+}
+
+/// A test keychain holding fixed values by account, recording each account read, or refusing every
+/// read; it refuses every write, remove and listing.
+#[cfg(test)]
+pub(crate) struct ScriptedKeychain {
+    /// The values it holds, by account.
+    values: HashMap<String, String>,
+    /// Whether every read is refused.
+    is_refusing: bool,
+    /// The accounts read, in order.
+    reads: Mutex<Vec<String>>,
+}
+
+#[cfg(test)]
+impl ScriptedKeychain {
+    /// The keychain holding `values`, each an account and its value, or refusing every read when
+    /// `is_refusing`.
+    pub(crate) fn holding(values: &[(&str, &str)], is_refusing: bool) -> Arc<Self> {
+        Arc::new(Self {
+            values: values
+                .iter()
+                .map(|(account, value)| ((*account).to_owned(), (*value).to_owned()))
+                .collect(),
+            is_refusing,
+            reads: Mutex::default(),
+        })
+    }
+
+    /// The accounts read so far, in order.
+    pub(crate) fn reads(&self) -> Vec<String> {
+        self.reads
+            .lock()
+            .expect("no test thread panics holding it")
+            .clone()
+    }
+}
+
+#[cfg(test)]
+impl SecretKeychain for ScriptedKeychain {
+    fn write<'call>(
+        &'call self,
+        _account: &'call str,
+        _value: &'call SecretString,
+    ) -> BoxFuture<'call, Result<(), KeychainRefusal>> {
+        Box::pin(async { Err(KeychainRefusal::from(HeldWorkEnd::Unanswered)) })
+    }
+
+    fn read<'call>(
+        &'call self,
+        account: &'call str,
+    ) -> BoxFuture<'call, Result<Option<SecretString>, KeychainRefusal>> {
+        self.reads
+            .lock()
+            .expect("no test thread panics holding it")
+            .push(account.to_owned());
+        let answer = if self.is_refusing {
+            Err(KeychainRefusal::from(HeldWorkEnd::Unanswered))
+        } else {
+            Ok(self.values.get(account).cloned().map(SecretString::from))
+        };
+        Box::pin(async move { answer })
+    }
+
+    fn remove<'call>(
+        &'call self,
+        _account: &'call str,
+    ) -> BoxFuture<'call, Result<bool, KeychainRefusal>> {
+        Box::pin(async { Err(KeychainRefusal::from(HeldWorkEnd::Unanswered)) })
+    }
+
+    fn accounts(&self) -> BoxFuture<'_, Result<Vec<String>, KeychainRefusal>> {
+        Box::pin(async { Err(KeychainRefusal::from(HeldWorkEnd::Unanswered)) })
     }
 }
 
