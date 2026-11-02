@@ -28,8 +28,8 @@ use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 /// edit, the repository's to read, as a file a person makes would be.
 const PROJECT_CONFIG_FILE_MODE: u32 = 0o644;
 
-/// One project's Codex config as one read found it, the base an edit is written over.
-#[derive(Debug)]
+/// One project's Codex config as one read found it, the base an edit is written over. It has no
+/// `Debug`, since the config's bytes can hold a server's environment values or token.
 pub(super) struct CodexProjectFile {
     /// The `.codex` folder an absent file is made in.
     folder: PathBuf,
@@ -40,7 +40,6 @@ pub(super) struct CodexProjectFile {
 }
 
 /// What a read found in a config that stood.
-#[derive(Debug)]
 struct ReadContents {
     /// The file's bytes.
     bytes: Vec<u8>,
@@ -83,13 +82,18 @@ pub(super) enum CodexProjectFileError {
         /// The line, counted from 1, the parser stopped at.
         line: Option<usize>,
     },
-    /// The servers' table, or the named server's entry, is something other than a table, which
-    /// an edit cannot write into without taking the person's value away.
-    #[error("`{key}` in the project's Codex config is not a table")]
-    NotATable {
-        /// The table's key path, `mcp_servers` or `mcp_servers.<name>`.
-        key: String,
-    },
+    /// The file is a link to a file that does not exist, which an edit cannot make without
+    /// writing somewhere the person did not choose.
+    #[error("the project's Codex config is a link to a file that does not exist")]
+    DanglingLink,
+    /// `mcp_servers` is something other than a table, which an edit cannot write into without
+    /// taking the person's value away.
+    #[error("`mcp_servers` in the project's Codex config is not a table")]
+    ServersNotATable,
+    /// The server's entry is something other than a table, which an edit cannot write into
+    /// without taking the person's value away.
+    #[error("the server's entry in the project's Codex config is not a table")]
+    ServerEntryNotATable,
     /// A member's value has no TOML form, such as a `null`.
     #[error("the value of `{member}` cannot be written as TOML")]
     UnwritableValue {
@@ -99,7 +103,8 @@ pub(super) enum CodexProjectFileError {
         #[source]
         failure: toml_edit::ser::Error,
     },
-    /// Making the `.codex` folder, or flushing it after the file was made, failed.
+    /// Making the `.codex` folder failed, or flushing it after the file was made, or flushing the
+    /// project's folder after a new `.codex` was made in it.
     #[error("the project's `.codex` folder could not be made or flushed")]
     Folder(#[source] io::Error),
     /// Replacing the file that stood failed; it keeps its old contents.
@@ -115,7 +120,8 @@ pub(super) enum CodexProjectFileError {
 
 impl CodexProjectFile {
     /// Reads `<project_root>/.codex/config.toml`, a link resolved to its target; an absent file
-    /// reads as none. Fails when the file stands but cannot be read.
+    /// reads as none. Fails when the file stands but cannot be read, and `DanglingLink` when it is
+    /// a link to nothing.
     pub(super) async fn read(project_root: &Path) -> Result<Self, CodexProjectFileError> {
         let folder = project_root.join(CODEX_PROJECT_SETTINGS_FOLDER);
         tokio::task::spawn_blocking(move || read_project_file(folder))
@@ -181,34 +187,63 @@ fn read_project_file(folder: PathBuf) -> Result<CodexProjectFile, CodexProjectFi
     let path = match real_path(&named) {
         Ok(path) => path,
         Err(absent) if absent.kind() == io::ErrorKind::NotFound => {
-            return Ok(CodexProjectFile {
-                folder,
-                path: named,
-                read: None,
-            });
+            return read_absent_project_file(folder, named);
         }
         Err(failure) => return Err(CodexProjectFileError::Read(failure)),
     };
-    let read = match fs::read(&path) {
-        Ok(bytes) => Some(ReadContents {
-            hash: blake3::hash(&bytes),
-            bytes,
+    match fs::read(&path) {
+        Ok(bytes) => Ok(CodexProjectFile {
+            folder,
+            path,
+            read: Some(ReadContents {
+                hash: blake3::hash(&bytes),
+                bytes,
+            }),
         }),
         // Removed between the resolve and the read.
-        Err(absent) if absent.kind() == io::ErrorKind::NotFound => None,
+        Err(absent) if absent.kind() == io::ErrorKind::NotFound => {
+            read_absent_project_file(folder, named)
+        }
+        Err(failure) => Err(CodexProjectFileError::Read(failure)),
+    }
+}
+
+// The config at `named` that no file stands behind: none where nothing stands there, so an add
+// makes it, and refused where a link to nothing does, since every add would meet the link and
+// answer that the file changed.
+fn read_absent_project_file(
+    folder: PathBuf,
+    named: PathBuf,
+) -> Result<CodexProjectFile, CodexProjectFileError> {
+    // A file made since the resolve reads as none too: the add then answers that it changed.
+    let is_dangling_link = match fs::symlink_metadata(&named) {
+        Ok(metadata) => metadata.is_symlink(),
+        Err(absent) if absent.kind() == io::ErrorKind::NotFound => false,
         Err(failure) => return Err(CodexProjectFileError::Read(failure)),
     };
-    Ok(CodexProjectFile { folder, path, read })
+    if is_dangling_link {
+        return Err(CodexProjectFileError::DanglingLink);
+    }
+    Ok(CodexProjectFile {
+        folder,
+        path: named,
+        read: None,
+    })
 }
 
 // Makes the config where none stood, holding `contents`; a file made since the read is left as
-// it is and answered as changed.
+// it is and answered as changed. A `.codex` folder made here is flushed into the project's folder
+// too, so a power loss cannot take the new folder, and the file with it.
 fn create_project_file(
     folder: &Path,
     path: &Path,
     contents: &[u8],
 ) -> Result<CodexProjectFileEdit, CodexProjectFileError> {
-    fs::create_dir_all(folder).map_err(CodexProjectFileError::Folder)?;
+    let is_folder_made = match fs::create_dir(folder) {
+        Ok(()) => true,
+        Err(standing) if standing.kind() == io::ErrorKind::AlreadyExists => false,
+        Err(failure) => return Err(CodexProjectFileError::Folder(failure)),
+    };
     match create_file_atomically(
         path,
         contents,
@@ -225,6 +260,12 @@ fn create_project_file(
         Err(failure) => return Err(CodexProjectFileError::Create(failure)),
     }
     flush_folder(folder).map_err(CodexProjectFileError::Folder)?;
+    if is_folder_made {
+        let project_root = folder
+            .parent()
+            .expect("the `.codex` folder sits in the project's folder");
+        flush_folder(project_root).map_err(CodexProjectFileError::Folder)?;
+    }
     Ok(CodexProjectFileEdit::Written)
 }
 
@@ -252,9 +293,7 @@ fn edit_document(
                     Item::Table(servers)
                 })
                 .as_table_like_mut()
-                .ok_or_else(|| CodexProjectFileError::NotATable {
-                    key: MCP_SERVERS_KEY.to_owned(),
-                })?;
+                .ok_or(CodexProjectFileError::ServersNotATable)?;
             if !servers.contains_key(server_name) {
                 // One key, so a name holding a dot renders quoted rather than as a path.
                 servers.insert(server_name, Item::Table(Table::new()));
@@ -262,9 +301,7 @@ fn edit_document(
             let server = servers
                 .get_mut(server_name)
                 .and_then(Item::as_table_like_mut)
-                .ok_or_else(|| CodexProjectFileError::NotATable {
-                    key: format!("{MCP_SERVERS_KEY}.{server_name}"),
-                })?;
+                .ok_or(CodexProjectFileError::ServerEntryNotATable)?;
             for (member, value) in members {
                 let Some(value) = value else {
                     server.remove(&member);
@@ -317,10 +354,12 @@ mod tests {
 
     use serde_json::json;
     use sidekicks_contracts::mcp::server::McpServerName;
-    use sidekicks_platforms::{create_new_file, has_file_mode};
+    use sidekicks_platforms::{create_new_file, has_file_mode, make_folder_link};
     use toml_edit::DocumentMut;
 
-    use super::{CodexProjectFile, CodexProjectFileEdit, CodexProjectServerEdit};
+    use super::{
+        CodexProjectFile, CodexProjectFileEdit, CodexProjectFileError, CodexProjectServerEdit,
+    };
 
     // A hand-written project config: a top comment, a table before the servers, a server with
     // comments after its values, and a table after them behind its own comment.
@@ -473,6 +512,21 @@ network_access = false
             .map(|entry| entry.expect("an entry reads").file_name())
             .collect::<Vec<_>>();
         assert_eq!(entries, ["config.toml"]);
+    }
+
+    // A config that is a link to nothing is refused as such. Killed by a read that takes the link
+    // for no file, after which every add answers that the file changed.
+    #[tokio::test]
+    async fn a_config_linked_to_nothing_is_refused() {
+        let root = tempfile::tempdir().expect("a scratch project");
+        let path = config_path(root.path());
+        let missing = root.path().join("missing");
+        fs::create_dir(path.parent().expect("the config's folder")).expect("the folder is made");
+        make_folder_link(&missing, &path).expect("the link is made");
+
+        let read = CodexProjectFile::read(root.path()).await;
+
+        assert!(matches!(read, Err(CodexProjectFileError::DanglingLink)));
     }
 
     // An add to a project with no config makes the folder and a file holding only the server's
