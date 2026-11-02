@@ -116,3 +116,134 @@ pub(crate) fn publish_peer_arrival(
         publisher.publish(SessionMessageReading::Arrived(arrival));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+    use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::session::id::SessionId;
+
+    use crate::driver::claude::session::scripted::{
+        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
+    };
+    use crate::port::session_message_reading_publisher::{
+        SessionMessageArrival, SessionMessageReading,
+    };
+
+    const SENDER: &str = "uds:/tmp/cc-socks/4101.sock";
+
+    // A peer message's replay frame under `uuid`, as Claude Code writes it.
+    fn peer_frame(uuid: &str, origin: &Value) -> Value {
+        json!({
+            "type": "user",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "uuid": uuid,
+            "isReplay": true,
+            "message": {"role": "user", "content": "a message from another session"},
+            "origin": origin,
+        })
+    }
+
+    // The arrival on `session_id` a frame from `SENDER` with no other sender member reads as.
+    fn arrival(
+        session_id: SessionId,
+        message_id: &str,
+        sender_message_id: &str,
+        body: &str,
+        run_id: Option<RunId>,
+        is_turn_start: bool,
+    ) -> SessionMessageArrival {
+        SessionMessageArrival {
+            session_id,
+            run_id,
+            message_id: message_id.to_owned(),
+            sender_message_id: Some(sender_message_id.to_owned()),
+            from: SENDER.to_owned(),
+            from_session: None,
+            from_name: None,
+            hop_chain: Vec::new(),
+            sender_process_id: None,
+            body: Some(body.to_owned()),
+            is_turn_start,
+        }
+    }
+
+    // Killed by arrivals published only for the daemon's own ids (none of these is one), by the
+    // frames replayed before any run holds the turn dropped, by keying an arrival by `msg_id` (the
+    // merged frame would read as `u-4` again), by a merged frame's body read from its first
+    // message, by `is_turn_start` held constant or not cleared at `system/init`, by a sender member
+    // left unread, and by a `refused` lifecycle published only for a message the daemon wrote.
+    #[tokio::test(start_paused = true)]
+    async fn every_peer_frame_arrives_under_its_uuid_with_its_turn_start() {
+        let session = ScriptedSession::new().await;
+
+        // A merged drain's earlier messages, replayed before the turn's `system/init`.
+        session.frame(&peer_frame(
+            "u-4",
+            &json!({"kind": "peer", "from": SENDER, "msg_id": "m-4", "body": "b4"}),
+        ));
+        session.frame(&peer_frame(
+            "u-5",
+            &json!({"kind": "peer", "from": SENDER, "msg_id": "m-5", "body": "b5"}),
+        ));
+        settle().await;
+        let run_id = session.hold_lead_turn("lead");
+        session.frame(&json!({"type": "system", "subtype": "init",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID, "model": "opus"}));
+        session.frame(&peer_frame(
+            "u-6",
+            &json!({"kind": "peer", "from": SENDER, "msg_id": "m-4",
+                "members": [{"body": "b4"}, {"body": "b5"}, {"body": "b6"}]}),
+        ));
+        session.frame(&json!({
+            "type": "assistant",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "message": {"id": "message-1", "role": "assistant",
+                "content": [{"type": "text", "text": "working"}]},
+        }));
+        // A message absorbed mid-turn, with every sender member Claude Code writes.
+        session.frame(&peer_frame(
+            "u-2",
+            &json!({"kind": "peer", "from": SENDER, "msg_id": "m-2", "body": "b2",
+                "name": "builder", "fromSession": "0123456789abcdef01234567",
+                "hopChain": ["89abcdef0123456789abcdef"], "verifiedPeerPid": 4101}),
+        ));
+        session.frame(&json!({
+            "type": "command_lifecycle",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "command_uuid": "u-3",
+            "state": "refused",
+        }));
+        settle().await;
+
+        let session_id = session.session_id;
+        let absorbed = SessionMessageArrival {
+            from_session: Some("0123456789abcdef01234567".to_owned()),
+            from_name: Some("builder".to_owned()),
+            hop_chain: vec!["89abcdef0123456789abcdef".to_owned()],
+            sender_process_id: Some(4101),
+            ..arrival(session_id, "u-2", "m-2", "b2", Some(run_id), false)
+        };
+        assert_eq!(
+            session.ports.message_readings(),
+            [
+                SessionMessageReading::Arrived(arrival(session_id, "u-4", "m-4", "b4", None, true)),
+                SessionMessageReading::Arrived(arrival(session_id, "u-5", "m-5", "b5", None, true)),
+                SessionMessageReading::Arrived(arrival(
+                    session_id,
+                    "u-6",
+                    "m-4",
+                    "b6",
+                    Some(run_id),
+                    true
+                )),
+                SessionMessageReading::Arrived(absorbed),
+                SessionMessageReading::Refused {
+                    message_id: "u-3".to_owned(),
+                    reason: None,
+                    drop_reason: None,
+                },
+            ]
+        );
+    }
+}
