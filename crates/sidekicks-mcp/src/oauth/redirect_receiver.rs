@@ -174,9 +174,9 @@ pub struct RedirectListener {
 impl RedirectListener {
     /// Binds the listener. With no owner-issued `callback_url` it takes a free port on
     /// `127.0.0.1`, or on `[::1]` when IPv4 loopback is unusable; an owner-issued address sets the
-    /// host, port and path, a loopback name binding `127.0.0.1`. Fails with `NotHttp` or `NotLoopback`
-    /// for an owner address the receiver must not bind, `UnusablePath` for a path it cannot route,
-    /// and `Bind` when the system refuses.
+    /// host, port and path, a loopback name binding `127.0.0.1`. Fails with `NotHttp` or
+    /// `NotLoopback` for an owner address the receiver must not bind, `UnusablePath` for a path it
+    /// cannot route, and `Bind` when the system refuses.
     pub async fn bind(
         callback_url: Option<&Url>,
         path: CallbackPath<'_>,

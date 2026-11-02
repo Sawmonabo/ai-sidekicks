@@ -3,11 +3,11 @@
 //! - **Which provider.** The provider the server admitted before goes first, then the binding's,
 //!   then every other registered provider in the registry's order; one with no account handed in
 //!   is passed over, and one whose driver finds no entry of the person's for the binding at the
-//!   server's address (it has no flow for the server) hands on to the next. Any other failure before the browser opens, or
-//!   no provider left, means no provider's flow admits the server; the launch decides what follows,
-//!   and runs the flows at most once per press. A driver's failure answers the launch as the
-//!   driver's error does, but for a sign-in that did not finish, which is
-//!   `mcp.server.signInFailed`.
+//!   server's address (it has no flow for the server) hands on to the next. Any other failure
+//!   before the browser opens, or no provider left, means no provider's flow admits the server;
+//!   the launch decides what follows, and runs the flows at most once per press. A driver's
+//!   failure answers the launch as the driver's error does, but for a sign-in that did not finish,
+//!   which is `mcp.server.signInFailed`.
 //! - **The browser.** The driver names the address the browser opens, which the launch answers.
 //!   The flow goes on in a task the daemon's stop, a sign-out or a new launch for the server ends.
 //!   For a driver whose descriptor says its flow can return to the daemon's receiver, the browser

@@ -324,9 +324,9 @@ impl McpCredentialStore {
         Ok(held)
     }
 
-    /// Takes the sign-in a renewal whose save was refused received, its tokens and the proof key and
-    /// client secret of the sign-in it began from, so its refresh token can be revoked; `None` when
-    /// no renewal was refused since the last take.
+    /// Takes the sign-in a renewal whose save was refused received, its tokens and the proof key
+    /// and client secret of the sign-in it began from, so its refresh token can be revoked; `None`
+    /// when no renewal was refused since the last take.
     pub(crate) fn take_refused_renewal(&self) -> Option<Arc<HeldSignIn>> {
         lock(&self.server.refused_renewal).take()
     }

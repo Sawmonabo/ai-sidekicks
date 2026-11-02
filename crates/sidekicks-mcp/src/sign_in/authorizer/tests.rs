@@ -47,7 +47,8 @@ enum TokenAnswer {
 
 /// What the fake token endpoint received: each renewal's refresh token, the client id its form
 /// named and the `DPoP` proof it carried, and each token its revocation endpoint was sent; it
-/// tells `arrived` of each renewal, and answers only while `answers` is free.
+/// tells `arrived` of each renewal and `revoked` of each revocation, and answers only while
+/// `answers` is free.
 #[derive(Clone, Default)]
 struct Renewals {
     refresh_tokens: Arc<Mutex<Vec<String>>>,
@@ -55,6 +56,7 @@ struct Renewals {
     proofs: Arc<Mutex<Vec<Option<String>>>>,
     revoked_tokens: Arc<Mutex<Vec<String>>>,
     arrived: Arc<Notify>,
+    revoked: Arc<Notify>,
     answers: Arc<tokio::sync::Mutex<()>>,
 }
 
@@ -82,6 +84,7 @@ async fn serve_token_endpoint(answer: TokenAnswer) -> (String, Renewals) {
     let client_ids = renewals.client_ids.clone();
     let proofs = renewals.proofs.clone();
     let revoked_tokens = renewals.revoked_tokens.clone();
+    let revoked = renewals.revoked.clone();
     let arrived = renewals.arrived.clone();
     let answers = renewals.answers.clone();
     let router = Router::new()
@@ -97,6 +100,7 @@ async fn serve_token_endpoint(answer: TokenAnswer) -> (String, Renewals) {
                         .find(|(name, _)| name == "token")
                         .map(|(_, value)| value.into_owned()),
                 );
+                revoked.notify_one();
                 StatusCode::OK
             }),
         )
@@ -471,19 +475,13 @@ async fn a_sign_out_during_a_renewal_lands_at_once_and_its_rotated_token_is_revo
         renewing.await.expect("the renewal's task ends"),
         Err(SignInAuthorizationError::Renewal(_))
     ));
-    let mut revoked = Vec::new();
-    for _ in 0..200 {
-        revoked = renewals
-            .revoked_tokens
-            .lock()
-            .expect("never poisoned")
-            .clone();
-        if !revoked.is_empty() {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    assert_eq!(revoked, ["test-refresh-token-2"]);
+    tokio::time::timeout(Duration::from_secs(5), renewals.revoked.notified())
+        .await
+        .expect("the received refresh token is revoked");
+    assert_eq!(
+        *renewals.revoked_tokens.lock().expect("never poisoned"),
+        ["test-refresh-token-2"]
+    );
     assert!(store.held().await.expect("the keychain answers").is_none());
     assert!(
         !custody
