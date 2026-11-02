@@ -28,9 +28,6 @@ use crate::runtime_binding::test_store::test_provider_account_id;
 /// The device-code login the stand-in starts.
 const DEVICE_LOGIN: &str = "login-device";
 
-/// The browser login the stand-in starts.
-const BROWSER_LOGIN: &str = "login-browser";
-
 /// How long a test waits on the daemon.
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -138,52 +135,16 @@ async fn a_device_sign_in_shows_its_code_and_ends_only_on_its_own_completion() {
     assert_eq!(params, json!({"type": "chatgptDeviceCode"}));
 }
 
-// Killed by no browser sign-in held across attempts: the second this-machine sign-in would take
-// the browser arm, and its callback would cancel the first's.
+// Killed by Codex declaring no machine slot, which lets two browser sign-ins collide on Codex's one
+// callback port, and by one declared from another device, which refuses a device-code start for no
+// reason.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_second_sign_in_on_this_machine_takes_the_device_arm_while_the_browser_is_held() {
+async fn only_a_sign_in_at_this_machine_holds_the_machine_s_one_callback_port() {
     let scripted = start_scripted_codex_service();
-    let Some(listener) = bind_test_listener(scripted.service.socket_path()) else {
-        return;
-    };
     let (legs, _registry) = legs_holding(&scripted).await;
-    let served = tokio::spawn(async move {
-        let mut first = accept_copy(&listener).await;
-        let browser = answer_start(
-            &mut first,
-            json!({"type": "chatgpt", "loginId": BROWSER_LOGIN,
-                "authUrl": "https://auth.openai.com/oauth/authorize?state=test"}),
-        )
-        .await;
-        let mut second = accept_copy(&listener).await;
-        let device = answer_start(&mut second, device_reply()).await;
-        (browser, device, first, second)
-    });
 
-    let first = legs
-        .start_sign_in(
-            test_provider_account_id(),
-            home(&scripted),
-            SignInOrigin::ThisMachine,
-        )
-        .await
-        .expect("the first sign-in starts");
-    let second = legs
-        .start_sign_in(
-            test_provider_account_id(),
-            home(&scripted),
-            SignInOrigin::ThisMachine,
-        )
-        .await
-        .expect("the second sign-in starts");
-
-    let (browser, device, _first_socket, _second_socket) = tokio::time::timeout(WAIT, served)
-        .await
-        .expect("the stand-in served both")
-        .expect("the stand-in ran");
-    assert_eq!(browser, json!({"type": "chatgpt"}));
-    assert_eq!(device, json!({"type": "chatgptDeviceCode"}));
-    assert!(first.user_code.is_none() && second.user_code.is_some());
+    assert!(legs.is_one_per_machine(SignInOrigin::ThisMachine));
+    assert!(!legs.is_one_per_machine(SignInOrigin::AnotherDevice));
 }
 
 // Killed by a cancel that sends nothing to Codex, which would hold its sign-in until it timed out.

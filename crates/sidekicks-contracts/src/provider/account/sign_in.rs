@@ -288,6 +288,17 @@ pub struct ProviderAccountCredentialSealRefusedDetails {
     pub cause: KeychainRefusalCause,
 }
 
+/// The sign-in a `provider.account.signInInFlight` refusal names: the open attempt and the account
+/// it signs in.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProviderAccountSignInInFlightDetails {
+    /// The account the open attempt signs in.
+    pub account_id: ProviderAccountId,
+    /// The open attempt, which `provider.account.signInAttempt.cancel` cancels.
+    pub attempt_id: FreeFormText<PROVIDER_SIGN_IN_ATTEMPT_ID_MAX_LEN>,
+}
+
 /// Rebuilds an account's credential home from empty so the person can sign in again. It raises
 /// the credential generation; the identity and stored quota readings survive, and the stored
 /// health is dropped, so the reply carries the new one.
@@ -458,6 +469,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<ProviderAccountCredentialHomeResetResponse>().checked(),
         Definition::read::<ProviderAccountSignInRequest>().checked(),
         Definition::read::<ProviderAccountSignInResponse>().checked(),
+        Definition::read::<ProviderAccountSignInInFlightDetails>().checked(),
         Definition::read::<ProviderAccountSignInAttemptCancelRequest>().checked(),
         Definition::read::<ProviderSignInCancelStatus>(),
         Definition::read::<ProviderAccountSignInAttemptCancelResponse>().checked(),

@@ -24,7 +24,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
-use tokio::sync::Semaphore;
 
 use crate::account::credential_home::CredentialHome;
 use crate::account::home_lock::AccountHomeLock;
@@ -59,8 +58,7 @@ pub(crate) const CODEX_EPHEMERAL_CREDENTIAL_STORE: &str =
 /// What Codex's account legs reach a home's Codex through: the driver's services, one per home,
 /// what a short-lived service started for one act runs on, the driver's filing of rate limits, the
 /// account registry, the binding store a switch moves bindings in, each account's dead renewals in
-/// a row, the one browser sign-in the machine runs at a time, and the renewals the switching
-/// service's token refresh runs in account homes.
+/// a row, and the renewals the switching service's token refresh runs in account homes.
 pub(crate) struct CodexAccountLegs {
     registry: Arc<CodexServiceRegistry>,
     dependencies: Arc<CodexServiceDependencies>,
@@ -73,9 +71,6 @@ pub(crate) struct CodexAccountLegs {
     // Each account's limits reads in a row whose needed renewal left its `auth.json` unchanged,
     // kept in memory as the observer's own misses are.
     dead_renewals: Mutex<HashMap<ProviderAccountId, u8>>,
-    // One permit, held by the browser sign-in under way: Codex's callback listens on one port
-    // machine-wide, and a second browser sign-in cancels the first's listener.
-    browser_sign_in: Arc<Semaphore>,
     // The daemon's lock on account homes, which each renewal holds.
     account_home_lock: Arc<PortRegistration<Arc<AccountHomeLock>>>,
     // The renewals in flight, one per account, made at the first once the lock is registered.
@@ -109,7 +104,6 @@ impl CodexAccountLegs {
                 accounts,
                 bindings,
                 dead_renewals: Mutex::default(),
-                browser_sign_in: Arc::new(Semaphore::new(1)),
                 account_home_lock,
                 token_renewals: OnceLock::new(),
             }
@@ -285,6 +279,12 @@ impl ProviderSignInLegs for CodexAccountLegs {
         home: CredentialHome,
     ) -> BoxFuture<'_, Result<ProviderSignInObservation, DriverError>> {
         sign_in::observe_codex_sign_in(self, provider_account_id, home).boxed()
+    }
+
+    /// Yes at this machine: Codex's browser sign-in calls back on one fixed port the whole machine
+    /// shares, and a second one would end the first's listener.
+    fn is_one_per_machine(&self, origin: SignInOrigin) -> bool {
+        origin == SignInOrigin::ThisMachine
     }
 }
 

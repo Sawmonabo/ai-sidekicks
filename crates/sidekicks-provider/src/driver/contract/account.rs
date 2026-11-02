@@ -77,7 +77,8 @@ pub trait ProviderAccountLegs: Send + Sync {
     fn window_turn_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderWindowTurnLegs>>;
 
     /// These legs as the provider's interactive sign-in, which the sign-in broker runs; `None` for
-    /// a provider with no sign-in of its own here, whose sign-ins the broker refuses as unsupported.
+    /// a provider with no sign-in of its own here, whose sign-ins the broker refuses as
+    /// unsupported.
     fn sign_in_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderSignInLegs>>;
 
     /// These legs as the provider's status read of a pasted token, which the token custody runs
@@ -102,13 +103,19 @@ pub trait ProviderSignInLegs: Send + Sync {
 
     /// Reads the provider's own status in `home` after a sign-in there ended: the account's
     /// health, whether the provider named the account and the kind of sign-in it reports. Opens
-    /// no credential file. Fails with
-    /// the driver's error where the status could not be read.
+    /// no credential file. Fails with the driver's error where the status could not be read.
     fn observe_sign_in(
         &self,
         provider_account_id: ProviderAccountId,
         home: CredentialHome,
     ) -> BoxFuture<'_, Result<ProviderSignInObservation, DriverError>>;
+
+    /// Whether a sign-in started from the given origin holds something the machine has only one
+    /// of, such as a fixed callback port, so the broker keeps one such sign-in of this provider
+    /// open at a time.
+    fn is_one_per_machine(&self, _origin: SignInOrigin) -> bool {
+        false
+    }
 }
 
 /// Where a sign-in was started: a browser on another device cannot reach a provider's callback on

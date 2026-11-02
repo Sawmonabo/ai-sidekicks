@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -7,6 +8,7 @@ use futures::channel::{mpsc, oneshot};
 use futures::future::BoxFuture;
 use futures::{FutureExt as _, StreamExt as _};
 use rstest::rstest;
+use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::{
     BillingMode, ProviderAccountHealthState, ProviderAccountId, ProviderAccountNotification,
@@ -26,8 +28,8 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::{
-    AttemptId, ProviderAccountNotificationPublisher, ProviderSignInBroker, ProviderSignInError,
-    SignedInAccountWatcher,
+    AccountsInFlight, AttemptId, ProviderAccountNotificationPublisher, ProviderSignInBroker,
+    ProviderSignInError, SignedInAccountWatcher,
 };
 use crate::account::credential_home::CredentialHome;
 use crate::account::home_lock::AccountHomeLock;
@@ -126,6 +128,8 @@ pub(crate) struct ScriptedLegs {
     pub(crate) flows: mpsc::UnboundedSender<ScriptedFlow>,
     /// Each home a flow started in.
     pub(crate) homes: Mutex<Vec<PathBuf>>,
+    /// Whether a sign-in at this machine holds what the machine has only one of.
+    pub(crate) holds_machine_slot: bool,
 }
 
 impl ProviderSignInLegs for ScriptedLegs {
@@ -194,6 +198,10 @@ impl ProviderSignInLegs for ScriptedLegs {
             }
         }
         .boxed()
+    }
+
+    fn is_one_per_machine(&self, origin: SignInOrigin) -> bool {
+        self.holds_machine_slot && origin == SignInOrigin::ThisMachine
     }
 }
 
@@ -277,6 +285,19 @@ fn provider(id: &str) -> ProviderId {
     ProviderId::new(id.to_owned()).expect("a test provider id")
 }
 
+// The refusal code `error` answers on the wire, and its details.
+fn refusal_of(error: ProviderSignInError) -> (RefusalCode, Option<serde_json::Value>) {
+    let HandlerError::Refused(refusal) = HandlerError::from(error) else {
+        panic!("a sign-in refusal answers a refusal");
+    };
+    (
+        refusal.code,
+        refusal
+            .detail
+            .map(|detail| serde_json::Value::Object(*detail)),
+    )
+}
+
 // One attempt through each way a sign-in ends: no row while the flow runs, the account's home free
 // while the person signs in and after the attempt settles, a code only to the attempt waiting for
 // one, a written row published as the account it now is before one settled end, and the registry
@@ -332,10 +353,12 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
         status,
         flows: flow_sender,
         homes: Mutex::new(Vec::new()),
+        holds_machine_slot: false,
     });
     let (published_sender, mut published) = mpsc::unbounded();
     let watcher = Arc::new(RecordingWatcher::default());
     let home_lock = Arc::new(AccountHomeLock::default());
+    let accounts_in_flight = Arc::new(AccountsInFlight::default());
     let broker = ProviderSignInBroker::new(
         Arc::clone(&registry),
         HashMap::from([(
@@ -345,7 +368,7 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
         Arc::new(RecordingPublisher(published_sender)),
         Arc::clone(&watcher) as Arc<dyn SignedInAccountWatcher>,
         Arc::clone(&home_lock),
-        Arc::default(),
+        Arc::clone(&accounts_in_flight),
     );
     let events_before = session_event_count(&database.path());
     let request = match &existing {
@@ -390,11 +413,24 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
             .await
             .expect("the attempt leaves the account's home free while its flow runs"),
     );
+    // A second start on the account is refused naming the open attempt, in the refusal's details.
     if is_registered {
-        assert!(matches!(
-            broker.start(request, SignInOrigin::ThisMachine).await,
-            Err(ProviderSignInError::InFlight)
-        ));
+        let refused = broker
+            .start(request.clone(), SignInOrigin::ThisMachine)
+            .await
+            .expect_err("a second start on the account is refused");
+        assert!(
+            matches!(&refused, ProviderSignInError::AttemptOpen { account_id, attempt_id: open }
+                if *account_id == flow.account_id && *open == attempt_id),
+            "{refused:?}"
+        );
+        assert_eq!(
+            refusal_of(refused),
+            (
+                RefusalCode::ProviderAccountSignInInFlight,
+                Some(json!({"accountId": flow.account_id, "attemptId": attempt_id}))
+            )
+        );
     }
 
     // A code reaches only the attempt that waits for one, once per prompt.
@@ -480,6 +516,25 @@ async fn one_sign_in_attempt_settles_as_its_end_says(
         late_code.expect("a submit"),
         ProviderSignInCodeSubmitStatus::NotFound
     );
+    // A switch or a reset holding the account refuses the start with no attempt to name.
+    if is_registered {
+        let switch = accounts_in_flight
+            .begin(flow.account_id.clone())
+            .expect("the settled attempt left the account free");
+        let refused = broker
+            .start(request, SignInOrigin::ThisMachine)
+            .await
+            .expect_err("a start on an account a switch holds is refused");
+        assert!(
+            matches!(refused, ProviderSignInError::InFlight),
+            "{refused:?}"
+        );
+        assert_eq!(
+            refusal_of(refused),
+            (RefusalCode::ProviderAccountSignInInFlight, None)
+        );
+        drop(switch);
+    }
 
     let accounts = registry.list(None).await.expect("the accounts read");
     match (&existing, outcome) {
@@ -535,6 +590,7 @@ async fn a_sign_in_whose_home_changed_under_it_writes_nothing() {
         },
         flows: flow_sender,
         homes: Mutex::new(Vec::new()),
+        holds_machine_slot: false,
     });
     let (published_sender, mut published) = mpsc::unbounded();
     let watcher = Arc::new(RecordingWatcher::default());
@@ -596,4 +652,165 @@ async fn a_sign_in_whose_home_changed_under_it_writes_nothing() {
     );
     assert!(lock(&watcher.0).is_empty());
     assert!(published.try_recv().is_err(), "nothing more is published");
+}
+
+/// Legs whose first start fails as a flow that could not start, and whose every later start runs
+/// as `inner`'s.
+struct FirstStartFails {
+    inner: ScriptedLegs,
+    has_failed: AtomicBool,
+}
+
+impl ProviderSignInLegs for FirstStartFails {
+    fn start_sign_in(
+        &self,
+        provider_account_id: ProviderAccountId,
+        home: CredentialHome,
+        origin: SignInOrigin,
+    ) -> BoxFuture<'_, Result<ProviderSignInHandle, DriverError>> {
+        if !self.has_failed.swap(true, Ordering::SeqCst) {
+            return async { Err(DriverError::Internal("the flow could not start".into())) }.boxed();
+        }
+        self.inner.start_sign_in(provider_account_id, home, origin)
+    }
+
+    fn observe_sign_in(
+        &self,
+        provider_account_id: ProviderAccountId,
+        home: CredentialHome,
+    ) -> BoxFuture<'_, Result<ProviderSignInObservation, DriverError>> {
+        self.inner.observe_sign_in(provider_account_id, home)
+    }
+
+    fn is_one_per_machine(&self, origin: SignInOrigin) -> bool {
+        self.inner.is_one_per_machine(origin)
+    }
+}
+
+// Scripted legs of `codex` whose sign-ins at this machine hold the machine's one slot, each flow
+// started going to the answered receiver.
+fn machine_slot_legs() -> (ScriptedLegs, mpsc::UnboundedReceiver<ScriptedFlow>) {
+    let (flow_sender, flows) = mpsc::unbounded();
+    let legs = ScriptedLegs {
+        status: Status::Read {
+            is_account_named: true,
+        },
+        flows: flow_sender,
+        homes: Mutex::new(Vec::new()),
+        holds_machine_slot: true,
+    };
+    (legs, flows)
+}
+
+// A broker over a fresh registry whose one provider, `codex`, signs in through `legs`, with the
+// notifications it publishes and the registry's database and data folder, kept for the test.
+async fn broker_over(
+    legs: Arc<dyn ProviderSignInLegs>,
+) -> (
+    ProviderSignInBroker,
+    mpsc::UnboundedReceiver<ProviderAccountNotification>,
+    (TestDatabase, tempfile::TempDir),
+) {
+    let database = TestDatabase::new(schema_parts());
+    let data_folder = tempfile::tempdir().expect("a data folder");
+    let (registry, _writer) = open_test_registry(&database, data_folder.path()).await;
+    let (published_sender, published) = mpsc::unbounded();
+    let broker = ProviderSignInBroker::new(
+        Arc::new(registry),
+        HashMap::from([(provider("codex"), legs)]),
+        Arc::new(RecordingPublisher(published_sender)),
+        Arc::new(RecordingWatcher::default()),
+        Arc::default(),
+        Arc::default(),
+    );
+    (broker, published, (database, data_folder))
+}
+
+fn new_codex_account() -> ProviderAccountSignInRequest {
+    ProviderAccountSignInRequest::New(NewAccountSignIn {
+        provider: provider("codex"),
+    })
+}
+
+// While one account's sign-in at this machine holds the machine's one slot, another account's
+// start there is refused naming the open attempt and leaves no minted home, while a start from
+// another device runs; the open flow stays cancelable, and once it has ended a start at this
+// machine runs. Killed by no slot (the second start runs), by the slot not freed at the flow's
+// end (the last start is refused), by a refused start's minted home left behind, and by the slot
+// applied to a start from another device.
+#[tokio::test]
+async fn one_sign_in_at_this_machine_holds_the_machine_s_slot_until_it_ends() {
+    let (legs, mut flows) = machine_slot_legs();
+    let (broker, mut published, _kept) = broker_over(Arc::new(legs)).await;
+
+    let open = broker
+        .start(new_codex_account(), SignInOrigin::ThisMachine)
+        .await
+        .expect("the first sign-in at this machine starts");
+    let open_flow = flows.next().await.expect("the first flow started");
+
+    let refused = broker
+        .start(new_codex_account(), SignInOrigin::ThisMachine)
+        .await
+        .expect_err("a second sign-in at this machine is refused");
+    assert!(
+        matches!(&refused, ProviderSignInError::AttemptOpen { account_id, attempt_id }
+            if *account_id == open_flow.account_id && *attempt_id == open.attempt_id),
+        "{refused:?}"
+    );
+    let homes_folder = open_flow
+        .home
+        .parent()
+        .expect("a home sits in the homes folder");
+    let homes: Vec<PathBuf> = std::fs::read_dir(homes_folder)
+        .expect("the homes folder reads")
+        .map(|entry| entry.expect("a home entry reads").path())
+        .collect();
+    assert_eq!(
+        homes,
+        vec![open_flow.home.clone()],
+        "the refused start's home is removed"
+    );
+
+    broker
+        .start(new_codex_account(), SignInOrigin::AnotherDevice)
+        .await
+        .expect("a sign-in from another device starts while the slot is held");
+    flows.next().await.expect("the other device's flow started");
+
+    let canceled = broker.cancel(&open.attempt_id).await.expect("a cancel");
+    assert_eq!(canceled, ProviderSignInCancelStatus::Canceled);
+    let ProviderAccountNotification::SignInCompleted { attempt_id, .. } =
+        next_notification(&mut published).await
+    else {
+        panic!("the canceled attempt reports its end");
+    };
+    assert_eq!(attempt_id, open.attempt_id);
+
+    broker
+        .start(new_codex_account(), SignInOrigin::ThisMachine)
+        .await
+        .expect("a sign-in at this machine starts once the open one has ended");
+}
+
+// A start at this machine whose flow could not start frees the machine's slot. Killed by a failed
+// start's attempt left listed, which refuses the next start at this machine.
+#[tokio::test]
+async fn a_failed_start_at_this_machine_frees_the_machine_s_slot() {
+    let (inner, mut flows) = machine_slot_legs();
+    let legs = FirstStartFails {
+        inner,
+        has_failed: AtomicBool::new(false),
+    };
+    let (broker, _published, _kept) = broker_over(Arc::new(legs)).await;
+
+    broker
+        .start(new_codex_account(), SignInOrigin::ThisMachine)
+        .await
+        .expect_err("the first flow could not start");
+    broker
+        .start(new_codex_account(), SignInOrigin::ThisMachine)
+        .await
+        .expect("the next sign-in at this machine starts");
+    flows.next().await.expect("the next flow started");
 }

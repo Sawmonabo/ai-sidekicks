@@ -1,15 +1,17 @@
 //! The sign-in broker: runs a provider's own interactive sign-in in one account's home through
 //! that provider's sign-in legs, and settles every attempt in exactly one end.
 //!
-//! - One attempt per account at a time. The account's home is held only while the flow starts and
-//!   while the status read after it is stored, never across the person's round trip. A new
-//!   account's id and home are minted at the start and held in memory; its row is written only
-//!   once the status read after the flow names who signed in, with billing `unknown` and the kind
-//!   of sign-in the read reports. Any other end removes the minted home and writes no row. A
-//!   sign-in on a registered account keeps its row whatever the end, storing the status read it
-//!   took and its kind of sign-in, unless the home's sign-in changed since the flow started (a
-//!   reset or another credential), which fails the attempt with nothing written. A row written
-//!   goes out as `accountChanged` before the attempt's end.
+//! - One attempt per account at a time, and one per provider of those that hold what the machine
+//!   has only one of, such as a fixed callback port; a start refused for an open attempt names it.
+//!   The account's home is held only while the flow starts and while the status read after it is
+//!   stored, never across the person's round trip. A new account's id and home are minted at the
+//!   start and held in memory; its row is written only once the status read after the flow names
+//!   who signed in, with billing `unknown` and the kind of sign-in the read reports. Any other end
+//!   removes the minted home and writes no row. A sign-in on a registered account keeps its row
+//!   whatever the end, storing the status read it took and its kind of sign-in, unless the home's
+//!   sign-in changed since the flow started (a reset or another credential), which fails the
+//!   attempt with nothing written. A row written goes out as `accountChanged` before the attempt's
+//!   end.
 //! - Only typed fields leave: the reply's address, code and bound, `signInCodeRequested` and
 //!   `signInCompleted`. No line of a provider's stream and no driver error's text reaches a caller.
 //! - A pasted code goes to the input of the attempt that waits for one and nowhere else.
@@ -29,8 +31,9 @@ use sidekicks_contracts::provider::account::record::{
     ProviderSignInOutcome,
 };
 use sidekicks_contracts::provider::account::sign_in::{
-    PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderAccountSignInRequest, ProviderAccountSignInResponse,
-    ProviderSignInCancelStatus, ProviderSignInCodeSubmitStatus,
+    PROVIDER_SIGN_IN_CODE_MAX_LEN, ProviderAccountSignInInFlightDetails,
+    ProviderAccountSignInRequest, ProviderAccountSignInResponse, ProviderSignInCancelStatus,
+    ProviderSignInCodeSubmitStatus,
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -118,9 +121,18 @@ impl Drop for InFlightGuard {
 /// row and no minted home behind.
 #[derive(Debug, thiserror::Error)]
 pub enum ProviderSignInError {
-    /// The account already has a sign-in, a switch onto it or its home's reset in flight.
+    /// The account has a switch onto it or its home's reset in flight, which no attempt names.
     #[error("a sign-in, a switch or a reset is already in flight for the provider account")]
     InFlight,
+    /// A sign-in of the account is open, or one of another account holds what the machine has
+    /// only one of; the refusal names that attempt and the account it signs in.
+    #[error("another sign-in is open for the provider account or on this machine")]
+    AttemptOpen {
+        /// The account the open attempt signs in.
+        account_id: ProviderAccountId,
+        /// The open attempt.
+        attempt_id: AttemptId,
+    },
     /// No sign-in legs are registered for the provider.
     #[error("the provider's sign-in cannot be brokered")]
     Unsupported,
@@ -139,16 +151,29 @@ pub enum ProviderSignInError {
 }
 
 impl From<ProviderSignInError> for HandlerError {
-    /// An account with a sign-in, a switch or a reset in flight refuses
-    /// `provider.account.signInInFlight` and a provider with no legs
-    /// `provider.account.signInUnsupported`; the registry's and the driver's failures answer as
-    /// their own conversions say, and a failed mint is the daemon's.
+    /// An open attempt in the way refuses `provider.account.signInInFlight` with details naming
+    /// it and its account, and a switch or a reset in flight refuses it with none; a provider
+    /// with no legs refuses `provider.account.signInUnsupported`; the registry's and the driver's
+    /// failures answer as their own conversions say, and a failed mint is the daemon's.
     fn from(error: ProviderSignInError) -> Self {
         match error {
             ProviderSignInError::InFlight => Self::Refused(DomainError::new(
                 "A sign-in, a switch or a reset is already in flight for the provider account",
                 RefusalCode::ProviderAccountSignInInFlight,
             )),
+            ProviderSignInError::AttemptOpen {
+                account_id,
+                attempt_id,
+            } => Self::Refused(
+                DomainError::new(
+                    "Another sign-in is open for the provider account or on this machine",
+                    RefusalCode::ProviderAccountSignInInFlight,
+                )
+                .with_detail(ProviderAccountSignInInFlightDetails {
+                    account_id,
+                    attempt_id,
+                }),
+            ),
             ProviderSignInError::Unsupported => Self::Refused(DomainError::new(
                 "The provider's sign-in cannot be brokered",
                 RefusalCode::ProviderAccountSignInUnsupported,
@@ -197,9 +222,10 @@ impl ProviderSignInBroker {
 
     /// Starts the provider's own sign-in for `request`'s account, or for a new account whose id
     /// and home it mints, on the arm `origin` calls for, once the account's home is free, and
-    /// answers what the person needs. Fails with
-    /// [`ProviderSignInError::InFlight`] while the account has an attempt, a switch onto it or its
-    /// home's reset in flight,
+    /// answers what the person needs. Fails with [`ProviderSignInError::AttemptOpen`] while the
+    /// account has an open attempt, or while the start holds what the machine has only one of and
+    /// another of the provider's open attempts holds it; [`ProviderSignInError::InFlight`] while
+    /// the account has a switch onto it or its home's reset in flight;
     /// [`ProviderSignInError::Unsupported`] for a provider with no legs, the registry's error for
     /// an account not registered or a home that cannot be made, the driver's where the flow does
     /// not start, and [`ProviderSignInError::StartEnded`] where the attempt's task ended first; a
@@ -209,19 +235,28 @@ impl ProviderSignInBroker {
         request: ProviderAccountSignInRequest,
         origin: SignInOrigin,
     ) -> Result<ProviderAccountSignInResponse, ProviderSignInError> {
+        let attempt_id = mint_attempt_id()?;
         let (legs, reservation) = match request {
             ProviderAccountSignInRequest::Registered(registered) => {
                 let account = self.attempt.registry.read(registered.account_id).await?;
                 let legs = self.legs_of(&account.provider)?;
-                let reservation =
-                    self.attempt
-                        .reserve(account.account_id, account.credential_home, None)?;
+                let reservation = self.attempt.reserve(
+                    attempt_id,
+                    account.provider,
+                    legs.is_one_per_machine(origin),
+                    account.account_id,
+                    account.credential_home,
+                    None,
+                )?;
                 (legs, reservation)
             }
             ProviderAccountSignInRequest::New(new) => {
                 let legs = self.legs_of(&new.provider)?;
-                let minted = self.attempt.registry.mint(new.provider)?;
+                let minted = self.attempt.registry.mint(new.provider.clone())?;
                 let reservation = self.attempt.reserve(
+                    attempt_id,
+                    new.provider,
+                    legs.is_one_per_machine(origin),
                     minted.account_id().clone(),
                     minted.home().clone(),
                     Some(minted),
@@ -229,9 +264,8 @@ impl ProviderSignInBroker {
                 (legs, reservation)
             }
         };
-        let attempt_id = mint_attempt_id()?;
         let (answer, answered) = oneshot::channel();
-        tokio::spawn(reservation.run_attempt(attempt_id, legs, origin, answer));
+        tokio::spawn(reservation.run_attempt(legs, origin, answer));
         answered
             .await
             .map_err(|_ended| ProviderSignInError::StartEnded)?
@@ -248,9 +282,13 @@ impl ProviderSignInBroker {
         let input = {
             let mut live = lock(&self.attempt.attempts);
             match live.attempts.get_mut(attempt_id) {
-                Some(attempt) if attempt.is_waiting_for_code => {
-                    attempt.is_waiting_for_code = false;
-                    Arc::clone(&attempt.input)
+                Some(LiveAttempt {
+                    input: Some(input),
+                    is_waiting_for_code,
+                    ..
+                }) if *is_waiting_for_code => {
+                    *is_waiting_for_code = false;
+                    Arc::clone(input)
                 }
                 Some(_) | None => return Ok(ProviderSignInCodeSubmitStatus::NotFound),
             }
@@ -260,15 +298,17 @@ impl ProviderSignInBroker {
     }
 
     /// Cancels attempt `attempt_id` through its provider's own cancel; its end then settles as
-    /// canceled. An ended or unknown attempt answers `notFound`, no refusal. Fails with the
-    /// driver's error where the cancel could not be sent.
+    /// canceled. An attempt whose flow has not started, an ended one or an unknown one answers
+    /// `notFound`, no refusal. Fails with the driver's error where the cancel could not be sent.
     pub async fn cancel(
         &self,
         attempt_id: &AttemptId,
     ) -> Result<ProviderSignInCancelStatus, ProviderSignInError> {
         let input = match lock(&self.attempt.attempts).attempts.get(attempt_id) {
-            Some(attempt) => Arc::clone(&attempt.input),
-            None => return Ok(ProviderSignInCancelStatus::NotFound),
+            Some(LiveAttempt {
+                input: Some(input), ..
+            }) => Arc::clone(input),
+            Some(_) | None => return Ok(ProviderSignInCancelStatus::NotFound),
         };
         input.cancel().await?;
         Ok(ProviderSignInCancelStatus::Canceled)
@@ -299,20 +339,55 @@ struct AttemptServices {
 }
 
 impl AttemptServices {
-    // Holds `account_id` in flight until the attempt settles or its start fails.
+    // Lists attempt `attempt_id` of `provider` on `account_id` and holds the account in flight
+    // until the attempt settles or its start fails, in one hold of the live attempts: refused
+    // while an open attempt is on the account, or while this start `is_one_per_machine` and an
+    // open one of the provider is too, and while a switch or a reset holds the account. A refused
+    // start's minted home is removed once the hold is let go.
     fn reserve(
         &self,
+        attempt_id: AttemptId,
+        provider: ProviderId,
+        is_one_per_machine: bool,
         account_id: ProviderAccountId,
         home: CredentialHome,
         minted: Option<MintedAccount>,
     ) -> Result<Reservation, ProviderSignInError> {
-        let in_flight_guard = self
-            .accounts_in_flight
-            .begin(account_id.clone())
-            .ok_or(ProviderSignInError::InFlight)?;
+        let reserved = {
+            let mut live = lock(&self.attempts);
+            match live.open_attempt_in_the_way(&account_id, &provider, is_one_per_machine) {
+                Some(refusal) => Err(refusal),
+                None => match self.accounts_in_flight.begin(account_id.clone()) {
+                    Some(in_flight_guard) => {
+                        live.attempts.insert(
+                            attempt_id.clone(),
+                            LiveAttempt {
+                                account_id: account_id.clone(),
+                                provider,
+                                is_one_per_machine,
+                                input: None,
+                                is_waiting_for_code: false,
+                            },
+                        );
+                        Ok(in_flight_guard)
+                    }
+                    None => Err(ProviderSignInError::InFlight),
+                },
+            }
+        };
+        let in_flight_guard = match reserved {
+            Ok(in_flight_guard) => in_flight_guard,
+            Err(refusal) => {
+                if let Some(minted) = minted {
+                    abandon(&self.registry, minted);
+                }
+                return Err(refusal);
+            }
+        };
         Ok(Reservation {
             _in_flight_guard: in_flight_guard,
             services: self.clone(),
+            attempt_id,
             account_id,
             home,
             minted,
@@ -327,17 +402,53 @@ struct LiveAttempts {
     attempts: HashMap<AttemptId, LiveAttempt>,
 }
 
-/// One attempt in flight: the flow's input, and whether it waits for a pasted code.
+impl LiveAttempts {
+    // The open attempt a new start on `account_id` meets, as the refusal naming it: the
+    // account's own, else, for a start that holds what the machine has only one of, the
+    // provider's open attempt that holds it too.
+    fn open_attempt_in_the_way(
+        &self,
+        account_id: &ProviderAccountId,
+        provider: &ProviderId,
+        is_one_per_machine: bool,
+    ) -> Option<ProviderSignInError> {
+        let on_account = || {
+            self.attempts
+                .iter()
+                .find(|(_, attempt)| attempt.account_id == *account_id)
+        };
+        let on_machine = || {
+            self.attempts.iter().find(|(_, attempt)| {
+                is_one_per_machine && attempt.is_one_per_machine && attempt.provider == *provider
+            })
+        };
+        on_account()
+            .or_else(on_machine)
+            .map(|(attempt_id, attempt)| ProviderSignInError::AttemptOpen {
+                account_id: attempt.account_id.clone(),
+                attempt_id: attempt_id.clone(),
+            })
+    }
+}
+
+/// One attempt in flight, listed from its reservation: the account it signs in, its provider,
+/// whether it holds what the machine has only one of, the flow's input once the flow has started,
+/// and whether it waits for a pasted code.
 struct LiveAttempt {
-    input: Arc<dyn ProviderSignInInput>,
+    account_id: ProviderAccountId,
+    provider: ProviderId,
+    is_one_per_machine: bool,
+    input: Option<Arc<dyn ProviderSignInInput>>,
     is_waiting_for_code: bool,
 }
 
-/// An account's sign-in slot, held from the start until the attempt settles. Dropped, it frees
-/// the slot and removes a minted home no row took, so a failed or abandoned start leaves neither.
+/// An account's sign-in slot and its listed attempt, held from the start until the attempt
+/// settles. Dropped, it unlists the attempt, frees the slot and removes a minted home no row took,
+/// so a failed or abandoned start leaves none of them.
 struct Reservation {
     _in_flight_guard: InFlightGuard,
     services: AttemptServices,
+    attempt_id: AttemptId,
     account_id: ProviderAccountId,
     home: CredentialHome,
     minted: Option<MintedAccount>,
@@ -353,7 +464,6 @@ impl Reservation {
     // one that stopped after leaves the started flow to run to its end.
     async fn run_attempt(
         mut self,
-        attempt_id: AttemptId,
         legs: Arc<dyn ProviderSignInLegs>,
         origin: SignInOrigin,
         mut answer: oneshot::Sender<Result<ProviderAccountSignInResponse, ProviderSignInError>>,
@@ -396,10 +506,10 @@ impl Reservation {
                 return;
             }
         };
-        let attempt = self.open(attempt_id.clone(), Arc::from(input));
+        let attempt = self.open(Arc::from(input));
         let publisher = Arc::clone(&attempt.reservation.services.publisher);
         let _unheard = answer.send(Ok(ProviderAccountSignInResponse {
-            attempt_id,
+            attempt_id: attempt.reservation.attempt_id.clone(),
             verification_uri,
             user_code,
             expires_at,
@@ -409,24 +519,22 @@ impl Reservation {
         publisher.publish(ended);
     }
 
-    // Lists the attempt so a code submit and a cancel reach its input.
-    fn open(self, attempt_id: AttemptId, input: Arc<dyn ProviderSignInInput>) -> Attempt {
-        lock(&self.services.attempts).attempts.insert(
-            attempt_id.clone(),
-            LiveAttempt {
-                input,
-                is_waiting_for_code: false,
-            },
-        );
-        Attempt {
-            attempt_id,
-            reservation: self,
-        }
+    // Hands the listed attempt its flow's input, so a code submit and a cancel reach it.
+    fn open(self, input: Arc<dyn ProviderSignInInput>) -> Attempt {
+        lock(&self.services.attempts)
+            .attempts
+            .get_mut(&self.attempt_id)
+            .expect("an attempt listed at its reservation stays listed until its flow ends")
+            .input = Some(input);
+        Attempt { reservation: self }
     }
 }
 
 impl Drop for Reservation {
     fn drop(&mut self) {
+        lock(&self.services.attempts)
+            .attempts
+            .remove(&self.attempt_id);
         if let Some(minted) = self.minted.take() {
             abandon(&self.services.registry, minted);
         }
@@ -436,7 +544,6 @@ impl Drop for Reservation {
 /// An open attempt, run to its one end on its own task; its reservation frees the account's slot
 /// once the attempt has settled.
 struct Attempt {
-    attempt_id: AttemptId,
     reservation: Reservation,
 }
 
@@ -456,14 +563,14 @@ impl Attempt {
                 Some(()) = code_prompts.next() => self.mark_waiting_for_code(),
             }
         };
+        // Unlisted at the flow's end, so no code submit or cancel reaches it, and a start the
+        // attempt was in the way of need not wait for the status read.
         lock(&self.reservation.services.attempts)
             .attempts
-            .remove(&self.attempt_id);
+            .remove(&self.reservation.attempt_id);
         let (outcome, failure_reason) = self.settle(legs.as_ref(), end).await;
-        let Self {
-            attempt_id,
-            reservation,
-        } = self;
+        let Self { reservation } = self;
+        let attempt_id = reservation.attempt_id.clone();
         let account_id = reservation.account_id.clone();
         drop(reservation);
         ProviderAccountNotification::SignInCompleted {
@@ -476,7 +583,8 @@ impl Attempt {
 
     fn mark_waiting_for_code(&self) {
         let services = &self.reservation.services;
-        let is_live = match lock(&services.attempts).attempts.get_mut(&self.attempt_id) {
+        let attempt_id = &self.reservation.attempt_id;
+        let is_live = match lock(&services.attempts).attempts.get_mut(attempt_id) {
             Some(attempt) => {
                 attempt.is_waiting_for_code = true;
                 true
@@ -487,7 +595,7 @@ impl Attempt {
             services
                 .publisher
                 .publish(ProviderAccountNotification::SignInCodeRequested {
-                    attempt_id: self.attempt_id.clone(),
+                    attempt_id: attempt_id.clone(),
                 });
         }
     }

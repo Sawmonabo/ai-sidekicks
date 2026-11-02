@@ -280,6 +280,7 @@ async fn a_probe_during_a_sign_in_writes_nothing_and_the_sign_in_saves() {
                 },
                 flows: flow_sender,
                 homes: Mutex::default(),
+                holds_machine_slot: false,
             }) as Arc<dyn ProviderSignInLegs>,
         )]),
         Arc::clone(&fixture.notifications) as _,
