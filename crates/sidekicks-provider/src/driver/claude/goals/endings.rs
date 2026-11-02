@@ -245,7 +245,7 @@ fn classify_record(
     input: &GoalEndingInput<'_>,
 ) -> GoalEnding {
     let condition = record.condition.as_deref();
-    match (record.met, record.failed, record.sentinel) {
+    match (record.is_met, record.is_failed, record.is_sentinel) {
         // A set, or a compaction's rewrite of the goal.
         (false, false, true) => {
             if let Some(condition) = condition {

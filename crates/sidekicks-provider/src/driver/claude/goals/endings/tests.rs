@@ -32,11 +32,16 @@ enum Drawn {
     CheckUnfinished,
 }
 
-fn record(met: bool, failed: bool, sentinel: bool, condition: Option<&str>) -> GoalStatusRecord {
+fn record(
+    is_met: bool,
+    is_failed: bool,
+    is_sentinel: bool,
+    condition: Option<&str>,
+) -> GoalStatusRecord {
     GoalStatusRecord {
-        met,
-        failed,
-        sentinel,
+        is_met,
+        is_failed,
+        is_sentinel,
         condition: condition.map(str::to_owned),
         reason: None,
     }
