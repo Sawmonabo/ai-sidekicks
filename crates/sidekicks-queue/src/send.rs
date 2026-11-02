@@ -46,7 +46,7 @@ use crate::recorder::{
     lead_run_queued,
 };
 use crate::refusals::{
-    UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found,
+    RetryItemKind, UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found,
     retry_extras_refusal, unreturned_refusal,
 };
 use crate::run_lifecycle::QueueRunLifecycle;
@@ -276,7 +276,9 @@ impl QueueSends {
             (QueueItemBody::Review { target }, RecordedQueueItemState::NotDelivered { .. }) => {
                 let members = message_extras(&message.body);
                 if !members.is_empty() {
-                    return Err(retry_extras_refusal(replaces.id, "a review", &members).into());
+                    return Err(
+                        retry_extras_refusal(replaces.id, RetryItemKind::Review, &members).into(),
+                    );
                 }
                 let item = QueueSendItem::Review {
                     item_id: message.item_id,
@@ -304,9 +306,12 @@ impl QueueSends {
                 }
                 let members = message_extras(&message.body);
                 if !members.is_empty() {
-                    return Err(
-                        retry_extras_refusal(replaces.id, "a plan message", &members).into(),
-                    );
+                    return Err(retry_extras_refusal(
+                        replaces.id,
+                        RetryItemKind::PlanMessage,
+                        &members,
+                    )
+                    .into());
                 }
                 let item = QueueSendItem::PlanMessage {
                     item_id: message.item_id,

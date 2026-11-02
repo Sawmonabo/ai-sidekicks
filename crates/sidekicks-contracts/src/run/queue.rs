@@ -176,7 +176,7 @@ pub struct AgentQueueItemCreateRequest {
     /// delivered queues the same review, the words unread, and naming a plan message not delivered,
     /// with its own words, queues the same plan message; carrying `attachments`, `skills`,
     /// `answersQuestionId` or `outputSpeedForTurn` beside either is refused
-    /// `agent.queueItem.changeRefused`, `reviewExtras`.
+    /// `agent.queueItem.changeRefused`, `retryExtras`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -713,9 +713,9 @@ pub enum AgentQueueItemChangeRefusedReason {
     /// The cancel names the first message of a hand-off's fresh session, which only ending the
     /// hand-off cancels.
     HandOffSeed,
-    /// A review or a plan message sent again carried files, skills, an answered question or a
+    /// A retry of a review or a plan message carried files, skills, an answered question or a
     /// speed, which neither can take.
-    ReviewExtras,
+    RetryExtras,
 }
 
 /// The details an `agent.queueItem.changeRefused` refusal carries.

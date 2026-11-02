@@ -68,17 +68,37 @@ pub(crate) fn unreturned_refusal(
     }
 }
 
-/// The refusal of a retry of `queue_item_id`, `item_kind` (a review or a plan message), that
-/// carries `members`, a message's files, skills, answered question or speed, which neither takes.
+/// The kinds of queue item whose retry takes none of a message's extras.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum RetryItemKind {
+    /// A review of the session's changes.
+    Review,
+    /// A plan's build message or a hand-off's seed.
+    PlanMessage,
+}
+
+impl RetryItemKind {
+    // How a refusal's sentence names the kind.
+    fn phrase(self) -> &'static str {
+        match self {
+            Self::Review => "a review",
+            Self::PlanMessage => "a plan message",
+        }
+    }
+}
+
+/// The refusal of a retry of `queue_item_id`, an item of `item_kind`, that carries `members`, a
+/// message's files, skills, answered question or speed, which neither kind takes.
 pub(crate) fn retry_extras_refusal(
     queue_item_id: QueueItemId,
-    item_kind: &str,
+    item_kind: RetryItemKind,
     members: &[&str],
 ) -> DomainError {
     change_refused(
-        AgentQueueItemChangeRefusedReason::ReviewExtras,
+        AgentQueueItemChangeRefusedReason::RetryExtras,
         &format!(
-            "Queue item {queue_item_id} is {item_kind}, whose retry carries no {}",
+            "Queue item {queue_item_id} is {}, whose retry carries no {}",
+            item_kind.phrase(),
             members.join(", ")
         ),
     )

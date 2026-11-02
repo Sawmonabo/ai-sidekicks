@@ -409,7 +409,7 @@ async fn a_review_not_delivered_is_sent_again_as_the_same_review() {
 }
 
 // A retry of a review not delivered that carries an answered question and a speed is refused
-// `agent.queueItem.changeRefused`, `reviewExtras`, and the failed review stays not delivered,
+// `agent.queueItem.changeRefused`, `retryExtras`, and the failed review stays not delivered,
 // nothing written. Killed by a retry that queues the review and drops what the send carried.
 #[tokio::test]
 async fn a_review_s_retry_carrying_what_a_review_cannot_take_is_refused() {
@@ -435,7 +435,7 @@ async fn a_review_s_retry_carrying_what_a_review_cannot_take_is_refused() {
     assert_eq!(code, RefusalCode::AgentQueueItemChangeRefused);
     assert_eq!(
         detail.expect("the refusal names its reason")["reason"],
-        json!("reviewExtras")
+        json!("retryExtras")
     );
     assert_eq!(fixture.count_items(), 1);
     assert_eq!(
@@ -783,7 +783,7 @@ async fn a_plan_message_not_delivered_goes_again_only_in_its_own_words() {
 }
 
 // A retry of a plan message not delivered, in its own words but carrying files, is refused
-// `agent.queueItem.changeRefused`, `reviewExtras`, as a review's is, and the failed plan message
+// `agent.queueItem.changeRefused`, `retryExtras`, as a review's is, and the failed plan message
 // stays not delivered, nothing written. Killed by a retry that queues the plan message and drops
 // the files.
 #[tokio::test]
@@ -813,7 +813,7 @@ async fn a_plan_message_s_retry_carrying_files_is_refused() {
     assert_eq!(code, RefusalCode::AgentQueueItemChangeRefused);
     assert_eq!(
         detail.expect("the refusal names its reason")["reason"],
-        json!("reviewExtras")
+        json!("retryExtras")
     );
     assert_eq!(fixture.count_items(), 1);
     assert_eq!(
