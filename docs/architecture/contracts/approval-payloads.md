@@ -258,9 +258,9 @@ type PermissionCheckRequest =
   // A call of one of the app's own tools that its provider runs without asking first (Codex, with
   // the daemon's tool server set to approve): gated by the calling session's level alone.
   | { kind: "toolCall"; sessionId: SessionId; runId: RunId; toolName: string; toolCallId: string }
-  // A workflow start an agent's tool or a trigger asks for; `askingRunId` is the calling agent's
-  // run, whose posture the Cedar context carries, and a trigger's start names none.
-  | { kind: "workflowStart"; workflowId: WorkflowDefinitionId; askingRunId: RunId | undefined };
+  // A workflow start only an agent's tool asks for; `askingRunId` is the calling agent's run, whose
+  // posture the Cedar context carries. A trigger's start never comes here.
+  | { kind: "workflowStart"; workflowId: WorkflowDefinitionId; askingRunId: RunId };
 type PermissionCheckResponse =
   | { allowed: true; reason: "policyAllow" }
   | { allowed: true; reason: "approved" }
