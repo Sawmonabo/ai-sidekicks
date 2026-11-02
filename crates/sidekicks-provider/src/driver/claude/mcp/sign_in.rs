@@ -57,8 +57,8 @@ use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::claude::spawn::launch::one_turn::compose_unwatched_answer;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
-    BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInBrowser, ProviderSignInTakeover,
-    ProviderSignInTakeoverRequest,
+    BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInBrowser, ProviderSignInFailure,
+    ProviderSignInTakeover, ProviderSignInTakeoverRequest,
 };
 use crate::driver::mcp_server::address::read_server_address;
 use crate::driver::mcp_server::sign_in_folder::{SignInFolder, remove_left_sign_in_folders};
@@ -146,9 +146,33 @@ pub(crate) enum ClaudeSignInError {
 pub(crate) struct ClaudeReportedError(String);
 
 impl From<ClaudeSignInError> for DriverError {
-    /// Every failure of the sign-in is the driver's own.
+    /// A sign-in that ran out of time, an answer that does not read, or a sign-in Claude Code did
+    /// not save whole is the sign-in's failure of that kind; every other failure is the driver's
+    /// own.
     fn from(error: ClaudeSignInError) -> Self {
-        Self::Internal(Box::new(error))
+        match error {
+            ClaudeSignInError::Unfinished => {
+                Self::SignInFailed(ProviderSignInFailure::DidNotFinishInTime)
+            }
+            ClaudeSignInError::ReplyUnreadable(cause) => {
+                tracing::warn!(
+                    error = &*cause as &(dyn Error + 'static),
+                    "Claude Code's answer to an MCP sign-in did not read"
+                );
+                Self::SignInFailed(ProviderSignInFailure::ReplyUnreadable)
+            }
+            ClaudeSignInError::NoSavedSignIn | ClaudeSignInError::NoClient => {
+                Self::SignInFailed(ProviderSignInFailure::SignInNotSaved)
+            }
+            other @ (ClaudeSignInError::ServerEntryGone { .. }
+            | ClaudeSignInError::FolderUnmade(_)
+            | ClaudeSignInError::CallerGone
+            | ClaudeSignInError::WatchFailed(_)
+            | ClaudeSignInError::CredentialsUnreadable(_)
+            | ClaudeSignInError::KeychainItemLeft { .. }
+            | ClaudeSignInError::ProcessReported(_)
+            | ClaudeSignInError::ProcessEnded) => Self::Internal(Box::new(other)),
+        }
     }
 }
 

@@ -12,7 +12,7 @@ use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::oneshot;
 use url::Url;
 
-use super::{CLAUDE_MCP_SIGN_IN_FOLDER, ClaudeSignInError, read_claude_saved_sign_in};
+use super::{CLAUDE_MCP_SIGN_IN_FOLDER, read_claude_saved_sign_in};
 use crate::driver::DriverServices;
 use crate::driver::claude::account_credentials::{
     CLAUDE_CREDENTIALS_FILE, SECURE_STORAGE_FOLDER_VARIABLE, claude_keychain_account,
@@ -24,7 +24,8 @@ use crate::driver::claude::session::scripted::starts::ScriptedSignInPlace;
 use crate::driver::claude::{ClaudeDriver, DESCRIPTOR};
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
-    ProviderSignInBrowser, ProviderSignInTakeover, ProviderSignInTakeoverRequest,
+    ProviderSignInBrowser, ProviderSignInFailure, ProviderSignInTakeover,
+    ProviderSignInTakeoverRequest,
 };
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
@@ -470,39 +471,51 @@ async fn an_error_the_sign_in_process_reports_ends_the_sign_in_with_its_text() {
 }
 
 // An answer to `mcp_authenticate` that does not read, or whose authorization address does not,
-// ends the sign-in as the driver's failure, though a saved sign-in is there to read. Killed by an
-// answer read as having no address, which reads the saved sign-in back as a success.
+// ends the sign-in as the unread kind though a saved sign-in is there to read, and a browser that
+// does not come back within the lifetime ends it as the lifetime kind. Killed by an answer read as
+// having no address, which reads the saved sign-in back as a success, and by the kinds swapped or
+// left the driver's own failure.
 #[rstest]
-#[case::reply_unreadable(json!({"authUrl": 5}))]
-#[case::address_unreadable(json!({"authUrl": "not an address"}))]
+#[case::reply_unreadable(
+    ScriptedAnswer::Reply(json!({"authUrl": 5})),
+    ProviderSignInFailure::ReplyUnreadable
+)]
+#[case::address_unreadable(
+    ScriptedAnswer::Reply(json!({"authUrl": "not an address"})),
+    ProviderSignInFailure::ReplyUnreadable
+)]
+#[case::browser_not_back_in_time(
+    ScriptedAnswer::Reply(json!({
+        "authUrl": "https://auth.example.test/authorize",
+        "redirectScheme": "custom",
+    })),
+    ProviderSignInFailure::DidNotFinishInTime
+)]
 #[tokio::test]
-async fn an_unreadable_authenticate_answer_fails_the_sign_in(#[case] answer: Value) {
+async fn a_sign_in_that_ends_without_a_sign_in_reads_as_its_kind(
+    #[case] answer: ScriptedAnswer,
+    #[case] expected: ProviderSignInFailure,
+) {
     let scripted = ScriptedDriver::new();
     std::fs::create_dir_all(&scripted.home).expect("the person's home is made");
     std::fs::write(scripted.home.join(".claude.json"), PERSON_CONFIG)
         .expect("the person's config is written");
     let channel = Arc::new(ScriptedChannel::default());
-    channel.answer("mcp_authenticate", ScriptedAnswer::Reply(answer));
+    channel.answer("mcp_authenticate", answer);
     scripted.starts.script_mcp_sign_in(
         channel,
         json!({"mcpOAuth": {"docs|key": saved(SERVER_NAME, SERVER_ADDRESS, "access-one")}}),
         ScriptedSignInPlace::File,
         Vec::new(),
     );
-    let (request, _opened, _returned) = request(user_binding());
+    let (mut request, _opened, _returned) = request(user_binding());
+    request.lifetime = Duration::from_millis(200);
 
     let refused = scripted.driver.sign_in_with_own_client(request).await;
 
     assert!(
-        matches!(
-            &refused,
-            Err(DriverError::Internal(error))
-                if matches!(
-                    error.downcast_ref::<ClaudeSignInError>(),
-                    Some(ClaudeSignInError::ReplyUnreadable(_))
-                )
-        ),
-        "an unreadable answer is the driver's failure, not {refused:?}"
+        matches!(&refused, Err(DriverError::SignInFailed(failure)) if *failure == expected),
+        "the sign-in fails as {expected:?}, not {refused:?}"
     );
 }
 

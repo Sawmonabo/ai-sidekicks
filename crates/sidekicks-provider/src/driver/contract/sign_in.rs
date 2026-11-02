@@ -84,6 +84,27 @@ impl fmt::Debug for ProviderSignInTakeover {
     }
 }
 
+/// Why a provider's own flow ended without a sign-in, each a kind in the daemon's own words, so
+/// no authorization server's or provider's text crosses the driver.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ProviderSignInFailure {
+    /// The browser came back carrying the authorization server's error instead of a code.
+    #[error("the authorization server sent back an error")]
+    CallbackCarriedError,
+    /// The authorization server did not exchange the code for tokens.
+    #[error("the authorization server did not accept the sign-in code")]
+    CodeNotRedeemed,
+    /// The tokens came back but the provider did not save them where the driver reads them.
+    #[error("the provider did not save the sign-in")]
+    SignInNotSaved,
+    /// The flow did not finish within its lifetime.
+    #[error("the sign-in did not finish in time")]
+    DidNotFinishInTime,
+    /// The provider's reply could not be read, or named a failure the driver does not read.
+    #[error("the provider's reply could not be read")]
+    ReplyUnreadable,
+}
+
 /// A takeover asked for a binding that has no entry of the person's to copy: a connector, whose
 /// sign-in is the account's own, so no provider flow can sign in to it.
 #[derive(Debug, thiserror::Error)]

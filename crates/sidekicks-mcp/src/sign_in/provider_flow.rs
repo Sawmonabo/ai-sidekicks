@@ -258,8 +258,9 @@ impl SignInService {
     }
 
     // Settles the flow by how it ended: keeps a completed flow's sign-in, appends the one
-    // completion event and publishes the outcome the browser is shown. A flow ended by its stop
-    // settles nothing.
+    // completion event and publishes the outcome the browser is shown. A flow that ended without a
+    // sign-in carries its driver's kind of failure; any other failure, the task's own among them,
+    // reads as not finished in time. A flow ended by its stop settles nothing.
     async fn settle_flow(
         &self,
         running: &RunningFlow,
@@ -274,7 +275,11 @@ impl SignInService {
                     provider = running.provider.as_str(),
                     "a provider's MCP sign-in did not finish"
                 );
-                Some(SignInFailureReason::DidNotFinishInTime)
+                Some(if let DriverError::SignInFailed(failure) = error {
+                    SignInFailureReason::from(failure)
+                } else {
+                    SignInFailureReason::DidNotFinishInTime
+                })
             }
             Ok(None) => return,
             Err(error) => {
@@ -421,6 +426,7 @@ mod tests {
     use futures::FutureExt as _;
     use reqwest::header::{AUTHORIZATION, HeaderValue};
     use reqwest::{Method, Url};
+    use rstest::rstest;
     use secrecy::ExposeSecret;
     use serde_json::Value;
     use sidekicks_contracts::mcp::server::McpServerBindingRef;
@@ -428,7 +434,7 @@ mod tests {
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_provider::driver::contract::error::DriverError;
     use sidekicks_provider::driver::contract::sign_in::{
-        BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInTakeover,
+        BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInFailure, ProviderSignInTakeover,
     };
     use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
     use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
@@ -436,6 +442,7 @@ mod tests {
 
     use crate::client::http::McpRequestAuthorizer as _;
     use crate::sign_in::canonical_server_address;
+    use crate::sign_in::completion_event::SignInFailureReason;
     use crate::sign_in::service::{ProviderAccounts, SignInTarget};
     use crate::sign_in::test_service::{
         FakeAuthorizationServer, FakeServerAnswers, Harness, addressed_target, harness_with,
@@ -455,8 +462,11 @@ mod tests {
         /// Opens the browser at its address, then completes with credentials the server at the
         /// address issued.
         Completes { issuer: String },
-        /// Opens the browser at its address, then fails.
-        Fails,
+        /// Opens the browser at its address, then fails: with that kind of sign-in failure, or
+        /// as the driver's own failure for `None`.
+        Fails {
+            failure: Option<ProviderSignInFailure>,
+        },
     }
 
     /// The browser address every scripted flow opens.
@@ -486,13 +496,16 @@ mod tests {
                             .into());
                         }
                         ScriptedFlow::Completes { issuer } => issuer,
-                        ScriptedFlow::Fails => {
+                        ScriptedFlow::Fails { failure } => {
                             request
                                 .browser
                                 .authorization_url
                                 .send(scripted_browser_url())
                                 .expect("the launch waits for the address");
-                            return Err(DriverError::Internal("the scripted flow failed".into()));
+                            return Err(failure.map_or_else(
+                                || DriverError::Internal("the scripted flow failed".into()),
+                                DriverError::SignInFailed,
+                            ));
                         }
                     };
                     request
@@ -560,18 +573,49 @@ mod tests {
     }
 
     /// A server that refused the daemon's registration, whose provider flow then fails, has no
-    /// admitted client written, is not signed in and gets one failure event. Killed by writing the
-    /// admitted row when the registration is refused, and by writing it on a failed flow.
+    /// admitted client written, is not signed in and gets one failure event, whose reason is the
+    /// driver's kind of failure, and not finished in time for the driver's own failure. Killed by
+    /// writing the admitted row when the registration is refused or on a failed flow, and by every
+    /// failure read as one reason.
+    #[rstest]
+    #[case::callback_error(
+        Some(ProviderSignInFailure::CallbackCarriedError),
+        SignInFailureReason::CallbackCarriedError
+    )]
+    #[case::code_not_redeemed(
+        Some(ProviderSignInFailure::CodeNotRedeemed),
+        SignInFailureReason::CodeNotRedeemed
+    )]
+    #[case::not_saved(
+        Some(ProviderSignInFailure::SignInNotSaved),
+        SignInFailureReason::SignInNotSaved
+    )]
+    #[case::not_in_time(
+        Some(ProviderSignInFailure::DidNotFinishInTime),
+        SignInFailureReason::DidNotFinishInTime
+    )]
+    #[case::reply_unreadable(
+        Some(ProviderSignInFailure::ReplyUnreadable),
+        SignInFailureReason::ReplyUnreadable
+    )]
+    #[case::driver_failure(None, SignInFailureReason::DidNotFinishInTime)]
     #[tokio::test]
-    async fn a_refused_registration_whose_provider_flow_fails_writes_no_admitted_row() {
+    async fn a_failed_provider_flow_appends_its_reason_and_writes_no_admitted_row(
+        #[case] failure: Option<ProviderSignInFailure>,
+        #[case] expected_reason: SignInFailureReason,
+    ) {
         let server = serve_authorization_server(FakeServerAnswers {
             is_registration_refused: true,
             ..FakeServerAnswers::default()
         })
         .await;
         let calls = Arc::new(Mutex::new(Vec::new()));
-        let harness =
-            harness_with(vec![scripted_driver(ScriptedFlow::Fails, "only", &calls)]).await;
+        let harness = harness_with(vec![scripted_driver(
+            ScriptedFlow::Fails { failure },
+            "only",
+            &calls,
+        )])
+        .await;
         let provider = registered_providers(&harness).remove(0);
         let (target, accounts) = provider_target(&harness, &provider, &server);
 
@@ -585,6 +629,7 @@ mod tests {
         let completions = settled_completions(&harness).await;
         assert_eq!(completions.len(), 1);
         assert_eq!(completions[0]["outcome"], "failure");
+        assert_eq!(completions[0]["failureReason"], expected_reason.as_str());
         let address = McpServerAddress::new(&server.base).expect("a server address");
         assert_eq!(
             harness

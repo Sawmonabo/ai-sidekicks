@@ -26,7 +26,7 @@ use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::mpsc;
 use url::Url;
 
-use self::login_failure::CodexLoginFailure;
+use self::login_failure::read_codex_login_failure;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::McpServerOauthLoginParams;
 use crate::driver::codex::config_read::read_codex_config;
@@ -41,8 +41,8 @@ use crate::driver::codex::transport::connection::{
 };
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::sign_in::{
-    BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInBrowser, ProviderSignInTakeover,
-    ProviderSignInTakeoverRequest,
+    BEARER_TOKEN_TYPE, NoPersonServerEntry, ProviderSignInBrowser, ProviderSignInFailure,
+    ProviderSignInTakeover, ProviderSignInTakeoverRequest,
 };
 use crate::driver::mcp_server::address::read_server_address;
 use crate::driver::mcp_server::sign_in_folder::SignInFolder;
@@ -108,8 +108,8 @@ pub(crate) enum CodexSignInError {
     /// Codex ended the login without a sign-in.
     #[error("Codex's MCP sign-in failed: {failure}")]
     Failed {
-        /// Why, in the daemon's own words.
-        failure: CodexLoginFailure,
+        /// Why, as the driver contract's kind.
+        failure: ProviderSignInFailure,
     },
     /// The connection to the throwaway service closed before the login ended.
     #[error("the Codex service running the MCP sign-in closed: {reason}")]
@@ -126,9 +126,26 @@ pub(crate) enum CodexSignInError {
 }
 
 impl From<CodexSignInError> for DriverError {
-    /// Every failure of the sign-in is the driver's own.
+    /// A login that ended in time with Codex's reason, an unreadable reply, a timeout or no saved
+    /// sign-in is the sign-in's failure of that kind; every other failure is the driver's own.
     fn from(error: CodexSignInError) -> Self {
-        Self::Internal(Box::new(error))
+        match error {
+            CodexSignInError::Failed { failure } => Self::SignInFailed(failure),
+            CodexSignInError::LoginReplyUnreadable => {
+                Self::SignInFailed(ProviderSignInFailure::ReplyUnreadable)
+            }
+            CodexSignInError::Unfinished => {
+                Self::SignInFailed(ProviderSignInFailure::DidNotFinishInTime)
+            }
+            CodexSignInError::NoSavedSignIn => {
+                Self::SignInFailed(ProviderSignInFailure::SignInNotSaved)
+            }
+            other @ (CodexSignInError::ServerEntryGone { .. }
+            | CodexSignInError::FolderUnmade(_)
+            | CodexSignInError::CallerGone
+            | CodexSignInError::ConnectionClosed { .. }
+            | CodexSignInError::CredentialsUnreadable(_)) => Self::Internal(Box::new(other)),
+        }
     }
 }
 
@@ -420,7 +437,7 @@ async fn run_login(
             Ok(())
         } else {
             Err(CodexSignInError::Failed {
-                failure: CodexLoginFailure::read(completed.error.as_deref()),
+                failure: read_codex_login_failure(completed.error.as_deref()),
             }
             .into())
         }

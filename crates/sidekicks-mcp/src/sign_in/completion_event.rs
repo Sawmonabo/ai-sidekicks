@@ -17,6 +17,7 @@ use sidekicks_contracts::mcp::governance::{
     McpServerSignInCompletedPayload, McpServerSignInOutcome,
 };
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
+use sidekicks_provider::driver::contract::sign_in::ProviderSignInFailure;
 use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventEmitError, SessionEventLinkage,
 };
@@ -34,6 +35,8 @@ pub(crate) enum SignInFailureReason {
     SignInNotSaved,
     /// The code's exchange did not finish while the browser waited.
     DidNotFinishInTime,
+    /// A provider's own flow answered in a way the daemon could not read.
+    ReplyUnreadable,
 }
 
 impl SignInFailureReason {
@@ -44,6 +47,20 @@ impl SignInFailureReason {
             Self::CodeNotRedeemed => "The authorization server did not accept the sign-in code.",
             Self::SignInNotSaved => "The sign-in could not be saved.",
             Self::DidNotFinishInTime => "The sign-in did not finish in time.",
+            Self::ReplyUnreadable => "The provider's answer could not be read.",
+        }
+    }
+}
+
+impl From<ProviderSignInFailure> for SignInFailureReason {
+    /// The reason a provider's own flow ended without a sign-in, kind for kind.
+    fn from(failure: ProviderSignInFailure) -> Self {
+        match failure {
+            ProviderSignInFailure::CallbackCarriedError => Self::CallbackCarriedError,
+            ProviderSignInFailure::CodeNotRedeemed => Self::CodeNotRedeemed,
+            ProviderSignInFailure::SignInNotSaved => Self::SignInNotSaved,
+            ProviderSignInFailure::DidNotFinishInTime => Self::DidNotFinishInTime,
+            ProviderSignInFailure::ReplyUnreadable => Self::ReplyUnreadable,
         }
     }
 }
