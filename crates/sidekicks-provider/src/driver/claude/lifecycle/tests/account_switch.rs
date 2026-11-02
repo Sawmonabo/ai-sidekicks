@@ -356,3 +356,45 @@ async fn a_login_refusal_after_the_move_hands_the_previous_account_back() {
         );
     }
 }
+
+// A reply begun before an in-place switch streams its messages on after the move, so the switch
+// hears its first request only at the `message_start` of a reply opened after it. Killed by any
+// answered `assistant` frame settling the watch.
+#[tokio::test(start_paused = true)]
+async fn the_first_request_after_a_store_switch_is_heard_at_its_message_start() {
+    let switch = SwitchFixture::new(None).await;
+    switch.start_turn().await;
+    let mut moved = switch.switch().await;
+    settle().await;
+
+    switch.frame(
+        &switch.start,
+        &json!({
+            "type": "assistant",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "message": {
+                "id": "message-begun-before",
+                "role": "assistant",
+                "content": [{"type": "text", "text": "still streaming"}],
+            },
+        }),
+    );
+    settle().await;
+    assert!(
+        poll!(&mut moved.first_request).is_pending(),
+        "a reply begun before the move is no request on the new account"
+    );
+
+    switch.frame(
+        &switch.start,
+        &json!({
+            "type": "stream_event",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "event": {"type": "message_start", "message": {"id": "message-after"}},
+        }),
+    );
+    assert_eq!(
+        moved.first_request.await.expect("the watch is answered"),
+        FirstRequestAfterMove::Ran
+    );
+}
