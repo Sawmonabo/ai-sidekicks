@@ -9,6 +9,7 @@ pub mod addresses;
 pub mod agent_tree;
 pub mod attention;
 pub mod auto_title;
+pub mod budget;
 pub mod changes;
 pub mod console_state;
 pub mod conversation_purge;

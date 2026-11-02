@@ -299,7 +299,7 @@ impl RunQueue {
         }
         let (provider, provider_account_id, driver) =
             self.admission.admit_session_account(session_id).await?;
-        let run_config = self.admission.lead_run_config(session_id)?;
+        let run_config = self.admission.lead_run_config(session_id).await?;
         let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
         if let Some(state) = state {
             refuse_unchangeable_session(&session_id, state)?;
@@ -374,7 +374,7 @@ impl RunQueue {
             return Ok(created_response_of(saved));
         }
         let (_, provider_account_id, _) = self.admission.admit_session_account(session_id).await?;
-        let run_config = self.admission.lead_run_config(session_id)?;
+        let run_config = self.admission.lead_run_config(session_id).await?;
         let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
         if let Some(state) = state {
             refuse_unchangeable_session(&session_id, state)?;
@@ -415,7 +415,7 @@ impl RunQueue {
             return Ok(created_response_of(saved));
         }
         let (_, provider_account_id, _) = self.admission.admit_session_account(session_id).await?;
-        let run_config = self.admission.lead_run_config(session_id)?;
+        let run_config = self.admission.lead_run_config(session_id).await?;
         let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
         if let Some(state) = state {
             refuse_unchangeable_session(&session_id, state)?;

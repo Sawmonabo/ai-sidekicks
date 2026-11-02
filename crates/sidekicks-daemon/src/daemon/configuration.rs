@@ -2,11 +2,14 @@
 //! store opens and kept on a watch every reader in the daemon follows (the retention bounds, the
 //! diagnostic switches, the run and workflow limits). Each update changes one value through the
 //! writer and publishes the row once it committed, one update at a time, so the watch moves in
-//! commit order.
+//! commit order. It also answers the `Tokens per run` a new lead run is admitted with, the
+//! session's own limit over the configuration's.
 
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use rusqlite::types::Value;
 use rusqlite::{Connection, Row};
 use sidekicks_contracts::daemon::config::{
@@ -16,7 +19,9 @@ use sidekicks_contracts::daemon::retention::{DaemonRetentionBounds, DaemonRetent
 use sidekicks_contracts::session::cost::{TokensPerRun, UsdMicros};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::{Port, SafeInt};
+use sidekicks_queue::error::QueueError;
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
+use sidekicks_session::budget::limits::effective_tokens_per_run;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -25,8 +30,9 @@ use sidekicks_store::database::stored_column::safe_int_column;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use tokio::sync::{Mutex, watch};
 
-/// The statements the store's read prepares, counted into the read pool's statement capacity.
-pub(crate) const DAEMON_CONFIGURATION_STATEMENT_CAPACITY: usize = 1;
+/// The statements the store's reads prepare, counted into the read pool's statement capacity: the
+/// configuration row and a session's limits.
+pub(crate) const DAEMON_CONFIGURATION_STATEMENT_CAPACITY: usize = 2;
 
 const READ_ROW_SQL: &str = "SELECT keep_diagnostic_logs_days, keep_sessions_days,
   workflow_listener_port, run_time_limit_minutes, workflow_chain_ask_after_runs,
@@ -87,6 +93,8 @@ pub(crate) enum ConfigurationError {
 /// The configuration row, read once and followed on a watch.
 pub(crate) struct ConfigurationStore {
     writer: Arc<DatabaseWriter>,
+    // Reads a session's own limits.
+    reads: Arc<DatabaseReadPool>,
     current: watch::Sender<DaemonConfiguration>,
     // Held across an update's write and its publish, so the watch follows commit order.
     update_lock: Mutex<()>,
@@ -97,7 +105,7 @@ impl ConfigurationStore {
     /// stored value does not read as its type.
     pub(crate) async fn open(
         writer: Arc<DatabaseWriter>,
-        reads: &DatabaseReadPool,
+        reads: Arc<DatabaseReadPool>,
     ) -> Result<Self, ConfigurationError> {
         let configuration = reads
             .read(ReadLength::Short, |connection| {
@@ -106,6 +114,7 @@ impl ConfigurationStore {
             .await?;
         Ok(Self {
             writer,
+            reads,
             current: watch::Sender::new(configuration),
             update_lock: Mutex::new(()),
         })
@@ -145,9 +154,20 @@ impl ConfigurationStore {
 }
 
 impl RunTokenLimitReader for ConfigurationStore {
-    /// `Tokens per run` as the configuration stands; every session's lead run takes the daemon's.
-    fn tokens_per_run(&self, _session_id: SessionId) -> Option<TokensPerRun> {
-        self.current.borrow().tokens_per_run
+    /// The session's own `Tokens per run` when it set its limits, else the configuration's as it
+    /// stands. Fails as the read of the session's limits fails.
+    fn tokens_per_run(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<Option<TokensPerRun>, QueueError>> {
+        let configured = self.current.borrow().tokens_per_run;
+        self.reads
+            .read(ReadLength::Short, move |connection| {
+                Ok::<_, QueueError>(effective_tokens_per_run(
+                    connection, session_id, configured,
+                )?)
+            })
+            .boxed()
     }
 }
 
@@ -311,5 +331,72 @@ fn apply_change(configuration: &mut DaemonConfiguration, change: ConfigurationCh
                 configuration.record_provider_messages = *is_on;
             }
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use sidekicks_contracts::daemon::config::DaemonConfigUpdateRequest;
+    use sidekicks_contracts::session::cost::TokensPerRun;
+    use sidekicks_contracts::wire::instant::WireInstant;
+    use sidekicks_contracts::wire::integer::SafeInt;
+    use sidekicks_queue::run_token_limit::RunTokenLimitReader as _;
+    use sidekicks_session::budget::limits::{SessionLimits, write_session_limits};
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+    use sidekicks_store::events::log_service::test_fixture::open_log;
+
+    use super::{ConfigurationChange, ConfigurationStore, DAEMON_CONFIGURATION_STATEMENT_CAPACITY};
+    use crate::daemon::schema::schema_parts;
+
+    fn tokens(count: u64) -> TokensPerRun {
+        TokensPerRun(SafeInt::new(count).expect("the test's limit is a safe integer"))
+    }
+
+    // A new lead run takes the session's own `Tokens per run` over the configuration's, and the
+    // configuration's when the session set none. Killed by the fallback order swapped.
+    #[tokio::test]
+    async fn a_session_limit_answers_over_the_configuration() {
+        let database = TestDatabase::new(
+            schema_parts().with_parts(sidekicks_session::budget::schema::schema_parts()),
+        );
+        let log = open_log(&database, None).await;
+        let reads = Arc::new(DatabaseReadPool::new(
+            database.path(),
+            DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
+        ));
+        let configuration = ConfigurationStore::open(Arc::clone(&log.writer), reads)
+            .await
+            .expect("the configuration store opens");
+        configuration
+            .update(ConfigurationChange::Setting(
+                &DaemonConfigUpdateRequest::TokensPerRun(Some(tokens(500_000))),
+            ))
+            .await
+            .expect("the configuration's limit is kept");
+        let [limited, unset] = [(); 2].map(|()| test_session_id());
+        log.writer
+            .write(vec![write_session_limits(
+                limited,
+                SessionLimits {
+                    spend_limit: None,
+                    tokens_per_run: Some(tokens(40_000)),
+                },
+                &WireInstant::now(),
+            )])
+            .await
+            .expect("the session's limits are written");
+
+        for (session_id, expected) in [(limited, tokens(40_000)), (unset, tokens(500_000))] {
+            assert_eq!(
+                configuration
+                    .tokens_per_run(session_id)
+                    .await
+                    .expect("the limits read"),
+                Some(expected)
+            );
+        }
     }
 }
