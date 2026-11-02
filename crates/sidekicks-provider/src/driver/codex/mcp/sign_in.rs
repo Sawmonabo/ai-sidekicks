@@ -7,6 +7,8 @@
 //! removed whatever the outcome, a dropped sign-in's included. The person's own Codex home is only
 //! read, for the entry, through Codex's config read; no sign-in of theirs is read or written.
 
+mod login_failure;
+
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::io;
@@ -24,6 +26,7 @@ use sidekicks_store::data_folder::plugin_home;
 use tokio::sync::mpsc;
 use url::Url;
 
+use self::login_failure::CodexLoginFailure;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::McpServerOauthLoginParams;
 use crate::driver::codex::config_read::read_codex_config;
@@ -103,10 +106,10 @@ pub(crate) enum CodexSignInError {
     #[error("the MCP sign-in through Codex did not finish in time")]
     Unfinished,
     /// Codex ended the login without a sign-in.
-    #[error("Codex's MCP sign-in failed: {detail}")]
+    #[error("Codex's MCP sign-in failed: {failure}")]
     Failed {
-        /// Codex's own words, or that it gave none.
-        detail: String,
+        /// Why, in the daemon's own words.
+        failure: CodexLoginFailure,
     },
     /// The connection to the throwaway service closed before the login ended.
     #[error("the Codex service running the MCP sign-in closed: {reason}")]
@@ -417,9 +420,7 @@ async fn run_login(
             Ok(())
         } else {
             Err(CodexSignInError::Failed {
-                detail: completed
-                    .error
-                    .unwrap_or_else(|| "Codex gave no reason".to_owned()),
+                failure: CodexLoginFailure::read(completed.error.as_deref()),
             }
             .into())
         }
