@@ -1,0 +1,407 @@
+//! The table of node kinds: for a node's kind and version, the kind's spec, its executor and the
+//! param holding its shell line, and the rules a save checks the node against. An executor
+//! describes what its step does; the engine acts on it, opening a wait or starting an agent run
+//! through its ports and producing the step's output from the answer.
+
+#![cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the workflow definition store and the tick's dispatch, once the kinds register"
+    )
+)]
+
+pub(crate) mod step_context;
+
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
+use std::time::Duration;
+
+use futures::future::BoxFuture;
+use serde_json::{Map, Value};
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
+use sidekicks_contracts::workflow::definition::document::{
+    WorkflowNode, WorkflowNodeKindId, WorkflowNodeOnError,
+};
+use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
+use sidekicks_contracts::workflow::definition::refusals::WorkflowNodeHandles;
+use sidekicks_contracts::workflow::kind::{
+    OutputMainHandleId, WorkflowNodeKindSpec, WorkflowOutputHandleSpec,
+};
+
+use crate::engine::ports::AgentStepRequest;
+use crate::kinds::step_context::StepContext;
+
+/// The param holding a command step's shell line.
+pub(crate) const COMMAND_PARAM: &str = "command";
+
+/// The label of the output a node that routes failures to its error output gains.
+const ERROR_OUTPUT_LABEL: &str = "Error";
+
+/// Runs one kind's step. Only the engine calls an executor.
+pub(crate) trait NodeExecutor: Send + Sync {
+    /// Runs the step over `inputs`, one list of items per input handle in handle order. Its
+    /// outputs come one list per main output, before any error output. Fails with
+    /// [`StepFailure`] when the step fails or the person declines its action.
+    #[cfg_attr(
+        test,
+        expect(
+            dead_code,
+            reason = "the tick's dispatch, which runs each step's executor"
+        )
+    )]
+    fn execute<'step>(
+        &'step self,
+        context: &'step StepContext,
+        inputs: Vec<Vec<WorkflowItem>>,
+    ) -> BoxFuture<'step, Result<StepOutcome, StepFailure>>;
+}
+
+/// What a step's run asks of the engine: its output, a wait on a person, or an agent run, which
+/// the engine opens and whose answer or outcome it makes the step's output.
+#[expect(
+    dead_code,
+    reason = "the tick's dispatch, which acts on what each executor answers"
+)]
+#[derive(Debug)]
+pub(crate) enum StepOutcome {
+    /// The step's output items, one list per main output.
+    Outputs(Vec<Vec<WorkflowItem>>),
+    /// The step waits on a person.
+    PersonWait(PersonWait),
+    /// The step runs as an agent run.
+    AgentRun(AgentStepRequest),
+}
+
+/// A wait on a person a step asks for, and how long it waits.
+#[expect(
+    dead_code,
+    reason = "the person-wait kinds and the tick's dispatch, which opens their waits"
+)]
+#[derive(Debug)]
+pub(crate) struct PersonWait {
+    /// What the person is asked.
+    pub(crate) ask: PersonAsk,
+    /// How long the step waits for an answer, `None` until it is answered.
+    pub(crate) timeout: Option<Duration>,
+}
+
+/// What a step waiting on a person asks.
+#[expect(
+    dead_code,
+    reason = "the person-wait kinds and the tick's dispatch, which opens their waits"
+)]
+#[derive(Debug)]
+pub(crate) enum PersonAsk {
+    /// An approval card.
+    Approval {
+        /// What the card asks.
+        prompt: ComposedText,
+    },
+    /// A form.
+    Form {
+        /// What the form asks.
+        prompt: ComposedText,
+        /// The JSON Schema of the answer's fields.
+        input_schema: Map<String, Value>,
+    },
+    /// A chat reply.
+    Reply {
+        /// What the question asks.
+        prompt: ComposedText,
+    },
+}
+
+/// Why a step's run failed.
+#[expect(
+    dead_code,
+    reason = "the tick's dispatch, which routes a failed step by its onError"
+)]
+#[derive(Debug)]
+pub(crate) enum StepFailure {
+    /// The step failed; its node's `onError` decides what follows.
+    Failed(WorkflowStepError),
+    /// The person declined the step's own card: the step fails and is never retried.
+    Declined {
+        /// The `why not` words, where the person typed any.
+        words: Option<NonEmptyText>,
+        /// When the decline was recorded.
+        at: WireInstant,
+    },
+}
+
+/// One kind's version: its spec, the param holding its shell line, and its executor.
+pub(crate) struct NodeKind {
+    /// The kind's spec, as the catalog lists it.
+    pub(crate) spec: WorkflowNodeKindSpec,
+    /// The id of the param holding the kind's shell line; `None` for a kind that runs none.
+    pub(crate) shell_line_param: Option<&'static str>,
+    /// What runs the kind's step.
+    #[cfg_attr(
+        test,
+        expect(
+            dead_code,
+            reason = "the tick's dispatch, which runs each step's executor"
+        )
+    )]
+    pub(crate) executor: Box<dyn NodeExecutor>,
+}
+
+/// What a save checks a node against from its kind: its category and handles, and the param
+/// holding the shell line the kind runs, whose fills the save reads.
+#[derive(Clone, Debug)]
+pub(crate) struct WorkflowNodeKindRules {
+    /// The kind's category and the node's handles.
+    pub(crate) handles: WorkflowNodeHandles,
+    /// The id of the param holding the kind's shell line; `None` for a kind that runs none.
+    pub(crate) shell_line_param: Option<&'static str>,
+}
+
+/// Why a table of kinds could not be built.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum NodeKindTableError {
+    /// Two entries list one kind at one version.
+    #[error("the kind {} is listed twice at version {}", .kind.0.as_str(), .version.get())]
+    Repeated {
+        /// The kind.
+        kind: WorkflowNodeKindId,
+        /// The version.
+        version: SafeInt<1>,
+    },
+}
+
+/// Every kind the engine runs, by kind and version, so a node runs the exact version it records.
+pub(crate) struct NodeKindTable {
+    /// The kinds by id, then by version.
+    kinds: HashMap<WorkflowNodeKindId, HashMap<SafeInt<1>, NodeKind>>,
+}
+
+impl NodeKindTable {
+    /// The table of `kinds`. Fails with [`NodeKindTableError::Repeated`] when two list one kind at
+    /// one version.
+    pub(crate) fn new(kinds: Vec<NodeKind>) -> Result<Self, NodeKindTableError> {
+        let mut table: HashMap<WorkflowNodeKindId, HashMap<SafeInt<1>, NodeKind>> = HashMap::new();
+        for kind in kinds {
+            let versions = table.entry(kind.spec.kind.clone()).or_default();
+            match versions.entry(kind.spec.version) {
+                Entry::Occupied(_) => {
+                    return Err(NodeKindTableError::Repeated {
+                        kind: kind.spec.kind,
+                        version: kind.spec.version,
+                    });
+                }
+                Entry::Vacant(slot) => {
+                    slot.insert(kind);
+                }
+            }
+        }
+        Ok(Self { kinds: table })
+    }
+
+    /// The kind `node` names at the version it records, `None` for one the table does not list.
+    pub(crate) fn kind_of(&self, node: &WorkflowNode) -> Option<&NodeKind> {
+        self.kinds.get(&node.kind)?.get(&node.kind_version)
+    }
+
+    /// The rules a save checks `node` against, `None` for a kind or version the table does not
+    /// list. A node whose `onError` sends failures to its error output gains that output last,
+    /// after the kind's own, as the next main output, labeled `Error`.
+    pub(crate) fn kind_rules(&self, node: &WorkflowNode) -> Option<WorkflowNodeKindRules> {
+        let kind = self.kind_of(node)?;
+        let spec = &kind.spec;
+        let mut outputs = spec.outputs.as_slice().to_vec();
+        if node.on_error == Some(WorkflowNodeOnError::ContinueErrorOutput) {
+            let main_count = outputs.iter().filter(|output| !output.is_tool()).count();
+            outputs.push(WorkflowOutputHandleSpec::Main {
+                id: OutputMainHandleId::new(main_count as u64)
+                    .expect("a kind's output count is far below the largest handle index"),
+                label: NonEmptyText::new(ERROR_OUTPUT_LABEL.to_owned())
+                    .expect("the error output's label is not empty"),
+                max_connections: None,
+                required: None,
+            });
+        }
+        Some(WorkflowNodeKindRules {
+            handles: WorkflowNodeHandles {
+                category: spec.category,
+                inputs: spec.inputs.as_slice().to_vec(),
+                outputs,
+            },
+            shell_line_param: kind.shell_line_param,
+        })
+    }
+}
+
+/// The test kind's executor, which passes its inputs on as its outputs.
+#[cfg(test)]
+struct PassThroughExecutor;
+
+#[cfg(test)]
+impl NodeExecutor for PassThroughExecutor {
+    fn execute<'step>(
+        &'step self,
+        _context: &'step StepContext,
+        inputs: Vec<Vec<WorkflowItem>>,
+    ) -> BoxFuture<'step, Result<StepOutcome, StepFailure>> {
+        Box::pin(async move { Ok(StepOutcome::Outputs(inputs)) })
+    }
+}
+
+/// A kind whose spec is `spec`, a `workflow.kind.list` entry's JSON, that holds its shell line in
+/// `shell_line_param` and passes its inputs on as its outputs.
+#[cfg(test)]
+pub(crate) fn pass_through_kind(spec: Value, shell_line_param: Option<&'static str>) -> NodeKind {
+    NodeKind {
+        spec: serde_json::from_value(spec).expect("the test kind's spec reads"),
+        shell_line_param,
+        executor: Box::new(PassThroughExecutor),
+    }
+}
+
+/// The command step `developer.shell` at version 1, with one main input and one main output,
+/// whose shell line is its `command` param, passing its inputs on as its outputs.
+#[cfg(test)]
+pub(crate) fn command_test_kind() -> NodeKind {
+    pass_through_kind(
+        serde_json::json!({
+            "kind": "developer.shell", "version": 1, "category": "developer",
+            "displayName": "Run a command", "description": "A command in a working directory.",
+            "icon": "terminal", "params": [],
+            "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
+            "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
+            "outputsDeriveFromParams": false,
+        }),
+        Some(COMMAND_PARAM),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use rstest::rstest;
+    use serde_json::{Value, json};
+    use sidekicks_contracts::workflow::definition::document::{WorkflowEdge, WorkflowNode};
+    use sidekicks_contracts::workflow::definition::refusals::{
+        WorkflowDefinitionFinding, check_workflow_graph,
+    };
+
+    use super::{NodeKindTable, NodeKindTableError, pass_through_kind};
+
+    /// A kind spec of `kind` at `version` with one main input and `outputs`.
+    fn kind_spec(kind: &str, version: u64, outputs: &Value) -> Value {
+        json!({
+            "kind": kind, "version": version, "category": "developer",
+            "displayName": "Test", "description": "A test kind.", "icon": "test",
+            "params": [], "outputsDeriveFromParams": false,
+            "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
+            "outputs": outputs,
+        })
+    }
+
+    /// A node `id` of `kind` at `version`, with `on_error` when given.
+    fn node(id: &str, kind: &str, version: u64, on_error: Option<&str>) -> WorkflowNode {
+        let mut node = json!({
+            "id": id, "kind": kind, "kindVersion": version, "name": id, "order": 0, "params": {},
+        });
+        if let Some(on_error) = on_error {
+            node["onError"] = json!(on_error);
+        }
+        serde_json::from_value(node).expect("the test's node reads")
+    }
+
+    /// Only `continueErrorOutput` gives a node its error output, at the next main index after the
+    /// kind's main outputs (a tool output not counted), labeled `Error`, so an edge from
+    /// `outputs/main/1` checks only then. Mutations: drop the error output; count the tool output;
+    /// add the output for every `onError`.
+    #[rstest]
+    #[case::continue_error_output(Some("continueErrorOutput"), true)]
+    #[case::stop(Some("stop"), false)]
+    #[case::continue_on(Some("continue"), false)]
+    #[case::absent(None, false)]
+    fn only_continue_error_output_adds_the_error_output(
+        #[case] on_error: Option<&str>,
+        #[case] has_error_output: bool,
+    ) {
+        let table = NodeKindTable::new(vec![pass_through_kind(
+            kind_spec(
+                "test.step",
+                1,
+                &json!([
+                    { "type": "main", "id": "outputs/main/0", "label": "Out" },
+                    { "type": "tool", "id": "outputs/tool/0", "label": "Tool" },
+                ]),
+            ),
+            None,
+        )])
+        .expect("the table builds");
+        let source = node("source", "test.step", 1, on_error);
+        let target = node("target", "test.step", 1, None);
+        let edge: WorkflowEdge = serde_json::from_value(json!({
+            "id": "failures", "source": "source", "sourceHandle": "outputs/main/1",
+            "target": "target", "targetHandle": "inputs/main/0",
+        }))
+        .expect("the test's edge reads");
+        let source_rules = table.kind_rules(&source).expect("the kind is listed");
+        let node_handles: HashMap<_, _> = [&source, &target]
+            .into_iter()
+            .map(|node| {
+                let rules = table.kind_rules(node).expect("the kind is listed");
+                (node.id.clone(), rules.handles)
+            })
+            .collect();
+        let findings = check_workflow_graph(None, &[source, target], &[edge], &node_handles);
+
+        let is_unknown = findings
+            .iter()
+            .any(|finding| matches!(finding, WorkflowDefinitionFinding::HandleTypeUnknown { .. }));
+        assert_eq!(is_unknown, !has_error_output, "{findings:?}");
+        let error_output = source_rules
+            .handles
+            .outputs
+            .iter()
+            .find(|output| output.id_text() == "outputs/main/1");
+        assert_eq!(
+            error_output.map(|output| serde_json::to_value(output).expect("a handle serializes")),
+            has_error_output
+                .then(|| json!({ "type": "main", "id": "outputs/main/1", "label": "Error" })),
+        );
+    }
+
+    /// Each version of a kind answers its own rules, an unlisted version none, and a table listing
+    /// one kind at one version twice is refused. Mutations: look a kind up by id alone; let a later
+    /// entry overwrite an earlier one.
+    #[test]
+    fn each_version_answers_its_own_rules() {
+        let one_output = json!([{ "type": "main", "id": "outputs/main/0", "label": "Out" }]);
+        let two_outputs = json!([
+            { "type": "main", "id": "outputs/main/0", "label": "Yes" },
+            { "type": "main", "id": "outputs/main/1", "label": "No" },
+        ]);
+        let table = NodeKindTable::new(vec![
+            pass_through_kind(kind_spec("test.step", 1, &one_output), None),
+            pass_through_kind(kind_spec("test.step", 2, &two_outputs), None),
+        ])
+        .expect("the table builds");
+        let output_count = |version| {
+            table
+                .kind_rules(&node("step", "test.step", version, None))
+                .map(|rules| rules.handles.outputs.len())
+        };
+        assert_eq!(output_count(1), Some(1));
+        assert_eq!(output_count(2), Some(2));
+        assert_eq!(output_count(3), None);
+
+        let repeated = NodeKindTable::new(vec![
+            pass_through_kind(kind_spec("test.step", 1, &one_output), None),
+            pass_through_kind(kind_spec("test.step", 1, &one_output), None),
+        ]);
+        assert!(matches!(
+            repeated,
+            Err(NodeKindTableError::Repeated { kind, version })
+                if kind.0.as_str() == "test.step" && version.get() == 1
+        ));
+    }
+}

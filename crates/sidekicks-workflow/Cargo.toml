@@ -41,6 +41,7 @@ garde.workspace = true
 jiff.workspace = true
 jsonata-core.workspace = true
 percent-encoding.workspace = true
+reqwest.workspace = true
 rquickjs.workspace = true
 rusqlite.workspace = true
 schemars.workspace = true

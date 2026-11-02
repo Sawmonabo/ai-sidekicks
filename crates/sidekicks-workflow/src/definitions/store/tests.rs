@@ -24,11 +24,12 @@ use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 use super::{
     WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY, WorkflowDefinitionStore,
-    WorkflowDefinitionStoreError, WorkflowNodeKindRules, WorkflowSaveAuthor,
+    WorkflowDefinitionStoreError, WorkflowSaveAuthor,
 };
 use crate::definitions::drafts::{WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY, WorkflowDraftStore};
 use crate::definitions::errors::DefinitionRefusal;
 use crate::definitions::library::WORKFLOW_LIBRARY_STATEMENT_CAPACITY;
+use crate::kinds::{NodeKindTable, command_test_kind};
 use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 use crate::schema::schema_parts;
 
@@ -81,17 +82,10 @@ async fn open_stores(
         WorkflowDefinitionStore::new(
             Arc::clone(&pool),
             Arc::clone(&writer),
-            Box::new(|node| {
-                (node.kind.0.as_str() == "developer.shell").then(|| WorkflowNodeKindRules {
-                    handles: serde_json::from_value(json!({
-                        "category": "developer",
-                        "inputs": [{ "type": "main", "id": "inputs/main/0", "label": "In" }],
-                        "outputs": [{ "type": "main", "id": "outputs/main/0", "label": "Out" }],
-                    }))
-                    .expect("the test's handles read"),
-                    shell_line_param: Some("command"),
-                })
-            }),
+            Arc::new(
+                NodeKindTable::new(vec![command_test_kind()])
+                    .expect("the test's kinds table builds"),
+            ),
             Arc::new(ShellLineReadingBound::new(shell_line_limit)),
         ),
         WorkflowDraftStore::new(pool, writer),

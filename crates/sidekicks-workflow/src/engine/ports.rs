@@ -1,0 +1,365 @@
+//! The ports through which the workflow engine reaches the services above this crate: the memory
+//! gate a script or quick Code step waits at, the agent runs an agent step starts, the processes a
+//! step launches and the artifacts its large payloads go to, the approval cards and questions a
+//! step waiting on a person opens, and the sink of the engine's own records. The program implements
+//! each and hands it to the engine.
+
+use std::error::Error;
+use std::ffi::OsString;
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use futures::future::BoxFuture;
+use secrecy::SecretString;
+use serde_json::{Map, Value};
+use sidekicks_contracts::artifacts::id::ArtifactId;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::question::QuestionId;
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::UuidTextForm;
+use sidekicks_contracts::wire::text::ComposedText;
+use sidekicks_contracts::workflow::definition::document::{WorkflowDefinitionId, WorkflowNodeId};
+use sidekicks_contracts::workflow::definition::item::{WorkflowItem, WorkflowStepError};
+use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_contracts::workflow::run::step::record::{
+    WorkflowCost, WorkflowStepKey, WorkflowStepProcessExit,
+};
+use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
+
+use crate::secrets::redaction::RunRedaction;
+
+/// Why a port's call failed, as its implementer reports it.
+pub type PortError = Box<dyn Error + Send + Sync>;
+
+/// A workflow node as the memory gate learns its peak: `<definition id>/<node id>`, unique across
+/// workflows. It names the definition, not a version, so a peak learned survives an edit.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct WorkflowNodeKey(String);
+
+impl WorkflowNodeKey {
+    /// The key of node `node_id` in the workflow `definition_id`.
+    pub fn new(definition_id: WorkflowDefinitionId, node_id: &WorkflowNodeId) -> Self {
+        Self(format!("{definition_id}/{}", node_id.as_str()))
+    }
+
+    /// The key's text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// The interpreter a script step runs in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum StepScriptRuntime {
+    /// Bun.
+    Bun,
+    /// Python.
+    Python,
+}
+
+/// What a step the memory gate weighs runs, which sets its reservation.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StepAdmissionWork {
+    /// A bun or Python step, reserved at its node's learned peak, else its runtime's estimate.
+    Script {
+        /// Its interpreter.
+        runtime: StepScriptRuntime,
+        /// The node it runs.
+        node_key: WorkflowNodeKey,
+    },
+    /// A quick Code step, reserved at its budget, its thread, its input and its output room.
+    QuickCode {
+        /// Its interpreter's memory budget, in bytes.
+        budget_bytes: u64,
+        /// Its input text, in bytes, moved into its thread.
+        input_bytes: u64,
+        /// The most output text it may return, in bytes.
+        output_max_bytes: u64,
+        /// The node it runs.
+        node_key: WorkflowNodeKey,
+    },
+}
+
+/// How a wait at the memory gate ended: admitted, or released before its turn came.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StepAdmissionOutcome {
+    /// Admitted, holding its reservation.
+    Admitted,
+    /// Released before its turn came.
+    Withdrawn,
+}
+
+/// The memory gate a script or quick Code step waits at before it starts; the run queue's memory
+/// gate implements it. An agent step never calls it: its run joins the gate itself.
+pub trait StepAdmission: Send + Sync {
+    /// Puts `work` in the gate's line and returns its ticket at once.
+    fn enqueue(&self, work: StepAdmissionWork) -> Box<dyn StepAdmissionTicket>;
+}
+
+/// One step's place at the memory gate; dropping it releases the place and its reservation.
+pub trait StepAdmissionTicket: Send + Sync {
+    /// The outcome of the latest wait in the line, `None` while the step is waiting at the gate.
+    fn admitted(&self) -> watch::Receiver<Option<StepAdmissionOutcome>>;
+
+    /// Gives up the reservation while the step waits on a person or a spent account. Fails unless
+    /// admitted.
+    fn park(&self) -> Result<(), PortError>;
+
+    /// Rejoins the line after a park; `admitted()` reads `None` until the step is admitted again.
+    /// Fails unless parked.
+    fn resume(&self) -> Result<(), PortError>;
+
+    /// Reads the peak memory of process `process_id`, which the step runs, and keeps the largest
+    /// seen for the release to learn. Fails unless admitted or parked, or when the read fails.
+    fn observe_process_peak(&self, process_id: u32) -> BoxFuture<'_, Result<(), PortError>>;
+
+    /// Keeps a quick step's interpreter peak, in bytes, for the release to learn. Fails unless
+    /// admitted or parked.
+    fn observe_interpreter_peak(&self, bytes: u64) -> Result<(), PortError>;
+}
+
+/// What an agent step asks the agent run it starts to do.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AgentStepRequest {
+    /// The session the run lives in.
+    pub session_id: SessionId,
+    /// The step the run answers.
+    pub step: WorkflowStepKey,
+    /// The node the step runs, whose learned peak the run's place at the gate takes.
+    pub node_key: WorkflowNodeKey,
+    /// The level the run asks to run at.
+    pub permission_level: PermissionLevel,
+    /// The node's params, each template evaluated.
+    pub params: Map<String, Value>,
+}
+
+/// How an agent run started: the level it actually runs at.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AgentStepStart {
+    /// The level the run runs at.
+    pub permission_level: PermissionLevel,
+}
+
+/// How an agent step's run ended.
+#[derive(Clone, Debug, PartialEq)]
+pub enum AgentStepOutcome {
+    /// The run finished: its output items and what it cost, where a provider was billed.
+    Completed {
+        /// The step's output items.
+        items: Vec<WorkflowItem>,
+        /// What the run cost.
+        cost: Option<WorkflowCost>,
+    },
+    /// The run's provider account is spent; the step waits on it.
+    AccountSpent {
+        /// The spent account.
+        provider_account_id: ProviderAccountId,
+    },
+    /// The run failed.
+    Failed {
+        /// Why.
+        error: WorkflowStepError,
+    },
+}
+
+/// Starts and reattaches the agent runs agent steps make; the program's agent step runner
+/// implements it over the session's run service and queue.
+pub trait AgentStepRunner: Send + Sync {
+    /// Creates the run `request` asks for, which joins the memory gate at its creation. Fails when
+    /// the run cannot be created.
+    fn run(
+        &self,
+        request: AgentStepRequest,
+    ) -> BoxFuture<'_, Result<Box<dyn AgentStepRun>, PortError>>;
+
+    /// The run `step` started before a restart. Fails when no such run is stored.
+    fn reattach<'call>(
+        &'call self,
+        step: &'call WorkflowStepKey,
+    ) -> BoxFuture<'call, Result<Box<dyn AgentStepRun>, PortError>>;
+}
+
+/// One agent step's run.
+pub trait AgentStepRun: Send + Sync {
+    /// Where the run stands at the memory gate: `None` while it is waiting at the gate, then its
+    /// outcome.
+    fn admission(&self) -> watch::Receiver<Option<StepAdmissionOutcome>>;
+
+    /// Waits for the run to start. Fails when it ends before starting.
+    fn started(&self) -> BoxFuture<'_, Result<AgentStepStart, PortError>>;
+
+    /// Waits for the run to end. Fails when its end cannot be read.
+    fn outcome(&self) -> BoxFuture<'_, Result<AgentStepOutcome, PortError>>;
+
+    /// Asks the run to stop. Fails when the stop cannot be sent.
+    fn cancel(&self) -> BoxFuture<'_, Result<(), PortError>>;
+}
+
+/// What a step process runs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StepCommand {
+    /// A command line run by a shell program.
+    Shell {
+        /// The shell program.
+        shell: PathBuf,
+        /// The line it runs.
+        line: String,
+    },
+    /// A program and its arguments, the program first.
+    Program {
+        /// The program and its arguments.
+        argv: Vec<OsString>,
+    },
+}
+
+/// One process a step launches.
+pub struct StepLaunch {
+    /// The provider whose driver's sandbox the process runs in.
+    pub provider: ProviderId,
+    /// The run's level.
+    pub permission_level: PermissionLevel,
+    /// What the process runs.
+    pub command: StepCommand,
+    /// The environment it adds, each value held as a secret since a fill may carry one.
+    pub environment: Vec<(String, SecretString)>,
+    /// The folder it runs in.
+    pub working_folder: PathBuf,
+    /// The step's cancel, which ends the process.
+    pub cancel: CancellationToken,
+    /// The run's redaction, which scrubs the process's stdout and stderr.
+    pub redaction: Arc<RunRedaction>,
+}
+
+/// How a step process ended.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StepProcessEnd {
+    /// Its exit code or the signal that ended it.
+    pub exit: WorkflowStepProcessExit,
+    /// What it wrote to stdout, scrubbed.
+    pub stdout: Vec<u8>,
+    /// What it wrote to stderr, scrubbed.
+    pub stderr: Vec<u8>,
+}
+
+/// Launches the processes steps run, inside the provider's sandbox; the Code and command step
+/// launcher implements it.
+pub trait StepProcessLauncher: Send + Sync {
+    /// The shell program `provider`'s driver runs command lines in, `None` when it names none.
+    fn command_shell(&self, provider: &ProviderId) -> Option<PathBuf>;
+
+    /// Starts `launch`. Fails when the process cannot be started.
+    fn launch(&self, launch: StepLaunch) -> BoxFuture<'_, Result<Box<dyn StepProcess>, PortError>>;
+}
+
+/// One process a step launched.
+pub trait StepProcess: Send + Sync {
+    /// The process's id, which the memory gate reads its peak by.
+    fn process_id(&self) -> u32;
+
+    /// Waits for the process to end. Fails when its end cannot be read.
+    fn finish(self: Box<Self>) -> BoxFuture<'static, Result<StepProcessEnd, PortError>>;
+}
+
+/// Stores the step payloads too large to carry inline as artifacts; the step payload store
+/// implements it.
+pub trait StepPayloadArtifacts: Send + Sync {
+    /// Stores `bytes`, a payload of `item_count` items `step` wrote in `session_id`. Fails when
+    /// the artifact cannot be written.
+    fn write<'call>(
+        &'call self,
+        session_id: SessionId,
+        step: &'call WorkflowStepKey,
+        bytes: Vec<u8>,
+        item_count: u64,
+    ) -> BoxFuture<'call, Result<ArtifactId, PortError>>;
+
+    /// The bytes of `artifact_id`. Fails when the artifact cannot be read.
+    fn read<'call>(
+        &'call self,
+        artifact_id: &'call ArtifactId,
+    ) -> BoxFuture<'call, Result<Vec<u8>, PortError>>;
+}
+
+/// An approval card a workflow wait opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WorkflowApprovalCardRequest {
+    /// The session the card is raised in.
+    pub session_id: SessionId,
+    /// The run that waits.
+    pub run_id: WorkflowRunId,
+    /// The step that waits, `None` for a chain's hold.
+    pub step: Option<WorkflowStepKey>,
+    /// The wait the answer settles.
+    pub wait_id: UuidTextForm,
+    /// What the card asks.
+    pub prompt: ComposedText,
+}
+
+/// Raises the durable approval cards workflow waits open; the approval service's workflow gate
+/// card implements it.
+pub trait ApprovalCardRaiser: Send + Sync {
+    /// Raises `request`'s card, returning once it is durable; the answer lands later. Fails when
+    /// the card cannot be written.
+    fn raise(&self, request: WorkflowApprovalCardRequest) -> BoxFuture<'_, Result<(), PortError>>;
+}
+
+/// A form question a step waiting on a person opens.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FormQuestionRequest {
+    /// The session the question is asked in.
+    pub session_id: SessionId,
+    /// The step that waits.
+    pub step: WorkflowStepKey,
+    /// The wait the answer settles.
+    pub wait_id: UuidTextForm,
+    /// What the form asks.
+    pub prompt: ComposedText,
+    /// The JSON Schema of the answer's fields.
+    pub input_schema: Map<String, Value>,
+}
+
+/// A chat-reply question a step waiting on a person opens.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplyQuestionRequest {
+    /// The session the question is asked in.
+    pub session_id: SessionId,
+    /// The step that waits.
+    pub step: WorkflowStepKey,
+    /// The wait the answer settles.
+    pub wait_id: UuidTextForm,
+    /// What the question asks.
+    pub prompt: ComposedText,
+}
+
+/// Opens the questions steps waiting on a person ask; the session's workflow waits implement it
+/// over the question service.
+pub trait PersonWaitQuestions: Send + Sync {
+    /// Opens `request`'s form question. Fails when the question cannot be written.
+    fn open_form(
+        &self,
+        request: FormQuestionRequest,
+    ) -> BoxFuture<'_, Result<QuestionId, PortError>>;
+
+    /// Opens `request`'s chat-reply question. Fails when the question cannot be written.
+    fn open_reply(
+        &self,
+        request: ReplyQuestionRequest,
+    ) -> BoxFuture<'_, Result<QuestionId, PortError>>;
+
+    /// Routes the answer to the question of `wait_id` back to the engine after a restart. Fails
+    /// when the question cannot be read.
+    fn reattach<'call>(
+        &'call self,
+        wait_id: &'call UuidTextForm,
+    ) -> BoxFuture<'call, Result<(), PortError>>;
+}
+
+/// Takes the engine's own records, its intents and outcomes, which are never read back as facts;
+/// the program's workflow engine bucket implements it and reports its own loss.
+pub trait EngineRecordSink: Send + Sync {
+    /// Records `entry`, already scrubbed.
+    fn record(&self, entry: Map<String, Value>) -> BoxFuture<'_, ()>;
+}

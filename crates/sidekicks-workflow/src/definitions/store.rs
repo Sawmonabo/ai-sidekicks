@@ -34,7 +34,7 @@ use sidekicks_contracts::workflow::definition::methods::{
     WorkflowDefinitionUpdateResponse,
 };
 use sidekicks_contracts::workflow::definition::refusals::{
-    WorkflowDefinitionFinding, WorkflowNodeHandles, check_workflow_graph,
+    WorkflowDefinitionFinding, check_workflow_graph,
 };
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -55,6 +55,7 @@ use crate::definitions::errors::DefinitionRefusal;
 use crate::definitions::kept_values::clear_kept_values_statement;
 use crate::definitions::library::{WorkflowLibrary, name_holder_statement};
 use crate::expressions::save_check::check_expressions;
+use crate::kinds::NodeKindTable;
 use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 
 /// The statements the store's reads run on a read connection beyond the library's: the latest
@@ -152,21 +153,6 @@ const DUPLICATE_NAME_READS: usize = 2;
 // The position of the pinned runs' count among a delete's statements.
 const PINNED_RUN_COUNT_INDEX: usize = 4;
 
-/// What a save is checked against: each node's kind rules from the kinds table, or `None` for a
-/// kind the table does not list.
-pub(crate) type WorkflowNodeKindResolver =
-    dyn Fn(&WorkflowNode) -> Option<WorkflowNodeKindRules> + Send + Sync;
-
-/// What a save checks a node against from its kind: its category and handles, and the param
-/// holding the shell line the kind runs, whose fills the save reads.
-#[derive(Clone, Debug)]
-pub(crate) struct WorkflowNodeKindRules {
-    /// The kind's category and the node's handles.
-    pub(crate) handles: WorkflowNodeHandles,
-    /// The id of the param holding the kind's shell line; `None` for a kind that runs none.
-    pub(crate) shell_line_param: Option<&'static str>,
-}
-
 /// Who saved a version: the device the save came from, and the agent that saved it, if one did.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorkflowSaveAuthor {
@@ -237,13 +223,13 @@ impl From<WorkflowDefinitionStoreError> for HandlerError {
 pub(crate) struct WorkflowDefinitionStore {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
-    resolve_node_kind: Box<WorkflowNodeKindResolver>,
+    node_kinds: Arc<NodeKindTable>,
     shell_line_bound: Arc<ShellLineReadingBound>,
 }
 
 impl WorkflowDefinitionStore {
     /// The store reading through `pool`, writing through `writer`, checking each save against the
-    /// kind rules `resolve_node_kind` gives each node, and reading command lines inside
+    /// rules `node_kinds` gives each node's kind, and reading command lines inside
     /// `shell_line_bound`, the daemon's one bound on shell-line reads.
     #[cfg_attr(
         not(test),
@@ -255,13 +241,13 @@ impl WorkflowDefinitionStore {
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,
-        resolve_node_kind: Box<WorkflowNodeKindResolver>,
+        node_kinds: Arc<NodeKindTable>,
         shell_line_bound: Arc<ShellLineReadingBound>,
     ) -> Self {
         Self {
             pool,
             writer,
-            resolve_node_kind,
+            node_kinds,
             shell_line_bound,
         }
     }
@@ -678,18 +664,23 @@ impl WorkflowDefinitionStore {
     }
 
     // The graph check over the document's trigger, nodes and edges, each node's handles resolved
-    // from its kind, then the check of every expression, each command line read inside the bound.
+    // once from its kind, then the check of every expression, each command line read inside the
+    // bound.
     async fn document_findings(
         &self,
         document: &WorkflowDocument,
     ) -> Result<Vec<WorkflowDefinitionFinding>, WorkflowDefinitionStoreError> {
         let trigger = WorkflowNode::from(&document.trigger);
-        let node_handles: HashMap<_, _> = iter::once(&trigger)
-            .chain(&document.nodes)
-            .filter_map(|node| {
-                (self.resolve_node_kind)(node).map(|kind| (node.id.clone(), kind.handles))
-            })
-            .collect();
+        let mut node_handles = HashMap::new();
+        let mut shell_line_params = HashMap::new();
+        for node in iter::once(&trigger).chain(&document.nodes) {
+            if let Some(rules) = self.node_kinds.kind_rules(node) {
+                node_handles.insert(node.id.clone(), rules.handles);
+                if let Some(param) = rules.shell_line_param {
+                    shell_line_params.insert(node.id.clone(), param);
+                }
+            }
+        }
         let mut findings = check_workflow_graph(
             Some(&trigger),
             &document.nodes,
@@ -700,7 +691,7 @@ impl WorkflowDefinitionStore {
             check_expressions(
                 &trigger,
                 &document.nodes,
-                |node| (self.resolve_node_kind)(node).and_then(|kind| kind.shell_line_param),
+                |node| shell_line_params.get(&node.id).copied(),
                 &self.shell_line_bound,
             )
             .await?,
