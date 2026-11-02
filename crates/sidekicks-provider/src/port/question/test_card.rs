@@ -225,8 +225,7 @@ impl QuestionCard {
     }
 
     /// The request id of every withdrawal the card took, in order.
-    #[cfg(test)]
-    pub(crate) fn withdrawals(&self) -> Vec<String> {
+    pub fn withdrawals(&self) -> Vec<String> {
         self.withdrawals.lock().expect("never poisoned").clone()
     }
 
@@ -240,8 +239,21 @@ impl QuestionCard {
 
     /// Waits for an open question and answers the oldest with `answers` through its answerer: a
     /// delivered answer closes it, and a kept one leaves it open at the front of the card, as the
-    /// questions service keeps a kept answer's question open until its settle.
+    /// questions service keeps a kept answer's question open until its settle. Fails the test
+    /// when the answerer fails.
     pub async fn answer_open(&self, answers: Vec<QuestionAnswer>) -> ProviderQuestion {
+        self.try_answer_open(answers)
+            .await
+            .expect("the answer is sent")
+    }
+
+    /// Answers the oldest open question as [`Self::answer_open`] does, once one is open; when its
+    /// answerer fails, the question is put back open at the front of the card, as the questions
+    /// service leaves a question open whose answer was not sent, and the answerer's error returned.
+    pub async fn try_answer_open(
+        &self,
+        answers: Vec<QuestionAnswer>,
+    ) -> Result<ProviderQuestion, Box<dyn Error + Send + Sync>> {
         loop {
             let asked = self.asked.notified();
             let open = {
@@ -251,19 +263,29 @@ impl QuestionCard {
             if let Some((question, answer)) = open {
                 let answer =
                     answer.expect("a question answered on the card has a tool server's answerer");
-                let delivery = answer.answer(answers).await.expect("the answer is sent");
+                let delivery = answer.answer(answers).await;
                 match delivery {
-                    ToolServerAnswerDelivery::Delivered => self.closed.notify_waiters(),
-                    ToolServerAnswerDelivery::Kept => self
+                    Ok(ToolServerAnswerDelivery::Delivered) => self.closed.notify_waiters(),
+                    Ok(ToolServerAnswerDelivery::Kept) | Err(_) => self
                         .open
                         .lock()
                         .expect("never poisoned")
                         .insert(0, (question.clone(), Some(answer))),
                 }
-                return question;
+                return delivery.map(|_| question);
             }
             asked.await;
         }
+    }
+
+    /// The questions open on the card, oldest first.
+    pub fn open_questions(&self) -> Vec<ProviderQuestion> {
+        self.open
+            .lock()
+            .expect("never poisoned")
+            .iter()
+            .map(|(question, _)| question.clone())
+            .collect()
     }
 }
 
