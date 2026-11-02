@@ -345,6 +345,7 @@ mod tests {
                 spawner: spawner.clone(),
             }),
             command_output,
+            Arc::new(PortRegistration::new("command capture")),
         );
         let session_id = new_session_id();
         let Some(opened) = channels.open(session_id).await.expect("the channel opens") else {

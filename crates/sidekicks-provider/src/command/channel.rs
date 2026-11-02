@@ -86,6 +86,12 @@ pub(crate) enum PartyRecord {
         /// The provider's handle on the command's process, where it gave one.
         process: Option<String>,
     },
+    /// The wrapper is starting its command: covered where the daemon answered `Go`, uncovered
+    /// where its wait for `Go` ran out or its requests could not be read.
+    Began {
+        /// Whether the daemon answered `Go` before the command started.
+        is_covered: bool,
+    },
     /// What the command's terminal shows, read by the wrapper on its master, and the last of the
     /// output it printed.
     Terminal {
@@ -124,6 +130,9 @@ pub(crate) enum PartyRecord {
     rename_all_fields = "camelCase"
 )]
 pub(crate) enum DaemonRequest {
+    /// The daemon heard the wrapper's `Starting`; its `Go` follows once what the command may
+    /// change is captured, so the wrapper waits for it with no deadline of its own.
+    Acknowledged {},
     /// The wrapper may start its command.
     Go {},
     /// The askpass's answer.
@@ -195,7 +204,7 @@ fn open(
 }
 
 /// A record file's name: its party and its sequence number, zero-padded so names sort in order.
-fn record_name(party: PartyId, sequence: u64) -> String {
+pub(crate) fn record_name(party: PartyId, sequence: u64) -> String {
     format!("{party}-{sequence:020}")
 }
 

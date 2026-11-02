@@ -1,6 +1,7 @@
 //! The ports between the drivers and the rest of the daemon: those other parts register for the
 //! drivers to call once they are built, and those a driver answers for the rest of the daemon.
 
+pub mod command_capture;
 pub mod context_reading_publisher;
 pub mod file_tool_write;
 pub(crate) mod in_process_tool_servers;

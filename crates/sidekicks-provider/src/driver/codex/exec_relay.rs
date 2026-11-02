@@ -40,6 +40,7 @@ use crate::command::running_set::RunningCommandSets;
 use crate::command::waiting_checks::InputWaitReader;
 use crate::driver::codex::app_server_protocol::EnvironmentAddParams;
 use crate::driver::codex::session::errors::CodexError;
+use crate::port::command_capture::CommandCapture;
 use crate::port::running_command_publisher::{ProviderCommandEnd, RunningCommandPublisher as _};
 
 /// The id of the environment every relayed conversation's turns name, the relay's executor.
@@ -80,6 +81,8 @@ pub(crate) struct CodexExecRelayDependencies {
     pub(crate) input_waits: Arc<dyn InputWaitReader>,
     /// The running commands every channel's records reach.
     pub(crate) command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
+    /// The capture around each line's command a channel's wrapper runs.
+    pub(crate) command_capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
     /// The command wrapper's link, absolute.
     pub(crate) wrapper_program: PathBuf,
     /// The command askpass's link, absolute.
@@ -535,6 +538,7 @@ impl CodexExecRelay {
             watch,
             sets,
             Arc::clone(&self.dependencies.input_waits),
+            Arc::clone(&self.dependencies.command_capture),
         );
         let follower = tokio::spawn(async move {
             // The watch failing ends the following; the rows keep what Codex reports of them.

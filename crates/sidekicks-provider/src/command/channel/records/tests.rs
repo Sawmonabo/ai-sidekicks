@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::{BufRead as _, BufReader, Write as _};
+use std::process::Child;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,14 +17,16 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::BoundedInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_platforms::{InputTerminal, InputWaitReading, TerminalSignal, send_signal};
-use tokio::sync::watch;
+use sidekicks_std::port_registration::PortRegistration;
+use tokio::sync::{mpsc, watch};
 
 use super::{RecordFollower, follow_channel_records, tail_output};
 use crate::command::channel::test_support::{
-    end_party, names_in, open_channel, party_command, ready_parties, sealed,
+    KeyPair, end_party, names_in, open_channel, party_command, ready_parties, sealed,
+    sent_requests, write_party_record,
 };
 use crate::command::channel::{
-    ChannelKem, PartyId, PartyRecord, REQUESTS_FOLDER, record_name, write_record,
+    ChannelKem, DaemonRequest, PartyId, PartyRecord, REQUESTS_FOLDER, record_name, write_record,
 };
 use crate::command::running_set::{
     CommandEndingAppender, CommandInput, RunningCommandFeed, RunningCommandSets, WrapperCommand,
@@ -31,6 +34,9 @@ use crate::command::running_set::{
 };
 use crate::command::waiting_checks::InputWaitReader;
 use crate::driver::contract::MockProviderDriver;
+use crate::port::command_capture::{
+    CommandCapture, CommandWindowEnd, CommandWindowId, CommandWindowOpenError, CommandWindowStart,
+};
 use crate::port::running_command_publisher::{CommandStart, RunningCommandPublisher as _};
 
 const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
@@ -67,6 +73,122 @@ impl InputWaitReader for NoTerminals {
     ) -> BoxFuture<'a, std::io::Result<InputWaitReading>> {
         async { Err(std::io::Error::other("no terminal")) }.boxed()
     }
+}
+
+/// A call a capture was handed, named by the wrapper whose window it is.
+#[derive(Debug, PartialEq, Eq)]
+enum CaptureCall {
+    Open(PartyId),
+    Began(PartyId, bool),
+    Close(PartyId, CommandWindowEnd),
+}
+
+/// A capture whose opens settle as the test sets `opens`: held while it reads `None`, then each
+/// opened or failed as it reads; each call is handed to the test, each window named by its party.
+struct HeldCapture {
+    opens: watch::Receiver<Option<bool>>,
+    calls: mpsc::UnboundedSender<CaptureCall>,
+}
+
+impl CommandCapture for HeldCapture {
+    fn open_window(
+        &self,
+        start: CommandWindowStart,
+    ) -> BoxFuture<'_, Result<CommandWindowId, CommandWindowOpenError>> {
+        let mut opens = self.opens.clone();
+        // A call after the test ended, the close of a window it left open, reaches no one.
+        self.calls
+            .send(CaptureCall::Open(start.party))
+            .unwrap_or_default();
+        async move {
+            let opened = *opens
+                .wait_for(Option::is_some)
+                .await
+                .expect("the test holds the opens");
+            if opened == Some(true) {
+                Ok(CommandWindowId::new(start.party.to_string()))
+            } else {
+                Err(CommandWindowOpenError("the test failed it".into()))
+            }
+        }
+        .boxed()
+    }
+
+    fn command_began(&self, window: &CommandWindowId, is_covered: bool) -> BoxFuture<'_, ()> {
+        let party = window.as_str().parse().expect("a party");
+        self.calls
+            .send(CaptureCall::Began(party, is_covered))
+            .unwrap_or_default();
+        async {}.boxed()
+    }
+
+    fn close_window(&self, window: CommandWindowId, end: CommandWindowEnd) -> BoxFuture<'_, ()> {
+        let party = window.as_str().parse().expect("a party");
+        self.calls
+            .send(CaptureCall::Close(party, end))
+            .unwrap_or_default();
+        async {}.boxed()
+    }
+}
+
+/// A capture registration nothing registered.
+fn unregistered_capture() -> Arc<PortRegistration<Arc<dyn CommandCapture>>> {
+    Arc::new(PortRegistration::new("command capture"))
+}
+
+/// A registered [`HeldCapture`], its opens as `opens` sets them, its calls on the receiver.
+fn held_capture(
+    opens: watch::Receiver<Option<bool>>,
+) -> (
+    Arc<PortRegistration<Arc<dyn CommandCapture>>>,
+    mpsc::UnboundedReceiver<CaptureCall>,
+) {
+    let (calls, called) = mpsc::unbounded_channel();
+    let capture = unregistered_capture();
+    capture
+        .register(Arc::new(HeldCapture { opens, calls }))
+        .expect("the capture registers once");
+    (capture, called)
+}
+
+/// The requests a wrapper is answered, in order: its acknowledgment, then `go`.
+fn acknowledged_and_go() -> Vec<DaemonRequest> {
+    vec![DaemonRequest::Acknowledged {}, DaemonRequest::Go {}]
+}
+
+/// A party this test starts, its keys and its id, its own party under it holding `nested` where
+/// given.
+fn started_party(nested: Option<&KeyPair>) -> (Child, KeyPair, Vec<PartyId>) {
+    let keys = ChannelKem::gen_keypair();
+    let mut party = party_command(&keys, nested)
+        .spawn()
+        .expect("the party starts");
+    let mut lines = BufReader::new(party.stdout.take().expect("its output")).lines();
+    let ready = ready_parties(&mut lines, 1 + usize::from(nested.is_some()));
+    (party, keys, ready)
+}
+
+/// A line's `Starting`, or a relayed command's where `process` names one.
+fn starting(process: Option<&str>) -> PartyRecord {
+    PartyRecord::Starting {
+        command: "npm test".to_owned(),
+        stdout_path: None,
+        process: process.map(str::to_owned),
+    }
+}
+
+/// The next call `called` takes, failing the test after 5 s.
+async fn next_call(called: &mut mpsc::UnboundedReceiver<CaptureCall>) -> CaptureCall {
+    tokio::time::timeout(Duration::from_secs(5), called.recv())
+        .await
+        .expect("a call comes")
+        .expect("the capture stays")
+}
+
+/// Fails unless `called` takes no call for 200 ms.
+async fn no_call(called: &mut mpsc::UnboundedReceiver<CaptureCall>, what: &str) {
+    let call = tokio::time::timeout(Duration::from_millis(200), called.recv()).await;
+    assert!(call.is_err(), "{what}: {call:?}");
 }
 
 fn session() -> SessionId {
@@ -209,6 +331,7 @@ async fn a_wrapper_killed_after_its_start_is_let_go() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
+        unregistered_capture(),
     ));
     let stdout_path = folder.path().join("output");
     std::fs::write(&stdout_path, b"").expect("the output file is made");
@@ -260,6 +383,7 @@ async fn a_nested_wrapper_is_answered_go_and_let_go_at_its_end() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
+        unregistered_capture(),
     ));
     let starting = PartyRecord::Starting {
         command: "npm test".to_owned(),
@@ -277,10 +401,8 @@ async fn a_nested_wrapper_is_answered_go_and_let_go_at_its_end() {
     })
     .await;
     write(&nested_keys, nested_id, 1);
-    let requests = channel.folder.join(REQUESTS_FOLDER);
-    let go = record_name(nested_id, 1);
     until("the nested wrapper is answered go", || {
-        names_in(&requests).contains(&go)
+        sent_requests(&channel, &nested_keys, nested_id) == acknowledged_and_go()
     })
     .await;
     assert_eq!(
@@ -290,7 +412,8 @@ async fn a_nested_wrapper_is_answered_go_and_let_go_at_its_end() {
     );
     end_party(outer);
     until("the nested wrapper is let go", || {
-        channel.party_process(nested_id).is_none() && !names_in(&requests).contains(&go)
+        channel.party_process(nested_id).is_none()
+            && sent_requests(&channel, &nested_keys, nested_id).is_empty()
     })
     .await;
     follower.abort();
@@ -314,6 +437,7 @@ async fn an_askpass_s_answer_waits_for_it_and_its_end_closes_its_prompt() {
         watch,
         Arc::clone(&sets),
         Arc::new(NoTerminals),
+        unregistered_capture(),
     ));
     let requests = channel.folder.join(REQUESTS_FOLDER);
     // The first askpass is answered, the second dies unanswered.
@@ -341,9 +465,8 @@ async fn an_askpass_s_answer_waits_for_it_and_its_end_closes_its_prompt() {
             process: None,
         };
         write(&outer_keys, outer_id, &starting);
-        let go = record_name(outer_id, 1);
         until("the wrapper is answered go", || {
-            names_in(&requests).contains(&go)
+            sent_requests(&channel, &outer_keys, outer_id) == acknowledged_and_go()
         })
         .await;
         write(&askpass_keys, askpass, &PartyRecord::Asking {});
@@ -415,6 +538,7 @@ async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
         channel: Arc::clone(&channel),
         set: Arc::clone(&sets),
         waits: Arc::new(NoTerminals),
+        capture: unregistered_capture(),
         wrappers: HashMap::new(),
         askpasses: HashMap::new(),
         process_ended,
@@ -461,4 +585,171 @@ async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
         .expect("the endings stay open");
     assert_eq!(ending.exit_code.map(BoundedInt::get), Some(3));
     end_party(party);
+}
+
+// Fails when a line's wrapper is answered `go` before its capture window opened, is answered `go`
+// twice, or when its window is closed before an open still running, closed twice or not told how
+// the command began. Mutations: send `Go` in `take_record` beside the acknowledgment; send `Go`
+// both there and from the window's task; make the `Exited` arm's close skip the window's task.
+#[tokio::test]
+async fn a_line_s_go_waits_for_its_window_which_closes_after_its_open() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = Arc::new(open_channel(folder.path(), std::process::id()));
+    let sets = unbound_running_command_sets();
+    let (opens, held_opens) = watch::channel(None);
+    let (capture, mut called) = held_capture(held_opens);
+    let watch = channel.watch().await.expect("the channel is watched");
+    let follower = tokio::spawn(follow_channel_records(
+        session(),
+        None,
+        Arc::clone(&channel),
+        watch,
+        Arc::clone(&sets),
+        Arc::new(NoTerminals),
+        capture,
+    ));
+
+    // The window opens while the wrapper waits acknowledged, and `go` follows its open.
+    let (first, first_keys, ready) = started_party(None);
+    let first_id = ready[0];
+    write_party_record(&channel, &first_keys, first_id, 1, &starting(None));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(first_id));
+    until("the wrapper is acknowledged", || {
+        !sent_requests(&channel, &first_keys, first_id).is_empty()
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        sent_requests(&channel, &first_keys, first_id),
+        [DaemonRequest::Acknowledged {}],
+        "go came before the window opened"
+    );
+    opens.send_replace(Some(true));
+    until("the wrapper is answered go", || {
+        sent_requests(&channel, &first_keys, first_id).len() > 1
+    })
+    .await;
+    let began = PartyRecord::Began { is_covered: false };
+    write_party_record(&channel, &first_keys, first_id, 2, &began);
+    assert_eq!(
+        next_call(&mut called).await,
+        CaptureCall::Began(first_id, false)
+    );
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        sent_requests(&channel, &first_keys, first_id),
+        acknowledged_and_go()
+    );
+
+    // A wrapper that exits while its window still opens has it closed once, after the open.
+    opens.send_replace(None);
+    let (second, second_keys, ready) = started_party(None);
+    let second_id = ready[0];
+    write_party_record(&channel, &second_keys, second_id, 1, &starting(None));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(second_id));
+    let exited = PartyRecord::Exited {
+        exit_code: Some(3),
+        signal: None,
+    };
+    write_party_record(&channel, &second_keys, second_id, 2, &exited);
+    until("the exited wrapper is let go", || {
+        channel.party_process(second_id).is_none()
+    })
+    .await;
+    no_call(&mut called, "the window closed before its open").await;
+    opens.send_replace(Some(true));
+    assert_eq!(
+        next_call(&mut called).await,
+        CaptureCall::Close(
+            second_id,
+            CommandWindowEnd::Exited {
+                exit_code: Some(3),
+                signal: None,
+            }
+        )
+    );
+    no_call(&mut called, "the window closed twice").await;
+    follower.abort();
+    end_party(first);
+    end_party(second);
+}
+
+// Fails when a relayed command, a wrapper under another or a follower with no capture registered
+// opens a window or waits on one, or when a failed open leaves its wrapper waiting. Mutations:
+// drop `process.is_none()` or `!received.is_nested` from the capture's filter; return before
+// `Go` in the window's task when the open fails.
+#[tokio::test]
+async fn a_wrapper_with_no_window_or_a_failed_one_is_answered_go() {
+    let folder = tempfile::tempdir().expect("a folder");
+    let channel = Arc::new(open_channel(folder.path(), std::process::id()));
+    let sets = unbound_running_command_sets();
+    let (_opens, failed_opens) = watch::channel(Some(false));
+    let (capture, mut called) = held_capture(failed_opens);
+    let watch = channel.watch().await.expect("the channel is watched");
+    let follower = tokio::spawn(follow_channel_records(
+        session(),
+        None,
+        Arc::clone(&channel),
+        watch,
+        Arc::clone(&sets),
+        Arc::new(NoTerminals),
+        capture,
+    ));
+    let answered_go = |keys: &KeyPair, party: PartyId| {
+        let channel = Arc::clone(&channel);
+        let keys = keys.clone();
+        async move {
+            until("the wrapper is answered go", || {
+                sent_requests(&channel, &keys, party) == acknowledged_and_go()
+            })
+            .await;
+        }
+    };
+
+    // A relayed command gets no window.
+    let (relayed, relayed_keys, ready) = started_party(None);
+    write_party_record(
+        &channel,
+        &relayed_keys,
+        ready[0],
+        1,
+        &starting(Some("process-1")),
+    );
+    answered_go(&relayed_keys, ready[0]).await;
+    no_call(&mut called, "a relayed command opened a window").await;
+
+    // A line's failed open still answers go, and the wrapper under it opens none.
+    let nested_keys = ChannelKem::gen_keypair();
+    let (outer, outer_keys, ready) = started_party(Some(&nested_keys));
+    let outer_id = outer.id();
+    let nested_id = *ready
+        .iter()
+        .find(|id| **id != outer_id)
+        .expect("the nested party is ready");
+    write_party_record(&channel, &outer_keys, outer_id, 1, &starting(None));
+    assert_eq!(next_call(&mut called).await, CaptureCall::Open(outer_id));
+    answered_go(&outer_keys, outer_id).await;
+    write_party_record(&channel, &nested_keys, nested_id, 1, &starting(None));
+    answered_go(&nested_keys, nested_id).await;
+    no_call(&mut called, "a nested wrapper opened a window").await;
+    follower.abort();
+
+    // With no capture registered a line is answered go at once.
+    let watch = channel.watch().await.expect("the channel is watched");
+    let follower = tokio::spawn(follow_channel_records(
+        session(),
+        None,
+        Arc::clone(&channel),
+        watch,
+        Arc::clone(&sets),
+        Arc::new(NoTerminals),
+        unregistered_capture(),
+    ));
+    let (line, line_keys, ready) = started_party(None);
+    write_party_record(&channel, &line_keys, ready[0], 1, &starting(None));
+    answered_go(&line_keys, ready[0]).await;
+    follower.abort();
+    for party in [relayed, outer, line] {
+        end_party(party);
+    }
 }

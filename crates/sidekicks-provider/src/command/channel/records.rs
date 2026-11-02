@@ -1,11 +1,12 @@
 //! What a conversation's channel records do to its session's running set: a wrapper's start pairs
-//! it with its row and is answered `go` at once, the file its command's standard output writes to
-//! is tailed as that row's output once it pairs, its terminal's readings feed the row's waiting
-//! checks, its exit settles the row's exit code, and an askpass's prompt opens on the row of the
-//! wrapper above it, answered empty at once where no wrapper is. A wrapper started under another is
-//! answered `go` and pairs with nothing. A wrapper is let go at its exit, or at its process's end
-//! where it died before saying so or is nested; an askpass at its process's end, which closes its
-//! prompt where no one answered it.
+//! it with its row and is acknowledged at once, then answered `go` once the capture window of its
+//! line's command is open, or at once where it gets none, the file its command's standard output
+//! writes to is tailed as that row's output once it pairs, its terminal's readings feed the row's
+//! waiting checks, its exit settles the row's exit code and closes its window, and an askpass's
+//! prompt opens on the row of the wrapper above it, answered empty at once where no wrapper is. A
+//! wrapper started under another is answered `go` and pairs with nothing. A wrapper is let go at
+//! its exit, or at its process's end where it died before saying so or is nested; an askpass at its
+//! process's end, which closes its prompt where no one answered it.
 
 use std::collections::HashMap;
 use std::io::{self, ErrorKind};
@@ -18,6 +19,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_platforms::{FileAppendWatch, FolderArrivalWatch, InputTerminal};
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::utf8_stream::Utf8StreamDecoder;
 use sidekicks_workspace::askpass_prompt::is_masked_prompt;
 use tokio::sync::{mpsc, watch};
@@ -28,6 +30,7 @@ use crate::command::channel::{
 };
 use crate::command::running_set::{PromptAnswer, RunningCommandSets, WrapperCommand};
 use crate::command::waiting_checks::{InputWaitReader, WaitingChecks};
+use crate::port::command_capture::{CommandCapture, CommandWindowEnd, CommandWindowStart};
 
 #[cfg(test)]
 mod tests;
@@ -44,6 +47,20 @@ struct FollowedWrapper {
     /// Which following of its id this is, so the end of a process whose id it reused is told
     /// apart.
     following: u64,
+    /// The calls on its command's capture window, which the window's own task makes in order;
+    /// `None` where it has no window or the window was closed. Dropped unclosed, the window
+    /// closes untold.
+    window: Option<mpsc::UnboundedSender<WindowCall>>,
+    /// Whether the wrapper said its command began.
+    has_begun: bool,
+}
+
+/// A call on a command's capture window, in the order its wrapper's records came.
+enum WindowCall {
+    /// The command began, covered or not.
+    Began { is_covered: bool },
+    /// The command ended as this says; the window's last call.
+    Close(CommandWindowEnd),
 }
 
 /// What the daemon holds of one askpass while its prompt is open: the wrapper whose row shows it,
@@ -59,8 +76,9 @@ type EndedParty = (PartyId, u64);
 
 /// Follows `channel`'s records, which `watch` made before the provider started reports, into
 /// `session_id`'s rows in `set` of the process the channel serves, the one that runs `apart_run`
-/// alone or, for `None`, the session's own, the waiting checks reading through `waits`, until the
-/// watch fails, with its error.
+/// alone or, for `None`, the session's own, the waiting checks reading through `waits` and each
+/// line's command captured through `capture` once it is registered, until the watch fails, with
+/// its error.
 pub(crate) async fn follow_channel_records(
     session_id: SessionId,
     apart_run: Option<RunId>,
@@ -68,6 +86,7 @@ pub(crate) async fn follow_channel_records(
     mut watch: FolderArrivalWatch,
     set: Arc<RunningCommandSets>,
     waits: Arc<dyn InputWaitReader>,
+    capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
 ) -> io::Result<()> {
     // Bounded by the parties followed: each sends its end once, and its watch is stopped when an
     // `Exited` lets it go first.
@@ -78,6 +97,7 @@ pub(crate) async fn follow_channel_records(
         channel,
         set,
         waits,
+        capture,
         wrappers: HashMap::new(),
         askpasses: HashMap::new(),
         process_ended,
@@ -105,6 +125,8 @@ struct RecordFollower {
     channel: Arc<CommandChannel>,
     set: Arc<RunningCommandSets>,
     waits: Arc<dyn InputWaitReader>,
+    /// The capture each line's command opens a window on, once registered.
+    capture: Arc<PortRegistration<Arc<dyn CommandCapture>>>,
     wrappers: HashMap<PartyId, FollowedWrapper>,
     askpasses: HashMap<PartyId, FollowedAskpass>,
     /// Takes each followed party whose process ended, at most one entry per party followed.
@@ -124,15 +146,37 @@ impl RecordFollower {
                 stdout_path,
                 process,
             } => {
-                // A wrapper under another runs part of that one's command: it pairs with no row and
-                // shows no output, and is followed only until its process ends.
+                send_request(&self.channel, party, &DaemonRequest::Acknowledged {}).await;
+                // Only an agent's own line is captured: a relayed command is captured by its relay,
+                // and a wrapper under another runs part of that one's command.
+                let capture = self
+                    .capture
+                    .port()
+                    .filter(|_| !received.is_nested && process.is_none());
+                let window = if let Some(capture) = capture {
+                    Some(open_window(
+                        Arc::clone(capture),
+                        CommandWindowStart {
+                            session_id,
+                            apart_run: self.apart_run,
+                            party,
+                            command: command.clone(),
+                            stdout_path: stdout_path.clone(),
+                        },
+                        Arc::clone(&self.channel),
+                    ))
+                } else {
+                    send_request(&self.channel, party, &DaemonRequest::Go {}).await;
+                    None
+                };
+                // A wrapper under another pairs with no row and shows no output, and is followed
+                // only until its process ends.
                 let paired = (!received.is_nested).then(|| {
                     let command =
                         process.map_or(WrapperCommand::Line(command), WrapperCommand::Process);
                     self.set
                         .wrapper_started(session_id, party, self.apart_run, command)
                 });
-                send_request(&self.channel, party, &DaemonRequest::Go {}).await;
                 let (exited, ended) = watch::channel(false);
                 let tail = paired.zip(stdout_path).map(|(paired, path)| {
                     let set = Arc::clone(&self.set);
@@ -148,8 +192,20 @@ impl RecordFollower {
                         last_output_tail: String::new(),
                         process_end,
                         following,
+                        window,
+                        has_begun: false,
                     },
                 );
+            }
+            PartyRecord::Began { is_covered } => {
+                if let Some(wrapper) = self.wrappers.get_mut(&party) {
+                    wrapper.has_begun = true;
+                    if let Some(window) = &wrapper.window {
+                        window
+                            .send(WindowCall::Began { is_covered })
+                            .unwrap_or_default();
+                    }
+                }
             }
             PartyRecord::Terminal {
                 device,
@@ -171,10 +227,11 @@ impl RecordFollower {
                 }
                 checks.terminal_read(InputTerminal { device, master }, output_tail);
             }
-            PartyRecord::Exited { exit_code, .. } => {
-                let exit_code: Option<ExitCode> =
+            PartyRecord::Exited { exit_code, signal } => {
+                let row_exit_code: Option<ExitCode> =
                     exit_code.and_then(|code| SafeSignedInt::new(i64::from(code)));
-                self.set.wrapper_exited(session_id, party, exit_code);
+                self.set.wrapper_exited(session_id, party, row_exit_code);
+                self.close_window(party, CommandWindowEnd::Exited { exit_code, signal });
                 self.release(party).await;
             }
             PartyRecord::Warning { message } => {
@@ -189,6 +246,13 @@ impl RecordFollower {
                     party,
                     "a command wrapper ended its command's terminal session"
                 );
+                if self
+                    .wrappers
+                    .get(&party)
+                    .is_some_and(|wrapper| !wrapper.has_begun)
+                {
+                    self.close_window(party, CommandWindowEnd::Unrun);
+                }
             }
             PartyRecord::Asking {} => {
                 let prompt = received.first_argument.and_then(NonEmptyText::new);
@@ -217,6 +281,17 @@ impl RecordFollower {
                     process_end.abort();
                 }
             }
+        }
+    }
+
+    // Closes the wrapper `party`'s capture window, where it has one still open, as `end` says.
+    fn close_window(&mut self, party: PartyId, end: CommandWindowEnd) {
+        if let Some(window) = self
+            .wrappers
+            .get_mut(&party)
+            .and_then(|wrapper| wrapper.window.take())
+        {
+            window.send(WindowCall::Close(end)).unwrap_or_default();
         }
     }
 
@@ -304,7 +379,45 @@ impl RecordFollower {
     }
 }
 
-// Sends `request` to `party`, logging a failure: the party then waits out its own timeout.
+// Opens `start`'s capture window on a task of its own, which answers the wrapper `go` once the open
+// settled, opened or not, then makes the window's calls in the order they are sent, and closes it
+// untold where they end unclosed. Bounded by the wrapper's records: one `Began` and one close.
+fn open_window(
+    capture: Arc<dyn CommandCapture>,
+    start: CommandWindowStart,
+    channel: Arc<CommandChannel>,
+) -> mpsc::UnboundedSender<WindowCall> {
+    let (calls, mut waiting_calls) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let party = start.party;
+        let opened = capture.open_window(start).await;
+        send_request(&channel, party, &DaemonRequest::Go {}).await;
+        let window = match opened {
+            Ok(window) => window,
+            Err(error) => {
+                tracing::warn!(
+                    party,
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a command runs with no capture window"
+                );
+                return;
+            }
+        };
+        while let Some(call) = waiting_calls.recv().await {
+            match call {
+                WindowCall::Began { is_covered } => {
+                    capture.command_began(&window, is_covered).await;
+                }
+                WindowCall::Close(end) => return capture.close_window(window, end).await,
+            }
+        }
+        capture.close_window(window, CommandWindowEnd::Untold).await;
+    });
+    calls
+}
+
+// Sends `request` to `party`, logging a failure: a wrapper left waiting for its `go` runs once its
+// own wait or the provider's ends.
 async fn send_request(channel: &CommandChannel, party: PartyId, request: &DaemonRequest) {
     if let Err(error) = channel.send_request(party, request).await {
         tracing::warn!(

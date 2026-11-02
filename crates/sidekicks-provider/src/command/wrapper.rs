@@ -45,8 +45,13 @@ pub fn command_wrapper_program_path(program_link_folder: &Path) -> PathBuf {
 /// provider's line shape.
 pub(crate) const COMMAND_PROVIDER_VARIABLE: &str = "SIDEKICKS_COMMAND_PROVIDER";
 
-/// How long the wrapper waits for the daemon's `go` before it runs the command uncovered.
-const GO_WAIT: Duration = Duration::from_secs(10);
+/// How long the wrapper waits for the daemon's acknowledgment of its `Starting` before it runs the
+/// command uncovered: ten seconds, and two in a test build, so a test outwaits it.
+const GO_WAIT: Duration = if cfg!(test) {
+    Duration::from_secs(2)
+} else {
+    Duration::from_secs(10)
+};
 
 /// The flags the relay writes ahead of a relayed command's own words, and the inner mode's flag.
 const CONVERSATION_FLAG: &str = "--conversation";
@@ -382,8 +387,9 @@ fn pass_signals_to_group(state: &SharedState, records: &SharedRecords) {
 }
 
 /// Runs a provider's line for an agent's `command` with `shell`: its signals passed on from the
-/// start, told to the daemon, started once the daemon answers `go` or ten seconds pass, and its end
-/// told.
+/// start, told to the daemon, started once the daemon answers `go`, or uncovered where no
+/// acknowledgment comes within [`GO_WAIT`], and its end told; the daemon's stop before `go` ends
+/// the wrapper unrun.
 fn run_line_command(
     process_arguments: &[OsString],
     shell: &Path,
@@ -403,35 +409,72 @@ fn run_line_command(
         },
     );
     if let Some(mut requests) = requests {
-        let deadline = Instant::now() + GO_WAIT;
-        loop {
-            match requests.next_request(Some(deadline)) {
-                Ok(Some(DaemonRequest::Go {})) => break,
-                Ok(Some(DaemonRequest::Answer { .. } | DaemonRequest::Stop {})) => {}
-                Ok(None) => {
-                    write_error_line(
-                        "sidekicks-command-wrapper: the daemon did not answer go in time, so the \
-                         command runs uncovered",
-                    );
-                    break;
-                }
-                Err(RequestError::Unreadable(error)) => {
-                    note(
-                        &records,
-                        &format!("lost a request from the daemon: {error}"),
-                    );
-                }
-                Err(RequestError::Watch(error)) => {
-                    write_error_line(&format!(
-                        "sidekicks-command-wrapper could not read its requests, so the command \
-                         runs uncovered: {error}"
-                    ));
-                    break;
-                }
+        match wait_for_go(&mut requests, &records) {
+            GoWait::Go { is_covered } => {
+                send_record(&records, &PartyRecord::Began { is_covered });
+            }
+            GoWait::Stopped => {
+                // Held while it ends, so a signal's `Exited` never follows the `Stopped`.
+                let _state = lock(&state);
+                send_record(&records, &PartyRecord::Stopped {});
+                return end_as_stopped();
             }
         }
     }
     run_child(shell_line(shell, line), &state, &records, None)
+}
+
+/// How the wrapper's wait for the daemon's `go` ended.
+enum GoWait {
+    /// The command runs: covered where the daemon answered `go`.
+    Go { is_covered: bool },
+    /// The daemon's stop came first, so the command never runs.
+    Stopped,
+}
+
+/// Waits for the daemon's `go` in `requests`: up to [`GO_WAIT`] until its acknowledgment comes,
+/// then with no deadline, which the provider's own timeout on the call bounds. A request that
+/// cannot be read is told through `records` and the wait goes on.
+fn wait_for_go(requests: &mut PartyRequests, records: &Mutex<Option<PartyRecords>>) -> GoWait {
+    let mut deadline = Some(Instant::now() + GO_WAIT);
+    loop {
+        match requests.next_request(deadline) {
+            Ok(Some(DaemonRequest::Go {})) => return GoWait::Go { is_covered: true },
+            Ok(Some(DaemonRequest::Acknowledged {})) => deadline = None,
+            Ok(Some(DaemonRequest::Stop {})) => return GoWait::Stopped,
+            Ok(Some(DaemonRequest::Answer { .. })) => {}
+            Ok(None) => {
+                write_error_line(
+                    "sidekicks-command-wrapper: the daemon did not answer in time, so the command \
+                     runs uncovered",
+                );
+                return GoWait::Go { is_covered: false };
+            }
+            Err(RequestError::Unreadable(error)) => {
+                note(records, &format!("lost a request from the daemon: {error}"));
+            }
+            Err(RequestError::Watch(error)) => {
+                write_error_line(&format!(
+                    "sidekicks-command-wrapper could not read its requests, so the command \
+                     runs uncovered: {error}"
+                ));
+                return GoWait::Go { is_covered: false };
+            }
+        }
+    }
+}
+
+/// Ends the wrapper whose command the daemon stopped before it ran, as the daemon's stop of a
+/// running command ends it: by a kill, or where that cannot be raised, with the code a shell reads
+/// for one.
+fn end_as_stopped() -> ExitCode {
+    let error = end_by_stop_signal(TerminalSignal::Kill);
+    write_error_line(&format!(
+        "sidekicks-command-wrapper could not end by its stop: {error}"
+    ));
+    stop_signal_number(TerminalSignal::Kill)
+        .and_then(|number| u8::try_from(128 + number).ok())
+        .map_or(ExitCode::FAILURE, ExitCode::from)
 }
 
 /// Starts `command` as the wrapper's child leading a process group of its own, follows the
@@ -544,7 +587,14 @@ fn follow_stops(
                             ));
                         }
                     }
-                    Ok(Some(DaemonRequest::Go {} | DaemonRequest::Answer { .. }) | None) => {}
+                    Ok(
+                        Some(
+                            DaemonRequest::Acknowledged {}
+                            | DaemonRequest::Go {}
+                            | DaemonRequest::Answer { .. },
+                        )
+                        | None,
+                    ) => {}
                     Err(RequestError::Unreadable(error)) => {
                         note(
                             &records,

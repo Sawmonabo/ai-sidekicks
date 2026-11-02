@@ -11,9 +11,9 @@ use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::harness_test_name;
 
 use super::{
-    ChannelKem, ChannelPrivateKey, ChannelPublicKey, CommandChannel, Direction,
-    PARTY_KEY_ARGUMENT_PREFIX, PartyId, PartyRecord, REQUESTS_FOLDER, public_key_hex,
-    record_context, record_name, seal, write_record,
+    ChannelKem, ChannelPrivateKey, ChannelPublicKey, CommandChannel, DaemonRequest, Direction,
+    PARTY_KEY_ARGUMENT_PREFIX, PartyId, PartyRecord, REQUESTS_FOLDER, open, parse_record_name,
+    public_key_hex, record_context, record_name, seal, write_record,
 };
 
 /// The process a test starts as a party: it prints `ready <its id>`, starts a party of its own
@@ -136,9 +136,32 @@ pub(crate) fn write_party_record(
         .expect("the record writes");
 }
 
-/// The names of the requests `channel` sent its parties that they have not taken.
-pub(crate) fn sent_requests(channel: &CommandChannel) -> Vec<String> {
-    names_in(&channel.folder.join(REQUESTS_FOLDER))
+/// The requests `channel` sent `party` that it has not taken, opened with its `keys`, in the order
+/// they were sent; one removed while they are read is left out.
+pub(crate) fn sent_requests(
+    channel: &CommandChannel,
+    keys: &KeyPair,
+    party: PartyId,
+) -> Vec<DaemonRequest> {
+    let folder = channel.folder.join(REQUESTS_FOLDER);
+    let mut sent: Vec<(u64, std::path::PathBuf)> = std::fs::read_dir(&folder)
+        .expect("the requests list")
+        .map(|entry| entry.expect("an entry").path())
+        .filter_map(|path| {
+            parse_record_name(&path)
+                .filter(|(addressed, _)| *addressed == party)
+                .map(|(_, sequence)| (sequence, path))
+        })
+        .collect();
+    sent.sort();
+    sent.into_iter()
+        .filter_map(|(sequence, path)| {
+            let sealed = std::fs::read(path).ok()?;
+            let context = record_context(Direction::ToParty, party, sequence);
+            let plaintext = open(&keys.0, &channel.keys.1, &context, &sealed).expect("it opens");
+            Some(serde_json::from_slice(&plaintext).expect("a request parses"))
+        })
+        .collect()
 }
 
 #[test]
