@@ -14,7 +14,7 @@ use crate::client::dispatch::tests::{
 };
 use crate::client::dispatch::{McpCallCompletionError, McpToolDispatchError};
 use crate::client::tasks::McpTaskContact::{
-    CancelRefused, Lost, NotConfigured, Reached, Reconfigured,
+    AnsweredWithErrors, CancelRefused, ErrorsPersisted, Lost, NotConfigured, Reached, Reconfigured,
 };
 use crate::client::tasks::{McpServerEndpoint, McpToolCallEnd};
 use crate::client::test_server::{
@@ -386,6 +386,58 @@ async fn a_task_whose_connection_ends_with_no_reconnect_reads_lost_after_300_s()
                 "lost only after 300 s, not {:?}",
                 closed_at.elapsed()
             );
+            feed.close().await;
+        },
+    );
+    let (end, written) = dispatched.expect("the call is dispatched").complete().await;
+
+    assert_eq!(
+        end.expect("the call ends"),
+        McpToolCallEnd::ConnectionClosed
+    );
+    assert!(matches!(written, Err(McpCallCompletionError::Settled)));
+    assert_eq!(fixture.receipts(), [address_task_receipt("unknown", true)]);
+}
+
+// Mutation: in `wait_for_connection`, write `Lost` at 300 s whatever cause the contact held, so it
+// never reads `ErrorsPersisted`.
+#[tokio::test(start_paused = true)]
+async fn a_task_whose_server_answered_errors_reads_errors_persisted_when_its_wait_passes_300_s() {
+    let fixture = fixture_at_address().await;
+    let (standing, feed) = McpStandingConnection::new(CancellationToken::new());
+    let (opened, _server) = fixture
+        .open(
+            task_server(|method, earlier| match (method, earlier) {
+                ("tasks/get", 0) => v1_status_reply("working"),
+                ("tasks/get", _) => Reply::Answer(
+                    json!({ "error": { "code": -32603, "message": "Internal error" } }),
+                ),
+                _ => method_not_found(),
+            }),
+            fixture.address.as_ref(),
+        )
+        .await;
+    let connection = Arc::new(opened);
+    feed.publish(Some(Arc::clone(&connection)));
+    let contact = contact();
+    let uncanceled = CancellationToken::new();
+
+    let (dispatched, ()) = tokio::join!(
+        fixture
+            .dispatch
+            .call(&standing, track_call(), &contact, &uncanceled),
+        async {
+            until(|| *contact.borrow() == AnsweredWithErrors).await;
+            // Its transport ends on its own while the errors show: nothing replaces it.
+            connection.close().await;
+            let mut seen = contact.subscribe();
+            timeout(
+                Duration::from_secs(400),
+                seen.wait_for(|state| *state == ErrorsPersisted),
+            )
+            .await
+            .expect("the contact reads errors persisted")
+            .expect("the contact stays open");
             feed.close().await;
         },
     );

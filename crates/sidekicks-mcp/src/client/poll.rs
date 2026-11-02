@@ -391,8 +391,9 @@ fn log_failed_poll(failure_episode: &FailureEpisode, error: &(dyn Error + 'stati
     }
 }
 
-// The arm the standing cause picks once Lost's clock reaches 300 s.
-fn cause_at_contact_lost(cause: McpTaskContact) -> McpTaskContact {
+/// The arm a standing `cause` turns into once Lost's clock reaches 300 s: a refused sign-in and
+/// error answers keep their own reason, and every other cause reads `Lost`.
+pub(super) fn cause_at_contact_lost(cause: McpTaskContact) -> McpTaskContact {
     match cause {
         McpTaskContact::NeedsSignIn | McpTaskContact::SignInNotAccepted => {
             McpTaskContact::SignInNotAccepted

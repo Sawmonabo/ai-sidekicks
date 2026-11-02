@@ -7,8 +7,9 @@
 //! - While it waits, the contact reads why no connection of the task's endpoint is live, read
 //!   again at each publication: none is (`NotConfigured`), or the live one reaches another address
 //!   (`Reconfigured`). While the connection that ended is still the one published, as when its
-//!   transport ended on its own, nothing reaches the server, so the contact reads `Lost` once the
-//!   wait has lasted 300 s. The re-bind writes back the arm the contact held before.
+//!   transport ended on its own, nothing reaches the server, so once the wait has lasted 300 s the
+//!   contact reads what a failed poll then reads: a sign-in not accepted, errors that persisted, or
+//!   `Lost`. The re-bind writes back the arm the contact held before.
 //! - The wait never times out. The session's close ends it with the end unknown, which the
 //!   dispatch writes; the caller's cancel ends it unknown for the caller to write, as a live end,
 //!   so a backgrounded call's hand-off stays owed; the client's stop ends it writing nothing. A
@@ -33,7 +34,7 @@ use crate::client::connection::standing::{
 use crate::client::dispatch::{
     CallHandleSink, CallRace, McpDispatchedCall, McpToolDispatch, McpToolDispatchError, race_call,
 };
-use crate::client::poll::CONTACT_LOST_AFTER;
+use crate::client::poll::{CONTACT_LOST_AFTER, cause_at_contact_lost};
 use crate::client::tasks::{
     McpServerEndpoint, McpTaskContact, McpTaskGeneration, McpTaskResumption, McpToolCallEnd,
     McpToolCallError,
@@ -203,8 +204,8 @@ async fn wait_for_replacement(
 }
 
 /// Waits for a live connection other than `after` that reaches `endpoint`, `contact` reading
-/// meanwhile why none is, read again at each publication, `Lost` once 300 s pass while `after` is
-/// still the one published, and, once one is, the arm it held before. A wait that ends otherwise
+/// meanwhile why none is, read again at each publication, the arm the cause it held picks once
+/// 300 s pass while `after` is still the one published, and, once one is, the arm it held before. A wait that ends otherwise
 /// gives the race its end unknown: written by the dispatch at the session's close and by the
 /// caller at its cancel, and nothing written at the client's stop.
 async fn wait_for_connection(
@@ -220,8 +221,9 @@ async fn wait_for_connection(
         let arm = match absence {
             Some(McpConnectionAbsence::NotConfigured) => McpTaskContact::NotConfigured,
             Some(McpConnectionAbsence::Reconfigured) => McpTaskContact::Reconfigured,
-            // The connection that ended is still published, so nothing reaches the server.
-            None if Instant::now() >= lost_at => McpTaskContact::Lost,
+            // The connection that ended is still published, so nothing reaches the server; the
+            // cause the contact held picks the arm, as a follow's own failed poll does.
+            None if Instant::now() >= lost_at => cause_at_contact_lost(held),
             None => held,
         };
         contact.send_if_modified(|state| {
