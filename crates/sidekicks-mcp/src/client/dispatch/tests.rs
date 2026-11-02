@@ -272,10 +272,10 @@ async fn a_call_dropped_unanswered_leaves_its_receipt_claimed_without_a_task() {
     );
 }
 
-// Mutations: in `call`, send no `tasks/cancel` at the caller's cancel of a held task, or end the
-// follow there; in `cancel_followed_task`, leave a refused cancel's contact `Reached`; in
-// `outcome_of`, write `failed` for every end a cancel reached; in `follow_task`, write `Reached`
-// over the refused cancel at the poll that reads the end.
+// Mutations: in `call`, send no `tasks/cancel` at the caller's cancel of a held task, end the
+// follow there, or write `failed` for a canceled task's end whatever the follow reached; in
+// `cancel_followed_task`, leave a refused cancel's contact `Reached`; in `follow_task`, write
+// `Reached` over the refused cancel at the poll that reads the end.
 #[rstest::rstest]
 #[case::taken(
     true,
