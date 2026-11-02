@@ -4,8 +4,9 @@
 //! its socket really is and whether it was asked to drain, in a folder per Codex folder under the
 //! daemon's data folder, never in the Codex folder itself; each is replaced whole through a
 //! temporary file and read or written only under the one lock of its Codex folder's records, so two
-//! daemons never start two services on one socket. The lock's file is never removed: a lock follows the open file, so
-//! removing a file someone waits on would hand the next taker a lock on another file.
+//! daemons never start two services on one socket. The lock's file is never removed: a lock follows
+//! the open file, so removing a file someone waits on would hand the next taker a lock on another
+//! file.
 
 use std::fs::{File, OpenOptions};
 use std::io;

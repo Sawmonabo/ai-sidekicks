@@ -20,8 +20,9 @@ pub(crate) struct OpenArgs {
 }
 
 /// Opens the address through the system and answers success. Fails with clap's usage refusal
-/// when the argument is not a `sidekicks://` address, with `CommandFailure::AddressHandlerMissing` when no
-/// app is registered for one, and as the system's call fails otherwise.
+/// when the argument is not a `sidekicks://` address, with
+/// `CommandFailure::AddressHandlerMissing` when no app is registered for one, and as the system's
+/// call fails otherwise.
 pub(crate) fn open(args: &OpenArgs) -> anyhow::Result<ExitCode> {
     open_with(&args.address, sidekicks_platforms::open_address)
 }

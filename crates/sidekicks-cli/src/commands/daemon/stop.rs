@@ -71,9 +71,9 @@ enum TerminalSessionCount {
 }
 
 /// Stops the background service once the person confirms, and answers 0: the outcome's line on
-/// stdout, nothing for a no. Fails with `CommandFailure::ConfirmationUnavailable` with no terminal and no
-/// `--yes`, `ClientError::Canceled` after a Ctrl-C, as the connect fails other than as a stopped
-/// or starting service's does, and as the ending or a write fails.
+/// stdout, nothing for a no. Fails with `CommandFailure::ConfirmationUnavailable` with no terminal
+/// and no `--yes`, `ClientError::Canceled` after a Ctrl-C, as the connect fails other than as a
+/// stopped or starting service's does, and as the ending or a write fails.
 pub(crate) fn stop<Output: Write, ErrorOutput: Write>(
     args: &StopArgs,
     context: &mut CommandContext<Output, ErrorOutput>,

@@ -24,9 +24,9 @@ pub(crate) struct ConfirmationArgs {
 
 /// Asks `sentence` on `prompt` and answers whether the person said yes; `--yes` answers yes with
 /// nothing asked. The line is read on a thread of its own, so a Ctrl-C that cancels `cancel`
-/// ends the wait. Fails with `CommandFailure::ConfirmationUnavailable` when stdin is not a terminal and
-/// `--yes` was not given, with `ClientError::Canceled` after a Ctrl-C, and when the prompt cannot
-/// be written or the answer read.
+/// ends the wait. Fails with `CommandFailure::ConfirmationUnavailable` when stdin is not a
+/// terminal and `--yes` was not given, with `ClientError::Canceled` after a Ctrl-C, and when the
+/// prompt cannot be written or the answer read.
 pub(crate) async fn confirm(
     sentence: &str,
     args: &ConfirmationArgs,
