@@ -505,6 +505,11 @@ macro_rules! either_arm {
 }
 
 impl ProviderAccount {
+    /// The account's id.
+    pub fn account_id(&self) -> &ProviderAccountId {
+        either_arm!(self, |account| &account.account_id)
+    }
+
     /// Whether this is the provider's default account.
     pub fn is_default(&self) -> bool {
         either_arm!(self, |account| account.is_default)

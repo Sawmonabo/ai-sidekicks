@@ -1,5 +1,4 @@
 use rusqlite::params;
-use serde_json::Value;
 use sidekicks_client::daemon_connection::{DaemonConnection, DaemonEndpoint};
 use sidekicks_contracts::provider::account::methods::ProviderAccountList;
 use sidekicks_contracts::provider::account::record::ProviderAccountListRequest;
@@ -71,12 +70,10 @@ async fn a_client_lists_the_provider_accounts_the_registry_holds() {
         .expect("the daemon's stop fails nothing");
 
     let listed = listed.expect("the list answers");
-    let accounts = serde_json::to_value(&listed.accounts).expect("the accounts write");
-    let account_ids: Vec<&Value> = accounts
-        .as_array()
-        .expect("the accounts are a list")
+    let account_ids: Vec<&str> = listed
+        .accounts
         .iter()
-        .map(|account| &account["accountId"])
+        .map(|account| account.account_id().as_str())
         .collect();
-    assert_eq!(account_ids, [&Value::from(ACCOUNT_ID)]);
+    assert_eq!(account_ids, [ACCOUNT_ID]);
 }
