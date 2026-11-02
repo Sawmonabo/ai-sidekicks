@@ -39,7 +39,10 @@ use crate::wire::{NullableSchema, nullable};
 
 mod provider;
 
-pub use provider::{ProviderRowValue, ProviderRowValues, ProviderSettingValues};
+pub use provider::{
+    ProviderCommandPath, ProviderCommandPaths, ProviderCommandValues, ProviderKnobValues,
+    ProviderKnobs, ProviderRowValue, ProviderRowValues, ProviderSettingValues,
+};
 
 ts_constants! {
     /// Where the file sits, relative to the person's home folder.
@@ -451,6 +454,15 @@ pub struct MachineSettings {
     /// `provider.update` and passed to the app's own sessions; empty until one is set, while each
     /// provider's own values are followed.
     pub provider_settings: ProviderSettingValues,
+    /// Each provider's `Command` path per place, written by `provider.update`; a place without one
+    /// auto-detects, and a file without the member reads none.
+    #[serde(default)]
+    pub provider_commands: ProviderCommandValues,
+    /// Each provider's availability, helper limit and compaction threshold, written by
+    /// `provider.update`; a knob unset reads as its default, and a file without the member reads
+    /// none set.
+    #[serde(default)]
+    pub provider_knobs: ProviderKnobValues,
     /// `Commit and pull request text`; `null` is `Automatic`, the session's provider and its
     /// lowest-priced model.
     #[serde(deserialize_with = "nullable")]
@@ -506,6 +518,8 @@ impl Default for MachineSettings {
             keep_crash_reports: true,
             editor_id: None,
             provider_settings: Record::default(),
+            provider_commands: Record::default(),
+            provider_knobs: Record::default(),
             commit_text_model: None,
             default_checkout: ExecutionMode::ProvisionedWorktree,
             new_session_carries_last_model: true,
@@ -760,6 +774,8 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<LastLeadModel>(),
         Definition::read::<CommitTextModel>(),
         Definition::read::<ProviderRowValue>(),
+        Definition::read::<ProviderCommandPath>(),
+        Definition::read::<ProviderKnobs>(),
         Definition::read::<MachineSettings>().checked(),
         Definition::read::<MachineSettingsChange>().checked(),
         Definition::read::<SettingsFileRepairCause>(),
