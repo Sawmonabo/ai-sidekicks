@@ -49,9 +49,9 @@ use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
 use crate::driver::child_records::UnrecordedChildren;
 pub use crate::driver::codex::{
-    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, ScriptedCodexService,
-    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
-    write_codex_service_script,
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, RESUMED_TURN_NAME,
+    ScriptedCodexService, serve_as_codex_service_stand_in, stand_in_codex_service,
+    start_scripted_codex_service, write_codex_service_script,
 };
 use crate::driver::contract::ProviderDriver;
 use crate::driver::ports::DriverPorts;

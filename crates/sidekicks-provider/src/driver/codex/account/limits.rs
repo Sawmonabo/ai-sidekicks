@@ -42,7 +42,7 @@ pub(super) async fn observe_codex_limits(
     folders: ProviderAccountFolders,
 ) -> Result<ProviderObservation, DriverError> {
     let account = legs
-        .accounts
+        .accounts()?
         .read(provider_account_id.clone())
         .await
         .map_err(|error| DriverError::Internal(Box::new(error)))?;
@@ -79,7 +79,7 @@ pub(super) async fn observe_codex_limits(
         LimitsRead::Refused(observation) => (observation, None),
     };
     if let Some(reset_credits) = reset_credits {
-        legs.accounts
+        legs.accounts()?
             .record_reset_credits(&provider_account_id, reset_credits)
             .await
             .map_err(|error| DriverError::Internal(Box::new(error)))?;

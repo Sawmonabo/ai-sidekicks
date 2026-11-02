@@ -28,6 +28,7 @@ use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::DriverServices;
 use crate::driver::attachments::AttachmentResolver;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::account::ClaudeAccountLegs;
 use crate::driver::claude::account_credentials::ClaudeSignInReader;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeCommandPrograms};
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
@@ -98,6 +99,8 @@ pub(crate) struct ClaudeDriver {
     /// The model each account's latest limits read named for its weekly window over one model.
     pub(crate) usage_probe_models: Arc<ClaudeUsageProbeModels>,
     inbox_addresser: Arc<ClaudeRegisteredPlacesAddresser>,
+    /// Claude Code's own acts on one account's home, which the account plane runs.
+    pub(crate) account_legs: Arc<ClaudeAccountLegs>,
     // One capability read at a time, since each makes and removes the same folder.
     capability_read: tokio::sync::Mutex<()>,
     parts: OnceLock<Arc<ClaudeSessionParts>>,
@@ -226,6 +229,7 @@ impl ClaudeDriver {
             inbox_addresser: Arc::new(ClaudeRegisteredPlacesAddresser::new(Arc::clone(
                 &services.ports.session_places,
             ))),
+            account_legs: Arc::new(ClaudeAccountLegs::new(services)),
             capability_read: tokio::sync::Mutex::default(),
             parts: OnceLock::new(),
         }

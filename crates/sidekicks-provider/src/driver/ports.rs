@@ -15,6 +15,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::writer::DatabaseWriter;
 
+use crate::account::registry::ProviderAccountRegistry;
 use crate::callback_tools::host::CallbackToolHost;
 use crate::command::running_set::RunningCommandSets;
 use crate::driver::run_control::DaemonTurnBindingResolver;
@@ -133,6 +134,9 @@ pub struct DriverPorts {
     /// The reads of the accounts a provider runs on, their folders and credential generations; a
     /// driver that reads an account before it is registered fails that read.
     pub provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    /// The account registry, which a driver's account legs read an account's row from and keep
+    /// what a read observed in; a leg that reads it before it is registered fails its act.
+    pub provider_account_registry: Arc<PortRegistration<Arc<ProviderAccountRegistry>>>,
     /// The run engine.
     pub run_engine: Arc<PortRegistration<Arc<dyn RunHost>>>,
     /// The run engine's dispatch of what a provider delivers.
@@ -213,6 +217,7 @@ impl DriverPorts {
         Self {
             spawn_contexts: Arc::new(PortRegistration::new("spawn contexts")),
             provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
+            provider_account_registry: Arc::new(PortRegistration::new("provider account registry")),
             run_engine: Arc::new(PortRegistration::new("run engine")),
             inbound_dispatch: Arc::new(PortRegistration::new("inbound dispatch")),
             daemon_turn_bindings: Arc::new(PortRegistration::new("daemon turn bindings")),

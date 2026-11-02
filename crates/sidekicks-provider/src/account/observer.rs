@@ -44,6 +44,7 @@ use crate::account::observer::window_start::WindowStartTimers;
 use crate::account::registry::{
     HealthObservation, HealthObserver, ProviderAccountRegistry, RegisteredAccount,
 };
+use crate::account::sign_in::SignedInAccountWatcher;
 use crate::account::token_custody::{ProviderTokenCustody, TokenCustodyError};
 use crate::driver::contract::account::{
     ProviderObservation, ProviderObserveLegs, ProviderWindowTurnLegs,
@@ -393,6 +394,19 @@ impl ProviderAccountObserver {
                 shared.spawn_read(provider_account_id, ReadAsker::TurnEnd);
             }
         });
+    }
+}
+
+impl SignedInAccountWatcher for ProviderAccountObserver {
+    /// Watches the account as [`ProviderAccountObserver::watch`] does, its failure logged: it fails
+    /// only once the scheduler has stopped, which the daemon's stop does.
+    fn watch_signed_in(&self, account: &RegisteredAccount) {
+        if let Err(error) = self.watch(account) {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "a signed-in account is not observed"
+            );
+        }
     }
 }
 

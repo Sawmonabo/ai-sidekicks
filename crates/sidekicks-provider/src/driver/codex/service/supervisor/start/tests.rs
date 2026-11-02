@@ -26,7 +26,7 @@ use crate::driver::codex::service::process::{
 };
 use crate::driver::codex::service::record::{LastingServiceRecord, LastingServiceRecordFile};
 use crate::driver::codex::service::supervisor::test_service::{
-    TestCodexProgram, UnheardEvents, answer_as_codex_service, bind_test_listener,
+    StandInReplies, TestCodexProgram, UnheardEvents, answer_as_codex_service, bind_test_listener,
     next_socket_request, send_on_socket, test_codex_service_dependencies, write_failing_codex,
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
@@ -236,7 +236,11 @@ async fn a_start_on_a_free_listener_no_pid_file_names_joins_it() {
     };
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
-            tokio::spawn(answer_as_codex_service(stream, None, |_request| {}));
+            tokio::spawn(answer_as_codex_service(
+                stream,
+                StandInReplies::default(),
+                |_request| {},
+            ));
         }
     });
 

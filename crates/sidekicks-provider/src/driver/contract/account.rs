@@ -2,6 +2,8 @@
 //! own acts on one account's home, named for the act, so the plane reads one object per provider
 //! and never branches on which provider it is.
 
+use std::sync::Arc;
+
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use secrecy::SecretString;
@@ -38,6 +40,10 @@ pub trait ProviderAccountLegs: Send + Sync {
         provider_account_id: ProviderAccountId,
         folders: ProviderAccountFolders,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// These legs as the provider's limits read, which the background observer runs; `None` for a
+    /// provider with no limits read, whose accounts are then never observed.
+    fn observe_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderObserveLegs>>;
 }
 
 /// A provider's own interactive sign-in, run in one account's home: the flow's start, and the

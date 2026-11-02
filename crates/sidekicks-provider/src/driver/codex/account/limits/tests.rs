@@ -147,11 +147,13 @@ impl Fixture {
                 .register(Arc::clone(&recorded) as Arc<dyn UsageSink>)
                 .is_ok()
         );
+        let accounts = Arc::new(PortRegistration::new("provider account registry"));
+        assert!(accounts.register(Arc::new(registry)).is_ok());
         let legs = CodexAccountLegs::new(
             CodexServiceRegistry::holding_on(&scripted, Arc::new(other_home)),
             Arc::clone(&scripted.dependencies),
             CodexRateLimitFiling::new(usage),
-            Arc::new(registry),
+            accounts,
         );
         Self {
             legs,

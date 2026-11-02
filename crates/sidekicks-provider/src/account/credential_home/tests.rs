@@ -23,7 +23,7 @@ use crate::account::registry::{
     ProviderAccountRegistry,
 };
 use crate::driver::ProviderAccountFolders;
-use crate::driver::contract::account::ProviderAccountLegs;
+use crate::driver::contract::account::{ProviderAccountLegs, ProviderObserveLegs};
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
 
@@ -46,6 +46,10 @@ impl ProviderAccountLegs for RecordedSignOuts {
             .expect("the record is not poisoned")
             .push((provider_account_id, folders));
         Box::pin(async { Ok(()) })
+    }
+
+    fn observe_legs(self: Arc<Self>) -> Option<Arc<dyn ProviderObserveLegs>> {
+        None
     }
 }
 

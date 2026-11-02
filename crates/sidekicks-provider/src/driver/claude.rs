@@ -32,6 +32,7 @@ use crate::driver::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, read_claude_row_choice,
 };
 use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::account::ProviderAccountLegs;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
     ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
@@ -689,6 +690,10 @@ impl ProviderDriver for ClaudeDriver {
 
     fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>> {
         self.session_inbox_addresser()
+    }
+
+    fn account_legs(&self) -> Arc<dyn ProviderAccountLegs> {
+        Arc::clone(&self.account_legs) as _
     }
 
     fn forget_account(&self, provider_account_id: &ProviderAccountId) {
