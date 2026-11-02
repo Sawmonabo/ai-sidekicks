@@ -5,7 +5,8 @@
 //! session holds the cursors of its newest bindings alone. A binding minted for a resume of a
 //! session in a new process carries the cursor of the session's leg on, opened before the resume
 //! runs, since the resumed provider delivers under it at once. A cursor whose row is not written is
-//! forgotten, and an open whose session closes while it reads opens none.
+//! forgotten, and an open whose session closes while it reads opens none. An undo's confirmed cut
+//! is fenced here, where a fork's binding joins its run's cursors.
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -30,7 +31,7 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::events::session::followers::CommittedEvent;
 
-use crate::run::epochs::{EpochBinding, EpochCursorError, ExecutionEpochs};
+use crate::run::epochs::{ConfirmedCut, EpochBinding, EpochCursorError, ExecutionEpochs};
 use crate::run::read::{RunRead, RunStateReader};
 use crate::run::stored_leg::read_session_leg;
 use crate::run::stored_state_change::read_stored_run_state_change;
@@ -344,6 +345,37 @@ impl RunBindingCursors {
         sessions.forget(&mut lock(&self.epochs), binding_id);
     }
 
+    /// Sets the fence of `cut` once its rollback is written, so a delivery from before the cut is
+    /// told apart from the new epoch's. A fork and restart holds the fork's binding as the run's,
+    /// and the session's current one, so its cursor drops with the run's. Fails as
+    /// [`ExecutionEpochs::fence_cut`] fails, fencing nothing.
+    pub fn fence_cut(&self, cut: ConfirmedCut) -> Result<(), EpochCursorError> {
+        let mut sessions = self.lock_sessions();
+        let mut epochs = lock(&self.epochs);
+        let ConfirmedCut::ForkRestart {
+            binding_id,
+            new_binding_id,
+            ..
+        } = cut.clone()
+        else {
+            return epochs.fence_cut(cut);
+        };
+        let run_id = epochs.binding(&binding_id)?.run_id;
+        epochs.fence_cut(cut)?;
+        let session = sessions
+            .by_session
+            .values_mut()
+            .find(|session| {
+                session
+                    .binding_ids_by_run
+                    .get(&run_id)
+                    .is_some_and(|binding_ids| binding_ids.contains(&binding_id))
+            })
+            .expect("every open cursor is held by its session under the same two locks");
+        hold(session, run_id, new_binding_id);
+        Ok(())
+    }
+
     /// Takes a committed session event, on the writer's pump: a run's end marks its cursors to
     /// drop and its continue unmarks them; a close drops all, and an open or a continue of the
     /// session in flight opens none. Fails when a run state change's payload does not read as its
@@ -497,14 +529,17 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use serde_json::json;
+    use sidekicks_contracts::event::envelope::SourcePosition;
     use sidekicks_contracts::event::registry::SessionEventType;
     use sidekicks_contracts::event::session::SessionEvent;
     use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::state::RunState;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::transcript::turn_attribution::{EpochPosition, RUN_START_POSITION};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::integer::SafeInt;
+    use sidekicks_provider::run::delivery::DeliveryOperation;
     use sidekicks_provider::runtime_binding::store::CreateRuntimeBindingInput;
     use sidekicks_provider::runtime_binding::test_store::{
         binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
@@ -518,7 +553,7 @@ mod tests {
     use super::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursorError, RunBindingCursors};
     use crate::questions::schema::schema_parts;
     use crate::run::engine::test_fixture::insert_running_run;
-    use crate::run::epochs::ExecutionEpochs;
+    use crate::run::epochs::{ConfirmedCut, DeliveryAttribution, ExecutionEpochs};
 
     struct Harness {
         database: TestDatabase,
@@ -786,6 +821,75 @@ mod tests {
         assert!(
             harness.cursors.lock_sessions().in_flight.is_empty(),
             "no mark outlives the opens"
+        );
+    }
+
+    // Killed by the fence skipped, so the fork has no cursor and a delivery from before the cut
+    // reads as current, and by the fork's binding left out of its run's cursors, so it is not the
+    // session's current binding and its cursor outlives the session's close.
+    #[tokio::test]
+    async fn a_fenced_fork_opens_the_new_epoch_on_a_binding_its_run_holds() {
+        let harness = Harness::new().await;
+        let run_id = harness.run();
+        let cut_binding = harness.bind(run_id).await;
+        let fork_binding = binding_of(run_id).id;
+        let operation = |is_opening| {
+            Some(DeliveryOperation {
+                correlation_key: "call",
+                is_opening,
+            })
+        };
+        {
+            let mut epochs = harness
+                .epochs
+                .lock()
+                .expect("no test thread panics holding them");
+            epochs.open_turn(&cut_binding).expect("the cursor is open");
+            epochs
+                .attribute(&cut_binding, operation(true))
+                .expect("the cursor is open");
+        }
+
+        harness
+            .cursors
+            .fence_cut(ConfirmedCut::ForkRestart {
+                binding_id: cut_binding.clone(),
+                point: SourcePosition(SafeInt::new(1).expect("a small turn")),
+                new_binding_id: fork_binding.clone(),
+            })
+            .expect("the cut binding's cursor is open and not frozen");
+
+        {
+            let mut epochs = harness
+                .epochs
+                .lock()
+                .expect("no test thread panics holding them");
+            assert_eq!(
+                epochs
+                    .attribute(&cut_binding, operation(false))
+                    .expect("the cut binding's cursor stays open"),
+                DeliveryAttribution::BeforeCut {
+                    source: EpochPosition {
+                        epoch: RUN_START_POSITION.epoch,
+                        position: SourcePosition(SafeInt::new(1).expect("a small turn")),
+                    },
+                }
+            );
+            assert_eq!(
+                epochs
+                    .attribute(&fork_binding, None)
+                    .expect("the fork's cursor is open"),
+                DeliveryAttribution::Current
+            );
+        }
+        assert_eq!(
+            harness.cursors.current_binding(&harness.session_id),
+            Some(fork_binding.clone())
+        );
+        harness.hear_close();
+        assert!(
+            !harness.is_open(&fork_binding),
+            "the fork's cursor drops with its session"
         );
     }
 }

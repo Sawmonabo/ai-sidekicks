@@ -23,7 +23,8 @@ pub enum RunRefusal {
         run_id: RunId,
     },
     /// An `agent.run.pause` or `agent.run.resume` whose expected version is not the run's current
-    /// one, older or newer (`agent.run.versionStale`); the run is as it was.
+    /// one, older or newer, or a rollback whose run kept moving past each version it read
+    /// (`agent.run.versionStale`); the run is as it was.
     #[error("The run's version is not the one the call expected")]
     VersionStale {
         /// The run asked for.
