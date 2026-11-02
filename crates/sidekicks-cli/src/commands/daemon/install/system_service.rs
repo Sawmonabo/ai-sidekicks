@@ -13,30 +13,31 @@
 //! nor this account's system service runs holds the folder; otherwise it unloads the login agent,
 //! which ends its service, and installs the system service directly.
 
+mod data_folder_holder;
+
 use std::ffi::OsString;
 use std::fmt;
-use std::fs::{self, File, TryLockError};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::Context as _;
 use sidekicks_client::daemon_ending::{DaemonEnd, DaemonEndingVerb};
-use sidekicks_contracts::daemon::data::{
-    DAEMON_DATA_FOLDER_NAME, DAEMON_LOCK_FILE_NAME, DAEMON_PROCESS_ID_FILE_NAME,
-};
-use sidekicks_contracts::daemon::lifecycle::SYSTEM_SERVICE_MODE;
+use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
 use sidekicks_contracts::daemon::secrets_place::{
     PlaceRecord, SECRETS_MOVE_MODE, SecretsMoveDestination,
 };
 use sidekicks_platforms::{
     CtrlCListener, ServiceOwner, ServiceRegistration, ServiceRegistrationError, Spawner,
-    SystemServiceOwner, read_process_start,
+    SystemServiceOwner,
 };
 use tokio::runtime::Handle;
 
 use crate::command_context::CommandContext;
 use crate::commands::daemon::ending::end_running_daemon;
+use crate::commands::daemon::install::system_service::data_folder_holder::{
+    is_data_folder_held, is_system_service_holding,
+};
 use crate::commands::daemon::install::wait_for_installed_daemon;
 use crate::commands::daemon::registration::{
     LoginRegistration, RootStepFailure, read_home_refusal, read_owner, read_root_step_failure,
@@ -406,61 +407,6 @@ pub(crate) fn read_system_service_owner(
                 "could not read which account runs the background service while logged out",
             )
         })
-}
-
-/// Whether a service holds the data folder at `data_folder`: its lock file locked, read through a
-/// shared lock tried once on the file opened read only, which neither creates nor changes it. A
-/// folder with no lock file is not held. Fails, naming the file, when it cannot be opened or
-/// locked.
-fn is_data_folder_held(data_folder: &Path) -> anyhow::Result<bool> {
-    let path = data_folder.join(DAEMON_LOCK_FILE_NAME);
-    let unreadable = |failure: io::Error| {
-        anyhow::Error::new(failure).context(format!(
-            "could not read whether a background service holds {}",
-            path.display()
-        ))
-    };
-    let file = match File::open(&path) {
-        Ok(file) => file,
-        Err(failure) if failure.kind() == io::ErrorKind::NotFound => return Ok(false),
-        Err(failure) => return Err(unreadable(failure)),
-    };
-    // The probe's shared lock is freed as the file closes on return.
-    match file.try_lock_shared() {
-        Ok(()) => Ok(false),
-        Err(TryLockError::WouldBlock) => Ok(true),
-        Err(TryLockError::Error(failure)) => Err(unreadable(failure)),
-    }
-}
-
-/// Whether the holder of the data folder at `data_folder` is this account's system service: the
-/// process whose id its holder wrote beside the lock runs the daemon's system service mode. A
-/// missing or unreadable id is no system service's. Fails, naming the file or the process, when
-/// the id's file or the process cannot be read.
-fn is_system_service_holding(data_folder: &Path) -> anyhow::Result<bool> {
-    let path = data_folder.join(DAEMON_PROCESS_ID_FILE_NAME);
-    let process_id = match fs::read_to_string(&path) {
-        Ok(text) => text.trim().parse::<u32>().ok(),
-        Err(failure) if failure.kind() == io::ErrorKind::NotFound => None,
-        Err(failure) => {
-            return Err(anyhow::Error::new(failure).context(format!(
-                "could not read which process holds {}",
-                data_folder.display()
-            )));
-        }
-    };
-    let Some(process_id) = process_id else {
-        return Ok(false);
-    };
-    let start = read_process_start(process_id).with_context(|| {
-        format!("could not read the process {process_id} that holds the data folder")
-    })?;
-    Ok(start.is_some_and(|start| {
-        start
-            .arguments
-            .iter()
-            .any(|argument| argument == SYSTEM_SERVICE_MODE)
-    }))
 }
 
 /// Removes the command line's login agent list the system service replaced, already unloaded, for

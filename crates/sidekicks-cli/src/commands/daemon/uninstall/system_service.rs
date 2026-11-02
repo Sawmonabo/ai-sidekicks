@@ -408,7 +408,7 @@ fn read_keychain_refusal(failure: anyhow::Error) -> anyhow::Error {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::{Cell, RefCell};
+    use std::cell::RefCell;
     use std::ffi::OsString;
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -427,20 +427,20 @@ mod tests {
         SystemServiceOwner,
     };
 
-    use super::{LoggedOutServiceUninstall, uninstall_logged_out_service};
+    use super::{LoggedOutServiceUninstall, SystemServiceKeptCause, uninstall_logged_out_service};
     use crate::command_context::CommandContext;
     use crate::commands::daemon::install::system_service::LoggedOutServiceRegistration;
     use crate::commands::daemon::registration::LoginRegistration;
     use crate::exit_codes::CommandFailure;
 
     /// A run at the screen for an account whose home is `home`, whose login keychain refuses every
-    /// mode, which records each mode run, any removal of the system service and any stop of the
+    /// mode and whose administrator password prompt is canceled, which records each mode run and,
+    /// in order, each flush of the running service, removal of the system service and stop of the
     /// running service.
     struct LockedKeychainRegistration {
         home: PathBuf,
         modes_run: RefCell<Vec<Vec<OsString>>>,
-        is_removal_asked: Cell<bool>,
-        is_stop_asked: Cell<bool>,
+        steps: RefCell<Vec<&'static str>>,
     }
 
     impl LoginRegistration for LockedKeychainRegistration {
@@ -516,8 +516,8 @@ mod tests {
             &self,
             _spawner: &Spawner,
         ) -> Result<(), ServiceRegistrationError> {
-            self.is_removal_asked.set(true);
-            Ok(())
+            self.steps.borrow_mut().push("remove");
+            Err(ServiceRegistrationError::Canceled)
         }
 
         fn account_command(&self, _program: &Path) -> Result<Command, ServiceRegistrationError> {
@@ -548,10 +548,11 @@ mod tests {
 
         #[expect(
             clippy::unused_async_trait_impl,
-            reason = "the trait's flush waits on the service; the refused uninstall never calls it"
+            reason = "the trait's flush waits on the service; this one records the ask"
         )]
         async fn flush_running_service(&self, _ctrl_c: &mut CtrlCListener) -> anyhow::Result<()> {
-            unreachable!("the keychain refuses before the removal's flush")
+            self.steps.borrow_mut().push("flush");
+            Ok(())
         }
 
         #[expect(
@@ -559,7 +560,7 @@ mod tests {
             reason = "the trait's stop waits on the service; this one records the ask"
         )]
         async fn end_running_service(&self, _ctrl_c: &mut CtrlCListener) -> anyhow::Result<()> {
-            self.is_stop_asked.set(true);
+            self.steps.borrow_mut().push("stop");
             Ok(())
         }
     }
@@ -580,8 +581,7 @@ mod tests {
         let registration = LockedKeychainRegistration {
             home: home.path().to_path_buf(),
             modes_run: RefCell::new(Vec::new()),
-            is_removal_asked: Cell::new(false),
-            is_stop_asked: Cell::new(false),
+            steps: RefCell::new(Vec::new()),
         };
         let mut context = CommandContext {
             stdout: Vec::new(),
@@ -610,12 +610,8 @@ mod tests {
              Log in at this Mac, then run sidekicks daemon uninstall again."
         );
         assert!(
-            !registration.is_removal_asked.get(),
-            "the system service was removed"
-        );
-        assert!(
-            !registration.is_stop_asked.get(),
-            "the running service was stopped"
+            registration.steps.borrow().is_empty(),
+            "the running service was flushed or stopped, or the system service removed"
         );
         let check: Vec<OsString> = SECRETS_KEYCHAIN_CHECK_MODE
             .into_iter()
@@ -623,5 +619,44 @@ mod tests {
             .collect();
         assert_eq!(*registration.modes_run.borrow(), vec![check]);
         assert!(context.stdout.is_empty(), "the uninstall printed a line");
+    }
+
+    // Fails when the running service is not asked to write what it holds before the system
+    // service's removal, which ends it: the flush dropped or moved after the removal records the
+    // removal alone, since the canceled prompt ends the uninstall there.
+    #[test]
+    fn the_running_service_is_flushed_before_the_system_service_is_removed() {
+        let home = tempfile::tempdir().expect("a temporary home with no record");
+        let registration = LockedKeychainRegistration {
+            home: home.path().to_path_buf(),
+            modes_run: RefCell::new(Vec::new()),
+            steps: RefCell::new(Vec::new()),
+        };
+        let mut context = CommandContext {
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            is_stdout_styled: false,
+            is_stderr_styled: false,
+        };
+
+        let failure = uninstall_logged_out_service(
+            &registration,
+            ServiceOwner::CommandLine,
+            Path::new("/usr/local/bin/sidekicks-daemon"),
+            &mut context,
+        )
+        .expect_err("the canceled prompt keeps the system service");
+
+        assert!(matches!(
+            failure.downcast_ref::<CommandFailure>(),
+            Some(CommandFailure::SystemServiceKept(
+                SystemServiceKeptCause::PasswordNotGiven
+            ))
+        ));
+        assert_eq!(*registration.steps.borrow(), ["flush", "remove"]);
+        assert!(
+            registration.modes_run.borrow().is_empty(),
+            "a secrets mode ran with no secrets in the files"
+        );
     }
 }
