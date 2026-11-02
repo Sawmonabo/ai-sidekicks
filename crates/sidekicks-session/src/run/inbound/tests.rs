@@ -49,6 +49,8 @@ use crate::run::refusals::RunRefusal;
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use crate::transcript::reasoning::read_reasoning;
 
+mod after_run;
+
 /// A run-state stream no one reads.
 pub(crate) struct UnreadRunStates;
 
