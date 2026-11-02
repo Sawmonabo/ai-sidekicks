@@ -170,6 +170,7 @@ async fn fixture() -> Fixture {
     let RepoServices {
         folder_watch,
         workspaces,
+        snapshots,
         ..
     } = repo;
     let (writes, workspace_writes) = mpsc::channel(8);
@@ -222,6 +223,7 @@ async fn fixture() -> Fixture {
         execution_root_gate: Arc::new(PassingGate),
         binding_cursors: Arc::new(RunBindingCursors::new(
             Arc::clone(&reads),
+            Arc::new(|_: &SessionId| None),
             Arc::new(RuntimeBindingStore::new(reads, Arc::clone(&log.writer))),
             Arc::clone(&epochs),
         )),
@@ -245,6 +247,7 @@ async fn fixture() -> Fixture {
         data_folder: home.path().join("data"),
         working_folders: Arc::clone(&folder_watch),
         git,
+        snapshots,
         list_feed,
         plan_holds,
         payloads,

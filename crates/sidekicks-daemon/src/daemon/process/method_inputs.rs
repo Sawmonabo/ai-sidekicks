@@ -117,6 +117,7 @@ use crate::ipc::handlers::run::control::RunControlServices;
 use crate::ipc::handlers::run::queue::RunQueueMethods;
 use crate::ipc::handlers::session::controls::SessionControlMethods;
 use crate::ipc::handlers::session::search::SessionSearchMethods;
+use crate::ipc::handlers::session::snapshots::SessionSnapshotSources;
 use crate::observability::diagnostic_buckets::recorders::provider_messages_folder;
 
 /// What the method tables' services are built from: what the start opened, read and built before
@@ -319,6 +320,7 @@ pub(crate) async fn register_method_inputs(
     )));
     let binding_cursors = Arc::new(RunBindingCursors::new(
         Arc::clone(&reads),
+        Arc::clone(&read_damaged_from_sequence),
         Arc::clone(&providers.runtime_bindings),
         Arc::clone(&epochs),
     ));
@@ -450,6 +452,7 @@ pub(crate) async fn register_method_inputs(
         data_folder: data_folder.to_path_buf(),
         working_folders: Arc::clone(&repo.folder_watch),
         git: git.clone(),
+        snapshots: Arc::clone(&repo.snapshots),
         list_feed: Arc::clone(&list_feed),
         plan_holds,
         payloads: Arc::clone(&artifacts.payloads),
@@ -723,6 +726,10 @@ pub(crate) async fn register_method_inputs(
             shells,
             session_changes: Arc::clone(&session.changes),
             review_notes: Arc::clone(&repo.review_notes),
+            session_snapshots: SessionSnapshotSources {
+                reads: Arc::clone(&reads),
+                read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
+            },
             session_search: SessionSearchMethods {
                 index: search_index,
                 files: Arc::clone(&session.file_search),

@@ -51,6 +51,7 @@ use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
 use sidekicks_session::directory::list_feed::SessionListFeed;
+use sidekicks_session::run::turn_capture::TurnCapturing;
 use sidekicks_session::search::index::live::{LiveIndex, LiveIndexOptions};
 use sidekicks_shell::orphan::guard::{OrphanGuard, open_orphan_guard};
 use sidekicks_std::cleanup_failures::CleanupFailures;
@@ -193,6 +194,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) session: Option<SessionServices>,
     /// The session services' follows of the log, ended by the stop with the chats' write watch.
     pub(crate) session_attachments: Option<SessionAttachments>,
+    /// The turn-end capture's follow, ended by the stop once the drivers can end no more turns.
+    pub(crate) turn_capturing: Option<TurnCapturing>,
     /// The attention service's decision task, which ends with the work's stop and is waited out.
     pub(crate) attention: Option<JoinHandle<()>>,
     /// The web address's sender, which ends with the work's stop and is waited out.
@@ -263,6 +266,7 @@ impl DaemonProcess {
             repo_attachments: None,
             session: None,
             session_attachments: None,
+            turn_capturing: None,
             attention: None,
             web_address_sender: None,
             clones: None,
@@ -659,6 +663,8 @@ impl DaemonProcess {
             .expect("the session services are built before their follows begin");
         // Attached before the recovery pass, whose resumes end runs on the bindings they open.
         let binding_cursors = follow_binding_cursors(session, &followers);
+        // Before the recovery pass too, so a turn its resumes end is captured.
+        self.turn_capturing = Some(session.turn_capture.start(&followers));
         // Settles what the last stop left before any other follow of the log or any folder watch
         // starts.
         recovery.run(&self.work_stop).await;

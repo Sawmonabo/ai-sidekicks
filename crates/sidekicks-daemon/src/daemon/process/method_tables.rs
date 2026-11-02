@@ -89,6 +89,9 @@ use crate::ipc::handlers::session::recovery::register_session_recovery_methods;
 use crate::ipc::handlers::session::restart::register_session_restart;
 use crate::ipc::handlers::session::review_note::register_session_review_notes;
 use crate::ipc::handlers::session::search::{SessionSearchMethods, register_session_search};
+use crate::ipc::handlers::session::snapshots::{
+    SessionSnapshotSources, register_session_snapshots,
+};
 use crate::ipc::handlers::session::tags::register_session_tags;
 use crate::ipc::handlers::session::working_folder::register_session_working_folder;
 use crate::ipc::handlers::terminal::{register_terminal_methods, register_terminal_write};
@@ -162,6 +165,8 @@ pub(crate) struct MethodTableServices {
     pub(crate) session_changes: Arc<SessionChanges>,
     /// Each session's review notes.
     pub(crate) review_notes: Arc<SessionReviewNoteStore>,
+    /// The snapshot list's sources.
+    pub(crate) session_snapshots: SessionSnapshotSources,
     /// The session and file search methods' inputs.
     pub(crate) session_search: SessionSearchMethods,
     /// The session controls' inputs: the level, the mode, side questions, reviews and the
@@ -245,6 +250,7 @@ pub(crate) fn register_method_tables(
     register_session_draft_update(builder, services.drafts)?;
     register_session_changes(builder, services.session_changes)?;
     register_session_review_notes(builder, services.review_notes)?;
+    register_session_snapshots(builder, services.session_snapshots)?;
     register_session_search(builder, services.session_search)?;
     register_context_subscribe(builder, services.context_readings)?;
     register_session_restart(

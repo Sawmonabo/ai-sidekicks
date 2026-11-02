@@ -33,23 +33,11 @@ use sidekicks_store::events::session::read::{
 
 /// The statements the snapshot list keeps prepared on each read connection: the session's shape,
 /// its checkpoints and the prompts at their sequences.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the start registers the snapshot list")
-)]
 pub(crate) const SESSION_SNAPSHOTS_STATEMENT_CAPACITY: usize = 3;
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the start registers the snapshot list")
-)]
 const SESSION_SHAPE_SQL: &str = "SELECT shape FROM sessions WHERE id = @sessionId";
 
 /// What `session.snapshot.list` reads through.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the start registers the snapshot list")
-)]
 pub(crate) struct SessionSnapshotSources {
     /// The read pool the one read runs on.
     pub(crate) reads: Arc<DatabaseReadPool>,
@@ -58,10 +46,6 @@ pub(crate) struct SessionSnapshotSources {
 }
 
 // Why the list did not answer: a session the daemon does not hold, or a fault in the daemon.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the start registers the snapshot list")
-)]
 #[derive(Debug, thiserror::Error)]
 enum SnapshotListError {
     // The session is not one the daemon holds.
@@ -102,10 +86,6 @@ impl From<SnapshotListError> for HandlerError {
 
 /// Registers `session.snapshot.list` over `sources`, refusing a session the daemon does not hold
 /// `session.notFound`. Fails the start when the method is already registered.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the start registers the snapshot list")
-)]
 pub(crate) fn register_session_snapshots(
     registry: &mut MethodRegistryBuilder,
     sources: SessionSnapshotSources,
@@ -122,10 +102,6 @@ pub(crate) fn register_session_snapshots(
 // The session's snapshots in one read: none for a chat, else one per checkpoint whose prompt the
 // log reads, oldest prompt first. A prompt the log does not read, one at or past a damaged
 // session's read bound or in a range it skipped, leaves its checkpoint out.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the start registers the snapshot list")
-)]
 async fn list_snapshots(
     sources: &SessionSnapshotSources,
     session_id: SessionId,
@@ -140,10 +116,6 @@ async fn list_snapshots(
 }
 
 // The read `list_snapshots` runs, on one snapshot of the store.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the start registers the snapshot list")
-)]
 fn read_snapshots(
     reader: &Connection,
     read_damaged_from_sequence: &DamagedFromSequenceReader,
@@ -317,8 +289,6 @@ mod tests {
                     epoch: SourceEpoch(SafeInt::ZERO),
                     position: SourcePosition(message_sequence),
                 },
-                head: None,
-                tree: None,
             };
             self.writer
                 .write(vec![insert_checkpoint_statement(&checkpoint)])
