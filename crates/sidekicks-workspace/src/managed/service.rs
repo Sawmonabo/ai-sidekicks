@@ -1,14 +1,15 @@
 //! A chat's managed workspace: the git-initialized folder `<home>/.ai-sidekicks/workspaces/<session
 //! id>` the daemon makes at the chat's create and registers as the chat's managed mount, held by
 //! that chat and every chat a plan hands off to in it, kept while they are archived, and deleted
-//! whole when its last holder is purged or when its create stopped before the chat was born. It holds the one watch over every chat's workspace, which walks at its
-//! start for every write since the instant its owner hands it, and starts it again whenever a
-//! create finds the folder holding them gone, since the watch ends with it, or the watch ended;
-//! the watch started again walks for every write made since the earlier one last told them all,
-//! or for every entry in a folder made again. A clean stop lets the watch send the batch under
-//! way, and [`ManagedWorkspaceService::whole_since`] then names the instant the next start walks
-//! from. Each change the watch names recounts the files in that chat's folder onto its managed
-//! mount's row, which the sessions list reads as the document count of every chat holding it.
+//! whole when its last holder is purged or when its create stopped before the chat was born. It
+//! holds the one watch over every chat's workspace, which walks at its start for every write since
+//! the instant its owner hands it, and starts it again whenever a create finds the folder holding
+//! them gone, since the watch ends with it, or the watch ended; the watch started again walks for
+//! every write made since the earlier one last told them all, or for every entry in a folder made
+//! again. A clean stop lets the watch send the batch under way, and
+//! [`ManagedWorkspaceService::whole_since`] then names the instant the next start walks from. Each
+//! change the watch names recounts the files in that chat's folder onto its managed mount's row,
+//! which the sessions list reads as the document count of every chat holding it.
 
 use std::error::Error;
 use std::ffi::OsStr;
@@ -160,7 +161,8 @@ impl ManagedWorkspaceService {
     /// every write since `missed_since` (the instant [`Self::whole_since`] named at the last clean
     /// stop, or the one the reader of `reports` kept once it had recorded every write a walk sent
     /// ahead of it), and the task that recounts a chat folder's files on each change and names
-    /// every chat holding the folder to `list_feed` when its count moved. Dropping the service ends both.
+    /// every chat holding the folder to `list_feed` when its count moved. Dropping the service ends
+    /// both.
     pub fn new(
         home_folder: &Path,
         place: Option<Place>,

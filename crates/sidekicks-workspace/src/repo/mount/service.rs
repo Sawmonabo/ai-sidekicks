@@ -172,8 +172,11 @@ static SELECT_ACTIVE_MOUNT_OF_REPOSITORY_SQL: LazyLock<String> = LazyLock::new(|
     )
 });
 
-const SELECT_MANAGED_ROOT_SQL: &str =
-    "SELECT canonical_root FROM repo_mounts WHERE managed_session_id = @session_id";
+// The root of the managed folder a chat holds: the one made for it, or the one a plan handed it.
+const SELECT_MANAGED_ROOT_SQL: &str = "SELECT mount.canonical_root
+     FROM managed_folder_holds AS hold
+     JOIN repo_mounts AS mount ON mount.id = hold.repo_mount_id
+    WHERE hold.session_id = @session_id";
 
 /// Why a mount call failed: a refusal the wire carries, or a failure of the store or of the
 /// events a committed detach owed.
@@ -487,8 +490,8 @@ impl RepoMountService {
         })
     }
 
-    /// The folder of the chat's managed workspace, or `None` when the session has none. Fails as
-    /// the read fails.
+    /// The folder of the managed workspace the chat holds, made for it or handed to it by a plan,
+    /// or `None` when the session holds none. Fails as the read fails.
     pub async fn read_managed_root(
         &self,
         session_id: SessionId,
@@ -547,8 +550,9 @@ impl RepoMountService {
         Ok(repo_mount_id)
     }
 
-    /// Deletes a chat's managed mount row and every row on it, its holds included, in one write. A session with no
-    /// managed mount writes nothing, so a repeat is safe. Fails with the write's failure.
+    /// Deletes a chat's managed mount row and every row on it, its holds included, in one write. A
+    /// session with no managed mount writes nothing, so a repeat is safe. Fails with the write's
+    /// failure.
     pub(crate) async fn delete_managed(
         &self,
         session_id: SessionId,

@@ -346,8 +346,8 @@ fn read_standing_worktrees(
 }
 
 // A managed mount names its earliest live holder; any other names the project it serves. A managed
-// mount is written with its founding chat's hold and deleted with its last, and the rows' checks tie
-// a project's mount, while it can be read, to its project.
+// mount is written with its founding chat's hold and deleted with its last, and the rows' checks
+// tie a project's mount, while it can be read, to its project.
 fn origin_of(mount: &MountOriginRow) -> RepoMountOrigin {
     match mount.origin {
         MountOrigin::Managed => RepoMountOrigin::Managed {

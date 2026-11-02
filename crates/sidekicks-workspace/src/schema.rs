@@ -1,5 +1,6 @@
 //! The projects, clone start keys, repository mounts, chat folder holds and workspaces tables,
-//! which the daemon's schema runs with the rest. Every closed set a column holds is written from its enum.
+//! which the daemon's schema runs with the rest. Every closed set a column holds is written from
+//! its enum.
 
 use std::sync::LazyLock;
 
