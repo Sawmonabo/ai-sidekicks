@@ -88,6 +88,14 @@ impl Fixture {
                 params![MANAGED_MOUNT_ID, SESSION_ID],
             )
             .expect("the chat's hold on its managed folder is stored");
+        roots
+            .rows
+            .execute(
+                "INSERT INTO session_create_requests (client_idempotency_key, session_id, \
+                 execution_mode, provider_account_id) VALUES (?1, ?1, 'boundRoot', 'account-a')",
+                params![SESSION_ID],
+            )
+            .expect("the chat's create is recorded");
 
         let git = test_git_runner();
         let mounts = Arc::new(RepoMountService::new(
@@ -482,4 +490,33 @@ async fn every_skipped_file_is_read_back_once_in_path_key_order_over_pages_cut_a
 
     assert_eq!(files, expected);
     assert!(pages >= 3, "the byte budget cut the pages, {pages} read");
+}
+
+// A converted chat's create record names its new project, so a read of the session's project that
+// falls back to the record still finds it. Killed by the record's write dropped (it stays empty).
+#[tokio::test]
+async fn a_converted_chat_s_create_record_names_its_project() {
+    let fixture = Fixture::new().await;
+    write(&fixture.workspace.join("a.txt"), "chat a");
+
+    fixture
+        .convert(&fixture.roots.repository, FIRST_KEY)
+        .await
+        .expect("the chat converts");
+
+    let (recorded, attached): (Option<String>, Option<String>) = fixture
+        .roots
+        .rows
+        .query_row(
+            "SELECT request.project_id, mount.project_id \
+             FROM session_create_requests AS request, session_events AS event \
+             JOIN repo_mounts AS mount ON mount.id = json_extract(event.payload, '$.repoMountId') \
+             WHERE request.session_id = ?1 AND event.session_id = ?1 \
+               AND event.type = 'session.converted'",
+            params![SESSION_ID],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("the conversion and its record read");
+    assert!(attached.is_some());
+    assert_eq!(recorded, attached);
 }

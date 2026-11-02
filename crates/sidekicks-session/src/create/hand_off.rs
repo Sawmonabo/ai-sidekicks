@@ -476,7 +476,7 @@ fn read_hand_off_birth(
     let project_id = match (planning_folder.shape, live_project.or(recorded_project)) {
         (SessionShape::Chat, _) => None,
         (SessionShape::Project, Some(project_id)) => Some(project_id),
-        // A chat converted into a project keeps no project on its create record.
+        // Neither the session's folder nor its create record names a project.
         (SessionShape::Project, None) => {
             return Err(DomainError::new(
                 "The planning session's project is no longer here.",
