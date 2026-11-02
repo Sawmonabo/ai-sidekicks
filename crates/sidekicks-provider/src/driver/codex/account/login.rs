@@ -1,5 +1,5 @@
-//! The params of Codex's `account/login/start`, written by hand so a credential it carries stays a
-//! secret until the request is encoded.
+//! Codex's sign-in and sign-out requests: the params of `account/login/start`, written by hand so
+//! a credential it carries stays a secret until the request is encoded, and `account/logout`.
 
 use secrecy::SecretString;
 use serde::Serialize;
@@ -8,6 +8,9 @@ use crate::driver::codex::account::auth_file::serialize_secret;
 
 /// Codex's request that signs a service in.
 pub(crate) const CODEX_LOGIN_START_METHOD: &str = "account/login/start";
+
+/// Codex's request that signs a service out; it takes no params.
+pub(crate) const CODEX_ACCOUNT_LOGOUT_METHOD: &str = "account/logout";
 
 /// One `account/login/start` request, its arm named by `type`.
 #[derive(Debug, Serialize)]

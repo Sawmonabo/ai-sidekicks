@@ -22,7 +22,7 @@ use crate::driver::codex::account::switch::{share_failure, wait_for_move};
 use crate::driver::codex::auth_status::read_codex_auth_status;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::switching::{
-    CodexSwitchingAccount, attached_by_session, carry, queue_reported_move,
+    CarriedSignIn, CodexSwitchingAccount, attached_by_session, carry, queue_reported_move,
 };
 use crate::driver::codex::session::inbound::{CodexAccountMove, CodexSessionInbound};
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
@@ -212,9 +212,12 @@ impl CodexSwitchingAccount {
         };
         // A service gone left no session to move; the window dropped settles each as unobserved.
         let service = window.service.upgrade()?;
-        let access_token = tokens.access_token.clone();
+        let sign_in = CarriedSignIn::Tokens {
+            access_token: tokens.access_token.clone(),
+            dead_token: None,
+        };
         service.restart_rate_limits(|| {
-            carry(&self.carried, previous.clone(), access_token);
+            carry(&self.carried, previous.clone(), sign_in);
         });
         let landings = move_back(&service, &previous, window.sessions);
         service

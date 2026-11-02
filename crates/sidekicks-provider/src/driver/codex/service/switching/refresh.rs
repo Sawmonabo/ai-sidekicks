@@ -2,7 +2,8 @@
 //! service carries when the request arrives; the renewer judges it in the account's own home, and
 //! under the hand the answer is the renewed tokens, or the tokens a switch that landed meanwhile
 //! carries, never undoing it. A refresh that finds none carried, as while a rejoin hands them, is
-//! answered with the tokens that hand gave. A token the renewal left dead hands the previous
+//! answered with the tokens that hand gave. An account carried on its API key has no token to
+//! renew, so a refresh for it is refused at once. A token the renewal left dead hands the previous
 //! account back where a switch just moved onto it; otherwise it is refused, at once on every later
 //! refresh, since Codex retries a refused one with fresh requests. The whole answer is bounded
 //! inside Codex's own wait; past the bound it is refused and nothing is remembered.
@@ -19,7 +20,9 @@ use sidekicks_std::mutex_lock::lock;
 use crate::driver::codex::account::auth_file::{CodexAuthTokens, is_same_token};
 use crate::driver::codex::account::token_refresh::CodexRenewal;
 use crate::driver::codex::server_requests::CodexTokenRefresher;
-use crate::driver::codex::service::switching::CodexSwitchingAccount;
+use crate::driver::codex::service::switching::{
+    CarriedAccount, CarriedSignIn, CodexSwitchingAccount,
+};
 
 /// How long a refresh's answer may take: Codex waits about 10 s for it.
 const CODEX_TOKEN_REFRESH_BOUND: Duration = Duration::from_secs(8);
@@ -45,6 +48,8 @@ impl CodexSwitchingAccount {
         let Some((provider_account_id, refused)) = self.carried_token() else {
             return self.answer_after_hand().await;
         };
+        // A key carried has no token to renew; its home's tokens are never handed over it.
+        let refused = refused?;
         if self.is_dead(&provider_account_id, &refused) {
             return None;
         }
@@ -67,9 +72,7 @@ impl CodexSwitchingAccount {
         }
         match renewal {
             Ok(CodexRenewal::Renewed(tokens)) => {
-                if let Some(carried) = lock(&self.carried).as_mut() {
-                    carried.access_token = tokens.access_token.clone();
-                }
+                self.renew_carried_token(&provider_account_id, tokens.access_token.clone());
                 Some(tokens)
             }
             Ok(CodexRenewal::Dead) => {
@@ -77,8 +80,12 @@ impl CodexSwitchingAccount {
                 if let Some(previous_tokens) = self.hand_back(&provider_account_id).await {
                     return Some(previous_tokens);
                 }
-                if let Some(carried) = lock(&self.carried).as_mut() {
-                    carried.dead_token = Some(refused);
+                if let Some(CarriedAccount {
+                    sign_in: CarriedSignIn::Tokens { dead_token, .. },
+                    ..
+                }) = lock(&self.carried).as_mut()
+                {
+                    *dead_token = Some(refused);
                 }
                 tracing::warn!("a Codex token refresh was refused: its sign-in renews no more");
                 None
@@ -92,10 +99,12 @@ impl CodexSwitchingAccount {
 
     // A refresh that found no account carried, as while a rejoin's hand is in progress: the
     // tokens that hand gave are the answer, read again from the carried account's home once the
-    // hand is done; still none carried is the refusal.
+    // hand is done; still none carried, or a key carried, is the refusal.
     async fn answer_after_hand(&self) -> Option<CodexAuthTokens> {
         let _hand = self.hands.lock().await;
-        let carried = self.carried_account()?;
+        let (carried, Some(_handed)) = self.carried_token()? else {
+            return None;
+        };
         match self.read_tokens(&carried).await {
             Ok(tokens) => Some(tokens),
             Err(error) => {
@@ -105,24 +114,20 @@ impl CodexSwitchingAccount {
         }
     }
 
-    // The account carried and its access token, the one Codex refused.
-    fn carried_token(&self) -> Option<(ProviderAccountId, SecretString)> {
-        lock(&self.carried).as_ref().map(|carried| {
-            (
-                carried.provider_account_id.clone(),
-                carried.access_token.clone(),
-            )
-        })
-    }
-
     // Whether `refused` is the token `provider_account_id`'s home could not renew.
     fn is_dead(&self, provider_account_id: &ProviderAccountId, refused: &SecretString) -> bool {
         lock(&self.carried).as_ref().is_some_and(|carried| {
             carried.provider_account_id == *provider_account_id
-                && carried
-                    .dead_token
-                    .as_ref()
-                    .is_some_and(|dead| is_same_token(dead, refused))
+                && match &carried.sign_in {
+                    CarriedSignIn::Tokens {
+                        dead_token: Some(dead),
+                        ..
+                    } => is_same_token(dead, refused),
+                    CarriedSignIn::Tokens {
+                        dead_token: None, ..
+                    }
+                    | CarriedSignIn::ApiKey => false,
+                }
         })
     }
 }
