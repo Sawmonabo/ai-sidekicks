@@ -24,8 +24,8 @@ use crate::refusals::ArtifactError;
 
 // The session's plans, oldest first, each with the word its record holds, or accepted where this
 // session is the one the plan was handed off to. A seed plan whose plan row is gone takes its title
-// from this session's hand-off row and lists accepted; a plan manifest with neither row is left out,
-// since an entry's title is required.
+// from this session's hand-off row and lists accepted; a plan manifest with neither row is left
+// out, since an entry's title is required.
 static PLAN_ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "SELECT {MANIFEST_COLUMNS}, manifests.plan_id, COALESCE(plans.title, hand_off.title),

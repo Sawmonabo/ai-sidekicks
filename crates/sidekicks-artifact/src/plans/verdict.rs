@@ -1,8 +1,9 @@
 //! A plan's verdict: the person keeps planning, builds the plan in its own session or hands it to a
-//! fresh one. A verdict settles a plan only while it waits, in one write that takes the caller's own
-//! statements after the settle and the verdict's event last; a plan no longer waiting is read back,
-//! so the caller answers its stored state. Each plan has a lock, held by every step that reads the
-//! plan's state and acts on it before the verdict settles, so two verdicts never both act.
+//! fresh one. A verdict settles a plan only while it waits, in one write that takes the caller's
+//! own statements after the settle and the verdict's event last; a plan no longer waiting is read
+//! back, so the caller answers its stored state. Each plan has a lock, held by every step that
+//! reads the plan's state and acts on it before the verdict settles, so two verdicts never both
+//! act.
 //!
 //! A hand-off also writes the plan's text again into the fresh session, under the same stored
 //! bytes and naming the same plan, at most once per fresh session; that copy lists there as
